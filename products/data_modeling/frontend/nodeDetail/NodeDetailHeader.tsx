@@ -15,6 +15,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { NODE_TYPE_TAG_SETTINGS } from '../lineage/nodeStyles'
 import { NodeDetailActions } from './NodeDetailActions'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+import { nodeTypeForDisplay } from './nodeTypeForDisplay'
 
 export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
     const {
@@ -33,14 +34,7 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
         })
     )
     const savedQuery = currentSavedQuery ?? initialSavedQuery
-    const nodeType =
-        node?.type === 'view' || node?.type === 'matview'
-            ? savedQuery
-                ? savedQuery.is_materialized
-                    ? 'matview'
-                    : 'view'
-                : node.type
-            : node?.type
+    const nodeType = nodeTypeForDisplay(node, savedQuery)
     const typeTag = nodeType ? NODE_TYPE_TAG_SETTINGS[nodeType] : null
     const canEdit =
         node?.type !== 'metric' &&
