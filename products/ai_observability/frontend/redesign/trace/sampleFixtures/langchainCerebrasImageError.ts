@@ -121,8 +121,6 @@ export const langchainCerebrasImageError: SampleTraceFixture = {
     header: {
         name: 'scan_package',
         hasError: true,
-        olderHref: '/older',
-        newerHref: '/newer',
         backLink: { label: 'Back to traces', href: '/traces' },
     },
     summary: {

@@ -7,6 +7,7 @@ from rest_framework import status
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -174,6 +175,75 @@ class TestTicketMacroAPI(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not TicketMacro.objects.for_team(self.team.id).filter(pk=created["id"]).exists()
         assert ActivityLog.objects.filter(scope="TicketMacro", item_id=created["id"], activity="deleted").exists()
+
+    def test_personal_macro_is_hidden_from_everyone_but_its_creator(self):
+        personal = self._create(name="Mine", shortcut="mine", visibility="personal")
+        shared = self._create(name="Team", shortcut="team")
+        assert personal["visibility"] == "personal"
+        assert shared["visibility"] == "shared"
+        assert not ActivityLog.objects.filter(scope="TicketMacro", item_id=personal["id"]).exists()
+
+        self.client.force_login(User.objects.create_and_join(self.organization, "teammate@example.com", None))
+        listed = self.client.get(self.base_url).json()["results"]
+        assert [row["name"] for row in listed] == ["Team"]
+        url = f"{self.base_url}{personal['id']}/"
+        assert self.client.get(url).status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.patch(url, {"name": "Taken"}, format="json").status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.post(f"{url}used/").status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand(
+        [
+            ("teammate_reuses_my_personal_shortcut", "personal", "teammate", "personal", status.HTTP_201_CREATED),
+            ("teammate_shares_my_personal_shortcut", "personal", "teammate", "shared", status.HTTP_201_CREATED),
+            ("teammate_shadows_a_shared_shortcut", "shared", "teammate", "personal", status.HTTP_201_CREATED),
+            ("teammate_reuses_a_shared_shortcut", "shared", "teammate", "shared", status.HTTP_400_BAD_REQUEST),
+            ("i_share_my_personal_shortcut", "personal", "me", "shared", status.HTTP_201_CREATED),
+            ("i_reuse_my_personal_shortcut", "personal", "me", "personal", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_shortcut_clashes(self, _name, existing_visibility, author, new_visibility, expected_status):
+        self._create(name="Existing", shortcut="hi", visibility=existing_visibility)
+        if author == "teammate":
+            self.client.force_login(User.objects.create_and_join(self.organization, "teammate@example.com", None))
+        response = self.client.post(
+            self.base_url,
+            {"name": "New", "body": "Hello", "shortcut": "hi", "visibility": new_visibility},
+            format="json",
+        )
+        assert response.status_code == expected_status, response.json()
+
+    def test_hidden_personal_shortcut_never_blocks_an_edit(self):
+        personal = self._create(name="Mine", shortcut="hi", visibility="personal")
+        shared = self._create(name="Shared", shortcut="other")
+
+        self.client.force_login(User.objects.create_and_join(self.organization, "teammate@example.com", None))
+        response = self.client.patch(f"{self.base_url}{shared['id']}/", {"shortcut": "hi"}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        self.client.force_login(self.user)
+        response = self.client.patch(f"{self.base_url}{personal['id']}/", {"body": "Hey"}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_only_the_creator_can_make_a_macro_personal(self):
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        theirs = TicketMacro.objects.for_team(self.team.id).create(
+            team=self.team, name="Theirs", body="Hi", created_by=teammate
+        )
+        response = self.client.patch(f"{self.base_url}{theirs.id}/", {"visibility": "personal"}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        theirs.refresh_from_db()
+        assert theirs.visibility == "shared"
+
+        mine = self._create()
+        response = self.client.patch(
+            f"{self.base_url}{mine['id']}/", {"visibility": "personal", "name": "Private"}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["visibility"] == "personal"
+        log = ActivityLog.objects.filter(scope="TicketMacro", item_id=mine["id"], activity="updated").get()
+        assert log.detail is not None
+        assert log.detail["name"] == "Cancellation"
+        assert [change["field"] for change in log.detail["changes"]] == ["visibility"]
 
     def test_editor_grant_on_one_ticket_cannot_edit_macros(self):
         created = self._create()

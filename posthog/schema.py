@@ -297,6 +297,7 @@ from posthog.schema_enums import (
     SessionTableVersion as SessionTableVersion,
     Shelf as Shelf,
     SlackIntegrationScope as SlackIntegrationScope,
+    SlackIntegrationScopeInReview as SlackIntegrationScopeInReview,
     SlashCommandName as SlashCommandName,
     SliceContent as SliceContent,
     SnapchatAdsConversionFields as SnapchatAdsConversionFields,
@@ -1779,59 +1780,15 @@ class ExperimentRunningTimeCalculation(BaseModel):
     )
 
 
-class ExperimentWarehouseNativeExposureConfig(BaseModel):
+class ExperimentWarehouseNativeUnitBinding(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    connection_id: str = Field(
+    id_namespace: str = Field(..., description="Which ids represent that unit, such as `billing_customer_id`.")
+    unit_type: str = Field(
         ...,
-        description=("The direct-query source (an ExternalDataSource id) the SQL is written for."),
+        description=("What was randomized, as a stable project-scoped label such as `customer` or `account`."),
     )
-    kind: Literal["ExperimentWarehouseNativeExposureConfig"] = "ExperimentWarehouseNativeExposureConfig"
-    query: str = Field(
-        ...,
-        description=(
-            "Read-only SQL in the warehouse's dialect, returning one row per exposure"
-            " with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the"
-            " first exposure per entity and applies the experiment's date range and"
-            " multiple-variant handling."
-        ),
-    )
-    response: dict[str, Any] | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class ExperimentWarehouseNativeNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    connection_id: str = Field(
-        ...,
-        description=("The direct-query source (an ExternalDataSource id) the SQL is written for."),
-    )
-    custom_name: str | None = None
-    kind: Literal["ExperimentWarehouseNativeNode"] = "ExperimentWarehouseNativeNode"
-    math: ExperimentWarehouseNativeMathType | None = Field(
-        default=None,
-        description=("How to aggregate the rows per entity. Defaults to `total` (row count)."),
-    )
-    math_property: str | None = Field(
-        default=None,
-        description=(
-            "The numeric column `math` reads. Required when `math` is `sum`. One SQL"
-            " relation can serve several metrics, each reading a different column."
-        ),
-    )
-    query: str = Field(
-        ...,
-        description=(
-            "Read-only SQL in the warehouse's dialect, returning one row per outcome"
-            " with `entity_id` and `timestamp` columns plus any numeric columns a"
-            " metric can measure."
-        ),
-    )
-    response: dict[str, Any] | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class FailureMessage(BaseModel):
@@ -2222,6 +2179,31 @@ class MarketingAnalyticsDrillDownConfig(BaseModel):
     columnAlias: str
     excludedBaseColumns: list[MarketingAnalyticsBaseColumns]
     excludesConversionGoals: bool | None = None
+
+
+class MarketingAnalyticsRecommendationStep(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    copyValue: str | None = Field(
+        default=None,
+        description=(
+            "Text to paste into Google Ads at this step, such as a campaign name or"
+            " keywords in match type syntax, one per line."
+        ),
+    )
+    linkText: str | None = Field(
+        default=None,
+        description="The words in `text` that link to `url`, usually the section name.",
+    )
+    text: str
+    url: str | None = Field(
+        default=None,
+        description=(
+            "Google Ads page for this step. It opens the section for the whole account,"
+            " because links cannot filter to one campaign."
+        ),
+    )
 
 
 class MarketingAnalyticsSearchConversion(BaseModel):
@@ -6066,6 +6048,63 @@ class ExperimentVariantResultFrequentist(BaseModel):
     validation_failures: list[ExperimentStatsValidationFailure] | None = None
 
 
+class ExperimentWarehouseNativeExposureConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    connection_id: str = Field(
+        ...,
+        description=("The direct-query source (an ExternalDataSource id) the SQL is written for."),
+    )
+    kind: Literal["ExperimentWarehouseNativeExposureConfig"] = "ExperimentWarehouseNativeExposureConfig"
+    query: str = Field(
+        ...,
+        description=(
+            "Read-only SQL in the warehouse's dialect, returning one row per exposure"
+            " with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the"
+            " first exposure per entity and applies the experiment's date range and"
+            " multiple-variant handling."
+        ),
+    )
+    response: dict[str, Any] | None = None
+    unit: ExperimentWarehouseNativeUnitBinding
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentWarehouseNativeNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    connection_id: str = Field(
+        ...,
+        description=("The direct-query source (an ExternalDataSource id) the SQL is written for."),
+    )
+    custom_name: str | None = None
+    kind: Literal["ExperimentWarehouseNativeNode"] = "ExperimentWarehouseNativeNode"
+    math: ExperimentWarehouseNativeMathType | None = Field(
+        default=None,
+        description=("How to aggregate the rows per entity. Defaults to `total` (row count)."),
+    )
+    math_property: str | None = Field(
+        default=None,
+        description=(
+            "The numeric column `math` reads. Required when `math` is `sum`. One SQL"
+            " relation can serve several metrics, each reading a different column."
+        ),
+    )
+    query: str = Field(
+        ...,
+        description=(
+            "Read-only SQL in the warehouse's dialect, returning one row per outcome"
+            " with `entity_id` and `timestamp` columns plus any numeric columns a"
+            " metric can measure."
+        ),
+    )
+    response: dict[str, Any] | None = None
+    unit: ExperimentWarehouseNativeUnitBinding
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class ExternalQueryError(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6904,6 +6943,10 @@ class MarketingAnalyticsRecommendation(BaseModel):
     level: MarketingAnalyticsRecommendationLevel
     reason: str
     rule: MarketingAnalyticsRecommendationRule
+    steps: list[MarketingAnalyticsRecommendationStep] | None = Field(
+        default=None,
+        description=("How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet."),
+    )
     subject: str = Field(
         ...,
         description="The campaign name or the search term the recommendation is about.",

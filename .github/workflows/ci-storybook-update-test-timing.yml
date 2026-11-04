@@ -53,6 +53,10 @@ jobs:
               with:
                   ref: ${{ github.ref_name }}
                   token: ${{ steps.app-token.outputs.token }}
+                  sparse-checkout: |
+                      common/storybook/update-storybook-timings.sh
+                      common/storybook/storybook-timings.json
+                  sparse-checkout-cone-mode: false
 
             - name: Find Storybook CI run to use
               id: find-run

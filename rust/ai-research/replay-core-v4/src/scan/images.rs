@@ -14,7 +14,7 @@ use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
 use base64::engine::DecodePaddingMode;
 use base64::Engine;
 
-use posthog_replay_anonymizer::v4_image_refs::{image_ref, ImageDecline};
+use crate::v4_image_refs::{image_ref, ImageDecline};
 
 use crate::bytescan as scan;
 use crate::refs::reference_hash;
@@ -470,6 +470,17 @@ pub fn extract_images<'b>(bytes: &'b [u8], sink: &mut ImageSink<'_>) -> Cow<'b, 
         }
         None => Cow::Borrowed(bytes),
     }
+}
+
+/// Whether the scan keeps the image of this data URI, as a reference or inline as an SVG, by the rules for one image.
+/// A message past its caps can still decline it.
+pub fn keeps_inline_image(data_uri: &str) -> bool {
+    let mut json = Vec::with_capacity(data_uri.len() + 2);
+    scan::write_json_string(data_uri, &mut json);
+    let mut sink = ImageSink::new(&[0; 32], 0, "", ImageLimits::default());
+    extract_images(&json, &mut sink);
+    sink.declined == [0; ImageDecline::ALL.len()]
+        && (!sink.images.is_empty() || sink.left_inline > 0)
 }
 
 #[cfg(test)]
