@@ -19,6 +19,7 @@ export function LoginPasswordField(): JSX.Element {
         hasNoConfiguredLoginMethod,
         autoRedirectingToProvider,
         setPasswordLinkSentTo,
+        preflight,
     } = useValues(loginLogic)
     const { setLoginValue } = useActions(loginLogic)
 
@@ -69,10 +70,17 @@ export function LoginPasswordField(): JSX.Element {
                         <strong className="break-all">{login.email}</strong>
                         <span>. Open it to set your password, then log in.</span>
                     </AuthBanner>
-                ) : (
+                ) : preflight?.email_service_available ? (
                     <AuthBanner variant="warning">
                         This account doesn't have a password yet. Log in with one of the options below, or get an email
                         to set a password.
+                    </AuthBanner>
+                ) : (
+                    <AuthBanner variant="warning">
+                        <span>This account doesn't have a password yet, and this instance can't send email. </span>
+                        <Link to={[urls.passwordReset(), { email: login.email }]} data-attr="login-no-method-no-email">
+                            See how to get access
+                        </Link>
                     </AuthBanner>
                 ))}
             {autoRedirectingToProvider && (

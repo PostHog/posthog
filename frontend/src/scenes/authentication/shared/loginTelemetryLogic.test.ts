@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { authLogic } from 'scenes/authentication/auth/authLogic'
 import { loginLogic } from 'scenes/authentication/auth/loginLogic'
 import { login2FALogic } from 'scenes/authentication/login-2fa/login2FALogic'
 import { passwordResetLogic } from 'scenes/authentication/password-reset/passwordResetLogic'
@@ -33,7 +34,7 @@ const LISTENED_ACTION_SOURCES: Record<keyof typeof LISTENED_ACTIONS, () => strin
     codeVerificationFailure: () => loginLogic.actionTypes.submitCodeVerificationFailure,
     twoFactorError: () => login2FALogic.actionTypes.setGeneralError,
     resetRequested: () => passwordResetLogic.actionTypes.submitRequestPasswordResetSuccess,
-    precheckSuccess: () => loginLogic.actionTypes.precheckSuccess,
+    accountPathChosen: () => authLogic.actionTypes.chooseAccountPath,
     setPasswordLinkSent: () => loginLogic.actionTypes.sendSetPasswordLinkSuccess,
 }
 
@@ -126,22 +127,40 @@ describe('loginTelemetryLogic', () => {
         expect(captureCount('password reset requested')).toBe(1)
     })
 
-    it('reports the no-method banner once per email and the set-password email it leads to', async () => {
+    it('reports the no-method banner once per email on the login step, and the email it leads to', async () => {
         precheckHandler.mockImplementation(() => [
             200,
             { saml_available: false, password_login_available: false, social_providers: [] },
         ])
+        const auth = authLogic()
+        auth.mount()
         login.actions.setLoginValues({ email: 'user@example.com' })
         login.actions.precheck({ email: 'user@example.com' })
         await expectLogic(login).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
-        login.actions.precheck({ email: 'user@example.com' })
-        await expectLogic(login).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+
+        expect(captureCount('login no method shown')).toBe(0)
+
+        auth.actions.continueWithEmail()
+        await expectLogic(auth).toDispatchActions(['chooseAccountPath']).toFinishAllListeners()
+        auth.actions.backToEmail()
+        auth.actions.continueWithEmail()
+        await expectLogic(auth).toDispatchActions(['chooseAccountPath']).toFinishAllListeners()
+        auth.unmount()
 
         login.actions.sendSetPasswordLink('user@example.com')
         await expectLogic(login).toDispatchActions(['sendSetPasswordLinkSuccess']).toFinishAllListeners()
 
         expect(captureCount('login no method shown')).toBe(1)
         expect(capturedProperties('password reset requested')).toMatchObject({ source: 'login_no_method' })
+    })
+
+    it('does not report a set-password email that the server refused', async () => {
+        useMocks({ post: { '/api/reset/': () => [429, { detail: 'Request was throttled.' }] } })
+
+        login.actions.sendSetPasswordLink('user@example.com')
+        await expectLogic(login).toDispatchActions(['sendSetPasswordLinkFailure']).toFinishAllListeners()
+
+        expect(captureCount('password reset requested')).toBe(0)
     })
 
     // The server redirects a failed SSO sign-in back to /login?error_code=..., and kea-router replays
@@ -188,13 +207,16 @@ describe('loginTelemetryLogic', () => {
         (key) => {
             const twoFA = login2FALogic()
             const reset = passwordResetLogic()
+            const auth = authLogic()
             twoFA.mount()
             reset.mount()
+            auth.mount()
 
             expect(LISTENED_ACTIONS[key]).toBe(LISTENED_ACTION_SOURCES[key]())
 
             twoFA.unmount()
             reset.unmount()
+            auth.unmount()
         }
     )
 
@@ -209,6 +231,7 @@ describe('loginTelemetryLogic', () => {
         expect(loginLogic.findMounted()).toBeNull()
         expect(login2FALogic.findMounted()).toBeNull()
         expect(passwordResetLogic.findMounted()).toBeNull()
+        expect(authLogic.findMounted()).toBeNull()
 
         // afterEach unmounts both logics, so restore the one the test took down
         login = loginLogic()

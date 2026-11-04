@@ -474,9 +474,9 @@ export const loginLogic = kea<loginLogicType>([
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         await api.create('api/reset/', { email })
                         return email
-                    } catch {
+                    } catch (e) {
                         lemonToast.error("Couldn't send the email. Wait a minute, then try again.")
-                        return values.setPasswordLinkSentTo
+                        throw e
                     }
                 },
             },

@@ -48,7 +48,11 @@ export function EmailStepSocialButtons(): JSX.Element | null {
                 // Once we know the account's methods, only offer a passkey if it actually has
                 // one — otherwise this is the same dead button we're removing.
                 showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
-                extraButton={hasNoConfiguredLoginMethod ? <SetPasswordEmailButton /> : undefined}
+                extraButton={
+                    hasNoConfiguredLoginMethod && preflight?.email_service_available ? (
+                        <SetPasswordEmailButton />
+                    ) : undefined
+                }
             />
         )
     }

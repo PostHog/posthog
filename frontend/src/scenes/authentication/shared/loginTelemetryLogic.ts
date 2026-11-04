@@ -39,7 +39,7 @@ export const LISTENED_ACTIONS = {
     codeVerificationFailure: 'submit code verification failure (scenes.authentication.auth.loginLogic)',
     twoFactorError: 'set general error (scenes.authentication.login-2fa.login2FALogic)',
     resetRequested: 'submit request password reset success (scenes.authentication.password-reset.passwordResetLogic)',
-    precheckSuccess: 'precheck success (scenes.authentication.auth.loginLogic)',
+    accountPathChosen: 'choose account path (scenes.authentication.auth.authLogic)',
     setPasswordLinkSent: 'send set password link success (scenes.authentication.auth.loginLogic)',
 } as const
 
@@ -107,11 +107,16 @@ export const loginTelemetryLogic = kea<loginTelemetryLogicType>([
         [LISTENED_ACTIONS.resetRequested]: () => {
             posthog.capture('password reset requested', { region: values.preflight?.region })
         },
-        // The precheck reruns for the same email on a typing pause, a blur and Continue, so report the
-        // dead end once per email.
-        [LISTENED_ACTIONS.precheckSuccess]: () => {
+        // The banner renders only on the login step, and an edit to the email returns the page to the
+        // email step. So the login step, not the precheck, is when the person sees it. Report it once
+        // per email, because "Back" and Continue reach the same login step again.
+        [LISTENED_ACTIONS.accountPathChosen]: ({ accountPath }: { accountPath: string }) => {
             const login = loginLogic.findMounted()
-            if (!login?.values.hasNoConfiguredLoginMethod || login.values.login.email === reportedNoMethodEmail) {
+            if (
+                accountPath !== 'login' ||
+                !login?.values.hasNoConfiguredLoginMethod ||
+                login.values.login.email === reportedNoMethodEmail
+            ) {
                 return
             }
             reportedNoMethodEmail = login.values.login.email
