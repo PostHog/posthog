@@ -26,6 +26,7 @@ from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_from_template, create_group_type_mapping_detail_dashboard
+from posthog.ip_restrictions import get_ip_restrictions_for_principal
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
@@ -1243,6 +1244,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
         self.client.force_login(user_with_collaboration)
+        get_ip_restrictions_for_principal(user_with_collaboration)
 
         with self.assertNumQueries(8):
             self.dashboard_api.list_dashboards()
