@@ -771,6 +771,7 @@ export namespace Schemas {
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -897,6 +898,7 @@ export namespace Schemas {
       Insight: 'insight',
       InsightVariable: 'insight_variable',
       Integration: 'integration',
+      KnowledgeWriter: 'knowledge_writer',
       LegalDocument: 'legal_document',
       Link: 'link',
       LiveDebugger: 'live_debugger',
@@ -1023,6 +1025,7 @@ export namespace Schemas {
        * * `insight` - insight
        * * `insight_variable` - insight_variable
        * * `integration` - integration
+       * * `knowledge_writer` - knowledge_writer
        * * `legal_document` - legal_document
        * * `link` - link
        * * `live_debugger` - live_debugger
@@ -1272,6 +1275,7 @@ export namespace Schemas {
        * * `insight` - insight
        * * `insight_variable` - insight_variable
        * * `integration` - integration
+       * * `knowledge_writer` - knowledge_writer
        * * `legal_document` - legal_document
        * * `link` - link
        * * `live_debugger` - live_debugger
@@ -1687,6 +1691,7 @@ export namespace Schemas {
        * * `insight` - insight
        * * `insight_variable` - insight_variable
        * * `integration` - integration
+       * * `knowledge_writer` - knowledge_writer
        * * `legal_document` - legal_document
        * * `link` - link
        * * `live_debugger` - live_debugger
@@ -65437,6 +65442,7 @@ export namespace Schemas {
        * * `insight` - insight
        * * `insight_variable` - insight_variable
        * * `integration` - integration
+       * * `knowledge_writer` - knowledge_writer
        * * `legal_document` - legal_document
        * * `link` - link
        * * `live_debugger` - live_debugger
@@ -65542,6 +65548,19 @@ export namespace Schemas {
     export interface MemberProjectAccessResponse {
       /** One entry per visible organization member. */
       results: MemberProjectAccess[];
+    }
+
+    export interface MergePush {
+      /**
+         * The 40-character SHA of the master merge commit.
+         * @pattern ^[0-9a-f]{40}$
+         */
+      commit_sha: string;
+    }
+
+    export interface MergePushResponse {
+      /** Always accepted; the merge check runs in the background. */
+      status: string;
     }
 
     export type MessageContextualTools = { [key: string]: unknown };
