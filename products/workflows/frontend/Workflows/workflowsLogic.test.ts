@@ -1,11 +1,19 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { LemonDialog } from '@posthog/lemon-ui'
+
+import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { HogFlow } from './hogflows/types'
 import { workflowsLogic } from './workflowsLogic'
+
+jest.mock('~/layout/panel-layout/ProjectTree/projectTreeLogic', () => ({
+    ...jest.requireActual('~/layout/panel-layout/ProjectTree/projectTreeLogic'),
+    deleteFromTree: jest.fn(),
+}))
 
 describe('workflowsLogic', () => {
     let logic: ReturnType<typeof workflowsLogic.build>
@@ -38,6 +46,26 @@ describe('workflowsLogic', () => {
             tags: ['growth', 'billing'],
             page: 1,
         })
+    })
+
+    it('drops only the workflows the server deleted from the project tree', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/hog_flows/bulk_delete/': () => [
+                    200,
+                    { deleted: 1, deleted_ids: ['flow-deleted'] },
+                ],
+            },
+        })
+        const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+        logic.actions.toggleArchivedWorkflowSelection('flow-deleted')
+        logic.actions.toggleArchivedWorkflowSelection('flow-restored-meanwhile')
+
+        logic.actions.deleteSelectedWorkflows()
+        await openDialog.mock.calls[0][0].primaryButton?.onClick?.({} as React.MouseEvent<HTMLButtonElement>)
+
+        expect(deleteFromTree).toHaveBeenCalledTimes(1)
+        expect(deleteFromTree).toHaveBeenCalledWith('hog_flow', 'flow-deleted')
     })
 
     it('saves a row tag edit with only the tags, and shows the name the server stored', async () => {
