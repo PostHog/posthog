@@ -28,6 +28,7 @@ import uuid
 import asyncio
 import hashlib
 import dataclasses
+from collections.abc import Awaitable, Callable
 from datetime import date, datetime, time
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -54,10 +55,12 @@ from products.data_warehouse.backend.facade.api import aget_s3_client, get_s3_cl
 from products.warehouse_sources.backend.facade.person_property_provenance import stamp_person_property_provenance
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+    PersonPropertySyncProgress,
     PersonPropertySyncRunRecord,
     PersonPropertySyncSource,
     WarehouseBinding,
     person_property_sync_sources_for,
+    record_person_property_sync_progress,
     record_person_property_sync_run,
 )
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -125,6 +128,19 @@ class PerSourceResult:
     # Set when the source can't write anything for a reason its counts alone don't explain, so the
     # recorder persists a failed run instead of a clean one that produced nothing.
     error: str | None = None
+
+
+@frozen
+class PerSourceProgress:
+    source_id: str
+    produced_increment: int
+    rows_read_total: int
+    changed_total: int
+    # Missing people have no snapshot, so retries need a total to avoid counting them twice.
+    skipped_missing_person_total: int
+
+
+ProgressCallback = Callable[[PerSourceProgress], Awaitable[None]]
 
 
 class PropertyUpdatesNotDeliveredError(Exception):
@@ -577,6 +593,7 @@ async def _process_source_bundles(
     bundles: list[tuple[str, dict]],
     rows_read: int,
     run_token: str,
+    on_progress: ProgressCallback | None = None,
 ) -> PerSourceResult:
     """Diff one source's bundles against its snapshot, drop entities that don't exist, produce update
     intents (person `$set` or group `$groupidentify`), stamp provenance, and advance the snapshot. Works
@@ -626,20 +643,20 @@ async def _process_source_bundles(
             team_id, source, [key for key, _ in chunk]
         )
         to_send = [(key, bundle) for key, bundle in chunk if key in existing]
-        ps.existing += len(to_send)
+        existing_count = len(to_send)
+        delivered: set[str] = set()
+        if to_send:
+            delivered = await asyncio.to_thread(
+                _produce_intents,
+                team_id,
+                team_api_token,
+                source,
+                to_send,
+                team_uuid=team_uuid,
+                group_type_name=group_type_name,
+            )
+        ps.existing += existing_count
         ps.skipped_missing_person += len(chunk) - len(to_send)
-        if not to_send:
-            continue
-
-        delivered = await asyncio.to_thread(
-            _produce_intents,
-            team_id,
-            team_api_token,
-            source,
-            to_send,
-            team_uuid=team_uuid,
-            group_type_name=group_type_name,
-        )
         ps.produced += len(delivered)
         ps.undelivered += len(to_send) - len(delivered)
 
@@ -653,6 +670,18 @@ async def _process_source_bundles(
             )
             confirmed_hashes.update(delivered_hashes)
             chunks_written += 1
+
+        if on_progress is not None:
+            # Snapshot first so a retry cannot report these deliveries twice.
+            await on_progress(
+                PerSourceProgress(
+                    source_id=ps.source_id,
+                    produced_increment=len(delivered),
+                    rows_read_total=ps.rows_read,
+                    changed_total=ps.changed,
+                    skipped_missing_person_total=ps.skipped_missing_person,
+                )
+            )
 
     if chunks_written:
         # Fold this run's chunk files, and any left by an earlier run that was stopped part way, into
@@ -693,6 +722,7 @@ async def _process_accumulated_source(
     bundles_by_source: dict[str, dict[str, dict]],
     rows_read: int,
     run_token: str,
+    on_progress: ProgressCallback | None = None,
 ) -> PerSourceResult:
     bundles = list(bundles_by_source.pop(str(source.source_id)).items())
     return await _process_source_bundles(
@@ -705,6 +735,7 @@ async def _process_accumulated_source(
         bundles=bundles,
         rows_read=rows_read,
         run_token=run_token,
+        on_progress=on_progress,
     )
 
 
@@ -725,7 +756,9 @@ def _raise_if_undelivered(result: SyncResult) -> None:
         )
 
 
-async def run_person_property_sync(*, team_id: int, binding: WarehouseBinding, job_id: str) -> SyncResult:
+async def run_person_property_sync(
+    *, team_id: int, binding: WarehouseBinding, job_id: str, on_progress: ProgressCallback | None = None
+) -> SyncResult:
     result = SyncResult()
     sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(team_id, binding)
     if not sources:
@@ -762,6 +795,7 @@ async def run_person_property_sync(*, team_id: int, binding: WarehouseBinding, j
                 bundles_by_source=read.bundles_by_source,
                 rows_read=read.rows_read,
                 run_token=job_id,
+                on_progress=on_progress,
             )
             _accumulate(result, ps)
 
@@ -858,7 +892,9 @@ def _delta_uri_for_binding(team_id: int, binding: WarehouseBinding) -> str | Non
     return _schema_delta_uri(team_id, binding.id)
 
 
-async def run_person_property_backfill(*, team_id: int, binding: WarehouseBinding, trigger: str) -> SyncResult:
+async def run_person_property_backfill(
+    *, team_id: int, binding: WarehouseBinding, trigger: str, on_progress: ProgressCallback | None = None
+) -> SyncResult:
     """Populate person properties from a warehouse table's full Delta data (rather than the
     incrementally staged rows) — for a new/changed mapping that never saw historical rows. Reads the
     table once and upserts every enabled person source on the binding; the snapshot diff still skips
@@ -925,6 +961,7 @@ async def run_person_property_backfill(*, team_id: int, binding: WarehouseBindin
             bundles_by_source=read.bundles_by_source,
             rows_read=read.rows_read,
             run_token=BACKFILL_RUN_TOKEN,
+            on_progress=on_progress,
         )
         _accumulate(result, ps)
 
@@ -968,6 +1005,41 @@ def _record(
             count_failure=count_failure,
         )
     )
+
+
+def progress_recorder(*, team_id: int, binding: WarehouseBinding, job_id: str | None, trigger: str) -> ProgressCallback:
+    """A callback that adds each chunk's counts to the run row, so a run that stops part way, and a
+    run retried over several attempts, shows everything it delivered. Never raises, because
+    bookkeeping must not fail the sync it describes."""
+
+    async def _record_progress(increment: PerSourceProgress) -> None:
+        try:
+            await database_sync_to_async(record_person_property_sync_progress, thread_sensitive=False)(
+                PersonPropertySyncProgress(
+                    team_id=team_id,
+                    binding_kind=binding.kind,
+                    binding_id=binding.id,
+                    source_id=increment.source_id,
+                    job_id=job_id,
+                    trigger=trigger,
+                    rows_read=increment.rows_read_total,
+                    changed=increment.changed_total,
+                    existing=increment.produced_increment,
+                    produced=increment.produced_increment,
+                    skipped_missing_person=increment.skipped_missing_person_total,
+                )
+            )
+        except Exception as e:
+            logger.exception(
+                "person-property run: failed to record progress",
+                team_id=team_id,
+                **_log_fields(binding),
+                job_id=job_id,
+                trigger=trigger,
+            )
+            capture_exception(e, {"team_id": team_id, **_log_fields(binding), "trigger": trigger})
+
+    return _record_progress
 
 
 async def record_started_runs(
