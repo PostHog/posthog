@@ -5,6 +5,7 @@ import requests
 from products.warehouse_sources.sources.appsflyer._config import AppsFlyerSourceConfig
 from products.warehouse_sources.sources.appsflyer.appsflyer import (
     AppsFlyerCredentialsError,
+    AppsFlyerResumeConfig,
     AppsFlyerRetryableError,
     appsflyer_source,
     validate_credentials as validate_appsflyer_credentials,
@@ -16,7 +17,8 @@ from products.warehouse_sources.sources.sdk import (
     ExternalDataSourceType,
     FieldType,
     ReleaseStatus,
-    SimpleSource,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -30,7 +32,7 @@ from products.warehouse_sources.sources.sdk import (
 
 
 @SourceRegistry.register
-class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
+class AppsFlyerSource(ResumableSource[AppsFlyerSourceConfig, AppsFlyerResumeConfig]):
     codebase_detection = detect(
         env=("^APPSFLYER_",),
         script_hosts=("websdk.appsflyersdk.com",),
@@ -190,12 +192,24 @@ Raw data tables (installs, in-app events, uninstalls, retargeting conversions, a
                 "Could not reach AppsFlyer to validate credentials. This may be a temporary rate-limit or network issue — please try again.",
             )
 
-    def source_for_pipeline(self, config: AppsFlyerSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def resume_covers_run(self, *, incremental_or_append: bool, schema_name: str | None = None) -> bool:
+        return incremental_or_append
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AppsFlyerResumeConfig]:
+        return ResumableSourceManager[AppsFlyerResumeConfig](inputs, AppsFlyerResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: AppsFlyerSourceConfig,
+        resumable_source_manager: ResumableSourceManager[AppsFlyerResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return appsflyer_source(
             api_token=config.api_token,
             app_id=config.app_id,
             endpoint=inputs.schema_name,
             logger=inputs.logger,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

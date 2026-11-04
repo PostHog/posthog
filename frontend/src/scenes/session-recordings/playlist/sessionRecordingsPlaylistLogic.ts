@@ -631,6 +631,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     canSortByRelevance: boolean
     collectionsForBulkAdd: SavedSessionRecordingPlaylistsResult
     collectionsForBulkAddLoading: boolean
+    defaultFilters: RecordingUniversalFilters
     deleteConfirmationText: string
     eventsHaveSessionId: Record<string, boolean>
     eventsHaveSessionIdLoading: boolean
@@ -952,6 +953,7 @@ export interface sessionRecordingsPlaylistLogicActions {
 export interface sessionRecordingsPlaylistLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        defaultFilters: (filters: RecordingUniversalFilters) => RecordingUniversalFilters
         logicProps: (arg: any) => SessionRecordingPlaylistLogicProps
         allowEventPropertyExpansion: (featureFlags: FeatureFlagsSet) => boolean
         exposureSkipExperimentId: (filters: RecordingUniversalFilters) => number | undefined
@@ -2142,6 +2144,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         }
     }),
+    selectors(({ props }) => ({
+        defaultFilters: [(s) => [s.filters], (): RecordingUniversalFilters => getResetFilters(props)],
+    })),
+
     selectors({
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
 

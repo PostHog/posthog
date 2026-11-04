@@ -14,7 +14,7 @@ use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
 use base64::engine::DecodePaddingMode;
 use base64::Engine;
 
-use posthog_replay_anonymizer::v4_image_refs::{image_ref, ImageDecline};
+use crate::v4_image_refs::{image_ref, ImageDecline};
 
 use crate::bytescan as scan;
 use crate::refs::reference_hash;

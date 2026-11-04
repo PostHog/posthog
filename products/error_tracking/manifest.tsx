@@ -120,7 +120,7 @@ export const manifest: ProductManifest = {
                 'var(--color-product-error-tracking-dark)',
             ] as FileSystemIconColor,
             href: urls.errorTracking(),
-            searchKeywords: ['exceptions', 'crashes', 'bugs', 'stack traces'],
+            searchKeywords: ['errors', 'exceptions', 'crashes', 'bugs', 'stack traces'],
             searchTabs: [{ name: 'Insights', href: urls.errorTracking({ activeTab: 'insights' }) }],
             sceneKey: 'ErrorTracking',
         },

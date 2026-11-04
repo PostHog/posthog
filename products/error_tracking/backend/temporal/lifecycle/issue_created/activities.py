@@ -64,7 +64,6 @@ logger = structlog.get_logger(__name__)
 EMBEDDING_MODEL = "text-embedding-3-large-3072"
 EMBEDDING_RENDERING = "type_message_and_stack"
 EMBEDDING_MAX_TOKENS = 7000
-EMBEDDING_DISABLED_LIBRARIES = {"posthog-elixir"}
 SEVERITY_INFERENCE_MAX_TOKENS = 2000
 
 ERROR_TRACKING_SEVERITY_INFERENCE_OUTCOMES = Counter(
@@ -91,9 +90,6 @@ def _embedding_skip_reason(event_properties: dict[str, object]) -> str | None:
             if record_type == "custom":
                 return "custom_grouping_rule"
 
-    library = event_properties.get("$lib")
-    if isinstance(library, str) and library in EMBEDDING_DISABLED_LIBRARIES:
-        return "disabled_sdk"
     return None
 
 
