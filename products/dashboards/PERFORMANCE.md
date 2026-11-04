@@ -57,6 +57,7 @@ Dashboard-wide state can make every card render even when only one tile moves.
 - Keep comparisons correct. Ignoring changed callbacks or content can preserve stale behavior.
 - Preserve tile keys and chart instances across geometry and mode changes.
 - Keep local edit-mode state changes out of dashboard data loaders when no dashboard data changed.
+- Do not dispatch a Kea action on the first movement of a gesture. Each dispatch reruns the selectors of every subscribed component on the dashboard, even when only a small overlay reads the new value.
 
 Memoization reduces repeated React work. It does not prevent browser layout or canvas drawing after dimensions change.
 For example, moving a tile usually needs a position update; resizing it can also require text layout and a chart redraw.
@@ -89,6 +90,7 @@ Check third-party drag and resize code for global style changes. Recheck upstrea
 - Use containment or content visibility where appropriate, and check overflow, overlays, focus, and active gestures.
 - Keep decorative DOM bounded. Repeated backgrounds need not create an element for every grid cell.
 - Count DOM nodes before and after mode changes. CSS containment cannot remove the cost of creating thousands of nodes.
+- Mount transient overlays, such as a move hint, outside the grid through a portal. The grid styles use `:has()` selectors, so a node inserted into the grid wrapper restyles every tile.
 
 Transforms can reduce layout work for position changes. Width and height changes can require layout through the tile's content.
 Containment does not remove React work, query work, timers, or canvas resources by itself.
@@ -179,6 +181,9 @@ If checks are paused, identify the unverified behavior and leave the change loca
 9. Compare against a temporary no-op for the suspected update, then restore it. Confirm that the measured cost belongs to that update before changing state ownership.
 10. Stop traces and detach diagnostic sessions. Repeat timing measurements without profiling overhead.
 11. Compare the first gesture after a fresh load with a repeat gesture on the same page. Record whether tiles still mount during the gesture.
+
+A hidden or covered browser window throttles animation frames, and the timings it reports are not valid.
+Measure in a visible window or a headless browser, and check the frame rate before each run.
 
 An A/B comparison needs a stable outcome as well as a timing difference.
 Check that both variants save, cancel, move, resize, and display charts correctly.
