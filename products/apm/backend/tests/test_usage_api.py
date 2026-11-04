@@ -135,6 +135,32 @@ class TestServiceUsageAPI(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(data["unavailable_signals"], [])
 
+    def test_window_inside_one_utc_day_counts_rows_for_a_project_in_a_western_timezone(self) -> None:
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save()
+        at = dt.datetime(2026, 10, 3, 19, 0, 0)
+        insert_logs(self.team.id, "tz-service", [10, 20], at=at)
+        spans = SpanWriter(team_id=self.team.id, base=at, uuid_prefix="019e8774")
+        spans.span("tz-service")
+        spans.insert()
+        insert_metric_points(self.team.id, "tz-service", series=1, points=2, at=at)
+
+        data = self._get(date_from="2026-10-03T12:00:00Z", date_to="2026-10-03T21:00:00Z")
+
+        self.assertEqual(
+            data["results"],
+            [
+                {
+                    "service_name": "tz-service",
+                    "log_records": 2,
+                    "log_bytes": 30,
+                    "spans": 1,
+                    "metric_points": 2,
+                    "metric_series": 1,
+                }
+            ],
+        )
+
     def test_empty_window_returns_no_rows(self) -> None:
         data = self._get(date_from="2026-10-01T00:00:00Z", date_to="2026-10-01T01:00:00Z")
 
