@@ -49,11 +49,16 @@ class TestLogsTrafficClassification(ClickhouseTestMixin, APIBaseTest):
                 "",
                 "Regular",
             ),
-            ("no_user_agent", {"vercel.source": "lambda"}, False, "", ""),
+            ("no_user_agent", {"vercel.source": "lambda"}, None, None, None),
         ]
     )
     def test_classifies_log_lines_by_user_agent(
-        self, _name: str, attributes: dict[str, str], is_bot: bool, bot_name: str, traffic_type: str
+        self,
+        _name: str,
+        attributes: dict[str, str],
+        is_bot: bool | None,
+        bot_name: str | None,
+        traffic_type: str | None,
     ) -> None:
         row = {
             "uuid": "log-1",

@@ -66,8 +66,8 @@ def create_bot_operator_field(name: str, properties_path: Optional[list[str]] = 
 
 
 # Logs carry the request in OpenTelemetry semantic-convention attributes. A log line without a
-# user agent is application output, not a request, so it gets the neutral value: the classifier
-# would otherwise label every one of them as a bot through its empty-user-agent rule.
+# user agent is application output, not a request, so every field is NULL for it: bot and human
+# filters both leave it out, where the empty-user-agent rule would count it as a bot.
 def _log_attribute(key: str) -> ast.Expr:
     # A bare read of the type-suffixed backing map touches only the bucket that holds the key.
     return ast.Call(
@@ -75,7 +75,7 @@ def _log_attribute(key: str) -> ast.Expr:
     )
 
 
-def _log_classification_field(name: str, function_name: str, neutral: ast.Constant) -> ExpressionField:
+def _log_classification_field(name: str, function_name: str) -> ExpressionField:
     user_agent = _log_attribute("user_agent.original")
     return ExpressionField(
         name=name,
@@ -83,7 +83,7 @@ def _log_classification_field(name: str, function_name: str, neutral: ast.Consta
             name="if",
             args=[
                 ast.Call(name="empty", args=[user_agent]),
-                neutral,
+                ast.Constant(value=None),
                 ast.Call(name=function_name, args=[user_agent, _log_attribute("client.address")]),
             ],
         ),
@@ -93,12 +93,12 @@ def _log_classification_field(name: str, function_name: str, neutral: ast.Consta
 
 def log_traffic_fields() -> dict[str, ExpressionField]:
     return {
-        name: _log_classification_field(name, function_name, neutral)
-        for name, function_name, neutral in [
-            ("$virt_is_bot", "isLikelyBot", ast.Constant(value=False)),
-            ("$virt_traffic_type", "getTrafficType", ast.Constant(value="")),
-            ("$virt_traffic_category", "getTrafficCategory", ast.Constant(value="")),
-            ("$virt_bot_name", "getBotName", ast.Constant(value="")),
-            ("$virt_bot_operator", "getBotOperator", ast.Constant(value="")),
+        name: _log_classification_field(name, function_name)
+        for name, function_name in [
+            ("$virt_is_bot", "isLikelyBot"),
+            ("$virt_traffic_type", "getTrafficType"),
+            ("$virt_traffic_category", "getTrafficCategory"),
+            ("$virt_bot_name", "getBotName"),
+            ("$virt_bot_operator", "getBotOperator"),
         ]
     }
