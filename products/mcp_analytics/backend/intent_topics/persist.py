@@ -86,6 +86,19 @@ def finish_run(
     run.save()
 
 
+def latest_refit_started_at(team: Team) -> datetime | None:
+    return (
+        MCPIntentClusteringRun.objects.filter(
+            team=project_team(team),
+            kind=MCPIntentClusteringRun.Kind.REFIT,
+            status=MCPIntentClusteringRun.Status.SUCCEEDED,
+        )
+        .order_by("-started_at")
+        .values_list("started_at", flat=True)
+        .first()
+    )
+
+
 def latest_pca_basis(team: Team) -> PcaBasis | None:
     run = (
         MCPIntentClusteringRun.objects.filter(

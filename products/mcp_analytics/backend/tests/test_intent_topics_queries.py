@@ -17,8 +17,18 @@ from posthog.schema import (
     MCPToolIntentProfileQuery,
 )
 
-from posthog.clickhouse.client import sync_execute
+from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client import sync_execute
+from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition
+from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal
+
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.mcp_analytics.backend.facade.clickhouse_schema import MCP_INTENT_TOPIC_DAILY_WRITABLE_TABLE
 from products.mcp_analytics.backend.hogql_queries.intent_topics import (
     MCPIntentMapQueryRunner,
@@ -28,7 +38,7 @@ from products.mcp_analytics.backend.hogql_queries.intent_topics import (
 )
 from products.mcp_analytics.backend.intent_topics.corpus import HourlyCalls
 from products.mcp_analytics.backend.intent_topics.rollups import insert_hourly_calls
-from products.mcp_analytics.backend.models import MCPIntentTopic
+from products.mcp_analytics.backend.models import MCPIntentClusteringRun, MCPIntentTopic
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 from products.mcp_analytics.backend.tests.intent_topics_helpers import recent_hour
 from products.mcp_analytics.backend.tests.test_intent_assignments_table import _insert_assignment
@@ -113,6 +123,16 @@ class TestIntentTopicsQuery(_Base):
         assert [(t.label, t.calls, t.share_pct) for t in response.results] == [("Create insights", 60, 92.31)]
         assert response.coverage.calls_with_intent == 65
 
+    def test_a_child_environment_reads_its_project_topic_labels(self) -> None:
+        child = Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="Child"
+        )
+        _daily(child.pk, TODAY, "query-trends", self.t_insights, 5)
+
+        response = MCPIntentTopicsQueryRunner(query=MCPIntentTopicsQuery(dateRange=WINDOW), team=child).calculate()
+
+        assert [(t.label, t.calls) for t in response.results] == [("Create insights", 5)]
+
     def test_no_previous_data_leaves_trend_empty(self) -> None:
         _daily(self.team.pk, TODAY, "query-trends", self.t_insights, 1)
 
@@ -183,15 +203,17 @@ class TestToolIntentProfileQuery(_Base):
             (topic, 30, [1] * 30) for topic in topics
         ]
 
-    def test_single_topic_is_fully_consolidated(self) -> None:
+    def test_single_topic_is_fully_consolidated_and_drift_shares_count_unassigned_calls(self) -> None:
         _daily(self.team.pk, TODAY, "query-trends", self.t_insights, 30)
+        _daily(self.team.pk, TODAY, "query-trends", "", 30)
 
         response = MCPToolIntentProfileQueryRunner(
             query=MCPToolIntentProfileQuery(dateRange=WINDOW, toolName="query-trends"), team=self.team
         ).calculate()
 
         assert (response.focus.score, response.focus.band) == (1.0, "consolidated")
-        assert [r.label for r in response.drift.new] == ["Create insights"]
+        assert [(r.label, r.share_pct) for r in response.drift.new] == [("Create insights", 50.0)]
+        assert [(t.label, t.share_pct) for t in response.results] == [("Create insights", 50.0)]
 
 
 class TestSimilarToolsQuery(_Base):
@@ -245,6 +267,9 @@ class TestIntentMapQuery(_Base):
         _daily(self.team.pk, TODAY, "query-trends", "", 7)
 
     def test_points_and_topic_bubbles(self) -> None:
+        # Archived after the window: its calls in the window still need a bubble.
+        MCPIntentTopic.objects.filter(pk=self.flags.pk).update(status=MCPIntentTopic.Status.ARCHIVED)
+
         response = MCPIntentMapQueryRunner(query=MCPIntentMapQuery(dateRange=WINDOW), team=self.team).calculate()
 
         assert [(p.intent_hash, p.calls, p.topic_id, p.tool) for p in response.results] == [
@@ -281,6 +306,86 @@ class TestIntentMapQuery(_Base):
         ).calculate()
         assert [(p.intent_hash, p.calls) for p in by_tool.results] == [("p1", 9), ("p2", 5)]
         assert [t.label for t in by_tool.topics] == ["Create insights"]
+
+    def test_points_assigned_before_the_latest_refit_use_an_older_basis_and_stay_off_the_map(self) -> None:
+        refit = MCPIntentClusteringRun.objects.create(
+            team=self.team, run_id="refit-1", kind="refit", status=MCPIntentClusteringRun.Status.SUCCEEDED
+        )
+        MCPIntentClusteringRun.objects.filter(pk=refit.pk).update(started_at=NOW - timedelta(days=10))
+
+        response = MCPIntentMapQueryRunner(query=MCPIntentMapQuery(dateRange=WINDOW), team=self.team).calculate()
+
+        assert [p.intent_hash for p in response.results] == ["p1", "p2"]
+        assert response.total_points == 2
+
+
+class TestIntentTopicsAccess(_Base):
+    def _restrict_intent(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="$mcp_intent", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=definition, access_level=PropertyAccessLevel.NONE.value
+        )
+
+    def test_a_member_denied_the_intent_property_sees_no_intent_text_hashes_or_labels(self) -> None:
+        _daily(self.team.pk, TODAY, "query-trends", self.t_insights, 10)
+        _insert_assignment(self.team.pk, "o1", self.t_insights, is_outlier=1, intent_text="odd use", timestamp=NOW)
+        _hourly(self.team.pk, TODAY, "o1", "query-trends", 4)
+        self.insights.summary = "Agents chart weekly signups."
+        self.insights.save()
+        self._restrict_intent()
+
+        profile = MCPToolIntentProfileQueryRunner(
+            query=MCPToolIntentProfileQuery(dateRange=WINDOW, toolName="query-trends"), team=self.team, user=self.user
+        ).calculate()
+        hourly_hashes = execute_hogql_query(
+            query="SELECT intent_hash FROM posthog.mcp_intent_calls_hourly", team=self.team, user=self.user
+        ).results
+
+        assert profile.outliers == []
+        assert [(t.label, t.summary) for t in profile.results] == [(f"Topic {self.t_insights[:8]}", "")]
+        assert hourly_hashes == [(None,)]
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        admin_profile = MCPToolIntentProfileQueryRunner(
+            query=MCPToolIntentProfileQuery(dateRange=WINDOW, toolName="query-trends"), team=self.team, user=self.user
+        ).calculate()
+        assert [o.intent_text for o in admin_profile.outliers] == ["odd use"]
+        assert [t.label for t in admin_profile.results] == ["Create insights"]
+
+    @parameterized.expand(
+        [
+            (kind, scopes, expected_status)
+            for kind in (
+                "MCPIntentTopicsQuery",
+                "MCPToolIntentProfileQuery",
+                "MCPSimilarToolsQuery",
+                "MCPIntentMapQuery",
+            )
+            for scopes, expected_status in (
+                (["query:read"], 403),
+                (["mcp_analytics:read"], 403),
+                (["query:read", "mcp_analytics:read"], 200),
+            )
+        ]
+    )
+    def test_query_endpoint_scope_parity_for_api_keys(self, kind: str, scopes: list[str], expected_status: int) -> None:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {"query": {"kind": kind, "toolName": "query-trends"}},
+            HTTP_AUTHORIZATION=f"Bearer {value}",
+        )
+
+        assert response.status_code == expected_status, response.json()
 
 
 class TestIntentTopicQueryLimits(SimpleTestCase):
