@@ -1,15 +1,20 @@
 import { expectLogic } from 'kea-test-utils'
 
-import apiReal from 'lib/api'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { integrationsCreate } from 'products/integrations/frontend/generated/api'
+
 import { awsWarehouseSourcesSetupModalLogic } from './awsWarehouseSourcesSetupModalLogic'
+
+jest.mock('products/integrations/frontend/generated/api', () => ({
+    ...jest.requireActual('products/integrations/frontend/generated/api'),
+    integrationsCreate: jest.fn(),
+}))
 
 describe('awsWarehouseSourcesSetupModalLogic', () => {
     let logic: ReturnType<typeof awsWarehouseSourcesSetupModalLogic.build>
-    let createSpy: jest.SpyInstance
+    const createSpy = jest.mocked(integrationsCreate)
 
     useMocks({
         get: {
@@ -21,11 +26,7 @@ describe('awsWarehouseSourcesSetupModalLogic', () => {
         initKeaTests()
         logic = awsWarehouseSourcesSetupModalLogic({ isOpen: true, onComplete: jest.fn() })
         logic.mount()
-        createSpy = jest.spyOn(apiReal.integrations, 'create').mockResolvedValue({ id: 42 } as any)
-    })
-
-    afterEach(() => {
-        jest.restoreAllMocks()
+        createSpy.mockReset().mockResolvedValue({ id: 42 } as any)
     })
 
     it('creates an aws-warehouse-sources connection with the role ARN', async () => {
@@ -37,7 +38,7 @@ describe('awsWarehouseSourcesSetupModalLogic', () => {
             logic.actions.submitAwsWarehouseSourcesIntegration()
         }).toFinishAllListeners()
 
-        expect(createSpy).toHaveBeenCalledWith({
+        expect(createSpy).toHaveBeenCalledWith(expect.any(String), {
             kind: 'aws-warehouse-sources',
             config: {
                 name: 'my connection',
