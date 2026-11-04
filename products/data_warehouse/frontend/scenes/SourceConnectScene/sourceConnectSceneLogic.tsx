@@ -327,10 +327,12 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
             // A newer link may have replaced this one while the request ran.
             breakpoint()
             const prefill = item.proposal?.prefill
-            if (prefill) {
+            // Another item's host, tunnel and secrets must not carry over to this one.
+            const switching = values.loadedMigrationItemId !== null && values.loadedMigrationItemId !== itemId
+            if (prefill || switching) {
                 // Deep, so nested groups keep the defaults the prefill does not set.
                 actions.setCredentialsFormValues({
-                    payload: mergeDeep(values.credentialsForm.payload ?? {}, prefill),
+                    payload: mergeDeep(switching ? {} : (values.credentialsForm.payload ?? {}), prefill ?? {}),
                 })
             }
             actions.migrationPrefillLoaded(itemId)
