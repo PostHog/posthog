@@ -3,7 +3,7 @@ import React, { useCallback, useMemo } from 'react'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { resolveCssColor } from '../../core/color-utils'
-import { useResolvedChartTheme } from '../../core/theme'
+import { DEFAULT_CHART_COLORS, useResolvedChartTheme } from '../../core/theme'
 import type {
     AreaSelectData,
     ChartConfig,
@@ -197,7 +197,7 @@ function HeatmapInner({
     // theme.colors are already resolved, so the memo re-runs (and re-resolves the accent against
     // the current theme) on a light/dark flip too.
     const accent = useMemo(
-        () => resolveCssColor(config?.color || theme.colors[0] || '#1d4aff'),
+        () => resolveCssColor(config?.color || theme.colors[0] || DEFAULT_CHART_COLORS[0]),
         [config?.color, theme.colors]
     )
 
