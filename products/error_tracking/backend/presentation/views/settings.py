@@ -9,6 +9,10 @@ from products.error_tracking.backend.facade import api as error_tracking_api
 
 
 class ErrorTrackingSettingsSerializer(serializers.Serializer):
+    adaptive_ingestion_enabled = serializers.BooleanField(
+        required=False,
+        help_text="Project preference for adaptive ingestion. Turning this on does not currently change ingestion.",
+    )
     project_rate_limit_value = serializers.IntegerField(
         min_value=1,
         allow_null=True,

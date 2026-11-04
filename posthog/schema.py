@@ -2365,7 +2365,7 @@ class MarketingIntegrationConfig3(BaseModel):
     adsetTableName: Literal["adsets"] = "adsets"
     campaignTableName: Literal["campaigns"] = "campaigns"
     conversionActionTypes: ConversionActionTypes
-    defaultSources: list[str] = Field(..., max_length=9, min_length=9)
+    defaultSources: list[str] = Field(..., max_length=10, min_length=10)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
     primarySource: Literal["meta"] = "meta"
@@ -2790,19 +2790,6 @@ class MetricChartSettings(BaseModel):
             " the average of the returned points."
         ),
     )
-
-
-class MetricsAlertConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    check_ongoing_interval: bool | None = Field(
-        default=None,
-        description=(
-            "When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one."
-        ),
-    )
-    type: Literal["MetricsAlertConfig"] = "MetricsAlertConfig"
 
 
 class MetricsDashboardVariableSelection(BaseModel):
@@ -7188,6 +7175,23 @@ class MetricPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["metric_attribute"] = "metric_attribute"
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class MetricsAlertConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    check_ongoing_interval: bool | None = Field(
+        default=None,
+        description=(
+            "When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one."
+        ),
+    )
+    type: Literal["MetricsAlertConfig"] = "MetricsAlertConfig"
+    variables: dict[str, MetricsDashboardVariableSelection] | None = Field(
+        default=None,
+        description="Values for the `$name` variables in the insight's query.",
+    )
 
 
 class MetricsDashboardVariable(BaseModel):
@@ -32593,6 +32597,7 @@ class ErrorTrackingQuery(BaseModel):
         default=None,
         description=("Free-text search across exception type, message, and stack frames."),
     )
+    severity: ErrorTrackingQueryIssueSeverity | None = Field(default=None, description="Filter by issue severity.")
     status: ErrorTrackingIssueStatus | str | None = Field(
         default=None,
         description="Filter by issue status.",
