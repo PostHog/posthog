@@ -13,7 +13,7 @@
                 {% elif change.outcome == "deleted" %}
                     The admin deleted this key.
                 {% elif change.outcome == "access_removed" %}
-                    The admin removed this key's access to {{ organization_name }}. The key still works in your other organizations. If you add {{ organization_name }} back to the key, roll the key first.
+                    The admin removed this key's access to {{ organization_name }} and rolled the key, so its old value no longer works in any organization. Roll the key again in your settings to get a new value. The key keeps its access to your other organizations.
                 {% endif %}
             </li>
         {% endfor %}

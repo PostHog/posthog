@@ -67,7 +67,9 @@ export function openRevokeKeyDialog(key: OrganizationPersonalAPIKeyApi, owner: s
                 {key.reaches_other_organizations ? (
                     <p>
                         {keyName(key, owner)} also works in other organizations. Revoking it removes its access to this
-                        organization only. It keeps working in the other organizations.
+                        organization and gives it a new secret that is not shown to anyone. It keeps its access to the
+                        other organizations, but stops working there until the owner rolls it again in their own
+                        settings.
                     </p>
                 ) : (
                     <p>
@@ -75,6 +77,7 @@ export function openRevokeKeyDialog(key: OrganizationPersonalAPIKeyApi, owner: s
                         that uses it stops working until the owner creates a new key.
                     </p>
                 )}
+                <p>To stop the current value but keep the key's name and scopes, roll the key instead.</p>
                 <p>The owner gets an email about this change.</p>
             </>
         ),
@@ -183,7 +186,7 @@ export function openRevokeAllKeysDialog(
         action: 'revoke',
         title: 'Revoke all personal API keys?',
         description:
-            'Every personal API key with access to this organization loses that access. A key that works only in this organization gets deleted. A key that also works in other organizations keeps working there. Each owner gets an email about this change.',
+            "Every personal API key with access to this organization loses that access. A key that works only in this organization gets deleted. A key that also works in other organizations loses access to this organization and gets a new secret that is not shown to anyone. It stops working in the other organizations until its owner rolls it again in their own settings. To stop every current value but keep each key's name and scopes, use Roll all keys instead. Each owner gets an email about this change.",
         counts: [
             `This revokes ${pluralize(total, 'key')}.`,
             ...searchIgnoredLines(search),
@@ -191,7 +194,7 @@ export function openRevokeAllKeysDialog(
                 ? `${pluralize(onlyInThisOrganization, 'key')} ${agree(onlyInThisOrganization, 'works', 'work')} only in this organization and ${agree(onlyInThisOrganization, 'gets', 'get')} deleted.`
                 : 'None of these keys get deleted.',
             alsoInOtherOrganizations
-                ? `${pluralize(alsoInOtherOrganizations, 'key')} also ${agree(alsoInOtherOrganizations, 'works', 'work')} in other organizations and ${agree(alsoInOtherOrganizations, 'keeps', 'keep')} working there.`
+                ? `${pluralize(alsoInOtherOrganizations, 'key')} also ${agree(alsoInOtherOrganizations, 'works', 'work')} in other organizations and ${agree(alsoInOtherOrganizations, 'stops', 'stop')} working there until ${agree(alsoInOtherOrganizations, 'its owner rolls it', 'their owners roll them')} again.`
                 : NONE_IN_OTHER_ORGANIZATIONS,
             ownedByMeLine(ownedByMe),
         ],

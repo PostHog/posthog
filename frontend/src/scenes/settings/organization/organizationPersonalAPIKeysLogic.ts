@@ -47,9 +47,11 @@ function describeCounts({ rolled, deleted, access_removed }: OrganizationPersona
     const parts = [
         rolled ? `rolled ${pluralize(rolled, 'key')}` : null,
         deleted ? `deleted ${pluralize(deleted, 'key')}` : null,
-        access_removed ? `removed ${pluralize(access_removed, 'key')} from this organization` : null,
+        access_removed
+            ? `rolled ${pluralize(access_removed, 'key')} and removed ${access_removed === 1 ? 'it' : 'them'} from this organization`
+            : null,
     ].filter((part): part is string => part !== null)
-    return parts.length ? capitalizeFirstLetter(parts.join(' and ')) : 'No keys changed'
+    return parts.length ? capitalizeFirstLetter(parts.join(', ')) : 'No keys changed'
 }
 
 function describeFailure(action: KeyAction, target: KeyActionTarget, error: unknown): string {

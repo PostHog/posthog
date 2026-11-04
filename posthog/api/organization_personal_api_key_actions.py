@@ -121,6 +121,9 @@ class _KeyScopes:
 class OrganizationPersonalAPIKeyActions:
     """Roll and revoke, by an admin of `organization`, of personal API keys that reach it.
 
+    Revoke deletes a key that reaches no other organization. It rolls any other key and removes this
+    organization from its scopes, so the old secret stops working in every organization.
+
     Each action locks the key and computes its reach again. An action returns `None` when the
     locked key no longer reaches the organization.
     """
@@ -158,6 +161,9 @@ class OrganizationPersonalAPIKeyActions:
                     key.delete()
                 else:
                     result = self._result(key, KeyActionOutcome.ACCESS_REMOVED)
+                    # Roll in its own save before the scope save. A save that changes a scope field logs only
+                    # `created` and `revoked` rows, and after the scope save the roll gets no row in this organization.
+                    PersonalAPIKeySerializer(instance=key).roll(key)
                     key.scoped_teams = scopes.scoped_teams
                     key.scoped_organizations = scopes.scoped_organizations
                     key.save(update_fields=["scoped_teams", "scoped_organizations"])

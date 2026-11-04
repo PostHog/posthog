@@ -54,11 +54,12 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
         current = PersonalAPIKey.objects.filter(pk=key.pk).first()
         if current is None:
             return "deleted"
+        changes = []
         if current.secure_value != key.secure_value:
-            return "rolled"
+            changes.append("rolled")
         if (current.scoped_teams, current.scoped_organizations) != (key.scoped_teams, key.scoped_organizations):
-            return "access_removed"
-        return "untouched"
+            changes.append("access_removed")
+        return " and ".join(changes) or "untouched"
 
     def _create_owner_in_other_orgs(self, *, owner_joins_b: bool = True) -> User:
         self.org_b = Organization.objects.create(name="action-probe-org-b-2c9e4a")
@@ -216,7 +217,11 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
     ) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
         owner = self._create_owner_in_other_orgs()
-        key = self._create_scoped_key(owner, team_refs, org_refs)
+        old_value = generate_random_token_personal()
+        key = self._create_scoped_key(owner, team_refs, org_refs, value=old_value, scopes=["user:read"])
+        self.client.logout()
+        assert self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {old_value}").status_code == 200
+        self.client.force_login(self.user)
 
         response = self.client.post(self._action_url(key, "revoke"))
 
@@ -230,6 +235,9 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
             None if expected_org_refs is None else [self.org_refs[ref] for ref in expected_org_refs]
         )
         assert key.id not in {row["id"] for row in self.client.get(self._url()).json()["results"]}
+        self.client.logout()
+        response = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {old_value}")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @parameterized.expand(
         [
@@ -314,13 +322,18 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("roll", "roll", ("O", "B"), "updated", True),
-            ("revoke_delete", "revoke", ("O",), "deleted", False),
-            ("revoke_detach", "revoke", ("O", "B"), "revoked", False),
+            ("roll", "roll", ("O", "B"), ["updated"], "updated"),
+            ("revoke_delete", "revoke", ("O",), ["deleted"], None),
+            ("revoke_detach", "revoke", ("O", "B"), ["revoked", "updated"], "updated"),
         ]
     )
     def test_actions_write_activity_in_org_with_admin_actor(
-        self, _name: str, action: str, org_refs: tuple[str, ...], expected_activity: str, expect_row_in_b: bool
+        self,
+        _name: str,
+        action: str,
+        org_refs: tuple[str, ...],
+        expected_activities_in_o: list[str],
+        expected_activity_in_b: str | None,
     ) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
         owner = self._create_owner_in_other_orgs()
@@ -332,13 +345,15 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         rows = list(ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(key.id)).exclude(activity="created"))
         rows_in_o = [row for row in rows if row.organization_id == self.organization.id]
-        assert [(row.activity, row.user) for row in rows_in_o] == [(expected_activity, self.user)]
+        assert sorted(((row.activity, row.user) for row in rows_in_o), key=lambda pair: pair[0]) == [
+            (activity, self.user) for activity in expected_activities_in_o
+        ]
         rows_in_b = [row for row in rows if row.organization_id == self.org_b.id]
-        if expect_row_in_b:
+        if expected_activity_in_b is not None:
             assert len(rows_in_b) == 1
             row_in_b = rows_in_b[0]
             assert row_in_b.detail is not None
-            assert (row_in_b.activity, row_in_b.user, row_in_b.is_system) == (expected_activity, None, False)
+            assert (row_in_b.activity, row_in_b.user, row_in_b.is_system) == (expected_activity_in_b, None, False)
             assert row_in_b.detail["context"]["acted_by_user_outside_organization"] is True
         else:
             assert rows_in_b == []
@@ -397,11 +412,14 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert PersonalAPIKey.objects.get(pk=key.pk).secure_value == key.secure_value
 
+    @parameterized.expand([("delete", ("O",), "deleted"), ("detach", ("O", "B"), "access_removed")])
     @patch.object(send_personal_api_keys_changed_by_org_admin, "delay")
-    def test_owner_gets_email_with_change(self, mock_delay: MagicMock) -> None:
+    def test_owner_gets_email_with_change(
+        self, _name: str, org_refs: tuple[str, ...], expected_outcome: str, mock_delay: MagicMock
+    ) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
         owner = self._create_owner_in_other_orgs()
-        key = self._create_scoped_key(owner, (), ("O",), label="ci-key")
+        key = self._create_scoped_key(owner, (), org_refs, label="ci-key")
 
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(self._action_url(key, "revoke"))
@@ -411,7 +429,7 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
             user_id=owner.id,
             organization_id=str(self.organization.id),
             acting_user_email=self.user.email,
-            changes=[{"label": "ci-key", "mask_value": key.mask_value, "outcome": "deleted"}],
+            changes=[{"label": "ci-key", "mask_value": key.mask_value, "outcome": expected_outcome}],
         )
 
     @parameterized.expand(
@@ -432,9 +450,9 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
                 {"rolled": 0, "deleted": 2, "access_removed": 2},
                 {
                     "single_org": "deleted",
-                    "multi_org": "access_removed",
+                    "multi_org": "rolled and access_removed",
                     "admin_org_scoped": "deleted",
-                    "teams_o_b": "access_removed",
+                    "teams_o_b": "rolled and access_removed",
                     "outsider": "untouched",
                 },
             ),

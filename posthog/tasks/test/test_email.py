@@ -487,8 +487,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "made these changes to your personal API keys:",
                     "Roll the key again in your settings",
                     "The admin deleted this key",
-                    "The key still works in your other organizations",
-                    "If you add your organization back to the key, roll the key first.",
+                    "The admin removed this key's access to your organization and rolled the key, so its old value "
+                    "no longer works in any organization.",
+                    "The key keeps its access to your other organizations.",
                 ],
             ),
         ]

@@ -69238,7 +69238,7 @@ export namespace Schemas {
     }
 
     export interface OrganizationPersonalAPIKeyActionResult {
-      /** What happened to the key. 'rolled': the key has a new secret that nobody sees, and the old secret no longer works anywhere. 'deleted': the key no longer exists. 'access_removed': the key no longer works in this organization and keeps working in the owner's other organizations.
+      /** What happened to the key. 'rolled': the key has a new secret that nobody sees, and the old secret no longer works anywhere. 'deleted': the key no longer exists. 'access_removed': the key no longer works in this organization. It also has a new secret that nobody sees, so the old secret no longer works anywhere. It keeps its access to the owner's other organizations.
        *
        * * `rolled` - Rolled
        * * `deleted` - Deleted
@@ -69251,7 +69251,7 @@ export namespace Schemas {
       rolled: number;
       /** Number of keys that no longer exist. */
       deleted: number;
-      /** Number of keys that no longer work in this organization and keep working in the owner's other organizations. */
+      /** Number of keys that no longer work in this organization and got a new secret that nobody sees. Their old secrets no longer work anywhere. The keys keep their access to their owners' other organizations. */
       access_removed: number;
     }
 
