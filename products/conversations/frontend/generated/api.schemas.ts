@@ -635,6 +635,8 @@ export interface TicketErrorApi {
 }
 
 export interface TicketAttachmentApi {
+    /** ID of the stored file. */
+    id: string
     /** Public download URL of the stored file. */
     url: string
     /** Sanitized file name. */

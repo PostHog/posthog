@@ -175,6 +175,7 @@ export type SupportEditorProps = {
 }
 
 export type SupportEditorAttachment = {
+    id: string
     url: string
     name: string
 }
@@ -583,40 +584,34 @@ export function SupportEditor({
         linkShortcutCallbackRef.current = openLinkPopover
     }, [openLinkPopover])
 
-    const [attaching, setAttaching] = useState<boolean>(false)
-
-    const attachFile = async (files: File[]): Promise<void> => {
-        const file = files[0]
-        if (!file || !onAttachFile || !ttEditor) {
-            return
-        }
-        setAttaching(true)
-        try {
-            const attachment = await onAttachFile(file)
+    const {
+        setFilesToUpload: setFilesToAttach,
+        filesToUpload: filesToAttach,
+        uploading: attaching,
+    } = useUploadFiles({
+        uploadFn: onAttachFile
+            ? async (file) => {
+                  const attachment = await onAttachFile(file)
+                  return { id: attachment.id, image_location: attachment.url, name: attachment.name }
+              }
+            : undefined,
+        onUpload: (url, fileName) => {
             // Same shape as files that arrive from Slack, Teams and email, so every channel renders it as a link.
             ttEditor
-                .chain()
+                ?.chain()
                 .focus()
                 .insertContent({
                     type: 'paragraph',
-                    content: [
-                        {
-                            type: 'text',
-                            text: attachment.name,
-                            marks: [{ type: 'link', attrs: { href: attachment.url } }],
-                        },
-                    ],
+                    content: [{ type: 'text', text: fileName, marks: [{ type: 'link', attrs: { href: url } }] }],
                 })
                 .run()
-            posthog.capture('support reply file attached', { content_type: file.type, size_bytes: file.size })
-        } catch (e: any) {
-            const detail = e?.detail || e?.message || 'Unknown error'
+            posthog.capture('support reply file attached')
+        },
+        onError: (detail) => {
             posthog.capture('support reply file attach failed', { error: detail })
             lemonToast.error(`Error attaching file: ${detail}`)
-        } finally {
-            setAttaching(false)
-        }
-    }
+        },
+    })
 
     // Notify parent of upload state changes
     useEffect(() => {
@@ -848,9 +843,9 @@ export function SupportEditor({
                             key="file-attach"
                             accept=""
                             multiple={false}
-                            onChange={(files) => void attachFile(files)}
+                            onChange={setFilesToAttach}
                             loading={attaching}
-                            value={[]}
+                            value={filesToAttach}
                             showUploadedFiles={false}
                             callToAction={
                                 <LemonButton

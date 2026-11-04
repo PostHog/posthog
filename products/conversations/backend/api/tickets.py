@@ -7,6 +7,8 @@ from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
+from django.conf import settings
+from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from django.db.models import Q, QuerySet, Sum
 from django.http import Http404
@@ -29,7 +31,7 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -106,7 +108,7 @@ from products.conversations.backend.services.attachments import (
     CONVERSATIONS_MAX_IMAGE_BYTES,
     resolve_attachment_content_type,
     sanitize_attachment_filename,
-    save_file_to_uploaded_media,
+    save_uploaded_media,
 )
 from products.conversations.backend.services.delivery import cancel_open_deliveries_for_ticket
 from products.conversations.backend.services.messages import ticket_message_type
@@ -264,7 +266,20 @@ class TicketReplyRequestSerializer(serializers.Serializer):
         return value
 
 
+class TicketAttachmentUploadRequestSerializer(serializers.Serializer):
+    file = serializers.FileField(allow_empty_file=False, help_text="File to attach.")
+
+    def validate_file(self, value: UploadedFile) -> UploadedFile:
+        if value.size is None or value.size > CONVERSATIONS_MAX_IMAGE_BYTES:
+            raise serializers.ValidationError(
+                f"Attachments must be under {CONVERSATIONS_MAX_IMAGE_BYTES // (1024 * 1024)} MiB.",
+                code="file_too_large",
+            )
+        return value
+
+
 class TicketAttachmentSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the stored file.")
     url = serializers.CharField(help_text="Public download URL of the stored file.")
     name = serializers.CharField(help_text="Sanitized file name.")
     content_type = serializers.CharField(
@@ -1824,38 +1839,37 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         ticket = self.get_object()
 
         if ticket.channel_source == Channel.WIDGET:
-            return Response(
-                {"detail": "Widget tickets do not accept file attachments.", "error_type": "channel_not_supported"},
-                status=drf_status.HTTP_400_BAD_REQUEST,
+            raise ValidationError(code="channel_not_supported", detail="Widget tickets do not accept file attachments.")
+        if not settings.OBJECT_STORAGE_ENABLED:
+            raise ValidationError(
+                code="object_storage_required", detail="Object storage must be available to attach files."
             )
 
-        file = request.FILES.get("file")
-        if file is None:
-            return Response({"detail": "A file is required."}, status=drf_status.HTTP_400_BAD_REQUEST)
-        if file.size is None or file.size > CONVERSATIONS_MAX_IMAGE_BYTES:
-            return Response(
-                {"detail": "Attachments must be under 20 MiB.", "error_type": "file_too_large"},
-                status=drf_status.HTTP_400_BAD_REQUEST,
-            )
+        serializer = TicketAttachmentUploadRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        file = serializer.validated_data["file"]
 
         content = file.read()
-        name = sanitize_attachment_filename(file.name)
+        # Validate before saving, so a disguised image gets a clear 400 rather than a storage error.
         content_type = resolve_attachment_content_type(content, file.content_type or "application/octet-stream")
         if content_type is None:
-            return Response(
-                {"detail": "The file is not a valid image.", "error_type": "invalid_image"},
-                status=drf_status.HTTP_400_BAD_REQUEST,
-            )
+            raise ValidationError(code="invalid_image", detail="The file is not a valid image.")
 
-        url = save_file_to_uploaded_media(self.team, name, content_type, content, validate_images=False)
-        if url is None:
-            return Response(
-                {"detail": "Could not store the file.", "error_type": "storage_failed"},
-                status=drf_status.HTTP_400_BAD_REQUEST,
-            )
+        uploaded_media = save_uploaded_media(
+            self.team, sanitize_attachment_filename(file.name), content_type, content, validate_images=False
+        )
+        if uploaded_media is None:
+            raise APIException("Could not store the file.")
 
         return Response(
-            TicketAttachmentSerializer({"url": url, "name": name, "content_type": content_type}).data,
+            TicketAttachmentSerializer(
+                {
+                    "id": uploaded_media.id,
+                    "url": uploaded_media.get_absolute_url(),
+                    "name": uploaded_media.file_name,
+                    "content_type": uploaded_media.content_type,
+                }
+            ).data,
             status=drf_status.HTTP_201_CREATED,
         )
 

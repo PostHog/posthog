@@ -3453,6 +3453,7 @@ class TestTicketAttachmentsAPI(APIBaseTest):
         media = UploadedMedia.objects.get(team=self.team, file_name=file_name)
         assert media.purpose == CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE
         assert media.content_type == expected_type
+        assert body["id"] == str(media.id)
         assert body["url"] == media.get_absolute_url()
 
     def test_upload_rejects_widget_ticket(self, _mock_save):
@@ -3470,14 +3471,14 @@ class TestTicketAttachmentsAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error_type"] == "channel_not_supported"
+        assert response.json()["code"] == "channel_not_supported"
         assert not UploadedMedia.objects.filter(team=self.team).exists()
 
     def test_upload_rejects_disguised_image(self, _mock_save):
         response = self._upload(SimpleUploadedFile("shot.png", b"<script>alert(1)</script>", "image/png"))
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error_type"] == "invalid_image"
+        assert response.json()["code"] == "invalid_image"
         assert not UploadedMedia.objects.filter(team=self.team).exists()
 
     def test_upload_rejects_large_file(self, _mock_save):
@@ -3485,7 +3486,16 @@ class TestTicketAttachmentsAPI(APIBaseTest):
             response = self._upload(SimpleUploadedFile("report.pdf", b"%PDF-1.4", "application/pdf"))
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error_type"] == "file_too_large"
+        assert response.json()["code"] == "file_too_large"
+
+    def test_upload_requires_object_storage(self, _mock_save):
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            response = self.client.post(
+                self.url, {"file": SimpleUploadedFile("report.pdf", b"%PDF-1.4", "application/pdf")}, format="multipart"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "object_storage_required"
 
     def test_upload_requires_file(self, _mock_save):
         with self.settings(OBJECT_STORAGE_ENABLED=True):
