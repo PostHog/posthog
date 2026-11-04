@@ -40,6 +40,7 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 from itertools import islice
 from typing import NamedTuple
+from zoneinfo import ZoneInfo
 
 from django.db import connections
 
@@ -490,6 +491,7 @@ class _TeamWarmPlan(NamedTuple):
     attribution_window_days: int
     filter_test_accounts: bool
     warm_costs: bool
+    timezone: ZoneInfo
     database: Database | None = None
 
     @property
@@ -533,6 +535,7 @@ def _plan_team(team: Team) -> _TeamWarmPlan | None:
             attribution_window_days=ma_config.attribution_window_days or DEFAULT_ATTRIBUTION_WINDOW_DAYS,
             filter_test_accounts=bool(ma_config.filter_test_accounts),
             warm_costs=bool(config.costs_precomputation_enabled and _team_has_cost_sources(team)),
+            timezone=team.timezone_info,
         )
     except Exception:
         MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="setup").inc()
@@ -555,7 +558,7 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
     # Reads span whole team-local days and step back in local wall-clock days, so warm the same bounds. A
     # UTC-based range misses the UTC day that a local day crosses into, and precompute-only reads then report
     # not-ready or fall back to live costs.
-    local_now = end.astimezone(team.timezone_info)
+    local_now = end.astimezone(plan.timezone)
     local_midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
     local_day_end = local_now.replace(hour=23, minute=59, second=59, microsecond=999999).astimezone(UTC)
 

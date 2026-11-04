@@ -448,11 +448,14 @@ class TestConversionWarming(APIBaseTest):
         for call in ensure_mock.call_args_list:
             assert (call.kwargs["time_range_end"] - call.kwargs["time_range_start"]).days <= 7
 
+    @parameterized.expand([("warm_error", False, 2), ("invalid_timezone", True, 1)])
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
-    def test_one_team_failure_does_not_poison_others(self, ensure_mock):
+    def test_one_team_failure_does_not_poison_others(self, _name, invalid_timezone, expected_calls, ensure_mock):
         t1 = self._make_team("A", goals=[_INELIGIBLE_GOAL])
         t2 = self._make_team("B", goals=[_INELIGIBLE_GOAL])
+        if invalid_timezone:
+            Team.objects.filter(pk=t1.pk).update(timezone="Not/AZone")
 
         def side_effect(*args, **kwargs):
             if kwargs["team"].pk == t1.pk:
@@ -467,7 +470,7 @@ class TestConversionWarming(APIBaseTest):
             result = warm_selected_teams(dagster.build_op_context())
         assert result["teams"] == 2
         assert result["failures"] == 1
-        assert ensure_mock.call_count == 2
+        assert ensure_mock.call_count == expected_calls
 
     @patch(_ENSURE)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
