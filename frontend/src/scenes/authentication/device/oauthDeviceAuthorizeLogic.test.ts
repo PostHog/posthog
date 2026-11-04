@@ -126,4 +126,29 @@ describe('oauthDeviceAuthorizeLogic', () => {
         expect(approvals).toEqual([{ user_code: 'BCDF-GHJK', project_id: 42 }])
         await expectLogic(logic).toMatchValues({ decision: 'authorized' })
     })
+
+    it('goes back to code entry when the code expired during review', async () => {
+        useMocks({
+            post: {
+                '/api/oauth_device/lookup/': () => [200, GRANT],
+                '/api/oauth_device/approve/': () => [
+                    400,
+                    { error: 'invalid_code', error_description: 'This code is wrong, expired or already used.' },
+                ],
+            },
+        })
+        const logic = oauthDeviceAuthorizeLogic()
+        logic.mount()
+        router.actions.push(urls.oauthDeviceAuthorize(), { code: 'bcdf-ghjk' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setProjectId(42)
+        logic.actions.approve()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic).toMatchValues({
+            deviceGrant: null,
+            error: 'This code is wrong, expired or already used.',
+        })
+    })
 })
