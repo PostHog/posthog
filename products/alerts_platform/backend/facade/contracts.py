@@ -1114,6 +1114,9 @@ class SourceAdmission(Protocol):
     """Decides whether a team may add an alert of the kind, or change one in a way its plan limits,
     such as turning it on. `current` is None for a create.
 
+    `check_interval_minutes` is the alert's stored cadence on an edit, and the kind's fixed cadence on
+    a native create. It is None on a create through the source, which sets the cadence itself.
+
     It runs in the write's transaction, after the platform takes a lock for the team and kind, so two
     concurrent writes cannot both pass a count. It raises `PlatformAlertCreateRefused` to refuse a
     create and `InvalidPlatformAlertEdit` to refuse an edit.
@@ -1125,6 +1128,7 @@ class SourceAdmission(Protocol):
         team_id: int,
         current: PlatformAlertConfigurationEdit | None,
         edit: PlatformAlertConfigurationEdit,
+        check_interval_minutes: int | None,
     ) -> None: ...
 
 

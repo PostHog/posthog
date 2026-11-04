@@ -132,13 +132,14 @@ def _admit(
     source_kind: SourceKind,
     current: PlatformAlertConfigurationEdit | None,
     edit: PlatformAlertConfigurationEdit,
+    check_interval_minutes: int | None,
 ) -> None:
     """Runs the source's admission for a write, in the caller's transaction."""
     spec = source_configs.spec(source_kind)
     if spec is None or spec.admit is None:
         return
     hold_admission_lock(team_id, source_kind)
-    spec.admit(team_id=team_id, current=current, edit=edit)
+    spec.admit(team_id=team_id, current=current, edit=edit, check_interval_minutes=check_interval_minutes)
 
 
 def update_configuration(
@@ -198,7 +199,7 @@ def create_configuration(
     validated = _validated(source_kind, None, edit, team_id=team_id)
     if spec.native is not None:
         with transaction.atomic():
-            _admit(team_id, source_kind, None, validated)
+            _admit(team_id, source_kind, None, validated, spec.native.check_interval_minutes)
             configuration = platform_lifecycle.create_native_configuration(
                 team_id=team_id,
                 source_kind=source_kind,
@@ -228,7 +229,7 @@ def _create_through_source(
     created_by_id: int | None,
 ) -> PlatformAlertConfiguration:
     with transaction.atomic():
-        _admit(team_id, source_kind, None, validated)
+        _admit(team_id, source_kind, None, validated, None)
         legacy_configuration_id = create(team_id=team_id, edit=validated, created_by_id=created_by_id)
         configuration = _locked_owned_copy(team_id, legacy_configuration_id)
         if configuration is None:
@@ -458,7 +459,7 @@ def _apply(
     current = edit_of(configuration)
     edit = _validated(source_kind, current, change(current), team_id=configuration.team_id)
     if admit:
-        _admit(configuration.team_id, source_kind, current, edit)
+        _admit(configuration.team_id, source_kind, current, edit, configuration.check_interval_minutes)
 
     regrouped = not edit.grouping.splits_like(current.grouping)
     ending = control_plane.ending_reason(current, edit, regrouped=regrouped, snoozing=snoozing)
