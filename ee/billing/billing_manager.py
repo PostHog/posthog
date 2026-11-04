@@ -40,7 +40,7 @@ from posthog.models.user import User
 from ee.billing.access_token import mint_billing_access_token
 from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo
 from ee.billing.grants import EffectiveBillingGrants
-from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
+from ee.billing.quota_limiting import BILLING_STATUS_STAMP_KEYS, set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
@@ -745,14 +745,6 @@ class BillingManager:
             )
             return organization
 
-        billing_status_stamps = (
-            {
-                "billing_status_computed_at": computed_at.isoformat(),
-                "billing_latest_usage_report_date": billing_status.get("latest_usage_report_date"),
-            }
-            if computed_at is not None
-            else None
-        )
         org_modified = False
 
         data = billing_status["customer"]
@@ -796,9 +788,11 @@ class BillingManager:
             )
 
             had_quota_limiting_markers = _has_quota_limiting_markers(organization.usage)
-            usage_changed = set_org_usage_summary(
-                organization, new_usage=usage_info, billing_status_stamps=billing_status_stamps
-            )
+            usage_changed = set_org_usage_summary(organization, new_usage=usage_info)
+            if usage_changed and computed_at is None and organization.usage is not None:
+                # The stored stamps describe an older total, so the quota check must not pair them with this one.
+                for key in BILLING_STATUS_STAMP_KEYS:
+                    cast(dict, organization.usage).pop(key, None)
 
             if usage_changed:
                 org_modified = True
@@ -866,8 +860,9 @@ class BillingManager:
         # The stamp goes out only with a save that a change already needs. A save for the stamp
         # alone writes this in-memory copy back over counters and quota markers that the quota
         # run wrote in the meantime.
-        if org_modified and billing_status_stamps is not None and organization.usage is not None:
-            cast(dict, organization.usage).update(billing_status_stamps)
+        if org_modified and computed_at is not None and organization.usage is not None:
+            organization.usage["billing_status_computed_at"] = computed_at.isoformat()
+            organization.usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
 
         if org_modified:
             organization.save()

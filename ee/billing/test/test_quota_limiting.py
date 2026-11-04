@@ -29,7 +29,7 @@ from ee.billing.quota_limiting import (
     BILLING_STATUS_STAMP_KEYS,
     INFORMATIONAL_USAGE_RESOURCES,
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
-    YESTERDAYS_COUNTS_KEY_PREFIX,
+    YESTERDAY_FINISHED_KEY_PREFIX,
     OrganizationUsageInfo,
     QuotaLimitingCaches,
     QuotaLimitingRunResult,
@@ -87,7 +87,7 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/mcp_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/cdp_trigger_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/ai_credits")
-        for key in self.redis_client.scan_iter(f"{YESTERDAYS_COUNTS_KEY_PREFIX}*"):
+        for key in self.redis_client.scan_iter(f"{YESTERDAY_FINISHED_KEY_PREFIX}*"):
             self.redis_client.delete(key)
         materialize("events", "$exception_values")
 
@@ -177,7 +177,6 @@ class TestQuotaLimiting(BaseTest):
 
         self.organization.refresh_from_db()
         assert self.organization.usage["events"]["todays_usage"] == 1
-        assert self.organization.usage["events"]["todays_usage_date"] == "2026-11-01"
         update_org_billing_quotas(self.organization)
         assert self.redis_client.zrange("@posthog/quota-limits/events", 0, -1) == ([token] if expect_limited else [])
         today, yesterday = datetime.date(2026, 11, 1), datetime.date(2026, 10, 31)
@@ -535,7 +534,7 @@ class TestQuotaLimiting(BaseTest):
                     "usage": 99,
                     "limit": 100,
                     "todays_usage": 10,
-                    "todays_usage_date": "2021-01-25",
+                    "daily_usage": {"2021-01-25": 10},
                     "quota_limited_until": 1612137599,
                 }
             )
@@ -594,7 +593,7 @@ class TestQuotaLimiting(BaseTest):
                     "usage": 99,
                     "limit": 100,
                     "todays_usage": 10,
-                    "todays_usage_date": "2021-01-25",
+                    "daily_usage": {"2021-01-25": 10},
                     "quota_limiting_suspended_until": 1611705600,
                 }
             )
@@ -613,13 +612,7 @@ class TestQuotaLimiting(BaseTest):
             assert_other_resources_not_limited(result.quota_limited_orgs, result.quota_limiting_suspended_orgs)
 
             assert self.organization.usage == create_usage_summary(
-                events={
-                    "usage": 109,
-                    "limit": 100,
-                    "todays_usage": 0,
-                    "todays_usage_date": "2021-01-27",
-                    "quota_limited_until": 1612137599,
-                }
+                events={"usage": 109, "limit": 100, "todays_usage": 0, "quota_limited_until": 1612137599}
             )
 
             assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == []
@@ -2696,6 +2689,7 @@ class TestIdentifyRefreshCandidates(SimpleTestCase):
                 {
                     "events": {"usage": 900, "limit": 1_000, "todays_usage": 0},
                     "period": _PERIOD,
+                    "billing_latest_usage_report_date": "2021-01-13",
                 },
                 _full_usage_counters(events=50),
                 [],
@@ -2898,7 +2892,7 @@ class TestIdentifyRefreshCandidates(SimpleTestCase):
         previously_limited_overrides: dict[str, list[str]],
         previously_suspended_overrides: dict[str, list[str]],
         expected_candidate: bool,
-        yesterdays_counts: dict[str, int] | None = None,
+        finished_yesterday: dict[str, int] | None = None,
     ) -> None:
         org = _fake_org(usage=usage)
         org_id = str(org.id)
@@ -2917,7 +2911,8 @@ class TestIdentifyRefreshCandidates(SimpleTestCase):
             teams_by_org,
             previously_limited,
             previously_suspended,
-            yesterdays_counts_by_org={org_id: yesterdays_counts or {}},
+            today=_PATCH_DAY,
+            finished_yesterday_by_org=None if finished_yesterday is None else {org_id: finished_yesterday},
         )
 
         assert candidates == ({org_id} if expected_candidate else set())
@@ -2933,7 +2928,9 @@ class TestPatchTodaysUsage(BaseTest):
         self.organization.usage = None
         self.organization.save()
 
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=42), day=_PATCH_DAY)
+        changed = _patch_todays_usage(
+            self.organization, _full_usage_counters(events=42), today=_PATCH_DAY, finished_yesterday=None
+        )
 
         assert changed is False
 
@@ -2963,8 +2960,8 @@ class TestPatchTodaysUsage(BaseTest):
             sandbox_compute_memory_mib_seconds=7_654_321_098,
         )
 
-        assert _patch_todays_usage(self.organization, todays_usage, day=_PATCH_DAY) is True
-        assert _patch_todays_usage(self.organization, todays_usage, day=_PATCH_DAY) is False
+        assert _patch_todays_usage(self.organization, todays_usage, today=_PATCH_DAY, finished_yesterday=None) is True
+        assert _patch_todays_usage(self.organization, todays_usage, today=_PATCH_DAY, finished_yesterday=None) is False
 
         self.organization.refresh_from_db()
         assert self.organization.usage["posthog_code_credits"]["todays_usage"] == 15
@@ -3036,19 +3033,43 @@ class TestPatchTodaysUsage(BaseTest):
         self.organization.usage = {"period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"]}
         self.organization.save()
 
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=42), day=_PATCH_DAY)
+        changed = _patch_todays_usage(
+            self.organization, _full_usage_counters(events=42), today=_PATCH_DAY, finished_yesterday=None
+        )
 
         assert changed is False
 
+    @parameterized.expand(
+        [
+            ("first_run_of_the_day", {"2021-01-14": 9}, {"events": 12}),
+            ("later_run", {"2021-01-13": 3, "2021-01-14": 12, "2021-01-15": 2}, None),
+        ]
+    )
+    def test_daily_usage_holds_yesterday_and_today(self, _name, stored, finished_yesterday) -> None:
+        self.organization.usage = {
+            "events": {"usage": 100, "limit": 1_000, "todays_usage": 2, "daily_usage": stored},
+            "period": _PERIOD,
+        }
+        self.organization.save()
+
+        _patch_todays_usage(
+            self.organization, _full_usage_counters(events=4), today=_PATCH_DAY, finished_yesterday=finished_yesterday
+        )
+
+        self.organization.refresh_from_db()
+        assert self.organization.usage["events"]["daily_usage"] == {"2021-01-14": 12, "2021-01-15": 4}
+
     def test_returns_false_when_value_is_unchanged(self) -> None:
         self.organization.usage = {
-            "events": {"usage": 100, "limit": 1_000, "todays_usage": 7},
+            "events": {"usage": 100, "limit": 1_000, "todays_usage": 7, "daily_usage": {"2021-01-15": 7}},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
         }
         self.organization.save()
         before_updated_at = self.organization.updated_at
 
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=7), day=_PATCH_DAY)
+        changed = _patch_todays_usage(
+            self.organization, _full_usage_counters(events=7), today=_PATCH_DAY, finished_yesterday=None
+        )
 
         assert changed is False
         # No SQL UPDATE means `updated_at` should not move.
@@ -3066,11 +3087,14 @@ class TestPatchTodaysUsage(BaseTest):
         }
         self.organization.save()
 
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=0), day=_PATCH_DAY)
+        changed = _patch_todays_usage(
+            self.organization, _full_usage_counters(events=0), today=_PATCH_DAY, finished_yesterday=None
+        )
 
         assert changed is True
         self.organization.refresh_from_db()
         assert self.organization.usage["events"]["todays_usage"] == 0
+        assert "daily_usage" not in self.organization.usage["events"]
         # Sibling fields untouched.
         assert self.organization.usage["events"]["usage"] == 100
         assert self.organization.usage["events"]["limit"] == 1_000
@@ -3085,7 +3109,9 @@ class TestPatchTodaysUsage(BaseTest):
         before_updated_at = self.organization.updated_at
 
         # Only `events` changes; `recordings` stays identical.
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=42, recordings=5), day=_PATCH_DAY)
+        changed = _patch_todays_usage(
+            self.organization, _full_usage_counters(events=42, recordings=5), today=_PATCH_DAY, finished_yesterday=None
+        )
 
         assert changed is True
         # In-memory mirror reflects the change.
@@ -3124,7 +3150,9 @@ class TestPatchTodaysUsage(BaseTest):
 
         # The stale in-memory org still believes limit=1000; the targeted patch must
         # only touch `usage[events][todays_usage]` and leave billing-owned fields alone.
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=99), day=_PATCH_DAY, batch=batch)
+        changed = _patch_todays_usage(
+            self.organization, _full_usage_counters(events=99), today=_PATCH_DAY, finished_yesterday=None, batch=batch
+        )
         if batch is not None:
             batch.write()
 
@@ -3460,13 +3488,21 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
             == expected_timestamp
         )
 
+    @parameterized.expand([("without_stamp", False), ("with_stamp", True)])
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=False)
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_refresh_patches_todays_usage_and_flips_the_limiter(self, _feature_enabled, _capture) -> None:
+    def test_refresh_patches_todays_usage_and_flips_the_limiter(
+        self, _name, stamped, _feature_enabled, _capture
+    ) -> None:
         # The event-driven path exists because the cron-patched todays_usage predates the PR that
         # just landed: a stale value here means the flag doesn't flip until the next cron tick.
         self._set_self_driving_usage(3000, todays_usage=0)
+        if stamped:
+            assert self.organization.usage is not None
+            self.organization.usage["billing_latest_usage_report_date"] = "2026-06-14"
+            self.organization.usage["signals_credits"]["daily_usage"] = {}
+            self.organization.save()
         with patch(
             "ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=1500
         ) as live_mock:

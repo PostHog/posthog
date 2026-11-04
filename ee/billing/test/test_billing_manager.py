@@ -44,6 +44,7 @@ from ee.billing.billing_manager import (
     http_session,
 )
 from ee.billing.billing_types import BillingProvider, BillingStatus, Product
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 from ee.models.license import License, LicenseManager
 
 
@@ -969,12 +970,17 @@ class TestBillingManager(BaseTest):
         assert organization.has_active_subscription is expected
 
     def _billing_status(
-        self, computed_at: str | None, events_usage: int, latest_usage_report_date: str | None = "2026-08-02"
+        self,
+        computed_at: str | None,
+        events_usage: int,
+        *,
+        events_limit: int | None = None,
+        latest_usage_report_date: str = "2026-08-02",
     ) -> BillingStatus:
         billing_status: dict[str, Any] = {
             "customer": {
                 "usage_summary": {
-                    "events": {"usage": events_usage, "limit": None},
+                    "events": {"usage": events_usage, "limit": events_limit},
                     "recordings": {"usage": 0, "limit": None},
                 },
                 "billing_period": {
@@ -988,12 +994,38 @@ class TestBillingManager(BaseTest):
             billing_status["latest_usage_report_date"] = latest_usage_report_date
         return cast(BillingStatus, billing_status)
 
+    @time_machine.travel("2026-08-03T04:00:00Z", tick=False)
+    def test_status_after_a_report_keeps_todays_count_in_the_quota_check(self):
+        self.organization.usage = {
+            "events": {
+                "usage": 500,
+                "limit": 1000,
+                "todays_usage": 400,
+                "daily_usage": {"2026-08-02": 200, "2026-08-03": 400},
+            },
+            "recordings": {"usage": 0, "limit": None, "todays_usage": 0},
+            "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
+            "billing_status_computed_at": "2026-08-02T04:00:00+00:00",
+            "billing_latest_usage_report_date": "2026-08-01",
+        }
+        self.organization.save()
+
+        # Billing's total now includes 2026-08-02, but not today.
+        BillingManager(license=None).update_org_details(
+            self.organization,
+            self._billing_status("2026-08-03T04:00:00Z", events_usage=700, events_limit=1000),
+        )
+
+        assert self.team.api_token in list_limited_team_attributes(
+            QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
     @parameterized.expand(
         [
             ("newer_status_applies", "2026-08-03T00:00:00Z", 1000, "2026-08-03T00:00:00+00:00", "2026-08-02"),
             ("redelivered_status_applies", "2026-08-02T00:00:00Z", 1000, "2026-08-02T00:00:00+00:00", "2026-08-02"),
             ("older_status_is_skipped", "2026-08-01T00:00:00Z", 500, "2026-08-02T00:00:00+00:00", None),
-            ("status_without_stamp_applies", None, 1000, "2026-08-02T00:00:00+00:00", None),
+            ("status_without_stamp_applies_and_drops_the_stamps", None, 1000, None, None),
         ]
     )
     def test_update_org_details_skips_a_status_older_than_the_last_applied(
@@ -1015,43 +1047,8 @@ class TestBillingManager(BaseTest):
         organization.refresh_from_db()
         assert organization.usage is not None
         assert organization.usage["events"]["usage"] == expected_events_usage
-        assert organization.usage["billing_status_computed_at"] == expected_computed_at
+        assert organization.usage.get("billing_status_computed_at") == expected_computed_at
         assert organization.usage.get("billing_latest_usage_report_date") == expected_report_date
-
-    @parameterized.expand(
-        [
-            ("total_lacks_the_counted_day", "2026-08-03T04:00:00Z", "2026-08-02", "2026-08-03", 25),
-            ("total_has_the_counted_day", "2026-08-03T04:00:00Z", "2026-08-03", "2026-08-03", 0),
-            ("status_without_stamp", None, None, "2026-08-03", 0),
-            ("todays_usage_without_date", "2026-08-03T04:00:00Z", "2026-08-02", None, 0),
-        ]
-    )
-    def test_update_org_details_keeps_todays_usage_that_billings_new_total_lacks(
-        self, _name, status_computed_at, latest_usage_report_date, todays_usage_date, expected_todays_usage
-    ):
-        events: dict[str, Any] = {"usage": 500, "limit": None, "todays_usage": 25}
-        if todays_usage_date:
-            events["todays_usage_date"] = todays_usage_date
-        self.organization.usage = {
-            "events": events,
-            "recordings": {"usage": 0, "limit": None, "todays_usage": 0},
-            "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
-            "billing_status_computed_at": "2026-08-02T00:00:00+00:00",
-        }
-        self.organization.save()
-
-        with patch("ee.billing.billing_manager.update_org_billing_quotas"):
-            BillingManager(license=None).update_org_details(
-                self.organization,
-                self._billing_status(
-                    status_computed_at, events_usage=1000, latest_usage_report_date=latest_usage_report_date
-                ),
-            )
-
-        self.organization.refresh_from_db()
-        assert self.organization.usage is not None
-        assert self.organization.usage["events"]["usage"] == 1000
-        assert self.organization.usage["events"]["todays_usage"] == expected_todays_usage
 
     def test_update_org_details_writes_nothing_for_a_status_that_changes_only_the_stamp(self):
         manager = BillingManager(license=None)

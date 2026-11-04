@@ -168,12 +168,11 @@ INFORMATIONAL_USAGE_RESOURCES = (
     "sandbox_compute_memory_mib_seconds",
 )
 BILLING_STATUS_STAMP_KEYS = ("billing_status_computed_at", "billing_latest_usage_report_date")
-# Stored in each resource next to todays_usage: the day that todays_usage counts.
-TODAYS_USAGE_DATE_FIELD = "todays_usage_date"
-YESTERDAYS_COUNTS_KEY_PREFIX = "@posthog/quota-limits-yesterdays-counts/"
-# A quota run sets this field after it stores the counts for every organization that needs them.
-YESTERDAYS_COUNTS_COMPLETE_FIELD = "complete"
-YESTERDAYS_COUNTS_TTL = timedelta(days=2)
+# PostHog's counts for one quota resource, keyed by UTC date. Only the quota run and the signals refresh write it.
+DAILY_USAGE_FIELD = "daily_usage"
+# The quota run that writes yesterday's finished counts into `daily_usage` sets this key for that day.
+YESTERDAY_FINISHED_KEY_PREFIX = "@posthog/quota-limits-yesterday-finished/"
+YESTERDAY_FINISHED_TTL = timedelta(days=2)
 # -------------------------------------------------------------------------------------------------
 # REDIS FUNCTIONS
 # -------------------------------------------------------------------------------------------------
@@ -451,13 +450,50 @@ def _period_timestamp(value: str) -> int:
     return round(dateutil.parser.isoparse(value).timestamp())
 
 
+def _quota_usage(organization_usage: Mapping[str, Any], resource_usage: Mapping[str, Any]) -> int:
+    """
+    Billing's total plus PostHog's counts for the days that the total does not include.
+
+    Billing's total covers its billing period through `billing_latest_usage_report_date`, and no day
+    when that date is None. Without the stamp, or before a quota run stores `daily_usage`, PostHog
+    cannot tell which days the total covers, so the result is billing's total plus `todays_usage`.
+    """
+    billing_total = resource_usage.get("usage") or 0
+    daily_usage = resource_usage.get(DAILY_USAGE_FIELD)
+    period = organization_usage.get("period")
+    if "billing_latest_usage_report_date" not in organization_usage or daily_usage is None or not period:
+        return billing_total + (resource_usage.get("todays_usage") or 0)
+    first_lacking_day = dateutil.parser.isoparse(period[0]).date()
+    latest_report_date = organization_usage["billing_latest_usage_report_date"]
+    if latest_report_date is not None:
+        first_lacking_day = max(
+            first_lacking_day, dateutil.parser.isoparse(latest_report_date).date() + timedelta(days=1)
+        )
+    return billing_total + sum(
+        count for day, count in daily_usage.items() if date.fromisoformat(day) >= first_lacking_day
+    )
+
+
+def _daily_usage(
+    stored: Mapping[str, int] | None, *, today: date, todays_count: int, yesterdays_count: int | None
+) -> dict[str, int]:
+    """
+    Today's count and yesterday's count, keyed by date.
+
+    Without a finished count for yesterday, the stored count for yesterday stays.
+    """
+    yesterday = (today - timedelta(days=1)).isoformat()
+    if yesterdays_count is None:
+        yesterdays_count = (stored or {}).get(yesterday, 0)
+    return {day: count for day, count in ((yesterday, yesterdays_count), (today.isoformat(), todays_count)) if count}
+
+
 def org_quota_limited_until(
     organization: Organization,
     resource: QuotaResource,
     previously_quota_limited_team_tokens: Collection[str],
     team_tokens: Sequence[str] | None = None,
     *,
-    yesterdays_usage: int = 0,
     batch: QuotaUsageBatch | None = None,
 ) -> Optional[OrgQuotaLimitingInformation]:
     report_action = batch.report_action if batch is not None else report_organization_action
@@ -467,9 +503,7 @@ def org_quota_limited_until(
     summary = organization.usage.get(resource.value, {})
     if not summary:
         return None
-    usage = summary.get("usage") or 0
-    todays_usage = summary.get("todays_usage") or 0
-    current_usage = usage + todays_usage + yesterdays_usage
+    current_usage = _quota_usage(organization.usage, summary)
     limit = summary.get("limit")
     quota_limited_until = summary.get("quota_limited_until", None)
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
@@ -869,31 +903,6 @@ def invalidate_llm_gateway_quota_cache(team_ids: Iterable[int]) -> None:
         capture_exception(e)
 
 
-def _billing_total_lacks_day(usage: Mapping[str, Any] | None, day: date) -> bool:
-    # Without the stamp PostHog cannot tell which days billing's total covers, so the decision
-    # stays on billing's total and today's count.
-    if not usage or "billing_latest_usage_report_date" not in usage:
-        return False
-    period = usage.get("period")
-    # Billing's total covers the current billing period only.
-    if not period or day < dateutil.parser.isoparse(period[0]).date():
-        return False
-    latest_report_date = usage["billing_latest_usage_report_date"]
-    return latest_report_date is None or dateutil.parser.isoparse(latest_report_date).date() < day
-
-
-def _yesterdays_counts_key(day: date) -> str:
-    return f"{YESTERDAYS_COUNTS_KEY_PREFIX}{day.isoformat()}"
-
-
-def _get_yesterdays_counts(organization: Organization) -> dict[str, int]:
-    yesterday = get_previous_day().start.date()
-    if not _billing_total_lacks_day(organization.usage, yesterday):
-        return {}
-    counts = get_client().hget(_yesterdays_counts_key(yesterday), str(organization.id))
-    return json.loads(counts) if counts else {}
-
-
 def update_org_billing_quotas(organization: Organization):
     """
     This method is basically update_all_orgs_billing_quotas but for a single org. It's called more often
@@ -910,7 +919,6 @@ def update_org_billing_quotas(organization: Organization):
     if not team_attributes:
         logger.debug("quota_limiting_no_team_tokens", organization_id=str(organization.id))
     team_attributes_set: set[str] = set(team_attributes)
-    yesterdays_counts = _get_yesterdays_counts(organization)
     prev_recordings_zset_tokens: set[str] = _get_previous_recordings_zset_tokens() & team_attributes_set
     recordings_transitioned_team_ids: set[int] = set()
 
@@ -927,7 +935,6 @@ def update_org_billing_quotas(organization: Organization):
             resource,
             previously_quota_limited_team_tokens,
             team_attributes,
-            yesterdays_usage=yesterdays_counts.get(resource.value, 0),
         )
 
         if resource == QuotaResource.RECORDINGS:
@@ -978,9 +985,9 @@ def refresh_org_self_driving_quota(organization_id: str) -> None:
     backstop for orgs that cross the limit without a PR event.
 
     Concurrent refreshes for one org (two PRs landing close together) are serialized on the org
-    row, and this path only ever raises `todays_usage`: it fires exclusively because a PR landed,
-    so a slower refresh that counted usage before a newer PR must not overwrite the fresher value
-    and momentarily unpause the org. Decreases (refunds, cron corrections) stay the cron's job.
+    row, and this path only ever raises `todays_usage` and today's count in `daily_usage`: it fires
+    exclusively because a PR landed, so a slower refresh that counted usage before a newer PR must
+    not overwrite the fresher value and momentarily unpause the org. Decreases (refunds, cron corrections) stay the cron's job.
 
     Scope caveat: the recount covers today's UTC window keyed on the implementation run's
     `created_at`, so a PR recorded after midnight by a run created before midnight falls in
@@ -1008,45 +1015,29 @@ def refresh_org_self_driving_quota(organization_id: str) -> None:
         resource_usage = (organization.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value)
         if not resource_usage:
             return
+        ops: list[tuple[list[str], Any]] = []
         if todays_credits > (resource_usage.get("todays_usage") or 0):
             resource_usage["todays_usage"] = todays_credits
-            _patch_organization_usage_jsonb(
-                organization, [([QuotaResource.SIGNALS_CREDITS.value, "todays_usage"], todays_credits)]
+            ops.append(([QuotaResource.SIGNALS_CREDITS.value, "todays_usage"], todays_credits))
+        stored_daily_usage = resource_usage.get(DAILY_USAGE_FIELD)
+        today = period.start.date()
+        if stored_daily_usage is not None and todays_credits > stored_daily_usage.get(today.isoformat(), 0):
+            daily_usage = _daily_usage(
+                stored_daily_usage, today=today, todays_count=todays_credits, yesterdays_count=None
             )
+            resource_usage[DAILY_USAGE_FIELD] = daily_usage
+            ops.append(([QuotaResource.SIGNALS_CREDITS.value, DAILY_USAGE_FIELD], daily_usage))
+        _patch_organization_usage_jsonb(organization, ops)
     # Evaluate from the freshest committed usage, not this task's snapshot: a newer concurrent
     # refresh may have written a higher value while we held or waited on the lock.
     organization.refresh_from_db(fields=["usage"])
     update_org_billing_quotas(organization)
 
 
-def _carry_over_todays_usage(
-    original_field_usage: Mapping[str, Any] | None,
-    resource_usage: dict[str, Any],
-    billing_usage: Mapping[str, Any] | None,
-) -> None:
-    stored = original_field_usage or {}
-    todays_usage_date = stored.get(TODAYS_USAGE_DATE_FIELD)
-    # A changed total can include the day that todays_usage counts. The count resets unless
-    # the billing status shows that the new total lacks that day.
-    billing_total_lacks_todays_usage = (
-        billing_usage is not None
-        and isinstance(todays_usage_date, str)
-        and _billing_total_lacks_day(billing_usage, date.fromisoformat(todays_usage_date))
-    )
-    if stored.get("usage") != resource_usage.get("usage") and not billing_total_lacks_todays_usage:
-        resource_usage["todays_usage"] = 0
-        return
-    resource_usage["todays_usage"] = stored.get("todays_usage", 0)
-    if todays_usage_date:
-        resource_usage[TODAYS_USAGE_DATE_FIELD] = todays_usage_date
-
-
 def set_org_usage_summary(
     organization: Organization,
     new_usage: Optional[OrganizationUsageInfo] = None,
     todays_usage: Optional[UsageCounters] = None,
-    *,
-    billing_status_stamps: Mapping[str, str | None] | None = None,
 ) -> bool:
     # TRICKY: We don't want to overwrite the "todays_usage" value unless the usage from the billing service is different than what we have locally.
     # Also we want to return if anything changed so that the caller can update redis
@@ -1060,7 +1051,6 @@ def set_org_usage_summary(
         return False
 
     new_usage = copy.deepcopy(new_usage)
-    billing_usage = {**cast(dict, new_usage), **billing_status_stamps} if billing_status_stamps is not None else None
 
     for resource in QuotaResource:
         field = resource.value
@@ -1083,13 +1073,22 @@ def set_org_usage_summary(
             and "quota_limiting_suspended_until" not in resource_usage
         ):
             resource_usage["quota_limiting_suspended_until"] = original_field_usage["quota_limiting_suspended_until"]
+        # Billing's summary never carries daily_usage, so a billing status keeps PostHog's counts.
+        if original_field_usage and DAILY_USAGE_FIELD in original_field_usage:
+            resource_usage[DAILY_USAGE_FIELD] = original_field_usage[DAILY_USAGE_FIELD]
 
         if todays_usage:
             resource_usage["todays_usage"] = todays_usage.get(field, 0)
         else:
-            _carry_over_todays_usage(original_field_usage, resource_usage, billing_usage)
+            # TRICKY: If we are not explicitly setting todays_usage, we want to reset it to 0 IF the incoming new_usage is different
+            original_usage_value = original_field_usage.get("usage") if original_field_usage else None
+            if original_usage_value != resource_usage.get("usage"):
+                resource_usage["todays_usage"] = 0
+            else:
+                todays_usage_value = original_field_usage.get("todays_usage", 0) if original_field_usage else 0
+                resource_usage["todays_usage"] = todays_usage_value
 
-    _merge_informational_usage_summary(cast(dict, new_usage), original_usage, todays_usage, billing_usage)
+    _merge_informational_usage_summary(cast(dict, new_usage), original_usage, todays_usage)
 
     # update_org_details writes these after this comparison, so keep the stored values here.
     for key in BILLING_STATUS_STAMP_KEYS:
@@ -1103,10 +1102,7 @@ def set_org_usage_summary(
 
 
 def _merge_informational_usage_summary(
-    new_usage: dict[str, Any],
-    original_usage: dict[str, Any],
-    todays_usage: Optional[UsageCounters],
-    billing_usage: Mapping[str, Any] | None,
+    new_usage: dict[str, Any], original_usage: dict[str, Any], todays_usage: Optional[UsageCounters]
 ) -> None:
     for field in INFORMATIONAL_USAGE_RESOURCES:
         original_field_usage = original_usage.get(field, {})
@@ -1124,8 +1120,10 @@ def _merge_informational_usage_summary(
 
         if todays_usage:
             resource_usage["todays_usage"] = todays_usage.get(field, 0)
+        elif original_field_usage.get("usage") != resource_usage.get("usage"):
+            resource_usage["todays_usage"] = 0
         else:
-            _carry_over_todays_usage(original_field_usage, resource_usage, billing_usage)
+            resource_usage["todays_usage"] = original_field_usage.get("todays_usage", 0)
 
 
 def _patch_organization_usage_jsonb(
@@ -1169,7 +1167,8 @@ def _patch_todays_usage(
     organization: Organization,
     todays_report: "UsageCounters",
     *,
-    day: date,
+    today: date,
+    finished_yesterday: Mapping[str, int] | None,
     batch: QuotaUsageBatch | None = None,
 ) -> bool:
     """
@@ -1179,8 +1178,9 @@ def _patch_todays_usage(
     (`usage`, `limit`, `period`) are not clobbered by stale snapshots. Returns True if
     any value changed.
 
-    Each patched resource also stores `day`, the day that `todays_report` counts. A billing
-    sync reads it to decide whether billing's new total already includes `todays_usage`.
+    The same UPDATE stores `daily_usage` for each quota resource: today's count, and yesterday's
+    count under yesterday's date. The first run of each day passes yesterday's finished counts in
+    `finished_yesterday`. Later runs pass None and keep the stored count for yesterday.
     """
     if not organization.usage:
         return False
@@ -1188,9 +1188,18 @@ def _patch_todays_usage(
     ops: list[tuple[list[str], Any]] = []
 
     for resource in QuotaResource:
-        _append_todays_usage_patch(organization, todays_report, resource.value, ops, day.isoformat())
+        _append_todays_usage_patch(organization, todays_report, resource.value, ops)
+        yesterdays_count = None if finished_yesterday is None else finished_yesterday.get(resource.value, 0)
+        _append_daily_usage_patch(
+            organization,
+            resource.value,
+            ops,
+            today=today,
+            todays_count=cast(dict[str, int], todays_report)[resource.value],
+            yesterdays_count=yesterdays_count,
+        )
     for field in INFORMATIONAL_USAGE_RESOURCES:
-        _append_todays_usage_patch(organization, todays_report, field, ops, day.isoformat())
+        _append_todays_usage_patch(organization, todays_report, field, ops)
 
     if not ops:
         return False
@@ -1204,7 +1213,6 @@ def _append_todays_usage_patch(
     todays_report: UsageCounters,
     field: str,
     ops: list[tuple[list[str], Any]],
-    day: str,
 ) -> None:
     existing_resource = organization.usage.get(field) if organization.usage else None
     if not existing_resource:
@@ -1216,9 +1224,29 @@ def _append_todays_usage_patch(
 
     existing_resource["todays_usage"] = new_todays_usage
     ops.append(([field, "todays_usage"], new_todays_usage))
-    if existing_resource.get(TODAYS_USAGE_DATE_FIELD) != day:
-        existing_resource[TODAYS_USAGE_DATE_FIELD] = day
-        ops.append(([field, TODAYS_USAGE_DATE_FIELD], day))
+
+
+def _append_daily_usage_patch(
+    organization: Organization,
+    field: str,
+    ops: list[tuple[list[str], Any]],
+    *,
+    today: date,
+    todays_count: int,
+    yesterdays_count: int | None,
+) -> None:
+    existing_resource = organization.usage.get(field) if organization.usage else None
+    if not existing_resource:
+        return
+
+    stored = existing_resource.get(DAILY_USAGE_FIELD)
+    daily_usage = _daily_usage(stored, today=today, todays_count=todays_count, yesterdays_count=yesterdays_count)
+    # A missing daily_usage and an empty one give the same quota usage, so an idle organization gets no write.
+    if daily_usage == (stored if stored is not None else {}):
+        return
+
+    existing_resource[DAILY_USAGE_FIELD] = daily_usage
+    ops.append(([field, DAILY_USAGE_FIELD], daily_usage))
 
 
 def _identify_refresh_candidates(
@@ -1228,8 +1256,9 @@ def _identify_refresh_candidates(
     previously_quota_limited_team_tokens: dict[str, list[str]],
     previously_quota_limiting_suspended_team_tokens: dict[str, list[str]],
     *,
+    today: date,
+    finished_yesterday_by_org: Mapping[str, Mapping[str, int]] | None,
     redis_indicator_lookup: dict[str, set[str]] | None = None,
-    yesterdays_counts_by_org: Mapping[str, Mapping[str, int]] | None = None,
 ) -> set[str]:
     """
     Returns the set of org ids whose quota decision could change in this run, computed
@@ -1242,8 +1271,8 @@ def _identify_refresh_candidates(
          quota-limiting-suspended set;
       2. its cached `usage[resource]` already carries a `quota_limited_until` or
          `quota_limiting_suspended_until` marker;
-      3. it appears newly limitable from cached state — `usage + todays_usage >= limit + buffer`
-         for any resource, with yesterday's count added when billing's total lacks yesterday.
+      3. it appears newly limitable from cached state: `_quota_usage` with this run's counts
+         reaches `limit + buffer` for any resource.
 
     A resource with a zero limit and no overage buffer never makes an org a candidate. That
     limit blocks the resource at any usage, so the cached state gives the same decision.
@@ -1265,7 +1294,9 @@ def _identify_refresh_candidates(
             continue
 
         team_token_set: set[str] = set(teams_by_org.get(org_id, []))
-        org_yesterdays_counts = (yesterdays_counts_by_org or {}).get(org_id, {})
+        org_finished_yesterday = (
+            None if finished_yesterday_by_org is None else finished_yesterday_by_org.get(org_id, {})
+        )
         is_candidate = False
 
         for resource in QuotaResource:
@@ -1294,10 +1325,15 @@ def _identify_refresh_candidates(
 
             if limit is None:
                 continue
-            usage_value = usage_for_resource.get("usage") or 0
             todays_for_field = todays_report[field]  # type: ignore[literal-required]
-            yesterdays_for_field = org_yesterdays_counts.get(field, 0)
-            if usage_value + todays_for_field + yesterdays_for_field >= limit + OVERAGE_BUFFER[resource]:
+            daily_usage = _daily_usage(
+                usage_for_resource.get(DAILY_USAGE_FIELD),
+                today=today,
+                todays_count=todays_for_field,
+                yesterdays_count=None if org_finished_yesterday is None else org_finished_yesterday.get(field, 0),
+            )
+            this_runs_usage = {**usage_for_resource, "todays_usage": todays_for_field, DAILY_USAGE_FIELD: daily_usage}
+            if _quota_usage(org.usage, this_runs_usage) >= limit + OVERAGE_BUFFER[resource]:
                 is_candidate = True
                 break
 
@@ -1520,67 +1556,42 @@ def _fetch_quota_usage_counts(service: UsageCounterService, period: DayRange) ->
     return _QuotaUsageCounts(by_team=all_data, offline_by_org=offline_usage)
 
 
-class _YesterdaysCounts:
+class _FinishedYesterday:
     """
-    Yesterday's quota counts for organizations whose billing total does not include yesterday yet.
+    Yesterday's finished quota counts, for the first quota run of each day.
 
-    The first quota run of each day counts yesterday once and stores the counts for every organization in Redis.
-    An organization can start to lack yesterday after that run, when its first stamped billing status arrives.
-    The run stores every organization so that later lookups find the counts for that organization too.
-    Later runs and `update_org_billing_quotas` read the counts there instead of counting a whole day again.
-    Events for yesterday that arrive after that run count only when billing saves yesterday's report.
+    That run counts yesterday once as a finished day and writes the counts into `daily_usage`.
+    A Redis key for the day then tells later runs to keep the stored counts instead of counting a whole
+    day again. Events for yesterday that arrive after that run count only when billing saves yesterday's report.
     """
 
     def __init__(self, service: UsageCounterService, *, today: DayRange) -> None:
         self._service = service
         self._range = get_previous_day(at=today.start)
-        self.day = self._range.start.date()
-        self._key = _yesterdays_counts_key(self.day)
+        self._key = f"{YESTERDAY_FINISHED_KEY_PREFIX}{self._range.start.date().isoformat()}"
         self._redis = get_client()
-        self._stored: bool | None = None
+        self._written: bool | None = None
         self._counts: _QuotaUsageCounts | None = None
 
     def for_organizations(
         self, teams: Sequence[Team], organizations: Sequence[Organization]
-    ) -> dict[str, dict[str, int]]:
-        lacking_ids = {str(org.id) for org in organizations if _billing_total_lacks_day(org.usage, self.day)}
-        if self._stored is None:
-            self._stored = bool(self._redis.hexists(self._key, YESTERDAYS_COUNTS_COMPLETE_FIELD))
-        if self._stored:
-            if not lacking_ids:
-                return {}
-            ordered_ids = sorted(lacking_ids)
-            stored = self._redis.hmget(self._key, ordered_ids)
-            return {org_id: json.loads(value) for org_id, value in zip(ordered_ids, stored) if value}
-
+    ) -> dict[str, dict[str, int]] | None:
+        """Returns None when an earlier run already wrote yesterday's finished counts."""
+        if self._written is None:
+            self._written = bool(self._redis.exists(self._key))
+        if self._written:
+            return None
         if self._counts is None:
             self._counts = _fetch_quota_usage_counts(self._service, self._range)
         reports = _aggregate_quota_usage(
             teams, self._counts.by_team, offline_usage=self._counts.offline_by_org, organizations=organizations
         )
-        counts: dict[str, dict[str, int]] = {}
-        for org_id, org_report in reports.usage.items():
-            report = cast(dict[str, int], org_report)
-            org_counts = {
-                resource.value: report[resource.value] for resource in QuotaResource if report.get(resource.value)
-            }
-            if org_counts:
-                counts[org_id] = org_counts
-        if counts:
-            pipeline = self._redis.pipeline(transaction=False)
-            pipeline.hset(self._key, mapping={org_id: json.dumps(org_counts) for org_id, org_counts in counts.items()})
-            pipeline.expire(self._key, YESTERDAYS_COUNTS_TTL)
-            pipeline.execute()
-        return {org_id: org_counts for org_id, org_counts in counts.items() if org_id in lacking_ids}
+        return {org_id: cast(dict[str, int], report) for org_id, report in reports.usage.items()}
 
     def finish(self) -> None:
         # A run that stops early leaves the day unmarked, so the next run counts yesterday again.
-        if self._counts is None:
-            return
-        pipeline = self._redis.pipeline(transaction=False)
-        pipeline.hset(self._key, YESTERDAYS_COUNTS_COMPLETE_FIELD, 1)
-        pipeline.expire(self._key, YESTERDAYS_COUNTS_TTL)
-        pipeline.execute()
+        if self._counts is not None:
+            self._redis.set(self._key, 1, ex=YESTERDAY_FINISHED_TTL)
 
 
 def update_all_orgs_billing_quotas(
@@ -1604,7 +1615,7 @@ def update_all_orgs_billing_quotas(
     todays_counts = _fetch_quota_usage_counts(service, period)
     all_data = todays_counts.by_team
     offline_usage = todays_counts.offline_by_org
-    yesterdays_counts = _YesterdaysCounts(service, today=period)
+    finished_yesterday = _FinishedYesterday(service, today=period)
 
     queries_duration_s = round((time() - queries_start), 1)
     logger.info(
@@ -1682,7 +1693,7 @@ def update_all_orgs_billing_quotas(
         )
         orgs_by_id = reports.organizations
         teams_by_org = reports.team_tokens
-        yesterdays_counts_by_org = yesterdays_counts.for_organizations(teams, list(orgs_by_id.values()))
+        finished_yesterday_by_org = finished_yesterday.for_organizations(teams, list(orgs_by_id.values()))
         candidates_start = time()
         refresh_candidates = _identify_refresh_candidates(
             orgs_by_id,
@@ -1690,8 +1701,9 @@ def update_all_orgs_billing_quotas(
             teams_by_org,
             previously_quota_limited_team_tokens,
             previously_quota_limiting_suspended_team_tokens,
+            today=period.start.date(),
+            finished_yesterday_by_org=finished_yesterday_by_org,
             redis_indicator_lookup=redis_indicator_lookup,
-            yesterdays_counts_by_org=yesterdays_counts_by_org,
         )
         candidate_count += len(refresh_candidates)
         candidates_total_seconds += time() - candidates_start
@@ -1743,11 +1755,14 @@ def update_all_orgs_billing_quotas(
                         if (org.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value):
                             # Push refreshes can raise signals usage after the source snapshot. Recount before writing it.
                             todays_report["signals_credits"] = signals_recounts.get(org_id, 0)
-                    _patch_todays_usage(org, todays_report, day=period.start.date(), batch=usage_batch)
-                    org_yesterdays_counts = (
-                        yesterdays_counts_by_org.get(org_id, {})
-                        if _billing_total_lacks_day(org.usage, yesterdays_counts.day)
-                        else {}
+                    _patch_todays_usage(
+                        org,
+                        todays_report,
+                        today=period.start.date(),
+                        finished_yesterday=(
+                            None if finished_yesterday_by_org is None else finished_yesterday_by_org.get(org_id, {})
+                        ),
+                        batch=usage_batch,
                     )
                     org_is_limited = org_is_suspended = False
                     for resource in QuotaResource:
@@ -1757,7 +1772,6 @@ def update_all_orgs_billing_quotas(
                             resource,
                             previously_quota_limited_team_token_sets[field],
                             teams_by_org.get(org_id, []),
-                            yesterdays_usage=org_yesterdays_counts.get(field, 0),
                             batch=usage_batch,
                         )
                         if result:
@@ -1865,7 +1879,7 @@ def update_all_orgs_billing_quotas(
                 f"limited={orgs_limited_count},suspended={orgs_suspended_count}",
             )
 
-    yesterdays_counts.finish()
+    finished_yesterday.finish()
     if not settings.TEST:
         close_old_connections()
     logger.info(

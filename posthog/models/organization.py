@@ -40,7 +40,7 @@ class OrganizationUsageResource(TypedDict):
     usage: int | None
     limit: int | None
     todays_usage: int | None
-    todays_usage_date: NotRequired[str]
+    daily_usage: NotRequired[dict[str, int]]
 
 
 # The "usage" field is essentially cached info from the Billing Service to be used for visual reporting to the user
