@@ -17,4 +17,9 @@ urlpatterns = [
         admin.site.admin_view(views.run_team_operation),
         name="admin_console_team_operation",
     ),
+    path(
+        "admin/console/tools/<slug:tool_key>/",
+        admin.site.admin_view(views.tool_page),
+        name="admin_console_tool",
+    ),
 ]

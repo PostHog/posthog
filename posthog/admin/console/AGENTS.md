@@ -20,6 +20,14 @@ The Django admin stays for plain CRUD on models.
 3. For each action, return an `Operation`. Put its inputs in a Django `forms.Form` (`form_class`); the console renders and validates it. Its `handler(request, obj, form)` returns `None` when done. The handler is a service function, or `AdminViewBridge(Model, SomeAdmin.view_method)` while the logic still lives in a `ModelAdmin`. A bridged view must take a POST and answer with a redirect. Later, replace the bridge with a service function; the panel stays as it is.
 4. Run `pnpm --filter=@posthog/frontend build:admin-console` when you add an owner crest or change a template. `posthog/admin/test_admin_console.py` fails when a template class or an owner crest is missing from the build output.
 
+## Add a tool
+
+A tool is a page that is not about one record, for example a report across all teams.
+
+1. In `products/<product>/backend/console.py`, subclass `ConsoleTool` and decorate it with `@console.register_tool`. Set `key`, `title`, `owner` and `group`; the group is the navigation heading. `posthog/admin/console/events_retention_tool.py` is the reference.
+2. `page(request)` returns a `Page` of blocks (`Notice`, `Table` with `Row` and `GroupRow`, `Paging`). The console renders the blocks, so a tool needs no template. When a tool needs a block that does not exist, add it to `tools.py` and `tool.html` in the shell, not a template in the product.
+3. When a tool replaces a Django admin page, keep the old URL name as a redirect to the tool, so existing links keep working.
+
 ## Read when needed
 
 - `frontend/src/design.md`: quill component choice and states. Read it before you change a template.
