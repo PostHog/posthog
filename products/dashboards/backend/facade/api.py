@@ -12,6 +12,9 @@ never has to hold the tile or dashboard model classes itself.
 Everything that writes runs inside the caller's transaction; each function says so where it
 matters. Refusals are raised as the error types defined here — the caller decides which HTTP
 response they become.
+
+The sharing publish gate and the template helper are imported at call time. They load the
+subscriptions facade, which loads the exports facade, and the exports facade imports this module.
 """
 
 import re
@@ -24,8 +27,6 @@ from django.utils.timezone import now
 
 from rest_framework import serializers
 
-from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
-from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models.user import User
 from posthog.models.user_home_settings import UserHomeSettings
 from posthog.resource_limits import LimitKey, check_count_limit
@@ -158,6 +159,8 @@ def create_dashboard_from_tiles(
     dashboard = Dashboard.objects.create(
         team_id=team.id, name=name, created_by=user, creation_mode=Dashboard.CreationMode.TEMPLATE
     )
+    from posthog.helpers.dashboard_templates import create_from_template
+
     create_from_template(dashboard, template, user, user_access_control=UserAccessControl(user=user, team=team))
     return DashboardRef(id=dashboard.id, name=dashboard.name)
 
@@ -602,6 +605,8 @@ def plan_insight_tile_placement(
         ):
             raise CannotAddToDashboard(dashboard.id)
         # The dashboard's public link or subscription must not expose a query the editor can't run.
+        from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
+
         check_can_add_insight_to_dashboard(user, dashboard, query, user_access_control)
     return InsightTilePlacement(dashboards)
 
@@ -637,6 +642,8 @@ def _place_insight_tile(
         raise CannotAddToDashboard(dashboard.id)
 
     # The dashboard's public link or subscription must not expose a query the editor can't run.
+    from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
+
     check_can_add_insight_to_dashboard(user, dashboard, query, user_access_control)
 
     insight_lookup: dict[str, Any] = (
