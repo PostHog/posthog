@@ -6,7 +6,7 @@ from typing import Any, Optional, cast
 from django.apps import apps
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import BigIntegerField, CharField, F, QuerySet, Value
+from django.db.models import BigIntegerField, CharField, F, Q, QuerySet, Value
 from django.db.models.functions import Cast
 
 from drf_spectacular.utils import extend_schema_field
@@ -361,10 +361,13 @@ def filter_workflow_files_by_access_level(
         user_access_control,
         project_id,
     )
-    denied_ids = [
-        row_id for row_id, entry_type, ref, team_id in rows if levels.get((entry_type, ref, team_id)) in (None, "none")
+    allowed_ids = [
+        row_id
+        for row_id, entry_type, ref, team_id in rows
+        if levels.get((entry_type, ref, team_id)) not in (None, "none")
     ]
-    return queryset.exclude(pk__in=denied_ids)
+    # Keep only the workflow rows checked above, so a row filed or moved in after the check stays hidden.
+    return queryset.exclude(Q(type__in=WORKFLOW_FILE_SYSTEM_TYPES) & ~Q(pk__in=allowed_ids))
 
 
 def denied_short_id_refs(user_access_control: UserAccessControl, project_id: int) -> dict[tuple[str, int], list[str]]:

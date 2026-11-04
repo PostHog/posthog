@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from posthog.api.file_system.access_levels import filter_workflow_files_by_access_level
 from posthog.constants import AvailableFeature
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
@@ -8,6 +9,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.facade.testing import create_access_control
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.messaging.backend.facade.testing import create_message_template_for_test
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
@@ -86,6 +88,17 @@ class TestWorkflowFolders(APIBaseTest):
             f"{files_url}{entry.id}/move/", {"new_path": "Campaigns/Private renewal"}, format="json"
         )
         self.assertEqual(moved.status_code, 200, moved.content)
+
+        visible = filter_workflow_files_by_access_level(
+            FileSystem.objects.filter(team=self.team),
+            UserAccessControl(user=member, team=self.team),
+            self.team.project_id,
+        )
+        filed_later = HogFlow.objects.create(team=self.team, name="Private launch", created_by=self.user)
+        create_access_control(
+            team_id=self.team.id, resource="hog_flow", resource_id=str(filed_later.id), access_level="none"
+        )
+        self.assertEqual(list(visible.filter(type="hog_flow").values_list("ref", flat=True)), [str(workflow.id)])
 
         revoked = User.objects.create_and_join(self.organization, "revoked@example.com", "invented-password")
         stale = FileSystemShortcut.objects.create(
