@@ -770,6 +770,7 @@ class TestProvisioningBoundaries:
             runtime="acp",
             prior_slack_run=False,
             profile_billing_product=profile_billing_product,
+            run_id=str(self._ctx().run_id),
         )
 
     def test_non_slack_origin_skips_the_prior_run_lookup(self, mint_settings):
@@ -854,6 +855,7 @@ class TestProvisioningBoundaries:
             assert post.call_args.kwargs["json"]["capture_mode"] == "none"
             assert post.call_args.kwargs["json"]["obo"] == str(ctx.team_id)
             assert post.call_args.kwargs["json"]["user"] == ctx.distinct_id
+            assert post.call_args.kwargs["json"]["run"] == ctx.run_id
             record_routing.assert_called_once_with(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=True)
         else:
             assert out == {}
@@ -1103,14 +1105,16 @@ class TestUserPinAndCapOverride:
     def test_mint_pins_the_acting_user(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response({"token": "phe_abc"})
-            mint_scoped_token(ai_product="signals_scout", team_id=123, user="user-distinct-1")
+            mint_scoped_token(ai_product="signals_scout", team_id=123, user="user-distinct-1", run_id="run-1")
         assert post.call_args.kwargs["json"]["user"] == "user-distinct-1"
+        assert post.call_args.kwargs["json"]["run"] == "run-1"
 
     def test_mint_omits_user_when_unknown(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response({"token": "phe_abc"})
             mint_scoped_token(ai_product="signals_scout", team_id=123)
         assert "user" not in post.call_args.kwargs["json"]
+        assert "run" not in post.call_args.kwargs["json"]
 
     def test_cap_override_applies_per_team(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = '{"2": "10"}'
