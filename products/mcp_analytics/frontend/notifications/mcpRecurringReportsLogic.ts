@@ -85,6 +85,9 @@ export interface mcpRecurringReportsLogicActions {
         message: string
         reconciling: boolean
     }
+    createWeeklyReportReconciled: () => {
+        value: true
+    }
     createWeeklyReportStarted: () => {
         value: true
     }
@@ -145,7 +148,7 @@ export interface mcpRecurringReportsLogicMeta {
             isCloudOrDev: boolean | undefined,
             featureFlags: FeatureFlagsSet,
             receivedFeatureFlags: boolean,
-            featureFlagsTimedOut: any,
+            featureFlagsTimedOut: boolean,
             currentOrganization: OrganizationType | null,
             user: UserType | null,
             reports: SubscriptionApi[],
@@ -197,6 +200,7 @@ export const mcpRecurringReportsLogic = kea<mcpRecurringReportsLogicType>([
         createWeeklyReportStarted: true,
         createWeeklyReportSucceeded: (report: SubscriptionApi) => ({ report }),
         createWeeklyReportFailed: (message: string, reconciling: boolean) => ({ message, reconciling }),
+        createWeeklyReportReconciled: true,
     }),
     loaders(({ actions, values, cache }) => ({
         reports: [
@@ -261,11 +265,7 @@ export const mcpRecurringReportsLogic = kea<mcpRecurringReportsLogicType>([
                 createWeeklyReportSucceeded: (_, { report }): WeeklyReportSubmission => ({ status: 'created', report }),
                 createWeeklyReportFailed: (_, { message, reconciling }): WeeklyReportSubmission =>
                     reconciling ? { status: 'reconciling', message } : { status: 'failed', message },
-                loadReportsSuccess: (submission): WeeklyReportSubmission =>
-                    submission.status === 'reconciling'
-                        ? { status: 'failed', message: submission.message }
-                        : submission,
-                loadReportsFailure: (submission): WeeklyReportSubmission =>
+                createWeeklyReportReconciled: (submission): WeeklyReportSubmission =>
                     submission.status === 'reconciling'
                         ? { status: 'failed', message: submission.message }
                         : submission,
@@ -364,7 +364,7 @@ export const mcpRecurringReportsLogic = kea<mcpRecurringReportsLogicType>([
                 }),
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, asyncActions, values, cache }) => ({
         setReports: () => {
             cache.localReportWrites = (cache.localReportWrites ?? 0) + 1
         },
@@ -395,7 +395,13 @@ export const mcpRecurringReportsLogic = kea<mcpRecurringReportsLogicType>([
                     error_message: message,
                 })
                 if (reconciling) {
-                    actions.loadReports()
+                    // Awaits this reload only. A list request already in flight answers from before the create.
+                    try {
+                        await asyncActions.loadReports()
+                    } catch {
+                        // A failed reload leaves duplicates unknown, so the offer hides instead of retrying.
+                    }
+                    actions.createWeeklyReportReconciled()
                 }
                 return
             }

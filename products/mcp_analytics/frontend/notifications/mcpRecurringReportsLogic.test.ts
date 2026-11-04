@@ -395,24 +395,31 @@ describe('mcpRecurringReportsLogic', () => {
             expect(logic.values.weeklyReportOffer).toEqual({ state: 'created', report: SAVED })
         })
 
-        it('holds the retry until the reload answers, then resolves to has-report when the request landed despite the failure', async () => {
+        it('holds the retry until its own reload answers, then resolves to has-report when the request landed despite the failure', async () => {
             await becomeReadyToCreate()
-            mockedCreate.mockRejectedValueOnce(new TypeError('Failed to fetch'))
-            let finishList: (results: SubscriptionApi[]) => void = () => {}
-            mockedList.mockReturnValueOnce(
-                new Promise(
-                    (resolve) => (finishList = (results) => resolve({ next: null, previous: null, results } as any))
+            const heldList = (): { promise: Promise<any>; finish: (results: SubscriptionApi[]) => void } => {
+                let finish: (results: SubscriptionApi[]) => void = () => {}
+                const promise = new Promise(
+                    (resolve) => (finish = (results) => resolve({ next: null, previous: null, results }))
                 )
-            )
+                return { promise, finish }
+            }
+            const olderList = heldList()
+            const reconcileList = heldList()
+            mockedList.mockReturnValueOnce(olderList.promise).mockReturnValueOnce(reconcileList.promise)
+            mockedCreate.mockRejectedValueOnce(new TypeError('Failed to fetch'))
 
+            logic.actions.loadReports()
             await expectLogic(logic, () => logic.actions.createWeeklyReport()).toDispatchActions([
                 'createWeeklyReportFailed',
             ])
             logic.actions.createWeeklyReport()
+            olderList.finish([])
+            await expectLogic(logic).toDispatchActions(['loadReportsSuccess'])
             expect(mockedCreate).toHaveBeenCalledTimes(1)
             expect(logic.values.weeklyReportOffer).toEqual({ state: 'creating', email: 'me@example.com' })
 
-            finishList([SAVED])
+            reconcileList.finish([SAVED])
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.weeklyReportOffer).toEqual({ state: 'hidden', reason: 'has-report' })
         })
