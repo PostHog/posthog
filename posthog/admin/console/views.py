@@ -1,3 +1,4 @@
+import uuid
 from typing import cast
 
 from django.conf import settings
@@ -105,7 +106,15 @@ def run_team_operation(request: HttpRequest, team_id: int, panel_key: str, opera
     operation = _find_operation(panel, team, operation_key)
     team_url = reverse("admin_console_team", kwargs={"team_id": team.pk})
 
-    context = {**ConsoleEnvironment.context(), "team": team, "panel": panel, "operation": operation, "errors": {}}
+    context = {
+        **ConsoleEnvironment.context(),
+        "team": team,
+        "panel": panel,
+        "operation": operation,
+        "errors": {},
+        # Handlers that move money or send messages build an idempotency key from it, so a double submit runs once.
+        "form_nonce": request.POST.get("form_nonce") or str(uuid.uuid4()),
+    }
     if request.method == "GET":
         if not operation.fields:
             return redirect(team_url)

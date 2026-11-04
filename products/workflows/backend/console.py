@@ -1,5 +1,6 @@
 from django.db.models import Model
 
+from posthog.admin.admins.team_admin import TeamAdmin
 from posthog.admin.console.bridge import AdminViewBridge
 from posthog.admin.console.panels import Fact, Operation, OperationField, Owner, Panel, Tone
 from posthog.admin.console.registry import console
@@ -38,7 +39,7 @@ class EmailSendingPanel(Panel):
                 Operation(
                     key="unsuspend",
                     label="Re-enable sending",
-                    handler=AdminViewBridge(Team, "unsuspend_email_sending_view"),
+                    handler=AdminViewBridge(Team, TeamAdmin.unsuspend_email_sending_view),
                     description="Workers pick this up within a few minutes. The team gets an email and a notification.",
                 )
             ]
@@ -46,7 +47,7 @@ class EmailSendingPanel(Panel):
             Operation(
                 key="suspend",
                 label="Suspend sending",
-                handler=AdminViewBridge(Team, "suspend_email_sending_view"),
+                handler=AdminViewBridge(Team, TeamAdmin.suspend_email_sending_view),
                 danger=True,
                 description="Stops workflow email for this team. The team gets an email and a notification.",
                 fields=(
@@ -54,6 +55,7 @@ class EmailSendingPanel(Panel):
                         name="reason",
                         label="Reason",
                         help_text="The team sees this reason in their notification.",
+                        multiline=True,
                     ),
                 ),
             )

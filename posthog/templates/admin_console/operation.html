@@ -12,6 +12,7 @@
              data-size="default">
         <form method="post" class="flex flex-col">
             {% csrf_token %}
+            <input type="hidden" name="form_nonce" value="{{ form_nonce }}" />
             <div class="quill-card__content flex flex-col gap-4"
                  data-slot="card-content">
                 {% if operation.description %}
@@ -21,12 +22,21 @@
                     <div class="quill-field flex flex-col gap-1" data-slot="field">
                         <label class="quill-field__label quill-label font-bold"
                                for="field-{{ field.name }}">{{ field.label }}</label>
-                        <textarea id="field-{{ field.name }}"
-                                  name="{{ field.name }}"
-                                  class="quill-textarea flex"
-                                  rows="3"
-                                  {% if field.required %} required{% endif %}
-                                  {% if field.name in errors %} aria-invalid="true"{% endif %}></textarea>
+                        {% if field.multiline %}
+                            <textarea id="field-{{ field.name }}"
+                                      name="{{ field.name }}"
+                                      class="quill-textarea flex"
+                                      rows="3"
+                                      {% if field.required %} required{% endif %}
+                                      {% if field.name in errors %} aria-invalid="true"{% endif %}></textarea>
+                        {% else %}
+                            <input id="field-{{ field.name }}"
+                                   name="{{ field.name }}"
+                                   class="quill-input"
+                                   autocomplete="off"
+                                   {% if field.required %} required{% endif %}
+                                   {% if field.name in errors %} aria-invalid="true"{% endif %} />
+                        {% endif %}
                         {% if field.help_text %}
                             <p class="quill-field__description m-0">{{ field.help_text }}</p>
                         {% endif %}

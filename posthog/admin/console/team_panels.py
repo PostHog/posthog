@@ -1,5 +1,6 @@
 from django.db.models import Model
 
+from posthog.admin.admins.team_admin import TeamAdmin
 from posthog.admin.console.bridge import AdminViewBridge
 from posthog.admin.console.panels import Fact, Operation, Owner, Panel, Tone
 from posthog.admin.console.registry import console
@@ -47,7 +48,7 @@ class RemoteConfigPanel(Panel):
             Operation(
                 key="rebuild",
                 label="Rebuild cache",
-                handler=AdminViewBridge(Team, "rebuild_cache"),
+                handler=AdminViewBridge(Team, TeamAdmin.rebuild_cache),
                 description="Recomputes the remote config for this team and writes it to Redis and S3.",
             )
         ]

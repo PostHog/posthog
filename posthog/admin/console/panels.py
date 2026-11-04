@@ -37,6 +37,7 @@ class OperationField:
     label: str
     help_text: str = ""
     required: bool = True
+    multiline: bool = False
 
 
 class OperationHandler(Protocol):
