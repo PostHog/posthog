@@ -3,9 +3,10 @@ import { LazyLoader } from '~/common/utils/lazy-loader'
 
 import { BoundedPrimaryLookup } from '../../utils/bounded-primary-lookup'
 
+type StoredCasingsByNormalizedEmail = ReadonlyMap<string, readonly string[]>
+
 type OrganizationMemberSnapshot = {
-    // Normalized address to every address members stored for it: legacy accounts can differ only in case.
-    verifiedEmails: ReadonlyMap<string, readonly string[]>
+    verifiedEmails: StoredCasingsByNormalizedEmail
     unverifiedEmails: ReadonlySet<string>
     sandboxSenderBlocked: boolean
     expiresAt: number
@@ -13,13 +14,14 @@ type OrganizationMemberSnapshot = {
 
 export type BlockedRecipient = { readonly address: string; readonly unverifiedMember: boolean }
 
-// `deliverTo` maps each allowed recipient, as it came in, to the address to deliver to.
+export type StoredAddressByRecipient = ReadonlyMap<string, string>
+
 export type RecipientCheck =
     | { readonly organizationBlocked: true }
     | {
           readonly organizationBlocked: false
           readonly blocked: BlockedRecipient[]
-          readonly deliverTo: ReadonlyMap<string, string>
+          readonly deliverTo: StoredAddressByRecipient
       }
 
 const MAX_SNAPSHOT_AGE_MS = 60_000
@@ -32,6 +34,9 @@ type MemberRow = { team_id: number; email: string; is_email_verified: boolean }
 type TeamLookup = { members: MemberRow[]; blockedTeamIds: ReadonlySet<string> }
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase()
+
+const pickStoredMailbox = (storedCasings: readonly string[] | undefined, address: string): string | undefined =>
+    storedCasings?.length === 1 ? storedCasings[0] : storedCasings?.find((casing) => casing === address.trim())
 
 export class OrganizationMembersService {
     private snapshots: LazyLoader<OrganizationMemberSnapshot>
@@ -58,7 +63,6 @@ export class OrganizationMembersService {
     // `fresh` runs its own lookup, for the check right before delivery: a member removed or an
     // organization blocked while the send was prepared must not receive it, so neither the cached
     // snapshot nor a lookup another send started earlier may answer it.
-    // The match ignores case, so delivery goes to the stored address rather than the supplied one.
     public async checkRecipients(
         teamId: number,
         recipients: string[],
@@ -73,10 +77,7 @@ export class OrganizationMembersService {
         const blocked: BlockedRecipient[] = []
         const deliverTo = new Map<string, string>()
         for (const address of recipients) {
-            const stored = snapshot.verifiedEmails.get(normalizeEmail(address))
-            // When members stored the address in different cases, only an exact match names one of them,
-            // because a mail server may treat each case of the local part as its own mailbox.
-            const match = stored?.length === 1 ? stored[0] : stored?.find((email) => email === address.trim())
+            const match = pickStoredMailbox(snapshot.verifiedEmails.get(normalizeEmail(address)), address)
             if (match === undefined) {
                 blocked.push({ address, unverifiedMember: snapshot.unverifiedEmails.has(normalizeEmail(address)) })
             } else {

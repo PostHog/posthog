@@ -20,7 +20,7 @@ import { logger } from '~/common/utils/logger'
 
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
-import { OrganizationMembersService, RecipientCheck } from '../managers/organization-members.service'
+import { OrganizationMembersService, RecipientCheck, StoredAddressByRecipient } from '../managers/organization-members.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
@@ -991,7 +991,6 @@ export class EmailService {
                         await this.sandboxSender!.returnDailyCaps(capGrant)
                         return result
                     }
-                    // The member check ignores case, so deliver to the stored member addresses, not the supplied ones.
                     const stored = (address: string): string => deliverTo.get(address)!
                     deliveryParams = {
                         ...deliveryParams,
@@ -1089,7 +1088,6 @@ export class EmailService {
                 })
             }
 
-            // Recorded beside `email_sent` so the sending tier can leave sandbox sends out of its volume.
             if (success && isSandbox) {
                 result.metrics.push({
                     team_id: invocation.teamId,
@@ -1288,13 +1286,12 @@ export class EmailService {
     // leave the organization, or staff can block it, while the send waits on suppression checks and
     // rate limits. The check right before delivery passes `fresh`, so it reads membership and the block
     // again instead of the cached snapshot.
-    // Returns each recipient's stored address, keyed by the recipient as it came in, or null when the send is skipped.
     private async checkSandboxRecipients(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         recipients: string[],
         isTest: boolean,
         { fresh = false }: { fresh?: boolean } = {}
-    ): Promise<ReadonlyMap<string, string> | null> {
+    ): Promise<StoredAddressByRecipient | null> {
         const { teamId } = result.invocation
         let check: RecipientCheck
         try {

@@ -314,18 +314,33 @@ describe('OrganizationMembersService', () => {
             }
         })
 
-        it('shares one member lookup across concurrent and later sends and reloads it after a minute', async () => {
+        it('shares one member lookup with a send that starts while it runs and with later sends, and reloads it after a minute', async () => {
             let now = 0
             let member = 'member@example.com'
-            const query = jest.fn(() => Promise.resolve({ rows: [memberRow(member)] }))
+            let lookups = 0
+            let lookupStarted: () => void = () => {}
+            const started = new Promise<void>((resolve) => {
+                lookupStarted = resolve
+            })
+            let releaseLookup: () => void = () => {}
+            const held = new Promise<void>((resolve) => {
+                releaseLookup = resolve
+            })
+            const query = jest.fn(async () => {
+                lookups++
+                if (lookups === 1) {
+                    lookupStarted()
+                    await held
+                }
+                return { rows: [memberRow(member)] }
+            })
             const service = new OrganizationMembersService(routerFor(query), () => now)
 
-            expect(
-                await Promise.all([
-                    service.checkRecipients(1, ['member@example.com']),
-                    service.checkRecipients(1, ['member@example.com']),
-                ])
-            ).toEqual([allowed, allowed])
+            const first = service.checkRecipients(1, ['member@example.com'])
+            await started
+            const joining = service.checkRecipients(1, ['member@example.com'])
+            releaseLookup()
+            expect(await Promise.all([first, joining])).toEqual([allowed, allowed])
             expect(await service.checkRecipients(1, ['member@example.com'])).toEqual(allowed)
             expect(query).toHaveBeenCalledTimes(1)
 
