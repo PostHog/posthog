@@ -670,20 +670,6 @@ async def create_replay_count_metrics_schedule(client: Client) -> None:
         )
 
 
-async def cleanup_legacy_session_summarization_schedules(client: Client):
-    """Delete legacy schedules. Any in-flight runs die on their own execution_timeout."""
-    legacy_schedule_ids = [
-        "video-segment-clustering-coordinator-schedule",
-        "session-summarization-sweep-schedule",
-        "session-summarization-sweep-reconciler-schedule",
-        # Swept Gemini files uploaded by the session-summary workflow; nothing uploads them now.
-        "session-summary-cleanup-sweep-schedule",
-    ]
-    for schedule_id in legacy_schedule_ids:
-        if await a_schedule_exists(client, schedule_id):
-            await a_delete_schedule(client, schedule_id)
-
-
 async def cleanup_cohort_calculation_schedules(client: Client):
     """Delete the realtime cohort calculation and precalculated-data reconcile schedules.
 
@@ -970,7 +956,6 @@ schedules = [
     create_count_trigger_schedule,
     create_evaluation_sampler_schedule,
     create_evaluation_clustering_schedule,
-    cleanup_legacy_session_summarization_schedules,
     create_surfacing_score_export_sweep_schedule,
     create_surfacing_scoring_sweep_schedule,
     create_ducklake_compaction_schedule,
