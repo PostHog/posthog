@@ -9,6 +9,8 @@ a retry fallback if the synchronous attempt fails.
 from collections.abc import Callable
 from typing import Any
 
+from django.core.cache import caches
+
 import structlog
 from celery import Task, shared_task
 from prometheus_client import Counter
@@ -137,3 +139,8 @@ def invalidate_user_tokens_sync(user_id: int) -> dict:
         fallback_args=[user_id],
         result_context={"user_id": user_id},
     )
+
+
+@shared_task(autoretry_for=(Exception,), retry_backoff=True, max_retries=6, ignore_result=True)
+def retry_ip_restrictions_invalidation(cache_keys: list[str]) -> None:
+    caches["organization_access"].delete_many(cache_keys)

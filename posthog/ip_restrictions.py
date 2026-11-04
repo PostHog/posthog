@@ -8,7 +8,6 @@ from django.db import DEFAULT_DB_ALIAS
 from django.http import HttpRequest
 
 import structlog
-from celery import shared_task
 from loginas.utils import is_impersonated_session
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission
@@ -70,8 +69,8 @@ def is_ip_restriction_exempt(request: HttpRequest, credential_type: str | None =
 
 # Credentials PostHog's own infrastructure uses to serve a request on the user's behalf. They
 # originate from our network, not the member's, so an organization's allowlist cannot judge them and
-# blocking them would break the feature without adding security. A delegated credential is handled separately: it
-# only represents a person when the MCP server forwards the signed end-user IP.
+# blocking them would break the feature without adding security. Delegated credentials still
+# enforce the policy, using the signed end-user IP when MCP forwards it.
 _INTERNAL_CREDENTIAL_TYPES: frozenset[DeclaredCredentialType] = frozenset(
     {
         "internal_jwt",
@@ -219,17 +218,16 @@ def get_ip_restriction_denial(user: Any, ip: str | None) -> str | None:
     )
 
 
-@shared_task(autoretry_for=(Exception,), retry_backoff=True, max_retries=6, ignore_result=True)
-def retry_ip_restrictions_invalidation(cache_keys: list[str]) -> None:
-    cache.delete_many(cache_keys)
-
-
 def _invalidate_cache_keys(cache_keys: list[str]) -> None:
     try:
         cache.delete_many(cache_keys)
     except Exception:
         logger.warning("ip_restrictions_cache_invalidation_failed", exc_info=True)
         try:
+            from posthog.tasks.team_access_cache_tasks import (  # noqa: PLC0415 -- keeps Celery task imports off the auth startup path
+                retry_ip_restrictions_invalidation,
+            )
+
             retry_ip_restrictions_invalidation.delay(cache_keys)
         except Exception:
             logger.warning("ip_restrictions_cache_invalidation_retry_failed", exc_info=True)

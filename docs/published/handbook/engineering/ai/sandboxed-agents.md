@@ -188,7 +188,7 @@ In the AI chat view, the staff options menu sits beside the task actions, includ
 
 Every sandboxed agent gets a scoped OAuth access token that controls what PostHog resources it can access.
 Tokens expire after 6 hours and are scoped to a single team.
-Task-bound tokens represent PostHog-hosted workers and are exempt from organization IP restrictions when no signed end-user IP is forwarded. When a signed MCP client IP is present, restrictions apply to that IP.
+Task-bound tokens enforce organization IP restrictions. When a signed MCP client IP is present, restrictions apply to that verified address; direct requests are checked using their trusted client IP.
 
 ### Scope presets
 
