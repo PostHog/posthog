@@ -218,12 +218,9 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
 export function sandboxBlockedEventRedisConfig(connection: RedisConnectionConfig): RedisPoolConfig {
     return {
         // Blocked events are optional telemetry, so a store that refuses these connections must not stop the worker.
-        // A call that gets no answer ends at the capture deadline, so a stalled store frees its slot.
-        connection: {
-            ...connection,
-            options: { ...connection.options, commandTimeout: EVENT_CAPTURE_TIMEOUT_MS },
-            exitOnRepeatedErrors: false,
-        },
+        // No command timeout: a timed-out command stays queued on its connection while its slot frees, so a store
+        // that stops answering would collect commands without limit. A stalled call keeps its slot instead.
+        connection: { ...connection, exitOnRepeatedErrors: false },
         poolMinSize: 0,
         poolMaxSize: MAX_OPEN_STORE_CALLS,
     }
