@@ -171,3 +171,11 @@ ERROR_MESSAGES = {
     "SubscriptionRequiredException": "Enable AWS Systems Manager for this account and region, then try again.",
     "OptInRequired": "Enable AWS Systems Manager for this account and region, then try again.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "ssm:Describe*",
+    "ssm:Get*",
+    "ssm:List*",
+)

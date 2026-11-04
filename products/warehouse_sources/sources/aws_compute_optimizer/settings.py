@@ -109,3 +109,21 @@ ERROR_MESSAGES = {
     "OptInRequiredException": "Enable AWS Compute Optimizer for this account before you sync recommendations.",
     "SubscriptionRequiredException": "Enable AWS Compute Optimizer for this account before you sync recommendations.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "compute-optimizer:Describe*",
+    "compute-optimizer:Get*",
+    "autoscaling:DescribeAutoScalingGroups",
+    "autoscaling:DescribeAutoScalingInstances",
+    "cloudwatch:GetMetricData",
+    "ec2:DescribeInstances",
+    "ec2:DescribeVolumes",
+    "ecs:ListClusters",
+    "ecs:ListServices",
+    "lambda:ListFunctions",
+    "lambda:ListProvisionedConcurrencyConfigs",
+    "rds:DescribeDBClusters",
+    "rds:DescribeDBInstances",
+)

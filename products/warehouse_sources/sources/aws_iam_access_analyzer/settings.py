@@ -106,3 +106,10 @@ ERROR_MESSAGES = {
     "OptInRequired": "AWS requires access to this service. Enable IAM Access Analyzer in the selected account and region.",
     "ValidationException": "AWS rejected the request. Check the selected region and resume the sync with a fresh checkpoint.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "access-analyzer:Get*",
+    "access-analyzer:List*",
+)
