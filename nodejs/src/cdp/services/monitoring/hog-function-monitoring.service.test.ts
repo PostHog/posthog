@@ -149,11 +149,7 @@ describe('HogFunctionMonitoringService', () => {
 
     it('sends accepted logs to the logs product with the log entry timestamps, and drains them on stop', async () => {
         const fetchMock = jest.mocked(internalFetch).mockResolvedValue({ status: 200, dump: jest.fn() } as any)
-        service = new HogFunctionMonitoringService(
-            outputs,
-            internalLogsProducer(),
-            new Set(['hog_flow', 'hog_function'])
-        )
+        service = new HogFunctionMonitoringService(outputs, internalLogsProducer(), new Set(['hog_flow']))
         service.queueLogs([log(2), log(2), log(3)], 'hog_flow')
         service.queueLogs([log(2)], 'hog_function')
 

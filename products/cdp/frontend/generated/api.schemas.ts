@@ -288,6 +288,7 @@ export const HogFunctionTypeEnumApi = {
  * * `task_repository` - task_repository
  * * `task_mcp_installations` - task_mcp_installations
  * * `signals_scout` - signals_scout
+ * * `posthog_survey` - posthog_survey
  * * `task_skills` - task_skills
  * * `replay_vision_scan` - replay_vision_scan
  */
@@ -315,6 +316,7 @@ export const InputsSchemaItemTypeEnumApi = {
     TaskRepository: 'task_repository',
     TaskMcpInstallations: 'task_mcp_installations',
     SignalsScout: 'signals_scout',
+    PosthogSurvey: 'posthog_survey',
     TaskSkills: 'task_skills',
     ReplayVisionScan: 'replay_vision_scan',
 } as const
@@ -953,12 +955,12 @@ export type HogFunctionsMetricsRetrieveParams = {
      */
     interval?: HogFunctionsMetricsRetrieveInterval
     /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.
      * @minLength 1
      */
     kind?: string
     /**
-     * Comma-separated metric names to filter by.
+     * Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.
      * @minLength 1
      */
     name?: string
@@ -1015,12 +1017,12 @@ export type HogFunctionsMetricsTotalsRetrieveParams = {
      */
     interval?: HogFunctionsMetricsTotalsRetrieveInterval
     /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.
      * @minLength 1
      */
     kind?: string
     /**
-     * Comma-separated metric names to filter by.
+     * Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.
      * @minLength 1
      */
     name?: string
