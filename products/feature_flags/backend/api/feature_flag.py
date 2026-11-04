@@ -105,6 +105,7 @@ from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.experiments.backend.facade.contracts import LinkedExperiment
+from products.feature_flags.backend.api.code_analysis import FeatureFlagCodeAnalysisMixin
 from products.feature_flags.backend.api.filters_schema import (
     FEATURE_FLAG_OPERATOR_ALIASES,
     FEATURE_FLAG_PROPERTY_TYPES,
@@ -4242,6 +4243,7 @@ class CreateStaticCohortForFlagResponseSerializer(serializers.Serializer):
 # See products/feature_flags/backend/user_blast_radius.py for the pattern.
 @extend_schema(extensions={"x-product": ProductKey.FEATURE_FLAGS})
 class FeatureFlagViewSet(
+    FeatureFlagCodeAnalysisMixin,
     ApprovalHandlingMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,

@@ -1016,6 +1016,8 @@ class TaskWriteSerializer(serializers.Serializer):
             # Owns the docs repository branch it pushes to. Only the knowledge writer intake sets it.
             tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER,
             tasks_facade.TaskOriginProduct.CONTEXT_LAYER,
+            # Only the feature flag code analysis endpoint sets it, after its own repository check.
+            tasks_facade.TaskOriginProduct.FEATURE_FLAGS,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")

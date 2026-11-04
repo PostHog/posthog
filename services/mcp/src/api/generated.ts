@@ -25544,6 +25544,26 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `explicit` - Explicit
+     * * `previous_analysis` - Previous analysis
+     * * `team_default` - Team default
+     * * `single_repo` - Single repository
+     * * `ambiguous` - Ambiguous
+     * * `no_integration` - No integration
+     */
+    export type CodeAnalysisRepositorySourceEnum = typeof CodeAnalysisRepositorySourceEnum[keyof typeof CodeAnalysisRepositorySourceEnum];
+
+
+    export const CodeAnalysisRepositorySourceEnum = {
+      Explicit: 'explicit',
+      PreviousAnalysis: 'previous_analysis',
+      TeamDefault: 'team_default',
+      SingleRepo: 'single_repo',
+      Ambiguous: 'ambiguous',
+      NoIntegration: 'no_integration',
+    } as const;
+
+    /**
      * * `dataset_archived` - dataset_archived
      * * `dataset_name_conflict` - dataset_name_conflict
      * * `dataset_item_archived` - dataset_item_archived
@@ -47729,6 +47749,118 @@ export namespace Schemas {
     }
 
     export type FeatureFlagActionConflict = FlagActionError | FlagApprovalConflict;
+
+    /**
+     * * `not_started` - Not Started
+     * * `queued` - Queued
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled
+     */
+    export type TaskRunStatusEnum = typeof TaskRunStatusEnum[keyof typeof TaskRunStatusEnum];
+
+
+    export const TaskRunStatusEnum = {
+      NotStarted: 'not_started',
+      Queued: 'queued',
+      InProgress: 'in_progress',
+      Completed: 'completed',
+      Failed: 'failed',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export interface FeatureFlagCodeBranch {
+      /** What the flag evaluates to on this branch: "enabled", "disabled", or a variant key. "all" when the same code runs for every outcome and only the flag value passed to it differs. */
+      variant: string;
+      /** First line of the branch body, 1-based. */
+      start_line: number;
+      /** Last line of the branch body, 1-based and inclusive. */
+      end_line: number;
+      /** The branch body as it appears in the file. Empty when the outcome runs no code. */
+      snippet: string;
+    }
+
+    export interface FeatureFlagCodeReference {
+      /** Path of the file from the repository root. */
+      file: string;
+      /** Line where the flag value decides which code runs (the if, ternary, switch, or call it is passed to), 1-based. */
+      check_line: number;
+      /** SDK call or wrapper that reads the flag, for example `isFeatureEnabled`. */
+      method: string;
+      /** One sentence on what changes when the flag turns on at this check. */
+      summary: string;
+      /** The code that runs for each outcome of the flag. */
+      branches: FeatureFlagCodeBranch[];
+    }
+
+    export interface FeatureFlagCodeAnalysisResult {
+      /** Repository that was analyzed, as `organization/repository`. */
+      repository: string;
+      /** Commit the analysis read. */
+      commit_sha: string;
+      /** Every place the flag is checked. Empty when the repository has no references. */
+      references: FeatureFlagCodeReference[];
+      /** Caveats from the analysis, such as keys built at runtime or ambiguous checks. */
+      notes: string;
+    }
+
+    export interface FeatureFlagCodeAnalysis {
+      /** ID of the task that runs the analysis. */
+      task_id: string;
+      /** Repository the analysis reads, as `organization/repository`. */
+      repository: string;
+      /** When the analysis was requested. */
+      created_at: string;
+      /** Status of the analysis run. A finished run with output in an unexpected shape is reported as failed.
+       *
+       * * `not_started` - Not Started
+       * * `queued` - Queued
+       * * `in_progress` - In Progress
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `cancelled` - Cancelled */
+      run_status: TaskRunStatusEnum;
+      /** Whether the run has finished, successfully or not. Stop polling once true. */
+      is_terminal: boolean;
+      /**
+         * Why the run failed, when it failed.
+         * @nullable
+         */
+      error_message: string | null;
+      /** Whether the requesting user can open the task. Hide the task link from everyone else. */
+      can_view_task: boolean;
+      /** The flag's code paths, once the run completes. */
+      result: FeatureFlagCodeAnalysisResult | null;
+    }
+
+    export interface FeatureFlagCodeAnalysisStart {
+      /**
+         * GitHub repository to analyze, as `organization/repository`. It must be connected to the project's GitHub integration. Omit it to use the repository the last analysis used, the environment's default flag cleanup repository, or the only connected repository.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
+    }
+
+    export interface FeatureFlagCodeAnalysisTarget {
+      /**
+         * Repository the analysis would read, or null when none can be chosen without asking.
+         * @nullable
+         */
+      repository: string | null;
+      /** How the repository was chosen: `explicit` (the requested one), `previous_analysis` (the one the last analysis of this flag used), `team_default` (the environment's default flag cleanup repository), `single_repo` (the only connected repository), `ambiguous` (several connected repositories and none chosen, so pass one), or `no_integration` (no GitHub integration or no connected repositories).
+       *
+       * * `explicit` - Explicit
+       * * `previous_analysis` - Previous analysis
+       * * `team_default` - Team default
+       * * `single_repo` - Single repository
+       * * `ambiguous` - Ambiguous
+       * * `no_integration` - No integration */
+      source: CodeAnalysisRepositorySourceEnum;
+      /** Repositories connected to the project's GitHub integration. */
+      candidates: string[];
+    }
 
     export interface FeatureFlagConditionPropertyAnalysis {
       /** Property key */
@@ -75831,26 +75963,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `not_started` - Not Started
-     * * `queued` - Queued
-     * * `in_progress` - In Progress
-     * * `completed` - Completed
-     * * `failed` - Failed
-     * * `cancelled` - Cancelled
-     */
-    export type TaskRunStatusEnum = typeof TaskRunStatusEnum[keyof typeof TaskRunStatusEnum];
-
-
-    export const TaskRunStatusEnum = {
-      NotStarted: 'not_started',
-      Queued: 'queued',
-      InProgress: 'in_progress',
-      Completed: 'completed',
-      Failed: 'failed',
-      Cancelled: 'cancelled',
-    } as const;
-
-    /**
      * * `local` - Local
      * * `cloud` - Cloud
      */
@@ -87623,6 +87735,7 @@ export namespace Schemas {
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags
      */
     export type TaskOriginProductEnum = typeof TaskOriginProductEnum[keyof typeof TaskOriginProductEnum];
 
@@ -87656,6 +87769,7 @@ export namespace Schemas {
       MetricsImport: 'metrics_import',
       KnowledgeWriter: 'knowledge_writer',
       ContextLayer: 'context_layer',
+      FeatureFlags: 'feature_flags',
     } as const;
 
     /**
@@ -87719,7 +87833,8 @@ export namespace Schemas {
        * * `business_knowledge` - Business Knowledge
        * * `metrics_import` - Metrics Import
        * * `knowledge_writer` - Knowledge Writer
-       * * `context_layer` - Context Layer */
+       * * `context_layer` - Context Layer
+       * * `feature_flags` - Feature Flags */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -109031,7 +109146,8 @@ export namespace Schemas {
        * * `business_knowledge` - Business Knowledge
        * * `metrics_import` - Metrics Import
        * * `knowledge_writer` - Knowledge Writer
-       * * `context_layer` - Context Layer */
+       * * `context_layer` - Context Layer
+       * * `feature_flags` - Feature Flags */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -109259,6 +109375,7 @@ export namespace Schemas {
      * * `error_tracking` - error_tracking
      * * `eval_clusters` - eval_clusters
      * * `experiments` - experiments
+     * * `feature_flags` - feature_flags
      * * `hogdesk` - hogdesk
      * * `image_builder` - image_builder
      * * `knowledge_writer` - knowledge_writer
@@ -109291,6 +109408,7 @@ export namespace Schemas {
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       Experiments: 'experiments',
+      FeatureFlags: 'feature_flags',
       Hogdesk: 'hogdesk',
       ImageBuilder: 'image_builder',
       KnowledgeWriter: 'knowledge_writer',
@@ -110731,7 +110849,8 @@ export namespace Schemas {
        * * `business_knowledge` - Business Knowledge
        * * `metrics_import` - Metrics Import
        * * `knowledge_writer` - Knowledge Writer
-       * * `context_layer` - Context Layer */
+       * * `context_layer` - Context Layer
+       * * `feature_flags` - Feature Flags */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -126400,6 +126519,14 @@ export namespace Schemas {
     page?: number;
     };
 
+    export type FeatureFlagsCodeAnalysisTargetRetrieveParams = {
+    /**
+     * Repository to check, as `organization/repository`. Omit it to see which repository would be used.
+     * @maxLength 255
+     */
+    repository?: string;
+    };
+
     export type FeatureFlagsAllActivityRetrieveParams = {
     /**
      * Number of items per page
@@ -131206,6 +131333,7 @@ export namespace Schemas {
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags
      * @minLength 1
      */
     origin_product?: SandboxCustomImagesListOriginProduct;
@@ -131243,6 +131371,7 @@ export namespace Schemas {
       MetricsImport: 'metrics_import',
       KnowledgeWriter: 'knowledge_writer',
       ContextLayer: 'context_layer',
+      FeatureFlags: 'feature_flags',
     } as const;
 
     export type SandboxListParams = {
@@ -132955,6 +133084,7 @@ export namespace Schemas {
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
@@ -133110,6 +133240,7 @@ export namespace Schemas {
       MetricsImport: 'metrics_import',
       KnowledgeWriter: 'knowledge_writer',
       ContextLayer: 'context_layer',
+      FeatureFlags: 'feature_flags',
     } as const;
 
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];
@@ -133145,6 +133276,7 @@ export namespace Schemas {
      * * `error_tracking` - error_tracking
      * * `eval_clusters` - eval_clusters
      * * `experiments` - experiments
+     * * `feature_flags` - feature_flags
      * * `hogdesk` - hogdesk
      * * `image_builder` - image_builder
      * * `knowledge_writer` - knowledge_writer
@@ -133177,6 +133309,7 @@ export namespace Schemas {
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       Experiments: 'experiments',
+      FeatureFlags: 'feature_flags',
       Hogdesk: 'hogdesk',
       ImageBuilder: 'image_builder',
       KnowledgeWriter: 'knowledge_writer',

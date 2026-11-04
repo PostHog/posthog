@@ -1074,6 +1074,26 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Start a read-only analysis of where the project's GitHub repository checks this flag.
+ *
+ * An agent clones the repository, finds every check of the flag, and reports the code each outcome runs.
+ * It does not change code or the flag. Returns 400 when no repository can be chosen (see
+ * `code_analysis_target`), 403 when AI data processing is not approved, and 409 when an analysis is
+ * already running.
+ */
+export const featureFlagsAnalyzeCodeCreateBodyRepositoryMax = 255
+
+export const FeatureFlagsAnalyzeCodeCreateBody = /* @__PURE__ */ zod.object({
+    repository: zod
+        .string()
+        .max(featureFlagsAnalyzeCodeCreateBodyRepositoryMax)
+        .nullish()
+        .describe(
+            "GitHub repository to analyze, as `organization\/repository`. It must be connected to the project's GitHub integration. Omit it to use the repository the last analysis used, the environment's default flag cleanup repository, or the only connected repository."
+        ),
+})
+
+/**
  * Disable a feature flag.
  *
  * Sets `active` to false and changes nothing else. Targeting, variants, payloads, tags and

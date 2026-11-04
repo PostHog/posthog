@@ -82,6 +82,7 @@ import {
 } from '~/types'
 
 import { deletedCohortDisabledReason, restoreChecksCohorts } from 'products/feature_flags/frontend/deletedCohortFilters'
+import { FeatureFlagCodeTab } from 'products/feature_flags/frontend/FeatureFlagCodeTab'
 import {
     ARCHIVE_UNAVAILABLE_DISABLED_REASON,
     RESTORE_UNAVAILABLE_DISABLED_REASON,
@@ -407,6 +408,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                 ),
                 key: FeatureFlagsTab.TESTING,
                 content: <FeatureFlagTestingTab featureFlag={featureFlag} />,
+            },
+            {
+                label: 'Code',
+                key: FeatureFlagsTab.CODE,
+                content: featureFlag.id ? <FeatureFlagCodeTab id={featureFlag.id} /> : null,
             },
         ] as LemonTab<FeatureFlagsTab>[]
     ).filter((tab) => availableTabs.includes(tab.key))

@@ -25,6 +25,9 @@ import type {
     EvaluationContextSuggestionRequestApi,
     EvaluationContextSuggestionResponseApi,
     FeatureFlagApi,
+    FeatureFlagCodeAnalysisApi,
+    FeatureFlagCodeAnalysisStartApi,
+    FeatureFlagCodeAnalysisTargetApi,
     FeatureFlagCreateRequestSchemaApi,
     FeatureFlagRequestUsageListParams,
     FeatureFlagRequestUsageResponseApi,
@@ -37,6 +40,7 @@ import type {
     FeatureFlagVersionResponseApi,
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsAllActivityRetrieveParams,
+    FeatureFlagsCodeAnalysisTargetRetrieveParams,
     FeatureFlagsEvaluationReasonsRetrieveParams,
     FeatureFlagsListParams,
     FeatureFlagsMyFlagsRetrieveParams,
@@ -749,6 +753,32 @@ export const featureFlagsActivityRetrieve = async (
     })
 }
 
+export const getFeatureFlagsAnalyzeCodeCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/analyze_code/`
+}
+
+/**
+ * Start a read-only analysis of where the project's GitHub repository checks this flag.
+ *
+ * An agent clones the repository, finds every check of the flag, and reports the code each outcome runs.
+ * It does not change code or the flag. Returns 400 when no repository can be chosen (see
+ * `code_analysis_target`), 403 when AI data processing is not approved, and 409 when an analysis is
+ * already running.
+ */
+export const featureFlagsAnalyzeCodeCreate = async (
+    projectId: string,
+    id: number,
+    featureFlagCodeAnalysisStartApi?: FeatureFlagCodeAnalysisStartApi,
+    options?: RequestInit
+): Promise<FeatureFlagCodeAnalysisApi> => {
+    return apiMutator<FeatureFlagCodeAnalysisApi>(getFeatureFlagsAnalyzeCodeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagCodeAnalysisStartApi),
+    })
+}
+
 export const getFeatureFlagsArchiveCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/archive/`
 }
@@ -771,6 +801,70 @@ export const featureFlagsArchiveCreate = async (
         ...options,
         method: 'POST',
     })
+}
+
+export const getFeatureFlagsCodeAnalysisRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/code_analysis/`
+}
+
+/**
+ * The latest code analysis of this flag: where the project's GitHub repository checks the flag, and
+ * the code each outcome runs.
+ *
+ * Poll until `is_terminal` is true. `result` is filled once the run completes. Returns 404 when the
+ * flag has never been analyzed.
+ */
+export const featureFlagsCodeAnalysisRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<FeatureFlagCodeAnalysisApi> => {
+    return apiMutator<FeatureFlagCodeAnalysisApi>(getFeatureFlagsCodeAnalysisRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagsCodeAnalysisTargetRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: FeatureFlagsCodeAnalysisTargetRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/feature_flags/${id}/code_analysis_target/?${stringifiedParams}`
+        : `/api/projects/${projectId}/feature_flags/${id}/code_analysis_target/`
+}
+
+/**
+ * Repository a code analysis of this flag would read.
+ *
+ * Resolution order: the requested repository, else the one the last analysis used, else the
+ * environment's default flag cleanup repository, else the only connected repository. When the
+ * project has several repositories and none is chosen (`source=ambiguous`), pass one in `repository`.
+ */
+export const featureFlagsCodeAnalysisTargetRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: FeatureFlagsCodeAnalysisTargetRetrieveParams,
+    options?: RequestInit
+): Promise<FeatureFlagCodeAnalysisTargetApi> => {
+    return apiMutator<FeatureFlagCodeAnalysisTargetApi>(
+        getFeatureFlagsCodeAnalysisTargetRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getFeatureFlagsCreateStaticCohortForFlagCreateUrl = (projectId: string, id: number) => {
