@@ -281,7 +281,7 @@ impl HogValue {
         // `1 == 1.0` is true here because both reference VMs treat all numbers as one domain (see
         // `PartialEq for Num`). Only the two operands are dereferenced, so a nested array or object
         // compares by heap reference, which matches the TS bytecode VM. The cohort evaluator's
-        // temporal epoch-equality is the only opt-in part, and it lives behind the flag in
+        // opt-ins, temporal epoch-equality and boolean text equality, live behind their flags in
         // `HogVM::eq_op`, not here.
         let (lhs, rhs) = (self.deref(heap)?, rhs.deref(heap)?);
         lhs.equals(rhs)
@@ -538,6 +538,18 @@ pub(crate) fn temporal_seconds_pair(
             _ => None,
         },
         (None, None) => None,
+    }
+}
+
+/// A boolean equals a string when the string is the boolean's text, `"true"` or `"false"`, which is
+/// how ClickHouse compares a property that it reads as text. `None` for any other pair.
+pub(crate) fn boolean_text_equals(a: &HogLiteral, b: &HogLiteral) -> Option<bool> {
+    match (a, b) {
+        (HogLiteral::Boolean(flag), HogLiteral::String(text))
+        | (HogLiteral::String(text), HogLiteral::Boolean(flag)) => {
+            Some(text.as_str() == if *flag { "true" } else { "false" })
+        }
+        _ => None,
     }
 }
 

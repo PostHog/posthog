@@ -1,12 +1,15 @@
 //! Reference-VM (JS) coercion semantics observed diverging on production transformations:
 //! integer dict keys ({96: 'x'} — a JS Map keyed by the raw scalar), null behaving as 0 in
-//! arithmetic, and toUnixTimestamp parsing ISO strings.
+//! arithmetic, and toUnixTimestamp parsing ISO strings. Also the JS rule for a boolean against a
+//! string in `==`, which only the cohort evaluator's opt-in replaces.
 
 use hogvm::{sync_execute, ExecutionContext, Program};
 use serde_json::{json, Value};
 
 const OP_CALL_GLOBAL: i64 = 2;
 const OP_MINUS: i64 = 7;
+const OP_EQ: i64 = 11;
+const OP_FALSE: i64 = 30;
 const OP_NULL: i64 = 31;
 const OP_STRING: i64 = 32;
 const OP_INTEGER: i64 = 33;
@@ -148,4 +151,29 @@ fn to_unix_timestamp_non_string_zone_is_null() {
         )),
         Value::Null
     );
+}
+
+/// The Node shadow binding compares this VM with the TS one, which reads the string as a boolean,
+/// so `false == "variant"` is true there. The cohort evaluator compares the text `"false"` instead,
+/// as ClickHouse does.
+#[test]
+fn a_boolean_equals_a_string_as_text_only_under_the_opt_in() {
+    let bc = vec![
+        json!("_H"),
+        json!(1),
+        json!(OP_STRING),
+        json!("variant"),
+        json!(OP_FALSE),
+        json!(OP_EQ),
+        json!(OP_RETURN),
+    ];
+    let node_binding = || {
+        ExecutionContext::with_defaults(Program::new(bc.clone()).expect("valid program"))
+            .with_coercing_comparisons()
+    };
+    let reference = sync_execute(&node_binding(), false).expect("execution succeeds");
+    assert_eq!(reference, json!(true));
+    let text = sync_execute(&node_binding().with_boolean_text_equality(), false)
+        .expect("execution succeeds");
+    assert_eq!(text, json!(false));
 }

@@ -31,12 +31,17 @@ const COHORT_HOGVM_MAX_STACK_DEPTH: usize = 32_768;
 /// cannot cause a runaway; kept above the stack ceiling so a max-size tuple build can't trip it.
 const COHORT_HOGVM_MAX_STEPS: usize = 131_072;
 
-/// Build the cohort evaluator's [`ExecutionContext`]: coercing comparisons plus the raised
-/// stack/step ceilings. Both construction sites route through this so production and the parity path
-/// share identical limits — a large `IN`-list must not overflow in one and succeed in the other.
+/// Build the cohort evaluator's [`ExecutionContext`]: coercing comparisons, boolean text equality
+/// and the raised stack/step ceilings. Both construction sites route through this so production and
+/// the parity path share identical limits — a large `IN`-list must not overflow in one and succeed
+/// in the other.
+///
+/// Boolean text equality matches the legacy calculation, which reads an untyped or String-typed
+/// property such as `$feature/<flag>` as its JSON text, so a flag that was off equals no variant.
 fn cohort_execution_context(program: Program) -> ExecutionContext {
     ExecutionContext::with_defaults(program)
         .with_coercing_comparisons()
+        .with_boolean_text_equality()
         .with_max_stack_depth(COHORT_HOGVM_MAX_STACK_DEPTH)
         .with_max_steps(COHORT_HOGVM_MAX_STEPS)
 }
@@ -102,7 +107,8 @@ impl VmErrorClass {
 /// per condition, both in place.
 ///
 /// Comparisons are coercing (cross-type ordering + epoch temporal ordering/equality) to match the
-/// Python/TS/ClickHouse reference; opt-in, so other `hogvm` consumers like cymbal keep strict ones.
+/// Python/TS/ClickHouse reference, and a boolean equals a string only as its text, as ClickHouse
+/// compares; opt-in, so other `hogvm` consumers like cymbal keep strict ones.
 pub struct CohortEvaluator {
     context: ExecutionContext,
 }
@@ -257,11 +263,13 @@ mod tests {
     const OP_GET_GLOBAL: i64 = 1;
     const OP_CALL_GLOBAL: i64 = 2;
     const OP_EQ: i64 = 11;
+    const OP_NOT_EQ: i64 = 12;
     const OP_GT: i64 = 13;
     const OP_LT: i64 = 15;
     const OP_TRUE: i64 = 29;
     const OP_FALSE: i64 = 30;
     const OP_IN: i64 = 21;
+    const OP_NOT_IN: i64 = 22;
     const OP_INTEGER: i64 = 33;
     const OP_STRING: i64 = 32;
     // Fixtures terminate explicitly with RETURN, mirroring what the catalog loader stores.
@@ -355,6 +363,18 @@ mod tests {
             EvalOutcome::VmError(_)
         ));
         assert!(!evaluate(&[], json!({})));
+    }
+
+    /// Build opcodes to read `properties.<key>`, the event's property.
+    fn push_event_property(key: &str) -> Vec<Value> {
+        vec![
+            json!(OP_STRING),
+            json!(key),
+            json!(OP_STRING),
+            json!("properties"),
+            json!(OP_GET_GLOBAL),
+            json!(2),
+        ]
     }
 
     /// Build opcodes to read `person.properties.<key>`. GET_GLOBAL consumes path segments in
@@ -538,6 +558,79 @@ mod tests {
         assert!(!evaluate(&bc, globals(json!(5))));
         assert!(evaluate(&bc, globals(json!("20"))));
         assert!(!evaluate(&bc, globals(json!("05"))));
+    }
+
+    /// Legacy reads a String-typed property such as `$feature/<flag>` as text, so a flag that was
+    /// off is `'false'` there and equals no variant. It reads a Boolean-typed property through a
+    /// case-sensitive `transform` of that text, so a stored `"True"` does not equal the constant
+    /// `true`, and a bare read stays a boolean.
+    #[test]
+    fn a_boolean_property_equals_a_string_only_as_its_text() {
+        let flag = push_event_property("$feature/flag");
+        let verdict = |bytecode: &[Value], value: Value| match evaluate_detailed(
+            bytecode,
+            json!({ "properties": { "$feature/flag": value } }),
+        ) {
+            EvalOutcome::Matched(matched) => matched,
+            other => panic!("{other:?}"),
+        };
+        let string = |value: &str| vec![json!(OP_STRING), json!(value)];
+        let control_or_test = [string("control"), string("test")].concat();
+        let tuple = [control_or_test, vec![json!(OP_TUPLE), json!(2)]].concat();
+        let true_constant = vec![json!(OP_TRUE)];
+        let cases = [
+            (
+                "off == 'variant'",
+                json!(false),
+                string("variant"),
+                OP_EQ,
+                false,
+            ),
+            (
+                "off != 'variant'",
+                json!(false),
+                string("variant"),
+                OP_NOT_EQ,
+                true,
+            ),
+            (
+                "off in (control, test)",
+                json!(false),
+                tuple.clone(),
+                OP_IN,
+                false,
+            ),
+            (
+                "off not in (control, test)",
+                json!(false),
+                tuple,
+                OP_NOT_IN,
+                true,
+            ),
+            ("on == 'true'", json!(true), string("true"), OP_EQ, true),
+            ("on == 'True'", json!(true), string("True"), OP_EQ, false),
+            (
+                "'true' == true",
+                json!("true"),
+                true_constant.clone(),
+                OP_EQ,
+                true,
+            ),
+            ("'True' == true", json!("True"), true_constant, OP_EQ, false),
+        ];
+        for (label, value, right, op, expected) in cases {
+            // The compiler emits a comparison as `right, left, op`.
+            let bytecode = [
+                header(),
+                right,
+                flag.clone(),
+                vec![json!(op), json!(OP_RETURN)],
+            ]
+            .concat();
+            assert_eq!(verdict(&bytecode, value), expected, "{label}");
+        }
+        let bare_read = [header(), flag, vec![json!(OP_RETURN)]].concat();
+        assert!(!verdict(&bare_read, json!(false)));
     }
 
     /// `header + N×(OP_INTEGER, i) + OP_TUPLE N` — the exact shape a `person.properties.X IN (...)`

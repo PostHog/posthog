@@ -314,6 +314,10 @@ Leaves are evaluated with the Rust HogVM, configured the same way in every proce
   Each program is decoded once per catalog build.
 - The cohort evaluator enables type-coercing comparisons, as the Python and TypeScript HogVMs do, and orders dates by their instant, as ClickHouse does.
   A string compares as a number only when the other side is a number, and `1 == 1.0` is true.
+- A boolean and a string compare as text in `==`, `!=`, `in` and `not in`: the boolean becomes `"true"` or `"false"`, and the comparison is case-sensitive.
+  The batch calculation reads an untyped or String-typed property as its JSON text, so `$feature/<flag> = 'variant'` skips events where the flag was off on both paths.
+  It reads a Boolean-typed property through a case-sensitive `transform` of that text, so a stored string `"True"` does not equal the constant `true` on either path.
+  A bare read and an ordering of a boolean keep boolean semantics.
 - A program that fails at runtime, calls an unknown function, or returns a non-boolean counts as `false`.
   Failures are counted by reason.
 - An event with malformed `properties` JSON skips only the behavioral side.

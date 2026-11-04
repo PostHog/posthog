@@ -18,8 +18,9 @@ use crate::{
     },
     util::{get_json_nested, like, regex_match},
     values::{
-        compare_values, temporal_seconds_pair, Callable, Closure, FromHogLiteral, HogLiteral,
-        HogMap, HogStr, HogValue, LocalCallable, Num, NumOp, Upvalue, UpvalueCell,
+        boolean_text_equals, compare_values, temporal_seconds_pair, Callable, Closure,
+        FromHogLiteral, HogLiteral, HogMap, HogStr, HogValue, LocalCallable, Num, NumOp, Upvalue,
+        UpvalueCell,
     },
 };
 
@@ -330,11 +331,13 @@ impl<'a> HogVM<'a> {
             }
             Operation::In => {
                 let (needle, haystack) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(haystack.contains(&needle, &self.heap)?)?;
+                let result = self.in_op(&haystack, &needle)?;
+                self.push_stack(result)?;
             }
             Operation::NotIn => {
                 let (needle, haystack) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(haystack.contains(&needle, &self.heap)?.not()?)?;
+                let result = self.in_op(&haystack, &needle)?.not()?;
+                self.push_stack(result)?;
             }
             Operation::Regex => self.regex_op(true, false)?,
             Operation::NotRegex => self.regex_op(true, true)?,
@@ -1030,7 +1033,9 @@ impl<'a> HogVM<'a> {
     /// `1 == 1.0` holds for every shared-crate consumer (see [`PartialEq for Num`](crate::Num)).
     /// The flag gates only what sits on top: when the context opts into coercing comparisons (the
     /// realtime-cohort evaluator), a temporal pair compares by epoch seconds to match ClickHouse
-    /// (`is_date_exact`); every non-temporal pair is unchanged either way.
+    /// (`is_date_exact`); every non-temporal pair is unchanged either way. A second opt-in,
+    /// [`ExecutionContext::with_boolean_text_equality`], compares a boolean with a string as the
+    /// boolean's text ([`boolean_text_equals`]).
     ///
     /// "Temporal pair" is [`temporal_seconds_pair`] — the same predicate [`compare_values`] uses for
     /// ordering, so `timestamp == toDateTime(...)` and `timestamp > toDateTime(...)` agree on which
@@ -1038,13 +1043,43 @@ impl<'a> HogVM<'a> {
     /// single coercion function, so equality has to cover the bare-field string case too, not just
     /// the both-temporal one.
     fn eq_op(&self, a: &HogValue, b: &HogValue) -> Result<HogLiteral, VmError> {
+        let (lhs, rhs) = (a.deref(&self.heap)?, b.deref(&self.heap)?);
         if self.context.coerce_comparisons {
-            let (lhs, rhs) = (a.deref(&self.heap)?, b.deref(&self.heap)?);
             if let Some((x, y)) = temporal_seconds_pair(lhs, rhs, &self.heap) {
                 return Ok((x == y).into());
             }
         }
+        if self.context.boolean_text_equality {
+            if let Some(equal) = boolean_text_equals(lhs, rhs) {
+                return Ok(equal.into());
+            }
+        }
         a.equals(b, &self.heap)
+    }
+
+    /// `In`/`NotIn` core: [`HogValue::contains`], except that under
+    /// [`ExecutionContext::with_boolean_text_equality`] an element of an array or tuple compares with
+    /// the needle the way `eq_op` does, so `x in (y)` and `x == y` agree. It skips `eq_op`'s
+    /// temporal equality, because no reference VM coerces temporals in `in`.
+    fn in_op(&self, haystack: &HogValue, needle: &HogValue) -> Result<HogLiteral, VmError> {
+        if !self.context.boolean_text_equality {
+            return haystack.contains(needle, &self.heap);
+        }
+        let (HogLiteral::Array(items) | HogLiteral::Tuple(items)) = haystack.deref(&self.heap)?
+        else {
+            return haystack.contains(needle, &self.heap);
+        };
+        let wanted = needle.deref(&self.heap)?;
+        for item in items {
+            let equal = match boolean_text_equals(item.deref(&self.heap)?, wanted) {
+                Some(equal) => equal,
+                None => *item.equals(needle, &self.heap)?.try_as::<bool>()?,
+            };
+            if equal {
+                return Ok(true.into());
+            }
+        }
+        Ok(false.into())
     }
 
     // Move a value from the stack onto the heap, replacing it with a reference to the heap value,
