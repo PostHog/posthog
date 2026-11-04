@@ -536,9 +536,26 @@ async fn refuses_input_it_cannot_apply() {
         .unwrap(),
     );
     let null_order: Arc<dyn Array> = Arc::new(Int64Array::from(vec![None::<i64>]));
-    for (case, column, value) in [
-        ("null order", 1, null_order),
-        ("null dictionary valid_from", 2, null_dictionary_value),
+    // A dictionary or string tie-break can expand far past its in-memory size when every
+    // row is encoded, which the source-size guard would not see.
+    let dictionary_tie: Arc<dyn Array> = Arc::new(
+        DictionaryArray::<Int32Type>::try_new(
+            Int32Array::from(vec![0]),
+            Arc::new(StringArray::from(vec!["x".repeat(1024)])),
+        )
+        .unwrap(),
+    );
+    let string_tie: Arc<dyn Array> = Arc::new(StringArray::from(vec!["1"]));
+    for (case, column, value, kind) in [
+        ("null order", 1, null_order, "generic"),
+        (
+            "null dictionary valid_from",
+            2,
+            null_dictionary_value,
+            "generic",
+        ),
+        ("dictionary tie-break", 4, dictionary_tie, "schema_mismatch"),
+        ("string tie-break", 4, string_tie, "schema_mismatch"),
     ] {
         let mut fields: Vec<Field> = source_schema()
             .fields()
@@ -554,10 +571,7 @@ async fn refuses_input_it_cannot_apply() {
             .history_upsert(vec![batch], schema, opts(), MultipartConfig::default())
             .await
             .unwrap_err();
-        assert!(
-            matches!(err, Error::Generic(ref m) if m.contains("null")),
-            "{case}: {err}"
-        );
+        assert_eq!(err.kind(), kind, "{case}: {err}");
     }
 
     for (case, partition_by) in [("unpartitioned", vec![]), ("other column", vec!["q"])] {

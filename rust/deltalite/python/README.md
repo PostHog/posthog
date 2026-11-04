@@ -157,7 +157,7 @@ Per key (`key_columns`, compared null-safely: a null key part matches a null key
 
 The source must not carry `valid_to_column` or `partition_column`, since the operation sets them.
 A null order value or a null `valid_from_column` raises `DeltaLiteError`.
-`tie_break_column` is written only when the table has that column.
+`tie_break_column` must have a fixed-width type, such as an integer or a timestamp, and is written only when the table has that column.
 Closed rows are only appended, so earlier closed versions of a key stay.
 A source that keeps no row, such as a re-run of the same input, makes no commit and returns `committed=False`, so a re-run after a crash is safe. That includes the nullability relax: it commits only when the call also writes rows.
 

@@ -94,7 +94,8 @@ pub struct HistoryUpsertOptions {
     /// Partition value of the open versions.
     pub current_partition: String,
     /// Source column that decides between rows with the same (key, order value): the
-    /// highest value wins. Dropped before writing when the table has no such column.
+    /// highest value wins. Must have a fixed-width type, such as an integer or a timestamp.
+    /// Dropped before writing when the table has no such column.
     pub tie_break_column: String,
     pub commit_metadata: Option<HashMap<String, Value>>,
     pub probe_concurrency: usize,
@@ -400,6 +401,16 @@ impl Columns {
                     opts.tie_break_column
                 ))
             })?;
+        // Fixed width only: the size guard counts in-memory bytes, and a dictionary or
+        // view column can encode to many times that when every row is row-encoded.
+        let tie_type = source_schema.field(tie_source_idx).data_type();
+        if !tie_type.is_primitive() {
+            return Err(Error::SchemaMismatch(format!(
+                "tie-break column '{}' must have a fixed-width type such as an integer or a \
+                 timestamp, source has {tie_type}",
+                opts.tie_break_column
+            )));
+        }
         let strip_tie = table_schema.index_of(&opts.tie_break_column).is_err();
 
         let extra: Vec<&String> = source_schema
