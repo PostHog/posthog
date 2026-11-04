@@ -394,6 +394,7 @@ export class EmailTrackingService {
 
         const eventName = METRIC_NAME_TO_EVENT_NAME[metricName]
         if (eventName && distinctId && (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId))) {
+            const emailStep = hogFlow?.actions.find((action) => action.id === actionId)
             await this.capturedEventsService.queueEvent({
                 team_id: teamId,
                 event: eventName,
@@ -406,7 +407,9 @@ export class EmailTrackingService {
                     ...properties,
                     // Only a transactional send carries a message id, and only a transactional send has these names.
                     ...(properties?.$email_message_id
-                        ? transactionalEmailIdentity(hogFlow?.actions.find((action) => action.id === actionId)?.config)
+                        ? transactionalEmailIdentity(
+                              emailStep?.type === 'function_email' ? emailStep.config : undefined
+                          )
                         : {}),
                 },
             })
