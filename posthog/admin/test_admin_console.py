@@ -9,7 +9,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.admin.console.panels import Owner, Panel
+from posthog.admin.console.panels import Operation, Owner, Panel
 from posthog.admin.console.registry import ConsoleRegistry, console
 
 from products.workflows.backend.facade.api import get_email_sending_state
@@ -75,6 +75,10 @@ class TestAdminConsoleAssets(SimpleTestCase):
 
         with self.assertRaisesRegex(ValueError, "already used"):
             registry.register_panel(type("SecondPanel", (_DuplicatePanel,), {}))
+
+    def test_a_danger_operation_without_a_reason_field_is_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "reason"):
+            Operation(key="wipe", label="Wipe", handler=lambda request, obj, form: None, danger=True)
 
 
 class TestAdminConsoleViews(BaseTest):

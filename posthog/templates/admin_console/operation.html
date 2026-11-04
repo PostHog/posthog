@@ -18,34 +18,11 @@
                 {% if operation.description %}
                     <p class="m-0 text-muted-foreground">{{ operation.description }}</p>
                 {% endif %}
-                {% for field in operation.fields %}
-                    <div class="quill-field flex flex-col gap-1" data-slot="field">
-                        <label class="quill-field__label quill-label font-bold"
-                               for="field-{{ field.name }}">{{ field.label }}</label>
-                        {% if field.multiline %}
-                            <textarea id="field-{{ field.name }}"
-                                      name="{{ field.name }}"
-                                      class="quill-textarea flex"
-                                      rows="3"
-                                      {% if field.required %} required{% endif %}
-                                      {% if field.name in errors %} aria-invalid="true"{% endif %}></textarea>
-                        {% else %}
-                            <input id="field-{{ field.name }}"
-                                   name="{{ field.name }}"
-                                   class="quill-input"
-                                   autocomplete="off"
-                                   {% if field.required %} required{% endif %}
-                                   {% if field.name in errors %} aria-invalid="true"{% endif %} />
-                        {% endif %}
-                        {% if field.help_text %}
-                            <p class="quill-field__description m-0">{{ field.help_text }}</p>
-                        {% endif %}
-                        {% for name, error in errors.items %}
-                            {% if name == field.name %}
-                                <p class="quill-field__error m-0" role="alert">{{ error }}</p>
-                            {% endif %}
-                        {% endfor %}
-                    </div>
+                {% for error in form.non_field_errors %}
+                    <p class="quill-field__error m-0" role="alert">{{ error }}</p>
+                {% endfor %}
+                {% for field in form %}
+                    {% include "admin_console/_form_field.html" %}
                 {% endfor %}
             </div>
             <div class="quill-card__footer flex flex-wrap gap-2"

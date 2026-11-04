@@ -34,11 +34,13 @@ class ConsoleRegistry:
     def discover(self) -> None:
         if self._discovered:
             return
-        self._discovered = True
         # Core panels register first, so they lead each page.
         import posthog.admin.console.team_panels  # noqa: F401, PLC0415 — registers the core Team panels
 
         autodiscover_modules("console")
+        # Set only after the imports succeed, so a failed import raises again on the next request instead of
+        # leaving the console with some panels missing.
+        self._discovered = True
 
 
 console = ConsoleRegistry()

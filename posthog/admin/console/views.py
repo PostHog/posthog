@@ -4,7 +4,7 @@ from typing import cast
 from django.conf import settings
 from django.contrib import messages
 from django.db.models import Q
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
@@ -106,41 +106,40 @@ def run_team_operation(request: HttpRequest, team_id: int, panel_key: str, opera
     operation = _find_operation(panel, team, operation_key)
     team_url = reverse("admin_console_team", kwargs={"team_id": team.pk})
 
+    if request.method not in ("GET", "POST"):
+        return HttpResponseNotAllowed(["GET", "POST"])
+    if request.method == "GET" and operation.form_class is None:
+        return redirect(team_url)
+
+    form = None
+    if operation.form_class is not None:
+        form = operation.form_class(request.POST if request.method == "POST" else None)
     context = {
         **ConsoleEnvironment.context(),
         "team": team,
         "panel": panel,
         "operation": operation,
-        "errors": {},
+        "form": form,
         # Handlers that move money or send messages build an idempotency key from it, so a double submit runs once.
         "form_nonce": request.POST.get("form_nonce") or str(uuid.uuid4()),
     }
     if request.method == "GET":
-        if not operation.fields:
-            return redirect(team_url)
         return render(request, "admin_console/operation.html", context)
-    if request.method != "POST":
-        return HttpResponseNotAllowed(["GET", "POST"])
+    if form is not None and not form.is_valid():
+        return render(request, "admin_console/operation.html", context, status=400)
 
-    errors = {
-        field.name: f"{field.label} is required"
-        for field in operation.fields
-        if field.required and not request.POST.get(field.name, "").strip()
-    }
-    if errors:
-        return render(request, "admin_console/operation.html", {**context, "errors": errors}, status=400)
-
-    logger.info(
-        "admin_console_operation_run",
+    audit = logger.bind(
         record="team",
         team_id=team.pk,
         panel=panel.key,
         operation=operation.key,
+        reason=form.cleaned_data.get("reason") if form is not None else None,
         triggered_by=cast(User, request.user).email,
     )
-    response = operation.handler(request, team)
-    if isinstance(response, HttpResponseRedirect):
-        # A bridged admin view redirects into Django admin. Staff started here, so they come back here.
+    audit.info("admin_console_operation_started")
+    response = operation.handler(request, team, form)
+    audit.info("admin_console_operation_finished", status=response.status_code if response is not None else None)
+    if response is None:
         return redirect(team_url)
     if response.status_code >= 400:
         messages.error(request, f"{operation.label} failed with status {response.status_code}.")

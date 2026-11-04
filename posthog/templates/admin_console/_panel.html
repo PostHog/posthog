@@ -50,7 +50,7 @@
         <div class="quill-card__footer flex flex-wrap gap-2"
              data-slot="card-footer">
             {% for operation in rendered.operations %}
-                {% if operation.fields %}
+                {% if operation.form_class %}
                     <a href="{% url 'admin_console_team_operation' team_id=team.pk panel_key=rendered.panel.key operation_key=operation.key %}"
                        class="quill-button {% if operation.danger %}quill-button--variant-destructive-outline{% else %}quill-button--variant-outline{% endif %} quill-button--size-sm group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">{{ operation.label }}…</a>
                 {% else %}

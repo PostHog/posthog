@@ -1,6 +1,8 @@
 from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, Protocol
 
+from django import forms
+
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
@@ -19,7 +21,7 @@ class Tone(StrEnum):
 @frozen
 class Owner:
     name: str
-    # Slug of a mini crest from @posthog/brand, for example "workflows". The build copies every crest.
+    # Slug of a mini crest from @posthog/brand, for example "workflows". The build ships only the crests named here.
     crest: str
 
 
@@ -31,27 +33,32 @@ class Fact:
     mono: bool = False
 
 
-@frozen
-class OperationField:
-    name: str
-    label: str
-    help_text: str = ""
-    required: bool = True
-    multiline: bool = False
-
-
 class OperationHandler(Protocol):
-    def __call__(self, request: "HttpRequest", obj: "Model") -> "HttpResponse": ...
+    def __call__(self, request: "HttpRequest", obj: "Model", form: forms.Form | None) -> "HttpResponse | None": ...
 
 
 @frozen
 class Operation:
+    """An action on a record. The handler returns None when it is done, and the console sends staff back to the record.
+
+    An operation with a form gets its own form page. Without a form it runs from a button in the panel.
+    """
+
     key: str
     label: str
     handler: OperationHandler
     danger: bool = False
-    fields: tuple[OperationField, ...] = ()
+    form_class: type[forms.Form] | None = None
     description: str = ""
+
+    def __post_init__(self) -> None:
+        # The console writes the reason to the audit log, so nobody runs a destructive action without saying why.
+        if self.danger and (self.form_class is None or "reason" not in self.form_class.base_fields):
+            raise ValueError(f"Danger operation {self.key!r} needs a form with a reason field")
+
+
+class ReasonForm(forms.Form):
+    reason = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), help_text="Goes into the audit log.")
 
 
 class Panel:

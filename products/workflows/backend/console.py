@@ -1,14 +1,21 @@
+from django import forms
 from django.db.models import Model
 
 from posthog.admin.admins.team_admin import TeamAdmin
 from posthog.admin.console.bridge import AdminViewBridge
-from posthog.admin.console.panels import Fact, Operation, OperationField, Owner, Panel, Tone
+from posthog.admin.console.panels import Fact, Operation, Owner, Panel, Tone
 from posthog.admin.console.registry import console
 from posthog.models.team.team import Team
 
 from products.workflows.backend.facade.api import get_email_sending_state
 
 WORKFLOWS = Owner(name="Workflows", crest="workflows")
+
+
+class SuspendEmailSendingForm(forms.Form):
+    reason = forms.CharField(
+        widget=forms.Textarea(attrs={"rows": 3}), help_text="The team sees this reason in their notification."
+    )
 
 
 @console.register_panel
@@ -50,13 +57,6 @@ class EmailSendingPanel(Panel):
                 handler=AdminViewBridge(Team, TeamAdmin.suspend_email_sending_view),
                 danger=True,
                 description="Stops workflow email for this team. The team gets an email and a notification.",
-                fields=(
-                    OperationField(
-                        name="reason",
-                        label="Reason",
-                        help_text="The team sees this reason in their notification.",
-                        multiline=True,
-                    ),
-                ),
+                form_class=SuspendEmailSendingForm,
             )
         ]
