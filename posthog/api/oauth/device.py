@@ -363,6 +363,7 @@ class DeviceApprovalSerializer(DeviceUserCodeSerializer):
     scopes = serializers.ListField(
         child=serializers.CharField(),
         required=False,
+        allow_empty=False,
         help_text="The requested scopes the person kept. Leave it out to grant every requested scope. It must "
         "include every scope in `required_scopes`, and nothing outside the requested scopes.",
     )
@@ -616,7 +617,15 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
             grant.save(update_fields=["user", "scoped_teams", "status", "scope"])
 
         logger.info("oauth_device_grant_approved", client_id=grant.client_id[:64], team_id=team.id)
-        _capture(request, "oauth_device_authorization_approved", grant, team_id=team.id)
+        _capture(
+            request,
+            "oauth_device_authorization_approved",
+            grant,
+            team_id=team.id,
+            scopes_requested=len(requested),
+            scopes_granted=len((grant.scope or "").split()),
+            scopes_chosen=kept is not None and set(kept) != set(requested),
+        )
         return Response(DeviceDecisionSerializer({"status": grant.status}).data)
 
     @extend_schema(request=DeviceUserCodeSerializer, responses={200: DeviceDecisionSerializer})

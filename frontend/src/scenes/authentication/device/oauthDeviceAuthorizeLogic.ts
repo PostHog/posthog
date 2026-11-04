@@ -11,6 +11,7 @@ import {
     scopeGroupsToShow,
     type OAuthScopeGroup,
     type OAuthScopeRow,
+    type RequiredLevel,
     type ScopeAccessSelections,
 } from 'lib/oauthScopeRows'
 import { type ScopeAccessLevel, countScopeRowsByLevel, getMinimumEquivalentScopes } from 'lib/scopes'
@@ -97,6 +98,7 @@ export interface oauthDeviceAuthorizeLogicValues {
     user: UserType | null // userLogic
     adjustableScopeRows: OAuthScopeRow[]
     allScopesRequired: boolean
+    consentResourceScopes: string[]
     decision: DeviceDecisionEnumApi | null
     decisionLoading: boolean
     deviceGrant: DeviceGrantDetailsApi | null
@@ -111,6 +113,7 @@ export interface oauthDeviceAuthorizeLogicValues {
     projects: DeviceProject[]
     projectsError: string | null
     projectsLoading: boolean
+    requiredScopeLevels: Map<string, RequiredLevel>
     requiredScopeRows: OAuthScopeRow[]
     scopeAccessSelections: ScopeAccessSelections
     scopeGroups: OAuthScopeGroup[] | null
@@ -215,10 +218,12 @@ export interface oauthDeviceAuthorizeLogicMeta {
             organizationId: string | null
         ) => boolean
         identityScopeDescriptions: (deviceGrant: DeviceGrantDetailsApi | null) => string[]
+        consentResourceScopes: (deviceGrant: DeviceGrantDetailsApi | null) => string[]
+        requiredScopeLevels: (deviceGrant: DeviceGrantDetailsApi | null) => Map<string, RequiredLevel>
         scopeRows: (
             deviceGrant: DeviceGrantDetailsApi | null,
-            projectId: number | null,
-            organizationId: string | null,
+            consentResourceScopes: any,
+            requiredScopeLevels: any,
             scopeAccessSelections: ScopeAccessSelections
         ) => OAuthScopeRow[]
         requiredScopeRows: (scopeRows: OAuthScopeRow[]) => OAuthScopeRow[]
@@ -381,22 +386,33 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
             (deviceGrant: DeviceGrantDetailsApi | null): string[] =>
                 identityScopeDescriptions(deviceGrant?.scopes ?? []),
         ],
-        // One row per scope object, built the same way as on the OAuth consent screen. Required scopes
-        // and the ones already granted in the chosen project set the floor.
+        consentResourceScopes: [
+            (s) => [s.deviceGrant],
+            (deviceGrant: DeviceGrantDetailsApi | null): string[] =>
+                getMinimumEquivalentScopes(deviceGrant?.scopes ?? []).filter((scope) => scope.includes(':')),
+        ],
+        requiredScopeLevels: [
+            (s) => [s.deviceGrant],
+            (deviceGrant: DeviceGrantDetailsApi | null): Map<string, RequiredLevel> =>
+                requiredLevelsFromScopes(deviceGrant?.required_scopes ?? []),
+        ],
+        // One row per scope object, built the same way as on the OAuth consent screen. Only required
+        // scopes set a floor: a device login replaces the client's stored token, so an earlier grant
+        // gives the person no reason to keep that access.
         scopeRows: [
-            (s) => [s.deviceGrant, s.projectId, s.organizationId, s.scopeAccessSelections],
+            (s) => [s.deviceGrant, s.consentResourceScopes, s.requiredScopeLevels, s.scopeAccessSelections],
             (
                 deviceGrant: DeviceGrantDetailsApi | null,
-                projectId: number | null,
-                organizationId: string | null,
+                consentResourceScopes: string[],
+                requiredScopeLevels: Map<string, RequiredLevel>,
                 scopeAccessSelections: ScopeAccessSelections
             ): OAuthScopeRow[] =>
                 deviceGrant
                     ? buildOAuthScopeRows(
-                          getMinimumEquivalentScopes(deviceGrant.scopes).filter((scope) => scope.includes(':')),
+                          consentResourceScopes,
                           scopeAccessSelections,
-                          requiredLevelsFromScopes(deviceGrant.required_scopes),
-                          requiredLevelsFromScopes(grantedInProject(deviceGrant, projectId, organizationId)),
+                          requiredScopeLevels,
+                          new Map(),
                           deviceGrant.client_name
                       )
                     : [],

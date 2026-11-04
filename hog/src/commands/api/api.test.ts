@@ -187,7 +187,7 @@ describe('hog api', () => {
         })
         expect(result.error()).toMatchObject({
             code: 'missing_scopes',
-            message: `Your login needs ${scopes} to call insight-create.`,
+            message: `Your credentials need ${scopes} to call insight-create.`,
         })
     })
 
@@ -261,7 +261,7 @@ describe('hog api', () => {
 
         expect(result.error()).toMatchObject({
             code: 'missing_scopes',
-            message: 'Your login needs insight:write, query:read to call insight-create.',
+            message: 'Your credentials need insight:write, query:read to call insight-create.',
         })
     })
 })

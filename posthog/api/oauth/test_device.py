@@ -522,7 +522,8 @@ class TestOAuthDeviceGrant(APIBaseTest):
         self.assertEqual(lookup.json()["scopes"], ["dashboard:write", "insight:read"])
         self.assertEqual(lookup.json()["required_scopes"], ["insight:read"])
 
-    def test_the_token_carries_only_the_scopes_the_person_kept(self) -> None:
+    @patch("posthog.api.oauth.device.posthoganalytics.capture")
+    def test_the_token_carries_only_the_scopes_the_person_kept(self, capture) -> None:
         with time_machine.travel(START, tick=False) as clock:
             started = self._start()
             approved = self.client.post(
@@ -537,6 +538,14 @@ class TestOAuthDeviceGrant(APIBaseTest):
         self.assertEqual(approved.status_code, status.HTTP_200_OK, approved.content)
         # The client asked for `feature_flag:write`, and the person lowered it to read.
         self.assertEqual(token.json()["scope"], "feature_flag:read")
+        approval = next(c for c in capture.call_args_list if c.kwargs["event"] == "oauth_device_authorization_approved")
+        self.assertEqual(
+            {
+                key: approval.kwargs["properties"][key]
+                for key in ("scopes_requested", "scopes_granted", "scopes_chosen")
+            },
+            {"scopes_requested": 2, "scopes_granted": 1, "scopes_chosen": True},
+        )
 
     @parameterized.expand(
         [

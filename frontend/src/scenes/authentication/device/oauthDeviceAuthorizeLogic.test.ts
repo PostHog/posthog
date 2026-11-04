@@ -47,38 +47,30 @@ describe('oauthDeviceAuthorizeLogic', () => {
     })
 
     it.each([
-        ['a first login can lower every scope', [], { dashboard: 'none', insight: 'none' }, false],
+        ['a first login', [], false],
         [
-            'a login that adds nothing in the project keeps every scope at its granted level',
+            'a login that adds nothing in the project',
             [
                 {
                     project_id: 42,
                     organization_id: null,
-                    scopes: ['openid', 'dashboard:write', 'insight:read', 'insight:write'],
+                    scopes: ['openid', 'insight:read', 'insight:write', 'dashboard:write'],
                 },
             ],
-            { dashboard: 'write', insight: 'write' },
             false,
         ],
+        ['a step-up', [{ project_id: 42, organization_id: null, scopes: ['openid', 'insight:read'] }], true],
         [
-            'a step-up keeps what the project already has as the floor',
-            [{ project_id: 42, organization_id: null, scopes: ['openid', 'insight:read'] }],
-            { dashboard: 'none', insight: 'read' },
-            true,
-        ],
-        [
-            'scopes granted in another organization set no floor here',
+            'a login after a grant in another organization',
             [{ project_id: null, organization_id: 'another-org', scopes: ['openid', 'insight:read'] }],
-            { dashboard: 'none', insight: 'none' },
             false,
         ],
         [
-            'scopes granted in another project set no floor here',
+            'a login after a grant in another project',
             [{ project_id: 7, organization_id: null, scopes: ['openid', 'insight:read'] }],
-            { dashboard: 'none', insight: 'none' },
             false,
         ],
-    ])('%s', async (_name, grantedScopes, floors, isStepUp) => {
+    ])('%s lets the person lower every scope the client does not require', async (_name, grantedScopes, isStepUp) => {
         useGrantMocks({ ...GRANT, granted_scopes: grantedScopes })
         const logic = oauthDeviceAuthorizeLogic()
         logic.mount()
@@ -88,7 +80,10 @@ describe('oauthDeviceAuthorizeLogic', () => {
         logic.actions.setProjectId(42)
 
         expect(lookups).toEqual(['BCDF-GHJK'])
-        expect(Object.fromEntries(logic.values.scopeRows.map((row) => [row.key, row.minLevel]))).toEqual(floors)
+        expect(logic.values.scopeRows.map((row) => [row.key, row.minLevel])).toEqual([
+            ['dashboard', 'none'],
+            ['insight', 'none'],
+        ])
         await expectLogic(logic).toMatchValues({ isStepUp, scopeSummary: 'Write access to 2 areas' })
     })
 
