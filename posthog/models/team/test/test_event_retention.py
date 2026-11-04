@@ -87,10 +87,10 @@ class TestReconcileOrganizationEventsRetention(BaseTest):
 class TestEventsRetentionMonthsForTeam(BaseTest):
     @parameterized.expand(
         [
-            ("plan_window_only", 24, None, 24),
-            ("shorter_set_window", 24, 12, 12),
-            ("set_window_longer_than_a_downgraded_plan", 24, 36, 24),
-            ("set_window_on_a_plan_past_the_standard_default", 84, 36, 36),
+            ("plan_period_only", 24, None, 24),
+            ("shorter_set_period", 24, 12, 12),
+            ("set_period_longer_than_a_downgraded_plan", 24, 36, 24),
+            ("set_period_on_a_plan_past_the_standard_default", 84, 36, 36),
         ]
     )
     def test_takes_the_shorter_of_the_plan_and_the_set_window(

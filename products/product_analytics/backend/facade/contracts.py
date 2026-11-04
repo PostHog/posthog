@@ -192,7 +192,7 @@ class InsightDashboardContext:
 
 @dataclass(frozen=True)
 class OrganizationEventsRetention:
-    """The window an organization set for its projects, its default, and the windows its admins can set, in months."""
+    """The period an organization set for its projects, its default, and the periods its admins can set, in months."""
 
     organization_months: int | None
     default_months: int
