@@ -95,41 +95,75 @@ function hiddenHighlightKey(projectId: number | string, key: string): string {
     return `${projectId}:${key}`
 }
 
+export interface PulsePlace {
+    key: string
+    standIn: string | null
+}
+
 export interface PulsePlacement {
     slots: PulseSlotApi[]
-    places: string[]
+    places: PulsePlace[]
+}
+
+export function pulseSlotsOf(highlights: HighlightsApi | null): PulseSlotApi[] {
+    return (
+        highlights?.pulse_slots ??
+        (highlights?.pulse ?? []).map((metric) => ({
+            key: metric.key,
+            name: metric.name,
+            url: metric.url,
+            interval: metric.interval,
+            status: 'ready',
+        }))
+    )
 }
 
 export function placePulseSlots(
     slots: PulseSlotApi[],
-    places: string[],
+    places: PulsePlace[],
     isHidden: (key: string) => boolean
 ): PulsePlacement {
     const byKey = new Map(slots.map((slot) => [slot.key, slot]))
-    const kept = places.slice(0, PULSE_TILES).filter((key) => byKey.has(key))
-    const spare = slots.filter((slot) => !kept.includes(slot.key) && !isHidden(slot.key))
+    const kept = places.slice(0, PULSE_TILES)
+    const claimed = new Set(
+        kept
+            .flatMap((place) => [place.key, ...(place.standIn !== null ? [place.standIn] : [])])
+            .filter((key) => byKey.has(key))
+    )
+    const spare = slots.filter((slot) => !claimed.has(slot.key) && !isHidden(slot.key))
+    const used = new Set<string>()
+    const take = (key: string | null): PulseSlotApi | undefined => {
+        const slot = key !== null ? byKey.get(key) : undefined
+        if (slot && !isHidden(slot.key) && !used.has(slot.key)) {
+            used.add(slot.key)
+            return slot
+        }
+        const next = spare.shift()
+        if (next) {
+            used.add(next.key)
+        }
+        return next
+    }
     const shown: PulseSlotApi[] = []
-    const nextPlaces: string[] = []
-    for (const place of places.slice(0, PULSE_TILES)) {
-        const slot = byKey.get(place)
-        if (slot && !isHidden(place)) {
-            shown.push(slot)
-            nextPlaces.push(place)
+    const nextPlaces: PulsePlace[] = []
+    for (const place of kept) {
+        if (byKey.has(place.key) && isHidden(place.key)) {
+            const standIn = take(place.standIn)
+            if (standIn) {
+                shown.push(standIn)
+            }
+            nextPlaces.push({ key: place.key, standIn: standIn?.key ?? null })
             continue
         }
-        const spareSlot = spare.shift()
-        if (spareSlot) {
-            shown.push(spareSlot)
-        }
+        const slot = take(byKey.has(place.key) ? place.key : null)
         if (slot) {
-            nextPlaces.push(place)
-        } else if (spareSlot) {
-            nextPlaces.push(spareSlot.key)
+            shown.push(slot)
+            nextPlaces.push({ key: slot.key, standIn: null })
         }
     }
-    for (const slot of spare.slice(0, PULSE_TILES - shown.length)) {
+    for (const slot of spare.slice(0, PULSE_TILES - nextPlaces.length)) {
         shown.push(slot)
-        nextPlaces.push(slot.key)
+        nextPlaces.push({ key: slot.key, standIn: null })
     }
     return { slots: shown, places: nextPlaces }
 }
@@ -149,7 +183,7 @@ export interface todayHighlightsLogicValues {
     highlightsWaitOver: boolean
     pulsePending: boolean
     pulsePlacement: PulsePlacement
-    pulsePlaces: string[]
+    pulsePlaces: PulsePlace[]
     pulseSlots: PulseSlotApi[]
     pulseTiles: HighlightMetricApi[]
 }
@@ -224,8 +258,8 @@ export interface todayHighlightsLogicActions {
     setHiddenPulseMetrics: (hidden: Record<string, true>) => {
         hidden: Record<string, true>
     }
-    setPulsePlaces: (places: string[]) => {
-        places: string[]
+    setPulsePlaces: (places: PulsePlace[]) => {
+        places: PulsePlace[]
     }
     stopWaitingForHighlights: () => {
         value: true
@@ -253,7 +287,7 @@ export interface todayHighlightsLogicMeta {
             highlights: HighlightsApi | null,
             hiddenPulseMetrics: Record<string, true>,
             currentProjectId: number | string,
-            pulsePlaces: string[]
+            pulsePlaces: PulsePlace[]
         ) => PulsePlacement
         pulseSlots: (pulsePlacement: PulsePlacement, highlightsFailed: boolean) => PulseSlotApi[]
         pulseTiles: (highlights: HighlightsApi | null, pulseSlots: PulseSlotApi[]) => HighlightMetricApi[]
@@ -306,7 +340,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         hidePulseMetric: (metric: HighlightMetricApi, position: number) => ({ metric, position }),
         unhidePulseMetric: (metric: HighlightMetricApi, position: number) => ({ metric, position }),
         setHiddenPulseMetrics: (hidden: Record<string, true>) => ({ hidden }),
-        setPulsePlaces: (places: string[]) => ({ places }),
+        setPulsePlaces: (places: PulsePlace[]) => ({ places }),
         pulseViewMounted: (sample: boolean) => ({ sample }),
         pulseViewUpdated: true,
         retryPulse: true,
@@ -336,10 +370,9 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
     })),
     reducers({
         pulsePlaces: [
-            [] as string[],
+            [] as PulsePlace[],
             {
                 setPulsePlaces: (_, { places }) => places,
-                pulseViewMounted: () => [],
             },
         ],
         hiddenHighlights: [
@@ -378,23 +411,13 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 highlights: HighlightsApi | null,
                 hiddenPulseMetrics: Record<string, true>,
                 currentProjectId: number | string,
-                pulsePlaces: string[]
-            ): PulsePlacement => {
-                const slots: PulseSlotApi[] =
-                    highlights?.pulse_slots ??
-                    (highlights?.pulse ?? []).map((metric) => ({
-                        key: metric.key,
-                        name: metric.name,
-                        url: metric.url,
-                        interval: metric.interval,
-                        status: 'ready',
-                    }))
-                return placePulseSlots(
-                    slots,
+                pulsePlaces: PulsePlace[]
+            ): PulsePlacement =>
+                placePulseSlots(
+                    pulseSlotsOf(highlights),
                     pulsePlaces,
                     (key) => !!hiddenPulseMetrics[hiddenHighlightKey(currentProjectId, key)]
-                )
-            },
+                ),
         ],
         pulseSlots: [
             (s) => [s.pulsePlacement, s.highlightsFailed],
@@ -458,6 +481,13 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         pulseViewMounted: ({ sample }) => {
+            actions.setPulsePlaces(
+                placePulseSlots(
+                    pulseSlotsOf(values.highlights),
+                    [],
+                    (key) => !!values.hiddenPulseMetrics[hiddenHighlightKey(values.currentProjectId, key)]
+                ).places
+            )
             if (sample) {
                 return
             }
@@ -576,6 +606,9 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             if (load && !load.finished) {
                 load.requestCount += 1
             }
+        },
+        setHiddenPulseMetrics: () => {
+            actions.setPulsePlaces(values.pulsePlacement.places)
         },
         loadHighlightsFailure: () => {
             const load = cache.pulseLoad as PulseLoad | undefined

@@ -14,6 +14,7 @@ describe('todayHighlightsLogic', () => {
     let highlightCalls: number
 
     beforeEach(() => {
+        window.localStorage.clear()
         highlightResponses = [[200, makeHighlights()]]
         highlightCalls = 0
         useMocks({
@@ -64,7 +65,7 @@ describe('todayHighlightsLogic', () => {
 
     it('hides a pulse metric in this project only, fills its place with the next suggestion, and undoes the hide', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
-        const pulse = ['a', 'b', 'c', 'd', 'e'].map((key) => makePulseMetric({ key: `insight:${key}` }))
+        const pulse = ['a', 'b', 'c', 'd', 'e', 'f'].map((key) => makePulseMetric({ key: `insight:${key}` }))
         highlightResponses = [[200, makeHighlights({ pulse })]]
         const logic = todayHighlightsLogic()
         logic.mount()
@@ -77,12 +78,13 @@ describe('todayHighlightsLogic', () => {
         logic.actions.hidePulseMetric(pulse[1], 1)
         expect(shown()).toEqual(['insight:a', 'insight:e', 'insight:c', 'insight:d'])
 
-        logic.actions.loadHighlightsSuccess(makeHighlights({ pulse }))
-        expect(shown()).toEqual(['insight:a', 'insight:e', 'insight:c', 'insight:d'])
+        logic.actions.hidePulseMetric(pulse[3], 3)
+        logic.actions.loadHighlightsSuccess(makeHighlights({ pulse: [...pulse.slice(0, 4), pulse[5], pulse[4]] }))
+        expect(shown()).toEqual(['insight:a', 'insight:e', 'insight:c', 'insight:f'])
         expect(capture).toHaveBeenCalledWith('today pulse metric hidden', expect.objectContaining({ position: 1 }))
 
         logic.actions.unhidePulseMetric(pulse[1], 1)
-        expect(shown()).toEqual(['insight:a', 'insight:b', 'insight:c', 'insight:d'])
+        expect(shown()).toEqual(['insight:a', 'insight:b', 'insight:c', 'insight:f'])
     })
 
     it('keeps numbers in their places when a later result reorders or drops them, and starts fresh on a new visit', async () => {
@@ -98,6 +100,9 @@ describe('todayHighlightsLogic', () => {
         expect(shown()).toEqual(['insight:a', 'insight:e', 'insight:c'])
 
         logic.actions.pulseViewMounted(true)
+        expect(shown()).toEqual(['insight:c', 'insight:e', 'insight:a'])
+
+        logic.actions.loadHighlightsSuccess(makeHighlights({ pulse: [a, c, e] }))
         expect(shown()).toEqual(['insight:c', 'insight:e', 'insight:a'])
     })
 
