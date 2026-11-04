@@ -30,7 +30,7 @@ from django.urls import Resolver404, resolve
 from django.utils.cache import add_never_cache_headers
 from django.utils.deprecation import MiddlewareMixin
 from django.utils.functional import SimpleLazyObject
-from django.utils.http import http_date, url_has_allowed_host_and_scheme
+from django.utils.http import escape_leading_slashes, http_date, url_has_allowed_host_and_scheme
 
 import requests
 import structlog
@@ -1727,7 +1727,7 @@ class IPRestrictionsMiddleware(MiddlewareMixin):
                 response = render(
                     request,
                     "ip_restricted.html",
-                    {"detail": str(error.detail), "retry_url": request.get_full_path()},
+                    {"detail": str(error.detail), "retry_url": escape_leading_slashes(request.get_full_path())},
                     status=403,
                 )
                 add_never_cache_headers(response)
