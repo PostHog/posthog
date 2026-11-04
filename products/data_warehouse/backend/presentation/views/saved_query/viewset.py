@@ -317,7 +317,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             ),
             409: OpenApiResponse(description="engine is 'trino' and a managed warehouse run is already in progress."),
             429: OpenApiResponse(
-                description="A run without direction or engine 'trino' started less than 15 minutes ago and the query has not changed since. The Retry-After header gives the wait in seconds."
+                description="A run without direction or engine 'trino' started too recently and the query has not changed since. The Retry-After header gives the wait in seconds."
             ),
         },
     )
