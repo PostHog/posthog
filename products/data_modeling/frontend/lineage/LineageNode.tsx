@@ -33,7 +33,7 @@ import { DataModelingNode } from '~/types'
 
 import { MATERIALIZING_TYPES } from 'products/data_modeling/frontend/freshness'
 import { servingSuspension } from 'products/data_modeling/frontend/suspension'
-import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
+import { SYNC_FREQUENCY_ORDER, syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
 import { ElkDirection, NodeHandle } from './autolayout'
 import { LineageGraphNode } from './lineageHiddenNodes'
@@ -187,18 +187,26 @@ function RunArrow({
 
 function CadenceLabel({ node }: { node: LineageNodeShape }): JSX.Element {
     const runsAt = node.effective_sync_interval ?? node.sync_interval ?? undefined
-    const inherited = !node.pinned && !!runsAt && !!node.sync_interval && runsAt !== node.sync_interval
+    const differs = !node.pinned && !!runsAt && !!node.sync_interval && runsAt !== node.sync_interval
+    // The scheduler runs a node faster than its own setting to serve a downstream view,
+    // and slower when one of its sources refreshes less often than the node is set to.
+    const faster =
+        differs &&
+        SYNC_FREQUENCY_ORDER.indexOf(runsAt as (typeof SYNC_FREQUENCY_ORDER)[number]) <
+            SYNC_FREQUENCY_ORDER.indexOf(node.sync_interval as (typeof SYNC_FREQUENCY_ORDER)[number])
     const title = !runsAt
         ? 'This node is not set to sync on a schedule yet'
         : node.pinned
           ? 'Pinned to this cadence. Downstream views may read older data from it.'
-          : inherited
-            ? `Refreshes this often to keep up with a downstream view. Its own setting is ${syncIntervalToShorthand(node.sync_interval)}.`
+          : differs
+            ? faster
+                ? `Refreshes this often to keep up with a downstream view. Its own setting is ${syncIntervalToShorthand(node.sync_interval)}.`
+                : `Refreshes this often because a source it reads from refreshes less often. Its own setting is ${syncIntervalToShorthand(node.sync_interval)}.`
             : null
     return (
         <Tooltip title={title}>
             <span className="inline-flex items-center gap-0.5">
-                {syncIntervalToShorthand(runsAt)}
+                <span translate="no">{syncIntervalToShorthand(runsAt)}</span>
                 {node.pinned && <IconPinFilled className="text-[10px]" />}
             </span>
         </Tooltip>
