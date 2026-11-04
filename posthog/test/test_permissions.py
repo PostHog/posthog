@@ -28,6 +28,7 @@ from posthog.auth import (
     TeamSecretTokenAuthentication,
 )
 from posthog.constants import AvailableFeature
+from posthog.exceptions import InsufficientScope
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import Organization, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -566,8 +567,9 @@ class TestProjectSecretAPIKeyAPIScopePermission(SimpleTestCase):
         view.psak_allowed_actions = ["create"]
         view.team = Mock(id=1)
 
-        self.assertFalse(self.permission.has_permission(request, view))
-        self.assertIn("missing required scope 'endpoint:write'", self.permission.message)
+        with self.assertRaises(InsufficientScope) as ctx:
+            self.permission.has_permission(request, view)
+        self.assertIn("missing required scope 'endpoint:write'", str(ctx.exception.detail))
 
     def test_team_check_denies_when_psak_team_differs(self):
         from rest_framework.exceptions import PermissionDenied
@@ -625,10 +627,12 @@ class TestAPIScopePermissionLegacyFallback(SimpleTestCase):
     ) -> None:
         request = self._make_personal_api_key_request(scopes)
 
-        assert self.permission.has_permission(request, self._view_requiring(required_scope)) is allowed
-
-        if not allowed:
-            assert self.permission.message == f"API key missing required scope '{required_scope}'"
+        if allowed:
+            assert self.permission.has_permission(request, self._view_requiring(required_scope))
+        else:
+            with self.assertRaises(InsufficientScope) as ctx:
+                self.permission.has_permission(request, self._view_requiring(required_scope))
+            assert ctx.exception.detail == f"API key missing required scope '{required_scope}'"
         if legacy_scope is None:
             self.capture.assert_not_called()
         else:
@@ -1032,6 +1036,105 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/", method="POST")
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["detail"], "API key missing required scope 'feature_flag:write'")
+
+    @parameterized.expand(
+        [
+            (
+                "step_up",
+                True,
+                "GET",
+                "persons/cohorts/?person_id=1",
+                "API key missing required scope 'person:read'",
+                'Bearer error="insufficient_scope", scope="person:read cohort:read"',
+            ),
+            (
+                "no_step_up",
+                False,
+                "GET",
+                "persons/cohorts/?person_id=1",
+                "API key missing required scope 'person:read'",
+                None,
+            ),
+            (
+                "step_up_internal_scope",
+                True,
+                "POST",
+                "signals/scout/scratchpad/forget/",
+                "API key missing required scope 'signal_scratchpad_internal:write'",
+                None,
+            ),
+            (
+                "step_up_legacy_covered_scope_outside_app_ceiling",
+                True,
+                "GET",
+                f"signals/scout/runs/{uuid4()}/emissions/reports/",
+                "API key missing required scope 'signal_scout:read'",
+                'Bearer error="insufficient_scope", scope="signal_scout:read inbox:read"',
+                "task:read",
+                ["task:read", "signal_scout:read"],
+            ),
+        ]
+    )
+    def test_missing_scope_challenge_names_every_required_scope(
+        self,
+        _name,
+        supports_step_up,
+        method,
+        path,
+        expected_detail,
+        expected_challenge,
+        token_scope="feature_flag:read",
+        app_scopes=(),
+    ):
+        self.oauth_application.scopes = list(app_scopes)
+        self.oauth_application.save()
+        self.access_token.scope = token_scope
+        self.access_token.supports_step_up = supports_step_up
+        self.access_token.save()
+
+        response = self._do_request(f"/api/projects/{self.team.id}/{path}", method=method)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["detail"], expected_detail)
+        self.assertEqual(response.headers.get("WWW-Authenticate"), expected_challenge)
+
+    @parameterized.expand(
+        [
+            ("step_up", True, [], 'Bearer error="insufficient_scope", scope="task:write"'),
+            ("no_step_up", False, [], None),
+            ("step_up_scope_outside_app_ceiling", True, ["inbox:write"], None),
+        ]
+    )
+    def test_scope_check_inside_a_view_gets_the_same_challenge(
+        self, _name, supports_step_up, app_scopes, expected_challenge
+    ):
+        self.oauth_application.scopes = app_scopes
+        self.oauth_application.save()
+        self.access_token.scope = "inbox:write"
+        self.access_token.supports_step_up = supports_step_up
+        self.access_token.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/onboarding/complete/",
+            json.dumps(
+                {
+                    "step": "github",
+                    "sources": [],
+                    "scanner_ids": [],
+                    "suggestions": [],
+                    "automatic_implementation": True,
+                    "implementation_priority": "P1",
+                }
+            ),
+            content_type="application/json",
+            headers={"authorization": f"Bearer {self.access_token.token}"},
+        )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(
+            response.json()["detail"], "Turning on automatic implementation requires the task:write scope."
+        )
+        self.assertEqual(response.headers.get("WWW-Authenticate"), expected_challenge)
 
     def test_allows_action_with_required_scopes(self):
         """OAuth token can access endpoints that match its scopes"""

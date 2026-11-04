@@ -243,6 +243,7 @@ class SignalSourceType(StrEnum):
     HEALTH_ISSUE = "health_issue"
     SCANNER_FINDING = "scanner_finding"
     ANOMALY_INVESTIGATION = "anomaly_investigation"
+    ALERT_FIRING = "alert_firing"
     FEEDBACK = "feedback"
     REVIEW = "review"
     CI_FLAKY_CHECK = "ci_flaky_check"
@@ -250,6 +251,7 @@ class SignalSourceType(StrEnum):
     CI_DURATION_REGRESSION = "ci_duration_regression"
     SEARCH_OPPORTUNITY = "search_opportunity"
     CHECK_FAILED = "check_failed"
+    MONITORING_UNRESOLVED = "monitoring_unresolved"
     INCIDENT = "incident"
 
 

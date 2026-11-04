@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, renderHook } from '@testing-library/react-native'
+import { act, renderHook, waitFor } from '@testing-library/react-native'
 import { createElement, type ReactNode } from 'react'
 
 import type { PaginatedApi } from '@/api/reports'
-import { createShortcut, deleteShortcut, type FileSystemShortcutApi } from '@/api/shortcuts'
+import { createShortcut, deleteShortcut, type FileSystemShortcutApi, fetchShortcuts } from '@/api/shortcuts'
 import { useAuthStore } from '@/auth/authStore'
 import { setSessionTokens } from '@/auth/tokens'
+import { OfflineError, useConnectivity } from '@/lib/connectivity'
 
 import { pinView, unpinView, usePinActions } from './pinHooks'
 import { useViewsContext } from './useViewsContext'
@@ -16,6 +17,7 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 jest.mock('@/api/shortcuts', () => ({
     ...jest.requireActual<typeof import('@/api/shortcuts')>('@/api/shortcuts'),
     createShortcut: jest.fn(),
+    fetchShortcuts: jest.fn(),
     deleteShortcut: jest.fn(),
 }))
 
@@ -32,7 +34,43 @@ const created: FileSystemShortcutApi = {
 }
 
 describe('pin writes', () => {
-    beforeEach(() => jest.clearAllMocks())
+    beforeEach(() => {
+        jest.clearAllMocks()
+        useConnectivity.setState({ status: 'connected' })
+    })
+    afterEach(() => useConnectivity.setState({ status: 'unknown' }))
+
+    test.each(['offline', 'disconnect'] as const)(
+        'pin fails promptly on %s and never resumes its write',
+        async (when) => {
+            const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+            const listKey = ['views', 'https://us.example.com', 1, 'shortcuts']
+            let finish: (page: PaginatedApi<FileSystemShortcutApi>) => void = () => undefined
+            jest.mocked(fetchShortcuts).mockReturnValue(
+                new Promise((resolve) => {
+                    finish = resolve
+                })
+            )
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            if (when === 'offline') useConnectivity.setState({ status: 'offline' })
+            const pending = pinView(
+                { client, listKey, demo: false, isCurrent: () => true },
+                { kind: 'dashboard', id: 12, name: 'Growth' },
+                'header'
+            )
+            if (when === 'disconnect') {
+                await waitFor(() => expect(fetchShortcuts).toHaveBeenCalledTimes(1))
+                useConnectivity.setState({ status: 'offline' })
+            }
+            await expect(pending).rejects.toBeInstanceOf(OfflineError)
+            useConnectivity.setState({ status: 'connected' })
+            finish({ count: 0, next: null, results: [] })
+            await Promise.resolve()
+            await Promise.resolve()
+            expect(createShortcut).not.toHaveBeenCalled()
+            client.clear()
+        }
+    )
 
     test('an unpin made while the pin saves waits for it and deletes the row it created', async () => {
         const client = new QueryClient({ defaultOptions: { queries: { gcTime: Number.POSITIVE_INFINITY } } })
@@ -67,6 +105,7 @@ describe('pin writes', () => {
         client.setQueryData<PaginatedApi<FileSystemShortcutApi>>(listKey, { count: 0, next: null, results: [] })
         jest.mocked(useViewsContext).mockReturnValue({
             mode: 'live',
+            offline: false,
             identity: 'example-session',
             scope,
             dataScope: `${scope.host}|${scope.projectId}`,

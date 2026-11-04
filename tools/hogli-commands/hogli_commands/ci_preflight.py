@@ -225,7 +225,7 @@ DIFF_CHECKS: list[DiffCheck] = [
         # changed-file subset both blames files outside the diff and misses reverse-dependency
         # breakage), and that costs minutes cold. Naming the command lets the agent judge.
         verify=None,
-        advice="a type error costs a full CI re-run — consider `uv run mypy --cache-fine-grained .` (what CI runs)",
+        advice="a type error costs a full CI re-run — consider `uv run mypy .` (what CI runs)",
     ),
     DiffCheck(
         key="django-template-format",

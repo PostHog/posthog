@@ -3,7 +3,6 @@
 A module of its own, like ``queries.py``, so the HogQL and LLM client imports stay out of ``facade/api.py``.
 """
 
-from datetime import datetime
 from uuid import UUID
 
 from posthog.models import User
@@ -31,52 +30,16 @@ def _to_summary(summary: ErrorTrackingIssueSummary) -> contracts.ErrorTrackingIs
     )
 
 
-def _shown(team_id: int, summary: ErrorTrackingIssueSummary | None) -> contracts.ErrorTrackingIssueSummary | None:
-    """Every read returns through here, so turning the flag off also hides stored summaries.
+def read_issue_summary(team_id: int, issue_id: UUID | str, *, user: User) -> contracts.IssueSummaryRead:
+    """The stored summary, or the reason `user` sees none. Never starts generation.
 
-    The output check runs again here because a row stored before the check existed stays until a new summary
-    replaces it, and a rejected regeneration keeps the old row.
+    The output check runs again here because a row stored before the check existed stays, and nothing replaces it.
     """
-    if summary is None or not issue_summaries.issue_summaries_enabled(team_id):
-        return None
-    if issue_summaries.unsafe_summary_fields(summary.content):
-        return None
-    return _to_summary(summary)
-
-
-def get_issue_summary(team_id: int, issue_id: UUID | str, *, user: User) -> contracts.ErrorTrackingIssueSummary | None:
-    """The stored summary, whatever its age, when `user` may read it. Never generates."""
-    if not issue_summaries.summary_sources_readable(team_id, user):
-        return None
-    return _shown(team_id, issue_summaries.get_issue_summary(team_id, issue_id))
-
-
-def get_or_generate_issue_summary(
-    team_id: int, issue_id: UUID | str, *, user: User
-) -> contracts.ErrorTrackingIssueSummary | None:
-    """Generate in the calling thread when a summary is due, else return the stored one. Blocks on the model."""
-    if not issue_summaries.summary_sources_readable(team_id, user):
-        return None
-    return _shown(team_id, issue_summaries.get_or_generate_issue_summary(team_id, issue_id).summary)
-
-
-def start_issue_summary_generation(team_id: int, issue_id: UUID | str, *, user: User) -> bool:
-    """Queue generation in the background when a summary may be due. False means the caller should not wait.
-
-    Also False when `user` may not read the summary, so that caller does not wait for one it cannot see.
-    """
-    if not issue_summaries.summary_sources_readable(team_id, user):
-        return False
-    return issue_summaries.start_issue_summary_generation(team_id, issue_id)
-
-
-def wait_for_issue_summary(
-    team_id: int, issue_id: UUID | str, *, user: User, checked_after: datetime | None, timeout_seconds: float
-) -> contracts.ErrorTrackingIssueSummary | None:
-    """Poll for a summary generated or confirmed unchanged after `checked_after`. None at the timeout."""
-    if not issue_summaries.summary_sources_readable(team_id, user):
-        return None
-    summary = issue_summaries.wait_for_issue_summary(
-        team_id, issue_id, checked_after=checked_after, timeout_seconds=timeout_seconds
+    state = issue_summaries.read_issue_summary(team_id, issue_id, user)
+    if state.summary is not None and issue_summaries.unsafe_summary_fields(state.summary.content):
+        return contracts.IssueSummaryRead(status=contracts.IssueSummaryStatus.NOT_GENERATED, summary=None, reason=None)
+    return contracts.IssueSummaryRead(
+        status=state.status,
+        summary=_to_summary(state.summary) if state.summary is not None else None,
+        reason=state.reason,
     )
-    return _shown(team_id, summary)

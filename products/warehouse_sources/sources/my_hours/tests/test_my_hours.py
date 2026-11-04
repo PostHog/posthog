@@ -6,7 +6,12 @@ import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.my_hours._config import MyHoursSourceConfig
-from products.warehouse_sources.sources.my_hours.my_hours import MY_HOURS_BASE_URL, MyHoursApiKeyAuth, check_access
+from products.warehouse_sources.sources.my_hours.my_hours import (
+    MY_HOURS_BASE_URL,
+    MyHoursApiKeyAuth,
+    MyHoursResumeConfig,
+    check_access,
+)
 from products.warehouse_sources.sources.my_hours.settings import ENDPOINTS, MY_HOURS_ENDPOINTS, TEAMS_UNAVAILABLE_ERROR
 from products.warehouse_sources.sources.my_hours.source import MyHoursSource
 from products.warehouse_sources.sources.sdk import RESTClientRetryableError
@@ -143,9 +148,12 @@ class TestMyHoursSourceResponse:
 class TestTimeLogs:
     @parameterized.expand(
         [
-            ("full_refresh", False, None, [("2010-01-01", "2010-01-31"), ("2010-02-01", "2010-02-21")]),
-            ("incremental_from_watermark", True, datetime(2010, 2, 5), [("2010-02-05", "2010-02-21")]),
-            ("incremental_watermark_after_today", True, datetime(2010, 3, 10), [("2010-02-21", "2010-02-21")]),
+            ("full_refresh", False, None, None, [("2010-01-01", "2010-01-31"), ("2010-02-01", "2010-02-21")]),
+            ("incremental_from_watermark", True, datetime(2010, 2, 5), None, [("2010-02-05", "2010-02-21")]),
+            ("incremental_watermark_after_today", True, datetime(2010, 3, 10), None, [("2010-02-21", "2010-02-21")]),
+            ("resumed_full_refresh", False, None, "2010-02-01", [("2010-02-01", "2010-02-21")]),
+            ("resumed_incremental", True, datetime(2010, 1, 5), "2010-02-04", [("2010-02-04", "2010-02-21")]),
+            ("resumed_after_last_window", False, None, "2010-02-22", []),
         ]
     )
     @time_machine.travel("2010-02-20 12:00:00", tick=False)
@@ -154,16 +162,26 @@ class TestTimeLogs:
         _name: str,
         incremental: bool,
         last_value: datetime | None,
+        resume_from: str | None,
         expected_windows: list[tuple[str, str]],
     ) -> None:
         inputs = {"incremental_field": "date", "db_incremental_field_last_value": last_value} if incremental else {}
+        resume_state = MyHoursResumeConfig(next_window_start=resume_from) if resume_from else None
 
-        result = _driver().run("time_logs", [ScriptedResponse(json={"data": []}) for _ in expected_windows], **inputs)
+        result = _driver().run(
+            "time_logs",
+            [ScriptedResponse(json={"data": []}) for _ in expected_windows],
+            resume_state=resume_state,
+            **inputs,
+        )
 
         assert result.raised is None
         assert all(r.method == "PUT" and r.url == f"{MY_HOURS_BASE_URL}/Reports/activitydx" for r in result.requests)
         options = [r.json()["options"] for r in result.requests]
         assert [(o["dateFrom"], o["dateTo"]) for o in options] == expected_windows
+        # Each window stages the start of the next one, so a resume never reads a finished window again.
+        assert result.final_state == MyHoursResumeConfig(next_window_start="2010-02-22")
+        assert result.completed_state is None
 
     @time_machine.travel("2010-02-20 12:00:00", tick=False)
     def test_yields_each_non_empty_window_sorted_by_date(self) -> None:

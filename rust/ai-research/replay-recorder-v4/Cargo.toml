@@ -17,7 +17,6 @@ common-kafka = { path = "../../common/kafka" }
 common-metrics = { path = "../../common/metrics" }
 common-redis = { path = "../../common/redis" }
 lifecycle = { path = "../../common/lifecycle" }
-posthog-replay-anonymizer = { path = "../../replay-anonymizer", default-features = false }
 replay-core-v4 = { path = "../replay-core-v4" }
 
 aho-corasick = { workspace = true }
@@ -44,7 +43,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-url = { workspace = true }
 
 [dev-dependencies]
 aes-gcm = "0.10"

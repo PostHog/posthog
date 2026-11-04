@@ -1,13 +1,15 @@
 import { DateTime } from 'luxon'
 
 import { CyclotronInvocationQueueParametersEmailSchema } from '~/cdp/schema/cyclotron'
+import { acceptedSendEmailFields } from '~/cdp/services/hogflows/transactional-email'
 
 import { registerAsyncFunction } from '../async-function-registry'
 
 registerAsyncFunction('sendEmail', {
-    execute: (args, _context, result) => {
+    execute: (args, context, result) => {
         result.invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse({
             ...args[0],
+            ...acceptedSendEmailFields(context.invocation.state.send),
             type: 'email',
         })
     },

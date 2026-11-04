@@ -99,7 +99,7 @@ class SignalSourceConfig(UUIDModel):
     SourceProduct = SignalSourceProduct
 
     # Source-type choices are intentionally a *subset* of the full SignalSourceType taxonomy: only the
-    # types that carry a per-team config row live here. session_problem gates through another config.
+    # types that carry a per-team config row live here. session_problem and alert_firing gate through another config.
     # evaluation is retired, and stays in the taxonomy only so old signals still resolve to a label.
     # Every source_type the emission registry emits must appear here, or enabling that source 400s.
     class SourceType(models.TextChoices):
@@ -146,11 +146,12 @@ class SignalSourceConfig(UUIDModel):
         if source_product == cls.SourceProduct.REPLAY_VISION and source_type == cls.SourceType.SCANNER_FINDING:
             return True
 
-        # A failed follow-up check is the inbox emitting to itself, so there is no team to configure
-        # it: `check_failed` is deliberately absent from `SourceType` above, which means a config row
-        # for it cannot exist and a row-backed gate would refuse the pair forever. The check the team
-        # already authored is the opt-in.
-        if source_product == cls.SourceProduct.SIGNALS_CHECK and source_type == SignalSourceType.CHECK_FAILED:
+        # Verification emits these internal signals without a source config. The team's authored
+        # checks supply the opt-in; Monitoring requests also enforce their rollout gate.
+        if source_product == cls.SourceProduct.SIGNALS_CHECK and source_type in {
+            SignalSourceType.CHECK_FAILED,
+            SignalSourceType.MONITORING_UNRESOLVED,
+        }:
             return True
 
         # Scout findings surface to the inbox by default — the team-level toggle was retired from the
@@ -168,6 +169,10 @@ class SignalSourceConfig(UUIDModel):
         # so they're gated by the pre-existing session_analysis_cluster config
         if source_product == cls.SourceProduct.SESSION_REPLAY and source_type == "session_problem":
             source_type = cls.SourceType.SESSION_ANALYSIS_CLUSTER
+
+        # Firing alerts are a scope of the product analytics source, so they share its row and toggle.
+        if source_product == cls.SourceProduct.ANALYTICS and source_type == SignalSourceType.ALERT_FIRING:
+            source_type = cls.SourceType.ANOMALY_INVESTIGATION
 
         return cls.objects.filter(
             team_id=team_id,
@@ -1416,7 +1421,7 @@ class SignalEmissionRecord(UUIDModel):
             models.Index(
                 fields=["team", "source_product", "source_type"],
                 name="signals_emission_lookup_idx",
-            )
+            ),
         ]
 
 
@@ -2693,6 +2698,8 @@ class SignalReportMonitoringAttempt(UUIDModel):
     aggregation_checked_at = models.DateTimeField(null=True, blank=True)
     assessment_requested_at = models.DateTimeField(null=True, blank=True)
     research_requested_at = models.DateTimeField(null=True, blank=True)
+    research_processed_at = models.DateTimeField(null=True, blank=True)
+    research_next_attempt_at = models.DateTimeField(null=True, blank=True)
     tracker_issue_close_requested_at = models.DateTimeField(null=True, blank=True)
     tracker_issue_close_processed_at = models.DateTimeField(null=True, blank=True)
     tracker_issue_close_next_attempt_at = models.DateTimeField(null=True, blank=True)
@@ -2712,6 +2719,13 @@ class SignalReportMonitoringAttempt(UUIDModel):
                     tracker_issue_close_requested_at__isnull=False, tracker_issue_close_processed_at__isnull=True
                 ),
                 name="signals_pending_tracker_close",
+            ),
+            models.Index(
+                models.F("research_next_attempt_at").asc(nulls_first=True),
+                models.F("research_requested_at"),
+                models.F("id"),
+                condition=models.Q(research_requested_at__isnull=False, research_processed_at__isnull=True),
+                name="signals_pending_research",
             ),
         ]
 
@@ -4265,6 +4279,8 @@ class UserActivitySummaryQueueState(TeamScopedRootMixin, UUIDModel):
     pending_view_score = models.FloatField(default=0.0)
     # Distinct days with an opened object or scene in the window, for the first summary of a view-only pair.
     view_active_days = models.IntegerField(default=0)
+    # The MCP part of `pending_score`. The MCP feed computes it again from the buffer, so a record counts once.
+    pending_mcp_score = models.FloatField(default=0.0)
     last_activity_at = models.DateTimeField(null=True, blank=True)
     # The pair is due when this is empty or past. A copy of `UserActivitySummary.next_eligible_at`.
     due_at = models.DateTimeField(null=True, blank=True)

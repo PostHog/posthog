@@ -393,8 +393,11 @@ jobs:
             - name: Check static typing
               shell: bash -e {0}
               env:
-                  MYPY_NUM_WORKERS: 2
-              run: mypy --version && mypy --cache-fine-grained .
+                  # Each worker holds its own copy of the build graph, so the worker count follows
+                  # the runner's memory. Keep this condition in sync with the job's runs-on: the
+                  # 8 GB depot-ubuntu-24.04 fits one worker on a cold cache, the 16 GB -4 fits two.
+                  MYPY_NUM_WORKERS: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 1 || 2 }}
+              run: mypy --version && mypy .
 
             - name: Save mypy cache
               if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
@@ -778,7 +781,15 @@ jobs:
                       read -ra vendors <<< "$VENDORS"
                       targets=("${vendors[@]/#/$plugin_dir/}")
                   fi
-                  pytest -p no:cacheprovider "${targets[@]}" -m 'not async_migrations' --reruns=2 --reruns-delay=1 --tb=short
+                  status=0
+                  pytest -p no:cacheprovider "${targets[@]}" -m 'not async_migrations' --reruns=2 --reruns-delay=1 --tb=short || status=$?
+                  # Exit code 5 means pytest collected no tests. A scaffolded vendor stub has none yet,
+                  # so a vendors run that selects only stubs passes. A full run must still find tests.
+                  if [ "$status" -eq 5 ] && [ "$MODE" = "vendors" ]; then
+                      echo "The selected vendors have no tests: $VENDORS"
+                      exit 0
+                  fi
+                  exit "$status"
 
     # Collate job - single required status check for branch protection.
     # The code-quality job skips when no Python changes, but this job always

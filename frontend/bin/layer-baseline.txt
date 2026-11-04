@@ -5,8 +5,6 @@
 # Fixed one? Run `hogli lint:frontend-layers --prune-baseline` to drop it.
 frontend/src/layout/ErrorProjectUnavailable.tsx -> frontend/src/scenes/organization/CreateOrganizationModal.tsx
 frontend/src/layout/GlobalModals.tsx -> frontend/src/scenes/authentication/two-factor-setup/TwoFactorSetupModal.tsx
-frontend/src/layout/InternalFeedback/InternalFeedbackWidget.tsx -> frontend/src/toolbar/shared/product-tours/ElementHighlight.tsx
-frontend/src/layout/InternalFeedback/internalFeedbackLogic.ts -> frontend/src/toolbar/shared/utils.ts
 frontend/src/layout/navigation-3000/sidepanel/panels/activity/quill/QuillActivitySubscribeMenu.tsx -> frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts
 frontend/src/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic.tsx -> products/notifications/frontend/resourceEditedLogic.ts
 frontend/src/layout/navigation-3000/sidepanel/panels/max/SidePanelMax.tsx -> frontend/src/scenes/max/maxLogic.tsx
@@ -247,9 +245,6 @@ frontend/src/lib/components/SessionTimeline/timeline/items/logs.tsx -> products/
 frontend/src/lib/components/SessionTimeline/timeline/items/page.tsx -> products/error_tracking/frontend/components/RuntimeIcon.tsx
 frontend/src/lib/components/Sharing/SharingModal.tsx -> frontend/src/queries/nodes/InsightQuery/defaults.ts
 frontend/src/lib/components/Sharing/SharingModal.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
-frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> frontend/src/scenes/insights/insightLogic.tsx
-frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
-frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> products/product_analytics/frontend/insights/trends/trendsDataLogic.ts
 frontend/src/lib/components/SurveyResponseDisplay/SurveyResponseDisplay.tsx -> frontend/src/scenes/surveys/hooks/useSurveyResponseColumns.tsx
 frontend/src/lib/components/SurveyResponseDisplay/SurveyResponseDisplay.tsx -> frontend/src/scenes/surveys/surveyLogic.tsx
 frontend/src/lib/components/SurveyResponseDisplay/SurveyResponseDisplay.tsx -> frontend/src/scenes/surveys/utils.ts
@@ -458,8 +453,6 @@ frontend/src/queries/nodes/WebVitals/WebVitals.tsx -> frontend/src/scenes/web-an
 frontend/src/queries/nodes/WebVitals/WebVitalsContent.tsx -> frontend/src/scenes/web-analytics/webAnalyticsLogic.tsx
 frontend/src/queries/nodes/WebVitals/WebVitalsPathBreakdown.tsx -> frontend/src/scenes/web-analytics/webAnalyticsLogic.tsx
 frontend/src/queries/query.ts -> frontend/src/exporter/exporterViewLogic.ts
-frontend/src/scenes/AuthenticatedShell.tsx -> frontend/src/scenes/onboarding/shared/wizard-sync/WizardHandoffDialog.tsx
-frontend/src/scenes/AuthenticatedShell.tsx -> frontend/src/scenes/onboarding/shared/wizard-sync/WizardSyncDebugPanel.tsx
 frontend/src/scenes/AuthenticatedShell.tsx -> products/webmcp/frontend/logics/webmcpLogic.ts
 frontend/src/scenes/appScenes.ts -> frontend/src/scenes/project-homepage/importProjectHomepage.ts
 frontend/src/scenes/bootApp.ts -> frontend/src/scenes/notebooks/AddToNotebook/registerNotebookLinkDrag.ts

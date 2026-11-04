@@ -42,6 +42,7 @@ export type ExperimentHealthFindingCode =
     | 'new_flag_no_traffic'
     | 'early_significance'
     | 'metrics_not_matured'
+    | 'flag_shared'
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode

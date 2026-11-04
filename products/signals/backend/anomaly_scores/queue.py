@@ -66,6 +66,7 @@ from products.signals.backend.anomaly_scores.selection import (
     InsightUsage,
     ScoreCandidate,
     SelectionConfig,
+    _unit_interval,
     insight_usage,
     pick_order,
     score_order,
@@ -672,9 +673,12 @@ def _run_plans(
     return {insight_id: plans.get(insight_id, missing) for insight_id in insight_ids}
 
 
-def _take_turns(team_orders: list[list[int]]) -> list[int]:
-    # Projects take turns, so one large project cannot take every slot of the tick budget.
-    return [insight_id for turn in itertools.zip_longest(*team_orders) for insight_id in turn if insight_id is not None]
+def _take_turns(team_orders: Mapping[int, list[int]], tick_start: datetime.datetime) -> list[int]:
+    # Projects take turns, so one large project cannot take every slot of the tick budget. A hashed team
+    # order for each tick, so the pick cap does not always cut off the same projects.
+    team_ids = sorted(team_orders, key=lambda team_id: _unit_interval("team", team_id, tick_start.isoformat()))
+    turns = itertools.zip_longest(*(team_orders[team_id] for team_id in team_ids))
+    return [insight_id for turn in turns for insight_id in turn if insight_id is not None]
 
 
 def load_scored_state(
@@ -850,15 +854,16 @@ def select_insights(
             )
         )
     train_order = _take_turns(
-        [
-            pick_order(
-                candidates_by_team[team_id],
+        {
+            team_id: pick_order(
+                candidates,
                 config=selection_config,
                 tick_start=now,
                 max_staleness=config.limits.max_backfill_buckets,
             )
-            for team_id in sorted(candidates_by_team)
-        ]
+            for team_id, candidates in candidates_by_team.items()
+        },
+        now,
     )
     if config.train_score_split:
         train_cap = config.max_train_insights_per_tick * shards
@@ -942,8 +947,8 @@ def _score_order(
     A stale model is in `stale_order` only, because the train pass gets it first. `ready` leaves out the
     stale models, so they reach the train pass.
     """
-    team_orders: list[list[int]] = []
-    stale_orders: list[list[int]] = []
+    team_orders: dict[int, list[int]] = {}
+    stale_orders: dict[int, list[int]] = {}
     ready: set[int] = set()
     for team_id in sorted({insight.team_id for insight in active_by_id.values()}):
         team = teams[team_id]
@@ -964,11 +969,9 @@ def _score_order(
             and is_due(insight, scored[insight.insight_id].scored_through, team.timezone_info, now)
         ]
         for stale, orders in ((False, team_orders), (True, stale_orders)):
-            orders.append(
-                score_order(
-                    [candidate for is_stale, candidate in candidates if is_stale == stale],
-                    now=now,
-                    max_staleness=config.limits.max_backfill_buckets,
-                )
+            orders[team_id] = score_order(
+                [candidate for is_stale, candidate in candidates if is_stale == stale],
+                now=now,
+                max_staleness=config.limits.max_backfill_buckets,
             )
-    return ScorePassOrder(order=_take_turns(team_orders), stale_order=_take_turns(stale_orders), ready=ready)
+    return ScorePassOrder(order=_take_turns(team_orders, now), stale_order=_take_turns(stale_orders, now), ready=ready)

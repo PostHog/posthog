@@ -23,14 +23,14 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.fields import empty
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import groups
+from posthog.exceptions import InsufficientScope
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import get_authenticator_scopes
+from posthog.permissions import get_authenticator_scopes, scopes_missing_after_legacy_fallback
 from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, SCOUT_GRANTABLE_WRITE_SCOPES
 
@@ -1023,13 +1023,20 @@ class ScratchpadEntrySerializer(serializers.Serializer):
     )
 
 
+# pg_trgm pads a word where a literal separator bounds it, so `ai_` still yields the trigram "AI ".
+_TRIGRAM_INDEXABLE_TEXT = re.compile(r"[^\W_]{3}|(?<=[\W_])[^\W_]{2}|[^\W_]{2}(?=[\W_])")
+
+
 class SearchMemoryQuerySerializer(serializers.Serializer):
     """Query parameters for `search-memory`."""
 
     text = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="ILIKE substring match against `content`. Omit to return the most recent entries.",
+        help_text=(
+            "ILIKE substring match against `content` and `key`. Must contain 3 letters or digits in a row, "
+            "or 2 next to a symbol such as `ai_` or `pr:`. Omit to return the most recent entries."
+        ),
     )
     key = serializers.CharField(
         required=False,
@@ -1089,6 +1096,16 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
         max_value=1000,
         help_text="Max rows to return (default 20, hard cap 1000).",
     )
+
+    def validate_text(self, value: str) -> str:
+        # The trigram indexes extract nothing from a term without an indexable word, so Postgres
+        # reads and upper-cases every body the team holds to answer it.
+        if value and not _TRIGRAM_INDEXABLE_TEXT.search(value):
+            raise serializers.ValidationError(
+                "Use 3 letters or digits in a row, or 2 next to a symbol such as `ai_`, for example a whole word or identifier. "
+                "To read one known entry, pass `key` instead."
+            )
+        return value
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -3030,12 +3047,12 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
     key_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
     if key_scopes is not None and "*" not in key_scopes:
         if not any(scope in key_scopes for scope in ("integration:read", "integration:write")):
-            raise PermissionDenied("API key missing required scope 'integration:read'")
+            raise InsufficientScope(["integration:read"])
         # Delivery pushes report titles/summaries to the channel — content the report API gates
-        # behind `task` scope — so a scoped key without it must not be able to route that content
+        # behind `inbox` scope — so a scoped key without it must not be able to route that content
         # out via a destination.
-        if not any(scope in key_scopes for scope in ("task:read", "task:write")):
-            raise PermissionDenied("API key missing required scope 'task:read'")
+        if scopes_missing_after_legacy_fallback(request, context.get("view"), key_scopes, ["inbox:read"]):
+            raise InsufficientScope(["inbox:read"])
 
     return {"slack": slack, **({"webhook": webhook} if webhook else {}), **inbox}
 
