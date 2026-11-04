@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 
 from parameterized import parameterized
 
+from posthog.models import EventDefinition
 from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
 from posthog.temporal.health_checks.rollups.freshness import RollupWindow
 from posthog.temporal.health_checks.rollups.tests.helpers import window_ending_yesterday
@@ -70,12 +71,32 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
     def test_rule(self, _name: str, check: RollupHealthCheck, rows: list[Row], expected: bool) -> None:
         self.assertEqual(self._flagged(check, rows), expected)
 
-    @parameterized.expand([("silent", False, True), ("events_since_the_rollup_ended", True, False)])
+    @parameterized.expand(
+        [
+            ("silent", "$pageview", False, True),
+            ("silent_mobile", "$screen", False, True),
+            ("events_since_the_rollup_ended", "$pageview", True, False),
+            ("never_sent_web_events", None, False, False),
+        ]
+    )
     def test_no_live_events_probes_the_hours_after_the_rollup(
-        self, _name: str, send_event_today: bool, expected: bool
+        self, _name: str, ever_sent: str | None, send_event_today: bool, expected: bool
     ) -> None:
+        if ever_sent:
+            EventDefinition.objects.create(team=self.team, name=ever_sent)
         if send_event_today:
             _create_event(team=self.team, event="$pageview", distinct_id="user", timestamp=dt.datetime.now(dt.UTC))
             flush_persons_and_events()
 
         self.assertEqual(self._flagged(NoLiveEventsCheck(), []), expected)
+
+    @parameterized.expand(
+        [
+            ("silent_after_sending_pageviews", "$pageview", True),
+            ("server_only_project", "$exception", False),
+        ]
+    )
+    def test_no_live_events_from_raw_events(self, _name: str, ever_sent: str, expected: bool) -> None:
+        EventDefinition.objects.create(team=self.team, name=ever_sent)
+
+        self.assertEqual(self.team.id in NoLiveEventsCheck().detect_from_events([self.team.id]), expected)

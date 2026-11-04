@@ -1,5 +1,6 @@
 from django.db.models import Q
 
+from posthog.constants import PAGEVIEW_EVENT
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.models.team import Team
@@ -13,6 +14,8 @@ from posthog.temporal.health_checks.framework import (
     build_signal_extra,
 )
 from posthog.temporal.health_checks.models import HealthCheckResult
+
+from products.web_analytics.backend.temporal.health_checks.event_history import teams_that_ever_received
 
 
 class AuthorizedUrlsCheck(HealthCheck):
@@ -75,9 +78,10 @@ class AuthorizedUrlsCheck(HealthCheck):
             .filter(Q(app_urls=[]) | Q(app_urls__isnull=True))
             .values_list("id", flat=True)
         )
+        web_teams_missing_urls = teams_that_ever_received(set(teams_missing_urls), (PAGEVIEW_EVENT,))
 
         issues: dict[int, list[HealthCheckResult]] = {}
-        for team_id in teams_missing_urls:
+        for team_id in web_teams_missing_urls:
             issues[team_id] = [
                 HealthCheckResult(
                     severity=HealthIssue.Severity.WARNING,

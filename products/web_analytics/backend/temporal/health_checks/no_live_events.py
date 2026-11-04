@@ -1,4 +1,5 @@
 from posthog.clickhouse.query_tagging import Product
+from posthog.constants import PAGEVIEW_EVENT, SCREEN_EVENT
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.framework import (
@@ -14,6 +15,7 @@ from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
 from posthog.temporal.health_checks.rollups.freshness import RollupWindow
 
 from products.web_analytics.backend.models.health_rollups import EventsHealthDaily
+from products.web_analytics.backend.temporal.health_checks.event_history import teams_that_ever_received
 from products.web_analytics.backend.temporal.health_checks.rollup_reads import events_health_totals
 
 NO_LIVE_EVENTS_LOOKBACK_DAYS = 30
@@ -78,11 +80,10 @@ class NoLiveEventsCheck(RollupHealthCheck):
         summary = issue.payload.get("reason", "No $pageview or $screen events received recently.")
         return SignalContent(
             description=(
-                f"This project hasn't received any `$pageview` or `$screen` events in the last "
-                f"{NO_LIVE_EVENTS_LOOKBACK_DAYS} days. That usually means the PostHog snippet/SDK "
-                "isn't installed, was removed, or is misconfigured — web and product analytics will "
-                "stay empty until capture is restored. Recommend verifying the SDK is initialized "
-                "and sending events."
+                f"This project used to receive `$pageview` or `$screen` events but hasn't received any in "
+                f"the last {NO_LIVE_EVENTS_LOOKBACK_DAYS} days. That usually means the PostHog snippet/SDK "
+                "was removed or is misconfigured — web and product analytics will stay empty until "
+                "capture is restored. Recommend verifying the SDK is initialized and sending events."
             ),
             weight=_SEVERITY_WEIGHT[issue.severity],
             extra=build_signal_extra(issue, title=title, summary=summary, link="/web/health"),
@@ -100,7 +101,7 @@ class NoLiveEventsCheck(RollupHealthCheck):
             params={"since": window.live_since.strftime("%Y-%m-%d %H:%M:%S")},
         )
         live_team_ids = {team_id for (team_id,) in rows}
-        return {team_id: [_no_live_events_result()] for team_id in silent_team_ids if team_id not in live_team_ids}
+        return _results_for({team_id for team_id in silent_team_ids if team_id not in live_team_ids})
 
     def detect_from_events(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         rows = execute_clickhouse_health_team_query(
@@ -109,7 +110,13 @@ class NoLiveEventsCheck(RollupHealthCheck):
             lookback_days=NO_LIVE_EVENTS_LOOKBACK_DAYS,
         )
         teams_with_recent_events = {team_id for team_id, *_ in rows}
-        return {team_id: [_no_live_events_result()] for team_id in set(team_ids) - teams_with_recent_events}
+        return _results_for(set(team_ids) - teams_with_recent_events)
+
+
+def _results_for(silent_team_ids: set[int]) -> dict[int, list[HealthCheckResult]]:
+    # A project that never sent web events, like a server-only one, is silent by design.
+    web_team_ids = teams_that_ever_received(silent_team_ids, (PAGEVIEW_EVENT, SCREEN_EVENT))
+    return {team_id: [_no_live_events_result()] for team_id in web_team_ids}
 
 
 def _no_live_events_result() -> HealthCheckResult:

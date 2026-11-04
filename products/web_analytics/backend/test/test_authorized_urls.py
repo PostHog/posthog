@@ -1,6 +1,9 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
+from posthog.models import EventDefinition
 from posthog.models.health_issue import HealthIssue
 from posthog.tasks.health_checks import evaluate_health_check_for_team
 
@@ -8,7 +11,10 @@ from products.web_analytics.backend.temporal.health_checks.authorized_urls impor
 
 
 class TestAuthorizedUrlsEvaluation(BaseTest):
-    def test_creates_issue_when_team_has_no_app_urls(self):
+    @parameterized.expand([("web_project", True, 1), ("never_sent_pageviews", False, 0)])
+    def test_creates_issue_when_team_has_no_app_urls(self, _name: str, sent_pageviews: bool, expected_issues: int):
+        if sent_pageviews:
+            EventDefinition.objects.create(team=self.team, name="$pageview")
         self.team.app_urls = []
         self.team.save()
         HealthIssue.objects.filter(team_id=self.team.id, kind=AuthorizedUrlsCheck.kind).delete()
@@ -20,10 +26,12 @@ class TestAuthorizedUrlsEvaluation(BaseTest):
             kind=AuthorizedUrlsCheck.kind,
             status=HealthIssue.Status.ACTIVE,
         )
-        self.assertEqual(issues.count(), 1)
-        self.assertEqual(issues.get().severity, HealthIssue.Severity.WARNING)
+        self.assertEqual(issues.count(), expected_issues)
+        if expected_issues:
+            self.assertEqual(issues.get().severity, HealthIssue.Severity.WARNING)
 
     def test_resolves_active_issue_when_team_has_app_urls(self):
+        EventDefinition.objects.create(team=self.team, name="$pageview")
         self.team.app_urls = []
         self.team.save()
         evaluate_health_check_for_team(AuthorizedUrlsCheck.kind, self.team.id)
