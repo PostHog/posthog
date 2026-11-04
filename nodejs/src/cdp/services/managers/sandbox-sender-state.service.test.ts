@@ -6,6 +6,13 @@ import { SandboxSenderStateService } from './sandbox-sender-state.service'
 
 const pubSub = { on: jest.fn() } as unknown as PubSub
 
+const idleClient = (): unknown => ({
+    query: () => Promise.resolve({ rows: [] }),
+    release: () => undefined,
+    on: () => undefined,
+    removeListener: () => undefined,
+})
+
 describe('SandboxSenderStateService', () => {
     it('rides out a transient database error instead of failing the sandbox send', async () => {
         const select = jest
@@ -16,7 +23,7 @@ describe('SandboxSenderStateService', () => {
             .mockResolvedValueOnce({ rows: [{ tenant_name: 'sandbox-tenant', sending_status: 'DISABLED' }] })
         const service = new SandboxSenderStateService(
             {
-                transaction: (_usage: unknown, _tag: string, run: (tx: unknown) => Promise<unknown>) => run({}),
+                connect: () => Promise.resolve(idleClient()),
                 query: (_tx: unknown, sql: string) =>
                     sql.startsWith('SET LOCAL') ? Promise.resolve({ rows: [] }) : select(),
             } as unknown as PostgresRouter,
@@ -38,10 +45,7 @@ describe('SandboxSenderStateService', () => {
                 })
             )
             const pool = {
-                transaction: (_usage: unknown, _tag: string, run: (tx: unknown) => Promise<unknown>) =>
-                    new Promise((resolve, reject) =>
-                        waitingForConnection.push(() => void run({}).then(resolve, reject))
-                    ),
+                connect: () => new Promise((resolve) => waitingForConnection.push(() => resolve(idleClient()))),
                 query,
             } as unknown as PostgresRouter
             const service = new SandboxSenderStateService(pool, pubSub)
