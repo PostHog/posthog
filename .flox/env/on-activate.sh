@@ -340,6 +340,11 @@ if [[ "$_PNPM_SKIP" -eq 0 ]]; then
   _ACTIVATION_TMPFILES+=("$_BG_PNPM_LOG")
   if [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
     ( "$FLOX_ENV_PROJECT/bin/dev-sandbox" "pnpm install" ) >"$_BG_PNPM_LOG" 2>&1 &
+  elif [[ "$(uname -s)" == "Linux" ]]; then
+    # LDFLAGS links against flox's libs, which need the nix glibc. On a host with an
+    # older glibc, the host linker then rejects librdkafka's example programs, which
+    # node-rdkafka builds but never uses. Scoped to this install so other builds keep strict linking.
+    ( LDFLAGS="${LDFLAGS:-} -Wl,--allow-shlib-undefined" pnpm install ) >"$_BG_PNPM_LOG" 2>&1 &
   else
     ( pnpm install ) >"$_BG_PNPM_LOG" 2>&1 &
   fi
