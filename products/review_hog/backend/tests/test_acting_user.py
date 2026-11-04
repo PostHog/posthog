@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+import requests
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
@@ -87,9 +88,10 @@ class TestResolveActingUser(BaseTest):
             ("full_review_published", True, True, True, True, True, "PostHog", None),
             ("placeholder_account_name", True, True, True, True, False, "installation-1234", "1234"),
             # Draft reviews are off in the repository, so a queued draft run stops when it starts.
-            ("draft_in_a_repository_without_drafts", True, True, True, True, False, "PostHog", None, True),
+            ("draft_in_a_repository_without_drafts", True, True, True, True, False, "PostHog", None, "draft"),
             # Marked ready after the fetch: the queue dropped the ready request, so GitHub's state decides.
-            ("draft_marked_ready_after_the_fetch", True, True, True, True, False, "PostHog", None, False),
+            ("draft_marked_ready_after_the_fetch", True, True, True, True, False, "PostHog", None, "ready"),
+            ("draft_state_unreadable", True, True, True, True, False, "PostHog", None, "unreadable"),
         ]
     )
     def test_automatic_trigger_rechecks_eligible_author(
@@ -102,9 +104,9 @@ class TestResolveActingUser(BaseTest):
         full_published: bool,
         account_name: str,
         installation_id: str | None,
-        draft_on_github: bool | None = None,
+        github_state: str | None = None,
     ) -> None:
-        draft = draft_on_github is not None
+        draft = github_state is not None
         Integration.objects.create(
             team=self.team, kind="github", integration_id="1234", config={"account": {"name": account_name}}
         )
@@ -134,10 +136,11 @@ class TestResolveActingUser(BaseTest):
         if not member:
             self.user.organization_memberships.filter(organization=self.organization).delete()
         github_pull = MagicMock()
-        github_pull.json.return_value = {"draft": draft_on_github}
+        github_pull.json.return_value = {"draft": github_state == "draft"}
+        read_error = requests.ConnectionError() if github_state == "unreadable" else None
         with (
             patch(f"{ACTIVITIES}._installation_auth", return_value=("token", "1234")),
-            patch(f"{ACTIVITIES}.github_api_request", return_value=github_pull),
+            patch(f"{ACTIVITIES}.github_api_request", return_value=github_pull, side_effect=read_error),
         ):
             result = _resolve_acting_user(
                 ResolveActingUserInput(
@@ -152,7 +155,14 @@ class TestResolveActingUser(BaseTest):
                     pr_number=7,
                 )
             )
-        eligible = opted_in and active and member and repository_added and not full_published and not draft_on_github
+        eligible = (
+            opted_in
+            and active
+            and member
+            and repository_added
+            and not full_published
+            and github_state in (None, "ready")
+        )
         assert result.acting_user_id == (self.user.id if eligible else None)
         # The workflow gates the automatic run on this flag after the resolve.
         assert result.review_authored_prs is eligible

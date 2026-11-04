@@ -1009,8 +1009,8 @@ async def fetch_pr_data_activity(input: FetchPRDataInput) -> ReviewMeta:
     return await database_sync_to_async(_fetch_and_persist, thread_sensitive=False)(input)
 
 
-def _pr_is_draft_now(repository: str, pr_number: int, *, token: str, installation_id: str | None) -> bool:
-    """The PR's draft state on GitHub now. A failed read counts as ready, so the gate reviews the push."""
+def _pr_draft_on_github(repository: str, pr_number: int, *, token: str, installation_id: str | None) -> bool | None:
+    """The PR's draft state on GitHub now, or None when the read fails."""
     try:
         response = github_api_request(
             "GET",
@@ -1020,8 +1020,8 @@ def _pr_is_draft_now(repository: str, pr_number: int, *, token: str, installatio
             installation_id=installation_id,
         )
     except (GitHubAPIError, GitHubRateLimitError, GitHubEgressBudgetExhausted, requests.RequestException):
-        logger.warning("Could not re-read the draft state of %s#%s; reviewing the push", repository, pr_number)
-        return False
+        logger.warning("Could not re-read the draft state of %s#%s", repository, pr_number)
+        return None
     return response.json().get("draft") is True
 
 
@@ -1057,9 +1057,9 @@ def _automatic_review_allowed(input: ResolveActingUserInput, acting_user_id: int
     if not input.draft or input.pr_number is None or not allowed(False):
         return False
     # The queue drops a ready request for the head this turn already holds, so a PR marked ready after the
-    # fetch would stay unreviewed. Same re-read as the push gate.
+    # fetch would stay unreviewed. Unlike the push gate, a failed read keeps the skip: the repository said no drafts.
     token, installation_id = _installation_auth(input.team_id, repository)
-    return not _pr_is_draft_now(repository, input.pr_number, token=token, installation_id=installation_id)
+    return _pr_draft_on_github(repository, input.pr_number, token=token, installation_id=installation_id) is False
 
 
 def _flash_after_full(input: ResolveActingUserInput) -> bool:
@@ -2522,7 +2522,8 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
         # ready before this turn reads as ready. One marked ready while this turn runs does not: the queue
         # drops the ready request for the head this turn gates. So a draft skip reads GitHub again after the
         # gate's other reads, which leaves only the moment between this read and the end of the turn.
-        if decision.reason == "draft" and not _pr_is_draft_now(
+        # A failed read counts as ready, so the gate reviews the push.
+        if decision.reason == "draft" and not _pr_draft_on_github(
             input.repository, current.pr_metadata.number, token=token, installation_id=installation_id
         ):
             draft = False
