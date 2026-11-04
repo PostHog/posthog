@@ -50,6 +50,9 @@ export function MetricOwnerCombobox({
             onOpenChange={(open: boolean) => open && ensureAllMembersLoaded()}
             onValueChange={(value: string | null) => value && onChange(value === UNASSIGNED ? null : value)}
             itemToStringLabel={(value: string) => optionLabels.get(value) ?? value}
+            filter={(value: string, query: string) =>
+                `${optionLabels.get(value) ?? ''} ${value}`.toLowerCase().includes(query.trim().toLowerCase())
+            }
         >
             <ComboboxTrigger
                 ref={triggerRef}
