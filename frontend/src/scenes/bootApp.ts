@@ -1,4 +1,5 @@
 import { registerToastGetHelp } from 'lib/components/Support/registerToastGetHelp'
+import { loadFullStageAppContext } from 'scenes/fullStageAppContext'
 import { registerNotebookLinkDrag } from 'scenes/notebooks/AddToNotebook/registerNotebookLinkDrag'
 import { prefetchScene } from 'scenes/prefetchScene'
 
@@ -35,6 +36,7 @@ export function bootApp(): void {
     // toolbar and exporter keep linking out to the support options docs
     registerToastGetHelp()
     prefetchScene()
+    loadFullStageAppContext()
 
     const idle =
         typeof window.requestIdleCallback === 'function'

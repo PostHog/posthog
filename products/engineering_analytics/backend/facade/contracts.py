@@ -272,6 +272,13 @@ class GitHubTeamMembership:
 
 
 @dataclass(frozen=True)
+class DepotCIRepoUsage:
+    repo: str
+    elapsed_seconds: float
+    estimated_cost_usd: float
+
+
+@dataclass(frozen=True)
 class GitHubTeamRoster:
     """Every synced org team membership, and whether there was a snapshot to read at all.
 

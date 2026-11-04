@@ -3058,6 +3058,11 @@ class SlackIntegrationScope(StrEnum):
     USERS_READ_EMAIL = "users:read.email"
 
 
+class SlackIntegrationScopeInReview(StrEnum):
+    CANVASES_READ = "canvases:read"
+    CHANNELS_JOIN = "channels:join"
+
+
 class SlashCommandName(StrEnum):
     FIELD_INIT = "/init"
     FIELD_REMEMBER = "/remember"

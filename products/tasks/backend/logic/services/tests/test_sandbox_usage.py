@@ -10,6 +10,7 @@ from parameterized import parameterized
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
+from products.tasks.backend.logic.services.compute_quota import is_billable_sandbox_session
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig
 from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCard, ComputeRateCardConfigurationError
 from products.tasks.backend.logic.services.sandbox_usage import (
@@ -375,6 +376,29 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
         assert usage.cpu_millicore_seconds == [(self.team.id, 43_200_000)]
         assert usage.memory_mib_seconds == [(self.team.id, 176_947_200)]
         assert usage.credits == [(self.team.id, 6048)]
+
+    @parameterized.expand(
+        [
+            ("desktop_user_created", TaskClientProvenance.POSTHOG_DESKTOP, Task.OriginProduct.USER_CREATED, True),
+            ("desktop_loop", TaskClientProvenance.POSTHOG_DESKTOP, Task.OriginProduct.LOOP, True),
+            ("desktop_space_setup", TaskClientProvenance.POSTHOG_DESKTOP, Task.OriginProduct.SPACE_SETUP, True),
+            ("desktop_slack", TaskClientProvenance.POSTHOG_DESKTOP, Task.OriginProduct.SLACK, True),
+            ("no_provenance", None, Task.OriginProduct.USER_CREATED, True),
+            ("unattributed", TaskClientProvenance.POSTHOG_DESKTOP, Task.OriginProduct.USER_CREATED, False),
+        ]
+    )
+    def test_billable_session_predicate_matches_the_billing_aggregate(
+        self, _name: str, provenance: TaskClientProvenance | None, origin: str, attributed: bool
+    ) -> None:
+        session = self._session(
+            client_provenance=provenance,
+            origin_product=origin,
+            user_attributed_at=datetime(2026, 1, 2, 1, tzinfo=UTC) if attributed else None,
+        )
+
+        usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
+
+        assert is_billable_sandbox_session(session) is bool(usage.credits)
 
     def test_billable_compute_uses_session_snapshot_after_task_changes(self):
         session = self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)

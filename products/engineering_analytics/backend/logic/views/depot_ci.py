@@ -112,6 +112,30 @@ def _conclusion(status: str) -> str:
     return f"multiIf({status} = 'finished', 'success', {status} = 'failed', 'failure', {status})"
 
 
+def _of_repository(depot: DepotJobAttempts) -> str:
+    return f"lower(ifNull(a.repo, '')) = '{depot.repository.lower()}'"
+
+
+def build_billed_seconds_query(depot: DepotJobAttempts) -> str:
+    """Run time of the finished attempts that started in ``[{window_from}, {window_to})``.
+
+    Reads the raw rows, so the hand-off shells the union drops still count, as Depot bills them.
+    """
+    return f"""
+        SELECT sum(dateDiff('millisecond', started_at, finished_at)) / 1000
+        FROM (
+            SELECT
+                parseDateTimeBestEffort(a.attempt_started_at) AS started_at,
+                parseDateTimeBestEffort(a.attempt_finished_at) AS finished_at
+            FROM {depot.table} AS a
+            WHERE {_of_repository(depot)}
+                AND ifNull(a.attempt_started_at, '') != ''
+                AND ifNull(a.attempt_finished_at, '') != ''
+        )
+        WHERE started_at >= {{window_from}} AND started_at < {{window_to}} AND finished_at >= started_at
+    """
+
+
 def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None, where: str = "1") -> str:
     # Depot reports no branch, so a PR run takes its head branch from the PR snapshot, and branch
     # filters then match it like a GitHub run of the same PR.
@@ -161,7 +185,7 @@ def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None, where: s
             a.sandbox_id AS sandbox_id
         FROM {depot.table} AS a
         {branch_join}
-        WHERE lower(ifNull(a.repo, '')) = '{depot.repository.lower()}'
+        WHERE {_of_repository(depot)}
             AND {_is_id("a.run_id")} AND {_is_id("a.workflow_id")} AND {_is_id("a.attempt_id")}
             AND ({where})
     )"""

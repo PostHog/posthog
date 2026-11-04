@@ -13,11 +13,11 @@ Before coding, read:
 
 - `products/warehouse_sources/sources/source.template` (the top-of-file TODOs are the bootstrap checklist; still verify target files against current source implementations, since the template can drift)
 - `products/warehouse_sources/backend/temporal/data_imports/sources/README.md`
-- `products/warehouse_sources/backend/temporal/data_imports/sources/SOURCES.md` — inventory of every registered source with its communication method (HTTP / vendor SDK / gRPC / DB protocol / webhook) and tracked-transport state. Skim this first to see how similar sources are wired and what state today's source you're touching is in. **Keep it in sync** — see "Updating SOURCES.md" below.
+- `products/warehouse_sources/backend/temporal/data_imports/sources/SOURCES.md` — a hand-kept inventory of how sources talk to their upstream (HTTP / vendor SDK / gRPC / DB protocol / webhook) and their tracked-transport state. Skim it to see how similar sources are wired. A new vendor does not add a line; see "SOURCES.md" below.
 - `products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py` — base classes (`SimpleSource`, `ResumableSource`, `WebhookSource`) and the `FieldType` union
 - `products/warehouse_sources/backend/temporal/data_imports/sources/common/resumable.py` — `ResumableSourceManager`
 - `products/warehouse_sources/backend/temporal/data_imports/sources/common/webhook_s3.py` — `WebhookSourceManager`
-- **`products/warehouse_sources/sources/chargebee/` — the canonical reference for a new REST source.** It uses the shared `rest_source` framework (declarative `RESTAPIConfig` + `rest_api_resource`, framework auth + paginators, tracked+retrying transport) and is resumable — proof the framework covers the dominant "paginate a list endpoint and yield, resumably" shape. Read it first, alongside "Prefer the shared REST framework" below. Read `products/warehouse_sources/backend/temporal/data_imports/sources/klaviyo/` or `products/warehouse_sources/backend/temporal/data_imports/sources/github/` only as a _bespoke-transport_ fallback: they hand-roll their client for edge cases (custom query-string encoding, multi-level fan-out, JSON:API reshaping) that most sources don't have — don't copy that boilerplate into a source that doesn't need it. For dependent-resource fan-out (parent→child with `type: "resolve"`), also read `products/warehouse_sources/backend/temporal/data_imports/sources/common/rest_source/__init__.py` and `config_setup.py` (e.g. `process_parent_data_item`, `make_parent_key_name`).
+- **`products/warehouse_sources/sources/chargebee/` — the canonical reference for a new REST source.** It uses the shared `rest_source` framework (declarative `RESTAPIConfig` + `rest_api_resource`, framework auth + paginators, tracked+retrying transport) and is resumable — proof the framework covers the dominant "paginate a list endpoint and yield, resumably" shape. Read it first, alongside "Prefer the shared REST framework" below. Read `products/warehouse_sources/sources/klaviyo/` or `products/warehouse_sources/backend/temporal/data_imports/sources/github/` only as a _bespoke-transport_ fallback: they hand-roll their client for edge cases (custom query-string encoding, multi-level fan-out, JSON:API reshaping) that most sources don't have — don't copy that boilerplate into a source that doesn't need it. For dependent-resource fan-out (parent→child with `type: "resolve"`), also read `products/warehouse_sources/backend/temporal/data_imports/sources/common/rest_source/__init__.py` and `config_setup.py` (e.g. `process_parent_data_item`, `make_parent_key_name`).
 - For webhook-capable sources, read `products/warehouse_sources/backend/temporal/data_imports/sources/stripe/source.py` as the reference implementation.
 
 ## Picking the right base class
@@ -92,7 +92,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
    - Fivetran: <https://www.fivetran.com/connectors>
    - Stitch: <https://www.stitchdata.com/docs/integrations/>
      Find the official API docs or OpenAPI spec, and **work out the vendor's latest generally-available API version before you write any request code** — that is the version the source must be built against. Check the vendor's changelog, versioning, or deprecation page, not just whichever page ranked first; docs sites routinely default to an older version, and Airbyte/Fivetran connectors are often years behind. See "Vendor API version metadata" for what counts as latest and what to do when the newest channel isn't GA.
-2. **Bootstrap the source.** Copy the template and wire up the enum/type references:
+2. **Bootstrap the source.** Copy the template and set the source key:
 
    ```sh
    mkdir -p products/warehouse_sources/sources/{SOURCE_NAME}
@@ -100,11 +100,13 @@ Follow this order. Each step maps to TODOs in `source.template`.
    touch products/warehouse_sources/sources/{SOURCE_NAME}/__init__.py
    ```
 
-   Then add the one enum member. `ExternalDataSourceType` at `products/warehouse_sources/backend/types.py`
-   (re-exported from `products/warehouse_sources/backend/facade/types.py`) is the **only** place a source
-   type is declared — follow the existing convention in that file: `ALL_CAPS` with **no underscores**
-   between words (e.g. `ACTIVECAMPAIGN`, `APPLESEARCHADS`), value is `PascalCase`. (The only kebab-case
-   identifier in the flow is the optional `featureFlag="dwh-{source_name}"`.)
+   Then set `SOURCE_KEY` in `source.py`. The key is a `PascalCase` string (e.g. `"AcmeCrm"`) that names the
+   source everywhere: it is stored on every source row, sent by the API, and used to find the vendor module.
+   Rules (a catalog invariant test checks them): letters and digits only, at most 128 characters, and
+   lowercased it equals the directory name without underscores (`AcmeCrm` -> `acme_crm/`). Do **not** add an
+   `ExternalDataSourceType` member: a new vendor has none, so the PR needs no migration and no regenerated
+   API types. Existing vendors keep their members. (The only kebab-case identifier in the flow is the
+   optional `featureFlag="dwh-{source_name}"`.)
 
 3. **Pick the base class** (see above) and rename the class / `source_type` return.
 4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below). Also set the vendor API version metadata class attributes — see "Vendor API version metadata". When the source is released, also set `codebase_detection`, as described in "Codebase detection".
@@ -113,9 +115,9 @@ Follow this order. Each step maps to TODOs in `source.template`.
 7. **Swap the generic `Config` type** in `source.py` for the generated `{Source}SourceConfig` class.
 8. **Implement**: `validate_credentials`, `get_schemas`, `source_for_pipeline` (plus `get_resumable_source_manager` / `get_webhook_source_manager` as needed).
 9. **Split transport logic.** Put API client, paginator, row normalization, and `SourceResponse` assembly in `{source}.py`. Keep endpoint catalog/incremental fields/primary keys/partition defaults in `settings.py`.
-10. **Add icon.** Place at `frontend/public/services/{source}.png` — **PNG is the repo convention** (~800 png vs ~58 svg, and `source.template` defaults to `.png`). SVG is accepted but not the norm; set `iconPath` to match whichever extension you commit. If the logo isn't already committed, fetch from [Logo.dev](https://docs.logo.dev/introduction) — **ask the user for the Logo.dev API key**; do not hardcode one. Logo.dev's image API returns PNG (not SVG). Keep file size reasonable.
-11. **Run migrations.** `DEBUG=1 python manage.py makemigrations && DEBUG=1 ./bin/migrate` (only needed if a new enum value triggers a Django migration).
-12. **Regenerate frontend API types**: `hogli build:openapi`. This regenerates `products/warehouse_sources/frontend/generated/api.schemas.ts` from the source-config contract in `source_config.py` and makes the source appear in frontend dropdowns. Re-run whenever `source_config.py` or a source's fields change.
+10. **Add icon.** Place it at `products/warehouse_sources/sources/{SOURCE_NAME}/icon.png` and set `iconPath="/static/warehouse-sources/{SOURCE_NAME}/icon.png"` (see "Icons"). If the logo isn't already committed, fetch from [Logo.dev](https://docs.logo.dev/introduction) — **ask the user for the Logo.dev API key**; do not hardcode one. Keep file size reasonable.
+11. **Nothing outside the vendor directory.** A new vendor needs no migration, no `hogli build:openapi` run and no `SOURCES.md` line: the API publishes the source key as a plain string, and the wizard reads the catalog from the registry at runtime. If `git status` shows a change outside `products/warehouse_sources/sources/{SOURCE_NAME}/`, find out why before you commit it.
+12. **(Only when you change `source_config.py` itself)** run `hogli build:openapi` to regenerate the frontend and MCP API types from the source-config contract.
 13. **Release status — a finished source has no `unreleasedSource` flag.** The default for the deliverable this skill produces is **no `unreleasedSource`** — a completed, working source ships visible and connectable. You don't need anyone's sign-off to ship it released; that's just the finished state. The scaffolded stub ships with `unreleasedSource=True` pre-set, so deleting that line is part of finishing the source — go ahead and remove it. (Why it matters: `unreleasedSource=True` **hides the connector from users entirely** — the frontend filters out every source where it's truthy; see `InlineSourceSetup.tsx` and the "coming soon / Notify me" path in `nonHogFunctionTemplatesLogic.tsx`.)
 
     **Deleting that line is mandatory, and it is not gated on anything you can't do in your environment.** In particular, "I couldn't curl the live API" or "I couldn't verify against a real account" is NOT a reason to keep the flag — that is exactly what `releaseStatus=ReleaseStatus.BETA` is for (a soft "new, still being validated" label on a _visible_ source). The only time `unreleasedSource=True` legitimately stays is when the source physically cannot sync yet because it is being landed across several PRs and the implementing code isn't all there. A source with working `get_schemas` / `source_for_pipeline` and passing tests is finished — the flag comes out. **Never write a test that asserts `unreleasedSource is True`** — that locks the bug in and is what kept 166 finished sources hidden until they had to be released in bulk.
@@ -239,13 +241,13 @@ The richer the table list, the better the docs — so pair this with `canonical_
 Every source **must** set `category` on its `SourceConfig` — it groups the source in the new-source wizard
 catalog (a category rail + tile grid). A test (`tests/test_source_categories.py`) fails if any registered
 source has no category, so this is non-optional. A vendor in `products/warehouse_sources/sources/` imports `SourceConfig`,
-`DataWarehouseSourceCategory` and `ExternalDataSourceType` from `products.warehouse_sources.sources.sdk`:
+`DataWarehouseSourceCategory` from `products.warehouse_sources.sources.sdk`:
 
 ```python
-from products.warehouse_sources.sources.sdk import DataWarehouseSourceCategory, ExternalDataSourceType, SourceConfig
+from products.warehouse_sources.sources.sdk import DataWarehouseSourceCategory, SourceConfig
 ...
 return SourceConfig(
-    name=ExternalDataSourceType.STRIPE,
+    name=self.source_type,
     category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
     keywords=["billing", "subscriptions"],
     ...
@@ -468,10 +470,14 @@ A source's typed-in connection fields go to one `Integration` row of the source'
   - Any other source (for example a select switched away from both): no reference.
   - With the flag off, the column keeps its value. Only the API reference pick (below) changes it.
   - `update_runtime` and `update_oauth_inputs` never write the column. Use `update_oauth_inputs` for a token that an OAuth source refreshes in its inputs. A caller that saves with `update_fields` after `assign` lists every field in `SourceInputsStore.update_fields`.
-  - `job_inputs` stays the source of truth while this flag controls the copy.
-- A copy that would change a secret of a shared row skips the row and counts `shared_skip`. A copy that changes an identifying field of a shared row makes a new row for this source instead. The source update API passes `SharedCredentialsEdit.REFUSE`, so the API returns a 409 with the other users unless the request sends `update_shared_credentials=true`. The confirmed edit changes the shared row. The other sources keep their own `job_inputs` copy until their reads move to the row. A write that changes no stored value never needs a confirmation.
+  - `job_inputs` stays the source of truth until the team also has the `warehouse-source-credentials-read` flag.
+- A copy that would change a secret of a shared row skips the row and counts `shared_skip`. A copy that changes an identifying field of a shared row makes a new row for this source instead. The source update API passes `SharedCredentialsEdit.REFUSE`, so the API returns a 409 with the other users unless the request sends `update_shared_credentials=true`. The row then differs from `job_inputs`, so a read with the read flag on keeps `job_inputs` and counts `fallback_mismatch`. The confirmed edit changes the shared row. The other sources keep their own `job_inputs` copy until their reads move to the row. A write that changes no stored value never needs a confirmation.
 - The source update API keeps the stored reference. A client can point the source at another row with `credentials_integration_id` in the edited `job_inputs`, only when the source can use that row (same team, kind and auth type, and a warehouse source row). Otherwise the API returns a 400. The API moves the value to the column, never into `job_inputs`. This check runs also while the dual-write flag is off. When the client sets another row, the source adopts the connection fields of that row. The edit never writes its own connection fields into that row.
 - In async code, use `asave`. A call to `assign` or `save` in an event loop thread skips the copy.
+- When the team also has the `warehouse-source-credentials-read` flag, `load`, `aload` and `load_many` return the connection fields from the row that `credentials_integration_id` points at, and the selectors, settings and runtime keys from `job_inputs`. A missing, unreadable or empty row falls back to `job_inputs`. While `job_inputs` still holds the connection fields, a row whose values differ from them also falls back to `job_inputs` and counts `fallback_mismatch`. A write that skipped the row (the dual-write flag was off, a shared row) makes such a difference. Always read the inputs with `SourceInputsStore`. Never read `source.job_inputs` directly.
+- An OAuth source reads its pointer from the column with the same rule. While `job_inputs` holds the pointer, the column is used only when it holds the same row. Otherwise the read keeps `job_inputs` and counts `fallback_oauth_mismatch` or `fallback_oauth_missing`. When `job_inputs` holds no pointer, the read puts the column value at the path of the OAuth field that the selected options use (`in_use_oauth_slot`).
+- In async code, use `aload`. A call to `load` in an event loop thread cannot read the row and returns `job_inputs`.
+- A loop that calls `load` once per table of a source adds one row query per call. Call `SourceInputsStore.preload(sources)` first: it fetches the rows in one query per team and source type, and later `load` calls on the same instances reuse them until a write through the store.
 
 #### OAuth pointers
 
@@ -671,25 +677,13 @@ and direct `BigQueryReadClient(...)` / `GoogleAdsClient(...)` construction insid
 `common/grpc/` package and the two reference source files). Operators arm sample capture with
 `python manage.py warehouse_sources_capture_grpc_samples enable ...`.
 
-## Updating SOURCES.md
+## SOURCES.md
 
-`products/warehouse_sources/backend/temporal/data_imports/sources/SOURCES.md` is the inventory of every registered source, its
-communication method, and whether its outbound traffic is tracked. Update it as part of the same PR
-whenever you:
-
-- **Add a new source** — initially as a Scaffolded entry; move it into the Implemented table once you
-  ship working sync logic.
-- **Implement a previously scaffolded source** — move the row into the Implemented table and fill in
-  comm method, primary library, and tracked-transport state.
-- **Migrate a vendor SDK** to inject a tracked session — flip the source from `⚠️ Vendor SDK` to `✅`.
-- **Switch a source's protocol** — e.g. swap REST for gRPC, add webhook support alongside the pull API,
-  or move from `requests` to a vendor SDK. Update both the comm method and tracked-transport columns.
-
-Keep the entries alphabetical within each table. The scaffolded list is one source per line (one bullet
-each, also alphabetical) so adding or removing a source only touches its own line and avoids conflicts with
-concurrent PRs — don't collapse it back into a comma-separated paragraph. If you add a partially-tracked
-source, also append a short "Notes on partially-tracked sources" entry explaining what blocks tracking
-(e.g. a vendor SDK with no session/interceptor seam).
+`products/warehouse_sources/backend/temporal/data_imports/sources/SOURCES.md` is a hand-kept inventory of
+communication methods and tracked-transport state. Nothing reads it in code or CI. A new vendor does **not**
+add a line to it, because a vendor PR touches only its own directory; the registry and the wizard catalog
+are the list of sources. Update an existing entry only when you change that source's protocol or
+tracked-transport state (for example a vendor SDK migrated to a tracked session).
 
 ## Base-class capability flags & API versioning
 
@@ -947,8 +941,8 @@ From `products/warehouse_sources/backend/temporal/data_imports/sources/common/mi
 
 ## Icons
 
-- PNG is the repo convention (`source.template` defaults to `.png`; ~800 png vs ~58 svg). SVG is accepted but not the norm. Keep file size reasonable.
-- Place in `frontend/public/services/` and reference as `/static/services/{name}.png` (or `.svg`) in `iconPath` — match the extension you commit.
+- A vendor in `products/warehouse_sources/sources/` ships `icon.png` in its own directory and sets `iconPath="/static/warehouse-sources/{vendor_dir}/icon.png"`. `SourceIconFinder` (`products/warehouse_sources/backend/source_icons.py`) serves exactly that file name, in development and through `collectstatic` in the image, so the file must be called `icon.png`.
+- Older vendors keep their icon in `frontend/public/services/` as `/static/services/{name}.png`. Do not add new files there.
 - If the source logo isn't already in the project, pull via [Logo.dev](https://docs.logo.dev/introduction). **Ask the user for the API key** — do not hardcode one. If the user hasn't provided one, surface that as a blocker rather than committing a placeholder.
 
 ## Testing expectations
@@ -974,7 +968,7 @@ A typical REST source needs one transport module of 10 to 25 parameterized cases
 
 ```text
 Bootstrapping:
-- [ ] Enum added to products/warehouse_sources/backend/types.py (ALL_CAPS, no underscores between words) — the only place a source type is declared
+- [ ] SOURCE_KEY set in source.py (PascalCase, lowercased equals the directory name without underscores); no ExternalDataSourceType member
 - [ ] Source directory at products/warehouse_sources/sources/<source>/ with empty __init__.py files (vendor dir and tests/)
 - [ ] Class inherits from SimpleSource / ResumableSource / WebhookSource (or combo) — see "Picking the right base class"
 
@@ -998,11 +992,10 @@ Source implementation:
 - [ ] (Fixed-schema sources, static get_schemas only) Set lists_tables_without_credentials = True so public docs render the table catalog
 
 Tooling & assets:
-- [ ] Icon in frontend/public/services/ (PNG is the convention; ask user for Logo.dev key if needed)
+- [ ] icon.png in the vendor directory, iconPath /static/warehouse-sources/<source>/icon.png (ask user for Logo.dev key if needed)
 - [ ] Run `pnpm run generate:source-configs`
 - [ ] Swap generic Config for generated {Source}SourceConfig in source.py
-- [ ] Run `hogli build:openapi`
-- [ ] Django migrations run if enum value requires it
+- [ ] `git status` shows changes only under products/warehouse_sources/sources/<source>/
 
 Release status (a finished source has NO unreleasedSource flag — it hides the source from users entirely):
 - [ ] REQUIRED: delete `unreleasedSource=True` from the finished source (the scaffolded stub ships with it).
@@ -1027,11 +1020,11 @@ Tests & handoff:
 
 ## Validation and generation workflow
 
-After changing source fields, re-run `pnpm run generate:source-configs` and `hogli build:openapi`, then the targeted tests for the new source. Run `ruff check . --fix` and `ruff format .` on modified Python files.
+After changing source fields, re-run `pnpm run generate:source-configs`, then the targeted tests for the new source. Run `ruff check . --fix` and `ruff format .` on modified Python files.
 
 ## Common pitfalls
 
-- Source not visible in wizard: not registered/imported in `sources/__init__.py`, or `hogli build:openapi` not rerun.
+- Source not visible in wizard: the module failed to import (check the loader log), the directory name does not match the source key, or `unreleasedSource=True` is still set.
 - `test_source_categories` failing: the source's `get_source_config` is missing `category` — set it to the closest `DataWarehouseSourceCategory` bucket.
 - Generated config class still empty: forgot `generate:source-configs` after updating fields.
 - Incremental sync misbehaving: wrong field name/type or wrong sort assumptions.

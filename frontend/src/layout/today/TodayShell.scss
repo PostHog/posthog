@@ -240,7 +240,9 @@ body {
     }
 }
 
-body.has-today-phone-layout :is(input, textarea, select) {
+// Inputs are 16px on a phone, because iOS Safari zooms the page when an input under 16px gets focus. `data-compact` is
+// for a field that must match the small rows it sits with, such as a search in a filter submenu. It takes that zoom.
+body.has-today-phone-layout :is(input, textarea, select):not([data-compact]) {
     font-size: 1rem;
 }
 

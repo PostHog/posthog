@@ -281,7 +281,6 @@ __all__ = [
     "own_subscription_cloud_enabled",
     "can_bill_plan_unattended",
     "unattended_model_access_state",
-    "uses_own_subscription",
     "beacon_task_presence",
     "bootstrap_task_run",
     "MAX_SANDBOX_TTL_SECONDS",
@@ -579,6 +578,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "context_window",
         "custom_image_id",
         "disable_repo_hooks",
+        "disable_skills",
         "fast_mode",
         # An imported transcript's provenance and mirror cursor: the viewer marks the run as
         # imported, and the legacy mirror reads its own cursor back through this DTO.
@@ -620,7 +620,14 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
 # `store_skills` is the acting user's skills-store listing, so it is for their sandbox only.
 # `agent_instructions` can carry a member's personal instructions, so the same applies.
 _TASK_RUN_AGENT_STATE_KEYS = frozenset(
-    {"agent_instructions", "end_run_when_done", "initial_prompt_override", "store_skills", "systemPrompt"}
+    {
+        "agent_instructions",
+        "caller_ends_run",
+        "end_run_when_done",
+        "initial_prompt_override",
+        "store_skills",
+        "systemPrompt",
+    }
 )
 
 
@@ -3023,6 +3030,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "scout_trial_judge",
         "scout_trial_private",
         "include_live_context",
+        "disable_skills",
         "analytics_query_context",
         "sandbox_oauth_token_ids",
         # Sandbox run-start lineage and fan-out count. A child sandbox that removed its parent keys
@@ -3631,6 +3639,7 @@ def update_task_run(
     only_if_not_started: bool = False,
     caller_is_agent: bool = False,
     user_id: int | None = None,
+    include_log_url: bool = True,
 ) -> contracts.TaskRunDetailDTO | None:
     """Apply a PATCH to a run: merge output/state, set completion, then dispatch side effects.
 
@@ -3706,7 +3715,7 @@ def update_task_run(
         if only_if_non_terminal and run.is_terminal:
             if validated_data.get("status") == run.status:
                 transaction.on_commit(lambda: resume_workflow_step_for_run(run))
-            return _task_run_detail_to_dto(run, user_id=user_id)
+            return _task_run_detail_to_dto(run, user_id=user_id, include_log_url=include_log_url)
         old_status = run.status
         old_output = run.output
         old_branch = run.branch
@@ -3866,7 +3875,7 @@ def update_task_run(
     if new_status in _TERMINAL_TASK_RUN_STATUSES:
         resume_workflow_step_for_run(run)
 
-    return _task_run_detail_to_dto(run, user_id=user_id)
+    return _task_run_detail_to_dto(run, user_id=user_id, include_log_url=include_log_url)
 
 
 TASK_RUN_SUMMARY_MAX_CHARS = 1500
@@ -4028,11 +4037,13 @@ def attach_task_run_input_files(*, team_id: int, run_id: UUID, files: Sequence[c
     run.save(update_fields=["artifacts", "updated_at"])
 
 
-def get_task_by_origin_key(team_id: int, origin_key: str) -> contracts.TaskDetailDTO | None:
+def get_task_by_origin_key(
+    team_id: int, origin_key: str, *, include_latest_run: bool = True
+) -> contracts.TaskDetailDTO | None:
     """The live task carrying ``origin_key`` in ``team_id``, or None. Bypasses visibility: an
     origin key is an idempotency handle for a system writer, not a user-facing lookup."""
     task = Task.objects.filter(team_id=team_id, origin_key=origin_key, deleted=False).first()
-    return _task_detail_to_dto(task) if task is not None else None
+    return _task_detail_to_dto(task, include_latest_run=include_latest_run) if task is not None else None
 
 
 def get_imported_task_run(task_id: str | UUID, team_id: int) -> contracts.TaskRunDetailDTO | None:
@@ -4250,12 +4261,6 @@ def get_run_plan(state: dict[str, Any] | None) -> contracts.RunPlan | None:
     if access.adapter is None:
         return None
     return contracts.RunPlan(plan_name=SUBSCRIPTION_PLAN_NAMES[access.adapter], owner_user_id=access.owner_id)
-
-
-def uses_own_subscription(state: dict[str, Any] | None) -> bool:
-    """Whether a run bills to its owner's plan rather than to PostHog credits."""
-    run_state = state or {}
-    return any(run_state.get(f"{adapter}_model_access") == "own-subscription" for adapter in SUBSCRIPTION_PLAN_NAMES)
 
 
 def ensure_subscription_owner(state: dict[str, Any] | None, actor_user_id: int | None) -> None:
