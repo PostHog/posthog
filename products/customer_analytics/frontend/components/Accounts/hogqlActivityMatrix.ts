@@ -27,29 +27,38 @@ export const DEFAULT_MATRIX_MAPPING: DotMatrixSourceMapping = {
 }
 
 export function inferHogQLMatrixMapping(columns: string[], mapping: DotMatrixSourceMapping): DotMatrixSourceMapping {
-    if (columns.includes(mapping.row) && columns.includes(mapping.column)) {
-        return Object.fromEntries(
-            Object.entries(mapping).filter(([, name]) => columns.includes(name))
-        ) as unknown as DotMatrixSourceMapping
-    }
+    const valid = (name: string | undefined): name is string => name !== undefined && columns.includes(name)
     const named = (...names: string[]): string | undefined =>
         columns.find((column) => names.includes(column.toLowerCase()))
-    const row = named('row', 'person', 'person_id', 'user', 'user_id', 'account', 'account_id') ?? columns[0] ?? ''
-    const column =
-        named('column', 'week', 'date', 'day', 'month', 'bucket', 'period', 'timestamp') ??
-        columns.find((name) => name !== row) ??
-        ''
-    const rowLabel = named('row_label', 'email', 'name', 'label')
-    const remaining = columns.filter((name) => name !== row && name !== column && name !== rowLabel)
-    const series =
+    const row = valid(mapping.row)
+        ? mapping.row
+        : (named('row', 'person', 'person_id', 'user', 'user_id', 'account', 'account_id') ?? columns[0] ?? '')
+    const column = valid(mapping.column)
+        ? mapping.column
+        : (named('column', 'week', 'date', 'day', 'month', 'bucket', 'period', 'timestamp') ??
+          columns.find((name) => name !== row) ??
+          '')
+    const keepOptionalChoice = valid(mapping.row) && valid(mapping.column)
+    const optional = (name: string | undefined, inferred: string | undefined): string | undefined =>
+        valid(name) ? name : keepOptionalChoice && name === undefined ? undefined : inferred
+    const rowLabel = optional(mapping.rowLabel, named('row_label', 'email', 'name', 'label'))
+    const user = valid(mapping.user) ? mapping.user : undefined
+    const remaining = columns.filter((name) => ![row, column, rowLabel, user].includes(name))
+    const series = optional(
+        mapping.series,
         named('series', 'feature', 'product', 'event', 'category') ?? (remaining.length >= 2 ? remaining[0] : undefined)
-    const value = named('value', 'amount', 'count', 'total', 'users') ?? remaining.find((name) => name !== series)
+    )
+    const value = optional(
+        mapping.value,
+        named('value', 'amount', 'count', 'total', 'users') ?? remaining.find((name) => name !== series)
+    )
     return {
         row,
         column,
         ...(rowLabel ? { rowLabel } : {}),
         ...(series ? { series } : {}),
         ...(value ? { value } : {}),
+        ...(user ? { user } : {}),
     }
 }
 
@@ -303,7 +312,7 @@ export function getHogQLActivityMatrix(
             aggregateSelection: mapping.user
                 ? (cell, selected) => countPeople(people, cell, selected)
                 : (cell, selected) => selected.reduce((sum, key) => sum + (cell.values[key] ?? 0), 0),
-            ...(mapping.user ? { countOf: (cell) => countPeople(people, cell) } : {}),
+            ...(mapping.user ? { countOf: (cell) => countPeople(people, cell, [...shownSeries]) } : {}),
             legend: getLegend(mapping),
         },
     }

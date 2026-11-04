@@ -76,6 +76,37 @@ describe('HogQL activity matrix', () => {
         ).toMatchObject({ week_start_day: weekStartDay })
     })
 
+    it('maps a renamed value when the row and column aliases stay the same', () => {
+        expect(
+            inferHogQLMatrixMapping(['row', 'column', 'total'], {
+                row: 'row',
+                column: 'column',
+                series: 'series',
+                value: 'value',
+            })
+        ).toEqual({ row: 'row', column: 'column', value: 'total' })
+    })
+
+    it('counts only displayed series when the series limit trims people', () => {
+        const { props } = getHogQLActivityMatrix(
+            {
+                columns: ['r', 'c', 's', 'u'],
+                results: Array.from({ length: DOT_MATRIX_MAX_SERIES + 1 }, (_, i) => [
+                    'account',
+                    'week',
+                    `s${i}`,
+                    `p${i}`,
+                ]),
+            },
+            { row: 'r', column: 'c', series: 's', user: 'u' }
+        )
+        const cell = normalizeDotMatrixData(props!).getCell('account', 'week')
+        expect(getDotMatrixCellCount(cell, props!)).toBe(DOT_MATRIX_MAX_SERIES)
+        expect(getDotMatrixCellCount(cell, { ...props!, selectedSeries: props!.series!.map(({ key }) => key) })).toBe(
+            DOT_MATRIX_MAX_SERIES
+        )
+    })
+
     it('maps column names independently of their order and sums duplicate cells', () => {
         const result = getHogQLActivityMatrix(
             {
