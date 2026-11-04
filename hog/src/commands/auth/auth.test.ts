@@ -6,7 +6,7 @@ import { runHog } from '@/testing'
 const LEGACY_CLI_FILE = '/home/test/.posthog/credentials.json'
 const SETTINGS_FILE = '/home/test/.config/hog/settings.json'
 const HOG_CREDENTIALS_FILE = '/home/test/.config/hog/credentials.json'
-const PENDING_FILE = '/home/test/.posthog/login-pending.json'
+const PENDING_FILE = '/home/test/.config/hog/pending-auth-login.json'
 const DEVICE_CODE = 'device-secret-123'
 
 const DEVICE = {

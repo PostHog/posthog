@@ -1,7 +1,8 @@
+import { clearPending } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { escapeControls } from '@/core/output'
 import { PERSONAL_API_KEY_ENV_VAR } from '@/posthog/credentials'
-import { clearPendingLogin } from '@/posthog/login/flow'
+import { LOGIN_COMMAND } from '@/posthog/login/flow'
 import { logout, logoutAll, type LoggedOutHost } from '@/posthog/login/stored'
 import { readSettings } from '@/posthog/settings'
 
@@ -31,7 +32,7 @@ export default defineCommand({
         const stillSet = runtime.env[PERSONAL_API_KEY_ENV_VAR] ? [PERSONAL_API_KEY_ENV_VAR] : []
         if (options.all) {
             const hosts = await logoutAll(runtime)
-            await clearPendingLogin(runtime)
+            await clearPending(runtime, LOGIN_COMMAND)
             const status = hosts.length > 0 ? 'logged_out' : 'not_logged_in'
             return { status, host: null, revokeUrl: null, keychainLeftover: null, hosts, stillSet }
         }
@@ -41,7 +42,7 @@ export default defineCommand({
         const configHost = (await ctx.config().catch(() => undefined))?.config.host
         const host = ctx.globals.host ?? configHost ?? settings.host
         const outcome = host ? await logout(runtime, host) : undefined
-        await clearPendingLogin(runtime)
+        await clearPending(runtime, LOGIN_COMMAND)
         return {
             status: outcome ? 'logged_out' : 'not_logged_in',
             host: host ?? null,

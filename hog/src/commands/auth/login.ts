@@ -1,14 +1,15 @@
+import { printPending, resumeApproval, runApproval, type ApprovalResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
-import type { Prompts, Spinner } from '@/core/prompts'
+import type { Prompts } from '@/core/prompts'
 import { PersonalAPIKey } from '@/posthog/access-key'
 import type { StoreChoice } from '@/posthog/credential-store/types'
 import { checkApiKey, checkHost, checkProjectId } from '@/posthog/credentials'
-import type { PendingLogin } from '@/posthog/device-auth'
+import type { Approval } from '@/posthog/device-auth'
 import { trimHost } from '@/posthog/host'
-import { completeLogin, readPendingLogin, saveLogin, startLogin, type LoggedIn } from '@/posthog/login/flow'
+import { loginFlow, saveLogin, type LoggedIn } from '@/posthog/login/flow'
 
 const REGIONS = { us: 'https://us.posthog.com', eu: 'https://eu.posthog.com' } as const
 
@@ -28,15 +29,7 @@ function cloudRegion(host: string | undefined): string | undefined {
 }
 
 type LoginResult =
-    | {
-          status: 'pending'
-          host: string
-          url: string
-          code: string
-          expiresAt: string
-          instructions: string
-          next: string
-      }
+    | (Extract<ApprovalResult<never>, { status: 'pending' }> & { host: string })
     | {
           status: 'logged_in'
           host: string
@@ -52,33 +45,15 @@ function nextCommand(scopes: readonly string[]): string {
     return canQuery ? 'hog query run "select event, count() from events group by event"' : 'hog --help'
 }
 
-function pendingResult(pending: PendingLogin): LoginResult {
-    return {
-        status: 'pending',
-        host: pending.host,
-        url: pending.url,
-        code: pending.userCode,
-        expiresAt: new Date(pending.expiresAt).toISOString(),
-        instructions: `Ask the user to open ${pending.url} and approve the code ${pending.userCode}. Then run \`hog auth login --wait\`, which returns once they approve. If it times out, run it again.`,
-        next: 'hog auth login --wait',
-    }
-}
-
 function loggedInResult(loggedIn: LoggedIn): LoginResult {
     const { host, projectId, store, credentialsPath, keychainError, scopes } = loggedIn
     return { status: 'logged_in', host, projectId, store, credentialsPath, keychainError, next: nextCommand(scopes) }
 }
 
-async function finish(ctx: Context, pending: PendingLogin, spinner?: Spinner): Promise<LoginResult> {
-    let loggedIn
-    try {
-        loggedIn = await completeLogin(ctx.runtime, pending)
-    } catch (error) {
-        spinner?.error("The login didn't finish")
-        throw error
-    }
-    spinner?.stop('Approved')
-    return loggedInResult(loggedIn)
+async function finish(ctx: Context, approval: Approval): Promise<LoginResult> {
+    const { host, apiKey, projectId, scopes } = approval
+    const loggedIn = await saveLogin(ctx.runtime, new PersonalAPIKey({ host, projectId, apiKey, scopes }))
+    return loggedInResult({ ...loggedIn, scopes })
 }
 
 async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
@@ -114,19 +89,10 @@ export default defineCommand({
     examples: ['hog auth login', 'hog auth login --region eu', 'hog auth login --wait'],
 
     async run({ options, ctx }): Promise<LoginResult> {
-        const { env } = ctx.runtime
         const prompts = ctx.prompts
 
         if (options.wait) {
-            const pending = await readPendingLogin(ctx.runtime)
-            if (!pending) {
-                throw new HogError(
-                    'no_pending_login',
-                    'No login is waiting for approval.',
-                    'Run `hog auth login` to start one.'
-                )
-            }
-            return finish(ctx, pending, prompts?.spinner('Waiting for the login to be approved in the browser'))
+            return finish(ctx, await resumeApproval(ctx, loginFlow(ctx.runtime)))
         }
 
         if (!prompts && ctx.mode.agent === undefined && ctx.mode.ci) {
@@ -171,31 +137,13 @@ export default defineCommand({
             host = REGIONS[choice]
         }
 
-        const pending = await startLogin(ctx.runtime, host)
-
-        if (!prompts) {
-            return pendingResult(pending)
-        }
-        prompts.note(`${pending.url}\n\nCode: ${escapeControls(pending.userCode)}`, 'Approve the login in your browser')
-        // Over SSH, a browser would open on the remote machine, where nobody sees it.
-        const overSsh = env.SSH_CONNECTION !== undefined || env.SSH_TTY !== undefined
-        const opened = !overSsh && (await ctx.runtime.openUrl(pending.url))
-        return finish(
-            ctx,
-            pending,
-            prompts.spinner(
-                opened ? 'Waiting for you to approve in the browser' : 'Open the link above to approve. Waiting'
-            )
-        )
+        const result = await runApproval(ctx, loginFlow(ctx.runtime, host))
+        return result.status === 'pending' ? { ...result, host } : finish(ctx, result.value)
     },
 
     human({ result, out }) {
         if (result.status === 'pending') {
-            out.line(
-                `Open this link to approve the login, and check that it shows the code ${out.style(escapeControls(result.code), 'bold')}:`
-            )
-            out.line(`  ${result.url}`)
-            out.line(`Then run ${out.style(result.next, 'bold')}.`)
+            printPending(out, result)
             return
         }
         out.line(`${out.style('Logged in', 'green', 'bold')} to ${result.host}, project ${result.projectId}.`)

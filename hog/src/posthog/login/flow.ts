@@ -1,20 +1,17 @@
+import { clearPending, type ApprovalFlow } from '@/core/approval'
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
-import { PersonalAPIKey, type AccessKey } from '@/posthog/access-key'
+import type { AccessKey } from '@/posthog/access-key'
 import { FileStore } from '@/posthog/credential-store/file'
 import { probeKeychain } from '@/posthog/credential-store/keychain'
 import { openStore } from '@/posthog/credential-store/open'
 import type { StoreChoice } from '@/posthog/credential-store/types'
-import { posthogFile } from '@/posthog/credentials'
-import { startDeviceLogin, waitForApproval, type PendingLogin } from '@/posthog/device-auth'
+import { pollDeviceLogin, startDeviceLogin, type Approval, type PendingLogin } from '@/posthog/device-auth'
 import { loginFor, readSettings } from '@/posthog/settings'
 
 import { writeLogin } from './stored'
 
-const PENDING_LOGIN_FILE = 'login-pending.json'
-
-// Reusing a code this close to expiry would hand the person a link that dies while they open it.
-const REUSE_MARGIN_MS = 60_000
+export const LOGIN_COMMAND = 'hog auth login'
 
 export interface LoggedIn {
     host: string
@@ -27,45 +24,21 @@ export interface LoggedIn {
     scopes: string[]
 }
 
-export async function readPendingLogin(runtime: Runtime): Promise<PendingLogin | undefined> {
-    try {
-        return JSON.parse(await runtime.readFile(posthogFile(runtime, PENDING_LOGIN_FILE))) as PendingLogin
-    } catch {
-        return undefined
+// An agent that retries `hog auth login` for the same host gets the same code back, so the link it
+// already shared keeps working. `host` is only needed to start a new login.
+export function loginFlow(runtime: Runtime, host?: string): ApprovalFlow<PendingLogin, Approval> {
+    return {
+        command: LOGIN_COMMAND,
+        noun: 'login',
+        start: () => {
+            if (host === undefined) {
+                throw new Error('A new login needs a host')
+            }
+            return startDeviceLogin(runtime, host)
+        },
+        reuse: (existing) => existing.host === host,
+        poll: (pending, timeoutMs) => pollDeviceLogin(runtime, pending, timeoutMs),
     }
-}
-
-export async function clearPendingLogin(runtime: Runtime): Promise<void> {
-    await runtime.removeFile(posthogFile(runtime, PENDING_LOGIN_FILE))
-}
-
-// Retrying agents get the same code back, so the link they already shared keeps working.
-export async function startLogin(runtime: Runtime, host: string): Promise<PendingLogin> {
-    const existing = await readPendingLogin(runtime)
-    const pending =
-        existing?.host === host && existing.expiresAt - runtime.now() > REUSE_MARGIN_MS
-            ? existing
-            : await startDeviceLogin(runtime, host)
-    await runtime.writePrivateFile(posthogFile(runtime, PENDING_LOGIN_FILE), JSON.stringify(pending))
-    return pending
-}
-
-// Waits for the person to approve, then saves the key. A login that can't succeed any more is
-// forgotten. One that lost contact with PostHog stays, so `hog auth login --wait` can resume it.
-export async function completeLogin(runtime: Runtime, pending: PendingLogin): Promise<LoggedIn> {
-    let approval
-    try {
-        approval = await waitForApproval(runtime, pending)
-    } catch (error) {
-        if (error instanceof HogError && error.code !== 'login_interrupted') {
-            await clearPendingLogin(runtime)
-        }
-        throw error
-    }
-    const { projectId, apiKey, scopes } = approval
-    const key = new PersonalAPIKey({ host: pending.host, projectId, apiKey, scopes })
-    const loggedIn = await saveLogin(runtime, key)
-    return { ...loggedIn, scopes: approval.scopes }
 }
 
 // Each login probes the keychain again, so a login at the desk moves credentials out of the file a
@@ -95,7 +68,7 @@ export async function saveLogin(runtime: Runtime, unverified: AccessKey): Promis
     if (loginFor(previous, host)?.store === 'file' && store.kind === 'keychain') {
         await new FileStore(runtime).remove(host)
     }
-    await clearPendingLogin(runtime)
+    await clearPending(runtime, LOGIN_COMMAND)
     return {
         host,
         projectId,
