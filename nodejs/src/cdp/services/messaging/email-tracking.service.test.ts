@@ -25,6 +25,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
+import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import {
     METRIC_NAME_TO_EVENT_NAME,
@@ -61,6 +62,7 @@ describe('EmailTrackingService', () => {
             functionId: 'fn-1',
             id: 'inv-1',
             teamId: 1,
+            state: {},
         } as any
 
         const extractTarget = (html: string): string => {
@@ -100,7 +102,7 @@ describe('EmailTrackingService', () => {
         // clicks we record ourselves, so a version missing here means those engagement metrics never
         // split by version however the send path is configured.
         it('carries the sending version into the pixel and redirect codes', () => {
-            const flowInvocation = { ...invocation, hogFlow: { id: 'flow-1', version: 7 } } as any
+            const flowInvocation = { ...invocation, state: { ...invocation.state, renderedWorkflowVersion: 7 } }
             const html = '<body><a href="https://example.com/">x</a></body>'
 
             const out = addTrackingToEmail(html, flowInvocation, signer)
@@ -461,15 +463,18 @@ describe('EmailTrackingService', () => {
             // The route enforces a real SNS signature; verifying it needs AWS's private key, so we
             // stub the check and let a posted SNS envelope flow through the real handler + service.
             let verifySignatureSpy: jest.SpyInstance
+            let captureEngagementSpy: jest.SpyInstance
 
             beforeEach(() => {
                 verifySignatureSpy = jest
                     .spyOn(SesWebhookHandler.prototype as any, 'verifySnsSignature')
                     .mockResolvedValue(true)
+                captureEngagementSpy = jest.spyOn(TeamWorkflowsConfigService.prototype, 'shouldCaptureEngagementEvents')
             })
 
             afterEach(() => {
                 verifySignatureSpy.mockRestore()
+                captureEngagementSpy.mockRestore()
             })
 
             const postBounce = async ({
@@ -478,6 +483,7 @@ describe('EmailTrackingService', () => {
                 workflowVersion,
                 transactionalMessageId,
                 headerCode,
+                distinctId,
             }: {
                 functionId: string
                 parentRunId?: string
@@ -485,6 +491,7 @@ describe('EmailTrackingService', () => {
                 // Sends the bounce as SES reports it for a transactional email with this message id.
                 transactionalMessageId?: string
                 headerCode?: string
+                distinctId?: string
             }): Promise<supertest.Response> => {
                 const trackingCode = signer.generate(
                     {
@@ -493,6 +500,7 @@ describe('EmailTrackingService', () => {
                         teamId: team.id,
                         parentRunId,
                         workflowVersion,
+                        distinctId,
                     },
                     false,
                     workflowVersion !== undefined
@@ -747,6 +755,32 @@ describe('EmailTrackingService', () => {
                     )
                 }
             )
+
+            it('captures the bounce event with the send it came from', async () => {
+                captureEngagementSpy.mockResolvedValue(true)
+                const hogFlow = await insertHogFlow(hub.postgres, {
+                    ...new FixtureHogFlowBuilder().withTeamId(team.id).build(),
+                    version: 5,
+                })
+
+                const res = await postBounce({ functionId: hogFlow.id, workflowVersion: 2, distinctId: 'user-1' })
+                expect(res.status).toBe(200)
+
+                await waitForExpect(() => {
+                    const captured = mockInternalFetch.mock.calls.map(([, options]) => parseJSON(options.body))
+                    expect(captured).toHaveLength(1)
+                    expect(captured[0]).toMatchObject({
+                        event: '$workflows_email_bounced',
+                        distinct_id: 'user-1',
+                        properties: {
+                            $workflow_id: hogFlow.id,
+                            $workflow_invocation_id: invocationId,
+                            $workflow_version: 2,
+                            $email_message_id: 'ses-message-id',
+                        },
+                    })
+                })
+            })
 
             it('keys the log entry under parentRunId for batch-triggered runs', async () => {
                 const hogFlow = await insertHogFlow(

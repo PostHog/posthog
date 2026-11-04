@@ -433,6 +433,7 @@ export type CyclotronJobInvocationHogFunctionContext = {
     actionStepCount?: number
     customerTaskIdempotencyVersion?: 1
     send?: AcceptedSend
+    renderedWorkflowVersion?: number
 }
 
 export type WorkflowStepResumeStatus = 'completed' | 'failed' | 'cancelled'
