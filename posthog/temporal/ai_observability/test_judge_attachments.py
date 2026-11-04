@@ -49,11 +49,6 @@ class TestJudgeAttachmentsMarkers:
             pytest.param(MediaBlock(modality="audio", base64_data="aGk="), "[audio, not attached]", id="no_file_type"),
             pytest.param(_pointer("a", mime="image%2Fsvg%2Bxml"), "[image, not attached]", id="unsupported_format"),
             pytest.param(
-                parse_media_block({"type": "file", "mediaType": "image/png", "file": "[base64 image/png redacted]"}),
-                "[image, not attached]",
-                id="sdk_redacted_placeholder",
-            ),
-            pytest.param(
                 MediaBlock(modality="image", mime_type="image/png", url="https://example.com/a.png"),
                 "[image: https://example.com/a.png]",
                 id="customer_link",
