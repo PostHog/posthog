@@ -23,6 +23,12 @@ const reportOnly = process.argv.includes('--report-only')
 const assertReportIndex = process.argv.indexOf('--assert-report')
 const failForbiddenHits = process.argv.includes('--fail-forbidden-hits')
 
+// The rich text stack loads with the first text tile, comment or editor, through
+// lib/components/RichContentEditor/LazyRichContent. A hit means a static import of an editor module.
+const RICH_TEXT_STACK = ['node_modules/@tiptap/', 'node_modules/prosemirror-', 'node_modules/marked/']
+// The emoji picker loads with the editor that opens it.
+const EMOJI_PICKER = 'node_modules/frimousse/'
+
 // The eager graph is everything a root actually SHIPS on the critical path — the bytes a
 // browser downloads and parses before that surface is interactive. It is measured from the
 // esbuild OUTPUT chunks: the root's entry chunk plus every chunk reachable through static
@@ -37,6 +43,17 @@ const failForbiddenHits = process.argv.includes('--fail-forbidden-hits')
 // Budgets are eager output bytes (shipped JS + the stable build's CSS for the root, minified).
 // Ratchet policy: when a bundle-splitting win lands, lower the budget to lock it in;
 // raise a budget only as a conscious, reviewed decision in the PR that needs it.
+// A test library: its expectLogic and jest matchers ship with any import. Use objectsEqual from
+// lib/utils/objects and delay from lib/utils/async instead. No app module imports it, so the guard is
+// a tripwire, and the verify prefix checks the kea package layout that it relies on.
+const KEA_TEST_UTILS = { pattern: 'node_modules/kea-test-utils/', verifyPrefix: 'node_modules/kea/' }
+// The published @posthog/quill dist inlines a second copy of quill-primitives. The app resolves the
+// umbrella to its re-export source (root tsconfig paths), so a hit means that mapping stopped applying.
+const QUILL_UMBRELLA_DIST = {
+    pattern: 'packages/quill/packages/quill/dist/',
+    verifyPrefix: 'packages/quill/packages/primitives/dist/',
+}
+
 const ROOTS = [
     {
         root: ENTRY,
@@ -97,21 +114,18 @@ const ROOTS = [
             'src/lib/logic/billing/billingLogic.tsx',
             // Product setup statuses need a logged-in team, so AuthenticatedShell mounts the preload.
             'src/lib/components/ProductEmptyState/productSetupPreloadLogic.ts',
-            // See the authenticated shell's note: a test library never ships on a boot path.
-            'node_modules/kea-test-utils/',
+            KEA_TEST_UTILS,
         ],
     },
     {
         root: AUTHENTICATED_SHELL,
         label: 'authenticated shell (every logged-in page)',
-        // 2026-10-30: 6.75 MiB eager output, stable CSS included. ~0.3% headroom.
-        budgetBytes: 7_100_000,
+        // 2026-11-02: 4.00 MiB eager output, stable CSS included. ~0.3% headroom.
+        budgetBytes: 4_203_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'products/product_analytics/frontend/insights/activityDescriptions',
-            // A test library. Its expectLogic and jest matchers ship with any import, so use
-            // objectsEqual from lib/utils/objects and delay from lib/utils/async instead.
-            'node_modules/kea-test-utils/',
+            KEA_TEST_UTILS,
             // Widget previews render product UI (recordings player, error tracking list, logs) and
             // are only needed by the add-widget modal; the recordings player logic pulls in rrweb.
             {
@@ -119,6 +133,16 @@ const ROOTS = [
                 verifyPrefix: 'products/dashboards/frontend/widgets/',
             },
             'src/scenes/session-recordings/player/sessionRecordingPlayerLogic.ts',
+            // The replay submenu of the project tree pulls in the playlist and saved filter logics.
+            'src/layout/panel-layout/ProjectTree/menus/SessionReplayMenuItems.tsx',
+            // A hit means a module on the shell path imports taxonomy/registerCoreFilterDefinitions.
+            'src/taxonomy/core-filter-definitions-by-group.json',
+            // The project notice logic pulls in dompurify and the sample data logic.
+            'src/layout/navigation/projectNoticeLogic.tsx',
+            // Only impersonating staff see this notice, and it pulls in react-draggable.
+            'src/layout/navigation/ImpersonationNotice/ImpersonationNotice.tsx',
+            // The cohort saved toast pulls in the workflows audience code and generated API clients.
+            'src/scenes/cohorts/cohortSavedToast.ts',
             // The wizard run card opens this drawer on click, and the drawer pulls in quill primitives.
             'products/wizard/frontend/runs/WizardRunDetailsDrawer.tsx',
             // The Today layout renders only behind the today-rail-nav flag, and it pulls in quill primitives.
@@ -128,9 +152,29 @@ const ROOTS = [
             'src/layout/today/TodayTopBar.tsx',
             // The rail's pane actions pull in the new-analytics menu and the canvas block library.
             'src/layout/today/todayRailItems.tsx',
+            // The export nudge loads the subscriptions code after the shell. It pulls in the subscriptions logic.
+            'products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeLogic.ts',
+            // The pay gate loads the payment logic on click. It pulls in the billing product logic.
+            'src/scenes/billing/paymentEntryLogic.ts',
+            // The support tab icon loads after the shell renders. Its ticket logic pulls in zod.
+            'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic.ts',
+            'node_modules/zod/',
+            // The login scene's logics. Shell code reads the login redirect from lib/utils/loginRedirect.
+            'src/scenes/authentication/auth/loginLogic.ts',
+            'src/scenes/authentication/shared/passkeyLogic.ts',
+            // The surveys scene constants hold the question type tables. lib/api reads its page size from lib/constants.
+            'src/scenes/surveys/constants.tsx',
             // The rich text editor stack is for the scenes that edit text. Rendered markdown needs none of it.
             'node_modules/@tiptap/',
             'node_modules/prosemirror-',
+            // The RE2 regex engine checks regex filters before a query runs, and the shell runs no queries.
+            // A hit means a module on the shell path imports lib/utils/regexp or re2js again.
+            'node_modules/re2js/',
+            // react-markdown and its remark plugins load on first render. Shell code uses LazyLemonMarkdown.
+            'node_modules/react-markdown/',
+            // The command palette loads on its first open, and its flagged search pulls in quill.
+            'src/lib/components/Command/Command.tsx',
+            'packages/quill/packages/',
             // The zod-en-locale-only plugin in common/esbuilder/utils.mjs keeps every locale except
             // `en` out of the build. A hit on another locale means zod moved its locales barrel and
             // the plugin no longer matches it.
@@ -154,17 +198,28 @@ const ROOTS = [
     {
         root: 'src/scenes/dashboard/Dashboard.tsx',
         label: 'dashboard scene',
-        // 2026-10-11: 9.33 MiB (3529 files), stable CSS included. ~10% headroom.
-        budgetBytes: 10_500_000,
+        // 2026-11-02: 9.49 MiB (3729 files), stable CSS included. ~3.6% headroom.
+        budgetBytes: 10_314_000,
         forbidden: [
+            QUILL_UMBRELLA_DIST,
+            ...RICH_TEXT_STACK,
+            EMOJI_PICKER,
             // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
             'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
             // Only web analytics insights render this tile. A hit means a static import put the web
             // analytics stack on every page that shows an insight.
             'src/scenes/web-analytics/tiles/WebAnalyticsTile.tsx',
-            // The generated schema validators serve web analytics URL filters. A hit means the web
-            // analytics editor filters became a static import of the insight editor.
+            // The generated schema validators parse the URL filters of other scenes. A hit means a module
+            // on this path imports queries/schema-guards or queries/web-analytics-schema-guards.
             'src/queries/validators.js',
+            'src/queries/web-analytics-validators.js',
+            // The RE2 engine checks regex filters, and lib/utils/regexp loads it on first use.
+            // A hit means a module imports re2js directly again.
+            'node_modules/re2js/',
+            KEA_TEST_UTILS,
+            // Query loads each node renderer in its own chunk. The debug renderers draw only on the debug scene.
+            'src/scenes/debug/HogDebug.tsx',
+            'src/queries/QueryEditor/QueryEditor.tsx',
         ],
     },
     {
@@ -174,9 +229,10 @@ const ROOTS = [
             'src/scenes/project-homepage/today/TodayHome.tsx',
         ],
         label: 'today home path',
-        // 2026-10-30: 6.94 MiB, stable CSS included. ~0.3% headroom.
-        budgetBytes: 7_300_000,
+        // 2026-11-02: 4.92 MiB, stable CSS included. ~0.3% headroom.
+        budgetBytes: 5_170_000,
         forbidden: [
+            QUILL_UMBRELLA_DIST,
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
             'src/scenes/project-homepage/today/TodayReportPage.tsx',
             'src/queries/Query/Query.tsx',
@@ -192,9 +248,10 @@ const ROOTS = [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
         ],
         label: 'AI-first home path',
-        // 2026-10-30: 7.46 MiB, stable CSS included. ~1% headroom.
-        budgetBytes: 7_900_000,
+        // 2026-11-02: 6.22 MiB, stable CSS included. ~1% headroom.
+        budgetBytes: 6_576_000,
         forbidden: [
+            QUILL_UMBRELLA_DIST,
             'products/posthog_ai/frontend/components/tool/widgets/VisualizationWidget.tsx',
             'products/posthog_ai/frontend/components/tool/widgets/RecordingsWidget.tsx',
             'src/queries/Query/Query.tsx',
@@ -207,36 +264,65 @@ const ROOTS = [
     {
         root: 'src/scenes/activity/explore/EventsScene.tsx',
         label: 'events scene',
-        // 2026-10-11: 8.92 MiB (3373 files), stable CSS included. ~10% headroom.
-        budgetBytes: 10_055_000,
+        // 2026-11-02: 8.92 MiB (3499 files), stable CSS included. ~5.5% headroom.
+        budgetBytes: 9_869_000,
         forbidden: [
+            QUILL_UMBRELLA_DIST,
+            ...RICH_TEXT_STACK,
+            EMOJI_PICKER,
             // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
             'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
             // Only web analytics insights render this tile. A hit means a static import put the web
             // analytics stack on every page that shows an insight.
             'src/scenes/web-analytics/tiles/WebAnalyticsTile.tsx',
-            // The generated schema validators serve web analytics URL filters. A hit means the web
-            // analytics editor filters became a static import of the insight editor.
+            // The generated schema validators parse the URL filters of other scenes. A hit means a module
+            // on this path imports queries/schema-guards or queries/web-analytics-schema-guards.
             'src/queries/validators.js',
+            'src/queries/web-analytics-validators.js',
+            // The RE2 engine checks regex filters, and lib/utils/regexp loads it on first use.
+            // A hit means a module imports re2js directly again.
+            'node_modules/re2js/',
+            KEA_TEST_UTILS,
+            // The scene draws only a data table. Query loads every other node renderer in its own chunk.
+            'src/queries/nodes/InsightViz/InsightViz.tsx',
+            'src/queries/nodes/DataVisualization/DataVisualization.tsx',
+            'src/queries/nodes/WebOverview/WebOverview.tsx',
+            'src/scenes/debug/HogDebug.tsx',
+            'src/queries/QueryEditor/QueryEditor.tsx',
         ],
     },
     {
         root: 'src/scenes/web-analytics/WebAnalyticsScene.tsx',
         label: 'web analytics scene',
-        // 2026-10-17: 9.85 MiB (3651 files), stable CSS included. ~10% headroom.
-        budgetBytes: 11_360_000,
+        // 2026-11-02: 9.72 MiB (3766 files), stable CSS included. ~7.9% headroom.
+        budgetBytes: 10_999_000,
         forbidden: [
+            QUILL_UMBRELLA_DIST,
+            ...RICH_TEXT_STACK,
+            EMOJI_PICKER,
             // Only the live tab renders this dashboard. Its world map holds about 1 MiB of country shapes.
             'src/scenes/web-analytics/LiveMetricsDashboard/LiveWebAnalyticsMetrics.tsx',
             'products/product_analytics/frontend/insights/trends/WorldMap/countryVectors.tsx',
+            // URL filters use the small validators in web-analytics-validators.js. The large module holds
+            // the validators of other scenes.
+            'src/queries/validators.js',
+            // The RE2 engine checks regex filters, and lib/utils/regexp loads it on first use.
+            // A hit means a module imports re2js directly again.
+            'node_modules/re2js/',
+            KEA_TEST_UTILS,
+            // Query loads each node renderer in its own chunk. The debug renderers draw only on the debug scene.
+            'src/scenes/debug/HogDebug.tsx',
+            'src/queries/QueryEditor/QueryEditor.tsx',
         ],
     },
     {
         root: 'src/scenes/session-recordings/detail/SessionRecordingDetail.tsx',
         label: 'replay detail scene',
-        // 2026-10-17: 8.61 MiB (3264 files), stable CSS included. ~10% headroom.
-        budgetBytes: 9_930_000,
+        // 2026-11-02: 7.39 MiB (2690 files), stable CSS included. ~10% headroom.
+        budgetBytes: 8_520_000,
         forbidden: [
+            QUILL_UMBRELLA_DIST,
+            ...RICH_TEXT_STACK,
             // The player shows a snapshot of a few settings. A hit means it imports settingsLogic again,
             // which holds every settings page.
             'src/scenes/settings/SettingsMap.tsx',
@@ -246,6 +332,13 @@ const ROOTS = [
                 pattern: '@jspm/core/nodelibs/browser/fs',
                 verifyPrefix: '@jspm/core/nodelibs/browser/',
             },
+            // The RE2 engine checks regex filters, and lib/utils/regexp loads it on first use.
+            // A hit means a module imports re2js directly again.
+            'node_modules/re2js/',
+            KEA_TEST_UTILS,
+            // The d3 barrel pulls in d3-selection and d3-transition for their side effects. Import array
+            // helpers such as range from d3-array.
+            'node_modules/d3/src/',
         ],
     },
 ]

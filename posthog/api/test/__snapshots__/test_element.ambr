@@ -569,6 +569,7 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."api_version",
          "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."credentials_integration_id",
          "posthog_externaldatasource"."connection_metadata",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",

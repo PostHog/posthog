@@ -1846,13 +1846,13 @@ export const HogFlowsActionsEmailPartialUpdateBody = /* @__PURE__ */ zod.object(
 
 export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
     status: zod
-        .enum(['waiting', 'queued', 'active', 'completed', 'cancelled', 'failed'])
+        .enum(['waiting', 'queued', 'active', 'completed', 'partially_failed', 'cancelled', 'failed'])
         .describe(
-            '\* `waiting` - Waiting\n\* `queued` - Queued\n\* `active` - Active\n\* `completed` - Completed\n\* `cancelled` - Cancelled\n\* `failed` - Failed'
+            '\* `waiting` - Waiting\n\* `queued` - Queued\n\* `active` - Active\n\* `completed` - Completed\n\* `partially_failed` - Partially failed\n\* `cancelled` - Cancelled\n\* `failed` - Failed'
         )
         .optional()
         .describe(
-            'Not currently tracked — stays at its initial value. Use the workflow logs\/metrics endpoints for run outcome.\n\n\* `waiting` - Waiting\n\* `queued` - Queued\n\* `active` - Active\n\* `completed` - Completed\n\* `cancelled` - Cancelled\n\* `failed` - Failed'
+            "Status of the batch run. waiting: the audience's cohort is still calculating. queued and active: the run is enrolling its audience. completed: the whole audience was enrolled. When every enrolled person's run has ended, or a day after the run completed, PostHog checks for errored sends. A completed run stays completed when no send errored, becomes partially_failed when some sends errored, and becomes failed when every send errored. failed also means the run could not enroll its audience. cancelled: someone stopped the run. A send errors when its step throws, for example on a template that does not render. Provider failures such as bounces are not errored sends; read them from the run's metrics.\n\n\* `waiting` - Waiting\n\* `queued` - Queued\n\* `active` - Active\n\* `completed` - Completed\n\* `partially_failed` - Partially failed\n\* `cancelled` - Cancelled\n\* `failed` - Failed"
         ),
     hog_flow: zod.uuid().describe('ID of the workflow this batch run belongs to.'),
     variables: zod.unknown().optional().describe('Variable value overrides applied to this run.'),
@@ -3589,6 +3589,8 @@ export const workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapMaxMessag
 
 export const workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapWindowDaysMax = 30
 
+export const workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapHoldHoursMax = 168
+
 export const WorkflowSendingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
     expected_project_id: zod
         .number()
@@ -3611,6 +3613,14 @@ export const WorkflowSendingRulesPartialUpdateBody = /* @__PURE__ */ zod.object(
         .nullish()
         .describe(
             'The length of the rolling frequency cap window, in days. Set it together with marketing_frequency_cap_max_messages, or set both to null to turn the cap off.'
+        ),
+    marketing_frequency_cap_hold_hours: zod
+        .number()
+        .min(1)
+        .max(workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapHoldHoursMax)
+        .nullish()
+        .describe(
+            "How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away. A held message sends as soon as one of the person's earlier messages leaves the window."
         ),
     email_tracking_consent_mode: zod
         .enum(['off', 'opt_out', 'opt_in'])

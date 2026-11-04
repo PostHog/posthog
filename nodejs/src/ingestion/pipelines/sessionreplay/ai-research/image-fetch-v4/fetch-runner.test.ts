@@ -110,7 +110,7 @@ function build(
         { createPass } as unknown as ConfigurationPolicyService,
         options,
         { createRepublishBatch } as unknown as FrontierPublisher,
-        { refreshIntervalMs: 7 * 24 * 60 * 60 * 1000, publishImage, refreshImage: () => Promise.resolve(true) },
+        { publishImage, refreshImage: () => Promise.resolve(true) },
         { bindingFor: () => Promise.resolve(bind) },
         new ImageFetchTopHogMetrics(recordingTopHog.registry)
     )

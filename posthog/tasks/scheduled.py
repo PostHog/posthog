@@ -119,7 +119,7 @@ from products.mcp_registry.backend.facade.tasks import MCP_REGISTRY_SYNC_CRONTAB
 from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
-from products.signals.backend.tasks import (
+from products.signals.backend.facade.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
@@ -127,6 +127,7 @@ from products.signals.backend.tasks import (
     refresh_signal_scout_background_bands,
     sweep_first_report_notifications,
     sweep_implementation_dispatches,
+    sweep_monitoring_research_requests,
     sweep_monitoring_tracker_issues,
     sync_pending_signals_refund_credits,
 )
@@ -144,6 +145,7 @@ from products.tasks.backend.facade.tasks import (
     bake_dev_stack_image_task,
     refresh_dev_stack_image_task,
     refresh_stale_sandbox_custom_images_task,
+    settle_overdue_sandbox_compute_task,
     sweep_inactive_tasks_task,
 )
 from products.visual_review.backend.facade.tasks import (
@@ -466,6 +468,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=60,
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        sweep_monitoring_research_requests.s(),
+        name="emit signals monitoring research requests",
+        expires_seconds=60,
+    )
+
     # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25
     sender.add_periodic_task(
         crontab(hour="*", minute="25"),
@@ -516,6 +526,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="15"),
         sweep_inactive_tasks_task.s(),
         name="archive inactive tasks",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="47"),
+        settle_overdue_sandbox_compute_task.s(),
+        name="settle overdue sandbox compute",
     )
 
     # AWS SES account reputation → gauges for team-facing alerting (charts alerts/specs/ses.yaml)

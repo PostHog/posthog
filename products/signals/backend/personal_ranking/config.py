@@ -2,13 +2,20 @@
 
 A missing or unreadable payload gives the code defaults. An invalid field falls back to its default,
 a large one to its maximum, so no value is unbounded. `"enabled": false` in the payload is the kill
-switch: it stops every build.
+switch: it stops every build. `max_builds_per_day` limits the builds that call the model across every
+person in one region.
 
 The optional `pools` list replaces the default candidate pools, in order. An invalid entry is dropped
 and logged. When no entry is valid, the build uses the default pools.
+
+The optional `tick` object holds the levers of the scheduled tick (`tick.py`). Its parse fails closed:
+a missing or malformed object, or one without `"enabled": true`, turns the tick off. An enabled tick raises
+`freshness_minutes` to its `target_interval_minutes`, and limits `max_tick_builds_per_day` to a share of
+`max_builds_per_day`.
 """
 
 import re
+from dataclasses import replace
 from typing import Any, Literal, cast, get_args
 
 import structlog
@@ -80,6 +87,44 @@ class CandidatePool:
 
 
 @frozen
+class PersonalRankingTickConfig:
+    enabled: bool = False
+    # Builds for every project of these organizations.
+    organization_ids: tuple[str, ...] = ()
+    # Builds for this percentage of the organizations with a project that has an enabled signal source.
+    # Only those projects get builds. A higher percentage keeps the organizations of a lower one.
+    self_driving_organization_percentage: float = 0.0
+    # The tick never builds for these organizations, even when another field enrolls them.
+    deny_organization_ids: tuple[str, ...] = ()
+    skip_team_ids: tuple[int, ...] = ()
+    # A pair is due when its latest list was built or checked longer ago than this.
+    target_interval_minutes: int = 60
+    # Only pairs with activity in this many days are due.
+    active_days: int = 7
+    max_pairs_per_tick: int = 20
+    max_concurrency: int = 4
+    # Tick builds that call the model, in one Redis token bucket per region. They also spend `max_builds_per_day`.
+    max_tick_builds_per_day: int = 100
+    # The largest share of one tick that the pairs of one organization can take.
+    max_org_share: float = 0.25
+    # The tick stops when this share of its model calls failed or raised.
+    max_error_rate: float = 0.5
+
+
+TICK_DISABLED = PersonalRankingTickConfig()
+# The rest of the shared limit stays free for `refresh` and `focus` requests, which a person is waiting on.
+TICK_SHARE_OF_SHARED_BUILDS = 0.8
+
+_TICK_MAXIMUMS: dict[str, int] = {
+    "target_interval_minutes": 1440,
+    "active_days": 90,
+    "max_pairs_per_tick": 500,
+    "max_concurrency": 20,
+    "max_tick_builds_per_day": 10000,
+}
+
+
+@frozen
 class PersonalRankingConfig:
     enabled: bool = True
     model: str = DEFAULT_MODEL
@@ -98,6 +143,9 @@ class PersonalRankingConfig:
     max_candidates: int = 30
     # The model ranks only this many candidates. The others follow in model order. At most `max_limit`.
     rank_top: int = 10
+    # The most entries in each tier. The validator moves an entry past a cap down one tier and keeps its rank.
+    top_max: int = 5
+    worth_a_look_max: int = 10
     # The entries that get a `next_step`, and the most a caller can ask for.
     default_limit: int = 25
     max_limit: int = 50
@@ -115,6 +163,11 @@ class PersonalRankingConfig:
     build_burst: int = 2
     builds_per_hour: int = 12
     builds_per_day: int = 40
+    # Builds that call the model, across every person in one region. Each region has its own Redis, so each counts on its own.
+    max_builds_per_day: int = 500
+    # Each build keeps this many of the person's newest rows and deletes the older ones.
+    max_rows_per_person: int = 5
+    tick: PersonalRankingTickConfig = TICK_DISABLED
 
 
 DEFAULTS = PersonalRankingConfig()
@@ -130,6 +183,8 @@ _MAXIMUMS: dict[str, int] = {
     "max_candidates": 100,
     "pool_size": 100,
     "rank_top": 100,
+    "top_max": 50,
+    "worth_a_look_max": 100,
     "default_limit": 100,
     "max_limit": 100,
     "next_step_max_chars": 400,
@@ -142,6 +197,8 @@ _MAXIMUMS: dict[str, int] = {
     "build_burst": 20,
     "builds_per_hour": 120,
     "builds_per_day": 500,
+    "max_builds_per_day": 10000,
+    "max_rows_per_person": 100,
     "reason_max_chars": 500,
 }
 
@@ -177,6 +234,51 @@ def _reason_limits(value: Any) -> ReasonLimits:
         worth_a_look=_bounded_int(value.get("worth_a_look"), defaults.worth_a_look, maximum),
         later=_bounded_int(value.get("later"), defaults.later, maximum),
     )
+
+
+def _fraction(value: Any, default: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 < value <= 1:
+        return default
+    return float(value)
+
+
+def _percentage(value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 100:
+        return TICK_DISABLED.self_driving_organization_percentage
+    return float(value)
+
+
+def _organization_ids(value: Any) -> tuple[str, ...]:
+    return tuple(item for item in value if isinstance(item, str) and item) if isinstance(value, list) else ()
+
+
+def _team_ids(value: Any) -> tuple[int, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(item for item in value if isinstance(item, int) and not isinstance(item, bool))
+
+
+def parse_tick_config(payload: Any) -> PersonalRankingTickConfig:
+    if not isinstance(payload, dict) or payload.get("enabled") is not True:
+        return TICK_DISABLED
+    return PersonalRankingTickConfig(
+        enabled=True,
+        organization_ids=_organization_ids(payload.get("organization_ids")),
+        self_driving_organization_percentage=_percentage(payload.get("self_driving_organization_percentage")),
+        deny_organization_ids=_organization_ids(payload.get("deny_organization_ids")),
+        skip_team_ids=_team_ids(payload.get("skip_team_ids")),
+        max_org_share=_fraction(payload.get("max_org_share"), TICK_DISABLED.max_org_share),
+        max_error_rate=_fraction(payload.get("max_error_rate"), TICK_DISABLED.max_error_rate),
+        **{
+            name: _bounded_int(payload.get(name), getattr(TICK_DISABLED, name), maximum)
+            for name, maximum in _TICK_MAXIMUMS.items()
+        },
+    )
+
+
+def _fit_tick_to_shared_limit(tick: PersonalRankingTickConfig, max_builds_per_day: int) -> PersonalRankingTickConfig:
+    largest = max(int(max_builds_per_day * TICK_SHARE_OF_SHARED_BUILDS), 1)
+    return replace(tick, max_tick_builds_per_day=min(tick.max_tick_builds_per_day, largest))
 
 
 def default_pools(config: PersonalRankingConfig) -> tuple[CandidatePool, ...]:
@@ -285,12 +387,18 @@ def parse_config(payload: Any) -> PersonalRankingConfig:
         if name not in {"timeout_seconds", "reason_max_chars", "pool_size"}
     }
     max_limit = ints.pop("max_limit")
+    tick = parse_tick_config(payload.get("tick"))
+    if tick.enabled:
+        tick = _fit_tick_to_shared_limit(tick, ints["max_builds_per_day"])
+        # A shorter freshness makes a plain read rebuild a list that the tick checked inside its interval.
+        ints["freshness_minutes"] = max(ints["freshness_minutes"], tick.target_interval_minutes)
     return PersonalRankingConfig(
         enabled=payload.get("enabled") is not False,
         model=_model(payload.get("model")),
         reasoning_effort=_reasoning_effort(payload.get("reasoning_effort")),
         reason_limits=_reason_limits(payload.get("reason_max_chars")),
         pools=_pools(payload.get("pools")),
+        tick=tick,
         timeout_seconds=_bounded_number(
             payload.get("timeout_seconds"), DEFAULTS.timeout_seconds, _MAXIMUMS["timeout_seconds"]
         ),

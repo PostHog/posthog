@@ -484,7 +484,20 @@ export interface OfflineExperimentReadApi {
     prompt_version: string | null
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface OfflineExperimentPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Total authorized rows matching the filters, independent of this page. */
     count: number
     /**
@@ -947,7 +960,20 @@ export interface OfflineScorerVersionReadApi {
     config: ScoreDefinitionConfigApi
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface OfflineItemPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Total authorized rows matching the filters, independent of this page. */
     count: number
     /**
@@ -1064,7 +1090,20 @@ export interface OfflineResultReadApi {
     scorer: OfflineScorerVersionReadApi
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface OfflineResultPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Total authorized rows matching the filters, independent of this page. */
     count: number
     /**
@@ -1202,7 +1241,20 @@ export interface OfflineScorerSummaryApi {
     categories: OfflineCategorySummaryApi[]
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface OfflineSummaryPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Total authorized rows matching the filters, independent of this page. */
     count: number
     /**
@@ -1352,7 +1404,20 @@ export interface OfflineHistoryPointApi {
     summary: OfflineScorerSummaryApi
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface OfflineHistoryPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Total authorized rows matching the filters, independent of this page. */
     count: number
     /**
@@ -1722,6 +1787,42 @@ export interface TracePullRequestApi {
 export interface TracePullRequestLookupApi {
     /** The pull request the trace's git branch belongs to, ranked by engineering analytics, or null when the trace has no branch, the project has no GitHub source, or no pull request matches. */
     pullRequest: TracePullRequestApi | null
+}
+
+export interface TraceHumanReviewScoreApi {
+    /** The scorer's name. */
+    name: string
+    /** The saved score as a reviewer reads it: option labels joined by commas, a number, or the scorer's yes or no label. */
+    value: string
+    /** The scorer's name and the score together, such as `Tone: 4.5`. */
+    label: string
+}
+
+export interface TraceHumanReviewApi {
+    /** The display name of whoever last saved the review, or null when that user was removed. */
+    reviewedBy: string | null
+    /** When the review was last saved. */
+    reviewedAt: string
+    /** The reviewer's reasoning, if any. */
+    comment: string | null
+    /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
+    scores: TraceHumanReviewScoreApi[]
+}
+
+export interface TraceReviewQueueAssignmentApi {
+    /** The review queue's id. */
+    id: string
+    /** The review queue's name. */
+    name: string
+    /** The queue item that holds the trace, for moving or removing it. */
+    itemId: string
+}
+
+export interface TraceReviewStatusApi {
+    /** The trace's human review, or null when it has none or the user may not see it. */
+    review: TraceHumanReviewApi | null
+    /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
+    queue: TraceReviewQueueAssignmentApi | null
 }
 
 export interface TraceSearchMatchApi {
@@ -4496,7 +4597,20 @@ export interface ScoreDefinitionVersionApi {
     readonly created_by: UserBasicApi | null
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface ScoreDefinitionVersionPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Total immutable versions for this scorer. */
     count: number
     /**
@@ -5793,6 +5907,25 @@ export type AiObservabilityTracesClustersRetrieveParams = {
      */
     created_at: string
 }
+
+export type AiObservabilityTracesExportsContentRetrieveParams = {
+    /**
+     * What the file is read for. Only a download is recorded as one.
+     *
+     * * `download` - Download
+     * * `copy` - Copy
+     * @minLength 1
+     */
+    purpose?: AiObservabilityTracesExportsContentRetrievePurpose
+}
+
+export type AiObservabilityTracesExportsContentRetrievePurpose =
+    (typeof AiObservabilityTracesExportsContentRetrievePurpose)[keyof typeof AiObservabilityTracesExportsContentRetrievePurpose]
+
+export const AiObservabilityTracesExportsContentRetrievePurpose = {
+    Download: 'download',
+    Copy: 'copy',
+} as const
 
 export type AiObservabilityTracesFeedbackRetrieveParams = {
     /**

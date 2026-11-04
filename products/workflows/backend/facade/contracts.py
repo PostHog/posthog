@@ -745,14 +745,6 @@ class WorkflowListQuery:
 
 
 @frozen
-class WorkflowPage:
-    """One limit/offset page of a workflow list, and how many workflows the whole list holds."""
-
-    count: int
-    results: list[Workflow]
-
-
-@frozen
 class WorkflowListFilterError:
     message: str
     code: str | None
@@ -993,8 +985,8 @@ class AudienceSuggestion:
     window_days: int
     # How many times the event must happen in the window. Set only for regulars.
     min_count: int | None
-    # People in the audience with an email address, counted when the suggestion was made.
-    reachable_count: int
+    # Roughly how many people in the audience have an email address. None until counted, or when the count failed.
+    reachable_count: int | None
     cohort_filters: dict[str, Any]
 
 
@@ -1119,9 +1111,10 @@ class ImportContent:
 
 @dataclass(frozen=False)
 class SnippetRoom:
-    """How many more bytes of snippet content one import request may inline, shared by every automation in it.
+    """How many more bytes of snippet and subject content one import request may inline, shared by every automation.
 
-    Snippets are inlined by copy, so a short template that repeats a large one could grow without bound.
+    Snippets and `{{ message.subject }}` are inlined by copy, so a short template that repeats a large one could grow
+    without bound.
     """
 
     remaining: int = 5_000_000

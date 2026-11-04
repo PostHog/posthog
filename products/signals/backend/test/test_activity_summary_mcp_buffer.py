@@ -22,11 +22,16 @@ from products.signals.backend.activity_summary.inputs import McpRead, user_mcp_r
 from products.signals.backend.activity_summary.mcp_buffer import (
     CIRCUIT_OPEN_SECONDS,
     DIRTY_KEY,
+    INTENT_MAX_CHARS,
+    TEAMS_KEY,
     BufferSettings,
     McpIntentBuffer,
+    build_record,
     count_key,
+    load_settings,
     records_key,
 )
+from products.signals.backend.activity_summary.render import clean_text
 
 NOW = datetime.datetime(2026, 10, 20, 12, tzinfo=datetime.UTC)
 DAY = "20261020"
@@ -102,6 +107,72 @@ class TestMcpIntentBuffer(SimpleTestCase):
         assert [record.split("|")[3] for record in self.redis.lrange(records_key(TEAM_ID, USER_ID, DAY), 0, -1)] == [
             "written"
         ]
+
+    def test_a_record_holds_the_masked_intent(self) -> None:
+        intent = (
+            "Debug login for jane.doe@example.com with key phx_a1b2c3d4e5f6g7h8i9j0k1l2 | at https://example.com/x?y=1"
+        )
+
+        value = build_record(
+            team_id=TEAM_ID, user_id=USER_ID, session_id="s1", route_name="insight-list", intent=intent, at=NOW
+        ).value
+
+        stored = value.split("|", 3)[3]
+        assert "jane.doe" not in value
+        assert "a1b2c3d4" not in value
+        assert "y=1" not in value
+        assert value.count("|") == 3
+        assert clean_text(stored, INTENT_MAX_CHARS) == stored
+
+
+class TestLoadSettings(SimpleTestCase):
+    def setUp(self) -> None:
+        self.redis = fakeredis.FakeRedis()
+
+    def _load(self, payload: dict, redis_client: MagicMock) -> BufferSettings:
+        with patch(
+            "products.signals.backend.scout_harness.team_limits.read_flag_payload",
+            return_value={"enabled": True, "mcp_calls_per_day": 20, **payload},
+        ):
+            return load_settings(redis_client)
+
+    @parameterized.expand(
+        [
+            ("the published teams", b"3,1,not-a-team", frozenset({1, 3})),
+            ("no teams when the key is missing", None, frozenset()),
+        ]
+    )
+    def test_reads_the_teams_that_the_tick_published(
+        self, _name: str, stored: bytes | None, expected: frozenset[int]
+    ) -> None:
+        if stored is not None:
+            self.redis.set(TEAMS_KEY, stored)
+
+        settings = self._load({"mcp_buffer_enabled": True}, MagicMock(return_value=self.redis))
+
+        assert settings == BufferSettings(team_ids=expected, calls_per_day=20, buffer_days=10)
+
+    def test_a_disabled_buffer_has_no_teams_without_a_redis_read(self) -> None:
+        client = MagicMock(return_value=self.redis)
+        self.redis.set(TEAMS_KEY, b"1")
+
+        assert self._load({"mcp_buffer_enabled": False}, client).team_ids == frozenset()
+        client.assert_not_called()
+
+    def test_a_redis_error_keeps_the_previous_settings(self) -> None:
+        previous = BufferSettings(team_ids=frozenset({TEAM_ID}))
+        buffer = McpIntentBuffer(
+            start_thread=False, teams_redis_client=MagicMock(side_effect=redis.TimeoutError("timed out"))
+        )
+        buffer.buffer_settings = previous
+
+        with patch(
+            "products.signals.backend.scout_harness.team_limits.read_flag_payload",
+            return_value={"enabled": True, "mcp_buffer_enabled": True},
+        ):
+            buffer.refresh_settings()
+
+        assert buffer.buffer_settings is previous
 
 
 class TestUserMcpRecords(SimpleTestCase):

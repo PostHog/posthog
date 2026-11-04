@@ -328,7 +328,9 @@ class TestMintScopedToken:
         assert body["product"] == "review_hog"
         assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["review_hog"]
 
-    @pytest.mark.parametrize("product", ["posthog_ai", "account_audit", "review_hog", "slack_app", "workflows"])
+    @pytest.mark.parametrize(
+        "product", ["posthog_ai", "account_audit", "background_agents", "review_hog", "slack_app", "workflows"]
+    )
     def test_model_pin_follows_the_catalog(self, product):
         from products.tasks.backend.facade.run_config import RuntimeAdapter, get_models_for_runtime_adapter
         from products.tasks.backend.logic.services.gateway_model_pin import SDK_IMPLICIT_MODELS
@@ -349,6 +351,14 @@ class TestMintScopedToken:
                 "gpt-6.1-terra",
             }
         assert set(pin) == expected
+
+    def test_onboarding_mint_carries_the_legacy_model_pin(self, mint_settings):
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response(201, {"token": "phe_abc"})
+            assert mint_scoped_token(ai_product="onboarding", team_id=2) == "phe_abc"
+        body = post.call_args.kwargs["json"]
+        assert body["product"] == "onboarding"
+        assert body["allowed_models"] == ["claude-sonnet-5", "claude-opus-4-8"]
 
     def test_limit_tier_is_sent_only_when_given(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
@@ -580,13 +590,30 @@ class TestMintableGate:
     """Mint scope needs server-side provenance: `internal` and some origin_product
     values are API-settable, so a routed-but-unmintable product must never mint."""
 
-    @pytest.mark.parametrize("origin_product", ["image_builder", "business_knowledge"])
-    def test_caller_internal_flag_cannot_mint_for_background_agents(self, mint_settings, origin_product):
+    @pytest.mark.parametrize(
+        "origin_product,mints",
+        [
+            ("autoresearch", True),
+            ("business_knowledge", True),
+            ("context_layer", True),
+            ("task_analysis", True),
+            ("image_builder", False),
+            ("user_created", False),
+            (None, False),
+        ],
+    )
+    def test_background_agents_mints_only_for_reserved_origins(self, mint_settings, origin_product, mints):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "background_agents"
-        with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_abc"
+        ) as mint:
             env = ai_gateway_env_vars(team_id=123, origin_product=origin_product, internal=True)
-        assert "AI_GATEWAY_TOKEN" not in env
-        mint.assert_not_called()
+        assert ("AI_GATEWAY_TOKEN" in env) is mints
+        if mints:
+            assert env["AI_GATEWAY_PRODUCT"] == "background_agents"
+            mint.assert_called_once_with(ai_product="background_agents", team_id=123, user=None)
+        else:
+            mint.assert_not_called()
 
     def test_routed_review_hog_mints(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "review_hog"
@@ -597,6 +624,18 @@ class TestMintableGate:
             env = ai_gateway_env_vars(team_id=2, origin_product="review_hog", ai_stage="validation-c1", internal=True)
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
         mint.assert_called_once_with(ai_product="review_hog", team_id=2, user=None)
+
+    def test_routed_wizard_run_mints_onboarding(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "onboarding"
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
+            return_value="phe_abc",
+        ) as mint:
+            env = ai_gateway_env_vars(
+                team_id=2, origin_product="onboarding", ai_stage="wizard_pr_agent", model="claude-sonnet-5"
+            )
+        assert env["AI_GATEWAY_PRODUCT"] == "onboarding"
+        mint.assert_called_once_with(ai_product="onboarding", team_id=2, user=None)
 
     def test_non_internal_review_hog_does_not_mint(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "review_hog"
@@ -731,6 +770,7 @@ class TestProvisioningBoundaries:
             runtime="acp",
             prior_slack_run=False,
             profile_billing_product=profile_billing_product,
+            run_id=str(self._ctx().run_id),
         )
 
     def test_non_slack_origin_skips_the_prior_run_lookup(self, mint_settings):
@@ -815,6 +855,7 @@ class TestProvisioningBoundaries:
             assert post.call_args.kwargs["json"]["capture_mode"] == "none"
             assert post.call_args.kwargs["json"]["obo"] == str(ctx.team_id)
             assert post.call_args.kwargs["json"]["user"] == ctx.distinct_id
+            assert post.call_args.kwargs["json"]["run"] == ctx.run_id
             record_routing.assert_called_once_with(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=True)
         else:
             assert out == {}
@@ -1064,14 +1105,16 @@ class TestUserPinAndCapOverride:
     def test_mint_pins_the_acting_user(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response({"token": "phe_abc"})
-            mint_scoped_token(ai_product="signals_scout", team_id=123, user="user-distinct-1")
+            mint_scoped_token(ai_product="signals_scout", team_id=123, user="user-distinct-1", run_id="run-1")
         assert post.call_args.kwargs["json"]["user"] == "user-distinct-1"
+        assert post.call_args.kwargs["json"]["run"] == "run-1"
 
     def test_mint_omits_user_when_unknown(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response({"token": "phe_abc"})
             mint_scoped_token(ai_product="signals_scout", team_id=123)
         assert "user" not in post.call_args.kwargs["json"]
+        assert "run" not in post.call_args.kwargs["json"]
 
     def test_cap_override_applies_per_team(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = '{"2": "10"}'
@@ -1440,7 +1483,7 @@ class TestMintRefusalScope:
             == expected
         )
 
-    @pytest.mark.parametrize("product", ["posthog_ai", "workflows", "review_hog"])
+    @pytest.mark.parametrize("product", ["posthog_ai", "workflows", "review_hog", "onboarding"])
     def test_pinned_products_refuse_an_off_pin_model(self, product):
         refusal = mint_refusal(product, team_id=2, state=None, model="claude-opus-3", runtime="acp")
         assert refusal == "model_outside_pin"
@@ -1448,7 +1491,7 @@ class TestMintRefusalScope:
     def test_unpinned_products_take_any_model(self):
         assert mint_refusal("signals_scout", team_id=2, state=None, model="zai-org/glm-5.3", runtime="acp") is None
 
-    @pytest.mark.parametrize("product", ["review_hog", "signals_scout", "signals_implementation"])
+    @pytest.mark.parametrize("product", ["review_hog", "signals_scout", "signals_implementation", "onboarding"])
     def test_products_billed_elsewhere_skip_the_credit_check(self, product):
         with patch(_CREDIT_LOOKUP, return_value="ai_credits_exhausted") as quota:
             assert mint_refusal(product, team_id=2, state=None, model=None, runtime="acp") is None
@@ -1598,15 +1641,13 @@ class TestPosthogAiMint:
     [
         ("account_audit", True, True),
         ("account_audit", False, False),
-        ("onboarding", False, False),
-        ("onboarding", True, False),
     ],
 )
 def test_account_audit_cost_routing_requires_server_provenance(
     settings: Settings, origin: str, internal: bool, mints: bool
 ) -> None:
     settings.SANDBOX_AI_GATEWAY_URL = "https://ai-gateway.example.com"
-    settings.SANDBOX_AI_GATEWAY_PRODUCTS = "account_audit,onboarding"
+    settings.SANDBOX_AI_GATEWAY_PRODUCTS = "account_audit"
     # A non-internal account_audit origin resolves to posthog_code, which is unrouted here.
     resolves_to_posthog_code = origin == "account_audit" and not internal
     with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_test") as mint:

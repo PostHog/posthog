@@ -5,7 +5,6 @@ import { LemonBanner, LemonButton, LemonSwitch, LemonTable, LemonTag, LemonTagTy
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -16,6 +15,7 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { CUSTOM_OPTION_KEY } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 
 import {

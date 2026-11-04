@@ -11,7 +11,7 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
-from rest_framework import exceptions, pagination, serializers, status, viewsets
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.exceptions import ErrorDetail
 from rest_framework.generics import get_object_or_404
 from rest_framework.request import Request
@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from slack_sdk.errors import SlackApiError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.pagination import StableCursorPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
@@ -648,12 +649,31 @@ class CommentErrorSerializer(serializers.Serializer):
     error_type = serializers.CharField(required=False, help_text="Stable machine-readable identifier for the failure.")
 
 
-class CommentPagination(pagination.CursorPagination):
+class CommentPagination(StableCursorPagination):
     # `created_at` is not unique, and DRF encodes only the first ordering field in the cursor,
     # resolving ties with an offset. That offset is reproducible only when rows sharing a
     # timestamp come back in a stable order, which Postgres does not otherwise guarantee.
     ordering = ("-created_at", "-id")
     page_size = 100
+
+    def paginate_queryset(self, queryset: Any, request: Request, view: Any = None) -> list[Any] | None:
+        self.is_first_page = self.cursor_query_param not in request.query_params
+        return super().paginate_queryset(queryset, request, view)
+
+    def get_paginated_response(self, data: Any) -> Response:
+        # A short first page holds every row, so the total needs no query over the whole set.
+        if self.is_first_page and len(data) < self.page_size:
+            count = len(data)
+        else:
+            count = self.count_rows()
+        return Response(
+            {
+                "count": count,
+                "next": self.get_next_link(),
+                "previous": self.get_previous_link(),
+                "results": data,
+            }
+        )
 
 
 class CommentListQueryParamsSerializer(serializers.Serializer):

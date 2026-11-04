@@ -2,6 +2,7 @@ import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 import { ReactNode } from 'react'
 
+import type { LegacyDisplayEntity } from 'lib/insights/entityFilterNames'
 import type { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 // eslint-disable-next-line import/no-cycle
 import type { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
@@ -12,7 +13,6 @@ import {
     ActionType,
     AnyPropertyFilter,
     CohortType,
-    EntityFilter,
     EventDefinition,
     EventPropertyFilter,
     PersonProperty,
@@ -128,7 +128,7 @@ export interface TaxonomicFilterProps {
     onClose?: () => void
     /** The series/entity filter the picker is editing — lets the list surface
      *  the committed selection with its rename (`custom_name`) applied. */
-    filter?: EntityFilter | ActionFilter | SeriesNode
+    filter?: LegacyDisplayEntity | ActionFilter | SeriesNode
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
@@ -147,8 +147,9 @@ export interface TaxonomicFilterProps {
     /**
      * Keep offering events whose data is moving out of the `events` table. Set it where the surface
      * still needs such an event: it reads live capture, it matches events as they arrive (destinations
-     * and workflows), or it measures experiment exposure. Leave it unset everywhere else, so a picker
-     * stops saving queries that return nothing once the data moves.
+     * and workflows), it measures experiment exposure, or it is a cohort criterion type that the cohorts
+     * API accepts on the event. Leave it unset everywhere else, so a picker stops saving queries that
+     * return nothing once the data moves.
      */
     includeHiddenEvents?: boolean
     /** use to indicate if a result in a group is selected */

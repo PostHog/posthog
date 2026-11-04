@@ -106,7 +106,8 @@ const DISCOVER_COMPLETION_ONLY: &str = concat!(
     reconciling_status!(),
     ")",
     "\n      AND backfill_kind = ANY($2)",
-    "\n      AND team_id = ANY($1)",
+    "\n      AND ",
+    processing_team!(),
     "\n      AND (status = ",
     seeding_status!(),
     " OR reconcile_observed_at IS NULL)",
@@ -132,7 +133,8 @@ const COUNT_RECONCILING_ONLY: &str = concat!(
     "\n    WHERE status = ",
     reconciling_status!(),
     "\n      AND backfill_kind = ANY($2)",
-    "\n      AND team_id = ANY($1)",
+    "\n      AND ",
+    processing_team!(),
     "\n    GROUP BY backfill_kind\n"
 );
 
@@ -882,6 +884,8 @@ pub struct DiscoveredCompletion {
 /// classify each. Rows whose status or kind is outside the vocabulary the query already bounds are
 /// skipped defensively. An observed run is the driver's exit condition, so it is filtered in SQL
 /// rather than hydrated and then matched away — [`count_reconciling_by_kind`] still sees it.
+/// `allowlist` is the env list. `Only` also admits the grants that `processing_team!` reads from the
+/// access record.
 pub async fn discover_completions(
     pool: &PgPool,
     allowlist: &TeamAllowlist,
@@ -916,6 +920,8 @@ pub async fn discover_completions(
 /// is the whole point: while the person readiness gate is shut, that backlog is the only thing the
 /// `seeder_runs_reconciling` gauge has to report, and it is exactly what the driver cannot act on.
 /// One aggregate, so the gauge costs a count rather than a hydration of every parked row.
+/// `allowlist` is the env list. `Only` also admits the grants that `processing_team!` reads from the
+/// access record.
 pub async fn count_reconciling_by_kind(
     pool: &PgPool,
     allowlist: &TeamAllowlist,

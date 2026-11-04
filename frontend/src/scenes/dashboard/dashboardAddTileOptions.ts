@@ -26,8 +26,8 @@ export function getDashboardAddTileOptions({
     return [
         { key: 'insight', label: 'Charts', onClick: onAddInsight },
         { key: 'text', label: 'Add text', onClick: onAddText },
-        { key: 'image', label: 'Image', tag: 'new', onClick: onAddImage },
+        { key: 'image', label: 'Image', onClick: onAddImage },
         { key: 'button', label: 'Button', onClick: onAddButton },
-        { key: 'widget', label: 'Widget', tag: 'new', onClick: () => setAddWidgetModalOpen(true) },
+        { key: 'widget', label: 'Widget', onClick: () => setAddWidgetModalOpen(true) },
     ]
 }

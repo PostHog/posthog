@@ -1,65 +1,120 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
+
+import { Collapsible, CollapsibleContent, CollapsibleTrigger, Tabs, TabsList, TabsTrigger } from '@posthog/quill'
 
 import { SettingsSnapshot } from 'lib/components/SettingsSnapshot'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { OverviewTab } from 'scenes/session-recordings/player/player-meta/overviewTabs'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
-import { TTLWarning } from 'scenes/session-recordings/player/player-meta/PlayerMetaTopSettings'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { OVERVIEW_SNAPSHOT_SCOPE } from 'scenes/session-recordings/player/sidebar/overviewSnapshotScope'
 import { PlayerSidebarExperimentsSection } from 'scenes/session-recordings/player/sidebar/PlayerSidebarExperimentsSection'
-import { PlayerSidebarOverviewDeviceTab } from 'scenes/session-recordings/player/sidebar/PlayerSidebarOverviewDeviceTab'
+import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
 import { PlayerSidebarOverviewOtherWatchers } from 'scenes/session-recordings/player/sidebar/PlayerSidebarOverviewOtherWatchers'
-import { PlayerSidebarOverviewPersonTab } from 'scenes/session-recordings/player/sidebar/PlayerSidebarOverviewPersonTab'
-import { PlayerSidebarOverviewSessionTab } from 'scenes/session-recordings/player/sidebar/PlayerSidebarOverviewSessionTab'
-import { PlayerSidebarOverviewTab } from 'scenes/session-recordings/player/sidebar/PlayerSidebarOverviewTab'
+
+import { QuillOverviewDeviceCard } from './QuillOverviewDeviceCard'
+import { QuillOverviewPersonCard } from './QuillOverviewPersonCard'
+import { QuillOverviewSessionCard } from './QuillOverviewSessionCard'
+import { QuillTTLWarning } from './QuillTTLWarning'
 
 const WIDE_OVERVIEW_PX = 960
 
+const OVERVIEW_TABS: { value: OverviewTab; label: string }[] = [
+    { value: 'session', label: 'Session' },
+    { value: 'person', label: 'Person' },
+    { value: 'device', label: 'Device' },
+]
+
+const CARD: Record<OverviewTab, () => JSX.Element> = {
+    session: QuillOverviewSessionCard,
+    person: QuillOverviewPersonCard,
+    device: QuillOverviewDeviceCard,
+}
+
 export function RecordingOverviewPanels(): JSX.Element {
     const { ref, size } = useResizeBreakpoints({ 0: 'narrow', [WIDE_OVERVIEW_PX]: 'wide' })
-
     return (
         <div ref={ref} data-attr="watch-panel-overview">
-            {size === 'wide' ? <WideOverview /> : <PlayerSidebarOverviewTab />}
+            {size === 'wide' ? <WideOverview /> : <NarrowOverview />}
         </div>
     )
 }
 
+function NarrowOverview(): JSX.Element {
+    const { overviewTab } = useValues(playerSidebarLogic)
+    const { setOverviewTab } = useActions(playerSidebarLogic)
+    const Card = CARD[overviewTab]
+    return (
+        <OverviewFrame>
+            <Tabs value={overviewTab} onValueChange={(value) => setOverviewTab(value as OverviewTab)}>
+                <TabsList className="w-full">
+                    {OVERVIEW_TABS.map((tab) => (
+                        <TabsTrigger
+                            key={tab.value}
+                            value={tab.value}
+                            className="flex-1"
+                            data-attr={`replay-overview-tab-${tab.value}`}
+                        >
+                            {tab.label}
+                        </TabsTrigger>
+                    ))}
+                </TabsList>
+            </Tabs>
+            <Card />
+            <OverviewExtras />
+        </OverviewFrame>
+    )
+}
+
 function WideOverview(): JSX.Element {
+    return (
+        <OverviewFrame>
+            <div className="grid grid-cols-3 gap-x-2 gap-y-1">
+                {OVERVIEW_TABS.map((tab) => {
+                    const Card = CARD[tab.value]
+                    return (
+                        <OverviewColumn key={tab.value} title={tab.label} dataAttr={`watch-overview-${tab.value}`}>
+                            <Card />
+                        </OverviewColumn>
+                    )
+                })}
+            </div>
+            <OverviewExtras />
+        </OverviewFrame>
+    )
+}
+
+function OverviewFrame({ children }: { children: ReactNode }): JSX.Element {
+    return (
+        <div data-quill className="flex flex-col gap-2 bg-background text-foreground px-2 py-2">
+            <QuillTTLWarning />
+            {children}
+        </div>
+    )
+}
+
+function OverviewExtras(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { snapshotAt } = useValues(playerMetaLogic(logicProps))
-
     return (
-        <div className="flex flex-col gap-2 bg-primary px-2 py-2">
-            <TTLWarning />
-            <div className="grid grid-cols-3 gap-x-2 gap-y-1">
-                <OverviewColumn title="Session" dataAttr="watch-overview-session">
-                    <PlayerSidebarOverviewSessionTab />
-                </OverviewColumn>
-                <OverviewColumn title="Person" dataAttr="watch-overview-person">
-                    <PlayerSidebarOverviewPersonTab />
-                </OverviewColumn>
-                <OverviewColumn title="Device" dataAttr="watch-overview-device">
-                    <PlayerSidebarOverviewDeviceTab />
-                </OverviewColumn>
+        <>
+            <Collapsible>
+                <CollapsibleTrigger className="w-full">
+                    Settings at the time of the recording
+                    <span className="grow" />
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                    <div data-not-quill className="contents">
+                        <SettingsSnapshot at={snapshotAt} scope={OVERVIEW_SNAPSHOT_SCOPE} title="" layout="grid" />
+                    </div>
+                </CollapsibleContent>
+            </Collapsible>
+            <div data-not-quill className="contents">
+                <PlayerSidebarExperimentsSection />
+                <PlayerSidebarOverviewOtherWatchers />
             </div>
-            <LemonCollapse
-                size="small"
-                panels={[
-                    {
-                        key: 'replay-settings',
-                        header: 'Settings at the time of the recording',
-                        content: (
-                            <SettingsSnapshot at={snapshotAt} scope={OVERVIEW_SNAPSHOT_SCOPE} title="" layout="grid" />
-                        ),
-                    },
-                ]}
-            />
-            <PlayerSidebarExperimentsSection />
-            <PlayerSidebarOverviewOtherWatchers />
-        </div>
+        </>
     )
 }
 
@@ -75,7 +130,7 @@ function OverviewColumn({
     // subgrid keeps the headings, top cards and row tables level across columns
     return (
         <div className="grid grid-cols-1 grid-rows-subgrid row-span-3 gap-1 min-w-0" data-attr={dataAttr}>
-            <span className="text-xxs font-semibold uppercase tracking-wide text-secondary px-0.5">{title}</span>
+            <span className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground px-0.5">{title}</span>
             {children}
         </div>
     )

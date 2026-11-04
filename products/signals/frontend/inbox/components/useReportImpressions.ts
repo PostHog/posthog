@@ -15,6 +15,7 @@ interface SectionImpressionState {
     loadedQueryKey: string | null
     loadedContext: ReportListRequestContext | null
     loadedRanker: string | null
+    loadedRankingPill: boolean
 }
 
 function useSectionImpressionState(sectionKey: InboxReportSectionKey): SectionImpressionState {
@@ -26,6 +27,7 @@ function useSectionImpressionState(sectionKey: InboxReportSectionKey): SectionIm
         loadedQueryKey,
         loadedContext,
         loadedRanker,
+        loadedRankingPill,
     } = useValues(reportListLogic(sectionListLogicProps(sectionKey)))
     return {
         isLoaded,
@@ -35,6 +37,7 @@ function useSectionImpressionState(sectionKey: InboxReportSectionKey): SectionIm
         loadedQueryKey,
         loadedContext,
         loadedRanker,
+        loadedRankingPill,
     }
 }
 
@@ -77,9 +80,14 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
     const settled = selectedSections.every(
         (key) => (sections[key].isLoaded || sections[key].reportsLoadFailed) && !sections[key].reportsResponseLoading
     )
-    // The ranker is in the key because `sort=recommended` keeps the same query when the server switches rankers.
+    // The ranker and pill setting are in the key because `sort=recommended` keeps the same query when the server switches arms.
     const contextKey = JSON.stringify(
-        selectedSections.map((key) => [key, sections[key].loadedQueryKey, sections[key].loadedRanker])
+        selectedSections.map((key) => [
+            key,
+            sections[key].loadedQueryKey,
+            sections[key].loadedRanker,
+            sections[key].loadedRankingPill,
+        ])
     )
 
     const impressedIdsRef = useRef(new Set<string>())
@@ -125,6 +133,7 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
                 sortDirection: context.sortDirection,
                 createdWindow: context.createdWindow,
                 rankerId: sections[sectionKey].loadedRanker,
+                rankingPill: sections[sectionKey].loadedRankingPill,
             })
         }
         // `sections` is a fresh object each render; `contextKey` and `settled` already change with
