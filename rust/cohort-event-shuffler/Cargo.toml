@@ -24,7 +24,7 @@ metrics-exporter-prometheus = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

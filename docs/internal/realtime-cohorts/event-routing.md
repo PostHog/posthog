@@ -36,8 +36,9 @@ It parses every message in two phases.
 1. **A cheap gate.**
    The first parse reads only `team_id` and whether `person_id` is present.
    Large fields such as `properties` and `person_properties` are skipped without being allocated.
-2. **A full parse for survivors.**
-   Only events that pass the gate are parsed completely and turned into the output envelope.
+2. **A forward parse for survivors.**
+   Only events that pass the gate are parsed again, and this parse reads only the fields it needs to build the output envelope.
+   The blobs it forwards, `properties`, `person_properties` and `elements_chain`, are copied as they arrived, without being unescaped.
 
 An event passes the gate when it has a person id and its team passes two checks.
 
@@ -211,7 +212,7 @@ Person p-1 is `0192f3a0-7c1e-7d2a-9b3c-000000000001`.
 1. Ingestion writes a `$pageview` from p-1 to firehose partition 3, at offset 9870001.
 2. The shuffler's cheap gate reads `team_id: 7` and sees a `person_id`.
    Team 7 is in the team index, so the event passes.
-3. The full parse builds the envelope with `source_partition: 3, source_offset: 9870001`.
+3. The forward parse builds the envelope with `source_partition: 3, source_offset: 9870001`.
 4. The key is `"7:0192f3a0-7c1e-7d2a-9b3c-000000000001"`.
    `murmur2` of it, masked and taken modulo 64, is 26.
 5. The shuffler sends to `cohort_stream_events` partition 26 and records offset 9870001 as in flight for firehose partition 3.
@@ -228,7 +229,8 @@ The processor sees firehose offset 9870001 from partition 3 for p-1 a second tim
 ## Optimizations
 
 - **Two-phase parsing.**
-  The gate parses two fields, and only survivors pay for a full parse.
+  The gate parses two fields, and only survivors pay for the forward parse.
+  The forward parse copies the property blobs as they arrived instead of unescaping and escaping them again.
   Most firehose events are discarded at the gate.
 - **Pipelined forwarding.**
   Consuming, producing and committing run independently.
