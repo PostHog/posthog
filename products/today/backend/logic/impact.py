@@ -51,7 +51,8 @@ def _occurrence_of(signal: SignalInput) -> _Occurrence | None:
         ticket = js_number(signal.extra.get("ticket_number")) or signal.source_id
         return _Occurrence(kind="tickets", key=f"{signal.source_product}:{ticket}") if ticket else None
     if signal.source_product == "analytics" and signal.source_type == "anomaly_investigation":
-        return _Occurrence(kind="alerts", key=text_of(signal.extra.get("alert_check_id")) or signal.source_id)
+        check = text_of(signal.extra.get("alert_check_id")) or text_of(signal.extra.get("investigation_id"))
+        return _Occurrence(kind="alerts", key=check or signal.source_id)
     return None
 
 

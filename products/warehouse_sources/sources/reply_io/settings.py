@@ -48,6 +48,13 @@ REPLY_IO_ENDPOINTS: dict[str, ReplyIoEndpointConfig] = {
         name="email_template_folders", path="/email-template-folders", scope="sequences:read", paginated=False
     ),
     "email_accounts": ReplyIoEndpointConfig(name="email_accounts", path="/email-accounts", scope="channels:read"),
+    "linkedin_accounts": ReplyIoEndpointConfig(
+        name="linkedin_accounts", path="/linkedin-accounts", scope="channels:read", paginated=False
+    ),
+    # Folders are personal: Reply lists only the folders of the user who owns the API key.
+    "sequence_folders": ReplyIoEndpointConfig(
+        name="sequence_folders", path="/sequence-folders", scope="sequences:read", paginated=False
+    ),
     "inbox_threads": ReplyIoEndpointConfig(name="inbox_threads", path="/inbox/threads", scope="inbox:read"),
     # One row per user per team, so a user in several teams appears once for each.
     "team_users": ReplyIoEndpointConfig(
@@ -69,6 +76,17 @@ REPLY_IO_ENDPOINTS: dict[str, ReplyIoEndpointConfig] = {
         # table is a full refresh of all time rather than an incremental read on `deliveryDate`.
         json={"filters": {"dateRangePreset": "allTime", "includeOutOfSequence": True}},
         primary_keys=["contactId", "emailAccountId", "deliveryDate"],
+    ),
+    # One row per booked meeting. The report has no row ID or contact ID; one user does not book two
+    # meetings with the same contact through the same channel at the same instant.
+    "meetings": ReplyIoEndpointConfig(
+        name="meetings",
+        path="/reporting/team-performance/meetings",
+        scope="reporting:read",
+        method="POST",
+        # Same all-time window as email_activity: without one the report returns only the last seven days.
+        json={"filters": {"dateRangePreset": "allTime", "includeOutOfSequence": True}},
+        primary_keys=["userId", "bookedAt", "contactFullName", "source"],
     ),
     "sequence_contacts": ReplyIoEndpointConfig(
         name="sequence_contacts",
@@ -99,6 +117,21 @@ REPLY_IO_ENDPOINTS: dict[str, ReplyIoEndpointConfig] = {
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
         primary_keys=["sequenceId", "id"],
+    ),
+    # Sequence rows carry no folder ID, so this membership walk is the only way to join folders to sequences.
+    "sequence_folder_sequences": ReplyIoEndpointConfig(
+        name="sequence_folder_sequences",
+        path="/sequence-folders/{id}/sequences",
+        scope="sequences:read",
+        fanout=DependentEndpointConfig(
+            parent_name="sequence_folders",
+            resolve_param="id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "folderId"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+        primary_keys=["folderId", "id"],
     ),
 }
 

@@ -1,8 +1,9 @@
 import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
+import type { StoreChoice } from '@/posthog/credential-store/types'
 
 import { ApiError } from './api'
-import { posthogFile, type CredentialSource } from './credentials'
+import type { CredentialSource } from './credentials'
 
 export type AuthStatus =
     | {
@@ -19,6 +20,8 @@ export type AuthStatus =
           projectId: string
           projectName: string | null
           source: CredentialSource
+          // Set when the source is the store.
+          store: StoreChoice | null
           credentialsPath: string | null
           // Null when the key lacks the user:read scope, so hog can't tell whose key it is.
           user: { email: string; name: string | null } | null
@@ -34,7 +37,8 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
         }
         throw error
     }
-    const { host, projectId, source } = credentials
+    const { host, projectId } = credentials.key
+    const { source } = credentials
     const api = await ctx.posthog()
     const [user, project] = await Promise.allSettled([
         api.get<{ email: string; first_name?: string }>('/api/users/@me/'),
@@ -62,7 +66,8 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
         projectId,
         projectName: project.status === 'fulfilled' ? project.value.name : null,
         source,
-        credentialsPath: source === 'credentials-file' ? posthogFile(ctx.runtime, 'credentials.json') : null,
+        store: credentials.source === 'store' ? credentials.store : null,
+        credentialsPath: credentials.source === 'env' ? null : credentials.path,
         user: user.status === 'fulfilled' ? { email: user.value.email, name: user.value.first_name || null } : null,
     }
 }
