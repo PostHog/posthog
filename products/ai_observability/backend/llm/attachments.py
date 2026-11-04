@@ -7,8 +7,16 @@ from posthog.dataclasses import frozen
 
 IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif"})
 PDF_MIME_TYPE = "application/pdf"
-# The formats OpenAI's chat API takes as input audio, which Gemini reads too.
-AUDIO_FORMATS = {"audio/wav": "wav", "audio/mpeg": "mp3"}
+# The formats OpenAI's chat API takes as input audio.
+OPENAI_AUDIO_FORMATS = {"audio/wav": "wav", "audio/mpeg": "mp3"}
+# Gemini reads these as well. The values are the `format` names OpenRouter's input_audio block takes.
+AUDIO_FORMATS = {
+    **OPENAI_AUDIO_FORMATS,
+    "audio/aac": "aac",
+    "audio/aiff": "aiff",
+    "audio/flac": "flac",
+    "audio/ogg": "ogg",
+}
 VIDEO_MIME_TYPES = frozenset({"video/mp4", "video/mpeg", "video/quicktime", "video/webm"})
 # Providers whose image blocks take a link that they download themselves.
 _URL_PROVIDERS = frozenset({"openai", "azure_openai", "anthropic", "gemini"})
@@ -55,7 +63,8 @@ def attachment_transport(provider: str, model: str, mime_type: str) -> Literal["
     openai_audio_model = provider == "openai" and "audio" in model
     if mime_type in AUDIO_FORMATS:
         # OpenAI takes audio only as inline base64, and only on its audio models, so audio always goes inline.
-        return "inline" if provider == "gemini" or openai_audio_model else None
+        reads_format = provider == "gemini" or (openai_audio_model and mime_type in OPENAI_AUDIO_FORMATS)
+        return "inline" if reads_format else None
     if mime_type in VIDEO_MIME_TYPES:
         if provider != "gemini":
             return None
@@ -100,6 +109,9 @@ def _openrouter_transport(model: str, mime_type: str) -> Literal["url", "inline"
     if modalities is None:
         return "url" if modality == "image" else None
     if modality not in modalities:
+        return None
+    # Only Gemini models are known to read audio beyond WAV and MP3. A rejection would drop every attachment.
+    if modality == "audio" and mime_type not in OPENAI_AUDIO_FORMATS and not model.startswith("google/"):
         return None
     # OpenRouter forwards a link only where the model's provider downloads it, and Gemini on AI Studio doesn't.
     return "url" if modality == "image" else "inline"
