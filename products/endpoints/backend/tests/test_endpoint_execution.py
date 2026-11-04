@@ -26,7 +26,8 @@ from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.errors import CHQueryErrorNoCommonType, wrap_clickhouse_query_error
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
 
-from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.api import set_declared_target
+from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
 from products.endpoints.backend.logic.execution import EndpointExecutionService, _emit_endpoint_failure_signal
 from products.endpoints.backend.models import Endpoint
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
@@ -2708,8 +2709,15 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             "clamped-cache-ttl", {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}
         )
         version = endpoint.versions.first()
-        version.cache_ttl_seconds = 900
-        version.save()
+        set_declared_target(
+            Node.objects.create(
+                team=self.team,
+                dag=DAG.get_or_create_default(self.team),
+                saved_query=version.saved_query,
+                type=NodeType.ENDPOINT,
+            ),
+            timedelta(minutes=15),
+        )
         DataModelingJob.objects.filter(saved_query=version.saved_query).delete()
         version.saved_query.last_run_at = None
         version.saved_query.save()

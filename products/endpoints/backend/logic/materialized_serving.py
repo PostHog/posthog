@@ -117,11 +117,11 @@ def serving_state_for_version(
     # A version materialized before an eligibility rule tightened keeps its table, but the table
     # can no longer answer the query correctly, so it serves inline until the query changes.
     ready = ready and version.can_materialize()[0]
-    freshness_seconds = version.serving_freshness_seconds
+    window = version.serving_window
     return MaterializedServingState(
         ready=ready,
         materialized_at=materialized_at,
-        freshness_seconds=freshness_seconds,
+        freshness_seconds=window.seconds,
         servable_variables=frozenset(strategy.materialized_variable_names()) if ready else frozenset(),
-        window_from_plan_floor=freshness_seconds != version.data_freshness_seconds,
+        window_from_plan_floor=window.from_plan_floor,
     )
