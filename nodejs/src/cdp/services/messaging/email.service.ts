@@ -30,8 +30,8 @@ import { EmailStatusService, isTransactionalEmailSend } from './email-status.ser
 import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
 import {
     addTrackingToEmail,
-    resolveEmailEngagementDistinctId,
     resolveEmailSendingVersion,
+    resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
@@ -589,10 +589,10 @@ export class EmailService {
             // so record a skip with its own metric instead of an `email_failed`. Otherwise one project
             // with bad data inflates the platform send failure rate.
             if (!params.to?.email?.trim()) {
-                addLog(
-                    'warn',
+                const skipReason =
                     'Skipping send: the recipient has no email address. Add a filter so only people with an email address reach this step.'
-                )
+                addLog('warn', skipReason)
+                result.emailSendResult = { status: 'skipped', reason: skipReason }
                 if (!isTest) {
                     result.metrics.push({
                         team_id: invocation.teamId,
@@ -878,7 +878,7 @@ export class EmailService {
             }
         }
 
-        const distinctId = resolveEmailEngagementDistinctId(invocation)
+        const distinctId = resolveEmailTrackingDistinctId(invocation)
         if (
             distinctId &&
             !isTest &&
@@ -1227,7 +1227,7 @@ export class EmailService {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
-        const distinctId = resolveEmailEngagementDistinctId(result.invocation)
+        const distinctId = resolveEmailTrackingDistinctId(result.invocation)
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
         // tag-value limit. The webhook reads the header first and only falls back to the tag.

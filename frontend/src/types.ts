@@ -1531,6 +1531,8 @@ export interface SessionRecordingSnapshotResponse {
     sources?: SessionRecordingSnapshotSource[]
     snapshots?: EncodedRecordingSnapshot[]
     replay_proxy_token?: string | null
+    block_token?: string | null
+    block_token_expires_at?: string | null
 }
 
 export interface SessionPlayerSnapshotData {
