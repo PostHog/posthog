@@ -1193,11 +1193,11 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert len(response["results"]) == 1
         assert patch_execute_query.call_count == 14
 
-        # No events after 01-09T09:09, all windows fail including fallback
-        # 5 windows + fallback = 6 calls (cumulative: 20)
+        # No events after 01-09T09:09. The previous request cached the full 24h range, so no probes run
+        # 1 call (cumulative: 15)
         response = self.client.get(f"/api/projects/{self.team.id}/events/?before=2024-01-10T10:20:02Z&limit=1").json()
         assert len(response["results"]) == 0
-        assert patch_execute_query.call_count == 20
+        assert patch_execute_query.call_count == 15
 
     @parameterized.expand(
         [
@@ -1223,7 +1223,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             flush_persons_and_events()
 
             with patch("posthog.api.event.posthog_feature_flag_enabled", **flag_patch):
-                first_page = self.client.get(f"/api/projects/{self.team.id}/events/?limit=2")
+                first_page = self.client.get(
+                    f"/api/projects/{self.team.id}/events/?limit=2", HTTP_ORIGIN="https://example.com"
+                )
                 full_page = self.client.get(f"/api/projects/{self.team.id}/events/")
                 explicit_after = self.client.get(
                     f"/api/projects/{self.team.id}/events/",
@@ -1234,6 +1236,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         full_page_ids = [event["id"] for event in full_page.json()["results"]]
         if default_applies:
             assert first_page.headers["X-PostHog-Events-Default-After"] == "2024-03-09T12:00:05+00:00"
+            assert "X-PostHog-Events-Default-After" in first_page.headers["Access-Control-Expose-Headers"]
             assert next_params["after"] == ["2024-03-09T12:00:05+00:00"]
             assert full_page_ids == recent_events
         else:
@@ -1647,6 +1650,37 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
 
         # Should not cache anything when fallback is used
         mock_cache.set.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("first_poll_probes_then_caches_the_range", None, 6, {"window": 86400, "result_count": 60}),
+            ("later_poll_skips_the_probes", {"window": 86400, "result_count": 60}, 1, None),
+        ]
+    )
+    @patch("posthog.models.event.legacy_events_query.cache")
+    @patch("posthog.models.event.legacy_events_query._execute_events_list_query")
+    def test_range_as_wide_as_a_window_reuses_it(
+        self, _name, cached, expected_queries, expected_cached, patch_execute_query, mock_cache
+    ):
+        mock_cache.get.return_value = cached
+        row = {
+            "uuid": "event",
+            "event": "test",
+            "properties": "{}",
+            "timestamp": timezone.now(),
+            "team_id": str(self.team.pk),
+            "distinct_id": "1",
+            "elements_chain": "",
+        }
+        patch_execute_query.side_effect = [([], False)] * (expected_queries - 1) + [([row] * 60, False)]
+
+        self.client.get(f"/api/projects/{self.team.id}/events/?after=2024-01-01T00:00:00Z&before=2024-01-02T00:00:00Z")
+
+        assert patch_execute_query.call_count == expected_queries
+        if expected_cached:
+            assert mock_cache.set.call_args[0][1] == expected_cached
+        else:
+            mock_cache.set.assert_not_called()
 
     @patch("posthog.models.event.legacy_events_query._execute_events_list_query")
     def test_only_tries_windows_shorter_than_request(self, patch_execute_query):

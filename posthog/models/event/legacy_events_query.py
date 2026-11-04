@@ -172,7 +172,9 @@ class LegacyEventsListQuery:
                 cached_window = cached_data.get("window")
         elif cached_data and isinstance(cached_data, int):
             cached_window = cached_data  # legacy cache format: bare window integer
-        if cached_window and cached_window in windows_to_try:
+        if cached_window and request_window_seconds is not None and cached_window >= request_window_seconds:
+            windows_to_try = []
+        elif cached_window and cached_window in windows_to_try:
             windows_to_try.remove(cached_window)
             windows_to_try.insert(0, cached_window)
 
@@ -203,13 +205,16 @@ class LegacyEventsListQuery:
                     successful_window = window
                     break
 
+            if not successful_window and (applied_window is not None or not windows_to_try):
+                # Windows were applied but came up short, or there were none — run the full range.
+                rows, has_more, applied_window = self.run_page(**page_kwargs)
+                if request_window_seconds in EVENT_LIST_TIME_WINDOWS and len(rows) >= half_limit:
+                    successful_window = request_window_seconds
+
             if successful_window:
                 new_cache_data = {"window": successful_window, "result_count": len(rows)}
                 if new_cache_data != cached_data:
                     cache.set(cache_key, new_cache_data, EVENT_LIST_CACHE_TTL)
-            elif applied_window is not None or not windows_to_try:
-                # Windows were applied but came up short, or there were none — run the full range.
-                rows, has_more, applied_window = self.run_page(**page_kwargs)
 
         return rows, has_more
 
