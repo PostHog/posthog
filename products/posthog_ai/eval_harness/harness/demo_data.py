@@ -45,12 +45,14 @@ class SandboxedDemoData:
         agent_runtime: str | None = None,
         reasoning_effort: str | None = None,
         sandbox_timeout_seconds: int | None = None,
+        service_tier: str | None = None,
     ):
         self.master_team_id = master_team_id
         self._django_db_blocker = django_db_blocker
         self.agent_model = agent_model
         self.agent_runtime = agent_runtime
         self.reasoning_effort = reasoning_effort
+        self.service_tier = service_tier
         self.sandbox_timeout_seconds = sandbox_timeout_seconds
 
     def make_context(
@@ -80,6 +82,7 @@ class SandboxedDemoData:
             model=self.agent_model,
             runtime_adapter=self.agent_runtime,
             reasoning_effort=self.reasoning_effort,
+            service_tier=self.service_tier,
             # Under TEST=1, SANDBOX_TTL_SECONDS is 15 minutes — equal to the default
             # per-case timeout — so a slow Modal case would have its sandbox reaped
             # exactly as it was finishing. The modal provider passes a larger TTL here.
@@ -121,6 +124,7 @@ def ensure_demo_ready(
     agent_runtime: str,
     reasoning_effort: str | None,
     sandbox_timeout_seconds: int | None,
+    service_tier: str | None = None,
 ) -> SandboxedDemoData:
     """Seed the master Hedgebox team (once) and expose a per-case context factory."""
     master_team_id = ensure_master_demo_team(blocker)
@@ -144,4 +148,5 @@ def ensure_demo_ready(
         agent_runtime=agent_runtime,
         reasoning_effort=reasoning_effort,
         sandbox_timeout_seconds=sandbox_timeout_seconds,
+        service_tier=service_tier,
     )
