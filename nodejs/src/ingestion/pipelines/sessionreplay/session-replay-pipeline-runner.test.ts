@@ -10,10 +10,11 @@ import { BatchCommitter } from './staged-batch'
 
 describe('SessionReplayPipelineRunner', () => {
     it.each([
-        ['one commit when the limit is off', 0, 1, []],
-        ['one commit for a poll under the limit', 100, 1, [[1]]],
-        ['one commit for each part of a poll past the limit', 15, 2, [[2]]],
-    ])('makes %s', async (_, maxDecodedBytesPerWrite, commits, observedParts) => {
+        ['one commit when the limit is off', 0, 2, 1, []],
+        ['one commit for a poll under the limit', 100, 2, 1, [[1]]],
+        ['one commit for each part of a poll past the limit', 15, 2, 2, [[2]]],
+        ['one commit and no part count for an empty poll', 100, 0, 1, []],
+    ])('makes %s', async (_, maxDecodedBytesPerWrite, messageCount, commits, observedParts) => {
         const partsSpy = jest.spyOn(SessionRecordingIngesterMetrics, 'observeKafkaBatchWriteParts').mockImplementation()
         const runner = new SessionReplayPipelineRunner(() => ({}) as SessionReplayPipeline, new PromiseScheduler())
         runner.start({ maxDecodedBytesPerWrite } as SessionReplayPipelineConfig)
@@ -21,7 +22,7 @@ describe('SessionReplayPipelineRunner', () => {
             knownRetention: () => undefined,
             commit: jest.fn().mockResolvedValue(undefined),
         }
-        const messages = [{ value: Buffer.alloc(10) }, { value: Buffer.alloc(10) }] as Message[]
+        const messages = Array.from({ length: messageCount }, () => ({ value: Buffer.alloc(10) })) as Message[]
 
         await runner.run(messages, new BatchStages(runner.stages).admit(), committer)
 

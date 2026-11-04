@@ -35,7 +35,7 @@ export class SessionReplayPipelineRunner implements StagedBatchRunner {
         return batch
             .stage('ingest', async () => {
                 const parts = splitByDecodedBytes(messages, this.maxDecodedBytesPerWrite)
-                if (this.maxDecodedBytesPerWrite > 0) {
+                if (this.maxDecodedBytesPerWrite > 0 && messages.length > 0) {
                     SessionRecordingIngesterMetrics.observeKafkaBatchWriteParts(parts.length)
                 }
                 for (const part of parts) {

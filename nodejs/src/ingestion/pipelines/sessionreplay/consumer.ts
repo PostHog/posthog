@@ -325,9 +325,11 @@ export class SessionRecordingIngester {
         const batchSizeKb = messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
         SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
-        SessionRecordingIngesterMetrics.observeKafkaBatchDecodedKb(
-            messages.reduce((acc, m) => statedDecodedBytes(m) + acc, 0) / 1024
-        )
+        if (messages.length > 0) {
+            SessionRecordingIngesterMetrics.observeKafkaBatchDecodedKb(
+                messages.reduce((acc, m) => statedDecodedBytes(m) + acc, 0) / 1024
+            )
+        }
 
         const batch = this.runner.run(messages, this.batchStages.admit(), this.committer)
         // A runner with one stage cannot overlap batches. The batch completes inside this call, which is what the consumer expects from a lane that returns no task.
