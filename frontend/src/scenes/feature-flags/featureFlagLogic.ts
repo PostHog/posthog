@@ -45,6 +45,7 @@ import { capitalizeFirstLetter, humanList, slugify } from 'lib/utils/strings'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { percentageDistribution } from 'scenes/experiments/utils'
 import {
     FeatureFlagsTab,
     carriedListFilterParams,
@@ -669,12 +670,8 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 function variantsFromSearchParam(value: unknown): MultivariateFlagVariant[] {
     const raw = Array.isArray(value) ? value : value == null ? [] : String(value).split(',')
     const keys = [...new Set(raw.map((key) => String(key).trim()))].filter((key) => !validateFeatureFlagVariantKey(key))
-    const share = Math.floor(100 / Math.max(keys.length, 1))
-    return keys.map((key, index) => ({
-        key,
-        name: '',
-        rollout_percentage: share + (index < 100 - share * keys.length ? 1 : 0),
-    }))
+    const percentages = percentageDistribution(keys.length)
+    return keys.map((key, index) => ({ key, name: '', rollout_percentage: percentages[index] }))
 }
 
 const FLAG_DEPENDENCY_TIMEOUT_MS = 2000
@@ -3638,10 +3635,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                     variants:
                                         prefilledVariants.length > 0
                                             ? prefilledVariants
-                                            : [
-                                                  { key: 'control', name: '', rollout_percentage: 50 },
-                                                  { key: 'test', name: '', rollout_percentage: 50 },
-                                              ],
+                                            : EMPTY_MULTIVARIATE_OPTIONS.variants,
                                 },
                             },
                         }
@@ -4987,6 +4981,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
             actions.loadRelatedInsights()
             actions.loadDependentFlags()
+            // A key prefilled from the URL never goes through the key field, so check it once here.
+            if (props.id === 'new' && featureFlag?.key) {
+                actions.checkKeyConflict(featureFlag.key)
+            }
             reportFlagWithDeletedCohortLoaded(featureFlag, cache)
             // Experiment is now loaded inline during loadFeatureFlag, not here
 

@@ -5828,7 +5828,11 @@ describe('a flag in config version 2', () => {
     it.each([
         [
             'splits prefilled variants evenly',
-            { key: 'checkout-layout', type: 'multivariate' as const, variants: ['control', 'compact', 'wide'] },
+            urls.featureFlagNew({
+                key: 'checkout-layout',
+                type: 'multivariate',
+                variants: ['control', 'compact', 'wide'],
+            }),
             'checkout-layout',
             [
                 { key: 'control', name: '', rollout_percentage: 34 },
@@ -5837,8 +5841,17 @@ describe('a flag in config version 2', () => {
             ],
         ],
         [
+            'trims and dedupes hand-written variants',
+            '/feature-flags/new?type=multivariate&variants=control,%20wide,control',
+            '',
+            [
+                { key: 'control', name: '', rollout_percentage: 50 },
+                { key: 'wide', name: '', rollout_percentage: 50 },
+            ],
+        ],
+        [
             'keeps the default variants without a variants param',
-            { key: 'checkout-layout', type: 'multivariate' as const },
+            urls.featureFlagNew({ key: 'checkout-layout', type: 'multivariate' }),
             'checkout-layout',
             [
                 { key: 'control', name: '', rollout_percentage: 50 },
@@ -5847,32 +5860,59 @@ describe('a flag in config version 2', () => {
         ],
         [
             'ignores variants on a boolean flag',
-            { key: 'checkout-layout', variants: ['control', 'compact'] },
+            urls.featureFlagNew({ key: 'checkout-layout', variants: ['control', 'compact'] }),
             'checkout-layout',
             null,
         ],
         [
             'drops a key and variants that fail validation',
-            {
+            urls.featureFlagNew({
                 key: "x' + (globalThis.injected = true) + '",
-                type: 'multivariate' as const,
+                type: 'multivariate',
                 variants: ['control', "a'b"],
-            },
+            }),
             '',
             [{ key: 'control', name: '', rollout_percentage: 100 }],
         ],
-    ])('prefills from the link and %s', async (_label, params, expectedKey, expectedVariants) => {
+    ])('prefills from the link and %s', async (_label, link, expectedKey, expectedVariants) => {
         defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
             enabled: false,
             default_groups: [],
         })
-        router.actions.push(urls.featureFlagNew(params))
+        router.actions.push(link)
         const newLogic = featureFlagLogic({ id: 'new' })
         newLogic.mount()
         await expectLogic(newLogic).toFinishAllListeners()
 
         expect(newLogic.values.featureFlag.key).toBe(expectedKey)
         expect(newLogic.values.featureFlag.filters.multivariate?.variants ?? null).toEqual(expectedVariants)
+        newLogic.unmount()
+    })
+
+    it('warns on load when the prefilled key is already taken', async () => {
+        defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+            enabled: false,
+            default_groups: [],
+        })
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: () => [
+                    200,
+                    { results: [{ ...NEW_FLAG, id: 42, key: 'taken-key' }], count: 1 },
+                ],
+            },
+        })
+        router.actions.push(urls.featureFlagNew({ key: 'taken-key' }))
+        const newLogic = featureFlagLogic({ id: 'new' })
+        newLogic.mount()
+        await expectLogic(newLogic).toDispatchActions(['checkKeyConflictSuccess']).toFinishAllListeners()
+
+        expect(newLogic.values.currentKeyConflict).toEqual({
+            key: 'taken-key',
+            existingFlagId: 42,
+            existingFlagKey: 'taken-key',
+            exact: true,
+        })
         newLogic.unmount()
     })
 })
