@@ -1819,11 +1819,11 @@ class TestSignupAPI(APIBaseTest):
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
         cache.clear()
 
-        for i in range(5):
+        for i in range(3):
             failed = self.client.post("/api/signup/", {"first_name": "Failed", "email": f"failed{i}@example.com"})
             self.assertEqual(failed.status_code, status.HTTP_400_BAD_REQUEST)
 
-        for i in range(11):
+        for i in range(6):
             response = self.client.post(
                 "/api/signup/",
                 {
@@ -1834,14 +1834,14 @@ class TestSignupAPI(APIBaseTest):
                 },
             )
 
-            if i < 10:
+            if i < 5:
                 self.assertEqual(response.status_code, status.HTTP_201_CREATED, f"Request {i + 1} should succeed")
                 # Clean up the created org and user to allow next signup
                 Organization.objects.filter(for_internal_metrics=False).delete()
                 User.objects.filter(email=f"user{i}@example.com").delete()
             else:
                 self.assertEqual(
-                    response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, "11th signup should be rate limited"
+                    response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, "6th signup should be rate limited"
                 )
                 self.assertIn("Retry-After", response.headers)
 
@@ -1851,7 +1851,7 @@ class TestSignupAPI(APIBaseTest):
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
         cache.clear()
 
-        for i in range(30):
+        for i in range(10):
             failed = self.client.post("/api/signup/", {"first_name": "Failed", "email": f"failed{i}@example.com"})
             self.assertEqual(failed.status_code, status.HTTP_400_BAD_REQUEST)
 
