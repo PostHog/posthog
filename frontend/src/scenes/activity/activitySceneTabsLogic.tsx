@@ -68,7 +68,7 @@ export type activitySceneTabsLogicType = MakeLogicType<
     activitySceneTabsLogicMeta
 >
 
-function isActivityTabKey(key: ActivitySceneTabKey): boolean {
+export function isActivityTabKey(key: ActivitySceneTabKey): boolean {
     return (Object.values(ActivityTab) as string[]).includes(key)
 }
 

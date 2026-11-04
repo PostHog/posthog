@@ -218,12 +218,19 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         })
     }
 
-    const tabsContent =
-        tabs.length > 1 ? (
-            <LemonTabs activeKey={activeTab} data-attr="customer-analytics-tabs" tabs={tabs} sceneInset />
+    // The Today rail's People pane links to every tab, so the shell shows only the open tab's content.
+    const activeTabEntry = tabs.find((tab) => tab.key === activeTab)
+    const tabsContent = todayRailNav ? (
+        activeTabEntry && 'content' in activeTabEntry ? (
+            activeTabEntry.content
         ) : (
             dashboardContent
         )
+    ) : tabs.length > 1 ? (
+        <LemonTabs activeKey={activeTab} data-attr="customer-analytics-tabs" tabs={tabs} sceneInset />
+    ) : (
+        dashboardContent
+    )
     const isFeatureRequestDetail =
         activeTab === 'feature_requests' && /\/customer_analytics\/feature-requests\/[^/]+\/?$/.test(location.pathname)
 

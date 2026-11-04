@@ -14,16 +14,8 @@ import {
     TODAY_SIDEBAR_MAX_WIDTH,
     railPaneForPath,
     railPaneHref,
-    todayRailPanes,
     todayShellLogic,
 } from './todayShellLogic'
-
-const PEOPLE_FLAGS = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.TODAY_RAIL_PEOPLE]: true }
-
-function enablePeoplePane(extraFlags: Record<string, boolean> = {}): void {
-    const flags = { ...PEOPLE_FLAGS, ...extraFlags }
-    featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
-}
 
 describe('todayShellLogic', () => {
     beforeEach(() => {
@@ -55,7 +47,7 @@ describe('todayShellLogic', () => {
         ['/project/1/dashboard/12', 'analytics'],
         ['/project/1/notebooks', 'analytics'],
         ['/project/1/dashboard', 'analytics'],
-        ['/project/1/persons', 'products'],
+        ['/project/1/persons', 'people'],
         ['/project/1/activity/events', 'products'],
         ['/project/1/settings/project-replay', 'settings'],
         ['/organization/billing/overview', 'settings'],
@@ -68,32 +60,23 @@ describe('todayShellLogic', () => {
     })
 
     test.each([
-        ['/project/1/persons', 'people', 'products'],
-        ['/project/1/persons/0190-uuid', 'people', 'products'],
-        ['/project/1/person/ada%40example.com', 'people', null],
-        ['/project/1/cohorts', 'people', 'products'],
-        ['/project/1/cohorts/5', 'people', 'products'],
-        ['/project/1/groups/0', 'people', null],
-        ['/project/1/groups/0/acme', 'people', null],
-        ['/project/1/customer_analytics/dashboard', 'people', 'products'],
-        ['/project/1/customer_analytics/journeys', 'people', 'products'],
-        ['/project/1/customer_analytics/journeys/new', 'people', 'products'],
-        ['/project/1/customer_analytics/accounts', 'products', 'products'],
-        ['/project/1/customer_analytics/accounts/1', 'products', 'products'],
-        ['/project/1/customer_analytics/feed', 'products', 'products'],
-        ['/project/1/customer_analytics/configuration', 'products', 'products'],
-    ])('puts %s under %s with the People pane, and under %s without it', (pathname, withPeople, withoutPeople) => {
-        expect(railPaneForPath(pathname, true)).toBe(withPeople)
-        expect(railPaneForPath(pathname, false)).toBe(withoutPeople)
-    })
-
-    test.each([
-        [{}, ['home', 'spaces', 'analytics', 'products']],
-        [{ [FEATURE_FLAGS.TODAY_RAIL_NAV]: true }, ['home', 'spaces', 'analytics', 'products']],
-        [{ [FEATURE_FLAGS.TODAY_RAIL_PEOPLE]: true }, ['home', 'spaces', 'analytics', 'products']],
-        [PEOPLE_FLAGS, ['home', 'spaces', 'analytics', 'people', 'products']],
-    ])('with flags %o the rail shows %o', (flags, panes) => {
-        expect(todayRailPanes(flags)).toEqual(panes)
+        ['/project/1/persons/0190-uuid', 'people'],
+        ['/project/1/person/ada%40example.com', 'people'],
+        ['/project/1/cohorts', 'people'],
+        ['/project/1/cohorts/5', 'people'],
+        ['/project/1/groups/0', 'people'],
+        ['/project/1/groups/0/acme', 'people'],
+        ['/project/1/customer_analytics/dashboard', 'people'],
+        ['/project/1/customer_analytics/journeys', 'people'],
+        ['/project/1/customer_analytics/journeys/new', 'people'],
+        ['/project/1/customer_analytics/accounts', 'people'],
+        ['/project/1/customer_analytics/accounts/1', 'people'],
+        ['/project/1/customer_analytics/feed', 'people'],
+        ['/project/1/support/tickets', 'people'],
+        ['/project/1/support/tickets/12', 'people'],
+        ['/project/1/customer_analytics/configuration', 'people'],
+    ])('puts %s under %s', (pathname, pane) => {
+        expect(railPaneForPath(pathname)).toBe(pane)
     })
 
     test.each([
@@ -103,7 +86,6 @@ describe('todayShellLogic', () => {
     ] as const)(
         'a person opened after %s (from %s, %s picked) shows the %s pane, and the persons list shows People',
         (_, startPath, pickedPane, pane) => {
-            enablePeoplePane()
             router.actions.push(startPath)
             const logic = todayShellLogic()
             logic.mount()

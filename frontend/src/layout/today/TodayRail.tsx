@@ -4,13 +4,13 @@ import { TodayAccountMenu } from './TodayAccountMenu'
 import { TodayMoreMenu } from './TodayMoreMenu'
 import { TODAY_PANES, TODAY_RAIL_FOOTER_PANES } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
-import { TODAY_RAIL_WIDTH, TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
+import { TODAY_RAIL_PANES, TODAY_RAIL_WIDTH, TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
 
 // pinned: autocapture data-attr. The Settings tile kept the attribute of the gear button it replaced.
 const RAIL_DATA_ATTRS: Partial<Record<TodayRailPane, string>> = { settings: 'today-settings' }
 
 export function TodayRail(): JSX.Element {
-    const { activePane, effectivePhaiView, featureFlags, railPanes } = useValues(todayShellLogic)
+    const { activePane, effectivePhaiView, featureFlags } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
 
     const renderTile = (pane: TodayRailPane): JSX.Element => (
@@ -32,7 +32,7 @@ export function TodayRail(): JSX.Element {
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: TODAY_RAIL_WIDTH }}
         >
-            {railPanes.map(renderTile)}
+            {TODAY_RAIL_PANES.map(renderTile)}
             <div className="mt-auto flex w-full flex-col items-center gap-3">
                 <TodayMoreMenu />
                 {TODAY_RAIL_FOOTER_PANES.map(renderTile)}

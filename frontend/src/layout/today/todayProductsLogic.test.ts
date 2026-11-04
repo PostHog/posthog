@@ -31,24 +31,17 @@ describe('todayProductsLogic', () => {
         ])
     })
 
-    test.each([
-        ['with the People pane', { [FEATURE_FLAGS.TODAY_RAIL_PEOPLE]: true }, false],
-        ['without the People pane', {}, true],
-    ])('%s, the Products pane lists Persons and Customer analytics: %s', (_, extraFlags, listed) => {
+    it('leaves Persons and Customer analytics to the People pane', () => {
         useMocks({ get: { '/api/projects/:team_id/file_system_shortcut/': { results: [] } } })
         initKeaTests()
-        const flags = {
-            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
-            [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true,
-            ...extraFlags,
-        }
+        const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true }
         featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
         const logic = todayProductsLogic()
         logic.mount()
 
         const hrefs = logic.values.products.map((item) => item.href)
-        expect(hrefs.includes(urls.persons())).toBe(listed)
-        expect(hrefs.includes(urls.customerAnalytics())).toBe(listed)
+        expect(hrefs).not.toContain(urls.persons())
+        expect(hrefs).not.toContain(urls.customerAnalytics())
         expect(hrefs).toContain(urls.replay(ReplayTabs.Home))
     })
 })

@@ -5,6 +5,7 @@ import { isMac } from 'lib/utils/dom'
 
 import { TodayNewAnalyticsButton } from './TodayNewAnalyticsButton'
 import { TodayNewChatButton } from './TodayNewChatButton'
+import { TodayNewPeopleButton } from './TodayNewPeopleButton'
 import type { TodayRailPane } from './todayShellLogic'
 
 export interface TodayPane {
@@ -12,6 +13,8 @@ export interface TodayPane {
     /** The title on top of the pane. The scene header shows it too while the sidebar is hidden. */
     title: string
     icon: JSX.Element
+    /** Shows before the title on top of the pane. */
+    titleIcon?: JSX.Element
     action?: () => JSX.Element
 }
 
@@ -24,7 +27,13 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
         action: TodayNewChatButton,
     },
     analytics: { label: 'Analytics', title: 'Analytics', icon: <IconAnalyticsBars />, action: TodayNewAnalyticsButton },
-    people: { label: 'People', title: 'People', icon: <IconPeople /> },
+    people: {
+        label: 'People',
+        title: 'People',
+        icon: <IconPeople />,
+        titleIcon: <IconPeople />,
+        action: TodayNewPeopleButton,
+    },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear /> },
 }

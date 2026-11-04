@@ -1,13 +1,10 @@
 import { FEATURE_FLAGS } from 'lib/constants'
+import { ActivitySceneTab } from 'scenes/activity/activitySceneTabsLogic'
 import { urls } from 'scenes/urls'
 
-import { useMocks } from '~/mocks/jest'
-import { recentItemsModel } from '~/models/recentItemsModel'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
-import { initKeaTests } from '~/test/init'
 import { GroupType, GroupTypeIndex } from '~/types'
 
-import { accountGroupTypeIndex, activePeopleRow, peopleSidebarRows, todayPeopleLogic } from './todayPeopleLogic'
+import { accountGroupTypeIndex, activePeopleRow, peopleSidebarRows, visibleMoreRows } from './todayPeopleLogic'
 
 const groupTypes = (...indexes: number[]): Map<GroupTypeIndex, GroupType> =>
     new Map(
@@ -19,22 +16,97 @@ const groupTypes = (...indexes: number[]): Map<GroupTypeIndex, GroupType> =>
 
 const CUSTOMER_ANALYTICS = { [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true }
 const JOURNEYS = { ...CUSTOMER_ANALYTICS, [FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS]: true }
-const ALL_ROWS = ['overview', 'persons', 'accounts', 'cohorts', 'journeys']
+const EVERY_TAB = {
+    ...JOURNEYS,
+    [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true,
+    [FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS]: true,
+    [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]: true,
+}
+
+const groupTabs = (...tabs: [number, string][]): ActivitySceneTab[] =>
+    tabs.map(([index, label]) => ({ key: `groups-${index}`, label, url: urls.groups(index), iconType: undefined }))
+const ONE_TYPE = groupTabs([0, 'Organizations'])
 
 describe('todayPeopleLogic', () => {
     test.each([
-        ['every flag on', JOURNEYS, 0, ALL_ROWS],
-        ['customer-analytics-csp on too', { ...JOURNEYS, [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true }, 0, ALL_ROWS],
-        ['journeys off', CUSTOMER_ANALYTICS, 0, ['overview', 'persons', 'accounts', 'cohorts']],
+        ['journeys on', JOURNEYS, 0, ['overview', 'persons', 'accounts', 'cohorts', 'journeys', 'support']],
         [
-            'customer analytics off',
-            { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS]: true },
+            'every tab on',
+            EVERY_TAB,
             0,
-            ['persons', 'accounts', 'cohorts'],
+            [
+                'overview',
+                'feed',
+                'tasks',
+                'persons',
+                'accounts',
+                'groups-0',
+                'cohorts',
+                'journeys',
+                'notes',
+                'announcements',
+                'feature_requests',
+                'support',
+            ],
         ],
-        ['no group types', JOURNEYS, null, ['overview', 'persons', 'cohorts', 'journeys']],
+        ['journeys off', CUSTOMER_ANALYTICS, 0, ['overview', 'persons', 'accounts', 'cohorts', 'support']],
+        [
+            'customer analytics off, tab flags on',
+            { ...EVERY_TAB, [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: false },
+            0,
+            ['persons', 'accounts', 'cohorts', 'support'],
+        ],
+        ['no group types', JOURNEYS, null, ['overview', 'persons', 'cohorts', 'journeys', 'support']],
     ])('with %s, the pane shows %o', (_, flags, groupTypeIndex, keys) => {
-        expect(peopleSidebarRows(flags, groupTypeIndex as GroupTypeIndex | null).map((row) => row.key)).toEqual(keys)
+        expect(
+            peopleSidebarRows(
+                flags,
+                groupTypeIndex as GroupTypeIndex | null,
+                groupTypeIndex === null ? [] : ONE_TYPE
+            ).map((row) => row.key)
+        ).toEqual(keys)
+    })
+
+    test.each([
+        ['off, the group list', {}, urls.groups(0)],
+        ['on, the Accounts tab', { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true }, urls.customerAnalyticsAccounts()],
+    ])('with customer-analytics-csp %s opens from Accounts', (_, flags, href) => {
+        const accounts = peopleSidebarRows({ ...CUSTOMER_ANALYTICS, ...flags }, 0, ONE_TYPE).find(
+            (row) => row.key === 'accounts'
+        )
+        expect(accounts?.href).toBe(href)
+    })
+
+    it('lists every group type, and names one row Accounts', () => {
+        const tabs = groupTabs([0, 'Accounts'], [1, 'Projects'])
+        const rowsFor = (flags: Record<string, boolean>, index: GroupTypeIndex): [string, string, string][] =>
+            peopleSidebarRows(flags, index, tabs)
+                .filter((row) => row.key === 'accounts' || row.key.startsWith('groups-'))
+                .map((row) => [row.key, row.label, row.href])
+
+        expect(rowsFor(CUSTOMER_ANALYTICS, 1)).toEqual([
+            ['groups-0', 'Groups', urls.groups(0)],
+            ['accounts', 'Accounts', urls.groups(1)],
+        ])
+        expect(rowsFor({ ...CUSTOMER_ANALYTICS, [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true }, 0)).toEqual([
+            ['accounts', 'Accounts', urls.customerAnalyticsAccounts()],
+            ['groups-0', 'Groups', urls.groups(0)],
+            ['groups-1', 'Projects', urls.groups(1)],
+        ])
+    })
+
+    test.each([
+        ['closed, on a top row', false, 'persons', []],
+        ['closed, on the Support page', false, 'support', ['support']],
+        [
+            'open',
+            true,
+            'persons',
+            ['feed', 'tasks', 'groups-0', 'notes', 'announcements', 'feature_requests', 'support'],
+        ],
+    ])('See more %s shows %s %o', (_, moreOpen, activeRow, keys) => {
+        const rows = peopleSidebarRows(EVERY_TAB, 0, ONE_TYPE)
+        expect(visibleMoreRows(rows, moreOpen, activeRow).map((row) => row.key)).toEqual(keys)
     })
 
     test.each([
@@ -47,38 +119,20 @@ describe('todayPeopleLogic', () => {
     })
 
     test.each([
-        ['/project/1/person/ada%40example.com', 'persons'],
-        ['/project/1/groups/0/acme', 'accounts'],
-        ['/project/1/cohorts', 'cohorts'],
-        ['/project/1/cohorts/2', 'recent:2'],
-        ['/project/1/cohorts/9', 'cohorts'],
-        ['/project/1/customer_analytics/journeys/new', 'journeys'],
-        ['/project/1/insights/abc', null],
-    ])('on %s the %s row is active', (pathname, active) => {
-        const recents = [{ id: '2', name: 'Churned', href: urls.cohort('2') }]
-        expect(activePeopleRow(pathname, peopleSidebarRows(JOURNEYS, 0), recents)).toBe(active)
-    })
-
-    it('lists recently viewed cohorts only, up to the limit', () => {
-        useMocks({ get: { '/api/projects/:team_id/groups_types/': [] } })
-        initKeaTests()
-        recentItemsModel.mount()
-        const logic = todayPeopleLogic()
-        logic.mount()
-        const row = (type: string, ref: string, name: string): FileSystemEntry =>
-            ({ id: `fs-${ref}`, type, ref, path: `Unfiled/${name}`, meta: {} }) as FileSystemEntry
-
-        recentItemsModel.actions.loadRecentsSuccess([
-            row('cohort', '1', 'Paying users'),
-            row('insight', 'i1', 'Signups'),
-            row('cohort', '2', 'Churned'),
-            row('cohort', '3', 'Trial'),
-            row('cohort', '4', 'Beta'),
-        ])
-        expect(logic.values.recentCohorts).toEqual([
-            { id: '1', name: 'Paying users', href: urls.cohort('1') },
-            { id: '2', name: 'Churned', href: urls.cohort('2') },
-            { id: '3', name: 'Trial', href: urls.cohort('3') },
-        ])
+        ['/project/1/person/ada%40example.com', JOURNEYS, 'persons'],
+        ['/project/1/groups/0/acme', JOURNEYS, 'accounts'],
+        ['/project/1/groups/0/acme', EVERY_TAB, 'groups-0'],
+        ['/project/1/customer_analytics/accounts/7', EVERY_TAB, 'accounts'],
+        ['/project/1/customer_analytics/feature-requests/3', EVERY_TAB, 'feature_requests'],
+        ['/project/1/support/tickets', JOURNEYS, 'support'],
+        ['/project/1/support/tickets/12', JOURNEYS, 'support'],
+        ['/project/1/cohorts', JOURNEYS, 'cohorts'],
+        ['/project/1/cohorts/2', JOURNEYS, `recent:${urls.cohort('2')}`],
+        ['/project/1/cohorts/9', JOURNEYS, 'cohorts'],
+        ['/project/1/customer_analytics/journeys/new', JOURNEYS, 'journeys'],
+        ['/project/1/insights/abc', JOURNEYS, null],
+    ])('on %s with flags %o the %s row is active', (pathname, flags, active) => {
+        const recents = [{ type: 'cohort' as const, name: 'Churned', href: urls.cohort('2') }]
+        expect(activePeopleRow(pathname, peopleSidebarRows(flags, 0, ONE_TYPE), recents)).toBe(active)
     })
 })
