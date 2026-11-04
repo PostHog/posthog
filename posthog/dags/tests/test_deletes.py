@@ -982,17 +982,22 @@ def test_pass_deletes_events_and_sessions_past_the_period_and_moves_only_a_compl
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "plan_months,months,postponed,deleted_months",
+    "plan_months,months,postponed,enforced,deleted_months",
     [
-        pytest.param(12, 12, False, [13, 20], id="unchanged"),
-        pytest.param(12, 24, False, [], id="longer_period"),
-        pytest.param(12, 6, True, [], id="shorter_period"),
-        pytest.param(24, 12, False, [], id="plan_raised"),
+        pytest.param(12, 12, False, True, [13, 20], id="unchanged"),
+        pytest.param(12, 24, False, True, [], id="longer_period"),
+        pytest.param(12, 6, True, True, [], id="shorter_period"),
+        pytest.param(24, 12, False, True, [], id="plan_raised"),
+        pytest.param(12, 12, False, False, [], id="enforcement_disabled"),
     ],
 )
-@override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
 def test_plan_old_events_cleanup_uses_a_pass_changed_after_the_run_started(
-    cluster: ClickhouseCluster, plan_months: int, months: int, postponed: bool, deleted_months: list[int]
+    cluster: ClickhouseCluster,
+    plan_months: int,
+    months: int,
+    postponed: bool,
+    enforced: bool,
+    deleted_months: list[int],
 ):
     team = Team.objects.create(
         organization=Organization.objects.create(name="Due"), name="Due", event_retention_months=plan_months
@@ -1003,10 +1008,11 @@ def test_plan_old_events_cleanup_uses_a_pass_changed_after_the_run_started(
         team=team, months=months, next_deletion_on=_first_pass() if postponed else cleanup_date()
     )
 
-    plan = plan_old_events_cleanup(build_op_context(), MonthlyCleanupConfig(), cluster, passes)
+    with override_settings(EVENTS_DATA_RETENTION_ENFORCED=enforced):
+        plan = plan_old_events_cleanup(build_op_context(), MonthlyCleanupConfig(), cluster, passes)
 
     assert [item.partition for item in plan.partitions] == [_partition(_mid_month(m)) for m in deleted_months]
-    assert plan.completed_pass_team_ids == ([] if postponed else [team.id])
+    assert plan.completed_pass_team_ids == ([team.id] if enforced and not postponed else [])
 
 
 @pytest.mark.django_db
