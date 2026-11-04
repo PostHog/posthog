@@ -6,6 +6,11 @@ import { registerIntegrationSetup } from './integrationSetupRegistry'
 const AwsS3SetupModal = lazyWithRetry(() =>
     import('scenes/integrations/aws-s3/AwsS3SetupModal').then((module) => ({ default: module.AwsS3SetupModal }))
 )
+const AwsWarehouseSourcesSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/aws-warehouse-sources/AwsWarehouseSourcesSetupModal').then((module) => ({
+        default: module.AwsWarehouseSourcesSetupModal,
+    }))
+)
 const AzureBlobSetupModal = lazyWithRetry(() =>
     import('scenes/integrations/azure-blob/AzureBlobSetupModal').then((module) => ({
         default: module.AzureBlobSetupModal,
@@ -146,6 +151,15 @@ registerIntegrationSetup({
     SetupModal: ({ isOpen, integration, onComplete }) => (
         <AwsS3SetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
     ),
+})
+
+registerIntegrationSetup({
+    kind: 'aws-warehouse-sources',
+    menuItem: ({ openModal }) => ({
+        label: 'Configure new AWS role connection',
+        onClick: () => openModal('aws-warehouse-sources'),
+    }),
+    SetupModal: ({ isOpen, onComplete }) => <AwsWarehouseSourcesSetupModal isOpen={isOpen} onComplete={onComplete} />,
 })
 
 registerIntegrationSetup({

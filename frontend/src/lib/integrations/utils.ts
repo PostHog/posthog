@@ -4,6 +4,7 @@ import { IntegrationKind } from '~/types'
 
 import IconApple from 'public/services/apple_search_ads.png'
 import IconAwsS3 from 'public/services/aws-s3.png'
+import IconAws from 'public/services/aws.png'
 import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
@@ -132,6 +133,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'apple-ads': IconApple,
     postgresql: IconPostgres,
     'aws-s3': IconAwsS3,
+    'aws-warehouse-sources': IconAws,
     'aws-redshift': IconRedshift,
     's3-compatible': IconS3Compatible,
     snowflake: IconSnowflake,
@@ -188,6 +190,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'PostgreSQL'
         case 'aws-s3':
             return 'AWS S3'
+        case 'aws-warehouse-sources':
+            return 'AWS role'
         // Named after the batch export destination users already see, not the `aws-` kind prefix.
         case 'aws-redshift':
             return 'Redshift'

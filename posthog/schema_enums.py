@@ -1985,6 +1985,7 @@ class IntegrationKind(StrEnum):
     APPLE_ADS = "apple-ads"
     POSTGRESQL = "postgresql"
     AWS_S3 = "aws-s3"
+    AWS_WAREHOUSE_SOURCES = "aws-warehouse-sources"
     AWS_REDSHIFT = "aws-redshift"
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"

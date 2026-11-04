@@ -11,6 +11,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { initKeaTests } from '~/test/init'
 import { PreflightStatus, Region } from '~/types'
 
+import { AwsWarehouseSourcesSetupModal } from '../aws-warehouse-sources/AwsWarehouseSourcesSetupModal'
 import { AwsS3SetupModal } from './AwsS3SetupModal'
 
 describe('AwsS3SetupModal', () => {
@@ -43,20 +44,64 @@ describe('AwsS3SetupModal', () => {
         })
     })
 
-    it.each<[string, Region | null, string]>([
-        ['US cloud', Region.US, 'arn:aws:iam::309986977637:role/posthog-external-batch-exports'],
-        ['EU cloud', Region.EU, 'arn:aws:iam::623789312881:role/posthog-external-batch-exports'],
-        ['dev', Region.DEV, 'Check with your instance administrator'],
-        ['self-hosted', null, 'Check with your instance administrator'],
-    ])('shows the right role to trust on %s', (_label, region, expectedText) => {
+    type SetupModal = typeof AwsS3SetupModal | typeof AwsWarehouseSourcesSetupModal
+
+    it.each<[string, SetupModal, Region | null, string]>([
+        [
+            'batch exports on US cloud',
+            AwsS3SetupModal,
+            Region.US,
+            'arn:aws:iam::309986977637:role/posthog-external-batch-exports',
+        ],
+        [
+            'batch exports on EU cloud',
+            AwsS3SetupModal,
+            Region.EU,
+            'arn:aws:iam::623789312881:role/posthog-external-batch-exports',
+        ],
+        ['batch exports on dev', AwsS3SetupModal, Region.DEV, 'Check with your instance administrator'],
+        ['batch exports on self-hosted', AwsS3SetupModal, null, 'Check with your instance administrator'],
+        [
+            'warehouse sources on US cloud',
+            AwsWarehouseSourcesSetupModal,
+            Region.US,
+            'arn:aws:iam::309986977637:role/posthog-external-warehouse-sources',
+        ],
+        [
+            'warehouse sources on EU cloud',
+            AwsWarehouseSourcesSetupModal,
+            Region.EU,
+            'arn:aws:iam::623789312881:role/posthog-external-warehouse-sources',
+        ],
+        [
+            'warehouse sources on self-hosted',
+            AwsWarehouseSourcesSetupModal,
+            null,
+            'Check with your instance administrator',
+        ],
+    ])('shows the right role to trust for %s', (_label, SetupModal, region, expectedText) => {
         setRegion(region)
         render(
             <Provider>
-                <AwsS3SetupModal isOpen onComplete={jest.fn()} />
+                <SetupModal isOpen onComplete={jest.fn()} />
             </Provider>
         )
 
         expect(screen.getByText(expectedText, { exact: false })).toBeInTheDocument()
+    })
+
+    it.each<[string, SetupModal, RegExp, RegExp]>([
+        ['batch exports', AwsS3SetupModal, /s3:PutObject/, /read permissions listed in the source/],
+        ['warehouse sources', AwsWarehouseSourcesSetupModal, /read permissions listed in the source/, /s3:PutObject/],
+    ])('asks for the permissions %s need', (_label, SetupModal, expected, unexpected) => {
+        render(
+            <Provider>
+                <SetupModal isOpen onComplete={jest.fn()} />
+            </Provider>
+        )
+
+        expect(screen.getByText(expected)).toBeInTheDocument()
+        expect(screen.queryByText(unexpected)).not.toBeInTheDocument()
     })
 
     it('shows credential fields and the long-lived credentials warning on the access keys tab', async () => {
