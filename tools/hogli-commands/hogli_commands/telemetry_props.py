@@ -491,6 +491,7 @@ def _pr_number() -> int | None:
     return None
 
 
+@functools.cache
 def _worktree_count() -> int | None:
     """Linked worktrees of this repo, read from the shared gitdir so no git process runs."""
     git = REPO_ROOT / ".git"
@@ -504,7 +505,8 @@ def _worktree_count() -> int | None:
         worktrees = common / "worktrees"
         if not worktrees.is_dir():
             return 0
-        return sum(1 for entry in worktrees.iterdir() if entry.is_dir())
+        with os.scandir(worktrees) as entries:
+            return sum(1 for entry in entries if entry.is_dir())
     except OSError:
         return None
 

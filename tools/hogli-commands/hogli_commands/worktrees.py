@@ -39,7 +39,6 @@ from typing import IO
 import click
 from hogli.manifest import REPO_ROOT
 
-from . import hints
 from .devbox import hogland, mutagen
 from .devbox.coder import (
     delete_workspace,
@@ -255,9 +254,12 @@ class WorktreeBox:
 @click.option(
     "--unattended",
     is_flag=True,
-    help="For a scheduler: implies --yes and --keep-boxes, and runs at most once per mode every 24 hours.",
+    help="For a scheduler: once a day, remove worktrees idle for 14 days, then strip deps from worktrees "
+    "idle for 7 days. Implies --yes and --keep-boxes.",
 )
+@click.pass_context
 def worktrees_clean(
+    ctx: click.Context,
     before: str | None,
     mode: str | None,
     sources: tuple[str, ...],
@@ -273,6 +275,29 @@ def worktrees_clean(
 ) -> None:
     """Find and clean up stale agent worktrees by age and deletion mode."""
 
+    if unattended:
+        if before is not None or mode is not None:
+            raise click.UsageError("--unattended chooses --before and --mode itself.")
+        lock = _unattended_lock(dry_run)
+        if lock is None:
+            click.echo("Skipped: an unattended run is in progress or happened in the last 24 hours.")
+            return
+        for age, tier in _UNATTENDED_SCHEDULE:
+            click.echo(f"--- {datetime.now():%Y-%m-%d %H:%M} --mode {tier} --before {age}")
+            # A saved `--on-clean delete` default must not delete devboxes from a
+            # background run that nobody watches.
+            ctx.invoke(
+                worktrees_clean,
+                before=age,
+                mode=tier,
+                repo=repo,
+                sources=sources,
+                dry_run=dry_run,
+                yes=True,
+                keep_boxes=True,
+            )
+        return
+
     # Both selectors are mandatory — without an explicit age cutoff and mode we
     # do nothing, so an accidental bare invocation can never delete anything.
     # UsageError (exit 2) so a scripted caller can detect the misuse.
@@ -287,14 +312,6 @@ def worktrees_clean(
         )
 
     mode = mode.lower()
-    if unattended:
-        if not _unattended_run_due(mode, dry_run):
-            click.echo(f"Skipped: an unattended --mode {mode} run is in progress or happened in the last 24 hours.")
-            return
-        yes = True
-        # A saved `--on-clean delete` default must not delete devboxes from a
-        # background run that nobody watches.
-        keep_boxes = True
     box_action = _resolve_box_action(stop_boxes, delete_boxes, keep_boxes, mode)
     orphan_policy = _resolve_orphan_policy(orphans, mode)
     repo_root = _resolve_repo(repo)
@@ -656,40 +673,39 @@ def _resolve_orphan_policy(explicit: str | None, mode: str) -> str:
     return "ask" if mode == "full" else "yes"
 
 
+_UNATTENDED_SCHEDULE = (("14d", "full"), ("7d", "deps"))
 _UNATTENDED_INTERVAL_S = 24 * 60 * 60
+# .flox/env/on-activate.sh checks this file's mtime before it spawns hogli.
+_UNATTENDED_LOCK = Path.home() / ".config" / "posthog" / "worktrees-clean.lock"
 
 
-_unattended_lock: IO[str] | None = None
+def _unattended_lock(dry_run: bool) -> IO[str] | None:
+    """The lock for one --unattended run a day, or None when one is running or ran today.
 
+    The caller holds it until the process exits, so a second shell that activates
+    in the same second backs off instead of removing the same paths. The file
+    holds the epoch of the last real run, so a dry run never consumes the day."""
 
-def _unattended_run_due(mode: str, dry_run: bool) -> bool:
-    """One --unattended run per mode per day.
-
-    The lock covers both modes and stays held until the process exits, so a
-    second shell that activates in the same second backs off instead of removing
-    the same paths. Its mtime is the stamp .flox/env/on-activate.sh checks before
-    it spawns hogli, so the file name is shared with that script."""
-
-    global _unattended_lock
-    if _unattended_lock is None:
-        lock_path = hints._get_state_path().with_name("worktrees-clean.lock")
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        lock = lock_path.open("a")
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            lock.close()
-            return False
-        _unattended_lock = lock
-
-    stamp = f"worktrees:clean:{mode}"
-    last = hints.last_check_run(stamp)
-    if last is not None and time.time() - last.timestamp() < _UNATTENDED_INTERVAL_S:
-        return False
+    _UNATTENDED_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    lock = _UNATTENDED_LOCK.open("a+")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock.close()
+        return None
+    lock.seek(0)
+    try:
+        last_run = float(lock.read().strip() or 0)
+    except ValueError:
+        last_run = 0.0
+    if time.time() - last_run < _UNATTENDED_INTERVAL_S:
+        lock.close()
+        return None
     if not dry_run:
-        hints.record_check_run(stamp)
-        os.utime(_unattended_lock.fileno())
-    return True
+        lock.truncate(0)
+        lock.write(str(time.time()))
+        lock.flush()
+    return lock
 
 
 def _include_orphans(policy: str, orphans: list[Worktree], dry_run: bool, yes: bool) -> bool:

@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-import os
-import json
 import math
+import time
 import fcntl
 import subprocess
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from unittest.mock import patch
 
 import click
-from hogli_commands import hints, worktrees
+from hogli_commands import worktrees
 from hogli_commands.devbox import config as devbox_config
 from hogli_commands.worktrees import (
     Worktree,
@@ -33,7 +31,7 @@ from hogli_commands.worktrees import (
     _registered_worktrees,
     _resolve_box_action,
     _resolve_orphan_policy,
-    _unattended_run_due,
+    _unattended_lock,
     _worktree_roots,
 )
 
@@ -63,43 +61,36 @@ def _git_stub(responses: dict[str, tuple[int, str]]):
 _NOW = 1_700_000_000.0
 
 
-class TestUnattendedRunDue:
+class TestUnattendedLock:
     @pytest.fixture(autouse=True)
-    def _isolated_hints_state(self, tmp_path):
-        with patch.object(hints, "_get_state_path", return_value=tmp_path / "hogli_hints.json") as state:
-            yield state.return_value
-        if worktrees._unattended_lock is not None:
-            worktrees._unattended_lock.close()
-            worktrees._unattended_lock = None
+    def _lock_path(self, tmp_path, monkeypatch) -> Path:
+        path = tmp_path / "worktrees-clean.lock"
+        monkeypatch.setattr(worktrees, "_UNATTENDED_LOCK", path)
+        return path
 
-    def test_second_run_same_day_is_refused_per_mode(self) -> None:
-        assert _unattended_run_due("full", dry_run=False)
-        assert not _unattended_run_due("full", dry_run=False)
-        assert _unattended_run_due("deps", dry_run=False)
+    def _take(self, dry_run: bool) -> bool:
+        lock = _unattended_lock(dry_run)
+        if lock is None:
+            return False
+        lock.close()
+        return True
+
+    def test_second_run_same_day_is_refused(self) -> None:
+        assert self._take(dry_run=False)
+        assert not self._take(dry_run=False)
 
     def test_dry_run_does_not_consume_the_day(self) -> None:
-        assert _unattended_run_due("full", dry_run=True)
-        assert _unattended_run_due("full", dry_run=False)
+        assert self._take(dry_run=True)
+        assert self._take(dry_run=False)
 
-    def test_concurrent_run_holding_the_lock_is_refused_for_both_modes(self, _isolated_hints_state: Path) -> None:
-        with (_isolated_hints_state.with_name("worktrees-clean.lock")).open("a") as other_shell:
+    def test_concurrent_run_holding_the_lock_is_refused(self, _lock_path: Path) -> None:
+        with _lock_path.open("a") as other_shell:
             fcntl.flock(other_shell, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            assert not _unattended_run_due("full", dry_run=False)
-            assert not _unattended_run_due("deps", dry_run=False)
+            assert not self._take(dry_run=False)
 
-    def test_due_run_touches_the_lock_for_the_shell_gate(self, _isolated_hints_state: Path) -> None:
-        lock = _isolated_hints_state.with_name("worktrees-clean.lock")
-        lock.touch()
-        os.utime(lock, (0, 0))
-        assert _unattended_run_due("full", dry_run=True)
-        assert lock.stat().st_mtime == 0
-        assert _unattended_run_due("full", dry_run=False)
-        assert lock.stat().st_mtime > 0
-
-    def test_run_older_than_a_day_is_due(self, _isolated_hints_state: Path) -> None:
-        stale = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
-        _isolated_hints_state.write_text(json.dumps({"last_runs": {"worktrees:clean:full": stale}}))
-        assert _unattended_run_due("full", dry_run=False)
+    def test_run_older_than_a_day_is_due(self, _lock_path: Path) -> None:
+        _lock_path.write_text(str(time.time() - 25 * 3600))
+        assert self._take(dry_run=False)
 
 
 class TestParseCutoff:

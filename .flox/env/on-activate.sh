@@ -199,9 +199,11 @@ fi
 # version, so a per-worktree copy only costs disk.
 unset GOROOT
 export GOTOOLCHAIN=local
-export GOPATH="${XDG_CACHE_HOME:-$HOME/.cache}/posthog/go"
-export GOCACHE="${XDG_CACHE_HOME:-$HOME/.cache}/posthog/go-build"
+export GOPATH="$HOME/.cache/posthog/go"
+export GOCACHE="$HOME/.cache/posthog/go-build"
 export GOMODCACHE="$GOPATH/pkg/mod"
+# A copy left under this checkout's flox cache is unused.
+rm -rf "$FLOX_ENV_CACHE/go" "$FLOX_ENV_CACHE/go-build"
 # Go creates the module cache read-only by default, and `rm -rf` on a worktree
 # cannot delete a read-only directory tree.
 export GOFLAGS=-modcacherw
@@ -374,17 +376,11 @@ fi
 # full copy of the tracked tree. Reap idle ones in the background once a day.
 # hogli skips registered worktrees with unsaved or unpushed work. It does remove
 # orphans, which git no longer tracks. POSTHOG_WORKTREES_AUTOCLEAN=0 opts out.
-# hogli touches the lock file on each real run, so its mtime gates the spawn.
+# hogli writes the lock file on each real run, so a fresh one means skip.
 WORKTREES_CLEAN_LOCK="$HOME/.config/posthog/worktrees-clean.lock"
 if [[ "${POSTHOG_WORKTREES_AUTOCLEAN:-1}" != "0" ]] && [[ -z "${CI:-}" ]] && [[ -x "$UV_PROJECT_ENVIRONMENT/bin/hogli" ]] \
-  && [[ -z "$(find "$WORKTREES_CLEAN_LOCK" -mmin -1440 2>/dev/null)" ]]; then
-  (
-    echo "--- $(date '+%Y-%m-%d %H:%M:%S')"
-    "$UV_PROJECT_ENVIRONMENT/bin/hogli" worktrees:clean --before 14d --mode full --unattended
-    "$UV_PROJECT_ENVIRONMENT/bin/hogli" worktrees:clean --before 7d --mode deps --unattended
-    # GOPATH and GOCACHE live in ~/.cache/posthog, so a copy here is unused.
-    rm -rf "$FLOX_ENV_CACHE/go" "$FLOX_ENV_CACHE/go-build"
-  ) >>"$FLOX_ENV_CACHE/worktrees-clean.log" 2>&1 &
+  && [[ -z "$(find "$WORKTREES_CLEAN_LOCK" -size +0c -mmin -1440 2>/dev/null)" ]]; then
+  "$UV_PROJECT_ENVIRONMENT/bin/hogli" worktrees:clean --unattended >>"$FLOX_ENV_CACHE/worktrees-clean.log" 2>&1 &
   disown
 fi
 

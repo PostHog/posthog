@@ -100,17 +100,6 @@ def record_check_run(command: str) -> None:
     _save_state(state)
 
 
-def last_check_run(command: str) -> datetime | None:
-    """When *command* was last recorded with ``record_check_run``, or None."""
-    last_run = _load_state().get("last_runs", {}).get(command)
-    if last_run is None:
-        return None
-    try:
-        return datetime.fromisoformat(last_run)
-    except (ValueError, TypeError):
-        return None
-
-
 def maybe_show_hint(command: str | None) -> None:
     """Evaluate triggers and maybe print a hint to stderr. Never raises."""
     try:
