@@ -1,3 +1,5 @@
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import type { AiFirstHandoffLogicProps } from 'scenes/max/aiFirstCreate/aiFirstHandoffLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -46,18 +48,23 @@ export function workflowHandoffInFolder(folder: string | null): AiFirstHandoffLo
     }
     return {
         ...NEW_WORKFLOW_HANDOFF,
-        notOpenedMessage:
-            'Your workflow was created, but could not be moved into this folder. Find it in project files and use Move to.',
         prepareCreated: async (id) => {
-            const { results } = await api.fileSystem.list({ type: 'hog_flow', ref: id })
-            const entry = results.find((item) => item.type === 'hog_flow' && item.ref === id && !item.shortcut)
-            if (!entry?.id) {
-                throw new Error('Workflow file not found')
-            }
-            const { newPath, isValidMove } = calculateMovePath(entry, folder)
-            if (isValidMove) {
-                await api.fileSystem.move(entry.id, newPath)
-                projectTreeDataLogic.findMounted()?.actions.movedItem(entry, entry.path, newPath)
+            // Filing is a follow-up step, so a failed move still opens the workflow the person just made.
+            try {
+                const { results } = await api.fileSystem.list({ type: 'hog_flow', ref: id })
+                const entry = results.find((item) => item.type === 'hog_flow' && item.ref === id && !item.shortcut)
+                if (!entry?.id) {
+                    throw new Error('Workflow file not found')
+                }
+                const { newPath, isValidMove } = calculateMovePath(entry, folder)
+                if (isValidMove) {
+                    await api.fileSystem.move(entry.id, newPath)
+                    projectTreeDataLogic.findMounted()?.actions.movedItem(entry, entry.path, newPath)
+                }
+            } catch {
+                lemonToast.warning(
+                    `Your workflow was created, but it couldn't be moved into ${folder}. It's in Unfiled / Workflows.`
+                )
             }
         },
     }
