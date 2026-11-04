@@ -1,11 +1,11 @@
 //! Everything the recorder learns about one session, block by block.
 
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use super::clicks::{ClickKind, ClickTracker};
-use super::css::CssRewrite;
-use super::dom::{DomInspector, RemoteUrls, Srcset, UrlLimit};
+use super::dom::{DomInspector, FlushBudgets, UrlLimit};
+use super::edits::EventEdits;
 use super::events::{href_from, number, Activity, DataFields, EventCounter};
 use super::features::{BlockFeatures, FeatureRecorder, SurfacingFeatures};
 use super::rrweb::{
@@ -52,9 +52,14 @@ pub struct BlockInspection {
     features: FeatureRecorder,
     moments: Vec<Moment>,
     image_urls: Vec<String>,
-    remote_urls: RemoteUrls,
+    font_urls: Vec<String>,
+    url_limit: Option<UrlLimit>,
+    edits: Vec<EventEdits>,
+    unplaced: bool,
     events: u32,
     resolve_budget: Option<Arc<AtomicUsize>>,
+    edit_budget: Option<Arc<AtomicUsize>>,
+    edit_bytes_taken: usize,
 }
 
 /// What the inspector learned about one block.
@@ -65,25 +70,39 @@ pub struct Inspected {
     pub moments: Vec<Moment>,
     /// Remote image URLs the block's DOM referenced, for the image fetcher.
     pub image_urls: Vec<String>,
-    /// Every remote URL in an image slot of the block, which the writer replaces with its reference.
-    pub remote_urls: Vec<String>,
-    /// Set when `remote_urls` stops short, so that the block must not be stored.
+    pub font_urls: Vec<String>,
+    /// Set when the inspector could not read the block in full, so that the block must not be stored.
     pub url_limit: Option<UrlLimit>,
-    /// The image-slot srcset values of the block, which the writer rebuilds from the candidates it keeps.
-    pub srcsets: Vec<Srcset>,
-    pub css_rewrites: Vec<CssRewrite>,
+    /// Where the writer changes the block's events, in event order.
+    pub edits: Vec<EventEdits>,
+    /// The inspector read a slot that the writer could not find again, so the block must not be stored.
+    pub unplaced: bool,
 }
 
 impl BlockInspection {
-    /// A block whose relative CSS URLs draw their resolved bytes from `budget`, which other blocks can share.
-    pub fn with_resolve_budget(budget: Arc<AtomicUsize>) -> Self {
+    /// A block whose resolved CSS URLs and edits draw their bytes from budgets that other blocks can share.
+    pub fn with_flush_budgets(
+        resolved_bytes: Arc<AtomicUsize>,
+        edit_bytes: Arc<AtomicUsize>,
+    ) -> Self {
         Self {
-            resolve_budget: Some(budget),
+            resolve_budget: Some(resolved_bytes),
+            edit_budget: Some(edit_bytes),
             ..Self::default()
         }
     }
 
-    pub fn finish(mut self) -> Inspected {
+    fn release_edits(&mut self) {
+        if let Some(budget) = &self.edit_budget {
+            budget.fetch_add(
+                std::mem::take(&mut self.edit_bytes_taken),
+                Ordering::Relaxed,
+            );
+        }
+        self.edits = Vec::new();
+    }
+
+    pub fn finish(self) -> Inspected {
         let features = self.features.finish();
         let mut stats = self.counter.finish();
         stats.surfacing = SurfacingFeatures::from(&features);
@@ -92,10 +111,10 @@ impl BlockInspection {
             features,
             moments: self.moments,
             image_urls: self.image_urls,
-            url_limit: self.remote_urls.limit,
-            srcsets: self.remote_urls.take_srcsets(),
-            css_rewrites: self.remote_urls.take_css_rewrites(),
-            remote_urls: self.remote_urls.into_urls(),
+            font_urls: self.font_urls,
+            url_limit: self.url_limit,
+            edits: self.edits,
+            unplaced: self.unplaced,
         }
     }
 }
@@ -183,11 +202,24 @@ impl SessionInspector {
             event,
             window,
             page_url.as_deref(),
-            block.resolve_budget.as_deref(),
+            FlushBudgets {
+                resolved_bytes: block.resolve_budget.as_deref(),
+                edit_bytes: block.edit_budget.as_deref(),
+            },
             &mut block.counter.stats,
         );
         block.image_urls.extend(self.dom.take_image_urls());
-        block.remote_urls.extend(self.dom.take_remote_urls());
+        block.font_urls.extend(self.dom.take_font_urls());
+        block.url_limit = block.url_limit.or(self.dom.take_url_limit());
+        let (edits, unplaced, edit_bytes) = self.dom.take_edits();
+        block.edit_bytes_taken += edit_bytes;
+        block.unplaced |= unplaced;
+        if block.url_limit.is_none() && !edits.is_empty() {
+            block.edits.push(EventEdits::new(index, edits));
+        }
+        if block.url_limit.is_some() {
+            block.release_edits();
+        }
         if observed.full_snapshot {
             self.cold = false;
         }
@@ -327,6 +359,22 @@ mod tests {
 
     #[test]
     fn resolves_relative_css_against_its_own_window() {
+        let resolved = |edits: &[EventEdits]| -> Vec<String> {
+            edits
+                .iter()
+                .flat_map(|event| &event.edits)
+                .filter_map(|edit| match &edit.slot {
+                    super::super::edits::Slot::Css(css) => Some(css),
+                    _ => None,
+                })
+                .flat_map(|css| &css.pieces)
+                .flat_map(|piece| &piece.parts)
+                .filter_map(|part| match part {
+                    super::super::css::CssPart::Url(url) => Some(url.url.clone()),
+                    super::super::css::CssPart::Text(_) => None,
+                })
+                .collect()
+        };
         let mut session = SessionInspector::default();
         let mut block = BlockInspection::default();
         let meta = |host: &str| json!([{"type": 4, "timestamp": 1, "data": {"href": format!("https://{host}/shop/item")}}]);
@@ -343,13 +391,71 @@ mod tests {
                 "https://b.example.com/img/a.png"
             ]
         );
-        assert!(inspected.css_rewrites.is_empty());
+        assert_eq!(
+            resolved(&inspected.edits),
+            [
+                "https://a.example.com/img/a.png",
+                "https://b.example.com/img/a.png"
+            ]
+        );
 
         let mut block = BlockInspection::default();
         let rule = json!([{"type": 3, "timestamp": 3, "data": {"source": 8, "id": 3, "replaceSync": ".b{background:url(/img/b.png)}"}}]);
         session.observe_message(&mut block, &message_in(Some("unseen"), rule.clone()));
         session.observe_message(&mut block, &message_in(Some("a"), rule));
-        assert!(block.finish().css_rewrites.is_empty());
+        // A window whose page is not known leaves its relative URL as the page wrote it.
+        assert_eq!(
+            resolved(&block.finish().edits),
+            ["https://a.example.com/img/b.png"]
+        );
+    }
+
+    #[test]
+    fn drops_a_block_whose_edits_the_flush_cannot_hold() {
+        let styled = |sheet: String| {
+            message(
+                json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [
+                    {"type": 2, "tagName": "style", "attributes": {"_cssText": sheet}, "childNodes": [], "id": 2},
+                ]}}}]),
+            )
+        };
+        let inspect_within = |message: &Message, edit_budget: &Arc<AtomicUsize>| {
+            let mut block = BlockInspection::with_flush_budgets(
+                Arc::new(AtomicUsize::new(usize::MAX)),
+                edit_budget.clone(),
+            );
+            SessionInspector::default().observe_message(&mut block, message);
+            block.finish()
+        };
+        let remote = styled(
+            (0..100)
+                .map(|i| format!(".a{i}{{background:url(https://cdn.example.com/{i}.png)}}"))
+                .collect(),
+        );
+        let unbounded = Arc::new(AtomicUsize::new(usize::MAX));
+        inspect_within(&remote, &unbounded);
+        let held = usize::MAX - unbounded.load(Ordering::Relaxed);
+        let edit_budget = Arc::new(AtomicUsize::new(held + held / 2));
+        let blocks = [
+            inspect_within(&remote, &edit_budget),
+            inspect_within(&remote, &edit_budget),
+        ];
+        assert_eq!((blocks[0].url_limit, blocks[0].edits.len()), (None, 1));
+        assert_eq!(
+            (blocks[1].url_limit, blocks[1].edits.len()),
+            (Some(UrlLimit::Edits), 0)
+        );
+        // The dropped block stopped part way through its style sheet and gave back what it took.
+        assert_eq!(edit_budget.load(Ordering::Relaxed), held / 2);
+        // The writer leaves relative URLs as they are, so a sheet of them takes nothing.
+        let relative = styled(
+            (0..100)
+                .map(|i| format!(".r{i}{{background:url(img/{i}.png)}}"))
+                .collect(),
+        );
+        let untouched = Arc::new(AtomicUsize::new(usize::MAX));
+        inspect_within(&relative, &untouched);
+        assert_eq!(untouched.load(Ordering::Relaxed), usize::MAX);
     }
 
     #[test]

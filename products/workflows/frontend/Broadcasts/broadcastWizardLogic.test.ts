@@ -738,15 +738,80 @@ describe('broadcastWizardLogic', () => {
         }
     )
 
+    it.each([
+        { where: 'stays on the page', leaves: false, path: '/broadcasts/broadcast-1' },
+        { where: 'leaves while it sends', leaves: true, path: '/broadcasts' },
+    ])('finishes the launch and keeps the broadcast live when the person $where', async ({ leaves, path }) => {
+        latest = savedBroadcast({ name: '', subject: 'Spring sale', updatedAt: '2026-09-24T10:00:00Z' })
+        const statusPatches: string[] = []
+        let batchJobStarted: () => void = () => {}
+        const batchJobRequested = new Promise<void>((resolve) => {
+            batchJobStarted = resolve
+        })
+        let releaseBatchJob: () => void = () => {}
+        const batchJobHeld = new Promise<void>((resolve) => {
+            releaseBatchJob = resolve
+        })
+        useMocks({
+            get: { '/api/projects/:team_id/hog_flows/:id/batch_jobs/': { results: [] } },
+            post: {
+                '/api/projects/:team_id/hog_flows/:id/batch_jobs/': async () => {
+                    batchJobStarted()
+                    await batchJobHeld
+                    return [201, { id: 'job-1', status: 'queued' }]
+                },
+            },
+            patch: {
+                '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => {
+                    const { status } = (await request.json()) as { status?: string }
+                    if (status) {
+                        statusPatches.push(status)
+                    }
+                    return [200, { ...latest, status: status ?? latest.status }]
+                },
+            },
+        })
+        const capture = jest.spyOn(posthog, 'capture')
+        router.actions.push('/broadcasts/new')
+        logic.actions.setEmail({
+            ...DEFAULT_BROADCAST_EMAIL,
+            from: { ...DEFAULT_BROADCAST_EMAIL.from, integrationId: 1 },
+            subject: 'Spring sale',
+            html: '<p>Hi</p>',
+        })
+        releaseCreate()
+        logic.actions.setStep('review')
+
+        logic.actions.launchBroadcast()
+        await batchJobRequested
+        if (leaves) {
+            logic.unmount()
+            router.actions.push('/broadcasts')
+        }
+        releaseBatchJob()
+        await expectLogic(logic).toDispatchActions(['launchBroadcastFinished'])
+
+        expect(statusPatches).toEqual(['active'])
+        expect(capture).toHaveBeenCalledWith(
+            'broadcast launched',
+            expect.objectContaining({ broadcast_id: 'broadcast-1', schedule_mode: 'now' })
+        )
+        expect(router.values.location.pathname).toMatch(new RegExp(`${path}$`))
+        if (leaves) {
+            logic.mount()
+        }
+    })
+
     it('refreshes the realtime cohort status until the cohort is ready, past a failed check', async () => {
         const states = ['needs_attention', 'error', 'ready']
         let calls = 0
         useMocks({
             post: {
                 '/api/projects/:team_id/hog_flows/user_blast_radius/': async ({ request }) => {
-                    // The recipient email check posts here too, with an extra condition.
-                    const { filters } = (await request.json()) as { filters: { properties: unknown[] } }
-                    if (filters.properties.length > 1) {
+                    // The recipient email check and the channel reach counts post here too. Only the
+                    // audience size asks for the email dedupe, so only it reads the next state.
+                    const { sends_email } = (await request.json()) as { sends_email?: boolean }
+                    if (!sends_email) {
                         return [200, { affected: 0, total: 0 }]
                     }
                     const state = states[Math.min(calls++, states.length - 1)]

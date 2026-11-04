@@ -33,7 +33,7 @@ const emptyLocal = (): LocalLists => ({
     'data-management': [],
     people: [],
     health: [],
-    misc: [],
+    actions: [],
     shortcuts: [],
     settings: [],
     create: [],
@@ -54,7 +54,8 @@ const input = (mode: CommandKMode, overrides: Partial<SectionsInput>): SectionsI
     viewAll: null,
     stale: false,
     personsFirst: false,
-    settingsInResults: false,
+    unifiedRanking: false,
+    searchCorrection: null,
     ...overrides,
 })
 
@@ -118,25 +119,50 @@ describe('buildSections', () => {
         expect(rowKeys(loaded)).toEqual(onceLoaded)
     })
 
-    it('keeps the View all row on ranked results of one type', () => {
+    const alerts: SearchItem[] = [
+        { id: 'alert-2', name: 'Revenue drop', category: 'results', record: { type: 'alert', id: '2' } },
+        { id: 'alert-1', name: 'Weekly revenue', category: 'results', record: { type: 'alert', id: '1' } },
+    ]
+    const ticketMatchedInMessage: SearchItem = {
+        id: 'ticket-1',
+        name: 'Card declined',
+        category: 'results',
+        record: { type: 'ticket', id: '1' },
+    }
+    test.each<[string, string, SearchItem[], string[], boolean]>([
+        [
+            'file system results with a server rank',
+            'type:dashboard revenue',
+            [{ ...dashboard('a', '1'), rankKey: [-1, 0, 0, 0, -1, 0, 2, 0, 0] }],
+            ['results/a'],
+            false,
+        ],
+        [
+            'results from a type API that sends no rank, in the order it sent them',
+            'type:alert revenue',
+            alerts,
+            ['results/alert-2', 'results/alert-1'],
+            false,
+        ],
+        [
+            'a type API result that matched outside its name, with unified ranking',
+            'type:ticket revenue',
+            [ticketMatchedInMessage],
+            ['results/ticket-1'],
+            true,
+        ],
+    ])('keeps the View all row after ranked %s', (_, results, items, rowKeys, unifiedRanking) => {
         const viewAll: ViewAll = {
-            item: { id: 'view-all', name: 'View all dashboards', category: 'results', href: '/dashboard' },
+            item: { id: 'view-all', name: 'View all', category: 'results', href: '/list' },
             placement: 'trail',
         }
         const remote = emptyRemoteSlots()
-        remote.results = {
-            cache: { 'type:dashboard revenue': [{ ...dashboard('a', '1'), rankKey: [-1, 0, 0, 0, -1, 0, 2, 0, 0] }] },
-        }
+        remote.results = { cache: { [results]: items } }
         const sections = buildSections(
-            input('search', {
-                remote,
-                remoteQueries: { results: 'type:dashboard revenue' },
-                localQuery: 'revenue',
-                viewAll,
-            })
+            input('search', { remote, remoteQueries: { results }, localQuery: 'revenue', viewAll, unifiedRanking })
         )
         expect(sections.find((section) => section.key === 'results')?.rows.map((row) => row.key)).toEqual([
-            'results/a',
+            ...rowKeys,
             'results/view-all',
         ])
     })
@@ -331,6 +357,56 @@ describe('buildSections', () => {
         expect(sections[0].rows).toMatchObject([{ kind: 'item', section: 'accounts', item: account }])
     })
 
+    test.each([
+        [
+            'results',
+            [{ ...dashboard('a', '1'), name: 'API usage', rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0] }],
+            ['notice', 'best-matches'],
+        ],
+        ['no results', [], []],
+    ])('a search correction with %s shows the notice only above results', (_, results, keys) => {
+        const remote = emptyRemoteSlots()
+        remote.results.cache['api keys'] = results
+        const sections = buildSections(
+            input('search', {
+                remote,
+                remoteQueries: { results: 'api keys' },
+                localQuery: 'api keys',
+                searchCorrection: { from: 'api_keys', to: 'api keys' },
+            })
+        )
+
+        expect(sections.map((section) => section.key)).toEqual(keys)
+        if (keys.length) {
+            expect(sections[0].rows).toEqual([
+                expect.objectContaining({ reason: 'corrected', missing: ['api_keys'], shown: ['api keys'] }),
+            ])
+        }
+    })
+
+    it('with unified ranking, a domain search through the sections puts the account that owns the domain first', () => {
+        const account: SearchItem = {
+            id: 'account-1',
+            name: 'Acme',
+            category: 'accounts',
+            itemType: 'account',
+            identityFields: ['example.org'],
+        }
+        const remote = emptyRemoteSlots()
+        remote.results.cache['example.org'] = [
+            { ...dashboard('a', '1'), name: 'Example org signups', rankKey: [-2, 0, 0, 0, -2, 0, 1, 0, -1] },
+        ]
+        remote.accounts.cache['example.org'] = [account]
+        const current = query({
+            remoteQueries: { results: 'example.org', accounts: 'example.org' },
+            localQuery: 'example.org',
+        })
+
+        const sections = buildSections(input('search', { remote, ...current, unifiedRanking: true }))
+
+        expect(sections[0].rows[0]).toMatchObject({ kind: 'item', item: account })
+    })
+
     it('shows saved objects when the Accounts request settles empty', () => {
         const remote = emptyRemoteSlots()
         remote.results.cache.billing = [{ ...dashboard('a', '1'), rankKey: [-1, 0, 0, 0, -1, 0, 2, 0, 0] }]
@@ -344,10 +420,9 @@ describe('buildSections', () => {
     })
 
     test.each([
-        ['off', false, 'Personal API keys', ['best-matches', 'settings'], 'Ada board'],
-        ['on', true, 'Personal API keys', ['best-matches'], 'Personal API keys'],
-        ['on, but a product has its name', true, 'API keys', ['best-matches', 'settings'], 'API keys'],
-    ])('ranks an exact-match setting with the results: flag %s', (_, settingsInResults, settingName, keys, first) => {
+        ['no product shares its name', 'Personal API keys', ['best-matches'], 'Personal API keys'],
+        ['a product has its name', 'API keys', ['best-matches', 'settings'], 'API keys'],
+    ])('ranks an exact-match setting with the results when %s', (_, settingName, keys, first) => {
         const setting: SearchItem = {
             id: 'settings-api-keys',
             name: `User: ${settingName} (api keys)`,
@@ -368,13 +443,37 @@ describe('buildSections', () => {
                 remote,
                 remoteQueries: { results: 'api keys' },
                 localQuery: 'api keys',
-                settingsInResults,
             })
         )
 
         expect(sections.map((section) => section.key)).toEqual(keys)
         const firstItem = sections[0].rows[0]
         expect(firstItem.kind === 'item' ? String(firstItem.item.displayName || firstItem.item.name) : null).toBe(first)
+    })
+
+    it('with unified ranking, a pasted snake_case name ranks its matching setting first', () => {
+        const setting: SearchItem = {
+            id: 'settings-api-keys',
+            name: 'User: Personal API keys (api keys)',
+            displayName: 'Personal API keys',
+            category: 'settings',
+        }
+        const products: SearchItem[] = [
+            { id: 'product-endpoints', name: 'Endpoints', category: 'products', searchKeywords: ['api'] },
+        ]
+        const remote = emptyRemoteSlots()
+        remote.results.cache.personal_api_keys = []
+        const sections = buildSections(
+            input('search', {
+                local: { ...emptyLocal(), settings: [setting], products },
+                remote,
+                remoteQueries: { results: 'personal_api_keys' },
+                localQuery: 'personal_api_keys',
+                unifiedRanking: true,
+            })
+        )
+
+        expect(sections[0].rows[0]).toMatchObject({ kind: 'item', item: setting })
     })
 
     it('says which words were dropped when a filter is active', () => {

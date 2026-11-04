@@ -3,35 +3,47 @@ import { View } from 'react-native'
 
 import { useToasts, ViewsToast } from '@/features/views/ViewsToast'
 import { useAsyncAction } from '@/lib/useAsyncAction'
+import { BackChip } from '@/ui/BackChip'
 import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
-import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
 import { ComposeIcon } from '@/ui/icons/ComposeIcon'
 import { MoreIcon } from '@/ui/icons/MoreIcon'
 import { PillControl } from '@/ui/PillControl'
 import { Pressable44 } from '@/ui/Pressable44'
-import { createStyles, useColors } from '@/ui/theme'
+import { screenLayout } from '@/ui/screenLayout'
+import { createStyles, useTheme } from '@/ui/theme'
 import { iconSizes, layout, radii } from '@/ui/tokens'
 import { useScreenInsets } from '@/ui/useScreenInsets'
 
 import { ChatHeaderMenu } from './ChatHeaderMenu'
 import { useCopyChatLink } from './useCopyChatLink'
 
-const HEADER_TOP = 16
-const ROW_HEIGHT = 54
+const HEADER_TOP = screenLayout.top - layout.designStatusBar
+const ROW_HEIGHT = screenLayout.rowHeight
 const HEADER_FADE = 24
 export const CHAT_HEADER_HEIGHT = HEADER_TOP + ROW_HEIGHT + HEADER_FADE
+export const CHAT_COMPACT_HEADER_HEIGHT = HEADER_TOP + ROW_HEIGHT + 8
 
 interface ChatHeaderProps {
+    compact?: boolean
     webUrl: string | undefined
     blurTarget?: RefObject<View | null>
     onBack: () => void
     onNewChat: () => void
+    newChatDisabledReason?: string
     onArchive?: () => Promise<void>
 }
 
-export function ChatHeader({ webUrl, blurTarget, onBack, onNewChat, onArchive }: ChatHeaderProps): ReactElement {
-    const colors = useColors()
+export function ChatHeader({
+    compact = false,
+    webUrl,
+    blurTarget,
+    onBack,
+    onNewChat,
+    newChatDisabledReason,
+    onArchive,
+}: ChatHeaderProps): ReactElement {
+    const { colors, shadows } = useTheme()
     const styles = useStyles()
     const insets = useScreenInsets()
     const [menuOpen, setMenuOpen] = useState(false)
@@ -54,40 +66,46 @@ export function ChatHeader({ webUrl, blurTarget, onBack, onNewChat, onArchive }:
         }
     }
     return (
-        <View collapsable={false} style={[styles.header, { paddingTop: insets.top + HEADER_TOP }]} testID="chat-header">
+        <View
+            collapsable={false}
+            style={[
+                styles.header,
+                {
+                    paddingTop: insets.top + HEADER_TOP,
+                    paddingBottom: compact ? 8 : HEADER_FADE,
+                    height: insets.top + (compact ? CHAT_COMPACT_HEADER_HEIGHT : CHAT_HEADER_HEIGHT),
+                },
+            ]}
+            testID="chat-header"
+        >
             <BlurEdge solid={0.7} blurTarget={blurTarget} />
             <FadeEdge direction="down" solid={0.7} opacity={layout.chromeTint} />
-            <Pressable44
-                onPress={onBack}
-                accessibilityLabel="Back"
-                pressedBackground={colors.background}
-                style={styles.round}
-                testID="chat-back"
-            >
-                <ChevronLeftIcon size={iconSizes.control} />
-            </Pressable44>
-            <PillControl height={ROW_HEIGHT}>
-                <Pressable44
-                    onPress={onNewChat}
-                    accessibilityLabel="New chat"
-                    pressedBackground={colors.background}
-                    style={styles.button}
-                    testID="chat-new"
-                >
-                    <ComposeIcon size={iconSizes.control} />
-                </Pressable44>
-                <Pressable44
-                    onPress={() => setMenuOpen(true)}
-                    accessibilityLabel="Chat options"
-                    accessibilityState={{ expanded: menuOpen, disabled: !webUrl && !onArchive }}
-                    disabled={!webUrl && !onArchive}
-                    pressedBackground={colors.background}
-                    style={styles.button}
-                    testID="chat-more"
-                >
-                    <MoreIcon size={iconSizes.control} color={webUrl || onArchive ? colors.ink : colors.disabled} />
-                </Pressable44>
-            </PillControl>
+            <BackChip onPress={onBack} testID="chat-back" />
+            {webUrl || onArchive ? (
+                <PillControl height={ROW_HEIGHT} style={[styles.actions, shadows.chip]}>
+                    <Pressable44
+                        onPress={() => (newChatDisabledReason ? toasts.show(newChatDisabledReason) : onNewChat())}
+                        accessibilityLabel="New chat"
+                        accessibilityState={{ disabled: !!newChatDisabledReason }}
+                        accessibilityHint={newChatDisabledReason}
+                        pressedBackground={colors.background}
+                        style={styles.button}
+                        testID="chat-new"
+                    >
+                        <ComposeIcon size={iconSizes.control} />
+                    </Pressable44>
+                    <Pressable44
+                        onPress={() => setMenuOpen(true)}
+                        accessibilityLabel="Chat options"
+                        accessibilityState={{ expanded: menuOpen }}
+                        pressedBackground={colors.background}
+                        style={styles.button}
+                        testID="chat-more"
+                    >
+                        <MoreIcon size={iconSizes.control} />
+                    </Pressable44>
+                </PillControl>
+            ) : null}
             <ChatHeaderMenu
                 visible={menuOpen}
                 top={insets.top + HEADER_TOP + ROW_HEIGHT + 8}
@@ -104,7 +122,7 @@ export function ChatHeader({ webUrl, blurTarget, onBack, onNewChat, onArchive }:
     )
 }
 
-const useStyles = createStyles(({ colors }) => ({
+const useStyles = createStyles(() => ({
     header: {
         position: 'absolute',
         top: 0,
@@ -113,25 +131,19 @@ const useStyles = createStyles(({ colors }) => ({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: 16,
+        paddingHorizontal: layout.detailGutter,
         paddingBottom: HEADER_FADE,
         pointerEvents: 'box-none',
     },
     button: {
-        width: 56,
-        height: 46,
+        width: 48,
+        height: 44,
         borderRadius: radii.pill,
         alignItems: 'center',
         justifyContent: 'center',
     },
-    round: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        borderWidth: 1,
-        borderColor: colors.hairline,
-        backgroundColor: colors.surface,
-        alignItems: 'center',
-        justifyContent: 'center',
+    actions: {
+        paddingVertical: 0,
+        paddingHorizontal: 0,
     },
 }))

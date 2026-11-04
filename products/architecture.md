@@ -483,9 +483,13 @@ The facade pages in SQL instead, and the view builds the standard response from 
 
 - A facade list function takes a `PageRequest` (or a `CursorPageRequest`) and returns `Page[Contract]`.
   Page the queryset with `select_page` (or `select_cursor_page`), then convert the rows with `page.map(...)`.
-  Both helpers count the whole list and add the primary key as the last sort term, so a page boundary never skips or repeats a row.
+  Both helpers count the whole list and add the primary key as the last sort term, so the page order is deterministic.
+  An offset page can still shift when rows are added or deleted between requests.
+  A cursor page does not skip or repeat a row, unless the ordering values of a row change between requests.
+  The queryset must hold one row per item, so a join that duplicates rows breaks both forms.
 - The view sets `pagination_class = FacadeLimitOffsetPagination` and returns `facade_page_response(self, fetch)`, where `fetch` calls the facade with the page.
   For a cursor list, subclass `FacadeCursorPagination`, set `ordering`, and return `facade_cursor_page_response(self, fetch)`.
+  A cursor stores every ordering field of the row at the page edge, so the contract must expose those fields and `id`.
 - Use limit/offset for a list that people browse with a total.
   Use a cursor for a list that grows at the top while people read it, such as batch export runs or deliveries, because offsets shift as rows arrive.
   Do not add page-number lists.

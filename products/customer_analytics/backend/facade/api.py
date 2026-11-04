@@ -28,7 +28,7 @@ from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import (
     Aggregate,
@@ -39,7 +39,6 @@ from django.db.models import (
     Exists,
     ExpressionWrapper,
     F,
-    FilteredRelation,
     FloatField,
     IntegerField,
     Max,
@@ -53,7 +52,7 @@ from django.db.models import (
     Value,
 )
 from django.db.models.fields.json import KeyTextTransform
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Cast, Coalesce, Left
 from django.utils import timezone
 
 import structlog
@@ -132,7 +131,6 @@ from products.customer_analytics.backend.logic.account_filters import (
     parse_email_search,
 )
 from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
-from products.customer_analytics.backend.logic.account_member_search import get_account_users_organization_id
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
     coerce_is_big_number,
@@ -189,6 +187,7 @@ from products.customer_analytics.backend.models.custom_property_definition impor
     NUMERIC_DISPLAY_TYPES,
     DataType,
 )
+from products.customer_analytics.backend.models.custom_property_value import SORT_VALUE_STR_PREFIX_LENGTH
 from products.customer_analytics.backend.tasks.tasks import send_announcement
 from products.notebooks.backend.facade import (
     api as notebooks,
@@ -399,8 +398,7 @@ def _resolve_accessible_account(
 
 
 def validate_account_users_access(team: Team, user: "User | None", account_id: str) -> None:
-    """Raise `UserAccessControlError` unless `user` may read the users of this account."""
-    get_account_users_organization_id(team=team, user=user, account_id=account_id)
+    raise PermissionDenied("Run the account-user query synchronously.")
 
 
 def get_account(
@@ -3434,7 +3432,6 @@ def _apply_account_table_sort(
     *,
     team_id: int,
     sort: contracts.AccountTableSort | None,
-    custom_property_display_types: dict[UUID, DisplayType],
 ) -> QuerySet[Account]:
     if sort is None:
         return queryset.order_by("-created_at", "-id")
@@ -3491,27 +3488,6 @@ def _apply_account_table_sort(
         queryset = queryset.annotate(
             _account_table_sort=Subquery(relationship_values, output_field=ArrayField(IntegerField()))
         )
-    elif sort.kind == contracts.AccountTableSortKind.CUSTOM_PROPERTY:
-        if sort.definition_id is None:
-            raise InvalidAccountTableColumn("Custom property sorting requires a definition.")
-        display_type = custom_property_display_types[sort.definition_id]
-        value_field = {
-            DataType.STRING: "value_str",
-            DataType.NUMERIC: "value_num",
-            DataType.BOOLEAN: "value_bool",
-            DataType.DATETIME: "value_datetime",
-        }[DATA_TYPE_BY_DISPLAY_TYPE[display_type]]
-        queryset = queryset.annotate(
-            _custom_property_sort_value=FilteredRelation(
-                "custom_property_values",
-                condition=Q(
-                    custom_property_values__team_id=team_id,
-                    custom_property_values__definition_id=sort.definition_id,
-                    custom_property_values__is_deleted=False,
-                ),
-            ),
-            _account_table_sort=F(f"_custom_property_sort_value__{value_field}"),
-        )
 
     order = F("_account_table_sort")
     primary_order = (
@@ -3520,6 +3496,58 @@ def _apply_account_table_sort(
         else order.desc(nulls_last=True)
     )
     return queryset.order_by(primary_order, "id")
+
+
+def _list_accounts_sorted_by_custom_property(
+    queryset: QuerySet[Account],
+    *,
+    team_id: int,
+    sort: contracts.AccountTableSort,
+    custom_property_display_types: dict[UUID, DisplayType],
+    offset: int,
+    limit: int,
+) -> list[Account]:
+    if sort.definition_id is None:
+        raise InvalidAccountTableColumn("Custom property sorting requires a definition.")
+    value_field = {
+        DataType.STRING: "value_str",
+        DataType.NUMERIC: "value_num",
+        DataType.BOOLEAN: "value_bool",
+        DataType.DATETIME: "value_datetime",
+    }[DATA_TYPE_BY_DISPLAY_TYPE[custom_property_display_types[sort.definition_id]]]
+    sort_value = F(f"custom_property_values__{value_field}")
+    with_value = queryset.filter(
+        custom_property_values__team_id=team_id,
+        custom_property_values__definition_id=sort.definition_id,
+        custom_property_values__is_deleted=False,
+        **{f"custom_property_values__{value_field}__isnull": False},
+    ).annotate(
+        _account_table_sort=(
+            Left(sort_value, SORT_VALUE_STR_PREFIX_LENGTH) if value_field == "value_str" else sort_value
+        ),
+    )
+    sort_keys = [F("_account_table_sort"), *([sort_value] if value_field == "value_str" else [])]
+    if sort.direction == contracts.AccountTableSortDirection.ASCENDING:
+        with_value = with_value.order_by(*(key.asc() for key in sort_keys), "id")
+    else:
+        with_value = with_value.order_by(*(key.desc() for key in sort_keys), "-id")
+    accounts: list[Account] = list(with_value[offset : offset + limit])
+    if len(accounts) == limit:
+        return accounts
+
+    with_value_count = offset + len(accounts) if accounts or offset == 0 else with_value.count()
+    without_value = queryset.exclude(
+        Exists(
+            CustomPropertyValue.objects.for_team(team_id).filter(
+                account_id=OuterRef("pk"),
+                definition_id=sort.definition_id,
+                is_deleted=False,
+                **{f"{value_field}__isnull": False},
+            )
+        )
+    ).order_by("id")
+    without_value_offset = max(offset - with_value_count, 0)
+    return accounts + list(without_value[without_value_offset : without_value_offset + limit - len(accounts)])
 
 
 class _PercentileCont(Aggregate):
@@ -3706,13 +3734,18 @@ def query_accounts_table(
         include_churned=include_churned,
         include_ignored=include_ignored,
     )
-    queryset = _apply_account_table_sort(
-        queryset,
-        team_id=team_id,
-        sort=sort,
-        custom_property_display_types=custom_property_display_types,
-    )
-    fetched_accounts = list(queryset[offset : offset + limit + 1])
+    if sort is not None and sort.kind == contracts.AccountTableSortKind.CUSTOM_PROPERTY:
+        fetched_accounts = _list_accounts_sorted_by_custom_property(
+            queryset,
+            team_id=team_id,
+            sort=sort,
+            custom_property_display_types=custom_property_display_types,
+            offset=offset,
+            limit=limit + 1,
+        )
+    else:
+        queryset = _apply_account_table_sort(queryset, team_id=team_id, sort=sort)
+        fetched_accounts = list(queryset[offset : offset + limit + 1])
     has_more = len(fetched_accounts) > limit
     accounts = fetched_accounts[:limit]
     account_ids = [account.id for account in accounts]
@@ -5952,3 +5985,7 @@ def list_announcement_channels(team_id: int) -> list[contracts.AnnouncementChann
 def get_key_metrics(*, team: Team, user: "User") -> list[contracts.KeyMetric] | None:
     """The key metrics, or None while a background calculation is still running."""
     return _key_metrics_logic.key_metrics(team, user)
+
+
+def get_key_metric_names(*, team: Team) -> dict[str, str]:
+    return _key_metrics_logic.key_metric_names(team)
