@@ -211,6 +211,7 @@ export function FilterSearchSubMenu({
     searchPlaceholder,
     emptyText,
     onOpen,
+    onOpened,
     dataAttr,
     optionDataAttr,
 }: {
@@ -225,16 +226,29 @@ export function FilterSearchSubMenu({
     emptyText: string
     /** Called when the submenu opens, to load its options only once someone wants them. */
     onOpen?: () => void
+    /** Called once the open submenu has painted, with how long that took in milliseconds. Every row stays mounted, so this grows with the list. */
+    onOpened?: (durationMs: number) => void
     dataAttr?: string
     optionDataAttr?: string
 }): React.ReactElement {
+    const handleOpenChange = (open: boolean): void => {
+        if (!open) {
+            return
+        }
+        onOpen?.()
+        if (onOpened) {
+            const startedAt = performance.now()
+            // The first frame runs after the rows have rendered, and the second after they have painted.
+            requestAnimationFrame(() => requestAnimationFrame(() => onOpened(performance.now() - startedAt)))
+        }
+    }
     // Values the options do not know yet, such as a tag from the URL before the list loads, still count as picked.
     const unknown = selected.filter((value) => !options.some((option) => option.value === value))
     const known: FilterOption[] = [...options, ...unknown.map((value) => ({ value, label: value }))]
     const picked = known.filter((option) => selected.includes(option.value))
     return (
         <DropdownMenuFilterProvider autoHighlight>
-            <DropdownMenuSub onOpenChange={(open) => open && onOpen?.()}>
+            <DropdownMenuSub onOpenChange={handleOpenChange}>
                 <FilterSubMenuRow
                     label={label}
                     value={filterSummary(

@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill-primitives'
 
@@ -68,6 +68,35 @@ describe('FilterSearchSubMenu', () => {
         })
 
         expect(onOpen).toHaveBeenCalledTimes(1)
+    })
+
+    it('reports how long the submenu took to open', async () => {
+        const onOpened = jest.fn()
+        render(
+            <DropdownMenu defaultOpen>
+                <DropdownMenuTrigger>Filters</DropdownMenuTrigger>
+                <DropdownMenuContent>
+                    <FilterSearchSubMenu
+                        label="Tags"
+                        allLabel="Any tag"
+                        pluralNoun="tags"
+                        options={[]}
+                        selected={[]}
+                        onChange={jest.fn()}
+                        onOpened={onOpened}
+                        searchPlaceholder="Search tags"
+                        emptyText="No tag matches"
+                    />
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )
+
+        await act(async () => {
+            fireEvent.click(await screen.findByText('Tags'))
+        })
+
+        await waitFor(() => expect(onOpened).toHaveBeenCalledTimes(1))
+        expect(onOpened).toHaveBeenCalledWith(expect.any(Number))
     })
 
     it('adds a picked row to the selection and keeps the menu open', async () => {
