@@ -27,7 +27,7 @@ Every row becomes the same PostHog send. The fields are in the skill's **Send fr
 
 ## Check before the switch
 
-- **What the send can't carry:** A PostHog send has one recipient and no attachments, cc or bcc. If the old send passes any of them, tell the user what the switch would drop before you change the call.
+- **What the send can't carry:** A PostHog send takes only the fields in the skill's **Send from code** section, for one recipient. If the old send passes anything else, such as attachments, cc or bcc, a scheduled delivery time, custom headers, or tags, tell the user what the switch would drop before you change the call.
 - **Sender:** The sending domain must be verified in PostHog, even if it already sends with the other provider. The app shows the DNS records to add.
 - **Suppressions:** Addresses that the old provider suppressed after bounces or complaints are not in PostHog's suppression list. Ask the user whether to add them before high-volume emails move.
 - **Errors:** Map the old provider's error handling to PostHog's error codes, such as `recipient_suppressed`, `recipient_unreachable`, and `quota_limited`. A code that means "don't retry" must not go back into a retry loop.
