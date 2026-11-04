@@ -527,7 +527,7 @@ class TestOAuthDeviceGrant(APIBaseTest):
             started = self._start()
             approved = self.client.post(
                 "/api/oauth_device/approve/",
-                {"user_code": started["user_code"], "project_id": self.team.id, "scopes": ["insight:read"]},
+                {"user_code": started["user_code"], "project_id": self.team.id, "scopes": ["feature_flag:read"]},
                 format="json",
             )
             clock.shift(timedelta(seconds=6))
@@ -535,7 +535,8 @@ class TestOAuthDeviceGrant(APIBaseTest):
             token = self._poll(started["device_code"])
 
         self.assertEqual(approved.status_code, status.HTTP_200_OK, approved.content)
-        self.assertEqual(token.json()["scope"], "insight:read")
+        # The client asked for `feature_flag:write`, and the person lowered it to read.
+        self.assertEqual(token.json()["scope"], "feature_flag:read")
 
     @parameterized.expand(
         [

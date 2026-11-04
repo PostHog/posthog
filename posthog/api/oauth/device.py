@@ -600,11 +600,16 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
             requested = (grant.scope or "").split()
             kept = serializer.validated_data.get("scopes")
             if kept is not None:
-                if not set(kept) <= set(requested):
+                # Lowering write access to read is allowed, so a requested `x:write` also allows `x:read`.
+                allowed = {
+                    *requested,
+                    *(scope.removesuffix(":write") + ":read" for scope in requested if scope.endswith(":write")),
+                }
+                if not set(kept) <= allowed:
                     return _invalid_scope("You can only keep scopes the app asked for.")
                 if not set(_required_scopes(requested, application)) <= set(kept):
                     return _invalid_scope("The app needs some of the scopes you removed. Keep those to approve.")
-                grant.scope = " ".join(scope for scope in requested if scope in set(kept))
+                grant.scope = " ".join(sorted(set(kept)))
             if block := _gateway_blocklist_block(
                 request, grant.scope or "", access_level="team", scoped_team_ids=[team.id]
             ):
