@@ -5,13 +5,11 @@ import { LemonBanner, LemonTable, LemonTableColumn, LemonTableColumns } from '@p
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { applicationObservabilityLogic } from './applicationObservabilityLogic'
-import type { ServiceUsageApi, UsageSignalEnumApi, UsageValuesApi } from './generated/api.schemas'
+import type { ServiceUsageApi, UsageValuesApi } from './generated/api.schemas'
 import { TelemetryLinks, TelemetrySignal } from './TelemetryLinks'
 import { formatBytes, formatShare } from './usageDisplay'
 
 type UsageField = keyof UsageValuesApi
-
-const SIGNAL_LABEL: Record<UsageSignalEnumApi, string> = { logs: 'logs', traces: 'traces', metrics: 'metrics' }
 
 function usageColumn(
     field: UsageField,
@@ -134,8 +132,8 @@ export function UsageTab(): JSX.Element {
                 </LemonBanner>
             ) : unavailable.length > 0 ? (
                 <LemonBanner type="warning">
-                    Couldn't load {unavailable.map((signal) => SIGNAL_LABEL[signal]).join(' and ')} usage for this time
-                    range, so those columns show no values. Try a shorter time range.
+                    Couldn't load {unavailable.join(' and ')} usage for this time range, so those columns show no
+                    values. Try a shorter time range.
                 </LemonBanner>
             ) : null}
             {totals && usageRows.length > 0 ? (
