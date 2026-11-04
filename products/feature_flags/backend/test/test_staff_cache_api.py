@@ -113,7 +113,7 @@ class TestFeatureFlagsStaffCacheAPI(APIBaseTest):
         missing_id = self.team.id + 9999
         expected_queued = [self.team.id, missing_id] if name == "clear" else [self.team.id]
         with (
-            patch(f"products.feature_flags.backend.api.staff_cache.{evaluation_target}"),
+            patch(f"products.feature_flags.backend.api.staff_cache.{evaluation_target}") as mock_evaluation,
             patch(f"products.feature_flags.backend.api.staff_cache.{definitions_task}") as mock_definitions,
         ):
             response = self.client.post(url, {"team_ids": [self.team.id, missing_id]}, format="json")
@@ -121,6 +121,10 @@ class TestFeatureFlagsStaffCacheAPI(APIBaseTest):
 
             self.assertEqual(response.json()["queued_team_ids"], expected_queued)
             self.assertEqual(response.json()["not_found_team_ids"], [missing_id])
+            evaluation_calls = (
+                mock_evaluation.call_args_list if name == "rebuild" else mock_evaluation.delay.call_args_list
+            )
+            self.assertEqual([call.args[0] for call in evaluation_calls], expected_queued)
             self.assertEqual([call.args[0] for call in mock_definitions.delay.call_args_list], expected_queued)
 
     def test_rebuild_over_max_team_ids_returns_400(self):
