@@ -88,7 +88,6 @@ MAX_REPORT_ASSIGNEE_CHECKS = 10
 # selection allows in `author_activity`. A reviewer with no commit to the repository in this window
 # has probably left the code, even when their PostHog and GitHub accounts are still active.
 REVIEW_ACTIVITY_WINDOW_DAYS = 60
-# Each reviewer costs one GitHub read.
 MAX_REVIEW_ACTIVITY_CHECKS = 4
 
 # Assign only while the pull request can still be reviewed. UNKNOWN is included because a PR whose
