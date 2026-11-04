@@ -69635,6 +69635,20 @@ export namespace Schemas {
       NeedsAttention: 'needs_attention',
     } as const;
 
+    /**
+     * * `found` - Found
+     * * `missing` - Missing
+     * * `unavailable` - Unavailable
+     */
+    export type OwnersFileStatusEnum = typeof OwnersFileStatusEnum[keyof typeof OwnersFileStatusEnum];
+
+
+    export const OwnersFileStatusEnum = {
+      Found: 'found',
+      Missing: 'missing',
+      Unavailable: 'unavailable',
+    } as const;
+
     export interface WorkflowCost {
       /** GitHub Actions workflow name this cost is for. */
       workflow_name: string;
@@ -74503,6 +74517,20 @@ export namespace Schemas {
       Label: 'label',
     } as const;
 
+    /**
+     * * `off` - Off
+     * * `always` - Always
+     * * `fallback` - When stamphog does not approve
+     */
+    export type RoutingModeEnum = typeof RoutingModeEnum[keyof typeof RoutingModeEnum];
+
+
+    export const RoutingModeEnum = {
+      Off: 'off',
+      Always: 'always',
+      Fallback: 'fallback',
+    } as const;
+
     export interface StamphogRepoConfig {
       readonly id: string;
       /** SCM provider this config talks to. Defaults to 'github'. */
@@ -74522,8 +74550,14 @@ export namespace Schemas {
       readonly review_mode: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
+      /** When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      readonly routing_mode: RoutingModeEnum;
       /**
-         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode or trigger_label.
+         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label or routing_mode.
          * @nullable
          */
       readonly user_access_level: string | null;
@@ -86350,6 +86384,12 @@ export namespace Schemas {
       review_mode?: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
+      /** When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      routing_mode?: RoutingModeEnum;
     }
 
     export type PatchedSubscriptionWriteContextsItem = {
@@ -107387,6 +107427,18 @@ export namespace Schemas {
     }
 
     /**
+     * Whether a repository can use reviewer requests, which read ownership from its owners.yaml.
+     */
+    export interface StamphogOwnersFile {
+      /** Whether the default branch has a root owners.yaml: 'found', 'missing', or 'unavailable' when the check could not ask GitHub (no installation, or GitHub answered with an error).
+       *
+       * * `found` - Found
+       * * `missing` - Missing
+       * * `unavailable` - Unavailable */
+      owners_file: OwnersFileStatusEnum;
+    }
+
+    /**
      * Input shape for creating/updating a repo config.
      *
      * Separate from the read serializer because the contract is an output shape: it carries a
@@ -107414,6 +107466,12 @@ export namespace Schemas {
       review_mode?: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
+      /** When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      routing_mode?: RoutingModeEnum;
     }
 
     /**
