@@ -187,7 +187,7 @@ class TestWarehouseMigrationAPI(APIBaseTest):
     )
     def test_get_one_item(self, _name: str, owner: str, flag_on: bool, expected_status: int) -> None:
         migration = self._migration()
-        item = self._item(migration)
+        item = self._item(migration, created_by=self.user)
         if owner == "other_migration":
             item = self._item(self._migration())
         elif owner == "other_team":
@@ -205,6 +205,8 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         assert response.status_code == expected_status
         if expected_status == 200:
             assert response.json()["id"] == str(item.id)
+            # The connect page shows who prepared the settings it prefills.
+            assert response.json()["created_by"] == {"first_name": self.user.first_name, "email": self.user.email}
 
     def test_bulk_skip_keeps_the_chosen_items_and_claimed_ones(self) -> None:
         migration = self._migration()

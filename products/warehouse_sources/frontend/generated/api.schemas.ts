@@ -1828,6 +1828,8 @@ export interface SourceCredentialCreateApi {
     source_type: string
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
+    /** The migration item whose prefilled settings the connect page showed. Every prefilled setting must keep its value, or the request is rejected before PostHog connects anywhere. */
+    migration_item_id?: string
 }
 
 export interface SourceCredentialApi {
@@ -2507,6 +2509,13 @@ export const WarehouseMigrationItemStatusEnumApi = {
     Failed: 'failed',
 } as const
 
+export interface WarehouseMigrationCreatorApi {
+    /** First name of the person who prepared the migration. */
+    first_name: string
+    /** Email of the person who prepared the migration. */
+    email: string
+}
+
 export interface WarehouseMigrationItemApi {
     /** Item ID. Pass it to the apply and skip actions. */
     id: string
@@ -2541,6 +2550,8 @@ export interface WarehouseMigrationItemApi {
     external_data_source_id: string | null
     /** Why the last apply attempt failed, if it did. */
     error: string
+    /** Who prepared the migration, and so chose the connection settings in `proposal.prefill`. */
+    created_by: WarehouseMigrationCreatorApi | null
 }
 
 export interface PaginatedWarehouseMigrationItemListApi {
