@@ -2,7 +2,7 @@ import re
 from pathlib import Path
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.test import Client, SimpleTestCase
@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from posthog.admin.console.panels import Operation, Owner, Panel
 from posthog.admin.console.registry import ConsoleRegistry, console
+from posthog.llm.gateway_internal_client import CreditResult
 
 from products.workflows.backend.facade.api import get_email_sending_state
 
@@ -112,7 +113,7 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 200
         content = response.content.decode()
-        for title in ("Overview", "Remote config cache", "Email sending"):
+        for title in ("Overview", "Remote config cache", "Email sending", "AI gateway", "Project API token"):
             assert title in content
 
     @parameterized.expand(
@@ -141,3 +142,22 @@ class TestAdminConsoleViews(BaseTest):
             assert response["Location"] == f"/admin/console/teams/{self.team.pk}/"
         state = get_email_sending_state(self.team.pk)
         assert (state is not None and state.suspended_at is not None) == expect_suspended
+
+    @patch("posthog.admin.admins.team_admin.add_credit")
+    def test_a_double_submitted_credit_form_reuses_its_idempotency_key(self, add_credit: MagicMock) -> None:
+        add_credit.return_value = CreditResult(
+            team_id=self.team.pk, entry_id="entry-1", amount_usd="25", balance_usd="25", duplicate=False
+        )
+        form = self.client.get(f"/admin/console/teams/{self.team.pk}/ai-gateway/add-credit/").content.decode()
+        nonce = re.search(r'name="form_nonce" value="([^"]+)"', form)
+        assert nonce is not None
+
+        for _ in range(2):
+            self.client.post(
+                f"/admin/console/teams/{self.team.pk}/ai-gateway/add-credit/",
+                {"amount_usd": "25", "reason": "Outage goodwill", "form_nonce": nonce.group(1)},
+            )
+
+        keys = {call.args[3] for call in add_credit.call_args_list}
+        assert add_credit.call_count == 2
+        assert len(keys) == 1
