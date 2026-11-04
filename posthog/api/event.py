@@ -340,8 +340,6 @@ class EventViewSet(
             default_after: Optional[str] = None
             if not after and _default_after_enabled(team):
                 before_dt = resolve_before(before, team.timezone_info)
-                # Pass the resolved `before` too, so the query sees an exact 24h range and skips its
-                # 24h window probe instead of running the same range twice.
                 before = before_dt.isoformat()
                 default_after = after = (before_dt - EVENT_LIST_DEFAULT_AFTER_WINDOW).astimezone(UTC).isoformat()
 
