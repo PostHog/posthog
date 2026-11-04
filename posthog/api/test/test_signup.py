@@ -1104,11 +1104,14 @@ class TestSignupAPI(APIBaseTest):
             newer_member_invite=newer_member_invite,
         )
 
+    @parameterized.expand([(False, False), (True, True)])
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
-    def test_social_signup_with_allowed_domain_on_cloud_reverse(self, mock_sso_providers, mock_request):
-        with self.is_cloud(True):
+    def test_social_signup_with_allowed_domain_on_cloud_reverse(
+        self, staff_from_google_workspace, expected_is_staff, mock_sso_providers, mock_request
+    ):
+        with self.is_cloud(True), self.settings(STAFF_FROM_GOOGLE_WORKSPACE=staff_from_google_workspace):
             # user already exists
             User.objects.create(email="jane@hogflix.posthog.com", distinct_id=str(uuid.uuid4()))
 
@@ -1133,6 +1136,7 @@ class TestSignupAPI(APIBaseTest):
                 "email_verified": True,
                 "access_token": "123",
                 "email": "jane@hogflix.posthog.com",
+                "hd": "posthog.com",
                 "sub": "123",
             }
 
@@ -1143,7 +1147,7 @@ class TestSignupAPI(APIBaseTest):
             self.assertEqual(User.objects.count(), user_count)  # should remain the same
             user = cast(User, User.objects.last())
             self.assertEqual(user.email, "jane@hogflix.posthog.com")
-            self.assertFalse(user.is_staff)  # Not first user in the instance
+            self.assertEqual(user.is_staff, expected_is_staff)
             self.assertEqual(user.organization, new_org)
             self.assertEqual(user.team, new_project)
             self.assertEqual(user.organization_memberships.count(), 1)

@@ -1594,6 +1594,17 @@ def social_reauth_complete(strategy: DjangoStrategy, backend, user: User | None 
         capture_exception(e)
 
 
+def social_sync_staff_from_google_workspace(
+    backend: BaseAuth, user: User | None = None, response: dict[str, Any] | None = None, **kwargs: Any
+) -> None:
+    if not settings.STAFF_FROM_GOOGLE_WORKSPACE or backend.name != "google-oauth2" or user is None:
+        return
+    is_workspace_member = (response or {}).get("hd") in settings.ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS
+    if user.is_staff != is_workspace_member:
+        user.is_staff = is_workspace_member
+        user.save(update_fields=["is_staff"])
+
+
 def social_login_notification(
     strategy: DjangoStrategy, backend, user: User | None = None, is_new: bool = False, **kwargs
 ):

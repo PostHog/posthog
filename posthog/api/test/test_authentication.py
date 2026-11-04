@@ -17,7 +17,7 @@ from django.core.asgi import get_asgi_application
 from django.core.cache import cache
 from django.db import connection
 from django.http import HttpRequest, HttpResponse
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.module_loading import import_string
@@ -37,7 +37,11 @@ from rest_framework.test import APIRequestFactory
 from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 
-from posthog.api.authentication import password_reset_token_generator, social_login_notification
+from posthog.api.authentication import (
+    password_reset_token_generator,
+    social_login_notification,
+    social_sync_staff_from_google_workspace,
+)
 from posthog.api.email_verification import is_email_verification_disabled
 from posthog.api.oauth.cimd import CIMDFetchError
 from posthog.auth import (
@@ -3352,6 +3356,27 @@ class TestOAuthLoginNotification(APIBaseTest):
 
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 0
+
+
+class TestSocialSyncStaffFromGoogleWorkspace(TestCase):
+    @parameterized.expand(
+        [
+            ("disabled_leaves_staff_unchanged", False, False, "posthog.com", False),
+            ("workspace_member_becomes_staff", True, False, "posthog.com", True),
+            ("account_outside_any_workspace_stays_non_staff", True, False, None, False),
+            ("member_of_another_workspace_loses_staff", True, True, "example.com", False),
+        ]
+    )
+    def test_sync(self, _name, enabled, was_staff, hosted_domain, expected_is_staff):
+        user = User.objects.create(email="jane@posthog.com", distinct_id=str(uuid.uuid4()), is_staff=was_staff)
+        response = {"email": "jane@posthog.com", **({"hd": hosted_domain} if hosted_domain else {})}
+        backend = type("Backend", (), {"name": "google-oauth2"})()
+
+        with self.settings(STAFF_FROM_GOOGLE_WORKSPACE=enabled, ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS=["posthog.com"]):
+            social_sync_staff_from_google_workspace(backend, user, response)
+
+        user.refresh_from_db()
+        assert user.is_staff is expected_is_staff
 
 
 class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):

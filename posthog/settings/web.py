@@ -318,6 +318,8 @@ CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/?|/toolbar_oauth/
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS + ("x-posthog-client-provenance",)
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
+STAFF_FROM_GOOGLE_WORKSPACE: bool = get_from_env("STAFF_FROM_GOOGLE_WORKSPACE", False, type_cast=str_to_bool)
+
 SOCIAL_AUTH_JSONFIELD_ENABLED = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"
 SOCIAL_AUTH_REDIRECT_IS_HTTPS: bool = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=str_to_bool)
@@ -344,6 +346,7 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.associate_user",
     "social_core.pipeline.social_auth.load_extra_data",
     "social_core.pipeline.user.user_details",
+    "posthog.api.authentication.social_sync_staff_from_google_workspace",
     "posthog.api.authentication.social_login_notification",
     # Must stay last: it grants the step-up window, so every step that can still refuse the re-auth
     # has to have run first
