@@ -16,6 +16,7 @@ import {
     dataCatalogMetricSceneLogic,
     LINEAGE_RETRY_MS,
     MARKDOWN_DEFINITION_TEMPLATE,
+    referencedTablePreviewQuery,
 } from './dataCatalogMetricSceneLogic'
 import {
     dataCatalogMetricsApproveCreate,
@@ -336,6 +337,14 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(dataCatalogMetricsApproveCreate).not.toHaveBeenCalled()
         expect(logic.values.metric?.status).toEqual('approved')
         expect(logic.values.mutating).toBe(false)
+    })
+
+    it.each([
+        ['events', 'SELECT * FROM events LIMIT 100'],
+        ['sales-data', 'SELECT * FROM "sales-data" LIMIT 100'],
+        ['postgres.orders', 'SELECT * FROM postgres.orders LIMIT 100'],
+    ])('previews the referenced table %s with an escaped name', (tableName, expected) => {
+        expect(referencedTablePreviewQuery(tableName)).toEqual(expected)
     })
 
     it('confirms an approval by the metric display name', async () => {

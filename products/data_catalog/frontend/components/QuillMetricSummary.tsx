@@ -79,7 +79,12 @@ export function QuillMetricSummary({ metric, saving, onSaveUnit, onSaveOwner }: 
                 {metric.last_run_at ? <TZLabel time={metric.last_run_at} /> : <span>Never</span>}
             </SummaryItem>
             <SummaryItem label="Unit">
-                <QuillMetricUnitEditor key={metric.unit || ''} unit={metric.unit || ''} onSave={onSaveUnit} />
+                <QuillMetricUnitEditor
+                    key={metric.unit || ''}
+                    unit={metric.unit || ''}
+                    saving={saving}
+                    onSave={onSaveUnit}
+                />
             </SummaryItem>
         </div>
     )

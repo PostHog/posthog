@@ -23,6 +23,7 @@ import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { escapeDottedHogQLIdentifier } from '~/queries/utils'
 import { Breadcrumb, DataModelingEdge, DataModelingNode, SidePanelTab } from '~/types'
 
 import { catalogRestructureEnabled } from 'products/data_modeling/frontend/catalogRestructure'
@@ -92,9 +93,15 @@ export function metricHasExecutableDefinition(metric: DataCatalogMetricApi | nul
     return !!metric?.definition_kind && metric.definition_kind !== 'MarkdownDefinition'
 }
 
+const REFERENCED_TABLE_PREVIEW_ROWS = 100
+
 export function metricReferencedTableNames(metric: DataCatalogMetricApi): string[] {
     const names = metric.referenced_table_names
     return Array.isArray(names) ? names.filter((name): name is string => typeof name === 'string') : []
+}
+
+export function referencedTablePreviewQuery(tableName: string): string {
+    return `SELECT * FROM ${escapeDottedHogQLIdentifier(tableName)} LIMIT ${REFERENCED_TABLE_PREVIEW_ROWS}`
 }
 
 // What a lineage graph was computed for. The upstream tables follow from the metric and its

@@ -33,7 +33,11 @@ import { lineageNodeUrl } from 'products/data_modeling/frontend/lineage/lineageN
 import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
 
 import { QuillMetricCallout } from './components/QuillMetricCallout'
-import { metricHasExecutableDefinition, metricReferencedTableNames } from './dataCatalogMetricSceneLogic'
+import {
+    metricHasExecutableDefinition,
+    metricReferencedTableNames,
+    referencedTablePreviewQuery,
+} from './dataCatalogMetricSceneLogic'
 import { DataCatalogMetricApi } from './generated/api.schemas'
 import type { MetricLineagePanelProps } from './MetricLineagePanel'
 
@@ -90,7 +94,7 @@ function MissingLineage({ metric, onRetry }: { metric: DataCatalogMetricApi; onR
                                 variant="outline"
                                 render={
                                     <LinkPrimitive
-                                        to={urls.sqlEditor({ query: `SELECT * FROM ${tableName} LIMIT 100` })}
+                                        to={urls.sqlEditor({ query: referencedTablePreviewQuery(tableName) })}
                                     />
                                 }
                                 data-attr="data-catalog-metric-lineage-referenced-table"

@@ -3,8 +3,15 @@ import { useState } from 'react'
 import { Button, Input } from '@posthog/quill'
 
 import { METRIC_FIELD_COPY } from '../common'
+import { WORKING_REASON } from '../metricSceneActions'
 
-export function QuillMetricUnitEditor({ unit, onSave }: { unit: string; onSave: (unit: string) => void }): JSX.Element {
+export interface QuillMetricUnitEditorProps {
+    unit: string
+    saving: boolean
+    onSave: (unit: string) => void
+}
+
+export function QuillMetricUnitEditor({ unit, saving, onSave }: QuillMetricUnitEditorProps): JSX.Element {
     const [draft, setDraft] = useState<string | null>(null)
 
     if (draft === null) {
@@ -15,6 +22,7 @@ export function QuillMetricUnitEditor({ unit, onSave }: { unit: string; onSave: 
                 className="-ms-2"
                 tooltip="How the result is measured, like users, dollars, or percent"
                 onClick={() => setDraft(unit)}
+                disabledReason={saving ? WORKING_REASON : undefined}
                 data-attr="data-catalog-metric-unit-edit"
             >
                 {unit || 'Add a unit'}
@@ -23,11 +31,15 @@ export function QuillMetricUnitEditor({ unit, onSave }: { unit: string; onSave: 
     }
 
     const save = (): void => {
-        const next = draft.trim()
-        setDraft(null)
-        if (next !== unit) {
-            onSave(next)
+        if (saving) {
+            return
         }
+        const next = draft.trim()
+        if (next === unit) {
+            setDraft(null)
+            return
+        }
+        onSave(next)
     }
 
     return (
@@ -35,6 +47,7 @@ export function QuillMetricUnitEditor({ unit, onSave }: { unit: string; onSave: 
             size="sm"
             className="w-40"
             autoFocus
+            disabled={saving}
             aria-label={METRIC_FIELD_COPY.unit.label}
             value={draft}
             placeholder={METRIC_FIELD_COPY.unit.placeholder}
