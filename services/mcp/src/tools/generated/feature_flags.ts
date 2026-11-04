@@ -459,25 +459,6 @@ const featureFlagRollOutToEveryone = (): ToolBase<
     ),
 })
 
-const FeatureFlagRulesUpdateSchema = () => FlagRulesV2UpdateInputSchema
-
-const featureFlagRulesUpdate = (): ToolBase<ReturnType<typeof FeatureFlagRulesUpdateSchema>, Schemas.FeatureFlag> => ({
-    name: 'feature-flag-rules-update',
-    schema: FeatureFlagRulesUpdateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagRulesUpdateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const parsedParams = FeatureFlagRulesUpdateSchema().parse(params)
-        const { id, ...body } = parsedParams
-        const result = await context.api.request<Schemas.FeatureFlag>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(id))}/`,
-            body,
-        })
-        const filtered = pickResponseFields(result, ['id', 'key', 'active', 'version', 'filters']) as typeof result
-        return await withPostHogUrl(context, filtered, `/feature-flags/${filtered.id}`)
-    },
-})
-
 const FeatureFlagRolloutPlanAdvanceSchema = () => {
     const FeatureFlagRolloutPlansAdvanceCreateBody = orvalSchemas.FeatureFlagRolloutPlansAdvanceCreateBody()
     const FeatureFlagRolloutPlansAdvanceCreateParams = orvalSchemas.FeatureFlagRolloutPlansAdvanceCreateParams()
@@ -533,6 +514,25 @@ const featureFlagRolloutPlanFail = (): ToolBase<
             body,
         })
         return result
+    },
+})
+
+const FeatureFlagRulesUpdateSchema = () => FlagRulesV2UpdateInputSchema
+
+const featureFlagRulesUpdate = (): ToolBase<ReturnType<typeof FeatureFlagRulesUpdateSchema>, Schemas.FeatureFlag> => ({
+    name: 'feature-flag-rules-update',
+    schema: FeatureFlagRulesUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagRulesUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const parsedParams = FeatureFlagRulesUpdateSchema().parse(params)
+        const { id, ...body } = parsedParams
+        const result = await context.api.request<Schemas.FeatureFlag>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(id))}/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['id', 'key', 'active', 'version', 'filters']) as typeof result
+        return await withPostHogUrl(context, filtered, `/feature-flags/${filtered.id}`)
     },
 })
 
@@ -1269,9 +1269,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-flag-get-definition': featureFlagGetDefinition,
     'feature-flag-restore': featureFlagRestore,
     'feature-flag-roll-out-to-everyone': featureFlagRollOutToEveryone,
-    'feature-flag-rules-update': featureFlagRulesUpdate,
     'feature-flag-rollout-plan-advance': featureFlagRolloutPlanAdvance,
     'feature-flag-rollout-plan-fail': featureFlagRolloutPlanFail,
+    'feature-flag-rules-update': featureFlagRulesUpdate,
     'feature-flag-set-release-condition-rollout': featureFlagSetReleaseConditionRollout,
     'feature-flag-unarchive': featureFlagUnarchive,
     'feature-flags-activity-retrieve': featureFlagsActivityRetrieve,
