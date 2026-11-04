@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { MouseEvent, useRef } from 'react'
 
-import { IconCheckCircle, IconChevronRight } from '@posthog/icons'
+import { IconCheckCircle } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -11,7 +11,6 @@ import {
     EmptyDescription,
     EmptyHeader,
     EmptyTitle,
-    Spinner,
     Table,
     TableBody,
     TableCell,
@@ -27,11 +26,13 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { ModelsOverviewProblemBadges } from 'products/data_modeling/frontend/ModelsOverviewProblemBadges'
 import { useHoldTallestHeight } from 'products/data_modeling/frontend/useHoldTallestHeight'
-import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
 import { sortDirectionFor } from '../catalogSort'
 import { CatalogTableRow, TablesSortColumn, passingChecks, rowIsExpandable } from '../catalogTableRows'
 import { TABLES_PAGE_SIZE, catalogTablesLogic } from '../catalogTablesLogic'
+import { CheckGroupSummary } from '../components/CheckGroupSummary'
+import { ChecksToggleButton } from '../components/ChecksToggleButton'
+import { isPlainRowClick } from '../components/isPlainRowClick'
 import { PageSelectionCheckbox } from '../components/PageSelectionCheckbox'
 import { SortHeadProps, SortableTableHead } from '../components/SortableTableHead'
 import { CatalogTableRefresh } from './CatalogTableRefresh'
@@ -44,29 +45,9 @@ import { TableChecksPanel } from './TableChecksPanel'
 const WIDE_ONLY_CELL = 'hidden @min-[40rem]/main-content:table-cell'
 const NARROW_ONLY = '@min-[40rem]/main-content:hidden'
 const COLUMN_COUNT = 7
-const INTERACTIVE_SELECTOR = 'a, button, input, label, [role="checkbox"]'
 
 function checksPanelId(row: CatalogTableRow): string {
     return `data-catalog-tables-checks-${row.key}`
-}
-
-function ChecksLabel({ row }: { row: CatalogTableRow }): JSX.Element | null {
-    const { runningSubjectKey } = useValues(dataQualityOverviewLogic)
-    const counts = passingChecks(row)
-    if (row.checkGroup && runningSubjectKey === row.checkGroup.subjectKey) {
-        return (
-            <span className="flex items-center gap-1 whitespace-nowrap">
-                <Spinner />
-                Running
-            </span>
-        )
-    }
-    if (!counts) {
-        return null
-    }
-    return (
-        <span className="whitespace-nowrap tabular-nums">{`${counts.total - counts.failing}/${counts.total} passing`}</span>
-    )
 }
 
 function ChecksToggle({ row, expanded }: { row: CatalogTableRow; expanded: boolean }): JSX.Element {
@@ -74,25 +55,20 @@ function ChecksToggle({ row, expanded }: { row: CatalogTableRow; expanded: boole
     if (!passingChecks(row)) {
         return <MutedCellText>No checks</MutedCellText>
     }
+    const label = <CheckGroupSummary counts={passingChecks(row)} subjectKey={row.checkGroup?.subjectKey} />
     if (!rowIsExpandable(row)) {
-        return <ChecksLabel row={row} />
+        return label
     }
     return (
-        <Button
-            size="xs"
-            aria-expanded={expanded}
-            aria-controls={checksPanelId(row)}
-            aria-label={`${expanded ? 'Hide' : 'Show'} checks for ${row.name}`}
-            className="-ml-1.5 gap-1"
-            onClick={() => toggleRowExpanded(row)}
-            data-attr="data-catalog-tables-expand"
+        <ChecksToggleButton
+            expanded={expanded}
+            controlsId={checksPanelId(row)}
+            subjectName={row.name}
+            onToggle={() => toggleRowExpanded(row)}
+            dataAttr="data-catalog-tables-expand"
         >
-            <ChecksLabel row={row} />
-            <IconChevronRight
-                aria-hidden
-                className={cn('size-3 transition-transform motion-reduce:transition-none', expanded && 'rotate-90')}
-            />
-        </Button>
+            {label}
+        </ChecksToggleButton>
     )
 }
 
@@ -138,11 +114,6 @@ function NameCell({ row, expanded }: { row: CatalogTableRow; expanded: boolean }
             </div>
         </div>
     )
-}
-
-function isPlainRowClick(event: MouseEvent<HTMLTableRowElement>): boolean {
-    const target = event.target
-    return target instanceof Element && event.currentTarget.contains(target) && !target.closest(INTERACTIVE_SELECTOR)
 }
 
 function TableRows({

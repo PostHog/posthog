@@ -285,6 +285,7 @@ const meta: Meta<typeof DataCatalogScene> = {
         context.resource_access_control = {
             ...previous,
             [AccessControlResourceType.WarehouseObjects]: AccessControlLevel.Editor,
+            [AccessControlResourceType.DataCatalog]: AccessControlLevel.Editor,
         }
         return () => {
             context.resource_access_control = previous
@@ -368,6 +369,25 @@ export const Metrics: Story = {
 export const MetricsNarrow: Story = {
     parameters: { pageUrl: urls.dataCatalog('metrics') },
     decorators: [inMainContent('w-128')],
+}
+
+export const MetricsExpandedChecks: Story = {
+    parameters: { pageUrl: urls.dataCatalog('metrics') },
+    play: async ({ canvasElement }) => {
+        const toggle = await waitFor(() => {
+            const button = canvasElement.querySelector<HTMLButtonElement>('[data-attr="data-catalog-metrics-expand"]')
+            if (!button) {
+                throw new Error('Checks toggle not rendered yet')
+            }
+            return button
+        })
+        toggle.click()
+        await waitFor(() => {
+            if (!canvasElement.querySelector('[data-attr="data-catalog-metrics-checks-panel"]')) {
+                throw new Error('Checks panel not open yet')
+            }
+        })
+    },
 }
 
 export const Relationships: Story = {

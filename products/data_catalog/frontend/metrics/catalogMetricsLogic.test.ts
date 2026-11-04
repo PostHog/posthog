@@ -51,6 +51,14 @@ describe('catalogMetricsLogic', () => {
         expect(logic.values.visibleMetrics.map((metric) => metric.id)).toEqual(['metric-proposed'])
     })
 
+    it('expands only the metrics that have checks', () => {
+        logic.actions.toggleMetricExpanded('metric-proposed')
+        expect(logic.values.expandedMetricIds).toEqual([])
+
+        logic.actions.toggleMetricExpanded('metric-approved')
+        expect(logic.values.expandedMetricIds).toEqual(['metric-approved'])
+    })
+
     it('goes back to the first page when the search changes', () => {
         logic.actions.setPage(2)
         expect(logic.values.page).toBe(2)

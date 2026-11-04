@@ -66,10 +66,12 @@ export interface catalogMetricsLogicValues {
     checkGroupByMetricId: Record<string, SubjectGroup>
     checksFilter: ChecksFilter
     currentPage: number
+    expandedMetricIds: string[]
     ownerNameByEmail: Record<string, string>
     page: number
     pageCount: number
     pageMetrics: DataCatalogMetricApi[]
+    selectedMetricIds: string[]
     sort: MetricsSort | null
     visibleMetrics: DataCatalogMetricApi[]
 }
@@ -82,11 +84,28 @@ export interface catalogMetricsLogicActions {
     setFilters: (filters: Partial<import('../metricsLogic').MetricsFilters>) => {
         filters: Partial<import('../metricsLogic').MetricsFilters>
     } // metricsLogic
+    clearMetricSelection: () => {
+        value: true
+    }
     setChecksFilter: (checks: ChecksFilter) => {
         checks: ChecksFilter
     }
+    setMetricsSelected: (
+        metricIds: string[],
+        selected: boolean
+    ) => {
+        metricIds: string[]
+        selected: boolean
+    }
     setPage: (page: number) => {
         page: number
+    }
+    toggleMetricExpanded: (metricId: string) => {
+        expandable: boolean
+        metricId: string
+    }
+    toggleMetricSelected: (metricId: string) => {
+        metricId: string
     }
     toggleSort: (column: MetricsSortColumn) => {
         column: MetricsSortColumn
@@ -136,11 +155,18 @@ export const catalogMetricsLogic = kea<catalogMetricsLogicType>([
         ],
         actions: [membersLogic, ['ensureAllMembersLoaded'], metricsLogic, ['setFilters']],
     })),
-    actions({
+    actions(({ values }) => ({
         toggleSort: (column: MetricsSortColumn) => ({ column }),
         setChecksFilter: (checks: ChecksFilter) => ({ checks }),
         setPage: (page: number) => ({ page }),
-    }),
+        toggleMetricExpanded: (metricId: string) => ({
+            metricId,
+            expandable: !!values.checkGroupByMetricId[metricId],
+        }),
+        toggleMetricSelected: (metricId: string) => ({ metricId }),
+        setMetricsSelected: (metricIds: string[], selected: boolean) => ({ metricIds, selected }),
+        clearMetricSelection: true,
+    })),
     reducers({
         sort: [
             DEFAULT_METRICS_SORT as MetricsSort | null,
@@ -152,6 +178,27 @@ export const catalogMetricsLogic = kea<catalogMetricsLogicType>([
             DEFAULT_METRIC_CHECKS_FILTER as ChecksFilter,
             {
                 setChecksFilter: (_, { checks }) => checks,
+            },
+        ],
+        expandedMetricIds: [
+            [] as string[],
+            {
+                toggleMetricExpanded: (state, { metricId, expandable }) => {
+                    if (state.includes(metricId)) {
+                        return state.filter((id) => id !== metricId)
+                    }
+                    return expandable ? [...state, metricId] : state
+                },
+            },
+        ],
+        selectedMetricIds: [
+            [] as string[],
+            {
+                toggleMetricSelected: (state, { metricId }) =>
+                    state.includes(metricId) ? state.filter((id) => id !== metricId) : [...state, metricId],
+                setMetricsSelected: (state, { metricIds, selected }) =>
+                    selected ? [...new Set([...state, ...metricIds])] : state.filter((id) => !metricIds.includes(id)),
+                clearMetricSelection: () => [],
             },
         ],
         page: [

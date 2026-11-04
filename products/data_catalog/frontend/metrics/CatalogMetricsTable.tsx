@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { MouseEvent } from 'react'
 
 import {
     Avatar,
@@ -35,11 +36,15 @@ import { sortDirectionFor } from '../catalogSort'
 import { checkGroupCounts } from '../catalogTableRows'
 import { humanizeDefinitionKind } from '../common'
 import { CheckGroupSummary } from '../components/CheckGroupSummary'
+import { ChecksToggleButton } from '../components/ChecksToggleButton'
+import { isPlainRowClick } from '../components/isPlainRowClick'
+import { PageSelectionCheckbox } from '../components/PageSelectionCheckbox'
 import { SortHeadProps, SortableTableHead } from '../components/SortableTableHead'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
 import { bulkBusyReason } from '../metricActionGuards'
 import { DEFAULT_METRICS_FILTERS, metricsLogic } from '../metricsLogic'
 import { CatalogTablesPagination } from '../tables/CatalogTablesPagination'
+import { MutedCellText } from '../tables/MutedCellText'
 import { CatalogMetricRowMenu } from './CatalogMetricRowMenu'
 import {
     DEFAULT_METRIC_CHECKS_FILTER,
@@ -49,20 +54,22 @@ import {
     metricOwnerName,
     metricUpdatedAt,
 } from './catalogMetricsLogic'
+import { MetricApproveButton } from './MetricApproveButton'
+import { MetricChecksPanel } from './MetricChecksPanel'
 import { MetricOwnerCombobox } from './MetricOwnerCombobox'
 
 const WIDE_ONLY_CELL = 'hidden @min-[40rem]/main-content:table-cell'
 const NARROW_ONLY = '@min-[40rem]/main-content:hidden'
 const EXTRA_WIDE_ONLY_CELL = 'hidden @min-[72rem]/main-content:table-cell'
+const COLUMN_COUNT = 9
 
 const STATUS_LABELS: Record<string, string> = {
     approved: 'Approved',
     proposed: 'Proposed',
 }
 
-interface MetricSelectionProps {
-    selectedIds: string[]
-    setSelectedIds: (ids: string[]) => void
+function checksPanelId(metric: DataCatalogMetricApi): string {
+    return `data-catalog-metrics-checks-${metric.id}`
 }
 
 function StatusBadges({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
@@ -72,6 +79,7 @@ function StatusBadges({ metric }: { metric: DataCatalogMetricApi }): JSX.Element
                 {STATUS_LABELS[metric.status] ?? metric.status}
             </Badge>
             {metric.is_drifted && <Badge variant="destructive">Drifted</Badge>}
+            {metric.status === 'proposed' && <MetricApproveButton metric={metric} />}
         </div>
     )
 }
@@ -125,7 +133,7 @@ function OwnerCell({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
     )
 }
 
-function NameCell({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
+function NameCell({ metric, expanded }: { metric: DataCatalogMetricApi; expanded: boolean }): JSX.Element {
     return (
         <div className="flex min-w-0 flex-col gap-1">
             <Button
@@ -144,26 +152,30 @@ function NameCell({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
             )}
             <div className={cn(NARROW_ONLY, 'flex flex-col items-start gap-1')}>
                 <StatusBadges metric={metric} />
-                <ChecksCell metric={metric} />
+                <MetricChecksToggle metric={metric} expanded={expanded} />
                 <OwnerCell metric={metric} />
             </div>
         </div>
     )
 }
 
-function ChecksCell({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
+function MetricChecksToggle({ metric, expanded }: { metric: DataCatalogMetricApi; expanded: boolean }): JSX.Element {
     const { checkGroupByMetricId } = useValues(catalogMetricsLogic)
+    const { toggleMetricExpanded } = useActions(catalogMetricsLogic)
     const group = checkGroupByMetricId[metric.id]
+    if (!group) {
+        return <MutedCellText>No checks</MutedCellText>
+    }
     return (
-        <Button
-            variant="link"
-            size="inline"
-            className="text-foreground"
-            render={<LinkPrimitive to={urls.dataCatalogMetric(metric.name, 'data-quality')} />}
-            data-attr="data-catalog-metrics-checks"
+        <ChecksToggleButton
+            expanded={expanded}
+            controlsId={checksPanelId(metric)}
+            subjectName={metricDisplayName(metric)}
+            onToggle={() => toggleMetricExpanded(metric.id)}
+            dataAttr="data-catalog-metrics-expand"
         >
-            <CheckGroupSummary counts={checkGroupCounts(group)} subjectKey={group?.subjectKey} />
-        </Button>
+            <CheckGroupSummary counts={checkGroupCounts(group)} subjectKey={group.subjectKey} />
+        </ChecksToggleButton>
     )
 }
 
@@ -204,82 +216,88 @@ function NoMetrics(): JSX.Element {
     )
 }
 
-function PageSelectionCheckbox({
-    pageIds,
-    selectedIds,
-    setSelectedIds,
-}: MetricSelectionProps & { pageIds: string[] }): JSX.Element {
-    const selectedOnPage = pageIds.filter((id) => selectedIds.includes(id)).length
-    const allSelected = pageIds.length > 0 && selectedOnPage === pageIds.length
-    return (
-        <Checkbox
-            aria-label="Select all metrics on this page"
-            checked={allSelected}
-            indeterminate={selectedOnPage > 0 && !allSelected}
-            disabled={pageIds.length === 0}
-            onCheckedChange={(checked: boolean) =>
-                setSelectedIds(
-                    checked
-                        ? [...new Set([...selectedIds, ...pageIds])]
-                        : selectedIds.filter((id) => !pageIds.includes(id))
-                )
-            }
-        />
-    )
-}
-
-function MetricRow({
+function MetricRows({
     metric,
-    selectedIds,
-    setSelectedIds,
-}: MetricSelectionProps & { metric: DataCatalogMetricApi }): JSX.Element {
-    const selected = selectedIds.includes(metric.id)
+    expanded,
+    selected,
+}: {
+    metric: DataCatalogMetricApi
+    expanded: boolean
+    selected: boolean
+}): JSX.Element {
+    const { checkGroupByMetricId } = useValues(catalogMetricsLogic)
+    const { toggleMetricExpanded, toggleMetricSelected } = useActions(catalogMetricsLogic)
+    const group = checkGroupByMetricId[metric.id]
+    const expandUnlessInteractive = (event: MouseEvent<HTMLTableRowElement>): void => {
+        if (group && isPlainRowClick(event)) {
+            toggleMetricExpanded(metric.id)
+        }
+    }
     return (
-        <TableRow data-state={selected ? 'selected' : undefined} data-attr="data-catalog-metrics-row">
-            <TableCell valign="top" className="w-0 pr-0">
-                <Checkbox
-                    aria-label={`Select metric ${metric.name}`}
-                    checked={selected}
-                    onCheckedChange={(checked: boolean) =>
-                        setSelectedIds(
-                            checked ? [...selectedIds, metric.id] : selectedIds.filter((id) => id !== metric.id)
-                        )
-                    }
-                />
-            </TableCell>
-            <TableCell expand valign="top">
-                <NameCell metric={metric} />
-            </TableCell>
-            <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                <StatusBadges metric={metric} />
-            </TableCell>
-            <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                <ChecksCell metric={metric} />
-            </TableCell>
-            <TableCell valign="top" className={EXTRA_WIDE_ONLY_CELL}>
-                <Badge>{humanizeDefinitionKind(metric.definition_kind)}</Badge>
-            </TableCell>
-            <TableCell valign="top" className={EXTRA_WIDE_ONLY_CELL}>
-                <SourceBadge metric={metric} />
-            </TableCell>
-            <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                <OwnerCell metric={metric} />
-            </TableCell>
-            <TableCell valign="top" className={cn(WIDE_ONLY_CELL, 'whitespace-nowrap')}>
-                <Text size="xs" variant="muted">
-                    <TZLabel time={metricUpdatedAt(metric)} />
-                </Text>
-            </TableCell>
-            <TableCell valign="top" align="right" className="w-0">
-                <CatalogMetricRowMenu metric={metric} />
-            </TableCell>
-        </TableRow>
+        <>
+            <TableRow
+                className={cn(group && 'cursor-pointer')}
+                data-state={selected ? 'selected' : undefined}
+                onClick={expandUnlessInteractive}
+                data-attr="data-catalog-metrics-row"
+            >
+                <TableCell valign="top" className="w-0 pr-0">
+                    <Checkbox
+                        aria-label={`Select metric ${metric.name}`}
+                        checked={selected}
+                        onCheckedChange={() => toggleMetricSelected(metric.id)}
+                        data-attr="data-catalog-metrics-select"
+                    />
+                </TableCell>
+                <TableCell expand valign="top">
+                    <NameCell metric={metric} expanded={expanded} />
+                </TableCell>
+                <TableCell valign="top" className={WIDE_ONLY_CELL}>
+                    <StatusBadges metric={metric} />
+                </TableCell>
+                <TableCell valign="top" className={WIDE_ONLY_CELL}>
+                    <MetricChecksToggle metric={metric} expanded={expanded} />
+                </TableCell>
+                <TableCell valign="top" className={EXTRA_WIDE_ONLY_CELL}>
+                    <Badge>{humanizeDefinitionKind(metric.definition_kind)}</Badge>
+                </TableCell>
+                <TableCell valign="top" className={EXTRA_WIDE_ONLY_CELL}>
+                    <SourceBadge metric={metric} />
+                </TableCell>
+                <TableCell valign="top" className={WIDE_ONLY_CELL}>
+                    <OwnerCell metric={metric} />
+                </TableCell>
+                <TableCell valign="top" className={cn(WIDE_ONLY_CELL, 'whitespace-nowrap')}>
+                    <Text size="xs" variant="muted">
+                        <TZLabel time={metricUpdatedAt(metric)} />
+                    </Text>
+                </TableCell>
+                <TableCell valign="top" align="right" className="w-0">
+                    <CatalogMetricRowMenu metric={metric} />
+                </TableCell>
+            </TableRow>
+            {expanded && group && (
+                <TableRow id={checksPanelId(metric)}>
+                    <TableCell colSpan={COLUMN_COUNT}>
+                        <MetricChecksPanel metric={metric} group={group} />
+                    </TableCell>
+                </TableRow>
+            )}
+        </>
     )
 }
 
-export function CatalogMetricsTable({ selectedIds, setSelectedIds }: MetricSelectionProps): JSX.Element {
-    const { visibleMetrics, pageMetrics: pageItems, currentPage, pageCount, sort } = useValues(catalogMetricsLogic)
-    const { toggleSort, setPage } = useActions(catalogMetricsLogic)
+export function CatalogMetricsTable(): JSX.Element {
+    const {
+        visibleMetrics,
+        pageMetrics: pageItems,
+        currentPage,
+        pageCount,
+        sort,
+        selectedMetricIds,
+        expandedMetricIds,
+    } = useValues(catalogMetricsLogic)
+    const { toggleSort, setPage, setMetricsSelected } = useActions(catalogMetricsLogic)
     const sortProps = (column: MetricsSortColumn): SortHeadProps => ({
         direction: sortDirectionFor(sort, column),
         onToggle: () => toggleSort(column),
@@ -294,9 +312,10 @@ export function CatalogMetricsTable({ selectedIds, setSelectedIds }: MetricSelec
                     <TableRow>
                         <TableHead className="w-0 pr-0">
                             <PageSelectionCheckbox
+                                label="Select all metrics on this page"
                                 pageIds={pageIds}
-                                selectedIds={selectedIds}
-                                setSelectedIds={setSelectedIds}
+                                selectedIds={selectedMetricIds}
+                                onChange={setMetricsSelected}
                             />
                         </TableHead>
                         <SortableTableHead label="Name" expand {...sortProps('name')} />
@@ -318,11 +337,11 @@ export function CatalogMetricsTable({ selectedIds, setSelectedIds }: MetricSelec
                 ) : (
                     <TableBody>
                         {pageItems.map((metric) => (
-                            <MetricRow
+                            <MetricRows
                                 key={metric.id}
                                 metric={metric}
-                                selectedIds={selectedIds}
-                                setSelectedIds={setSelectedIds}
+                                expanded={expandedMetricIds.includes(metric.id)}
+                                selected={selectedMetricIds.includes(metric.id)}
                             />
                         ))}
                     </TableBody>

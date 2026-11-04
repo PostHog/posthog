@@ -105,13 +105,19 @@ describe('metricsLogic', () => {
         expect(router.values.searchParams).toEqual({ tab: 'metrics' })
     })
 
-    it('replaces the row with the response when approve succeeds', async () => {
+    it('replaces the row with the response when approve succeeds and records where it was approved', async () => {
         ;(dataCatalogMetricsApproveCreate as jest.Mock).mockResolvedValue(buildMetric({ status: 'approved' }))
+        const capture = jest.spyOn(posthog, 'capture')
 
-        logic.actions.approveMetric('weekly_active_users')
-        await expectLogic(logic).toFinishAllListeners()
+        try {
+            logic.actions.approveMetric('weekly_active_users', 'inline')
+            await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.allMetrics[0].status).toEqual('approved')
+            expect(logic.values.allMetrics[0].status).toEqual('approved')
+            expect(capture).toHaveBeenCalledWith('data catalog metric approved', { source: 'inline' })
+        } finally {
+            capture.mockRestore()
+        }
     })
 
     it('saves the new owner and replaces the row with the response', async () => {

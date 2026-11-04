@@ -1,10 +1,10 @@
 import { useValues } from 'kea'
-import { useState } from 'react'
 
 import { Skeleton } from '@posthog/quill'
 
 import { metricsLogic } from '../metricsLogic'
 import { CatalogMetricsBulkBar } from './CatalogMetricsBulkBar'
+import { catalogMetricsLogic } from './catalogMetricsLogic'
 import { CatalogMetricsTable } from './CatalogMetricsTable'
 import { CatalogMetricsToolbar } from './CatalogMetricsToolbar'
 
@@ -22,19 +22,13 @@ function LoadingRows(): JSX.Element {
 
 export function CatalogMetricsSection(): JSX.Element {
     const { allMetrics, allMetricsLoading } = useValues(metricsLogic)
-    const [selectedIds, setSelectedIds] = useState<string[]>([])
+    const { selectedMetricIds } = useValues(catalogMetricsLogic)
 
     return (
         <section aria-label="Metrics" className="flex flex-col gap-3" data-attr="data-catalog-metrics">
             <CatalogMetricsToolbar />
-            {allMetricsLoading && allMetrics.length === 0 ? (
-                <LoadingRows />
-            ) : (
-                <CatalogMetricsTable selectedIds={selectedIds} setSelectedIds={setSelectedIds} />
-            )}
-            {selectedIds.length > 0 && (
-                <CatalogMetricsBulkBar selectedIds={selectedIds} clearSelection={() => setSelectedIds([])} />
-            )}
+            {allMetricsLoading && allMetrics.length === 0 ? <LoadingRows /> : <CatalogMetricsTable />}
+            {selectedMetricIds.length > 0 && <CatalogMetricsBulkBar />}
         </section>
     )
 }
