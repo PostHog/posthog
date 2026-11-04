@@ -43,6 +43,7 @@ hand-pick which tables sync or set non-default sync types per table.
 | `external-data-schemas-list`                           | See per-table sync status once the source is created                                                                      |
 | `external-data-destinations-list`                      | See existing destinations, including the PostHog warehouse                                                                |
 | `external-data-destinations-connect-link`              | Secure browser link where the user enters a destination's credentials; returns nothing secret                             |
+| `external-data-destinations-connect-link-status`       | Poll with the link's `connect_token` to get the integration the user saved                                                |
 | `external-data-destinations-create`                    | Create a destination from the integration the connect page saved                                                          |
 | `external-data-destinations-add-sources`               | Attach existing sources to a destination                                                                                  |
 | `external-data-sources-destinations-update`            | Set a source's full destination list, for example to keep the PostHog warehouse before attaching                          |
@@ -343,11 +344,12 @@ Azure Blob storage. These tools exist only when the feature is on for the projec
 1. Call `external-data-destinations-list` first. If a destination for that target already exists, reuse it, but only
    when its `status` is `healthy`. A `failing` or `paused` one needs fixing first (see the end of this section).
 2. Call `external-data-destinations-connect-link` with the `destination_type` (for S3-compatible storage such as R2 or
-   MinIO, also pass `integration_kind: "s3-compatible"`). Share `connect_url` and wait until the user says they are
-   done. The page saves an integration and shows its id.
-3. Ask the user for the id the page showed. If they cannot give it, call `integrations-list` with the returned
-   `integration_kind` and take the entry with the latest `created_at` (the list is oldest first). Confirm its
-   `display_name` with the user before you use it.
+   MinIO, also pass `integration_kind: "s3-compatible"`). Share `connect_url`. The user must open it while logged in
+   to PostHog as the same user this session acts as. The page saves an integration.
+3. Call `external-data-destinations-connect-link-status` with the returned `connect_token` every few seconds until
+   `status` is `connected` or `expired`. When it is `connected`, confirm `display_name` with the user and use
+   `integration_id`. When it is `expired`, get a new link. If the user saved the connection as another PostHog user,
+   the page shows the integration id instead: ask the user for it.
 4. Ask the user for the target (database and schema, dataset, bucket and prefix, and so on), then call
    `external-data-destinations-create` with `type`, `name`, `integration` and `config`. Creation tests the
    connection for every type except Redshift, and a 400 names the field to fix. A wrong Redshift target only shows up
