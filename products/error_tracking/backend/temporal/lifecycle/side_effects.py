@@ -13,12 +13,15 @@ from posthog.helpers.tiktoken_encoding import (
 )
 from posthog.models import Team
 
+from products.alerts_platform.backend.facade.appearance import record_occurrence
+from products.alerts_platform.backend.facade.contracts import OccurrenceKind, SourceKind
 from products.cdp.backend.internal_events import (
     InternalEventEvent,
     flush_internal_events_producer,
     produce_internal_event,
 )
 from products.error_tracking.backend.logic.assignees import resolve_current_assignee
+from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.error_tracking.backend.temporal.alerts.dispatch import start_alert_delivery_workflow
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 from products.error_tracking.backend.temporal.lifecycle.event_properties import (
@@ -267,4 +270,36 @@ async def emit_issue_lifecycle_signal(
         weight=1.0,
         extra={"fingerprint": inputs.fingerprint},
         idempotency_key=inputs.notification_id,
+    )
+
+
+def record_issue_occurrence(inputs: IssueLifecycleWorkflowInputs, *, reopened: bool) -> bool:
+    """Tells the alerts platform that an issue is new, or back, for its appearance alerts.
+
+    Idempotent, so a retried activity is safe. The exception's own time is when it happened, and the
+    issue's first sighting is what its alert messages thread on. False when the project has no
+    error tracking appearance alert, which records nothing.
+    """
+    found = (
+        ErrorTrackingIssue.objects.with_first_seen()
+        .filter(team_id=inputs.team_id, id=inputs.issue_id)
+        .values_list("first_seen", "created_at")
+        .first()
+    )
+    if found is None:
+        return False
+    first_seen, created_at = found
+    return record_occurrence(
+        SourceKind.ERROR_TRACKING,
+        team_id=inputs.team_id,
+        identity_key=inputs.issue_id,
+        kind=OccurrenceKind.REAPPEARED if reopened else OccurrenceKind.NEW,
+        occurred_at=_normalize_timestamp(inputs.event_timestamp),
+        first_seen_at=first_seen or created_at,
+        labels={
+            "severity": inputs.issue.severity or "",
+            "assignee": inputs.assignee or "",
+            "name": inputs.issue.name or "",
+        },
+        detail={"issue_id": inputs.issue_id, "fingerprint": inputs.fingerprint},
     )

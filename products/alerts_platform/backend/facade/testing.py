@@ -34,6 +34,7 @@ from products.alerts_platform.backend.models import (
     PlatformAlertDeliveryHold,
     PlatformAlertDeliveryPath,
     PlatformAlertThread,
+    PlatformOccurrence,
 )
 
 
@@ -289,3 +290,24 @@ def undeclared_policy_divergences(correspondence: SourceCorrespondence) -> froze
     # Coverage rather than equality: a source may also declare a deliberate difference no flag
     # describes, and must not be forced to invent one to hang the declaration on.
     return frozenset(configured - {divergence.policy_flag for divergence in correspondence.intentional_divergences})
+
+
+@frozen
+class OccurrenceSnapshot:
+    identity_key: str
+    first_seen_at: datetime
+    reappeared_at: datetime | None
+    detail: dict[str, Any]
+
+
+def occurrences(team_id: int, source: SourceKind) -> list[OccurrenceSnapshot]:
+    """What the platform's registry holds for a source, as a source's own test reads it back."""
+    return [
+        OccurrenceSnapshot(
+            identity_key=row.identity_key,
+            first_seen_at=row.first_seen_at,
+            reappeared_at=row.reappeared_at,
+            detail=dict(row.detail),
+        )
+        for row in PlatformOccurrence.objects.for_team(team_id).filter(source_kind=source.value).order_by("id")
+    ]
