@@ -66,6 +66,13 @@ METRICS_DASHBOARD_IMPORT_FEATURE_FLAG = "metrics-dashboard-import"
 # Gates the suggested dashboards menu, and the background analysis and AI generation for a team.
 METRICS_SUGGESTED_DASHBOARDS_FEATURE_FLAG = "metrics-suggested-dashboards"
 
+# Gates the metrics that the query computes from spans and logs, on top of METRICS_FEATURE_FLAG.
+METRICS_DERIVED_SERIES_FEATURE_FLAG = "metrics-derived-series"
+
+# Names under this prefix are computed from spans and logs at query time, never ingested.
+# Other products must not let users create metrics with this prefix.
+DERIVED_METRIC_PREFIX = "posthog.derived."
+
 
 @dataclass(frozen=True, slots=True)
 class MetricFilter:
