@@ -860,10 +860,12 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                 event_name,
                 {live_logs_checkpoint} as live_logs_checkpoint
             FROM logs
+            PREWHERE {time_filter}
             WHERE {where}
         """,
                 placeholders={
                     "where": self.where(),
+                    "time_filter": parse_expr("{filters(timestamp AS timestamp)}"),
                     "live_logs_checkpoint": LIVE_LOGS_CHECKPOINT_QUERY,
                     # Attribute maps dominate payload size. When excluded we still SELECT a column
                     # (an empty map) so the positional result mapping in _calculate stays stable. The

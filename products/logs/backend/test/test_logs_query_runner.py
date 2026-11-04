@@ -2,6 +2,7 @@ import os
 import json
 from uuid import uuid4
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -12,25 +13,73 @@ from posthog.schema import (
     DateRange,
     FilterLogicalOperator,
     HogQLFilters,
+    HogQLQueryModifiers,
     LogPropertyFilter,
     LogPropertyFilterType,
     LogsQuery,
+    PersonsOnEventsMode,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyGroupsMode,
     PropertyOperator,
 )
 
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
+from posthog.hogql.filters import ReplaceFilters
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.models import Team
+from posthog.models import Organization, Team
 from posthog.test.persons import create_person
 
 from products.logs.backend.logs_query_runner import LogsQueryRunner
 from products.logs.backend.models import TeamLogsConfig
+
+
+class TestLogsQueryPrefilter:
+    @pytest.mark.parametrize(
+        "date_from,date_to",
+        [
+            ("2025-12-15T23:59:59.999999Z", "2025-12-16T00:00:00.000002Z"),
+            ("-1d", None),
+        ],
+    )
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
+    def test_prefilter_uses_resolved_date_bounds(self, date_from, date_to, snapshot):
+        runner = LogsQueryRunner(
+            query=LogsQuery(
+                dateRange=DateRange(date_from=date_from, date_to=date_to),
+                serviceNames=[],
+                severityLevels=[],
+                filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+            ),
+            team=Team(id=1, timezone="UTC", organization=Organization()),
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED, useNewEventsSchema=False),
+        )
+        query = ReplaceFilters(runner.query_date_range.to_hogql_filters(), runner.team, Database()).visit(
+            runner.to_query()
+        )
+        assert query.prewhere is not None
+        sql, _ = prepare_and_print_ast(
+            query,
+            HogQLContext(
+                team_id=runner.team.id,
+                team=runner.team,
+                database=Database(),
+                modifiers=runner.modifiers,
+                enable_select_queries=True,
+            ),
+            "clickhouse",
+            settings=runner.settings,
+            pretty=True,
+        )
+        assert sql == snapshot
+        assert query.where is not None
+        assert "time_bucket" in query.where.to_hogql()
 
 
 class TestAttributeFilters(APIBaseTest):
