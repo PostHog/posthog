@@ -51,7 +51,7 @@ type ReadyValues = Pick<
 > &
     Pick<
         traceReviewLogicValues,
-        'reviewStatus' | 'reviewStatusLoading' | 'reviewStatusFailed' | 'queueHref' | 'canEditReviews'
+        'reviewStatus' | 'reviewStatusFailed' | 'queueHref' | 'canEditReviews' | 'removeFromQueueLoading'
     > & {
         traceId: string
         traceExportLoading: boolean
@@ -96,7 +96,6 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
                 <TraceReviewActions
                     traceId={values.traceId}
                     status={values.reviewStatus}
-                    loading={values.reviewStatusLoading}
                     failed={values.reviewStatusFailed}
                     onQueueChanged={actions.loadReviewStatus}
                 />
@@ -115,7 +114,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
                       status: values.reviewStatus,
                       queueHref: values.queueHref,
                       onRemoveFromQueue:
-                          values.canEditReviews && queue
+                          values.canEditReviews && queue && !values.removeFromQueueLoading
                               ? () => confirmRemoveFromQueue(queue.name, actions.removeFromQueue)
                               : null,
                   }
@@ -212,7 +211,8 @@ export const TraceViewContainer = memo(function TraceViewContainer({
     const { traceExportLoading, traceCopying } = useValues(exportLogic)
     const { exportTrace, copyTrace } = useActions(exportLogic)
     const reviewLogic = traceReviewLogic({ traceId })
-    const { reviewStatus, reviewStatusLoading, reviewStatusFailed, queueHref, canEditReviews } = useValues(reviewLogic)
+    const { reviewStatus, reviewStatusFailed, queueHref, canEditReviews, removeFromQueueLoading } =
+        useValues(reviewLogic)
     const { loadReviewStatus, removeFromQueue } = useActions(reviewLogic)
     useMountedLogic(traceReviewBridgeLogic({ traceId }))
 
@@ -253,10 +253,10 @@ export const TraceViewContainer = memo(function TraceViewContainer({
                       backLink,
                       traceId,
                       reviewStatus,
-                      reviewStatusLoading,
                       reviewStatusFailed,
                       queueHref,
                       canEditReviews,
+                      removeFromQueueLoading,
                   },
                   { ...actions, exportTrace, copyTrace, loadReviewStatus, removeFromQueue }
               )

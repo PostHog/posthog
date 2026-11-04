@@ -7,7 +7,6 @@ import { TraceReviewButton } from '../../../traceReviews/TraceReviewButton'
 export interface TraceReviewActionsProps {
     traceId: string
     status: TraceReviewStatusApi | null
-    loading: boolean
     failed: boolean
     onQueueChanged: () => void
 }
@@ -15,12 +14,11 @@ export interface TraceReviewActionsProps {
 export function TraceReviewActions({
     traceId,
     status,
-    loading,
     failed,
     onQueueChanged,
 }: TraceReviewActionsProps): JSX.Element | null {
-    if (!status) {
-        return loading || !failed ? null : (
+    if (failed) {
+        return (
             <LemonButton
                 type="secondary"
                 size="small"
@@ -29,6 +27,9 @@ export function TraceReviewActions({
                 Review
             </LemonButton>
         )
+    }
+    if (!status) {
+        return null
     }
     const { review, queue } = status
     return (

@@ -12,7 +12,8 @@ from ...models.trace_reviews import TraceReview, TraceReviewScore
 from .review import HumanReview, QueueAssignment, ReviewScore, TraceReviewState, reviewer_name, score_display_value
 
 # Reviews, queues and queue items are llm_analytics objects with their own access controls, apart from the
-# llm_analytics access that opens the trace, so a viewer blocked from one must not see it here either.
+# llm_analytics access that opens the trace, so a viewer blocked from one must not see it here either. Organization
+# admins keep seeing them, as they can still open each one directly.
 RESOURCE: Final = "llm_analytics"
 
 
@@ -28,7 +29,7 @@ def _load_review(team: Team, access: UserAccessControl, trace_id: str) -> HumanR
     scores = TraceReviewScore.objects.select_related("definition").order_by("definition__name", "id")
     reviews = TraceReview.objects.filter(team_id=team.id, trace_id=trace_id, deleted=False)
     review = (
-        access.filter_queryset_by_access_level(reviews, resource=RESOURCE)
+        access.filter_queryset_by_access_level(reviews, resource=RESOURCE, include_all_if_admin=True)
         .select_related("reviewed_by")
         .prefetch_related(Prefetch("scores", queryset=scores))
         .first()
@@ -57,11 +58,17 @@ def _load_review(team: Team, access: UserAccessControl, trace_id: str) -> HumanR
 
 
 def _load_queue_assignment(team: Team, access: UserAccessControl, trace_id: str) -> QueueAssignment | None:
-    queues = access.filter_queryset_by_access_level(ReviewQueue.objects.filter(team_id=team.id), resource=RESOURCE)
+    queues = access.filter_queryset_by_access_level(
+        ReviewQueue.objects.filter(team_id=team.id), resource=RESOURCE, include_all_if_admin=True
+    )
     items = ReviewQueueItem.objects.filter(
         team_id=team.id, trace_id=trace_id, deleted=False, queue__deleted=False, queue__in=queues
     )
-    item = access.filter_queryset_by_access_level(items, resource=RESOURCE).select_related("queue").first()
+    item = (
+        access.filter_queryset_by_access_level(items, resource=RESOURCE, include_all_if_admin=True)
+        .select_related("queue")
+        .first()
+    )
     if item is None:
         return None
     return QueueAssignment(queue_id=str(item.queue_id), queue_name=item.queue.name, item_id=str(item.id))

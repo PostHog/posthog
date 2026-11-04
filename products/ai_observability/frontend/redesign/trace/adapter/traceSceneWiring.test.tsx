@@ -12,10 +12,11 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import type { TraceClusterApi } from '../../../generated/api.schemas'
+import { traceReviewLogic } from '../traceReviewLogic'
 import { TraceScene } from '../TraceScene'
 import {
     decodeIdSegment,
@@ -99,11 +100,22 @@ const generation = makeEvent({
     },
 })
 
+let accessToRestore: { saved: Record<AccessControlResourceType, AccessControlLevel> } | null = null
+
 function renderNewView(
     flags: Record<string, boolean> = {},
-    params: Record<string, string> = {}
+    params: Record<string, string> = {},
+    aiObservabilityAccess: AccessControlLevel | null = null
 ): ReturnType<typeof render> {
     initKeaTests()
+    if (aiObservabilityAccess) {
+        const appContext = window.POSTHOG_APP_CONTEXT!
+        accessToRestore = { saved: appContext.resource_access_control }
+        appContext.resource_access_control = {
+            ...appContext.resource_access_control,
+            llm_analytics: aiObservabilityAccess,
+        }
+    }
     featureFlagLogic.mount()
     featureFlagLogic.actions.setFeatureFlags(
         Object.keys(flags).filter((flag) => flags[flag]),
@@ -125,6 +137,10 @@ describe('TraceScene', () => {
     afterEach(() => {
         cleanup()
         resumeKeaLoadersErrors()
+        if (accessToRestore) {
+            window.POSTHOG_APP_CONTEXT!.resource_access_control = accessToRestore.saved
+            accessToRestore = null
+        }
     })
 
     describe('the new view', () => {
@@ -515,26 +531,48 @@ describe('TraceScene', () => {
             }
         })
 
-        it('removes a queued trace from its queue from the queue chip, after confirming', async () => {
+        it('disables Review when a reload of the review status fails, keeping the last chip', async () => {
+            let reviewStatus = 200
+            useMocks({
+                get: {
+                    [REVIEW_URL]: () =>
+                        reviewStatus === 200
+                            ? [200, { review: null, queue: { id: 'q1', name: 'Support QA', itemId: 'i1' } }]
+                            : [500, { detail: 'nope' }],
+                },
+            })
+            const { findByText } = renderNewView({}, {}, AccessControlLevel.Editor)
+            expect((await findByText('Review')).closest('button')?.getAttribute('aria-disabled')).not.toBe('true')
+
+            silenceKeaLoadersErrors()
+            reviewStatus = 500
+            traceReviewLogic({ traceId: 'trace-1' }).actions.loadReviewStatus()
+
+            await waitFor(async () =>
+                expect((await findByText('Review')).closest('button')?.getAttribute('aria-disabled')).toBe('true')
+            )
+            expect(await findByText('Support QA')).toBeTruthy()
+        })
+
+        it('removes a queued trace from its queue from the queue chip, after confirming, and only once', async () => {
             const deleted: string[] = []
+            let releaseDelete = (): void => {}
+            const deleteGate = new Promise<void>((resolve) => {
+                releaseDelete = resolve
+            })
             useMocks({
                 get: {
                     [REVIEW_URL]: () => [200, { review: null, queue: { id: 'q1', name: 'Support QA', itemId: 'i1' } }],
                 },
                 delete: {
-                    [QUEUE_ITEM_URL]: ({ params }) => {
+                    [QUEUE_ITEM_URL]: async ({ params }) => {
                         deleted.push(String(params.id))
+                        await deleteGate
                         return [204]
                     },
                 },
             })
-            const accessBefore = window.POSTHOG_APP_CONTEXT!.resource_access_control
-            window.POSTHOG_APP_CONTEXT!.resource_access_control = {
-                ...accessBefore,
-                llm_analytics: AccessControlLevel.Editor,
-            }
-            const { container, findByText } = renderNewView()
-            window.POSTHOG_APP_CONTEXT!.resource_access_control = accessBefore
+            const { container, findByText } = renderNewView({}, {}, AccessControlLevel.Editor)
             await findByText('Support QA')
             const remove = container.querySelector('[data-attr="trace-view-remove-from-queue"]')
             if (!remove) {
@@ -545,6 +583,8 @@ describe('TraceScene', () => {
             fireEvent.click(await findByText('Remove from queue'))
 
             await waitFor(() => expect(deleted).toEqual(['i1']))
+            expect(container.querySelector('[data-attr="trace-view-remove-from-queue"]')).toBeNull()
+            releaseDelete()
         })
 
         it('opens the feedback from the header chip and the step chips, and links each entry to its step', async () => {
