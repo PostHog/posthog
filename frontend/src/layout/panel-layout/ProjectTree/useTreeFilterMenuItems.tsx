@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconCheck } from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { LemonMenuSection } from 'lib/lemon-ui/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -47,20 +48,23 @@ export function useTreeFilterMenuItems(logicProps: ProjectTreeLogicProps): Lemon
             ],
         },
         {
-            items: productTypesMapped
-                .filter(
+            items: [
+                ...productTypesMapped.filter(
                     (productType) => !productType.flag || featureFlags[productType.flag as keyof typeof featureFlags]
-                )
-                .map((productType) => {
-                    const active = searchFilters.fileType === productType.value
-                    return {
-                        label: productType.label,
-                        icon: active ? <IconCheck /> : <IconBlank />,
-                        active,
-                        'data-attr': `tree-filters-dropdown-menu-${productType.value}-button`,
-                        onClick: () => toggleFileTypeFilter(productType.value),
-                    }
-                }),
+                ),
+                ...(!featureFlags[FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]
+                    ? [{ value: 'workflows', label: 'Workflow' }]
+                    : []),
+            ].map((productType) => {
+                const active = searchFilters.fileType === productType.value
+                return {
+                    label: productType.label,
+                    icon: active ? <IconCheck /> : <IconBlank />,
+                    active,
+                    'data-attr': `tree-filters-dropdown-menu-${productType.value}-button`,
+                    onClick: () => toggleFileTypeFilter(productType.value),
+                }
+            }),
         },
     ]
 }

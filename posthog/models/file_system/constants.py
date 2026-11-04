@@ -1,4 +1,24 @@
+from typing import TYPE_CHECKING
+
 from django.db.models import Q
+
+from posthog.ph_client import feature_enabled_or_false
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+    from posthog.models.user import User
+
+WORKFLOW_FILE_SYSTEM_TYPES = frozenset({"hog_flow", "message_template"})
+
+
+def workflow_project_files_enabled(team: "Team", user: "User") -> bool:
+    return feature_enabled_or_false(
+        "workflows-project-files",
+        user.distinct_id or str(user.pk),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        send_feature_flag_events=False,
+    )
+
 
 # The product surface a FileSystem row belongs to. Legacy rows predate this column and are
 # stored as NULL; they are read as the default ("web"). New rows always store an explicit value.

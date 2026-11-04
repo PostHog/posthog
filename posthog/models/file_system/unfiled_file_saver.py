@@ -4,7 +4,11 @@ from typing import Optional
 
 from django.utils import timezone
 
-from posthog.models.file_system.constants import DEFAULT_SURFACE
+from posthog.models.file_system.constants import (
+    DEFAULT_SURFACE,
+    WORKFLOW_FILE_SYSTEM_TYPES,
+    workflow_project_files_enabled,
+)
 from posthog.models.file_system.file_system import FileSystem, escape_path, split_path
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.team import Team
@@ -103,7 +107,10 @@ class UnfiledFileSaver:
 
     def save_all_unfiled(self) -> list[FileSystem]:
         created_all = []
-        for model_cls in MIXIN_MODELS_BY_SURFACE.get(self.surface, {}).values():
+        workflows_enabled = workflow_project_files_enabled(self.team, self.user)
+        for file_type, model_cls in MIXIN_MODELS_BY_SURFACE.get(self.surface, {}).items():
+            if file_type in WORKFLOW_FILE_SYSTEM_TYPES and not workflows_enabled:
+                continue
             created_all.extend(self.save_unfiled_for_model(model_cls))
         return created_all
 
@@ -114,6 +121,9 @@ def save_unfiled_files(
     saver = UnfiledFileSaver(team, user, surface)
     if file_type is None:
         return saver.save_all_unfiled()
+
+    if file_type in WORKFLOW_FILE_SYSTEM_TYPES and not workflow_project_files_enabled(team, user):
+        return []
 
     found_cls = MIXIN_MODELS_BY_SURFACE.get(surface, {}).get(file_type)
     if not found_cls:

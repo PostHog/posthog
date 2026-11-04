@@ -119,13 +119,22 @@ export const manifest: ProductManifest = {
         broadcastsTemplate: (id: string): string => `/broadcasts/library/templates/${id}`,
     },
     fileSystemTypes: {
-        workflows: {
+        message_template: {
+            flag: FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES,
+            name: 'Email template',
+            iconType: 'broadcasts',
+            href: (ref: string) => urls.workflowsLibraryTemplate(ref),
+            listHref: () => urls.workflows('library'),
+            filterKey: 'message_template',
+        },
+        hog_flow: {
+            flag: FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES,
             name: 'Workflow',
             iconType: 'workflows',
             iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
             href: (ref: string) => urls.workflow(ref, 'workflow'),
             listHref: () => urls.workflows(),
-            filterKey: 'workflows',
+            filterKey: 'hog_flow',
         },
     },
     treeItemsProducts: [

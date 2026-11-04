@@ -19,6 +19,7 @@ from posthog.api.file_system.deletion import (
     is_pk_keyed_file_system_type,
 )
 from posthog.models import Team
+from posthog.models.file_system.constants import WORKFLOW_FILE_SYSTEM_TYPES
 from posthog.scopes import APIScopeObject
 from posthog.settings import EE_AVAILABLE
 
@@ -91,10 +92,17 @@ def _set_cached_ref_pks(project_id: int, pk_by_type_ref: dict[tuple[str, str], s
         logger.warning("Failed writing file system ref->pk cache", exc_info=True)
 
 
+def file_system_resource(file_system_type: str) -> APIScopeObject:
+    return "hog_flow" if file_system_type == "message_template" else cast(APIScopeObject, file_system_type)
+
+
 def _is_access_controlled_type(file_system_type: str) -> bool:
     """File system types double as AccessControl resource names; only these types can resolve
     to an access level at all (folders, SQL views, hog functions etc. have no access controls)."""
-    return file_system_type in ACCESS_CONTROL_RESOURCES or file_system_type in RESOURCE_INHERITANCE_MAP
+    return (
+        file_system_resource(file_system_type) in ACCESS_CONTROL_RESOURCES
+        or file_system_type in RESOURCE_INHERITANCE_MAP
+    )
 
 
 def _coerce_refs_for_lookup(model: Any, lookup_field: str, refs: list[str]) -> list[Any]:
@@ -270,7 +278,7 @@ def bulk_file_system_access_levels(
     )
 
     for (entry_type, team_id), creator_by_provided_ref in entries_by_type_team.items():
-        resource = cast(APIScopeObject, entry_type)
+        resource = file_system_resource(entry_type)
 
         if not access_controls_by_team[team_id].has_project_access:
             # Denied the whole environment, so nothing in it resolves. Without this the object
@@ -337,8 +345,26 @@ def entries_missing_access_level(
         (entry_type, ref)
         for entry_type, ref, team_id in controlled
         if (level := levels.get((entry_type, ref, team_id))) is None
-        or not access_level_satisfied_for_resource(cast(APIScopeObject, entry_type), level, required_level)
+        or not access_level_satisfied_for_resource(file_system_resource(entry_type), level, required_level)
     ]
+
+
+def filter_workflow_files_by_access_level(
+    queryset: QuerySet, user_access_control: UserAccessControl, project_id: int
+) -> QuerySet:
+    rows = list(queryset.filter(type__in=WORKFLOW_FILE_SYSTEM_TYPES).values_list("id", "type", "ref", "team_id"))
+    levels = bulk_file_system_access_levels(
+        [
+            FileSystemAccessEntry(entry_type=entry_type, ref=ref, created_by_id=None, team_id=team_id)
+            for _, entry_type, ref, team_id in rows
+        ],
+        user_access_control,
+        project_id,
+    )
+    denied_ids = [
+        row_id for row_id, entry_type, ref, team_id in rows if levels.get((entry_type, ref, team_id)) in (None, "none")
+    ]
+    return queryset.exclude(pk__in=denied_ids)
 
 
 def denied_short_id_refs(user_access_control: UserAccessControl, project_id: int) -> dict[tuple[str, int], list[str]]:

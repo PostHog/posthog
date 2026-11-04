@@ -749,6 +749,8 @@ export interface HogFlowScheduleApi {
  */
 export interface HogFlowApi {
     readonly id: string
+    /** Project folder for a newly created workflow. */
+    _create_in_folder?: string
     /**
      * Workflow name.
      * @maxLength 400
@@ -865,6 +867,8 @@ export type HogFlowUpdateApiActionRedirects = { [key: string]: string } | null
  */
 export interface HogFlowUpdateApi {
     readonly id: string
+    /** Project folder for a newly created workflow. */
+    _create_in_folder?: string
     /**
      * Workflow name.
      * @maxLength 400
@@ -974,6 +978,8 @@ export type PatchedHogFlowUpdateApiActionRedirects = { [key: string]: string } |
  */
 export interface PatchedHogFlowUpdateApi {
     readonly id?: string
+    /** Project folder for a newly created workflow. */
+    _create_in_folder?: string
     /**
      * Workflow name.
      * @maxLength 400

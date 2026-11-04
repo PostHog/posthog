@@ -25,7 +25,7 @@ class FileSystemSyncMixin(Model):
     class Meta:
         abstract = True
 
-    def __init__(self, *args, _create_in_folder: Optional[str] = None, **kwargs):
+    def __init__(self, *args: Any, _create_in_folder: object = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._create_in_folder = _create_in_folder
 

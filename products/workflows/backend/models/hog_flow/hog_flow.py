@@ -4,6 +4,7 @@ from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, Final, Optional
 
 from django.db import models, transaction
+from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.utils.functional import Promise
@@ -12,6 +13,9 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
+from posthog.models.file_system.constants import DEFAULT_SURFACE
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
@@ -209,7 +213,7 @@ def hog_flow_origin_product_choices() -> list[tuple[str, str | Promise]]:
 
 
 # nosemgrep: no-new-uuidt-models -- an existing model, and its stored ids cannot change.
-class HogFlow(Taggable, UUIDTModel):
+class HogFlow(FileSystemSyncMixin, Taggable, UUIDTModel):
     """
     Stores the version, layout and other meta information for each HogFlow
     """
@@ -315,6 +319,27 @@ class HogFlow(Taggable, UUIDTModel):
 
     def __str__(self):
         return f"HogFlow {self.id}/{self.version}: {self.name}"
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: Team, surface: str = DEFAULT_SURFACE) -> QuerySet["HogFlow"]:
+        return cls._filter_unfiled_queryset(
+            cls.objects.filter(team=team, origin_product__isnull=True),
+            team,
+            type="hog_flow",
+            ref_field="id",
+            surface=surface,
+        )
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        return FileSystemRepresentation(
+            base_folder=self._get_assigned_folder("Unfiled/Workflows"),
+            type="hog_flow",
+            ref=str(self.id),
+            name=self.name or "Untitled",
+            href=f"/workflows/{self.id}/workflow",
+            meta={"created_at": str(self.created_at), "created_by": self.created_by_id},
+            should_delete=bool(self.origin_product),
+        )
 
 
 # Every reload makes each worker drop the team's whole workflow list, so a bulk write sends a few large ones.

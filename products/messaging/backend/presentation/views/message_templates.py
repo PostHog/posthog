@@ -276,6 +276,12 @@ _MAX_TAG_LENGTH = 255  # Tag.name column limit.
 
 
 class MessageTemplateSerializer(serializers.Serializer):
+    _create_in_folder = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        help_text="Project folder for the new email template.",
+    )
     id = serializers.UUIDField(read_only=True)
     name = serializers.CharField(max_length=400, help_text="Human-readable template name shown in the library.")
     description = serializers.CharField(

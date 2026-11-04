@@ -126,6 +126,7 @@ export const hogFlowsCreateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDef
 
 export const HogFlowsCreateBody = () => zod
     .object({
+        _create_in_folder: zod.string().optional().describe('Project folder for a newly created workflow.'),
         name: zod.string().max(hogFlowsCreateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().default(hogFlowsCreateBodyDescriptionDefault).describe('Optional description.'),
         tags: zod
@@ -564,6 +565,7 @@ export const hogFlowsPartialUpdateBodyEmailSendingRateLimitOneCountMax = 1000000
 
 export const HogFlowsPartialUpdateBody = () => zod
     .object({
+        _create_in_folder: zod.string().optional().describe('Project folder for a newly created workflow.'),
         name: zod.string().max(hogFlowsPartialUpdateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().optional().describe('Optional description.'),
         tags: zod

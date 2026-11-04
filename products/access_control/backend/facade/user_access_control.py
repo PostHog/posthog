@@ -340,7 +340,7 @@ def model_to_resource(model: Model | type[Model]) -> Optional[APIScopeObject]:
         return "endpoint"
     # The workflow scope is "hog_flow" but the model is "hogflow"; its batch jobs and schedules have no
     # route of their own and inherit the parent workflow's access (same idea as endpointversion → endpoint).
-    if name in ("hogflow", "hogflowbatchjob", "hogflowschedule"):
+    if name in ("hogflow", "hogflowbatchjob", "hogflowschedule", "messagetemplate"):
         return "hog_flow"
     if name == "externaldatasource":
         return "external_data_source"

@@ -10,11 +10,20 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.file_system.access_levels import FileSystemAccessLevelSerializerMixin
+from posthog.api.file_system.access_levels import (
+    FileSystemAccessLevelSerializerMixin,
+    filter_workflow_files_by_access_level,
+)
 from posthog.api.file_system.visibility import apply_file_system_visibility_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
-from posthog.models.file_system.constants import DEFAULT_SURFACE, RETIRED_FILE_SYSTEM_TYPES, surface_q
+from posthog.models.file_system.constants import (
+    DEFAULT_SURFACE,
+    RETIRED_FILE_SYSTEM_TYPES,
+    WORKFLOW_FILE_SYSTEM_TYPES,
+    surface_q,
+    workflow_project_files_enabled,
+)
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut, lock_user_shortcuts
 
 
@@ -203,6 +212,10 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Destroy keeps retired rows, so that a user can still remove a shortcut that no other action returns.
         if self.action != "destroy":
             queryset = queryset.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
+            if not workflow_project_files_enabled(self.team, cast(User, self.request.user)):
+                queryset = queryset.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES)
+        if self.user_access_control:
+            queryset = filter_workflow_files_by_access_level(queryset, self.user_access_control, self.team.project_id)
         ordering_param = self.request.GET.get("ordering", "")
         if ordering_param == "-created_at":
             return queryset.order_by("-created_at")
