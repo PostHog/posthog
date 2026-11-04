@@ -52258,6 +52258,7 @@ export namespace Schemas {
      * * `queued` - Queued
      * * `active` - Active
      * * `completed` - Completed
+     * * `partially_failed` - Partially failed
      * * `cancelled` - Cancelled
      * * `failed` - Failed
      */
@@ -52269,6 +52270,7 @@ export namespace Schemas {
       Queued: 'queued',
       Active: 'active',
       Completed: 'completed',
+      PartiallyFailed: 'partially_failed',
       Cancelled: 'cancelled',
       Failed: 'failed',
     } as const;
@@ -52276,12 +52278,13 @@ export namespace Schemas {
     export interface HogFlowBatchJob {
       /** ID of the batch run. */
       readonly id: string;
-      /** Not currently tracked — stays at its initial value. Use the workflow logs/metrics endpoints for run outcome.
+      /** Status of the batch run. waiting: the audience's cohort is still calculating. queued and active: the run is enrolling its audience. completed: the whole audience was enrolled. When every enrolled person's run has ended, or a day after the run completed, PostHog checks for errored sends. A completed run stays completed when no send errored, becomes partially_failed when some sends errored, and becomes failed when every send errored. failed also means the run could not enroll its audience. cancelled: someone stopped the run. A send errors when its step throws, for example on a template that does not render. Provider failures such as bounces are not errored sends; read them from the run's metrics.
        *
        * * `waiting` - Waiting
        * * `queued` - Queued
        * * `active` - Active
        * * `completed` - Completed
+       * * `partially_failed` - Partially failed
        * * `cancelled` - Cancelled
        * * `failed` - Failed */
       status?: HogFlowBatchJobStateEnum;
@@ -52311,6 +52314,7 @@ export namespace Schemas {
        * * `queued` - Queued
        * * `active` - Active
        * * `completed` - Completed
+       * * `partially_failed` - Partially failed
        * * `cancelled` - Cancelled
        * * `failed` - Failed */
       status: HogFlowBatchJobStateEnum;
@@ -69631,6 +69635,20 @@ export namespace Schemas {
       NeedsAttention: 'needs_attention',
     } as const;
 
+    /**
+     * * `found` - Found
+     * * `missing` - Missing
+     * * `unavailable` - Unavailable
+     */
+    export type OwnersFileStatusEnum = typeof OwnersFileStatusEnum[keyof typeof OwnersFileStatusEnum];
+
+
+    export const OwnersFileStatusEnum = {
+      Found: 'found',
+      Missing: 'missing',
+      Unavailable: 'unavailable',
+    } as const;
+
     export interface WorkflowCost {
       /** GitHub Actions workflow name this cost is for. */
       workflow_name: string;
@@ -74499,6 +74517,20 @@ export namespace Schemas {
       Label: 'label',
     } as const;
 
+    /**
+     * * `off` - Off
+     * * `always` - Always
+     * * `fallback` - When stamphog does not approve
+     */
+    export type RoutingModeEnum = typeof RoutingModeEnum[keyof typeof RoutingModeEnum];
+
+
+    export const RoutingModeEnum = {
+      Off: 'off',
+      Always: 'always',
+      Fallback: 'fallback',
+    } as const;
+
     export interface StamphogRepoConfig {
       readonly id: string;
       /** SCM provider this config talks to. Defaults to 'github'. */
@@ -74518,8 +74550,14 @@ export namespace Schemas {
       readonly review_mode: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
+      /** When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      readonly routing_mode: RoutingModeEnum;
       /**
-         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode or trigger_label.
+         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label or routing_mode.
          * @nullable
          */
       readonly user_access_level: string | null;
@@ -86346,6 +86384,12 @@ export namespace Schemas {
       review_mode?: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
+      /** When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      routing_mode?: RoutingModeEnum;
     }
 
     export type PatchedSubscriptionWriteContextsItem = {
@@ -103931,12 +103975,13 @@ export namespace Schemas {
     export interface SendCalendarBatchJob {
       /** ID of the batch run. */
       readonly id: string;
-      /** Status of the batch run.
+      /** Status of the batch run. waiting: the audience's cohort is still calculating. queued and active: the run is enrolling its audience. completed: the whole audience was enrolled. When every enrolled person's run has ended, or a day after the run completed, PostHog checks for errored sends. A completed run stays completed when no send errored, becomes partially_failed when some sends errored, and becomes failed when every send errored. failed also means the run could not enroll its audience. cancelled: someone stopped the run. A send errors when its step throws, for example on a template that does not render. Provider failures such as bounces are not errored sends; read them from the run's metrics.
        *
        * * `waiting` - Waiting
        * * `queued` - Queued
        * * `active` - Active
        * * `completed` - Completed
+       * * `partially_failed` - Partially failed
        * * `cancelled` - Cancelled
        * * `failed` - Failed */
       readonly status: HogFlowBatchJobStateEnum;
@@ -107382,6 +107427,18 @@ export namespace Schemas {
     }
 
     /**
+     * Whether a repository can use reviewer requests, which read ownership from its owners.yaml.
+     */
+    export interface StamphogOwnersFile {
+      /** Whether the default branch has a root owners.yaml: 'found', 'missing', or 'unavailable' when the check could not ask GitHub (no installation, or GitHub answered with an error).
+       *
+       * * `found` - Found
+       * * `missing` - Missing
+       * * `unavailable` - Unavailable */
+      owners_file: OwnersFileStatusEnum;
+    }
+
+    /**
      * Input shape for creating/updating a repo config.
      *
      * Separate from the read serializer because the contract is an output shape: it carries a
@@ -107409,6 +107466,12 @@ export namespace Schemas {
       review_mode?: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
+      /** When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      routing_mode?: RoutingModeEnum;
     }
 
     /**
@@ -111635,6 +111698,17 @@ export namespace Schemas {
       text: string;
       /** Metadata about the text representation */
       metadata: TextReprMetadata;
+    }
+
+    export interface TicketAttachment {
+      /** ID of the stored file. */
+      id: string;
+      /** Public download URL of the stored file. */
+      url: string;
+      /** Sanitized file name. */
+      name: string;
+      /** Stored content type. Inline-safe images come back as their decoded image type. */
+      content_type: string;
     }
 
     export interface TicketError {
@@ -122242,6 +122316,11 @@ export namespace Schemas {
       OnTrack: 'on-track',
     } as const;
 
+    export type ConversationsTicketsAttachmentsCreateBody = {
+      /** File to attach. Must be under 20 MiB. */
+      file: Blob;
+    };
+
     export type ConversationsTicketsMessagesListParams = {
     /**
      * Number of results to return per page.
@@ -126981,7 +127060,7 @@ export namespace Schemas {
      */
     broadcast_eligible?: boolean;
     /**
-     * Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.
+     * Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, partially_sent, failed, archived. Scheduled, sending, sent, partially_sent and failed come from the latest run and whether a schedule still has sends to come. A latest run that is completed reads as sent, partially_failed as partially_sent, and failed or cancelled as failed. With a schedule still to come, a completed or partially_failed latest run reads as scheduled.
      */
     broadcast_status?: string;
     created_at?: string;
@@ -126991,7 +127070,7 @@ export namespace Schemas {
     created_by?: string;
     id?: string;
     /**
-     * Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last.
+     * Pass `true` to order by when each workflow's newest completed or partially_failed run finished, newest first. Workflows that never finished such a run come last.
      */
     latest_send_first?: boolean;
     /**
