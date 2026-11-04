@@ -172,6 +172,47 @@ describe('calculating tile layouts', () => {
         expect(result.xs?.[0]?.h).toBe(expectedXsH)
     })
 
+    it.each([
+        {
+            name: 'the first tile of an empty group goes below every other tile',
+            tiles: [
+                { id: 1, layout: { x: 0, y: 0, w: 6, h: 5 } },
+                { id: 2, group_key: 'empty-group' },
+            ],
+            expected: { x: 0, y: 5 },
+        },
+        {
+            name: 'a tile in a group with tiles stays at or below the top row of its group',
+            tiles: [
+                { id: 1, layout: { x: 0, y: 0, w: 12, h: 5 } },
+                { id: 2, group_key: 'a', layout: { x: 0, y: 5, w: 6, h: 5 } },
+                { id: 3, group_key: 'b', layout: { x: 0, y: 10, w: 6, h: 5 } },
+                { id: 4, group_key: 'b' },
+            ],
+            expected: { x: 6, y: 10 },
+        },
+        {
+            name: 'without sections an ungrouped tile goes below grouped tiles in the shared grid',
+            tiles: [{ id: 1, group_key: 'a', layout: { x: 0, y: 0, w: 12, h: 5 } }, { id: 2 }],
+            groupsShareGrid: true,
+            expected: { x: 0, y: 5 },
+        },
+    ])('places a tile with no layout so its group keeps its order: $name', ({ tiles, groupsShareGrid, expected }) => {
+        const dashboardTiles: DashboardTile[] = tiles.map(({ id, layout, group_key }) => ({
+            ...textTileWithLayout(
+                (layout ? { sm: { i: String(id), ...layout } } : {}) as Record<DashboardLayoutSize, TileLayout>,
+                id
+            ),
+            ...(group_key ? { group_key } : {}),
+        }))
+
+        const placed = calculateLayouts(dashboardTiles, { groupsShareGrid }).sm?.find(
+            (layout) => layout.i === String(tiles.at(-1)!.id)
+        )
+
+        expect(placed).toMatchObject(expected)
+    })
+
     it('xs follows final sm row-major order when some tiles have no stored sm layout', () => {
         const tiles: DashboardTile[] = [
             textTileWithLayout(
