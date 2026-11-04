@@ -1,4 +1,4 @@
-import type { FlameChange, FlameNode, FlameNodeDatum } from './types'
+import type { FlameChange, FlameNode, FlameNodeDatum, FlameSort } from './types'
 
 /** Children under this share of their parent move to the end of the row, so that two or more of
  *  them sit next to each other and can bundle into one "+N more" cell. */
@@ -85,7 +85,18 @@ function orderChildren<Meta>(children: FlameNode<Meta>[], parentWeight: number):
     return large.concat(tail)
 }
 
-export function buildFlameTree<Meta>(data: FlameNode<Meta> | FlameNode<Meta>[]): FlameTree<Meta> {
+export interface FlameTreeOptions {
+    /** Defaults to `input`. */
+    sort?: FlameSort
+}
+
+const byWeightDescending = (a: FlameNode<unknown>, b: FlameNode<unknown>): number => weightOf(b) - weightOf(a)
+
+export function buildFlameTree<Meta>(
+    data: FlameNode<Meta> | FlameNode<Meta>[],
+    options: FlameTreeOptions = {}
+): FlameTree<Meta> {
+    const sortByValue = options.sort === 'value'
     // A node object reached twice is skipped, which also stops a cyclic input from looping forever.
     const seen = new Set<FlameNode<Meta>>()
     const roots = (Array.isArray(data) ? data : [data]).filter((root) => {
@@ -143,7 +154,7 @@ export function buildFlameTree<Meta>(data: FlameNode<Meta> | FlameNode<Meta>[]):
     assignSuffixes(roots)
     const rootWeight = roots.reduce((sum, root) => sum + weightOf(root), 0)
     let cursor = 0
-    for (const root of roots) {
+    for (const root of sortByValue ? roots.sort(byWeightDescending) : roots) {
         const width = rootWeight > 0 ? weightOf(root) / rootWeight : 0
         push(root, -1, cursor, cursor + width)
         cursor += width
@@ -162,7 +173,7 @@ export function buildFlameTree<Meta>(data: FlameNode<Meta> | FlameNode<Meta>[]):
             })
             assignSuffixes(fresh)
             const parentWeight = weightOf(nodes[head])
-            const ordered = orderChildren(fresh, parentWeight)
+            const ordered = orderChildren(sortByValue ? fresh.sort(byWeightDescending) : fresh, parentWeight)
             const childWeight = ordered.reduce((sum, child) => sum + weightOf(child), 0)
             const span = x1[head] - x0[head]
             const unit = parentWeight > 0 ? span / Math.max(parentWeight, childWeight) : 0
@@ -568,30 +579,37 @@ export function nodeDatum<Meta>(tree: FlameTree<Meta>, index: number, diff: Flam
     }
 }
 
+export type FlameDirection = 'top-down' | 'bottom-up'
+
 export interface FlameRowGeometry {
     rowHeight: number
     rowCount: number
+    direction: FlameDirection
+    /** Blank px above the first row, which bottom-up graphs use to sit on the viewport's bottom edge. */
+    offset?: number
 }
 
 /** Top of a depth's row in content px, before the scroll offset. */
-export function rowTop(depth: number, { rowHeight }: FlameRowGeometry): number {
-    return depth * rowHeight
+export function rowTop(depth: number, { rowHeight, rowCount, direction, offset = 0 }: FlameRowGeometry): number {
+    return offset + (direction === 'top-down' ? depth : rowCount - 1 - depth) * rowHeight
 }
 
 /** Depth of the row at content y, or -1 outside the rows. */
-export function depthAtY(y: number, { rowHeight, rowCount }: FlameRowGeometry): number {
-    const row = Math.floor(y / rowHeight)
-    return row < 0 || row >= rowCount ? -1 : row
+export function depthAtY(y: number, { rowHeight, rowCount, direction, offset = 0 }: FlameRowGeometry): number {
+    const row = Math.floor((y - offset) / rowHeight)
+    if (row < 0 || row >= rowCount) {
+        return -1
+    }
+    return direction === 'top-down' ? row : rowCount - 1 - row
 }
 
 /** Depths with any part inside the content band `[scrollTop, scrollTop + height)`. */
-export function visibleDepths(
-    scrollTop: number,
-    height: number,
-    { rowHeight, rowCount }: FlameRowGeometry
-): [number, number] {
-    return [
-        Math.max(0, Math.floor(scrollTop / rowHeight)),
-        Math.min(rowCount - 1, Math.ceil((scrollTop + height) / rowHeight) - 1),
-    ]
+export function visibleDepths(scrollTop: number, height: number, geometry: FlameRowGeometry): [number, number] {
+    const top = scrollTop - (geometry.offset ?? 0)
+    const firstRow = Math.max(0, Math.floor(top / geometry.rowHeight))
+    const lastRow = Math.min(geometry.rowCount - 1, Math.ceil((top + height) / geometry.rowHeight) - 1)
+    if (geometry.direction === 'top-down') {
+        return [firstRow, lastRow]
+    }
+    return [geometry.rowCount - 1 - lastRow, geometry.rowCount - 1 - firstRow]
 }

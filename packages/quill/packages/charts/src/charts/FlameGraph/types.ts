@@ -1,6 +1,6 @@
 import type React from 'react'
 
-import type { ChartTheme, TooltipContext } from '../../core/types'
+import type { ChartLegendConfig, ChartTheme, TooltipContext } from '../../core/types'
 
 /** One frame of a call tree: a function, a span name, an LLM step. */
 export interface FlameNode<Meta = unknown> {
@@ -30,7 +30,7 @@ export interface FlameNode<Meta = unknown> {
     /** Child frames, drawn under this one. Their order is kept, except that two or more children
      *  under 1% of this node move to the end so they can bundle into one "+N more" cell. */
     children?: FlameNode<Meta>[]
-    /** Passed through to the tooltip. */
+    /** Passed through to the tooltip and the click callbacks. */
     meta?: Meta
 }
 
@@ -57,7 +57,7 @@ export interface FlameChange {
     ratio: number | null
 }
 
-/** A node as the chart resolved it, handed to the tooltip. */
+/** A node as the chart resolved it, handed to the tooltip and the callbacks. */
 export interface FlameNodeDatum<Meta = unknown> {
     id: string
     name: string
@@ -101,6 +101,8 @@ export type FlameHit<Meta = unknown> =
     | { kind: 'node'; node: FlameNodeDatum<Meta> }
     | { kind: 'bundle'; bundle: FlameBundleDatum<Meta> }
 
+export type FlameColorBy = 'auto' | 'group' | 'name' | 'diff'
+
 export interface FlameDiffConfig {
     /** Relative change, 0..1, below which a node reads as similar: 0.1 colors a node when it is
      *  more than 10% slower or faster. Defaults to 0.1. */
@@ -109,16 +111,65 @@ export interface FlameDiffConfig {
      *  percentage on a handful of samples is noise. Nodes without counts are never gated.
      *  Defaults to 0 (off). */
     minCount?: number
+    /** Color for nodes whose value grew. Defaults to the red in the theme palette (`theme.colors[4]`). */
+    slowerColor?: string
+    /** Color for nodes whose value shrank. Defaults to the blue in the theme palette (`theme.colors[0]`). */
+    fasterColor?: string
 }
 
-/** Colors follow the data: `diff` colors when any node has a `baselineValue`, else one palette color per
- *  `group`, else one per node name. */
+/** Defaults for the kind of data the graph shows. `profile` suits call trees whose values are
+ *  durations; `breakdown` suits counts nested by property, such as a trend broken down by country
+ *  and then by browser. */
+export type FlamePreset = 'profile' | 'breakdown'
+
+/** `monospace` reads well for function and span names; `sans` for property values. */
+export type FlameLabelFont = 'monospace' | 'sans'
+
+/** `value` orders siblings widest first; `input` keeps the order of `children`. */
+export type FlameSort = 'input' | 'value'
+
 export interface FlameGraphConfig {
+    /** Sets the defaults of `labelFont` and `sort` at once. `profile` (default): monospace labels,
+     *  input order. `breakdown`: proportional labels, siblings sorted by value. Each of those options
+     *  still overrides its preset default. */
+    preset?: FlamePreset
+    /** `monospace` reads well for function and span names; `sans` for property values such as
+     *  countries or browsers. Defaults to the preset's choice. */
+    labelFont?: FlameLabelFont
+    /** `value` orders siblings widest first; `input` keeps the order of `children`. Two or more
+     *  children under 1% of their parent still move to the end either way. Defaults to the preset's
+     *  choice. */
+    sort?: FlameSort
+    /** `group` gives each `node.group` a palette color. `name` does the same by node name, so one
+     *  function keeps one color wherever it appears. `diff` colors by change against
+     *  `baselineValue` on a red-blue scale. `auto` (default) picks `diff` when any node has a
+     *  `baselineValue`, else `group` when any node has a `group`, else `name`. */
+    colorBy?: FlameColorBy
     diff?: FlameDiffConfig
     /** Formats values in the tooltip. Defaults to `toLocaleString`. */
     valueFormatter?: (value: number) => string
-    /** The graph grows with the tree up to this height in px, then scrolls. Defaults to 480. */
+    /** Row height in px. Defaults to 22. */
+    rowHeight?: number
+    /** `auto` (default) grows with the tree up to `maxHeight`, then scrolls. `fill` takes the
+     *  parent's height, which must be set, and scrolls inside it. A number fixes the height in px. */
+    height?: 'auto' | 'fill' | number
+    /** Cap for `height: 'auto'`, in px. Defaults to 480. */
     maxHeight?: number
+    /** `top-down` (default) draws the roots at the top, as an icicle chart. `bottom-up` draws them
+     *  at the bottom, as a classic flame graph. */
+    direction?: 'top-down' | 'bottom-up'
+    /** Zoom into a node on click. Defaults to true. */
+    clickToFocus?: boolean
+    /** Show the breadcrumb row with the focus path and a reset button. Defaults to true. */
+    showBreadcrumb?: boolean
+    /** The color legend, for `group` and `diff` colors. Unlike other charts it shows by default, below
+     *  the graph and aligned to the start. Honors `show`, `position`, `align` and `gap`; its rows list
+     *  colors rather than series, so they are not clickable. */
+    legend?: ChartLegendConfig
+    tooltip?: {
+        /** Show the tooltip on hover. Defaults to true. */
+        enabled?: boolean
+    }
 }
 
 /** Tooltip context for a flame graph hover. `seriesData` holds one row for the hovered node so the
@@ -147,6 +198,11 @@ export interface FlameGraphProps<Meta = unknown> {
     defaultFocusedId?: string | null
     /** Replaces the tooltip content. */
     tooltip?: (ctx: FlameTooltipContext<Meta>) => React.ReactNode
+    /** Fires on a click on a node, after any zoom. Not fired for "+N more" cells, which zoom. */
+    onNodeClick?: (node: FlameNodeDatum<Meta>) => void
+    /** Fires when the zoom changes through a click, the breadcrumb, the reset button or Escape.
+     *  `null` means the whole graph is in view. */
+    onFocusChange?: (node: FlameNodeDatum<Meta> | null) => void
     className?: string
     dataAttr?: string
     onError?: (error: Error, info: React.ErrorInfo) => void
