@@ -42,7 +42,7 @@ Worker (`nodejs/src/cdp/config.ts`):
 - `EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER`: must mirror the Django table. An unusable table, such as one with a non-integer entry, falls back to the worker's built-in default table.
 
 All of these reach production as environment variables through `posthog/charts` (with any secret values via `posthog/secrets`).
-Charts sets both modes to `enforce` in every environment. The cap tables are not set there, so each side runs on its code defaults, and a change to a default table takes effect on deploy.
+Charts sets both modes to `enforce` in every environment, so the rollout order below is complete there. The cap tables are not set there, so each side runs on its code defaults, and a change to a default table takes effect on deploy.
 
 ## Decision rules the sweep applies
 
