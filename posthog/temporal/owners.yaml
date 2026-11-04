@@ -3,17 +3,11 @@ owners: []
 rules:
     - match: '/ai_observability/'
       owners: team-ai-observability
-    - match:
-          - '/alerts/'
-          - '/tests/cleanup_property_definitions/'
+    - match: '/alerts/'
       owners: team-product-analytics
     - match: '/data_modeling/'
       owners: team-data-modeling
-    - match:
-          - '/delete_persons/'
-          - '/ingestion_acceptance_test/'
-          - '/tests/delete_persons/'
-          - '/tests/ingestion_acceptance_test/'
+    - match: '/delete_persons/'
       owners: team-ingestion
     - match: '/experiments/'
       owners: team-experiments
@@ -27,34 +21,48 @@ rules:
       owners: team-workflows
     - match: '/product_analytics/'
       owners: team-product-analytics
-    - match:
-          - '/proxy_service/'
-          - '/tests/delete_teams/'
+    - match: '/proxy_service/'
       owners: team-platform-features
-    - match:
-          - '/quota_limiting/'
-          - '/tests/salesforce_enrichment/'
-          - '/tests/usage_report/'
+    - match: '/quota_limiting/'
       owners: team-billing
-    - match:
-          - '/session_replay/'
-          - '/tests/session_replay/count_playlist_items/'
-          - '/tests/session_replay/delete_recordings/'
-          - '/tests/session_replay/enforce_max_replay_retention/'
-          - '/tests/session_replay/rasterize_recording/'
-          - '/tests/session_replay/replay_count_metrics/'
-          - '/tests/session_replay/surfacing_score_export_sweep/'
-          - '/tests/session_replay/surfacing_scoring_sweep/'
+    - match: '/session_replay/'
       owners: team-replay
     - match: '/sync_person_distinct_ids/'
       owners: team-ingestion
-    - match:
-          - '/health_checks/'
-          - '/tests/weekly_digest/'
+    - match: '/tests/weekly_digest/'
       owners: team-growth
     - match: '/usage_report/'
       owners: team-billing
     - match: '/weekly_digest/'
       owners: team-growth
-    - match: '/tests/warehouse_sources_queue_partition_management/'
+    - match:
+          - '/tests/salesforce_enrichment/test_*.py'
+          - '/tests/usage_report/test_*.py'
+      owners: team-billing
+    - match:
+          - '/health_checks/rollups/tests/test_*.py'
+          - '/health_checks/tests/test_*.py'
+      owners: team-growth
+    - match:
+          - '/ingestion_acceptance_test/test_*.py'
+          - '/tests/delete_persons/test_*.py'
+          - '/tests/ingestion_acceptance_test/test_*.py'
+      owners: team-ingestion
+    - match:
+          - '/tests/delete_teams/test_*.py'
+      owners: team-platform-features
+    - match:
+          - '/tests/cleanup_property_definitions/test_*.py'
+      owners: team-product-analytics
+    - match:
+          - '/tests/session_replay/count_playlist_items/test_*.py'
+          - '/tests/session_replay/delete_recordings/test_*.py'
+          - '/tests/session_replay/enforce_max_replay_retention/test_*.py'
+          - '/tests/session_replay/rasterize_recording/test_*.py'
+          - '/tests/session_replay/replay_count_metrics/test_*.py'
+          - '/tests/session_replay/surfacing_score_export_sweep/test_*.py'
+          - '/tests/session_replay/surfacing_scoring_sweep/test_*.py'
+      owners: team-replay
+    - match:
+          - '/tests/warehouse_sources_queue_partition_management/test_*.py'
       owners: team-warehouse-sources

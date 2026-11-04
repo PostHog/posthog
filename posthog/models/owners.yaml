@@ -9,10 +9,7 @@ rules:
       owners: team-self-driving
     - match: '/ai_events/'
       owners: team-ai-observability
-    - match:
-          - '/channel_type/'
-          - '/exchange_rate/'
-          - '/person_group_membership/'
+    - match: '/channel_type/'
       owners: team-web-analytics
     - match: '/cohortmembership/'
       owners: team-feature-flags
@@ -22,10 +19,7 @@ rules:
       owners: team-workflows
     - match: '/oauth.py'
       owners: team-growth
-    - match:
-          - '/distinct_id_usage/'
-          - '/person/'
-          - '/tophog/'
+    - match: '/person/'
       owners: team-ingestion
     - match: '/proxy_record.py'
       owners: team-platform-features
@@ -37,9 +31,20 @@ rules:
       owners: team-analytics-platform
     - match: '/web_preaggregated/'
       owners: team-web-analytics
-    - match: '/file_system/'
+    - match:
+          - '/file_system/test/test_*.py'
       owners: platform-ux
-    - match: '/usage_report_events_preagg/'
+    - match:
+          - '/usage_report_events_preagg/test/test_*.py'
       owners: team-billing
-    - match: '/scoping/'
+    - match:
+          - '/scoping/test_*.py'
       owners: team-devex
+    - match:
+          - '/distinct_id_usage/test/test_*.py'
+          - '/tophog/test/test_*.py'
+      owners: team-ingestion
+    - match:
+          - '/exchange_rate/test/test_*.py'
+          - '/person_group_membership/test/test_*.py'
+      owners: team-web-analytics

@@ -5,29 +5,17 @@ rules:
       owners: team-feature-flags
     - match: '/actions/'
       owners: team-product-analytics
-    - match:
-          - '/activity/'
-          - '/team-activity/'
+    - match: '/activity/'
       owners: team-web-analytics
-    - match:
-          - '/agentic/'
-          - '/sites/'
+    - match: '/agentic/'
       owners: team-growth
     - match: '/alerts/'
       owners: team-product-analytics
     - match: '/annotations/'
       owners: team-product-analytics
-    - match:
-          - '/approvals/'
-          - '/audit-logs/'
-          - '/authentication/'
-          - '/organization/*'
-          - '/project/'
-          - '/settings/user/passkeys/'
+    - match: ['/approvals/', '/audit-logs/', '/authentication/']
       owners: team-platform-features
-    - match:
-          - '/billing/'
-          - '/real-time-usage/'
+    - match: '/billing/'
       owners: team-billing
     - match: '/cohorts/'
       owners: team-feature-flags
@@ -41,9 +29,7 @@ rules:
       owners: team-warehouse-sources
     - match: '/data-management/schema/'
       owners: team-product-analytics
-    - match:
-          - '/data-pipelines/'
-          - '/integrations/aws-s3/'
+    - match: '/data-pipelines/'
       owners: team-workflows
     # Narrower than the rule above, which would otherwise route the batch exports
     # scene to workflows. Backend counterpart: products/batch_exports/product.yaml.
@@ -71,18 +57,14 @@ rules:
       owners: team-growth
     - match: '/marketing-analytics/'
       owners: team-web-analytics
-    - match:
-          - '/integrations/components/'
-          - '/max/'
+    - match: '/max/'
       owners: team-self-driving
     # The topic list the AI homepage renders, so growth reviews it alongside Max.
     - match: '/max/suggestionTopics.tsx'
       owners: [team-self-driving, team-growth]
     - match: '/models/'
       owners: team-data-modeling
-    - match:
-          - '/debug/'
-          - '/notebooks/'
+    - match: '/notebooks/'
       owners: team-data-tools
     - match: ['/oauth/', '/onboarding/']
       owners: team-growth
@@ -95,9 +77,7 @@ rules:
     - match: '/project-homepage/'
       owners: team-growth
     # Narrower than the rule above, which would otherwise route the Today homepage to growth.
-    - match:
-          - '/library/'
-          - '/project-homepage/today/'
+    - match: '/project-homepage/today/'
       owners: team-surfaces
     - match: '/resource-transfer/'
       owners: team-platform-features
@@ -122,3 +102,28 @@ rules:
       owners: team-web-analytics
     - match: '/welcome/'
       owners: team-growth
+    - match:
+          - '/real-time-usage/*.test.*'
+      owners: team-billing
+    - match:
+          - '/debug/*.test.*'
+      owners: team-data-tools
+    - match:
+          - '/sites/*.test.*'
+      owners: team-growth
+    - match:
+          - '/project/*.test.*'
+          - '/settings/user/passkeys/*.test.*'
+      owners: team-platform-features
+    - match:
+          - '/integrations/components/*.test.*'
+      owners: team-self-driving
+    - match:
+          - '/library/*.test.*'
+      owners: team-surfaces
+    - match:
+          - '/team-activity/customer_analytics_config/*.test.*'
+      owners: team-web-analytics
+    - match:
+          - '/integrations/aws-s3/*.test.*'
+      owners: team-workflows

@@ -3,21 +3,9 @@ owners: []
 rules:
     - match: '/ai-observability/'
       owners: team-ai-observability
-    - match:
-          - '/cdp/'
-          - '/messaging/'
+    - match: '/cdp/'
       owners: team-workflows
-    - match:
-          - '/common/api/'
-          - '/common/config/'
-          - '/common/groups/'
-          - '/common/kafka/'
-          - '/common/outputs/'
-          - '/common/personhog/'
-          - '/common/persons/'
-          - '/common/tracing/'
-          - '/common/utils/event-ingestion-restrictions/'
-          - '/ingestion/'
+    - match: '/ingestion/'
       owners: team-ingestion
     - match: '/ingestion/pipelines/sessionreplay/'
       owners: [team-replay, team-ingestion]
@@ -25,17 +13,38 @@ rules:
           - '/ingestion/pipelines/sessionreplay/ml-mirror/'
           - '/ingestion/pipelines/sessionreplay/ml-mirror-*/'
       owners: ai-research
-    - match:
-          - '/session-replay/recording-api/'
-          - '/session-replay/recording-rasterizer/'
+    - match: '/session-replay/recording-rasterizer/'
       owners: team-replay
     - match:
-          - '/logs/metrics-rules/'
-          - '/logs/pipeline/'
-          - '/logs/retention/'
-          - '/logs/sampling/'
-          - '/logs/services/'
-          - '/logs/transformations/'
+          - '/logs/metrics-rules/*.test.*'
+          - '/logs/pipeline/*.test.*'
+          - '/logs/retention/*.test.*'
+          - '/logs/sampling/*.test.*'
+          - '/logs/services/*.test.*'
+          - '/logs/transformations/*.test.*'
+          - '/logs/transformations/benchmarks/*.test.*'
       owners: team-apm
-    - match: '/common/usage-ingestion/'
+    - match:
+          - '/common/usage-ingestion/*.test.*'
       owners: team-billing
+    - match:
+          - '/common/api/*.test.*'
+          - '/common/api/middleware/*.test.*'
+          - '/common/config/*.test.*'
+          - '/common/groups/*.test.*'
+          - '/common/groups/repositories/*.test.*'
+          - '/common/kafka/*.test.*'
+          - '/common/kafka/consumer/*.test.*'
+          - '/common/outputs/*.test.*'
+          - '/common/personhog/*.test.*'
+          - '/common/persons/*.test.*'
+          - '/common/persons/repositories/*.test.*'
+          - '/common/tracing/*.test.*'
+          - '/common/utils/event-ingestion-restrictions/*.test.*'
+      owners: team-ingestion
+    - match:
+          - '/session-replay/recording-api/*.test.*'
+      owners: team-replay
+    - match:
+          - '/messaging/push-subscriptions/*.test.*'
+      owners: team-workflows

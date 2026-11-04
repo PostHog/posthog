@@ -3,27 +3,15 @@ owners: []
 rules:
     - match: '/caching/'
       owners: team-analytics-platform
-    - match:
-          - '/clickhouse/*'
-          - '/clickhouse/hcl/'
-          - '/user_scripts/'
+    - match: '/clickhouse/hcl/'
       owners: clickhouse
     - match:
           - '/csp_middleware.py'
           - '/test/test_csp_middleware.py'
       owners: team-security
-    - match:
-          - '/data_freshness.py'
-          - '/session/'
+    - match: '/data_freshness.py'
       owners: team-platform-features
-    - match:
-          - '/async_migrations/'
-          - '/egress/'
-          - '/local_bootstrap/'
-          - '/management/migration_profiling/'
-          - '/ownership/'
-          - '/scheduling/'
-          - '/slo/'
+    - match: '/egress/'
       owners: team-devex
     - match: '/email.py'
       owners: team-platform-features
@@ -44,10 +32,7 @@ rules:
       owners: team-platform-features
     - match: '/slack/'
       owners: team-devex
-    - match:
-          - '/resource_limits/'
-          - '/schema_migrations/'
-          - '/taxonomy/'
+    - match: '/taxonomy/'
       owners: team-product-analytics
     - match: '/templates/surveys/'
       owners: conversations
@@ -58,19 +43,52 @@ rules:
       sensitive: true
     - match: '*llm_prompt*.py'
       owners: team-experiments
-    - match: '/taxonomic_search_intent/'
+    - match:
+          - '/clickhouse/*_test.py'
+          - '/user_scripts/*_test.py'
+          - '/user_scripts/v10/*_test.py'
+          - '/user_scripts/v11/*_test.py'
+          - '/user_scripts/v12/*_test.py'
+          - '/user_scripts/v13/*_test.py'
+          - '/user_scripts/v5/*_test.py'
+          - '/user_scripts/v6/*_test.py'
+          - '/user_scripts/v7/*_test.py'
+          - '/user_scripts/v8/*_test.py'
+          - '/user_scripts/v9/*_test.py'
+      owners: clickhouse
+    - match:
+          - '/taxonomic_search_intent/test_*.py'
       owners: platform-ux
-    - match: '/usage_ingestion/'
+    - match:
+          - '/usage_ingestion/test_*.py'
       owners: team-billing
     - match:
-          - '/kafka_client/'
-          - '/personhog_client/'
+          - '/async_migrations/examples/test_*.py'
+          - '/async_migrations/test/test_*.py'
+          - '/local_bootstrap/test_*.py'
+          - '/management/migration_profiling/test/test_*.py'
+          - '/ownership/test/test_*.py'
+          - '/scheduling/test/test_*.py'
+          - '/slo/test/test_*.py'
+      owners: team-devex
+    - match:
+          - '/kafka_client/test/test_*.py'
+          - '/personhog_client/test_*.py'
       owners: team-ingestion
     - match:
-          - '/query_cache/'
-          - '/query_scan/'
+          - '/session/test/test_*.py'
+      owners: team-platform-features
+    - match:
+          - '/resource_limits/test/test_*.py'
+          - '/schema_migrations/test/test_*.py'
+      owners: team-product-analytics
+    - match:
+          - '/query_cache/test/test_*.py'
+          - '/query_scan/test/test_*.py'
       owners: team-query-performance
-    - match: '/object_tags/'
+    - match:
+          - '/object_tags/test/test_*.py'
       owners: team-surfaces
-    - match: '/plugins/'
+    - match:
+          - '/plugins/test/test_*.py'
       owners: team-workflows
