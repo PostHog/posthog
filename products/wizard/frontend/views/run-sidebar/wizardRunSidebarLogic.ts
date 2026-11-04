@@ -100,12 +100,14 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
                 values.visibleRuns.map((run) => run.id)
             ),
         clickState: ({ location }) => {
+            // The More menu ignores sidebar dismissals, so count the runs it displays.
+            const runs = location === 'today_more_menu' ? values.userRuns : values.visibleRuns
             posthog.capture('wizard sidebar state clicked', {
                 event_source: 'wizard_ui',
                 project_id: projectId,
                 location,
-                run_count: values.visibleRuns.length,
-                active_run_count: values.visibleRuns.filter(wizardRunIsActive).length,
+                run_count: runs.length,
+                active_run_count: runs.filter(wizardRunIsActive).length,
             })
         },
         dismissRuns: ({ runIds }) => {

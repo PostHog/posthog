@@ -1,12 +1,26 @@
 import { useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { userLogic } from 'scenes/userLogic'
 
 import { wizardRunSidebarLogic } from './wizardRunSidebarLogic'
 
-export function WizardRunsUnseenDot({ projectId }: { projectId: string }): JSX.Element | null {
+export function WizardRunsUnseenDot({
+    projectId,
+    onUnseenChange,
+}: {
+    projectId: string
+    /** The dot is aria-hidden, so the trigger needs the state for its accessible name. */
+    onUnseenChange: (hasUnseenRuns: boolean) => void
+}): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { hasUnseenRuns } = useValues(wizardRunSidebarLogic({ projectId, userId: user?.id ?? 0 }))
+
+    useEffect(() => {
+        onUnseenChange(hasUnseenRuns)
+        return () => onUnseenChange(false)
+    }, [hasUnseenRuns, onUnseenChange])
+
     if (!hasUnseenRuns) {
         return null
     }

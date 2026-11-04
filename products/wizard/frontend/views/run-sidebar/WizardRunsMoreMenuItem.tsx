@@ -21,7 +21,7 @@ function RunCount({ count, label, icon }: { count: number; label: string; icon: 
     return (
         <span className="flex items-center gap-1" title={`${count} ${label}`}>
             {icon}
-            {count}
+            <span translate="no">{count}</span>
             <span className="sr-only">{label}</span>
         </span>
     )

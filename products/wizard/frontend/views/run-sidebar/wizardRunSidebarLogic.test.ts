@@ -66,6 +66,14 @@ describe('wizardRunSidebarLogic', () => {
             remaining_run_count: 0,
         })
         expect(logic.values.visibleRuns).toEqual([])
+        logic.actions.clickState('today_more_menu')
+        expect(posthog.capture).toHaveBeenLastCalledWith('wizard sidebar state clicked', {
+            event_source: 'wizard_ui',
+            project_id: '1',
+            location: 'today_more_menu',
+            run_count: 3,
+            active_run_count: 3,
+        })
         expect(MockEventSource.instances.every((stream) => stream.readyState === MockEventSource.CLOSED)).toBe(true)
         sync.actions.runsLoaded([{ ...run('new'), status: 'running' }, ...runs])
         expect(logic.values.visibleRuns.map((run) => run.id)).toEqual(['new'])
