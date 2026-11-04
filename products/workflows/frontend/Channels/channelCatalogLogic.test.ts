@@ -198,14 +198,28 @@ describe('sandbox setup in the channel catalog', () => {
     })
 
     it.each([
-        { who: 'a project member below admin', level: OrganizationMembershipLevel.Member, existing: [], expected: 1 },
+        {
+            who: 'a project member below admin',
+            level: OrganizationMembershipLevel.Member,
+            existing: [],
+            status: 200,
+            expected: 1,
+        },
         {
             who: 'a project that already has the sender, so its name follows the organization',
             level: OrganizationMembershipLevel.Admin,
             existing: [9],
+            status: 200,
             expected: 1,
         },
-    ])('sends $expected setup request on mount for $who', async ({ level, existing, expected }) => {
+        {
+            who: 'a project whose sender refresh fails, without an error over the working row',
+            level: OrganizationMembershipLevel.Admin,
+            existing: [9],
+            status: 500,
+            expected: 1,
+        },
+    ])('sends $expected setup request on mount for $who', async ({ level, existing, status, expected }) => {
         let requests = 0
         const results = existing.map((id) => ({ id, kind: 'email', config: { provider: 'sandbox', verified: true } }))
         useMocks({
@@ -213,7 +227,9 @@ describe('sandbox setup in the channel catalog', () => {
             post: {
                 '/api/projects/:team_id/integrations/email_sandbox_sender/': () => {
                     requests++
-                    return [200, { id: 9, kind: 'email', config: { provider: 'sandbox', verified: true } }]
+                    return status === 200
+                        ? [200, { id: 9, kind: 'email', config: { provider: 'sandbox', verified: true } }]
+                        : [status, { detail: 'Server error' }]
                 },
             },
         })
