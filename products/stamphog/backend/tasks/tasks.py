@@ -1932,9 +1932,29 @@ def _schedule_routing_safety_net(repo_config: StamphogRepoConfig, pr_number: int
     )
 
 
+def _finished_review_outcome(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> str | None:
+    """The routing outcome of stamphog's latest review of this head, or None while it has none.
+
+    A queued or running review counts as none, so the head waits for it. Pinned to the writer, because
+    the answer decides which owners get requested.
+    """
+    run = (
+        ReviewRun.objects.for_team(repo_config.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request__repo_config=repo_config, pull_request__pr_number=pr_number, head_sha=head_sha)
+        .exclude(status=ReviewRunStatus.SUPERSEDED)
+        .order_by("-created_at")
+        .first()
+    )
+    if run is None or run.status not in TERMINAL_STATUSES:
+        return None
+    return verdict_outcome(ReviewRunStatus(run.status), ReviewVerdict(run.verdict))
+
+
 _ROUTING_REVIEW_PATH = ReviewPath(
     will_review=_stamphog_will_review,
     schedule_safety_net=_schedule_routing_safety_net,
+    finished_outcome=_finished_review_outcome,
 )
 
 

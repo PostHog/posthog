@@ -18,7 +18,7 @@ from products.stamphog.backend.facade.tasks import route_pull_request_reviewers
 from products.stamphog.backend.logic.routing.comment import ROUTING_COMMENT_MARKER
 from products.stamphog.backend.logic.routing.cut import CUT_MODEL
 from products.stamphog.backend.logic.routing.service import CLAIM_STALE_AFTER, RoutingBusy
-from products.stamphog.backend.models import PullRequest, StamphogRepoConfig
+from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import (
     ROUTING_BUSY_RETRY_SECONDS,
     ROUTING_SAFETY_NET_SECONDS,
@@ -399,6 +399,43 @@ def test_fallback_approval_requests_only_pinned_owners(
     _fire_safety_net(safety_net)
     _finish_review(repo_config, ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED)
     assert len(_writes(routing_chain, "request_reviewers")) == (1 if expected_teams else 0)
+
+
+@pytest.mark.parametrize(
+    "name,verdict,expected_trigger,expected_requests",
+    [
+        ("approval", ReviewVerdict.APPROVED, "verdict:approved", (set(), {"team-alpha"})),
+        ("refusal", ReviewVerdict.REFUSED, "verdict:refused", ({"carol"}, {"team-alpha", "team-beta"})),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_verdict_before_the_opening_event_routes_when_the_pull_request_opens(
+    name: str,
+    verdict: ReviewVerdict,
+    expected_trigger: str,
+    expected_requests: tuple[set[str], set[str]],
+    team,
+    user,
+    routing_chain,
+    safety_net,
+) -> None:
+    # A fast verdict beats the opening task, so the verdict task finds no record and drops it.
+    repo_config = _setup(routing_chain, team, user, routing_mode="fallback")
+    with team_scope(team.id):
+        pr_obj = PullRequest.objects.for_team(team.id).create(
+            team_id=team.id, repo_config=repo_config, pr_number=PR_NUMBER
+        )
+        ReviewRun.objects.for_team(team.id).create(
+            team_id=team.id, pull_request=pr_obj, head_sha=HEAD_SHA, status=ReviewRunStatus.COMPLETED, verdict=verdict
+        )
+    _finish_review(repo_config, ReviewRunStatus.COMPLETED, verdict)
+    assert routing_chain.recorder.github_writes == []
+
+    _route()
+
+    safety_net.assert_not_called()
+    assert _requested(routing_chain) == expected_requests
+    assert _stored(team.id)["trigger"] == expected_trigger
 
 
 _HEAD_2 = "head-sha-2"

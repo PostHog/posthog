@@ -55,6 +55,8 @@ class ReviewPath:
     will_review: Callable[[StamphogRepoConfig, dict[str, Any]], bool]
     # Schedules the safety net for (repo_config, pr_number).
     schedule_safety_net: Callable[[StamphogRepoConfig, int], None]
+    # The routing outcome of the latest finished review of (repo_config, pr_number, head_sha), or None.
+    finished_outcome: Callable[[StamphogRepoConfig, int, str], str | None]
 
 
 def verdict_outcome(status: ReviewRunStatus, verdict: ReviewVerdict) -> str:
@@ -195,6 +197,13 @@ def _event_step(client: StamphogGitHubClient, state: _State, *, action: str, rev
     if mode == RoutingMode.FALLBACK and record is not None and record.get(FULL_ROUTED_HEAD):
         return None
     wait = mode == RoutingMode.FALLBACK and review_path.will_review(repo_config, pr)
+    if wait:
+        # A fast verdict can land before this task stores a record, and the verdict task drops it as a PR that
+        # opened before routing was on. So a head that already has a verdict routes by it instead of waiting.
+        outcome = review_path.finished_outcome(repo_config, state.pr_number, head_sha)
+        if outcome is not None and outcome != ReviewVerdict.WAIT:
+            scope = SCOPE_PINNED if outcome == ReviewVerdict.APPROVED else SCOPE_FULL
+            return _Step(pr=pr, head_sha=head_sha, mode=mode, trigger=verdict_trigger(outcome), scope=scope)
     return _Step(pr=pr, head_sha=head_sha, mode=mode, trigger=action, wait=wait)
 
 
@@ -241,7 +250,8 @@ def _upgrades_pinned(at_head: dict[str, Any], outcome: str) -> bool:
 def _verdict_step(client: StamphogGitHubClient, state: _State, *, head_sha: str, outcome: str) -> _Step | None:
     if state.stored is None:
         # No routing event ran for this PR, so it opened before routing was on and got its reviewers elsewhere.
-        # Routing it now would request again owners its author removed. A dead first claim still counts as a record.
+        # Routing it now would request again owners its author removed. A dead first claim still counts as a
+        # record, and an opening event that runs after this verdict routes by it.
         return None
     record = state.record
     if record is not None and record.get(FULL_ROUTED_HEAD):

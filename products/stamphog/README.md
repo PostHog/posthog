@@ -191,6 +191,7 @@ A comment names the cut owners and why.
   - A safety net fires 30 minutes after a head starts waiting. Unless the PR was already routed in full, or its current head was approved, it routes the current head in full, even when the head moved since.
   - Full routing happens at most once per PR, like `always`. After it, later verdicts and safety nets do nothing.
   - A PR that opened before `fallback` was on has no routing record, so its verdicts route nothing. Its reviewers came from elsewhere, and routing it would request again owners its author removed.
+  - A verdict that lands before the opening event stores its record is dropped the same way, so the opening event checks for a finished review of the head first and routes by it.
 
 `routing_fork_labels` maps a team slug to a label name. On a fork PR, a kept team with an entry gets that label instead of a review request, so an outside author cannot ping it.
 
