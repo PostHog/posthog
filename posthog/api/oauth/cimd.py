@@ -221,9 +221,9 @@ def is_cimd_client_id(client_id: str | None) -> bool:
     return valid
 
 
-# Agentic provisioning trusts a partner because it serves its metadata document from its
-# client_id URL. Each of these services gives anyone a public HTTPS URL with content they choose
-# in seconds, so a document served from one does not show that an accountable party controls it.
+# A CIMD client is trusted because it serves its metadata document from its client_id URL. Each
+# of these services gives anyone a public HTTPS URL with content they choose in seconds, so a
+# document served from one does not show that an accountable party controls the client.
 _TUNNEL_HOST_SUFFIXES = frozenset(
     {
         "trycloudflare.com",  # Cloudflare quick tunnels
@@ -297,9 +297,8 @@ THROWAWAY_HOST_SUFFIXES: frozenset[str] = (
 )
 
 THROWAWAY_HOST_MESSAGE = (
-    "This client_id is hosted on a tunnel, a request bin or a public JSON or paste service, "
-    "which can't be used for agentic provisioning. "
-    "Host your client metadata document on a domain you control and register that URL instead."
+    "PostHog doesn't accept client metadata from this host. "
+    "Host your client metadata document on a domain you control and use that URL as your client_id."
 )
 
 
@@ -975,6 +974,18 @@ def fetch_and_upsert_cimd_application(
     that fails model validation a ``CIMDValidationError`` rather than a kept row, so nothing is
     granted off metadata we could not store; see ``_update_cimd_application``.
     """
+    # Refused before the fetch so that PostHog sends no request to the host. Clients that already
+    # exist keep their background refresh, because creation and registration are the only gates.
+    if is_throwaway_host(url) and (
+        register_provisioning or not OAuthApplication.objects.filter(client_id=url).exists()
+    ):
+        capture_ph_event(
+            distinct_id=url,
+            event="cimd_throwaway_host_refused",
+            properties={"cimd_url": url, "registering_partner": register_provisioning},
+        )
+        raise CIMDValidationError(THROWAWAY_HOST_MESSAGE)
+
     fetch_lock = _fetch_lock_key(url)
     if not cache.add(fetch_lock, True, timeout=CIMD_FETCH_TIMEOUT_SECONDS * 3):
         return None

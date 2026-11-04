@@ -642,6 +642,16 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
     """Tests for get_or_create_cimd_application — the orchestration layer."""
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_new_client_on_a_throwaway_host_is_refused_before_any_fetch(self, mock_get, _url_mock):
+        url = "https://quiet-river-tea.trycloudflare.com/.well-known/client.json"
+
+        with self.assertRaises(CIMDValidationError):
+            get_or_create_cimd_application(url)
+
+        mock_get.assert_not_called()
+        self.assertFalse(OAuthApplication.objects.filter(client_id=url).exists())
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_returns_existing_when_cache_fresh(self, mock_get, _url_mock):
         metadata = _make_metadata()
         mock_get.return_value = _mock_response(metadata, headers={})

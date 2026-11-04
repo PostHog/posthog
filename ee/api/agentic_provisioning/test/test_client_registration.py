@@ -10,7 +10,7 @@ import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
-from posthog.api.oauth.cimd import apply_provisioning_defaults
+from posthog.api.oauth.cimd import THROWAWAY_HOST_MESSAGE, apply_provisioning_defaults
 from posthog.api.oauth.client_assertion import (
     CLIENT_ASSERTION_TYPE_JWT_BEARER,
     PRIVATE_KEY_REQUIRED_MESSAGE,
@@ -287,7 +287,11 @@ class TestClientRegistration(ProvisioningTestBase):
 
         assert res.status_code == 400, res.json()
         checks = {check["name"]: check for check in res.json()["checks"]}
-        assert checks["client_id_host"]["ok"] is False
+        assert checks["metadata_document"] == {
+            "name": "metadata_document",
+            "ok": False,
+            "detail": THROWAWAY_HOST_MESSAGE,
+        }
         mock_fetch.assert_not_called()
         assert not OAuthApplication.objects.filter(client_id=tunnel_url).exists()
 

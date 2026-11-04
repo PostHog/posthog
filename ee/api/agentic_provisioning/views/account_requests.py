@@ -14,7 +14,6 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.oauth.cimd import THROWAWAY_HOST_MESSAGE, is_throwaway_host
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.scopes import effective_ceiling
 
@@ -79,13 +78,6 @@ class AccountRequestsView(ProvisioningAPIView):
                 "account_request", "error", partner=partner, error_code="account_creation_disabled"
             )
             raise ProvisioningError("forbidden", "Account creation is not enabled for this partner", status=403)
-
-        # Registration refuses these hosts, and this also stops partners that registered on one earlier.
-        if is_throwaway_host(partner.client_id):
-            capture_provisioning_event(
-                "account_request", "error", partner=partner, error_code="throwaway_hosted_client"
-            )
-            raise ProvisioningError("forbidden", THROWAWAY_HOST_MESSAGE, status=403)
 
         self.charge_rate_limit(request, partner)
 

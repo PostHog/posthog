@@ -26,12 +26,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.oauth.cimd import (
-    THROWAWAY_HOST_MESSAGE,
     CIMDFetchError,
     CIMDValidationError,
     fetch_and_upsert_cimd_application,
     is_cimd_client_id,
-    is_throwaway_host,
 )
 from posthog.api.oauth.client_assertion import (
     PRIVATE_KEY_REQUIRED_MESSAGE,
@@ -114,12 +112,6 @@ class ClientRegistrationView(ProvisioningAPIView):
                 return None
             _record(checks, "client_exists", True, "Registered by a PostHog admin")
             return self._require_partner(admin_registered, checks)
-
-        # Refused before the fetch so that PostHog sends no request to that host.
-        if is_throwaway_host(client_id):
-            capture_provisioning_event("client_registration", "throwaway_host_refused")
-            _record(checks, "client_id_host", False, THROWAWAY_HOST_MESSAGE)
-            return None
 
         # An already-registered client keeps working when its document is momentarily
         # unreachable, so a failed re-fetch is reported as one failed check rather than
