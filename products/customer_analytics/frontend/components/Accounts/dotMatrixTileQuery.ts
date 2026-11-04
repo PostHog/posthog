@@ -36,6 +36,7 @@ export function createMatrixHogQLQuery(query: string, context: DotMatrixQueryCon
     }
     return {
         kind: NodeKind.HogQLQuery,
+        tags: { productKey: 'customer_analytics', scene: 'CustomerAnalytics' },
         query,
         values: { account_id: context.accountId, account_external_id: context.externalId ?? '' },
         filters: {

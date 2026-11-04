@@ -71,6 +71,7 @@ describe('HogQL activity matrix', () => {
         })
         expect(query).toEqual({
             kind: NodeKind.HogQLQuery,
+            tags: { productKey: 'customer_analytics', scene: 'CustomerAnalytics' },
             query: 'SELECT {account_external_id} FROM events WHERE {filters}',
             values: { account_id: 'account', account_external_id: "org'quote" },
             filters: {
