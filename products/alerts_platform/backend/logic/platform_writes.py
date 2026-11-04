@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Final
 from uuid import UUID
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import QuerySet
 from django.utils import timezone as django_timezone
 
@@ -118,6 +118,29 @@ def _validated(
     return validated
 
 
+def hold_admission_lock(team_id: int, source_kind: SourceKind) -> None:
+    """Serializes a team's admissions for a kind until the caller's transaction ends. A source that
+    also creates alerts outside the platform takes it too, so its count and the platform's agree."""
+    # A transaction-scoped advisory lock per team and kind, rather than a lock on the Team row, which
+    # foreign-key checks from every child write also take.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"alerts_platform:{team_id}:{source_kind.value}"])
+
+
+def _admit(
+    team_id: int,
+    source_kind: SourceKind,
+    current: PlatformAlertConfigurationEdit | None,
+    edit: PlatformAlertConfigurationEdit,
+) -> None:
+    """Runs the source's admission for a write, in the caller's transaction."""
+    spec = source_configs.spec(source_kind)
+    if spec is None or spec.admit is None:
+        return
+    hold_admission_lock(team_id, source_kind)
+    spec.admit(team_id=team_id, current=current, edit=edit)
+
+
 def update_configuration(
     *,
     team_id: int,
@@ -150,7 +173,7 @@ def update_configuration(
         configuration = readable.select_for_update().first()
         if configuration is None:
             return None
-        edit, pending = _apply(configuration, change, now=django_timezone.now())
+        edit, pending = _apply(configuration, change, now=django_timezone.now(), admit=True)
         if write_source is not None:
             write_source(edit)
         control_plane.announce_after_commit(pending)
@@ -174,16 +197,18 @@ def create_configuration(
         raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be created through this API.")
     validated = _validated(source_kind, None, edit, team_id=team_id)
     if spec.native is not None:
-        configuration = platform_lifecycle.create_native_configuration(
-            team_id=team_id,
-            source_kind=source_kind,
-            edit=validated,
-            check_interval_minutes=spec.native.check_interval_minutes,
-            destinations_owner=PlatformAlertOwner.PLATFORM
-            if spec.native.platform_destinations
-            else PlatformAlertOwner.SOURCE,
-            now=django_timezone.now(),
-        )
+        with transaction.atomic():
+            _admit(team_id, source_kind, None, validated)
+            configuration = platform_lifecycle.create_native_configuration(
+                team_id=team_id,
+                source_kind=source_kind,
+                edit=validated,
+                check_interval_minutes=spec.native.check_interval_minutes,
+                destinations_owner=PlatformAlertOwner.PLATFORM
+                if spec.native.platform_destinations
+                else PlatformAlertOwner.SOURCE,
+                now=django_timezone.now(),
+            )
     else:
         assert spec.create is not None
         configuration = _create_through_source(team_id, source_kind, spec.create, validated, created_by_id)
@@ -203,6 +228,7 @@ def _create_through_source(
     created_by_id: int | None,
 ) -> PlatformAlertConfiguration:
     with transaction.atomic():
+        _admit(team_id, source_kind, None, validated)
         legacy_configuration_id = create(team_id=team_id, edit=validated, created_by_id=created_by_id)
         configuration = _locked_owned_copy(team_id, legacy_configuration_id)
         if configuration is None:
@@ -419,15 +445,20 @@ def _apply(
     *,
     now: datetime,
     snoozing: bool = False,
+    admit: bool = False,
 ) -> tuple[PlatformAlertConfigurationEdit, control_plane.PendingClose | None]:
     """Validates and writes an edit onto a configuration locked by the caller, and ends the firings it
-    makes meaningless."""
+    makes meaningless. With `admit`, the source's admission decides first: an edit the source made on
+    its own row has already passed its own checks."""
     if configuration.owner != PlatformAlertOwner.PLATFORM:
         raise PlatformAlertNotEditable(
             f"This alert is managed by the {configuration.source_kind} product. Edit it there."
         )
+    source_kind = SourceKind(configuration.source_kind)
     current = edit_of(configuration)
-    edit = _validated(SourceKind(configuration.source_kind), current, change(current), team_id=configuration.team_id)
+    edit = _validated(source_kind, current, change(current), team_id=configuration.team_id)
+    if admit:
+        _admit(configuration.team_id, source_kind, current, edit)
 
     regrouped = not edit.grouping.splits_like(current.grouping)
     ending = control_plane.ending_reason(current, edit, regrouped=regrouped, snoozing=snoozing)

@@ -14,12 +14,14 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 
 from products.alerts_platform.backend.facade import testing as platform_testing
+from products.alerts_platform.backend.facade.api import count_configurations
 from products.alerts_platform.backend.facade.contracts import (
     Grouping,
     IncidentAction,
     InvalidPlatformAlertEdit,
     NativeAlertLifecycle,
     PlatformAlertConfigurationEdit,
+    PlatformAlertCreateRefused,
     SourceConfigSpec,
     SourceKind,
 )
@@ -122,6 +124,31 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert self.check_in_team.called is checked
+
+    def test_admission_refuses_a_create_past_the_cap_and_sees_every_platform_edit(self) -> None:
+        admitted: list[tuple[bool, bool]] = []
+
+        def admit(
+            *, team_id: int, current: PlatformAlertConfigurationEdit | None, edit: PlatformAlertConfigurationEdit
+        ) -> None:
+            admitted.append((current is None, edit.enabled))
+            if current is None and count_configurations(team_id=team_id, source_kind=SourceKind.LOGS) >= 1:
+                raise PlatformAlertCreateRefused("At the cap.")
+
+        with patch(_SOURCE_CONFIGS, return_value=replace(self.spec, admit=admit)):
+            configuration_id = self._create()
+            with pytest.raises(PlatformAlertCreateRefused):
+                self._create()
+            with team_scope(self.team.id):
+                platform_writes.update_configuration(
+                    team_id=self.team.id,
+                    source_kinds=[SourceKind.LOGS.value],
+                    configuration_id=configuration_id,
+                    change=lambda current: replace(current, enabled=False),
+                )
+
+        assert admitted == [(True, True), (True, True), (False, False)]
+        assert count_configurations(team_id=self.team.id, source_kind=SourceKind.LOGS) == 1
 
     def test_deleting_a_firing_native_alert_resolves_by_its_own_id_before_its_destinations_go(self) -> None:
         configuration_id = self._create()
