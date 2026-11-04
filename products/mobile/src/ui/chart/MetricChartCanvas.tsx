@@ -1,4 +1,5 @@
 import { type ReactElement, useCallback, useMemo, useRef, useState } from 'react'
+import type { ViewInstance } from 'react-native'
 import { type LayoutChangeEvent, Text, View } from 'react-native'
 import type { PointsArray } from 'victory-native'
 
@@ -77,7 +78,7 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
     const series = useStableSeries(chartSeriesOf(props, theme))
     const accent = props.accent ? theme.accentColor[props.accent] : (series[0]?.color ?? theme.colors.blue)
     const [width, setWidth] = useState(0)
-    const viewRef = useRef<View>(null)
+    const viewRef = useRef<ViewInstance>(null)
 
     const visible = useMemo(() => visibleSeries(series, hiddenKeys), [series, hiddenKeys])
     const count = bucketCount(series)

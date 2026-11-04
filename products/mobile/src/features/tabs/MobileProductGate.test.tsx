@@ -36,16 +36,16 @@ const ROUTES: { path: string; url: string; component: ComponentType; flag: Featu
 describe('mobile product release gates', () => {
     afterEach(() => setFeatureFlags({}))
 
-    test.each(ROUTES)('blocks $path unless its own flag is enabled', ({ path, url, component, flag }) => {
+    test.each(ROUTES)('blocks $path unless its own flag is enabled', async ({ path, url, component, flag }) => {
         const other = flag === FEATURE_FLAGS.errorTracking ? FEATURE_FLAGS.sessionReplay : FEATURE_FLAGS.errorTracking
         setFeatureFlags({ [other]: true })
-        const app = renderRouter({ inbox: Inbox, [path]: component }, { initialUrl: url })
+        const app = await renderRouter({ inbox: Inbox, [path]: component }, { initialUrl: url })
         expect(app.getPathname()).toBe('/inbox')
     })
 
-    test.each(ROUTES)('opens $path with its flag enabled', ({ path, url, component, flag }) => {
+    test.each(ROUTES)('opens $path with its flag enabled', async ({ path, url, component, flag }) => {
         setFeatureFlags({ [flag]: true })
-        const app = renderRouter({ inbox: Inbox, [path]: component }, { initialUrl: url })
+        const app = await renderRouter({ inbox: Inbox, [path]: component }, { initialUrl: url })
         expect(app.getSegments().join('/')).toBe(path.replace('/index', ''))
     })
 })

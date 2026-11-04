@@ -1,6 +1,6 @@
 import { type QueryClient, type QueryKey, useQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ViewToken } from 'react-native'
+import type { ListViewToken } from 'react-native'
 import { useShallow } from 'zustand/react/shallow'
 import { fetchRecentDashboards } from '@/api/dashboards'
 import type { PaginatedApi, ProjectScope } from '@/api/reports'
@@ -536,14 +536,14 @@ export interface Visibility {
     /** Undefined until the list reports what it shows. */
     visibleKeys: ReadonlySet<string> | undefined
     /** A stable callback for `FlatList` / `SectionList`. */
-    onViewableItemsChanged: (info: { viewableItems: ViewToken[] }) => void
+    onViewableItemsChanged: (info: { viewableItems: ListViewToken[] }) => void
     viewabilityConfig: typeof VIEWABILITY_CONFIG
 }
 
 /** Tracks which list rows are on screen. `keyOf` maps a row's item to its freshness key, or null. */
 export function useVisibility(keyOf: (item: unknown) => string | null): Visibility {
     const [visibleItems, setVisibleItems] = useState<readonly unknown[] | undefined>(undefined)
-    const onViewableItemsChanged = useRef((info: { viewableItems: ViewToken[] }) => {
+    const onViewableItemsChanged = useRef((info: { viewableItems: ListViewToken[] }) => {
         setVisibleItems(info.viewableItems.map((token) => token.item))
     }).current
     // A resolved display can give a visible Row pin a freshness key without another viewability callback.

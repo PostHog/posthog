@@ -1,6 +1,7 @@
 import { useIsFocused, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Platform, RefreshControl, SectionList, Text, View, type ViewToken } from 'react-native'
+import type { ViewInstance } from 'react-native'
+import { type ListViewToken, Platform, RefreshControl, SectionList, Text, View } from 'react-native'
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
 import { useMobileProductFlags } from '@/lib/featureFlags'
 import { useNow } from '@/lib/useNow'
@@ -190,7 +191,7 @@ function ViewsBody(): ReactElement {
     const listRef = useRef<SectionList<ListItem, ListSection>>(null)
     const scrollMetrics = useRef({ offset: 0, contentHeight: 0, viewportHeight: 0 })
     const measuringAnchor = useRef<number | null>(null)
-    const pinRows = useRef(new Map<string, View>())
+    const pinRows = useRef(new Map<string, ViewInstance>())
     const anchorFrame = useRef<number | null>(null)
     const restoreAnchor = useRef<() => void>(noop)
     const cancelAnchorFrame = useCallback((): void => {
@@ -216,7 +217,7 @@ function ViewsBody(): ReactElement {
         })
     }, [])
     useEffect(() => cancelAnchorRestore, [cancelAnchorRestore])
-    const setPinRow = useCallback((shortcutIds: readonly string[], node: View | null): void => {
+    const setPinRow = useCallback((shortcutIds: readonly string[], node: ViewInstance | null): void => {
         for (const id of shortcutIds) {
             if (node) pinRows.current.set(id, node)
             else pinRows.current.delete(id)
@@ -256,8 +257,8 @@ function ViewsBody(): ReactElement {
     // Both the refresh rules and the canvas budget follow what the list shows, and a list takes one callback.
     const viewable = useRef({ list: list.onViewableItemsChanged, budget: viewport.onViewableItemsChanged })
     viewable.current = { list: list.onViewableItemsChanged, budget: viewport.onViewableItemsChanged }
-    const onViewableItemsChanged = useRef((info: { viewableItems: ViewToken[]; changed: ViewToken[] }) => {
-        const expand = (tokens: ViewToken[]): ViewToken[] =>
+    const onViewableItemsChanged = useRef((info: { viewableItems: ListViewToken[]; changed: ListViewToken[] }) => {
+        const expand = (tokens: ListViewToken[]): ListViewToken[] =>
             tokens.flatMap((token) => {
                 const item = token.item as ListItem
                 return item.type === 'pin-pair'

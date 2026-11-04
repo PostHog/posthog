@@ -1,4 +1,5 @@
 import { type ReactElement, useRef, useState } from 'react'
+import type { ViewInstance } from 'react-native'
 import { Modal, Text, View } from 'react-native'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
@@ -27,7 +28,7 @@ interface Anchor {
 export function RegionSelect({ value, onChange, disabled }: RegionSelectProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const trigger = useRef<View>(null)
+    const trigger = useRef<ViewInstance>(null)
     const [anchor, setAnchor] = useState<Anchor | null>(null)
     const { height: windowHeight } = useSceneDimensions()
     const insets = useScreenInsets()
