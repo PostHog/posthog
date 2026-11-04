@@ -27,14 +27,13 @@ const POOL_NAME: &str = "posthog_cohort";
 /// loses its replay dedup, so a non-zero TTL below this floor warns at startup.
 const MIN_SAFE_PERSON_RECORD_TTL_DAYS: u32 = 30;
 
-/// `message.max.bytes` on every consumer, although the key reads as a producer setting. A consumer
-/// uses it to cap its first LZ4 decompression buffer for a fetched batch, and as the floor of
-/// `fetch.max.bytes`, whose default is larger. WarpStream's LZ4 frames carry no content size, so
-/// librdkafka allocates `min(4 * compressed size, cap)` and then grows the buffer with `realloc`,
-/// one copy per growth, until the batch fits. librdkafka's 1 MB default caps that first buffer
-/// below a decompressed fetch batch. Every cap above 4 times the largest compressed batch gives the
-/// same allocation, and a cap that is too low costs only copies, so the value is a constant rather
-/// than an env knob.
+/// `message.max.bytes` on every consumer, although the key reads as a producer setting. librdkafka
+/// also uses it to cap the first buffer it allocates for decompressing an LZ4 record batch, whose
+/// frame usually carries no content size, and then grows that buffer in steps until the batch fits
+/// (`rd_kafka_lz4_decompress` in librdkafka's `rdkafka_lz4.c`). The 1 MB default starts below a
+/// large decompressed batch. The key also floors `fetch.max.bytes`: an explicit value below it
+/// fails client creation, and a smaller `queued.max.messages.kbytes` does not bound the fetch
+/// size.
 const CONSUMER_MESSAGE_MAX_BYTES: u32 = 8 * 1024 * 1024;
 
 #[derive(Envconfig, Clone, Debug)]

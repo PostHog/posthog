@@ -59,9 +59,9 @@ impl SourcePartitionRange {
 /// A JSON string token, quotes and escapes included, exactly as the firehose spelled it. The
 /// shuffler never reads the blobs it forwards, so it copies them instead of unescaping and
 /// re-escaping them. The processor's `Option<String>` decode reads the same string from either
-/// spelling. serde_json's capture does not check that `\u` surrogate escapes pair up, so a token
-/// with a lone surrogate reaches the processor, which then rejects the whole envelope as an
-/// undeserializable message.
+/// spelling. serde_json's capture does not check that `\u` surrogate escapes pair up, so a
+/// forwarded blob with a lone surrogate reaches the processor, which then rejects the whole
+/// envelope as an undeserializable message.
 #[derive(Debug, Clone, Serialize)]
 #[serde(transparent)]
 pub struct RawJsonString(Box<RawValue>);
@@ -94,7 +94,8 @@ impl PartialEq for RawJsonString {
 impl Eq for RawJsonString {}
 
 /// The fields of a firehose event that the envelope forwards, parsed only for gate survivors. The
-/// other fields stay undeclared, so serde skips them without allocating.
+/// other fields stay undeclared, so serde skips them without allocating, and a missing or mistyped
+/// one does not make the event unparseable.
 #[derive(Debug, Deserialize)]
 pub(crate) struct ForwardFields {
     pub(crate) uuid: Uuid,
@@ -111,7 +112,7 @@ pub(crate) struct ForwardFields {
 
 /// `source_partition` / `source_offset` carry the upstream coordinates, numbered by
 /// [`SourcePartitionRange`], so the downstream processor can make counter increments replay-safe.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CohortStreamEvent {
     pub team_id: i32,
     pub person_id: String,
@@ -214,6 +215,8 @@ pub(crate) fn sample_clickhouse_event(team_id: i32, person_id: Option<&str>) -> 
 mod tests {
     use super::*;
 
+    use cohort_core::events::CohortStreamEvent as ProcessorEvent;
+
     fn sample_event(team_id: i32, person_id: Option<&str>) -> ClickHouseEvent {
         sample_clickhouse_event(team_id, person_id)
     }
@@ -223,9 +226,9 @@ mod tests {
         serde_json::from_slice(&serde_json::to_vec(event).unwrap()).unwrap()
     }
 
-    /// The string the processor's `Option<String>` decode reads from a forwarded blob.
-    fn decoded(blob: Option<&RawJsonString>) -> Option<String> {
-        blob.map(|raw| serde_json::from_str(raw.get()).unwrap())
+    /// The envelope as the processor decodes it from the wire.
+    fn processor_view(envelope: &CohortStreamEvent) -> ProcessorEvent {
+        serde_json::from_str(&serde_json::to_string(envelope).unwrap()).unwrap()
     }
 
     #[test]
@@ -279,7 +282,11 @@ mod tests {
     #[test]
     fn from_forward_maps_every_field() {
         let event = sample_event(42, Some("01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee"));
-        let envelope = CohortStreamEvent::from_forward(forward_fields(&event), 17, 12345);
+        let envelope = processor_view(&CohortStreamEvent::from_forward(
+            forward_fields(&event),
+            17,
+            12345,
+        ));
 
         assert_eq!(envelope.team_id, 42);
         assert_eq!(envelope.person_id, "01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee");
@@ -288,17 +295,14 @@ mod tests {
         assert_eq!(envelope.event, "$pageview");
         assert_eq!(envelope.timestamp, "2026-05-26 12:34:56.789000");
         assert_eq!(
-            decoded(envelope.properties.as_ref()).as_deref(),
+            envelope.properties.as_deref(),
             Some(r#"{"$current_url":"/pricing"}"#)
         );
         assert_eq!(
-            decoded(envelope.person_properties.as_ref()).as_deref(),
+            envelope.person_properties.as_deref(),
             Some(r#"{"email":"u@p.com"}"#)
         );
-        assert_eq!(
-            decoded(envelope.elements_chain.as_ref()).as_deref(),
-            Some("a:href=\"/x\"")
-        );
+        assert_eq!(envelope.elements_chain.as_deref(), Some("a:href=\"/x\""));
         assert_eq!(envelope.source_partition, 17);
         assert_eq!(envelope.source_offset, 12345);
     }
@@ -329,7 +333,7 @@ mod tests {
 
         let full = envelope(PersonMode::Full);
         assert_eq!(
-            decoded(full.person_properties.as_ref()).as_deref(),
+            processor_view(&full).person_properties.as_deref(),
             Some("{}"),
             "a full event with no person properties still describes the person"
         );
@@ -382,13 +386,13 @@ mod tests {
                 "`{key}` was respelled in {envelope}"
             );
         }
-        let processor_view: serde_json::Value = serde_json::from_str(&envelope).unwrap();
-        assert_eq!(processor_view["properties"], r#"{"city":"São Paulo"}"#);
+        let view: ProcessorEvent = serde_json::from_str(&envelope).unwrap();
+        assert_eq!(view.properties.as_deref(), Some(r#"{"city":"São Paulo"}"#));
         assert_eq!(
-            processor_view["person_properties"],
-            r#"{"home":"https://example.com"}"#
+            view.person_properties.as_deref(),
+            Some(r#"{"home":"https://example.com"}"#)
         );
-        assert_eq!(processor_view["elements_chain"], "a:href=\"/x\"\n");
+        assert_eq!(view.elements_chain.as_deref(), Some("a:href=\"/x\"\n"));
     }
 
     #[test]
@@ -416,14 +420,5 @@ mod tests {
         // Replay coordinates must serialize numeric, not as strings.
         assert_eq!(obj["source_offset"], serde_json::json!(12345));
         assert_eq!(obj["source_partition"], serde_json::json!(17));
-    }
-
-    #[test]
-    fn envelope_round_trips_through_json() {
-        let event = sample_event(42, Some("p1"));
-        let envelope = CohortStreamEvent::from_forward(forward_fields(&event), 17, 12345);
-        let json = serde_json::to_string(&envelope).unwrap();
-        let decoded: CohortStreamEvent = serde_json::from_str(&json).unwrap();
-        assert_eq!(envelope, decoded);
     }
 }
