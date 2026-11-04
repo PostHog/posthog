@@ -507,7 +507,8 @@ tools:
             ranked shortlist, such as "my top 10", the prioritizing-my-inbox skill combines these rows with the user's
             activity summary. For the work this agent claimed, pass `assignee=me`.
 
-            Without `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with
+            Without `limit`, a page holds up to 100 reports. Each row carries `summary_lead`, the opening of the
+            report's summary; inbox-reports-retrieve returns the whole summary. Read a report's work log with
             inbox-report-artefacts-list before you act on it.
 
             Each row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and
@@ -528,7 +529,7 @@ tools:
             include:
                 - id
                 - title
-                - summary
+                - summary_lead
                 - metrics
                 - status
                 - priority

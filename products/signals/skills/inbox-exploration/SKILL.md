@@ -263,7 +263,7 @@ owns. Add `"unclaimed": true` when the user is asking what is free to pick up, a
 
 For each report, the response includes:
 
-- `id`, `title`, `summary`
+- `id`, `title`, `summary_lead` (the opening of the summary; `inbox-reports-retrieve` returns all of it)
 - `status`, `priority`, `actionability` (note: `null` for reports still in `pending_input` /
   `candidate` — judgment hasn't run yet)
 - `signal_count`, `total_weight` — how much underlying evidence drove the report

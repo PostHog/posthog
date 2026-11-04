@@ -363,6 +363,7 @@ tools:
             List saved insights in the project with optional filtering by favorited status or search term. Returns
             metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the
             actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`.
+            Each alert on an insight is listed by id, name, state and enabled; call alert-get for its full configuration.
         exclude_params:
             - basic
             - format
@@ -383,11 +384,20 @@ tools:
                 - favorited
                 - dashboards
                 - created_at
-                - created_by
+                - created_by.id
+                - created_by.first_name
+                - created_by.last_name
+                - created_by.email
                 - last_modified_at
-                - last_modified_by
+                - last_modified_by.id
+                - last_modified_by.first_name
+                - last_modified_by.last_name
+                - last_modified_by.email
                 - last_viewed_at
-                - alerts
+                - alerts.*.id
+                - alerts.*.name
+                - alerts.*.state
+                - alerts.*.enabled
     insights-trending-retrieve:
         operation: insights_trending_retrieve
         enabled: true

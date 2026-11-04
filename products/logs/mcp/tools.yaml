@@ -512,7 +512,12 @@ tools:
         title: Query logs
         description_file: ./prompts/query-logs.md
         system_prompt_hint: Log filtering by severity/service/attribute
-        hooks: logs/redactCredentialsHooks
+        hooks: logs/queryLogsHooks
         response:
-            include:
-                - results
+            exclude:
+                - query
+                - maxExportableLogs
+                - results.*.observed_timestamp
+                - results.*.severity_number
+                - results.*.level
+                - results.*.live_logs_checkpoint

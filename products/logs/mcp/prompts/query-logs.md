@@ -1,4 +1,6 @@
-Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. The response schema (see the tool's typed output) lists every returned field — prefer `severity_text` over `severity_number` / `level`, and be aware that `trace_id` and `span_id` return zero-padded strings rather than null when unset.
+Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination: when `hasMore` is true, pass `nextCursor` as `query.after` to fetch the next page. `trace_id` and `span_id` return zero-padded strings rather than null when unset.
+
+Each row carries a `resource_fingerprint` instead of its own resource attributes. The response lists each distinct set of resource attributes once, under `resources`, keyed by that fingerprint.
 
 All parameters go inside `query` — top-level fields are rejected:
 
@@ -88,7 +90,7 @@ Use the `query.dateRange` field to control the time window — pass it on every 
 
 Filter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.
 
-This filter is an **exact match against the response's `severity_text` field** using these six lowercase buckets — it is _not_ a numeric range and _not_ case-insensitive. If a service ingests non-canonical severity strings (e.g. `"ERROR"`, `"Warning"`, `"err"`), `severityLevels: ["error"]` will not match them and you will get zero rows. When a severity filter returns nothing unexpectedly, discover the actual stored values with `logs-attribute-values-list { key: "severity_text" }` and either filter on the value you find or fall back to a `searchTerm`. See "Severity fields in the response" below for the `severity_text` / `severity_number` / `level` mapping.
+This filter is an **exact match against the response's `severity_text` field** using these six lowercase buckets — it is _not_ a numeric range and _not_ case-insensitive. If a service ingests non-canonical severity strings (e.g. `"ERROR"`, `"Warning"`, `"err"`), `severityLevels: ["error"]` will not match them and you will get zero rows. When a severity filter returns nothing unexpectedly, discover the actual stored values with `logs-attribute-values-list { key: "severity_text" }` and either filter on the value you find or fall back to a `searchTerm`. See "Severity fields in the response" below for how numeric severities map to these buckets.
 
 ## query.serviceNames
 
@@ -123,7 +125,7 @@ Cursor for pagination. Use the `nextCursor` value from the previous response.
 
 ## query.excludeAttributes
 
-Set `true` to drop the per-log `attributes` and `resource_attributes` maps from results (the maps stay present but empty). These maps can hold large values, so excluding them keeps big result sets compact — set it when you only need `body`, `severity_text`, `timestamp`, and `service`-level fields and not the full attribute maps. Defaults to false.
+Set `true` to drop the per-log `attributes` and the `resources` attribute maps from results (the maps stay present but empty). These maps can hold large values, so excluding them keeps big result sets compact — set it when you only need `body`, `severity_text`, `timestamp`, and `service`-level fields and not the full attribute maps. Defaults to false.
 
 # Examples
 
@@ -214,24 +216,18 @@ Set `true` to drop the per-log `attributes` and `resource_attributes` maps from 
 
 # Severity fields in the response
 
-Each returned log row carries three overlapping severity fields. Read and report `severity_text`; treat the other two as redundant:
+Each returned log row carries `severity_text`, the canonical severity string. Use it for filtering (`severityLevels`), grouping, and anything you show a user.
 
-| Field             | What it is                                                      | Use it for                                                            |
-| ----------------- | --------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `severity_text`   | Canonical severity string. **Prefer this.**                     | Filtering (`severityLevels`), grouping, and anything you show a user. |
-| `severity_number` | OpenTelemetry numeric severity (1–24). Redundant with the text. | Sorting by exact severity, or interop with OTel tooling.              |
-| `level`           | ClickHouse alias for `severity_text`. Redundant.                | Ignore — prefer `severity_text`.                                      |
+OpenTelemetry also defines a numeric severity (1–24). It maps to the `severityLevels` buckets by range. Use this when you only have a number and need the bucket, or vice-versa:
 
-`severity_number` maps to the `severityLevels` buckets by OTel range. Use this when you only have a number and need the bucket, or vice-versa:
-
-| Bucket  | `severity_number` range | Canonical `severity_text` |
-| ------- | ----------------------- | ------------------------- |
-| `trace` | 1–4                     | `trace`                   |
-| `debug` | 5–8                     | `debug`                   |
-| `info`  | 9–12                    | `info`                    |
-| `warn`  | 13–16                   | `warn`                    |
-| `error` | 17–20                   | `error`                   |
-| `fatal` | 21–24                   | `fatal`                   |
+| Bucket  | OTel severity number | Canonical `severity_text` |
+| ------- | -------------------- | ------------------------- |
+| `trace` | 1–4                  | `trace`                   |
+| `debug` | 5–8                  | `debug`                   |
+| `info`  | 9–12                 | `info`                    |
+| `warn`  | 13–16                | `warn`                    |
+| `error` | 17–20                | `error`                   |
+| `fatal` | 21–24                | `fatal`                   |
 
 When the user asks for "warnings and above", that is `severityLevels: ["warn", "error", "fatal"]` — there is no numeric `>=` operator on the top-level severity filter.
 
