@@ -1,4 +1,6 @@
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+
+import { runTransactionBeforeDeadline } from '../../utils/deadline-transaction'
 
 export type BlockedRecipient = { readonly address: string; readonly unverifiedMember: boolean }
 
@@ -38,16 +40,16 @@ export class OrganizationMembersService {
                 reject(new Error('The organization member lookup timed out'))
             }, LOOKUP_TIMEOUT_MS)
         })
-        const lookup = this.postgres.transaction(PostgresUse.COMMON_WRITE, tag, async (tx) => {
-            // Nobody waits for a lookup that got its connection after its deadline, so it runs no query.
-            if (timedOut) {
-                throw new Error('The organization member lookup was abandoned at its deadline')
-            }
-            await this.postgres.query(tx, `SET LOCAL statement_timeout = ${LOOKUP_TIMEOUT_MS}`, undefined, tag)
-            // Only an explicit false deactivates an organization, matching the web middleware.
-            const result = await this.postgres.query<MemberRow>(
-                tx,
-                `SELECT team.id AS team_id, users.email, users.is_email_verified
+        const lookup = runTransactionBeforeDeadline(
+            this.postgres,
+            tag,
+            { reached: deadline.catch(() => undefined), hasPassed: () => timedOut },
+            LOOKUP_TIMEOUT_MS,
+            async (tx) => {
+                // Only an explicit false deactivates an organization, matching the web middleware.
+                const result = await this.postgres.query<MemberRow>(
+                    tx,
+                    `SELECT team.id AS team_id, users.email, users.is_email_verified
                  FROM posthog_team AS team
                  JOIN posthog_organization AS organization ON organization.id = team.organization_id
                  JOIN posthog_organizationmembership AS membership ON membership.organization_id = organization.id
@@ -55,11 +57,12 @@ export class OrganizationMembersService {
                  WHERE team.id = ANY($1::bigint[])
                    AND organization.is_active IS NOT FALSE
                    AND users.is_active = true`,
-                [[teamId]],
-                tag
-            )
-            return result.rows
-        })
+                    [[teamId]],
+                    tag
+                )
+                return result.rows
+            }
+        )
         // A lookup that loses the race can still fail later, after nobody waits for it.
         lookup.catch(() => undefined)
         try {
