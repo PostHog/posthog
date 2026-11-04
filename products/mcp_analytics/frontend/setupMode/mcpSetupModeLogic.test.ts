@@ -166,10 +166,16 @@ describe('mcpSetupModeLogic', () => {
             await jest.advanceTimersByTimeAsync(0)
         }
 
+        // The signals query counts initialize events; the server tools query never reads them.
+        function queriesOf(query: jest.SpyInstance, kind: 'signals' | 'server tools'): number {
+            return query.mock.calls.filter(
+                ([source]) => source.query.includes('$mcp_initialize') === (kind === 'signals')
+            ).length
+        }
+
         it.each([
             { poll: 'signals', signals: CONNECTED, step: 'connect' },
             { poll: 'recent calls', signals: ONE_CALL, step: 'first-call' },
-            { poll: 'recent calls on the last step', signals: ONE_CALL, step: 'useful' },
         ])(
             'waits for a slow $poll query instead of cancelling it with the next poll',
             async ({ poll, signals, step }) => {
@@ -180,17 +186,50 @@ describe('mcpSetupModeLogic', () => {
                 const overview = jest.mocked(mcpAnalyticsSessionsActivityOverview).mockReset()
                 logic.actions.loadSignals()
                 await jest.advanceTimersByTimeAsync(0)
-                await openAgentSetup(step === 'useful' ? 'useful' : undefined)
+                await openAgentSetup()
                 expect(logic.values.step).toBe(step)
-                const slowRequest = poll === 'signals' ? query : overview
-                slowRequest.mockReturnValue(new Promise(() => {}))
-                const sentBefore = slowRequest.mock.calls.length
+                query.mockReturnValue(new Promise(() => {}))
+                overview.mockReturnValue(new Promise(() => {}))
+                const sentBefore = poll === 'signals' ? queriesOf(query, 'signals') : overview.mock.calls.length
 
                 await jest.advanceTimersByTimeAsync(31000)
 
-                expect(slowRequest.mock.calls.length - sentBefore).toBe(1)
+                const sentAfter = poll === 'signals' ? queriesOf(query, 'signals') : overview.mock.calls.length
+                expect(sentAfter - sentBefore).toBe(1)
             }
         )
+
+        it.each([
+            { state: 'waiting to connect', signals: NOT_INSTRUMENTED, setupStep: undefined, polls: false },
+            { state: 'connected', signals: CONNECTED, setupStep: undefined, polls: true },
+            { state: 'on the first call', signals: ONE_CALL, setupStep: undefined, polls: true },
+            { state: 'on the last step', signals: ONE_CALL, setupStep: 'useful' as const, polls: false },
+        ])('asks for the server tools while $state: $polls', async ({ signals, setupStep, polls }) => {
+            const query = jest.spyOn(api, 'query').mockResolvedValue({ results: [signals] } as any)
+            jest.mocked(mcpAnalyticsSessionsActivityOverview).mockResolvedValue({ recent_calls: [] } as any)
+            logic.actions.loadSignals()
+            await jest.advanceTimersByTimeAsync(0)
+            await openAgentSetup(setupStep)
+            const sentBefore = queriesOf(query, 'server tools')
+
+            await jest.advanceTimersByTimeAsync(21000)
+
+            expect(queriesOf(query, 'server tools') - sentBefore > 0).toBe(polls)
+        })
+
+        it('loads the calls once on the last step instead of polling them', async () => {
+            jest.spyOn(api, 'query').mockResolvedValue({ results: [ONE_CALL] } as any)
+            const overview = jest.mocked(mcpAnalyticsSessionsActivityOverview).mockReset()
+            overview.mockResolvedValue({ recent_calls: [] } as any)
+            logic.actions.loadSignals()
+            await jest.advanceTimersByTimeAsync(0)
+
+            await openAgentSetup('useful')
+            await jest.advanceTimersByTimeAsync(31000)
+
+            expect(logic.values.step).toBe('useful')
+            expect(overview).toHaveBeenCalledTimes(1)
+        })
 
         it('retries soon when the first signals query fails, instead of spinning until the slow poll', async () => {
             logic.unmount()

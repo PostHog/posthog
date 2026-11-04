@@ -41,3 +41,32 @@ export function connectStateFor(onboardingState: MCPOnboardingState | null): MCP
         ? { kind: 'connected' }
         : { kind: 'waiting' }
 }
+
+/** The tools a connected server offers, and which of them agents have called. */
+export interface MCPServerTools {
+    /** From the latest `tools/list` response, in the server's order. `null` until a client lists tools. */
+    listed: string[] | null
+    called: string[]
+}
+
+function toolNames(value: unknown): string[] {
+    return Array.isArray(value) ? value.filter((name): name is string => typeof name === 'string' && name !== '') : []
+}
+
+// `$mcp_listed_tool_names` is an array property, which HogQL returns as its JSON text.
+function listedToolNames(value: unknown): string[] | null {
+    if (typeof value !== 'string') {
+        return null
+    }
+    try {
+        const parsed: unknown = JSON.parse(value)
+        return Array.isArray(parsed) ? toolNames(parsed) : null
+    } catch {
+        return null
+    }
+}
+
+/** Reads the `[listed, called]` row of the server tools query. */
+export function serverToolsFrom(row: readonly unknown[] | undefined): MCPServerTools {
+    return { listed: listedToolNames(row?.[0]), called: toolNames(row?.[1]) }
+}

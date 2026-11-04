@@ -7,9 +7,10 @@ import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 import { pngHoggie } from 'lib/brand/hoggies'
 
 import type { MCPActivityRecentCallApi } from '../generated/api.schemas'
-import { SetupCallsPanel } from './SetupCallsPanel'
+import type { MCPServerTools } from './setupMode'
 import { SetupStepHero } from './SetupStepHero'
 import { SetupStepLayout } from './SetupStepLayout'
+import { SetupToolsPanel } from './SetupToolsPanel'
 import { ToolCallHeroCard } from './ToolCallHeroCard'
 import { ToolCallRevealCard } from './ToolCallRevealCard'
 
@@ -17,7 +18,7 @@ const HedgehogParty = pngHoggie(partyPng)
 const HedgehogError = pngHoggie(errorPng)
 const HedgehogSearching = pngHoggie(magnifyingGlassPng)
 
-/** The newest call as a hero card and the one before it as a smaller card. Later calls go to the panel. */
+/** The newest call as a hero card and the one before it as a smaller card. */
 const REVEALED_CALLS = 2
 
 const COPY = {
@@ -43,16 +44,21 @@ const COPY = {
         lead: "PostHog caught the error your agent got back. Failures like this are the ones you'll want to hear about.",
         next: 'Catch these automatically',
     },
-    live: 'New calls keep arriving here.',
 }
 
 interface SetupFirstCallStepProps {
     calls: MCPActivityRecentCallApi[] | null
     loadFailed: boolean
+    serverTools: MCPServerTools | null
+    serverToolsFailed: boolean
     onNext: () => void
 }
 
-function FirstCallBody({ calls, loadFailed, onNext }: SetupFirstCallStepProps): JSX.Element {
+function FirstCallBody({
+    calls,
+    loadFailed,
+    onNext,
+}: Pick<SetupFirstCallStepProps, 'calls' | 'loadFailed' | 'onNext'>): JSX.Element {
     if (calls === null) {
         return loadFailed ? (
             <LemonBanner type="error">{COPY.failedToLoad}</LemonBanner>
@@ -106,15 +112,7 @@ function FirstCallBody({ calls, loadFailed, onNext }: SetupFirstCallStepProps): 
 
 export function SetupFirstCallStep(props: SetupFirstCallStepProps): JSX.Element {
     return (
-        <SetupStepLayout
-            aside={
-                <SetupCallsPanel
-                    calls={props.calls?.slice(REVEALED_CALLS) ?? null}
-                    status={{ kind: 'live', text: COPY.live }}
-                    empty={null}
-                />
-            }
-        >
+        <SetupStepLayout aside={<SetupToolsPanel tools={props.serverTools} failed={props.serverToolsFailed} />}>
             <FirstCallBody {...props} />
         </SetupStepLayout>
     )

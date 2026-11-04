@@ -6,7 +6,13 @@ import { cn } from 'lib/utils/css-classes'
 import type { MCPActivityRecentCallApi } from '../generated/api.schemas'
 import { SetupConnectStep } from './SetupConnectStep'
 import { SetupFirstCallStep } from './SetupFirstCallStep'
-import { MCP_SETUP_STEPS, type MCPConnectState, type MCPSetupExitReason, type MCPSetupStep } from './setupMode'
+import {
+    MCP_SETUP_STEPS,
+    type MCPConnectState,
+    type MCPServerTools,
+    type MCPSetupExitReason,
+    type MCPSetupStep,
+} from './setupMode'
 import { SetupUsefulStep } from './SetupUsefulStep'
 
 const COPY = {
@@ -25,6 +31,8 @@ export interface MCPSetupModeViewProps {
     connectState: MCPConnectState
     recentCalls: MCPActivityRecentCallApi[] | null
     recentCallsFailed: boolean
+    serverTools: MCPServerTools | null
+    serverToolsFailed: boolean
     onExit: (reason: MCPSetupExitReason) => void
     onAskPostHogAI: (prompt: string) => void
     onGoToUseful: () => void
@@ -63,13 +71,21 @@ function StepRail({ current }: { current: MCPSetupStep | null }): JSX.Element {
 
 function StepBody({ step, ...props }: MCPSetupModeViewProps & { step: MCPSetupStep }): JSX.Element {
     if (step === 'connect') {
-        return <SetupConnectStep connectState={props.connectState} />
+        return (
+            <SetupConnectStep
+                connectState={props.connectState}
+                serverTools={props.serverTools}
+                serverToolsFailed={props.serverToolsFailed}
+            />
+        )
     }
     if (step === 'first-call') {
         return (
             <SetupFirstCallStep
                 calls={props.recentCalls}
                 loadFailed={props.recentCallsFailed}
+                serverTools={props.serverTools}
+                serverToolsFailed={props.serverToolsFailed}
                 onNext={props.onGoToUseful}
             />
         )

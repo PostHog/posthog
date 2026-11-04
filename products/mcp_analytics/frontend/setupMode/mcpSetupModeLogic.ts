@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
@@ -13,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
@@ -23,23 +25,35 @@ import type { MCPOnboardingSignals, MCPOnboardingState } from '../mcpAnalyticsOn
 import {
     type MCPSetupExitReason,
     type MCPSetupStep,
+    type MCPServerTools,
     type MCPSetupTrigger,
     SETUP_OPEN,
     SETUP_PARAM,
     SETUP_STEP_PARAM,
     connectStateFor,
     isSetupOpen,
+    serverToolsFrom,
     setupStepFor,
 } from './setupMode'
 import type { MCPConnectState } from './setupMode'
 
-/** The two calls the reveal shows as cards, plus the newer ones its calls panel lists beside them. */
-const RECENT_CALLS = 7
+/** The two calls the reveal shows as cards. */
+const RECENT_CALLS = 2
 
 // Faster than the onboarding logic's own poll: someone in setup mode is watching for the moment
 // their server answers. Both queries stay cheap while the project has a handful of events.
 const CONNECT_POLL_MS = 5000
 const FIRST_CALL_POLL_MS = 10000
+const SERVER_TOOLS_POLL_MS = 10000
+
+// Bounded to 30 days like the activity overview, so a project with months of calls stays cheap.
+const SERVER_TOOLS_QUERY = `
+SELECT
+    argMaxIf(properties.$mcp_listed_tool_names, timestamp, event = '$mcp_tools_list') AS listed,
+    groupUniqArrayIf(properties.$mcp_tool_name, event = '$mcp_tool_call') AS called
+FROM events
+WHERE event IN ('$mcp_tools_list', '$mcp_tool_call') AND timestamp >= now() - INTERVAL 30 DAY
+`
 
 // The gate swaps the empty state for the scene when the first call lands, which remounts this
 // logic, and a reload remounts it too. Module scope keeps "opened" and "step viewed" to one event
@@ -91,9 +105,13 @@ export interface mcpSetupModeLogicValues {
     isEnabled: boolean
     isOpen: boolean
     pollTarget: SetupPollTarget
+    pollsServerTools: boolean
     recentCalls: MCPActivityRecentCallApi[] | null
     recentCallsFailed: boolean
     recentCallsLoading: boolean
+    serverTools: MCPServerTools | null
+    serverToolsFailed: boolean
+    serverToolsLoading: boolean
     step: MCPSetupStep | null
     viewedStep: MCPSetupStep | null
 }
@@ -125,6 +143,21 @@ export interface mcpSetupModeLogicActions {
         recentCalls: MCPActivityRecentCallApi[] | null
         payload?: void
     }
+    loadServerTools: (_: void) => void
+    loadServerToolsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadServerToolsSuccess: (
+        serverTools: MCPServerTools,
+        payload?: void
+    ) => {
+        serverTools: MCPServerTools
+        payload?: void
+    }
     openSetupMode: (trigger: MCPSetupTrigger) => {
         trigger: MCPSetupTrigger
     }
@@ -143,6 +176,7 @@ export interface mcpSetupModeLogicMeta {
         viewedStep: (isOpen: boolean, step: MCPSetupStep | null) => MCPSetupStep | null
         connectState: (onboardingState: MCPOnboardingState | null) => MCPConnectState
         pollTarget: (isOpen: boolean, step: MCPSetupStep | null) => SetupPollTarget
+        pollsServerTools: (step: MCPSetupStep | null, connectState: MCPConnectState) => boolean
     }
 }
 
@@ -190,6 +224,19 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
                 },
             },
         ],
+        serverTools: [
+            null as MCPServerTools | null,
+            {
+                loadServerTools: async (_: void, breakpoint): Promise<MCPServerTools> => {
+                    const response = (await api.query(
+                        { kind: NodeKind.HogQLQuery, query: SERVER_TOOLS_QUERY },
+                        { refresh: 'force_blocking' }
+                    )) as HogQLQueryResponse
+                    breakpoint()
+                    return serverToolsFrom(response.results?.[0] as unknown[] | undefined)
+                },
+            },
+        ],
     })),
     reducers({
         recentCallsFailed: [
@@ -197,6 +244,13 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
             {
                 loadRecentCallsSuccess: () => false,
                 loadRecentCallsFailure: () => true,
+            },
+        ],
+        serverToolsFailed: [
+            false,
+            {
+                loadServerToolsSuccess: () => false,
+                loadServerToolsFailure: () => true,
             },
         ],
     }),
@@ -237,10 +291,17 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
             (onboardingState: MCPOnboardingState | null): MCPConnectState => connectStateFor(onboardingState),
         ],
         // An unknown step (the first signals query failed) polls the signals too, so a retry comes quickly.
+        // The last step polls nothing: it loads the calls once, and new calls show on the dashboard.
         pollTarget: [
             (s) => [s.isOpen, s.step],
             (isOpen: boolean, step: MCPSetupStep | null): SetupPollTarget =>
-                !isOpen ? null : step === null || step === 'connect' ? 'signals' : 'calls',
+                !isOpen || step === 'useful' ? null : step === null || step === 'connect' ? 'signals' : 'calls',
+        ],
+        // A server lists its tools when a client connects, so the list is worth asking for from then on.
+        pollsServerTools: [
+            (s) => [s.step, s.connectState],
+            (step: MCPSetupStep | null, connectState: MCPConnectState): boolean =>
+                step === 'first-call' || (step === 'connect' && connectState.kind === 'connected'),
         ],
     }),
     listeners(({ actions, values }) => ({
@@ -307,6 +368,9 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
             }
         },
         step: (step: MCPSetupStep | null) => {
+            if (step === 'useful' && values.recentCalls === null && !values.recentCallsLoading) {
+                actions.loadRecentCalls()
+            }
             if (step === 'first-call') {
                 // Only the scene keeps a setup mode host once the product has data, so on the welcome page the
                 // reveal would unmount with the empty state. The onboarding step redirects itself, because it must
@@ -338,6 +402,19 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
                     )
                     return () => clearInterval(id)
                 }, 'setupPoll')
+            }
+        },
+        pollsServerTools: (pollsServerTools: boolean) => {
+            cache.disposables.dispose('serverToolsPoll')
+            if (pollsServerTools) {
+                actions.loadServerTools()
+                cache.disposables.add(() => {
+                    const id = window.setInterval(
+                        () => !values.serverToolsLoading && actions.loadServerTools(),
+                        SERVER_TOOLS_POLL_MS
+                    )
+                    return () => clearInterval(id)
+                }, 'serverToolsPoll')
             }
         },
         viewedStep: (viewedStep: MCPSetupStep | null) => {
