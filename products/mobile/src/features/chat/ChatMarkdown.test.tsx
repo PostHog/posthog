@@ -11,7 +11,9 @@ jest.mock('./MermaidDiagram', () => ({ MermaidDiagram: jest.fn(() => null) }))
 const summary = getInsightSummary as jest.MockedFunction<typeof getInsightSummary>
 function view(text: string): ReturnType<typeof render> {
     return render(
-        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <QueryClientProvider
+            client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })}
+        >
             <ChatMarkdown text={text} />
         </QueryClientProvider>
     )

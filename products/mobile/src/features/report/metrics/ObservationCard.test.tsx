@@ -22,7 +22,7 @@ const BASE: MetricView = {
 }
 
 function renderCard(metric: MetricView): void {
-    const client = new QueryClient()
+    const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
     const tree: ReactElement = (
         <QueryClientProvider client={client}>
             <ObservationCard metric={metric} reportId="report-1" accent="alert" />
