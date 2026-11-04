@@ -123,12 +123,12 @@ export function WorkflowMetricCard({
         }))
     }, [timeSeries, seriesColors, colorIfZero, total])
 
-    // Only surface a comparison when there's a non-zero baseline — formatPercentageDiff returns null on
-    // a zero/absent previous period, so the pill is hidden rather than showing a bogus ∞%.
-    const change = useMemo<MetricChange | null>(() => {
-        const label = formatPercentageDiff(total, totalPreviousPeriod)
-        return label == null ? null : { value: total - totalPreviousPeriod, label }
-    }, [total, totalPreviousPeriod])
+    // Hide the pill on a zero/absent previous period rather than showing a bogus ∞%.
+    const change = useMemo<MetricChange | null>(
+        () =>
+            totalPreviousPeriod === 0 ? null : { value: ((total - totalPreviousPeriod) / totalPreviousPeriod) * 100 },
+        [total, totalPreviousPeriod]
+    )
 
     const labelFormatter = useMemo(
         () =>
@@ -142,12 +142,12 @@ export function WorkflowMetricCard({
         [timeSeries?.interval, timeSeries?.labels, timeSeries?.timezone]
     )
 
+    const previousDiff =
+        total === totalPreviousPeriod ? '(no change)' : formatPercentageDiff(total, totalPreviousPeriod)
     const restingSubtitle = !previousPeriodTimeSeries
         ? 'Total'
         : previousLabel
-          ? `${previousLabel}: ${humanFriendlyNumber(totalPreviousPeriod)}${
-                total === totalPreviousPeriod ? ' (no change)' : change ? ` ${change.label}` : ''
-            }`
+          ? `${previousLabel}: ${humanFriendlyNumber(totalPreviousPeriod)}${previousDiff ? ` ${previousDiff}` : ''}`
           : `vs. ${humanFriendlyNumber(totalPreviousPeriod)} prior`
 
     const cardClassName = cn(
