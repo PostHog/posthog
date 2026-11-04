@@ -671,7 +671,6 @@ describe('EmailService', () => {
 
                     const result = await service.executeSendEmail(invocation, isTest)
 
-                    // initcap() stores "Cc-<team>@Example.Com" for "cc-<team>@example.com".
                     const storedEmail = (kind = 'test'): string =>
                         storedMixedCase
                             ? `${kind[0].toUpperCase()}${kind.slice(1)}-${team.id}@Example.Com`
