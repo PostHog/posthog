@@ -85,6 +85,22 @@ RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/replay
 # Then build the nodejs services
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/nodejs build
 
+# Record the Django and sqlx migrations this build reads, so the deploy-time schema check can wait for them
+# (nodejs/src/schema-check). Bind mounts give the generator the migration files without adding the
+# Python and Rust trees to any layer, and BuildKit reruns this step when any mounted file changes.
+ARG COMMIT_HASH
+RUN --mount=type=bind,source=posthog,target=/schema-src/posthog \
+    --mount=type=bind,source=ee,target=/schema-src/ee \
+    --mount=type=bind,source=products,target=/schema-src/products \
+    --mount=type=bind,source=nodejs/src,target=/schema-src/nodejs/src \
+    --mount=type=bind,source=rust/persons_migrations,target=/schema-src/rust/persons_migrations \
+    --mount=type=bind,source=rust/cyclotron-node-migrations,target=/schema-src/rust/cyclotron-node-migrations \
+    --mount=type=bind,source=rust/behavioral_cohorts_migrations,target=/schema-src/rust/behavioral_cohorts_migrations \
+    node nodejs/dist/schema-check/generate.js \
+    --repo-root /schema-src \
+    --output nodejs/schema-requirements.json \
+    --source-commit "${COMMIT_HASH:-unknown}"
+
 
 #
 # Runtime stage: Minimal image with only nodejs runtime dependencies
@@ -150,6 +166,7 @@ COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/dist /code/nodejs/
 COPY --from=nodejs-build --chown=posthog:posthog /code/node_modules /code/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/node_modules /code/nodejs/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/package.json /code/nodejs/package.json
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/schema-requirements.json /code/nodejs/schema-requirements.json
 COPY --from=nodejs-build --chown=posthog:posthog /code/common/replay-headless/dist /code/common/replay-headless/dist
 COPY --from=nodejs-build --chown=posthog:posthog /code/common/replay-headless/package.json /code/common/replay-headless/package.json
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/assets /code/nodejs/assets
