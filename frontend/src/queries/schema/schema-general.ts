@@ -4558,6 +4558,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     dateRange: DateRange
     /** Filter by issue status. */
     status?: ErrorTrackingQueryStatus
+    /** Filter by issue severity. */
+    severity?: ErrorTrackingQueryIssueSeverity | null
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     /** Whether to filter out test accounts. */
@@ -7219,6 +7221,8 @@ export interface MetricsAlertConfig {
     type: 'MetricsAlertConfig'
     /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
     check_ongoing_interval?: boolean
+    /** Values for the `$name` variables in the insight's query. */
+    variables?: Record<string, MetricsDashboardVariableSelection>
 }
 
 /** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */
@@ -9078,6 +9082,7 @@ export const MARKETING_INTEGRATION_CONFIGS = {
             'audience_network',
             'facebook_marketplace',
             'threads',
+            'th',
         ] as const,
         primarySource: 'meta',
         adsetTableName: 'adsets' as const,
