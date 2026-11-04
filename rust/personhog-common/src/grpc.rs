@@ -325,6 +325,8 @@ pub fn tracked_tcp_incoming(
 /// stays bound during the drain completes the handshake of a late
 /// connection into its backlog and never serves it. The client then waits
 /// out its deadline on every attempt instead of connecting to another pod.
+///
+/// Serve this stream with [`until_incoming_ends`] as the shutdown signal.
 pub fn tracked_tcp_incoming_until(
     listener: TcpListener,
     shutdown: CancellationToken,
@@ -342,6 +344,17 @@ pub fn tracked_tcp_incoming_until(
             },
         }
     })
+}
+
+/// Shutdown signal for a server that reads [`tracked_tcp_incoming_until`].
+///
+/// This signal never fires, so the end of the stream is what stops the
+/// accept loop, and tonic then drains the accepted connections as usual.
+/// Do not pass the token's own signal here. Tonic selects at random between
+/// its signal and the stream. When the signal wins, tonic holds the unpolled
+/// stream, and so the bound listener, until the drain finishes.
+pub fn until_incoming_ends() -> impl Future<Output = ()> + Send + 'static {
+    std::future::pending()
 }
 
 /// Drop guard that decrements a client-side in-flight gauge on drop,
@@ -865,6 +878,9 @@ mod tests {
     use futures::poll;
     use std::convert::Infallible;
     use std::task::{Context, Poll};
+    use tonic::body::BoxBody;
+    use tonic::server::NamedService;
+    use tonic::transport::{Endpoint, Server};
     use tower::Layer;
 
     fn grpc_request(path: &str) -> Request<()> {
@@ -932,22 +948,84 @@ mod tests {
         assert!(resp.headers().get("grpc-status").is_none());
     }
 
+    /// Holds every RPC open until `release` fires, which keeps a drain running.
+    #[derive(Clone)]
+    struct HeldRpcService {
+        entered: Arc<tokio::sync::Notify>,
+        release: CancellationToken,
+    }
+
+    impl NamedService for HeldRpcService {
+        const NAME: &'static str = "test.Held";
+    }
+
+    impl Service<Request<BoxBody>> for HeldRpcService {
+        type Response = Response<BoxBody>;
+        type Error = Infallible;
+        type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Infallible>> + Send>>;
+
+        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn call(&mut self, _req: Request<BoxBody>) -> Self::Future {
+            let service = self.clone();
+            Box::pin(async move {
+                service.entered.notify_one();
+                service.release.cancelled().await;
+                Ok(Response::new(tonic::body::empty_body()))
+            })
+        }
+    }
+
     #[tokio::test]
-    async fn a_cancelled_listener_refuses_new_connections() {
-        use futures::StreamExt;
+    async fn a_draining_server_refuses_connections_and_finishes_accepted_rpcs() {
+        // Tonic picks its select branch at random, so one round can pass by luck.
+        for _ in 0..16 {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let shutdown = CancellationToken::new();
+            let service = HeldRpcService {
+                entered: Arc::new(tokio::sync::Notify::new()),
+                release: CancellationToken::new(),
+            };
 
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let shutdown = CancellationToken::new();
-        let mut incoming = std::pin::pin!(tracked_tcp_incoming_until(listener, shutdown.clone()));
+            let server = tokio::spawn(
+                Server::builder()
+                    .add_service(service.clone())
+                    .serve_with_incoming_shutdown(
+                        tracked_tcp_incoming_until(listener, shutdown.clone()),
+                        until_incoming_ends(),
+                    ),
+            );
 
-        let accepted = TcpStream::connect(addr).await.unwrap();
-        assert!(incoming.next().await.unwrap().is_ok());
-        drop(accepted);
+            let mut channel = Endpoint::from_shared(format!("http://{addr}"))
+                .unwrap()
+                .connect()
+                .await
+                .unwrap();
+            let request = Request::builder()
+                .method("POST")
+                .uri(format!("http://{addr}/test.Held/Call"))
+                .body(tonic::body::empty_body())
+                .unwrap();
+            let held_rpc = tokio::spawn(channel.ready().await.unwrap().call(request));
+            service.entered.notified().await;
 
-        shutdown.cancel();
-        assert!(incoming.next().await.is_none());
-        assert!(TcpStream::connect(addr).await.is_err());
+            shutdown.cancel();
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while TcpStream::connect(addr).await.is_ok() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("the port must refuse connections during the drain");
+            assert!(!server.is_finished());
+
+            service.release.cancel();
+            assert!(held_rpc.await.unwrap().is_ok());
+            server.await.unwrap().unwrap();
+        }
     }
 
     #[tokio::test]

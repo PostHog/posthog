@@ -7,7 +7,7 @@ use envconfig::Envconfig;
 use k8s_awareness::K8sAwareness;
 use lifecycle::{ComponentOptions, Handle, Manager};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
-use personhog_common::grpc::{tracked_tcp_incoming_until, GrpcMetricsLayer};
+use personhog_common::grpc::{tracked_tcp_incoming_until, until_incoming_ends, GrpcMetricsLayer};
 use personhog_common::metrics::WRITE_PATH_LATENCY_BUCKETS_MS;
 use personhog_coordination::changelog::{
     keep_changelog_live, load_changelog_config, LiveChangelog, CHANGELOG_BOOT_POLL_INTERVAL,
@@ -469,7 +469,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .add_service(proxy.clone())
             .add_service(IdentityProxyService(proxy.clone()))
             .add_service(LifecycleProxyService(proxy))
-            .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
+            .serve_with_incoming_shutdown(incoming, until_incoming_ends())
             .await;
 
         if let Err(e) = result {
