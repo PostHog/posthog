@@ -60,8 +60,8 @@ _MAX_RETRY_AFTER_SECONDS = 300.0
 # Safety bound for how many issues past its saved position the issue_tag_values fan-out
 # will skip while fast-forwarding to a saved checkpoint issue. If the checkpoint issue was
 # deleted between runs, we'd otherwise skip every remaining issue and yield
-# nothing. Once this bound is exceeded we treat the checkpoint as stale and
-# fall through to fresh processing of the current and remaining issues.
+# nothing. Once this bound is exceeded we treat the checkpoint as stale, clear it and
+# fail the attempt, so the next attempt reads every issue without a cursor.
 _RESUME_ISSUE_SKIP_LIMIT = 5000
 logger = structlog.get_logger(__name__)
 
@@ -298,7 +298,7 @@ class SentryRateLimitedError(Exception):
 
 
 class SentryStaleResumeCheckpointError(Exception):
-    """The issue_tag_values checkpoint issue is gone, and this attempt cannot read the issues again without duplicates."""
+    """The issue_tag_values checkpoint issue is not in the listing, and this attempt cannot read the issues again without duplicates."""
 
 
 def _is_retryable_response(response: Response) -> bool:
@@ -546,7 +546,6 @@ def _resume_issue_order(
     checkpoint_issue_done: bool,
     skip_limit: int,
     listing_floor: datetime | None,
-    merges_rows: bool,
     clear_checkpoint: Callable[[], None],
 ) -> Iterator[_ListedIssue]:
     """Yield each issue from the checkpoint on, with its position and whether it is the checkpoint issue.
@@ -554,12 +553,13 @@ def _resume_issue_order(
     This assumes the issue order of the earlier attempt, so the issues listed before the checkpoint
     issue were read and are skipped. Sentry orders `sort=date` by last seen, so an issue with a new
     event can move ahead of the checkpoint and get skipped. The checkpoint issue can also be deleted or
-    merged between attempts. When it is not found within `skip_limit` positions, or before the listing
-    ends or reaches `listing_floor`, the issues are read again from the top, because a resume that
-    skips every issue completes with no rows and reports success. When `merges_rows` is true, the
-    listing starts again in this attempt, and the rows it reads again merge on the primary key.
-    Otherwise the attempt appends, so the rows of the earlier attempt would duplicate. The checkpoint
-    is then cleared and the attempt fails, and the next attempt overwrites the table on its first batch.
+    merged between attempts. `sentry_source` clears the checkpoint of a deleted or merged issue before
+    the attempt starts. When the checkpoint issue is still not found within `skip_limit` positions, or
+    before the listing ends or reaches `listing_floor`, the checkpoint is cleared and the attempt fails.
+    A resume that skips every issue would complete with no rows and report success. Reading the issues
+    again in this attempt would append the rows of the earlier attempt a second time, because a
+    resumed attempt appends whatever the sync type is. The next attempt has no cursor, so the
+    pipeline loads it the way it loads a new attempt.
     """
     positioned = enumerate(list_issues(), start=1)
     if checkpoint_issue_id is not None:
@@ -577,19 +577,39 @@ def _resume_issue_order(
                 if issue_last_seen is not None and issue_last_seen <= listing_floor:
                     break
         if not found:
-            logger.info(
-                "sentry_source.stale_resume_checkpoint",
-                resume_issue_id=checkpoint_issue_id,
-                restarts_attempt=not merges_rows,
+            logger.info("sentry_source.stale_resume_checkpoint", resume_issue_id=checkpoint_issue_id)
+            clear_checkpoint()
+            raise SentryStaleResumeCheckpointError(
+                "The resume checkpoint issue is no longer listed, so the sync starts again from the first issue."
             )
-            if not merges_rows:
-                clear_checkpoint()
-                raise SentryStaleResumeCheckpointError(
-                    "The resume checkpoint issue is no longer listed, so the sync starts again from the first issue."
-                )
-            positioned = enumerate(list_issues(), start=1)
     for position, issue in positioned:
         yield _ListedIssue(position=position, issue=issue, is_checkpoint=False)
+
+
+def _checkpoint_issue_is_gone(
+    base_api_url: str, headers: dict[str, str], organization_slug: str, issue_id: str
+) -> bool:
+    """Whether Sentry no longer has the checkpoint issue under its id.
+
+    An issue merged into another one can answer with the other issue, so a different id counts as
+    gone. Any other answer keeps the checkpoint, because the iterator still bounds its search. One
+    request with no retries, because it runs before the pipeline starts and a rate-limit wait would
+    hold the attempt there.
+    """
+    url = urljoin(f"{base_api_url}/", f"organizations/{organization_slug}/issues/{quote(issue_id, safe='')}/")
+    try:
+        response = make_tracked_session(retry=Retry(total=0)).get(url, headers=headers, timeout=_REQUEST_TIMEOUT)
+    except RequestException:
+        return False
+    if response.status_code == 404:
+        return True
+    if not response.ok:
+        return False
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+    return isinstance(payload, dict) and payload.get("id") is not None and str(payload["id"]) != issue_id
 
 
 def _iter_issue_tag_values_rows(
@@ -664,8 +684,6 @@ def _iter_issue_tag_values_rows(
         checkpoint_issue_done,
         resume_skip_limit,
         None if use_warehouse_parent else cutoff_last_seen,
-        # An incremental run with a watermark merges on the primary key. Other runs append.
-        merges_rows=cutoff_last_seen is not None,
         clear_checkpoint=clear_checkpoint,
     ):
         issue = listed.issue
@@ -1586,7 +1604,17 @@ def sentry_source(
             # The pipeline reads this same Redis state to pick replace-vs-append for chunk 0,
             # so state the iterator will refuse has to go now, before it decides. Same
             # predicate as the iterator's, so the two can't disagree.
-            if _usable_resume_state(resumable_source_manager, issues_table.version if issues_table else None) is None:
+            loaded = _usable_resume_state(resumable_source_manager, issues_table.version if issues_table else None)
+            checkpoint_issue_id = (loaded.completed_issue_id or loaded.issue_id) if loaded is not None else None
+            if loaded is None:
+                resumable_source_manager.clear_state()
+            # A pinned Delta version cannot lose an issue, so only the live listing needs the check.
+            elif (
+                issues_table is None
+                and checkpoint_issue_id
+                and _checkpoint_issue_is_gone(base_api_url, headers, organization_slug, checkpoint_issue_id)
+            ):
+                logger.info("sentry_source.resume_checkpoint_issue_gone", resume_issue_id=checkpoint_issue_id)
                 resumable_source_manager.clear_state()
         return _make_source_response(
             endpoint_config,

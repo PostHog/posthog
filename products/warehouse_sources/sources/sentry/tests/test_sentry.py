@@ -1069,26 +1069,37 @@ class TestIssueTagValuesResumable:
                     tag_key="browser",
                     values_next_url="https://sentry.io/api/0/organizations/acme/issues/999/tags/browser/values/?cursor=0:100:2",
                 ),
+                _json({"detail": "Not found"}, status=404),
                 False,
-                None,
+                ["100", "101", "102", "103"],
+            ),
+            (
+                "merged_checkpoint_issue",
+                SentryResumeConfig(completed_issue_id="999", issue_position=10),
+                _json({"id": "100"}),
+                False,
+                ["100", "101", "102", "103"],
             ),
             (
                 "checkpoint_past_the_limit",
                 SentryResumeConfig(completed_issue_id="102", issue_position=3),
+                _json({"id": "102"}),
                 False,
                 ["103"],
             ),
             (
-                "checkpoint_issue_gone_before_the_limit",
+                "checkpoint_issue_not_listed",
                 SentryResumeConfig(completed_issue_id="999", issue_position=10),
+                _json({"id": "999"}),
                 False,
                 None,
             ),
             (
-                "checkpoint_issue_gone_on_a_merging_run",
+                "checkpoint_issue_not_listed_on_a_watermark_run",
                 SentryResumeConfig(completed_issue_id="999", issue_position=10),
+                _json({"id": "999"}),
                 True,
-                ["100", "101", "102", "103"],
+                None,
             ),
         ]
     )
@@ -1097,12 +1108,17 @@ class TestIssueTagValuesResumable:
         self,
         _name: str,
         resume_state: SentryResumeConfig,
+        checkpoint_issue_response: ScriptedResponse,
         incremental: bool,
         expected_issue_ids: list[str] | None,
     ) -> None:
         def script(request: RecordedRequest) -> ScriptedResponse:
             if request.path.endswith("/organizations/acme/issues/"):
                 return _json([{"id": "100"}, {"id": "101"}, {"id": "102"}, {"id": "103"}])
+            if request.path.endswith(
+                f"/organizations/acme/issues/{resume_state.completed_issue_id or resume_state.issue_id}/"
+            ):
+                return checkpoint_issue_response
             if request.path.endswith("/tags/"):
                 return _json([{"key": "browser"}])
             return _json([{"value": "Chrome"}])
