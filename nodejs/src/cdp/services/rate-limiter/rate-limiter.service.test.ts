@@ -439,10 +439,28 @@ describe('RateLimiterService', () => {
             expect(await replayingLimiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
             expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
             expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
-            const claimRecords = await redis.useClient({ name: 'claim-records' }, (client) =>
-                client.keys(`${bucket.key}/claimed/*`)
-            )
-            expect(claimRecords).toHaveLength(2)
+        })
+
+        it('takes no tokens for a claim that reaches Valkey after its caller gave up', async () => {
+            const bucket = { key: `${KEY}/claim-too-late`, requested: 1, capacity: 1, refillPerSecond: 0 }
+            const issuedAt = Date.now() - 5000
+            const lateClock = jest.spyOn(Date, 'now').mockReturnValue(issuedAt)
+            try {
+                expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: null })
+            } finally {
+                lateClock.mockRestore()
+            }
+
+            expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
+        })
+
+        it.each([
+            ['no buckets', []],
+            ['the same bucket twice', [`${KEY}/twice`, `${KEY}/twice`]],
+        ])('refuses a claim with %s', async (_name, keys) => {
+            await expect(
+                limiter.claimAllOrNothing(keys.map((key) => ({ key, requested: 1, capacity: 1, refillPerSecond: 0 })))
+            ).rejects.toThrow('every bucket key only once')
         })
 
         it('fails closed through an optional pool whose Valkey is unreachable', async () => {
@@ -473,8 +491,8 @@ describe('RateLimiterService', () => {
         ] as const)('while the connection drops, %s', async (_name, options, outcome) => {
             const optionalValkey = createSesRateLimiterValkeyPool(
                 {
-                    SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
-                    SES_RATE_LIMITER_VALKEY_PORT: 6379,
+                    SES_RATE_LIMITER_VALKEY_HOST: hub.CDP_REDIS_HOST || '127.0.0.1',
+                    SES_RATE_LIMITER_VALKEY_PORT: hub.CDP_REDIS_PORT,
                     SES_RATE_LIMITER_VALKEY_PASSWORD: '',
                     SES_RATE_LIMITER_VALKEY_TLS: false,
                     REDIS_POOL_MIN_SIZE: 1,
@@ -528,8 +546,8 @@ describe('RateLimiterService', () => {
             const claim = await grantedClaim(bucket)
             await grantedClaim(bucket)
 
-            await limiter.returnClaim(claim, [bucket])
-            await limiter.returnClaim(claim, [bucket])
+            await limiter.returnClaim(claim)
+            await limiter.returnClaim(claim)
 
             expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
             expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
@@ -539,7 +557,7 @@ describe('RateLimiterService', () => {
             const bucket = { key: `${KEY}/late-return`, requested: 1, capacity: 1, refillPerSecond: 0 }
             const claim = await grantedClaim(bucket)
 
-            await limiter.returnClaim({ ...claim, returnBy: Date.now() - 1000 }, [bucket])
+            await limiter.returnClaim({ ...claim, returnBy: Date.now() - 1000 })
 
             expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
         })
