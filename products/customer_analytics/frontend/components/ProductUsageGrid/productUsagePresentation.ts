@@ -18,7 +18,10 @@ export function getProductUsageGrouping(
     const groups: DotMatrixGroup[] = (grouping?.groups ?? []).map((group, index) => ({
         ...group,
         items: [...new Set(group.items)].filter((key) => productKeys.has(key)),
-        color: `var(--data-color-${(index % 15) + 1})`,
+        color:
+            grouping?.key === 'role' && index < 3
+                ? ['var(--color-blue-500)', 'var(--color-orange-500)', 'var(--color-purple-500)'][index]
+                : `var(--data-color-${(index % 15) + 1})`,
     }))
     const assigned = new Set(groups.flatMap(({ items }) => items ?? []))
     const remaining = products.filter(({ key }) => !assigned.has(key)).map(({ key }) => key)
@@ -68,10 +71,10 @@ export function getProductUsageCountLabel(products: BookActivityMatrixProduct[],
 
 export function getProductUsageCountScale(users = false): DotMatrixCountBin[] {
     const steps = users ? [1, 2, 5, 10, 20, 50] : [1, 3, 5, 7, 9, 11]
-    const color = users ? 'var(--color-text-link)' : 'var(--color-text-success)'
+    const color = users ? 'var(--color-blue-700)' : 'var(--color-green-700)'
     return steps.map((min, index) => ({
         min,
         color: `color-mix(in srgb, ${color} ${15 + index * 15}%, var(--color-bg-surface-primary))`,
-        ink: index >= 4 ? 'var(--color-text-on-fill-primary)' : 'var(--color-text-primary)',
+        ink: index >= 4 ? 'var(--color-white)' : 'var(--color-text-primary)',
     }))
 }
