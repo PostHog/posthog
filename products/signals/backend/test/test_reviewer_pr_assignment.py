@@ -1,12 +1,16 @@
 import json
+from datetime import timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
+from posthog.models.github_integration_base import GitHubAuthorLastCommit
 from posthog.models.organization import OrganizationMembership
 from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership
 
@@ -99,7 +103,7 @@ def _open_pr_github() -> MagicMock:
     }
     github.list_submitted_pull_request_reviewers.return_value = {"success": True, "reviewed_by": []}
     github.get_removed_pull_request_reviewers.return_value = set()
-    github.list_pull_request_files.return_value = {"success": True, "paths": []}
+    github.get_author_last_commit.return_value = GitHubAuthorLastCommit(last_commit_at=timezone.now())
     return github
 
 
@@ -309,26 +313,28 @@ class TestAssignReviewersToPullRequest:
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
-        ("team_members", "pinned", "owner", "expected_reviewer"),
+        ("last_commit_days", "pinned", "owner", "expected_reviewer"),
         [
-            (["Other"], None, None, "other"),
-            (["outsider"], None, None, None),
-            (["outsider"], "departed", None, "departed"),
-            (["outsider"], None, "departed", "departed"),
-            ([], None, None, "departed"),
+            ({"departed": 90, "other": 1}, None, None, "other"),
+            ({"departed": 90, "other": 90}, None, None, None),
+            ({"departed": 90, "other": 1}, "departed", None, "departed"),
+            ({"departed": 90, "other": 1}, None, "departed", "departed"),
+            ({"departed": None, "other": 1}, None, None, "departed"),
+            ({"other": 1}, None, None, None),
         ],
         ids=[
-            "owning_team_member_asked",
-            "no_reviewer_on_the_owning_team",
+            "inactive_reviewer_skipped",
+            "no_active_reviewer",
             "pinned_reviewer_asked",
             "owner_asked",
-            "team_with_no_listed_members",
+            "reviewer_without_commits_asked",
+            "failed_probe_requests_nobody",
         ],
     )
-    def test_without_an_owner_only_the_owning_team_is_asked(
+    def test_without_an_owner_only_an_active_committer_is_asked(
         self,
         org_and_team: tuple[Organization, Team],
-        team_members: list[str],
+        last_commit_days: dict[str, int | None],
         pinned: str | None,
         owner: str | None,
         expected_reviewer: str | None,
@@ -346,17 +352,19 @@ class TestAssignReviewersToPullRequest:
             )
         github = _open_pr_github()
         github.get_pull_request.return_value["assignees"] = [owner] if owner else []
-        github.list_pull_request_files.return_value = {"success": True, "paths": ["products/signals/a.py"]}
-        github.list_team_members.return_value = {"success": True, "logins": team_members}
+
+        def last_commit(_repository: str, login: str) -> GitHubAuthorLastCommit | None:
+            if login not in last_commit_days:
+                return None
+            days = last_commit_days[login]
+            return GitHubAuthorLastCommit(
+                last_commit_at=None if days is None else timezone.now() - timedelta(days=days)
+            )
+
+        github.get_author_last_commit.side_effect = last_commit
 
         with (
             patch("products.signals.backend.reviewer_pr_assignment.assignment_side_effects_allowed", return_value=True),
-            patch(
-                "products.signals.backend.pr_owning_team.resolve_path_owners",
-                return_value=PathOwnership(
-                    team_by_path={"products/signals/a.py": "team-signals"}, registry={}, resolved=True
-                ),
-            ),
             patch(
                 "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository",
                 return_value=github,

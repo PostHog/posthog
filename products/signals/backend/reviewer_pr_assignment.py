@@ -12,14 +12,15 @@ Standing reviewer exclusions for the pull request's repository apply to every au
 including reviewer lists saved before the exclusion existed. The person who chose the work is
 still assigned, because a claim is a person's own decision.
 
-A pull request without a single owner gets a review request from the suggested reviewers. When the
-repository names a team that owns the changed files, that request goes only to members of the team
-or to a reviewer a person pinned on the report.
+A pull request without a single owner gets a review request from the highest-ranked suggested
+reviewer who still commits to the repository. A reviewer a person pinned on the report is asked
+without that check.
 """
 
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
@@ -83,6 +84,12 @@ PR_DRI_FEATURE_FLAG = "signals-pr-dri-assignee"
 # list from turning one pull request into ten reads.
 MAX_DRI_CHECKS = 4
 MAX_REPORT_ASSIGNEE_CHECKS = 10
+# A review request notifies a person, so it needs more recent activity than the year that reviewer
+# selection allows in `author_activity`. A reviewer with no commit to the repository in this window
+# has probably left the code, even when their PostHog and GitHub accounts are still active.
+REVIEW_ACTIVITY_WINDOW_DAYS = 60
+# Each reviewer costs one GitHub read.
+MAX_REVIEW_ACTIVITY_CHECKS = 4
 
 # Assign only while the pull request can still be reviewed. UNKNOWN is included because a PR whose
 # state could not be read is far more often open than closed, and the task re-reads the real state
@@ -423,22 +430,28 @@ def _pinned_reviewer_logins(*, team_id: int, report_id: str) -> set[str]:
     }
 
 
-def _owning_team_reviewers(
+def _first_active_reviewer(
     github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef, logins: list[str]
 ) -> list[str]:
-    """The report reviewers who still answer for the files the pull request changes.
+    """The highest-ranked reviewer who still commits to the repository, as a list of at most one.
 
-    Commit history does not show who left the company or moved to another team, so a reviewer
-    selected from an older change can still be an active member with repository access. When
-    `owners.yaml` names a team for the changed files, only members of that team and reviewers a
-    person pinned on the report are asked. A repository without ownership files, or one whose team
-    cannot be read, keeps the full list, because there is nothing to check the list against.
+    A report keeps its reviewers for months, and commit history does not show who left the company
+    or moved on. So a reviewer selected from an older change can still be an active member with
+    repository access. A reviewer a person pinned on the report is asked without the check. A
+    reviewer with no attributed commit was not selected from commit history, so the check does not
+    apply to them. A failed probe stops the request, because a guess notifies the wrong person.
     """
-    team = _owning_team(github, team_id=team_id, report_id=report_id, parsed=parsed)
-    if team is None or not team.logins:
-        return logins
-    allowed = set(team.logins) | _pinned_reviewer_logins(team_id=team_id, report_id=report_id)
-    return [login for login in logins if login.lower() in allowed]
+    pinned = _pinned_reviewer_logins(team_id=team_id, report_id=report_id)
+    cutoff = timezone.now() - timedelta(days=REVIEW_ACTIVITY_WINDOW_DAYS)
+    for login in logins[:MAX_REVIEW_ACTIVITY_CHECKS]:
+        if login.lower() in pinned:
+            return [login]
+        last = github.get_author_last_commit(parsed.repository, login)
+        if last is None:
+            return []
+        if last.last_commit_at is None or last.last_commit_at >= cutoff:
+            return [login]
+    return []
 
 
 def _request_reviews(
@@ -471,15 +484,6 @@ def _request_reviews(
         return []
 
     log = logger.bind(team_id=team_id, report_id=report_id, repository=parsed.repository, pr_number=parsed.number)
-    if owner is None:
-        try:
-            wanted = _owning_team_reviewers(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=wanted)
-        except Exception:
-            log.exception("signals.reviewer_pr_assignment.owning_team_reviewers_failed")
-            return []
-        if not wanted:
-            log.info("signals.reviewer_pr_assignment.no_owning_team_reviewer")
-            return []
     try:
         reviews = github.list_submitted_pull_request_reviewers(parsed.repository, parsed.number)
     except Exception:
@@ -500,7 +504,18 @@ def _request_reviews(
     if removed is None:
         log.warning("signals.reviewer_pr_assignment.removed_reviews_fetch_failed")
         return []
-    wanted = [login for login in wanted if login.lower() not in removed][:1]
+    wanted = [login for login in wanted if login.lower() not in removed]
+    if owner is None and wanted:
+        try:
+            wanted = _first_active_reviewer(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=wanted)
+        except GitHubRateLimitError:
+            return []
+        except Exception:
+            log.exception("signals.reviewer_pr_assignment.reviewer_activity_check_failed")
+            return []
+        if not wanted:
+            log.info("signals.reviewer_pr_assignment.no_active_reviewer")
+    wanted = wanted[:1]
     if not wanted:
         return []
 
