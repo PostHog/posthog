@@ -1552,6 +1552,10 @@ snapshots:
         hash: v1.k794b7964.66f0d459b4954743f10f429a64e3e7f6a74b26aaf42896449ee98ec5b8a5e783.bMjI6PrvYtjTBFJBN_l9tquTCL9z2MiPiACCyg7NwpM
     components-hogcharts-timeseriesbarchart--y-axis-formats--light:
         hash: v1.k794b7964.f0589ce149310d1a832ccc2db09eda5cca7b0bb18684e05d094edaa6273cc72b.6lIAqygaq9W2YE6ENM_VZc6_V_xrukW5donVRn_sX2I
+    components-hogcharts-timeseriescombochart--axis-bounds-without-bars--dark:
+        hash: v1.k794b7964.46d2c2b260b332ca0bc639111ff7adb33435d4844ee0b20d34a6afef02013be7.NYBntcdtOnz1-00Onx60m6Suzq8IswvupfKOvA8ZPDU
+    components-hogcharts-timeseriescombochart--axis-bounds-without-bars--light:
+        hash: v1.k794b7964.549e7973b6641ef3c2718dec2e0df528c7b75cfcca2e12deb05856c655bd5b6a.LhtSK2b7lEnRpGzPPQBAj7ZJ0i_K3wEWMGvBmXj_klI
     components-hogcharts-timeseriescombochart--basic--dark:
         hash: v1.k794b7964.01ebf62eb35e385cd89a00bcf3207570c252e7b6bca8acdbfe9e88841747679f.lIbb4yy1TrccNA96voGPROTbdr61LQRAsE1jcm-x1ac
     components-hogcharts-timeseriescombochart--basic--light:
@@ -10178,14 +10182,6 @@ snapshots:
         hash: v1.k794b7964.c9fc72811b943c115537e635134b80a91c58a47543524d0965c42602bfdfec27.qyngZZkvl7G39BPx-HjBx7Mu-z-FmDtnmpHBAuRhg4s
     scenes-app-ai-observability-trace-view-trace-view--timeline-mode--light:
         hash: v1.k794b7964.a2443f5ee729993e26c5842b2f139209fcf1723ec5f5adbdfd324481b6813bbd.Saq9FjUVQPXqDnjkFCABEH-NjvGihIRi1G52alnk6_o
-    scenes-app-ai-observability-trace-view-trace-view-switch--on-new-view--dark:
-        hash: v1.k794b7964.705e0647746424a98de2bbf79737ac43b3f60b57ae45b8f0e5d0cb5f01226aad.vSallcE6n-MHVAkWEOsfs2D1X--pp40NBjawl5otiOk
-    scenes-app-ai-observability-trace-view-trace-view-switch--on-new-view--light:
-        hash: v1.k794b7964.a0a6aa1d50cf3ba8efab106b863b781ec7963f26b4ac15c081846ef1a5f26be8.FENbz_MteTxpQoOtuabm33w_0L5OXGTEPrn-PnWRpVs
-    scenes-app-ai-observability-trace-view-trace-view-switch--on-old-view--dark:
-        hash: v1.k794b7964.13ae77563960d8df1279788e5a1b2a17b0f38c4469bb92d3a22f3cc569903681.v3gbz8mdvwkQ2INsmiXInoQZTCBj3KGPrqcynRaxFCU
-    scenes-app-ai-observability-trace-view-trace-view-switch--on-old-view--light:
-        hash: v1.k794b7964.de72868c75c31f3ba3d9813b5f86064d7dbf37bc1a896b8f13032dc102758876.Xpri2jtS8YkCfKQmwMkmtGGWN8oTE_vfUOaiXtOwJK0
     scenes-app-analytics--list--dark:
         hash: v1.k794b7964.e692f466abc16179add1bb5dc8a717feeaf04a5b13523b0f716d6b4bb8811679.LQEOSA8cElMG8UsjhfDN9J_IgtUg02T1wq8RClGnENI
     scenes-app-analytics--list--light:
@@ -11494,10 +11490,6 @@ snapshots:
         hash: v1.k794b7964.e9866a862497cb43eba375b641dace5125f87cd6aa990f46169414e991308aff.LK4UTwfs9n5fwkCo_xsXWeVI4uWhOFFHsWJcuCTdtmQ
     scenes-app-errortracking-issuesummary--failed--light:
         hash: v1.k794b7964.9dadc3835482c9fc3cbf9c34d64d6d38d9b0b6dd7bcc29f6d6a761a5a02f2833.GGfML6hnbKuYv8EbpC9KDa1HKT9jwVfNZZBsvJlduX8
-    scenes-app-errortracking-issuesummary--generating--dark:
-        hash: v1.k794b7964.f22a879064f42e097ba9cd076b8ffe26aa4228067b58a36c404ba7273bf84178.FNRcL4Omn4dbv79qyq1XiFWrIb6gHUOQI8DnwJbd-0g
-    scenes-app-errortracking-issuesummary--generating--light:
-        hash: v1.k794b7964.55041183792769dff9d666c9db8ce9873be83b974b6383ff9fbf78b955cbfb72.6VJnh84lXDA9BHOfTvc-GoCGRtxczGc6gyoJgHeAOHM
     scenes-app-errortracking-issuesummary--ready--dark:
         hash: v1.k794b7964.fe6868c41309756ed8c4b534d93997abb07496dbf92209e6dc016eeb71b29e92.vn3eJyTK2iRSNJIaRCgQs2af1DkIDeykM41vy7lgzQ4
     scenes-app-errortracking-issuesummary--ready--light:
@@ -11510,10 +11502,6 @@ snapshots:
         hash: v1.k794b7964.8badd7b9a6bc79ce305f96b1b676bd3dbb707d0ea3bfcf4632a1d529170e060e.LUgab_ixIuJjiNYi-A6Z_ZuU0KnzwQGdnCDh7RIhHe0
     scenes-app-errortracking-issuesummary--ready-without-likely-cause--light:
         hash: v1.k794b7964.d10d73c16662e9d0818f4dbb1c2064ba9a41ad7d05a42570514f5efa02fae8f8.MywIqTJJIupufO8RbLXzWnVzc6V-6SG025VmrayQTYY
-    scenes-app-errortracking-issuesummary--timed-out--dark:
-        hash: v1.k794b7964.7b5074765f939f77ae1cc6a7c03cf1200e1b3026519d7dce36f894cfd6869554.RolH_LxxHVc2fRWfTGmaiX3ZSvkD_6QTzJ1-iCh3Dk8
-    scenes-app-errortracking-issuesummary--timed-out--light:
-        hash: v1.k794b7964.e615ea2fb7d24183d547eca386c0a670c8b047ec0d8a49af40b21331e46d5b81.ArhTQVVglfTIzFHDQImdl1fy0CL0S2MqxlKLWhh3dL0
     scenes-app-errortracking-linkedreports--fix-proposed--dark:
         hash: v1.k794b7964.1b50022f8fafb4684dacd255b966bd2969f79e84d5c7c7daeb68291772a1e36d.9uyjrwufsjMCFx9c7cjsoIyabB3A4ZBnPSVUouM0RZE
     scenes-app-errortracking-linkedreports--fix-proposed--light:
