@@ -187,6 +187,9 @@ def _check_file_format(merged_config: dict[str, typing.Any], supported_compressi
         )
 
 
+_AWS_CREDENTIAL_KEYS = frozenset({"aws_access_key_id", "aws_secret_access_key"})
+
+
 def _reject_new_inline_copy_keys(
     instance: BatchExport | None,
     merged_config: dict[str, typing.Any],
@@ -201,7 +204,6 @@ def _reject_new_inline_copy_keys(
     if not isinstance(copy_inputs, dict):
         return
 
-    credential_keys = {"aws_access_key_id", "aws_secret_access_key"}
     existing_copy_inputs = existing_config.get("copy_inputs") or {}
     if not isinstance(existing_copy_inputs, dict):
         existing_copy_inputs = {}
@@ -211,7 +213,7 @@ def _reject_new_inline_copy_keys(
         value = copy_inputs.get(field_name)
         if (
             isinstance(value, dict)
-            and credential_keys <= value.keys()
+            and _AWS_CREDENTIAL_KEYS <= value.keys()
             and (instance is None or value != existing_copy_inputs.get(field_name))
         ):
             allowed_source = "an AWS S3 integration"
@@ -235,8 +237,6 @@ def _check_redshift_copy_inputs(
     required_inputs = {"s3_bucket", "region_name", "authorization", "bucket_credentials"}
     if required_inputs - copy_inputs.keys():
         raise contracts.InvalidBatchExportDestinationError("Missing required input for 'COPY'")
-
-    credential_keys = {"aws_access_key_id", "aws_secret_access_key"}
 
     bucket_credentials = copy_inputs["bucket_credentials"]
     bucket_integration_id = _coerce_integration_id(bucket_credentials)
@@ -270,13 +270,13 @@ def _check_redshift_copy_inputs(
             )
 
     if bucket_integration_id is None and (
-        not isinstance(bucket_credentials, dict) or credential_keys - bucket_credentials.keys()
+        not isinstance(bucket_credentials, dict) or _AWS_CREDENTIAL_KEYS - bucket_credentials.keys()
     ):
         raise contracts.InvalidBatchExportDestinationError("Missing required bucket credentials for 'COPY'")
 
     if authorization_integration_id is None:
         if isinstance(authorization, dict):
-            if credential_keys - authorization.keys():
+            if _AWS_CREDENTIAL_KEYS - authorization.keys():
                 raise contracts.InvalidBatchExportDestinationError("Missing required credentials for 'COPY'")
         elif isinstance(authorization, str):
             if not authorization.strip():
