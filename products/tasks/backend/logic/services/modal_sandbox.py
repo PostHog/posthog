@@ -599,7 +599,7 @@ def _attach_local_package_mounts(
 
 
 def _build_slim_template_image() -> modal.Image:
-    """Inline image for SLIM_BASE: git + ca-certificates + node + uv, nothing else.
+    """Inline image for SLIM_BASE: git + ca-certificates + node + uv + the CPU billing sampler, nothing else.
 
     Built and cached by Modal itself from debian_slim — no registry image, no CD publish
     pipeline, no digest pin to resolve. The first sandbox create after this definition
@@ -623,6 +623,14 @@ def _build_slim_template_image() -> modal.Image:
         .dockerfile_commands(
             [f"COPY --from={SANDBOX_SLIM_UV_IMAGE} /uv /uvx /usr/local/bin/"],
         )
+        # start_cpu_billing_sampler runs this script for every provider. Without it in the image,
+        # no billing state file exists and read_billed_cpu_usage_usec fails for each slim sandbox.
+        .add_local_file(
+            str(Path(settings.BASE_DIR) / "products/tasks/backend/sandbox/images/cpu_billing_sampler.py"),
+            CPU_BILLING_SAMPLER_PATH,
+            copy=True,
+        )
+        .run_commands(f"chmod +x {CPU_BILLING_SAMPLER_PATH}")
     )
 
 

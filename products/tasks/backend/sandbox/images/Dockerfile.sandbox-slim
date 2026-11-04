@@ -1,6 +1,6 @@
 # Minimal sandbox image for review/exec workloads that don't run the agent server —
 # e.g. stamphog's PR review sandbox. Ships only git, ca-certificates, python3 (DockerSandbox.write_file
-# shells out to it), node (Claude Code CLI runtime), and uv/uvx. No @posthog/agent, no gh CLI, no
+# shells out to it), node (Claude Code CLI runtime), uv/uvx, and the CPU billing sampler. No @posthog/agent, no gh CLI, no
 # ruff/ty, no skills.
 #
 # Anything that needs the agent server (task execution, skills, MCP) must use
@@ -32,6 +32,11 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - && \
 
 # uv comes from its pinned, registry-verified official image, same as Dockerfile.sandbox-base.
 COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /usr/local/bin/
+
+# start_cpu_billing_sampler runs this script for every template, so billed CPU usage
+# stays empty unless the image ships it. Keep in sync with modal_sandbox.py's SLIM_BASE image.
+COPY products/tasks/backend/sandbox/images/cpu_billing_sampler.py /usr/local/bin/posthog-cpu-billing-sampler
+RUN chmod +x /usr/local/bin/posthog-cpu-billing-sampler
 
 WORKDIR /tmp/workspace
 
