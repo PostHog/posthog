@@ -19,8 +19,7 @@ import { llmEvaluationLogic } from '../llmEvaluationLogic'
 
 /** The evaluation page's menu bar. The caller renders it only behind the scene menu bar flag. */
 export function EvaluationSceneMenuBar({ playgroundUrl }: { playgroundUrl: string | null }): JSX.Element | null {
-    const { originalEvaluation, enabledSaving, canEnable, canEnableReason, trendInsightUrl } =
-        useValues(llmEvaluationLogic)
+    const { originalEvaluation, enabledSaving, enableSavedReason, trendInsightUrl } = useValues(llmEvaluationLogic)
     const { saveEnabled, setActiveTab } = useActions(llmEvaluationLogic)
     const { hasFileItems } = useValues(sceneFileLogic)
 
@@ -49,7 +48,7 @@ export function EvaluationSceneMenuBar({ playgroundUrl }: { playgroundUrl: strin
                     userAccessLevel={originalEvaluation.user_access_level ?? undefined}
                 >
                     {({ disabledReason }) => {
-                        const reason = disabledReason ?? (!running && !canEnable ? canEnableReason : null)
+                        const reason = disabledReason ?? (running ? null : enableSavedReason)
                         return (
                             <SceneMenuBarItem
                                 onClick={() => saveEnabled(!running)}

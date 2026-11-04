@@ -216,6 +216,49 @@ function toSentimentEvaluation(evaluation: EvaluationConfig): SentimentEvaluatio
     }
 }
 
+/** Starts the past-traffic backfill a new evaluation asked for, or offers it. Returns the URL params to open the evaluation with. */
+async function coverPastTraffic(
+    teamId: number,
+    evaluation: EvaluationConfig | undefined,
+    requested: boolean,
+    isNew: boolean
+): Promise<Record<string, string>> {
+    if (!isNew || !evaluation?.id) {
+        return {}
+    }
+    // The backfill API refuses a paused evaluation, so past traffic is checked only when it runs.
+    if (!evaluation.enabled || !requested) {
+        // Saving navigates away, so the offer to cover past data travels with the user.
+        lemonToast.info('This evaluation grades new data from now on.', {
+            button: {
+                label: 'Evaluate past data',
+                action: () =>
+                    router.actions.push(
+                        combineUrl(urls.aiObservabilityEvaluation(evaluation.id), { evaluation_tab: 'backfills' }).url
+                    ),
+            },
+        })
+        return {}
+    }
+    try {
+        await evaluationsBackfillsCreate(teamId.toString(), evaluation.id, {
+            window_start: dayjs().subtract(VOLUME_LOOKBACK_DAYS, 'day').toISOString(),
+            window_end: dayjs().toISOString(),
+        })
+        lemonToast.success(
+            `Checking the last ${VOLUME_LOOKBACK_DAYS} days of traffic. Follow it in the Backfills tab.`,
+            {
+                autoClose: 15000,
+            }
+        )
+    } catch {
+        lemonToast.error(
+            'The evaluation was created, but checking past traffic didn’t start. Try again from the Backfills tab.'
+        )
+    }
+    return { evaluation_tab: 'backfills' }
+}
+
 function filterEvaluationRuns(
     runs: EvaluationRun[],
     filter: EvaluationRunsFilter,
@@ -335,6 +378,7 @@ export interface llmEvaluationLogicValues {
     canEnable: boolean
     canEnableReason: string | null
     checkPastTraffic: boolean
+    enableSavedReason: string | null
     enabledSaving: boolean
     evaluation: EvaluationConfig | null
     evaluationBackTarget: EvaluationBackTarget
@@ -655,6 +699,10 @@ export interface llmEvaluationLogicMeta {
             evaluation: EvaluationConfig | null,
             activeProviderKey: LLMProviderKey | null | undefined
         ) => boolean
+        enableSavedReason: (
+            originalEvaluation: EvaluationConfig | null,
+            activeProviderKey: LLMProviderKey | null | undefined
+        ) => string | null
         canEnableReason: (canEnable: boolean) => string | null
         evaluationProviderKeyIssue: (
             evaluation: EvaluationConfig | null,
@@ -1602,45 +1650,15 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                           props.evaluationId,
                           evaluationData as Parameters<typeof evaluationsPartialUpdate>[2]
                       )) as unknown as EvaluationConfig
+                // Before the success action, so the create button stays locked until the page navigates away.
+                const openParams = await coverPastTraffic(teamId, response, isNew && values.checkPastTraffic, isNew)
                 actions.saveEvaluationSuccess(response)
-                let opensBackfills = false
                 // The list and the self-driving table read from llmEvaluationsLogic, which only
                 // fetches on mount. Refresh it here so they show the eval we just saved.
                 llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
                 markEvaluationsOverviewStale()
                 if (isNew) {
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpLlmEvaluation)
-                    // The backfill API refuses a paused evaluation, so past traffic is checked only when it runs.
-                    if (response?.id && response.enabled && values.checkPastTraffic) {
-                        opensBackfills = true
-                        try {
-                            await evaluationsBackfillsCreate(teamId.toString(), response.id, {
-                                window_start: dayjs().subtract(VOLUME_LOOKBACK_DAYS, 'day').toISOString(),
-                                window_end: dayjs().toISOString(),
-                            })
-                            lemonToast.success(
-                                `Checking the last ${VOLUME_LOOKBACK_DAYS} days of traffic. Follow it in the Backfills tab.`,
-                                { autoClose: 15000 }
-                            )
-                        } catch {
-                            lemonToast.error(
-                                'The evaluation was created, but checking past traffic didn’t start. Try again from the Backfills tab.'
-                            )
-                        }
-                    } else if (response?.id) {
-                        // Saving navigates away, so the offer to cover past data travels with the user.
-                        lemonToast.info('This evaluation grades new data from now on.', {
-                            button: {
-                                label: 'Evaluate past data',
-                                action: () =>
-                                    router.actions.push(
-                                        combineUrl(urls.aiObservabilityEvaluation(response.id), {
-                                            evaluation_tab: 'backfills',
-                                        }).url
-                                    ),
-                            },
-                        })
-                    }
                 }
 
                 // Piggyback the scheduled-report draft onto the main save so the single
@@ -1675,10 +1693,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 const opensEvaluation = isNew && !!response?.id
                 router.actions.push(
                     opensEvaluation
-                        ? combineUrl(
-                              urls.aiObservabilityEvaluation(response.id),
-                              opensBackfills ? { evaluation_tab: 'backfills' } : {}
-                          ).url
+                        ? combineUrl(urls.aiObservabilityEvaluation(response.id), openParams).url
                         : getEvaluationBackTarget(false, router.values.searchParams).path
                 )
             } catch (error) {
@@ -1992,6 +2007,18 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
                 return evaluationCanResolveModel(evaluation, activeProviderKey)
             },
+        ],
+
+        // Pause and Turn on change only the saved evaluation, so they check it rather than an unsaved draft.
+        enableSavedReason: [
+            (s) => [s.originalEvaluation, s.activeProviderKey],
+            (
+                originalEvaluation: EvaluationConfig | null,
+                activeProviderKey: LLMProviderKey | null | undefined
+            ): string | null =>
+                !originalEvaluation || evaluationCanResolveModel(originalEvaluation, activeProviderKey)
+                    ? null
+                    : 'Add a provider API key to enable this evaluation.',
         ],
 
         canEnableReason: [

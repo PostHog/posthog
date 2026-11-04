@@ -52,6 +52,25 @@ function SentimentEvaluationRunsFilters(): JSX.Element {
     )
 }
 
+function TrendInsightButton(): JSX.Element | null {
+    const { trendInsightUrl } = useValues(llmEvaluationLogic)
+    if (!trendInsightUrl) {
+        return null
+    }
+    return (
+        <LemonButton
+            type="secondary"
+            icon={<IconTrends />}
+            to={trendInsightUrl}
+            targetBlank
+            size="small"
+            data-attr="llma-evaluation-trend-insight"
+        >
+            Trend insight
+        </LemonButton>
+    )
+}
+
 export function EvaluationRunsTable(): JSX.Element {
     const {
         filteredEvaluationRuns,
@@ -64,7 +83,6 @@ export function EvaluationRunsTable(): JSX.Element {
         evaluationRunsHasMore,
         evaluationRunsFilter,
         runsSummary,
-        trendInsightUrl,
     } = useValues(llmEvaluationLogic)
     const { refreshEvaluationRuns, setRunsDates, loadOlderEvaluationRuns } = useActions(llmEvaluationLogic)
     const drawerTableProps = useTraceDrawerTable(TRACE_DRAWER_LIST_ID, TRACE_LINK, toTraceDrawerRow)
@@ -208,18 +226,7 @@ export function EvaluationRunsTable(): JSX.Element {
                                 )}
                             </>
                         )}
-                        {trendInsightUrl && (
-                            <LemonButton
-                                type="secondary"
-                                icon={<IconTrends />}
-                                to={trendInsightUrl}
-                                targetBlank
-                                size="small"
-                                data-attr="llma-evaluation-trend-insight"
-                            >
-                                Trend insight
-                            </LemonButton>
-                        )}
+                        <TrendInsightButton />
                         <LemonButton
                             type="secondary"
                             icon={<IconRefresh />}

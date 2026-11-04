@@ -2305,10 +2305,12 @@ return result`,
                 const pushSpy = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
                 const infoSpy = jest.spyOn(lemonToast, 'info')
                 const backfillPayloads: { window_start: string; window_end: string }[] = []
+                let submittingDuringBackfill: boolean | null = null
                 useMocks({
                     post: {
                         '/api/projects/:teamId/evaluations/': () => ({ ...mockSentimentEvaluation, enabled }),
                         '/api/projects/:teamId/evaluations/:id/backfills/': async ({ request }) => {
+                            submittingDuringBackfill = logic.values.evaluationFormSubmitting
                             backfillPayloads.push(
                                 (await request.json()) as { window_start: string; window_end: string }
                             )
@@ -2328,6 +2330,7 @@ return result`,
                     await expectLogic(logic).toFinishAllListeners()
 
                     expect(backfillPayloads).toHaveLength(expectedBackfills)
+                    expect(submittingDuringBackfill).toBe(expectedBackfills ? true : null)
                     if (expectedBackfills) {
                         const [{ window_start, window_end }] = backfillPayloads
                         expect(dayjs(window_end).diff(dayjs(window_start), 'day')).toBe(VOLUME_LOOKBACK_DAYS)
@@ -2443,6 +2446,26 @@ return result`,
     })
 
     describe('saveEnabled', () => {
+        it('lets a saved code evaluation turn on while its unsaved draft is a judge without a key', async () => {
+            const evaluation: EvaluationConfig = {
+                ...mockEvaluation,
+                enabled: false,
+                evaluation_type: 'hog',
+                evaluation_config: { source: 'return true;' },
+                model_configuration: null,
+            } as EvaluationConfig
+            useMocks({ get: { '/api/projects/:teamId/evaluations/:id/': evaluation } })
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+            await expectLogic(keysLogic).toFinishAllListeners()
+
+            logic.actions.setEvaluationType('llm_judge')
+
+            expect(logic.values.canEnable).toBe(false)
+            expect(logic.values.enableSavedReason).toBeNull()
+        })
+
         it('saves only the run state and keeps unsaved configuration edits', async () => {
             const evaluation: EvaluationConfig = { ...mockEvaluation, enabled: false }
             let savedPayload: unknown

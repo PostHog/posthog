@@ -3,7 +3,10 @@ import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { settleStrategy } from '../constants'
 import { VOLUME_LOOKBACK_DAYS, evaluationTarget, runRate } from '../evaluationVolume'
@@ -47,8 +50,13 @@ export function EvaluationFirstResultStatus(): JSX.Element | null {
 }
 
 function PausedBanner({ evaluation }: { evaluation: EvaluationConfig }): JSX.Element {
-    const { enabledSaving, canEnable, canEnableReason } = useValues(llmEvaluationLogic)
+    const { enabledSaving, enableSavedReason } = useValues(llmEvaluationLogic)
     const { saveEnabled } = useActions(llmEvaluationLogic)
+    const accessReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Evaluation,
+        AccessControlLevel.Editor,
+        evaluation.user_access_level ?? undefined
+    )
     return (
         <LemonBanner
             type="info"
@@ -57,7 +65,7 @@ function PausedBanner({ evaluation }: { evaluation: EvaluationConfig }): JSX.Ele
                 children: 'Turn on',
                 onClick: () => saveEnabled(true),
                 loading: enabledSaving,
-                disabledReason: canEnable ? undefined : (canEnableReason ?? undefined),
+                disabledReason: accessReason ?? enableSavedReason ?? undefined,
                 'data-attr': 'llma-evaluation-first-result-turn-on',
             }}
         >
