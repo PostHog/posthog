@@ -1,0 +1,36 @@
+rules:
+    - id: no-new-custom-admin-views
+      message: |
+          New staff workflows go in the PostHog Admin console, not in custom Django admin views,
+          URLs or template overrides. The console sits under /admin/console/, so the same staff
+          check and OAuth step-up apply, and its pages do not break when Django changes admin
+          internals. Add a Panel in products/<product>/backend/console.py; see
+          posthog/admin/console/AGENTS.md. Django admin stays for plain CRUD: list_display,
+          search_fields, readonly_fields, inlines and simple actions are fine.
+          Pre-existing findings are grandfathered; only newly introduced findings block CI.
+      languages: [python]
+      severity: WARNING
+      pattern-either:
+          - pattern: |
+                def get_urls(self, ...):
+                    ...
+          - patterns:
+                - pattern: $TEMPLATE = $VALUE
+                - metavariable-regex:
+                      metavariable: $TEMPLATE
+                      regex: ^(change_form_template|change_list_template|add_form_template|delete_confirmation_template|delete_selected_confirmation_template|object_history_template|popup_response_template)$
+          - pattern: $SITE.admin_view(...)
+      paths:
+          include:
+              - '**/admin.py'
+              - '**/admin/**/*.py'
+              - ee/urls.py
+          exclude:
+              - posthog/admin/console/**
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+      metadata:
+          category: maintainability
+          subcategory: audit
+          confidence: HIGH

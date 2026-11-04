@@ -2,6 +2,7 @@
 
 The staff back office at `/admin/console/`.
 It replaces custom Django admin views and templates for staff workflows.
+The `no-new-custom-admin-views` semgrep rule blocks new ones, and the program ends when its findings reach zero.
 The Django admin stays for plain CRUD on models.
 
 ## Invariants
