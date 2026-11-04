@@ -30,6 +30,7 @@ import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
 import { InboxMcpBanner } from '../InboxMcpBanner'
 import { InboxActivationPanel } from '../onboarding/InboxActivationPanel'
 import { InboxBulkSelectionBar } from '../shell/InboxBulkSelectionBar'
+import { InboxFiltersPanel } from '../shell/InboxFiltersPanel'
 import { InboxReportFilters } from '../shell/InboxReportFilters'
 import { InboxScopeFilter } from '../shell/InboxScopeFilter'
 import { InboxSortSelect } from '../shell/InboxSortSelect'
@@ -358,7 +359,14 @@ export function ReportsTab(): JSX.Element {
                 line it falls outside the clipped edge instead of leading the line. The sort group
                 grows so scope always ends the row. */}
             <div className="@container -mx-1 overflow-x-clip px-1">
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-2 @2xl:hidden">
+                    <InboxFiltersPanel />
+                    <InboxSortSelect />
+                    <div className="ml-auto min-w-0">
+                        <InboxScopeFilter />
+                    </div>
+                </div>
+                <div className="hidden flex-wrap items-center gap-2 @2xl:flex">
                     <InboxReportFilters />
                     <div className="relative flex flex-1 items-center gap-2">
                         <LemonDivider vertical className="absolute inset-y-1 -left-[5px] m-0" />

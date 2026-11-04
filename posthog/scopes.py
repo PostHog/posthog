@@ -98,6 +98,7 @@ APIScopeObject = Literal[
     "mcp_builtin_agent",
     "mcp_analytics",
     "mcp_registry",
+    "messaging_preference",
     "metrics",
     "notebook",
     "offline_evaluation_ingestion",
@@ -137,6 +138,7 @@ APIScopeObject = Literal[
     "today",
     "toolbar",
     "tracing",
+    "transactional_email",
     "field_note",
     "uploaded_media",
     "usage_metric",
@@ -152,6 +154,7 @@ APIScopeObject = Literal[
     "webhook",
     "wizard_session",
     "wizard_run",
+    "workload_trust_policy",
 ]
 
 
@@ -237,6 +240,8 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # `is_staff`. Distinct from the public `batch_import` object on purpose: that one is
         # OAuth-advertised, and a customer-grantable scope must never name a staff surface.
         "batch_import_support",
+        # Its only route accepts project secret API keys alone, so only that key picker offers it.
+        "messaging_preference",
     }
 )
 
@@ -281,6 +286,9 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Every other hog_flow route stays PSAK-denied, because no other hog_flow viewset lists PSAK actions.
     ("hog_flow", "read"),
     ("hog_flow", "write"),
+    ("messaging_preference", "write"),
+    ("transactional_email", "read"),
+    ("transactional_email", "write"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
@@ -321,6 +329,26 @@ OAUTH_SCOPES_HIDDEN: frozenset[str] = (
 # they live in `OIDC_SCOPES` below and are accepted at `/authorize`
 # independently of `application.scopes`.
 UNPRIVILEGED_SCOPES: frozenset[str] = ALL_SCOPES - PRIVILEGED_SCOPES - OAUTH_SCOPES_HIDDEN
+
+# What a risky scope lets a token do, shown wherever a person grants scopes to a token so they add it with care.
+RISKY_SCOPE_WARNINGS: dict[str, str] = {
+    "access_control:write": "Changes who can access resources in this project.",
+    "approvals:write": "Approves or rejects change requests that gate other changes.",
+    "autoresearch:write": "Starts agent runs that get their own longer-lived token.",
+    "billing:read": "Reads the whole organization's billing details, not just this project's.",
+    "billing:write": "Changes the organization's subscription and payment details.",
+    "hog_flow:write": "Runs workflow code that can use the stored credentials of the project's integrations.",
+    "hog_function:write": "Runs code, including on your website, that can use the stored credentials of the project's integrations.",
+    "integration:write": "Connects and changes third-party integrations and their stored credentials.",
+    "llm_provider_key:write": "Stores and changes LLM provider API keys.",
+    "organization:write": "Changes organization settings, including roles and OAuth apps.",
+    "organization_integration:write": "Connects and changes organization-wide integrations and their stored credentials.",
+    "organization_member:write": "Invites and removes organization members and changes their roles, so it can give people access beyond this token's scopes.",
+    "sharing_configuration:read": "Reads the access tokens of public sharing links, which keep working after this token expires.",
+    "sharing_configuration:write": "Creates public sharing links that anyone with the link can open.",
+    "user:read": "Reads the account details of the user the token acts as, including every organization and project they belong to.",
+    "user:write": "Changes the account of the user the token acts as.",
+}
 
 
 def get_scope_descriptions() -> dict[str, str]:
@@ -488,7 +516,13 @@ def scopes_not_covered(held_scopes: Iterable[str], required_scopes: Iterable[str
 # APIScopePermission applies this and records each use, so the entry can go when no caller needs it.
 # Project secret API key issuance does not apply it: a key must not get a scope on the strength of a
 # legacy one. `hogli build:projections` copies this map to the MCP server, which applies it in `hasScope`.
-LEGACY_SCOPE_FALLBACKS: dict[str, str] = {"inbox": "task"}
+LEGACY_SCOPE_FALLBACKS: dict[str, str] = {
+    "inbox": "task",
+    # Permanent: `hog_flow:write` stays a supported way to set recipient preferences. Keep it on low use.
+    "messaging_preference": "hog_flow",
+    # Permanent: `hog_flow` stays a supported way to send transactional email and read a send's status.
+    "transactional_email": "hog_flow",
+}
 
 
 def scopes_covered_by_legacy_fallback(held_scopes: Iterable[str], missing_scopes: Iterable[str]) -> dict[str, str]:
@@ -653,6 +687,25 @@ def is_truncated_scope_request(requested: Sequence[str]) -> bool:
         return False
 
     return any(scope.startswith(tail) for scope in known)
+
+
+def resolve_requested_scopes(
+    requested: Sequence[str],
+    app_scopes: Iterable[str],
+    *,
+    allow_wildcard_under_empty_ceiling: bool = False,
+) -> list[str]:
+    """The scopes an OAuth request gets: no scope, or a list cut off mid-token, resolves to the
+    whole ceiling, and anything else is clamped to it.
+
+    `/oauth/authorize` and `/oauth/device-authorization` both resolve scopes here, so a client
+    gets the same scopes from either.
+    """
+    if not requested or is_truncated_scope_request(requested):
+        return sorted(effective_ceiling(app_scopes) | ALWAYS_ALLOWED_SCOPES)
+    return clamp_scopes_to_ceiling(
+        set(requested), app_scopes, allow_wildcard_under_empty_ceiling=allow_wildcard_under_empty_ceiling
+    )
 
 
 def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str]) -> list[str] | None:
