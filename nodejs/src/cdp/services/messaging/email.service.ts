@@ -1301,15 +1301,14 @@ export class EmailService {
         }
     }
 
-    // The tracked and untracked configuration sets share the same delivery/bounce/complaint event
-    // destination (suppression and the Metrics tab depend on those events); they differ only in
-    // ESP-level open/click tracking.
     private teamSesRoute(
         invocation: CyclotronJobInvocationHogFunction,
         trackingEnabled: boolean,
         params: CyclotronInvocationQueueParametersEmailType
     ): SesRoute {
         return {
+            // `team-<id>` is the provisioning convention (products/workflows/backend/providers/ses.py and
+            // posthog/management/commands/migrate_ses_tenants.py).
             tenantName: `team-${invocation.teamId}`,
             configurationSetName: this.resolveConfigurationSetName(trackingEnabled, invocation),
             unsubscribeHeaders: true,
@@ -1331,6 +1330,9 @@ export class EmailService {
         }
     }
 
+    // The tracked and untracked configuration sets share the same delivery/bounce/complaint event
+    // destination (suppression and the Metrics tab depend on those events); they differ only in
+    // ESP-level open/click tracking.
     private resolveConfigurationSetName(
         trackingEnabled: boolean,
         invocation: CyclotronJobInvocationHogFunction
@@ -1550,11 +1552,9 @@ export class EmailService {
             FeedbackForwardingEmailAddress: from.email,
         }
 
-        // Attributes the send to the team's SES tenant so AWS tracks reputation per team and
-        // its reputation policy can pause one tenant instead of the shared account. `team-<id>`
-        // is the provisioning convention (products/workflows/backend/providers/ses.py and
-        // posthog/management/commands/migrate_ses_tenants.py). Deliberately NOT gated on
-        // isTest: test-panel sends are real over-the-wire SES sends, so leaving them
+        // Attributes the send to the route's SES tenant so AWS tracks reputation per tenant and
+        // its reputation policy can pause one tenant instead of the shared account. Deliberately
+        // NOT gated on isTest: test-panel sends are real over-the-wire SES sends, so leaving them
         // unattributed would (a) push their bounces onto the shared account's reputation and
         // (b) let a paused tenant keep sending via "Run test". The isTest skips elsewhere in
         // this class only shield our internal metrics, a separate concern from SES-side
