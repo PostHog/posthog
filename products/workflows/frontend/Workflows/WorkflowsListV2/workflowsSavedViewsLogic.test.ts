@@ -322,8 +322,11 @@ describe('workflowsSavedViewsLogic', () => {
         expect(logic.values.viewCounts).toEqual({})
     })
 
-    it('opens a shared view from a view-only link after its saved state loads', async () => {
-        router.actions.push(urls.workflows(), { view: VIEW_ID })
+    it.each([
+        ['the list URL', urls.workflows()],
+        ['the workflows tab URL', urls.workflows('workflows')],
+    ])('opens a shared view from a view-only link on %s, then follows a link to another view', async (_, path) => {
+        router.actions.push(path, { view: VIEW_ID })
         logic = workflowsSavedViewsLogic()
         logic.mount()
 
@@ -333,6 +336,9 @@ describe('workflowsSavedViewsLogic', () => {
         expect(workflowsListV2Logic.values.shownColumns).toEqual(['health'])
         expect(logic.values.isModified).toBe(false)
         expect(requests).toHaveLength(1)
+
+        router.actions.push(path, { view: 'drafts' })
+        expect(logic.values.activeViewId).toEqual('drafts')
     })
 
     it.each([
@@ -530,6 +536,46 @@ describe('workflowsSavedViewsLogic', () => {
         expect(logic.values.activeView.version).toEqual(3)
         expect(logic.values.sharedSaveDisabledReason).toBeUndefined()
         expect(logic.values.isModified).toBe(false)
+    })
+
+    it('keeps edits made while reset loads the latest version of a conflicted view', async () => {
+        const latest = { ...savedView, state: { filters: [], text: 'remote', columns: ['trigger'] }, version: 2 }
+        let release: (() => void) | undefined
+        let started: (() => void) | undefined
+        const requestStarted = new Promise<void>((resolve) => {
+            started = resolve
+        })
+        useMocks({
+            patch: { '/api/projects/:team_id/workflow_views/:id/': () => [409, { detail: 'View changed' }] },
+            get: {
+                '/api/projects/:team_id/workflow_views/:id/': async () => {
+                    await new Promise<void>((resolve) => {
+                        release = resolve
+                        started!()
+                    })
+                    return [200, latest]
+                },
+            },
+        })
+        router.actions.push(urls.workflows(), { view: VIEW_ID })
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        workflowsListV2Logic.actions.setValue({ filters: [], text: 'mine' })
+        await logic.asyncActions.updateActiveView()
+        expect(logic.values.activeViewConflicted).toBe(true)
+
+        const reset = logic.asyncActions.resetView()
+        await requestStarted
+        workflowsListV2Logic.actions.setValue({ filters: [eventTrigger], text: 'typed while loading' })
+        release!()
+        await reset
+
+        expect(workflowsListV2Logic.values.value).toEqual({ filters: [eventTrigger], text: 'typed while loading' })
+        expect(logic.values.activeView.version).toEqual(2)
+        expect(logic.values.activeViewConflicted).toBe(false)
+        expect(logic.values.sharedSaveDisabledReason).toBeUndefined()
+        expect(logic.values.isModified).toBe(true)
     })
 
     it('allows reset to read the latest shared view after the viewer loses write permission', async () => {
@@ -987,10 +1033,14 @@ describe('workflowsSavedViewsLogic', () => {
         logic = workflowsSavedViewsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        const successToast = jest.spyOn(lemonToast, 'success')
+        const dismissToast = jest.spyOn(lemonToast, 'dismiss')
         await logic.asyncActions.deleteView(myWorkflows.id)
         expect(logic.values.myWorkflowsDeleted).toBe(true)
         expect(logic.values.views.some((view) => view.id === myWorkflows.id)).toBe(false)
+        const undoToastId = successToast.mock.results.at(-1)?.value
         logic.unmount()
+        expect(dismissToast).toHaveBeenCalledWith(undoToastId)
         logic = workflowsSavedViewsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])

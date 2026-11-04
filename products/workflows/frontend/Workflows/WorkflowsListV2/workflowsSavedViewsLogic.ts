@@ -19,6 +19,7 @@ import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -688,6 +689,8 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 }
                 if (values.activeViewConflicted) {
                     const currentViewId = values.activeViewId
+                    const startValue = values.value
+                    const startColumns = values.shownColumns
                     await runMutation(
                         'reset',
                         async (stillCurrent) => {
@@ -701,7 +704,10 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                                 }
                                 actions.upsertSavedView(latest)
                                 actions.setConflictedViewId(null)
-                                if (values.activeViewId === currentViewId) {
+                                // Edits made while the latest version loaded stay, and show as changes to it.
+                                const editedWhileLoading =
+                                    values.value !== startValue || values.shownColumns !== startColumns
+                                if (values.activeViewId === currentViewId && !editedWhileLoading) {
                                     clearAddedFiltersUnless(keepAddedFilters)
                                     actions.applyView(latest)
                                 }
@@ -864,7 +870,9 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                         }
                         if (current.default_key === 'my-workflows') {
                             actions.setDefaultView({ ...values.defaultView!, deleted: true })
-                            lemonToast.success('Deleted My workflows for everyone', {
+                            // A unique id, because dismissing an id also hides the next toast that reuses it.
+                            cache.undoToastId = lemonToast.success('Deleted My workflows for everyone', {
+                                toastId: `workflows-undo-delete-${uuid()}`,
                                 button: { label: 'Undo', action: () => actions.restoreMyWorkflows() },
                             })
                         }
@@ -884,12 +892,19 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 }),
         }
     }),
-    urlToAction(({ actions }) => ({ [urls.workflows()]: () => actions.syncViewFromUrl() })),
+    urlToAction(({ actions }) => ({
+        [urls.workflows()]: () => actions.syncViewFromUrl(),
+        [urls.workflows('workflows')]: () => actions.syncViewFromUrl(),
+    })),
     afterMount(({ actions, values, cache }) => {
         cache.loadedTeamId = values.currentTeamId
         actions.loadSavedViews()
     }),
     beforeUnmount(({ cache }) => {
         cache.contextGeneration = (cache.contextGeneration ?? 0) + 1
+        // Undo restores through this logic, so the toast can't outlive the list.
+        if (cache.undoToastId) {
+            lemonToast.dismiss(cache.undoToastId)
+        }
     }),
 ])
