@@ -13,11 +13,12 @@ import { PathChip } from './PathChip'
 import { PathFrame } from './PathFrame'
 import { PathTrail } from './PathTrail'
 import { PlacementHint } from './PlacementHint'
+import { QUICK_ADD_ATTR } from './QuickAddButton'
 import { TileCanvasControls } from './TileCanvasControls'
 import { TileCanvasLayoutError } from './TileCanvasLayoutError'
 import { tileCanvasLogic } from './tileCanvasLogic'
 import { TileCanvasMeasureLayer } from './TileCanvasMeasureLayer'
-import { CANVAS_MIN_ZOOM, hasStepMenu } from './tileCanvasModel'
+import { CANVAS_MIN_ZOOM, hasStepMenu, STEP_DRAG_DATA_TYPE } from './tileCanvasModel'
 import {
     buildCanvasEdges,
     buildCanvasNodes,
@@ -34,8 +35,6 @@ import { useCanvasViewport } from './useCanvasViewport'
 const NODE_TYPES = { tile: TileFlowNode, frame: PathFrame, chip: PathChip } as NodeTypes
 const EDGE_TYPES = { tile: TileEdge } as EdgeTypes
 const MAX_ZOOM = 1.5
-/** How far from a + a dragged step still drops on it, in screen pixels. */
-const DROP_REACH = 120
 
 type TileKeyCommand = 'activate' | 'menu'
 
@@ -77,7 +76,7 @@ export function TileCanvasContent(): JSX.Element {
         dropTargetEdgeKey,
     } = useValues(tileCanvasLogic)
     const { activateNode, openStepMenu, handlePaneClick, setDropTargetEdgeKey, dropAt } = useActions(tileCanvasLogic)
-    const { screenToFlowPosition, getZoom } = useReactFlow()
+    const { screenToFlowPosition } = useReactFlow()
     useCanvasViewport(wrapperRef)
 
     const previousNodes = useRef<TileCanvasNode[]>([])
@@ -115,25 +114,28 @@ export function TileCanvasContent(): JSX.Element {
     const hasMenu = (nodeId: string): boolean =>
         drawnGraph.nodes.some((node) => node.id === nodeId && node.kind === 'step' && hasStepMenu(node.action))
 
+    const isStepDrag = (event: DragEvent<HTMLDivElement>): boolean =>
+        (!!nodeToBeAdded || isDraggingStep) && event.dataTransfer.types.includes(STEP_DRAG_DATA_TYPE)
+
     const dropEdgeAt = (event: DragEvent<HTMLDivElement>): HogFlowEdge | null =>
-        nearestInsertEdge(
-            edges,
-            screenToFlowPosition({ x: event.clientX, y: event.clientY }),
-            DROP_REACH / getZoom(),
-            placeableEdgeKeys
-        )
-    const isDragging = !!nodeToBeAdded || isDraggingStep
+        nearestInsertEdge(edges, screenToFlowPosition({ x: event.clientX, y: event.clientY }), placeableEdgeKeys)
+
+    const isOnPlus = (event: DragEvent<HTMLDivElement>): boolean =>
+        event.target instanceof Element && !!event.target.closest(`[data-attr="${QUICK_ADD_ATTR}"]`)
 
     const onDragOver = (event: DragEvent<HTMLDivElement>): void => {
-        if (!isDragging) {
+        if (!isStepDrag(event)) {
             return
         }
-        event.preventDefault()
-        event.dataTransfer.dropEffect = 'move'
         const edge = dropEdgeAt(event)
         const key = edge ? getEdgeId(edge) : null
         if (key !== dropTargetEdgeKey) {
             setDropTargetEdgeKey(key)
+        }
+        // Accepting the drag only when a + can take the step shows the no-drop cursor everywhere else.
+        if (edge) {
+            event.preventDefault()
+            event.dataTransfer.dropEffect = 'move'
         }
     }
 
@@ -144,14 +146,14 @@ export function TileCanvasContent(): JSX.Element {
     }
 
     const onDrop = (event: DragEvent<HTMLDivElement>): void => {
-        if (!isDragging) {
+        if (!isStepDrag(event)) {
             return
         }
-        event.preventDefault()
         const edge = dropEdgeAt(event)
         setDropTargetEdgeKey(null)
         if (edge) {
-            dropAt(edge)
+            event.preventDefault()
+            dropAt(edge, !isOnPlus(event))
         }
     }
 

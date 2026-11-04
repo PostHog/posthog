@@ -95,10 +95,15 @@ describe('tileCanvasNodes', () => {
         const bToC = getEdgeId({ from: 'b', to: 'c', type: 'continue' } as HogFlow['edges'][0])
 
         it.each([
-            ['the closest + when no set is given', null, 'b'],
-            ['a + from the set, so a hidden + never takes the drop', new Set([bToC]), 'c'],
-        ])('picks %s', (_, placeableEdgeKeys, expectedTo) => {
-            expect(nearestInsertEdge(edges, { x: 0, y: 50 }, 1000, placeableEdgeKeys)?.to).toBe(expectedTo)
+            ['the closest + when no set is given', { x: 0, y: 50 }, null, 'b'],
+            ['a + from the set, so a hidden + never takes the drop', { x: 0, y: 50 }, new Set([bToC]), 'c'],
+            ['the closest + for a drop far from every +', { x: 4000, y: 3000 }, null, 'c'],
+        ])('picks %s', (_, point, placeableEdgeKeys, expectedTo) => {
+            expect(nearestInsertEdge(edges, point, placeableEdgeKeys)?.to).toBe(expectedTo)
+        })
+
+        it('finds no + when none can take the step', () => {
+            expect(nearestInsertEdge(edges, { x: 0, y: 50 }, new Set())).toBeNull()
         })
     })
 })

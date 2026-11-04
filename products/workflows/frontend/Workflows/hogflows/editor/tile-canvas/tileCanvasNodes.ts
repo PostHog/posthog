@@ -191,11 +191,10 @@ export function edgeLabelText(edge: VisibleEdge, routed: RoutedEdge): string | u
     return edge.label && routed.label ? edge.label : undefined
 }
 
-/** The arrow whose + is closest to the point, if one is within reach and, when a set is given, in it. */
+/** The arrow whose + is closest to the point and, when a set is given, in it. */
 export function nearestInsertEdge(
     edges: TileEdgeType[],
     point: Point,
-    reach: number,
     placeableEdgeKeys: Set<string> | null = null
 ): HogFlowEdge | null {
     let best: { edge: HogFlowEdge; distance: number } | null = null
@@ -209,7 +208,7 @@ export function nearestInsertEdge(
         }
         const at = quickAddPoint(data.routed, edgeLabelText(data.edge, data.routed))
         const distance = Math.hypot(at.x - point.x, at.y - point.y)
-        if (distance <= reach && (!best || distance < best.distance)) {
+        if (!best || distance < best.distance) {
             best = { edge: data.edge.insertEdge, distance }
         }
     }
