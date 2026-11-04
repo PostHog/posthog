@@ -79,6 +79,11 @@ def _to_item(item: _WarehouseMigrationItem) -> contracts.WarehouseMigrationItem:
         status=item.status,
         external_data_source_id=item.external_data_source_id,
         error=item.error,
+        created_by=(
+            contracts.WarehouseMigrationCreator(first_name=item.created_by.first_name, email=item.created_by.email)
+            if item.created_by
+            else None
+        ),
     )
 
 
@@ -152,7 +157,7 @@ def list_migration_items(
     if not _migrations(team_id).filter(id=migration_id).exists():
         return None
     items = _WarehouseMigrationItem.objects.for_team(team_id).filter(migration_id=migration_id)
-    page = items.order_by("verdict", "name", "id")[offset : offset + limit]
+    page = items.select_related("created_by").order_by("verdict", "name", "id")[offset : offset + limit]
     return [_to_item(item) for item in page], items.count()
 
 
@@ -178,8 +183,33 @@ def skip_migration_item(team_id: int, migration_id: UUID, item_id: UUID) -> cont
 
 
 def find_migration_item(team_id: int, item_id: UUID) -> contracts.WarehouseMigrationItem | None:
-    item = _WarehouseMigrationItem.objects.for_team(team_id).filter(id=item_id).first()
+    item = _WarehouseMigrationItem.objects.for_team(team_id).select_related("created_by").filter(id=item_id).first()
     return _to_item(item) if item else None
+
+
+def prefill_mismatches(team_id: int, item_id: UUID, payload: Mapping[str, Any]) -> list[str] | None:
+    """The prefilled settings of the item that `payload` changes, as dotted paths. None when the item is not found.
+
+    The connect page shows these settings read-only, so a payload that changes one did not come from that page.
+    """
+    item = _WarehouseMigrationItem.objects.for_team(team_id).filter(id=item_id).first()
+    if item is None:
+        return None
+    prefill = (item.proposal or {}).get("prefill") or {}
+    return sorted(_changed_paths(prefill, payload, ()))
+
+
+def _changed_paths(prefill: Mapping[str, Any], payload: Any, parents: tuple[str, ...]) -> list[str]:
+    changed: list[str] = []
+    for key, expected in prefill.items():
+        path = (*parents, key)
+        actual = payload.get(key) if isinstance(payload, Mapping) else None
+        if isinstance(expected, Mapping):
+            changed.extend(_changed_paths(expected, actual, path))
+        # Forms send numbers and switches as strings or booleans, so compare the text.
+        elif actual is None or str(actual).strip() != str(expected).strip():
+            changed.append(".".join(path))
+    return changed
 
 
 def claim_migration_item(
@@ -377,6 +407,7 @@ __all__ = [
     "claim_migration_item",
     "fail_migration_item",
     "find_migration_item",
+    "prefill_mismatches",
     "finish_migration_item",
     "plan_migration_schemas",
     "PROVIDER_CHOICES",

@@ -55,6 +55,13 @@ class SourceCredentialCreateSerializer(serializers.Serializer):
             "(host, port, password, API key, …). Checked against a live connection before being stored."
         ),
     )
+    migration_item_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "The migration item whose prefilled settings the connect page showed. Every prefilled setting must "
+            "keep its value, or the request is rejected before PostHog connects anywhere."
+        ),
+    )
 
 
 class SourceCredentialSerializer(serializers.Serializer):
@@ -163,6 +170,25 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
         for key, value in payload.items():
             if isinstance(value, str):
                 payload[key] = value.strip()
+
+        migration_item_id = serializer.validated_data.get("migration_item_id")
+        if migration_item_id is not None:
+            # Checked before the live connection test, which sends the secret to the payload's host.
+            changed = migrations.prefill_mismatches(self.team_id, migration_item_id, payload)
+            if changed is None:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST, data={"message": "This migration item doesn't exist."}
+                )
+            if changed:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": (
+                            f"These settings must match the migration: {', '.join(changed)}. "
+                            "To use other settings, set up a new source instead."
+                        )
+                    },
+                )
 
         source_type_model = known_source_key(source_type)
         source = base.SourceRegistry.get_source(source_type_model)
