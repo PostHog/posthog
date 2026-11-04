@@ -4,7 +4,7 @@ A source registers an occurrence store that reads its own tables, or a feed that
 registry records. The platform evaluates every appearance alert itself.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, Final, Literal
 from uuid import UUID
 
@@ -14,13 +14,15 @@ from products.alerts_platform.backend.facade.contracts import (
     APPEARANCE_GROUPING,
     InvalidPlatformAlertEdit,
     NativeAlertLifecycle,
+    NewAlertDestination,
     OccurrenceFeed,
     OccurrenceStore,
     PlatformAlertConfigurationEdit,
+    PlatformAlertConfigurationView,
     SourceConfigSpec,
     SourceKind,
 )
-from products.alerts_platform.backend.logic import occurrences
+from products.alerts_platform.backend.logic import appearance_alerts, occurrences
 
 # An appearance check reads a window that the store has finished, so a shorter cadence only adds checks.
 APPEARANCE_CHECK_INTERVAL_MINUTES: Final = 1
@@ -124,3 +126,28 @@ def register_occurrence_store(source: SourceKind, store: OccurrenceStore) -> Non
 def register_occurrence_feed(source: SourceKind, feed: OccurrenceFeed) -> None:
     """A source without detection reports what it saw, and the platform's registry decides what is new."""
     occurrences.register_feed(source, feed)
+
+
+def create_appearance_alert(
+    *,
+    team_id: int,
+    source: SourceKind,
+    name: str,
+    filters: Sequence[dict[str, Any]],
+    destinations: Sequence[NewAlertDestination],
+    created_by_id: int | None = None,
+) -> PlatformAlertConfigurationView:
+    """Creates an appearance alert and its destinations in one transaction."""
+    return appearance_alerts.create_appearance_alert(
+        team_id=team_id,
+        source=source,
+        name=name,
+        filters=filters,
+        destinations=destinations,
+        created_by_id=created_by_id,
+    )
+
+
+def appearance_create_warning(team_id: int, source: SourceKind) -> str | None:
+    """Why a new appearance alert on this source may surprise the project, or None."""
+    return appearance_alerts.create_warning(team_id, source)
