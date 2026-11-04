@@ -288,12 +288,19 @@ async function fetchFileSystemResults(
     search: string,
     signal: AbortSignal,
     context: RemoteContext,
-    featureFlags: Record<string, unknown>
+    featureFlags: Record<string, unknown>,
+    merged: boolean
 ): Promise<SearchItem[]> {
     if (freeWords(search).length > 0) {
         return await fetchRankedResults(search, signal, context, featureFlags)
     }
-    const response = await api.fileSystem.list({ search, limit: RESULTS_LIMIT, notType: 'folder', signal })
+    const response = await api.fileSystem.list({
+        search,
+        limit: RESULTS_LIMIT,
+        notType: 'folder',
+        orderBy: merged ? '-created_at' : undefined,
+        signal,
+    })
     return response.results
         .filter((entry) => isFileSystemEntryTypeEnabled(entry, featureFlags))
         .map((entry) => fileSystemEntryToSearchItem(entry, { id: entry.id, category: 'results' }))
@@ -321,7 +328,7 @@ export const REMOTE_REQUESTS: RemoteRequest[] = [
             const featureFlags = featureFlagLogic.findMounted()?.values.featureFlags ?? {}
             const searches = fileSystemSearches(search)
             const batches = await Promise.all(
-                searches.map((each) => fetchFileSystemResults(each, signal, context, featureFlags))
+                searches.map((each) => fetchFileSystemResults(each, signal, context, featureFlags, searches.length > 1))
             )
             return {
                 results:

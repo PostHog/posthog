@@ -338,6 +338,14 @@ describe('settleRequest', () => {
             expect(searchesSent(jest.mocked(fileSystemSearchRetrieve), 1)).toEqual(rankedSearches)
         })
 
+        it('asks each type for its newest entries before merging them', async () => {
+            await settleRequest(objects, 'type:hog_function/destination', new AbortController().signal, context)
+            expect(jest.mocked(api.fileSystem.list).mock.calls.map(([params]) => params.orderBy)).toEqual([
+                '-created_at',
+                '-created_at',
+            ])
+        })
+
         it('merges the types newest first', async () => {
             const result = await settleRequest(
                 objects,
