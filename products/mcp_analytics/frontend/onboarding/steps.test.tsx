@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { act, cleanup, render } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -5,6 +7,9 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -36,7 +41,7 @@ describe('mcpAnalyticsOnboarding install step', () => {
         jest.restoreAllMocks()
     })
 
-    it('keeps setup mode on screen while onboarding completes after the first call', async () => {
+    async function renderInstallStepAndLandFirstCall(): Promise<{ overlayShown: () => boolean }> {
         jest.spyOn(api, 'query').mockResolvedValue({ results: [CONNECTED] } as any)
         jest.spyOn(api, 'get').mockResolvedValue({ recent_calls: [] } as any)
         // Hold the completion request open, so the redirect to the scene never happens during the test.
@@ -57,7 +62,22 @@ describe('mcpAnalyticsOnboarding install step', () => {
             mcpAnalyticsOnboardingLogic.actions.loadSignals()
             await expectLogic(mcpAnalyticsOnboardingLogic).toFinishAllListeners()
         })
+        return { overlayShown }
+    }
+
+    it('keeps setup mode on screen while onboarding completes after the first call', async () => {
+        const { overlayShown } = await renderInstallStepAndLandFirstCall()
 
         expect(overlayShown()).toBe(true)
+    })
+
+    it('sends the viewer to a destination chosen before onboarding started, not to the scene', async () => {
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        onboardingLogic.mount()
+        onboardingLogic.actions.setOnCompleteOnboardingRedirectUrl('/insights')
+
+        await renderInstallStepAndLandFirstCall()
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/insights')
     })
 })

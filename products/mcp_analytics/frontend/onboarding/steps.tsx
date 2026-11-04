@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
 
@@ -50,20 +50,31 @@ function MCPAnalyticsInstallStep(): JSX.Element {
 function MCPAnalyticsSetupDoorStep(): JSX.Element {
     const { onboardingState } = useValues(mcpAnalyticsOnboardingLogic)
     const { status } = useValues(productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }))
-    const { completeOnboarding } = useActions(onboardingLogic)
+    const { searchParams } = useValues(router)
+    const { onCompleteOnboardingRedirectUrlOverride } = useValues(onboardingLogic)
+    const { completeOnboarding, setOnCompleteOnboardingRedirectUrl } = useActions(onboardingLogic)
+    // A destination picked before onboarding started (a `next` link) wins over the scene.
+    const [chosenDestination] = useState(onCompleteOnboardingRedirectUrlOverride)
+    // Setup mode lives in the URL, so carrying its params keeps the first-call reveal open in the scene.
+    const sceneUrl = combineUrl(urls.mcpAnalytics(), {
+        [SETUP_PARAM]: searchParams[SETUP_PARAM],
+        [SETUP_STEP_PARAM]: searchParams[SETUP_STEP_PARAM],
+    }).url
+    const latestSceneUrl = useRef(sceneUrl)
+    latestSceneUrl.current = sceneUrl
 
     useEffect(() => {
         if (onboardingState === 'onboarded') {
-            // Setup mode lives in the URL, so carrying its params keeps the first-call reveal open in the scene.
-            const { [SETUP_PARAM]: setup, [SETUP_STEP_PARAM]: setupStep } = router.values.searchParams
-            completeOnboarding({
-                redirectUrlOverride: combineUrl(urls.mcpAnalytics(), {
-                    [SETUP_PARAM]: setup,
-                    [SETUP_STEP_PARAM]: setupStep,
-                }).url,
-            })
+            completeOnboarding(chosenDestination ? undefined : { redirectUrlOverride: latestSceneUrl.current })
         }
-    }, [onboardingState, completeOnboarding])
+    }, [onboardingState, completeOnboarding, chosenDestination])
+
+    // The redirect runs after the completion request saves. Setup mode can close or move on meanwhile.
+    useEffect(() => {
+        if (!chosenDestination && onboardingLogic.findMounted()?.values.isCompleting) {
+            setOnCompleteOnboardingRedirectUrl(sceneUrl)
+        }
+    }, [sceneUrl, chosenDestination, setOnCompleteOnboardingRedirectUrl])
 
     return (
         <OnboardingStep
