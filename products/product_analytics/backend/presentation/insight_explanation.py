@@ -158,13 +158,17 @@ class StoryChapterSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Inclusive indexes into the series' points. Null when the chapter's dates match no point.",
     )
-    summary = serializers.CharField(allow_null=True, max_length=400, help_text="What happened in this moment.")
-    cause = serializers.CharField(allow_null=True, max_length=600, help_text="The likely cause of this moment.")
+    summary = serializers.CharField(
+        allow_null=True, allow_blank=True, max_length=400, help_text="What happened in this moment."
+    )
+    cause = serializers.CharField(
+        allow_null=True, allow_blank=True, max_length=600, help_text="The likely cause of this moment."
+    )
     confidence = serializers.ChoiceField(
         choices=StoryConfidence.choices, allow_null=True, help_text="How sure the investigation is of the cause."
     )
     confidenceReason = serializers.CharField(
-        allow_null=True, max_length=200, help_text="Why the confidence is what it is."
+        allow_null=True, allow_blank=True, max_length=200, help_text="Why the confidence is what it is."
     )
     evidence = StoryEvidenceSerializer(many=True, max_length=6, help_text="The facts behind the cause.")  # type: ignore[call-arg]
 

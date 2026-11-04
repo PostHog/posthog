@@ -33,7 +33,7 @@ EXPLANATION: dict[str, Any] = {
             "summary": "Pageviews tripled for one day.",
             "cause": "A link on news.example.com.",
             "confidence": "high",
-            "confidenceReason": "One referrer holds the whole rise.",
+            "confidenceReason": "",
             "evidence": [
                 {"text": "Most views came from one referrer.", "url": "https://github.com/example/app/pull/12"}
             ],
