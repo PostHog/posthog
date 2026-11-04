@@ -1,0 +1,202 @@
+<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;font-family:var(--font-sans,system-ui,-apple-system,"Segoe UI",sans-serif)}
+.panel{position:relative;background:#fff;color:#0f172a;border-radius:var(--radius,10px);padding:16px;font-size:12px}
+svg.wires{position:absolute;left:0;top:0;pointer-events:none;overflow:visible;z-index:2}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
+.views{display:flex;gap:3px;background:#e2e8f0;border-radius:7px;padding:3px}
+.views button,.toggle{border:0;background:transparent;font:inherit;font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:5px;color:#334155;cursor:pointer}
+.toggle{background:#e2e8f0}
+.views button[aria-pressed=true],.toggle[aria-pressed=true]{background:#0f172a;color:#fff}
+.row{display:flex;gap:14px;align-items:flex-start;position:relative;z-index:1}
+.mod{flex:1;border:2px solid #334155;border-radius:8px;background:#f8fafc;min-width:0}
+.mod.new{border-color:#16a34a;background:#f0fdf4}
+.mod.changed{border-color:#ca8a04;background:#fefce8}
+.mod.external{border-color:#2563eb;background:#eff6ff}
+.mod.follow{border:2px dashed #ea580c;background:#fff7ed}
+.seam{display:flex;flex-wrap:wrap;gap:2px 12px;align-items:center;background:#0f172a;color:#fff;font-family:var(--font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:10.5px;padding:5px 8px;border-radius:6px 6px 0 0;line-height:1.35}
+.mod.new .seam{background:#14532d}
+.mod.follow .seam{background:#7c2d12}
+.mod.external .seam{background:#1e3a8a}
+.seam .tag{background:#fff;color:#0f172a;border-radius:3px;padding:0 4px;font-family:var(--font-sans,system-ui,sans-serif);font-weight:700;font-size:9.5px}
+.fn.new::after{content:" +";color:#86efac;font-weight:700}
+.fn.changed{color:#fde047}
+.name{font-weight:700;font-size:13px;padding:6px 8px 2px}
+.name small{font-weight:500;color:#64748b;font-size:11px}
+.mod:not(:has(.chips)) .name{padding-bottom:8px}
+.used{display:inline-block;font-size:9.5px;font-weight:700;color:#b91c1c;background:#fee2e2;border-radius:3px;padding:0 4px;vertical-align:1px}
+.chips{padding:4px 8px 8px;display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid #94a3b8;background:#f1f5f9;border-radius:5px;padding:3px 7px;line-height:1.3}
+.chip.wide{flex-basis:100%;text-align:center}
+.chip.new{background:#dcfce7;border-color:#16a34a}
+.chip.changed{background:#fef9c3;border-color:#ca8a04}
+.chip.follow{border:2px dashed #ea580c}
+.chip.cycle,.rail .cycle{border:2px dashed #dc2626;background:#fef2f2;color:#b91c1c;font-weight:600}
+.cycle::before{content:"↺ "}
+.ask{outline:2px dashed #7c3aed;outline-offset:1px}
+.ask.fork{outline-style:dotted}
+.q,.f{display:inline-block;font-family:var(--font-sans,system-ui,sans-serif);font-size:9px;font-weight:700;color:#fff;border-radius:3px;padding:0 3px;margin-left:4px;vertical-align:1px}
+.q{background:#7c3aed}
+.f{background:#ea580c}
+.f::before{content:"follow-up"}
+.rail{position:relative;z-index:1;background:#1e293b;color:#e2e8f0;border-radius:6px;padding:6px 10px;font-size:11px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.rail b{color:#fff;font-size:12px}
+.rail .cycle{border-radius:4px;padding:1px 6px}
+.untouched{margin-top:18px;border-top:1px dashed #94a3b8;padding-top:10px}
+.untouched h4{margin:0 0 8px;font-size:12px;color:#334155}
+.untouched .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.mini{border:1.5px solid #94a3b8;border-radius:6px;background:#f8fafc;font-size:10.5px}
+.mini .seam{font-size:9.5px;padding:3px 6px;border-radius:4px 4px 0 0;background:#334155}
+.mini b{display:block;padding:4px 6px 0;font-size:11.5px}
+.mini p{margin:0;padding:2px 6px 5px;color:#475569}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:16px;padding-top:10px;border-top:1px solid #e2e8f0;font-size:11px;color:#334155;align-items:center}
+.legend .key{font-weight:700}
+.legend i{display:inline-block;width:22px;height:0;border-top:2px solid;vertical-align:middle;margin-right:4px}
+.legend .swatch{display:inline-block;padding:0 5px;margin-right:4px;border-radius:3px}
+.legend .seamkey{background:#0f172a;color:#fff;font-weight:600}
+.panel[data-view=today] .v-added{display:none}
+.panel[data-view=target] .v-removed{display:none}
+.panel:not([data-view=today]) .v-today{display:none}
+.panel[data-view=removed] .v-removed{color:#94a3b8;text-decoration:line-through}
+.panel[data-view=removed] .chip.v-removed{background:#f8fafc;border:1px dashed #94a3b8}
+.panel[data-view=removed] .v-removed :is(.q,.f,.used){text-decoration:none}
+.panel[data-view=today] .ask{outline:none}
+.panel[data-view=today] .q{display:none}
+.panel[data-untouched=off] .untouched{display:none}
+</style></head><body>
+<div class="panel" id="modules" data-view="target" data-untouched="off">
+<svg class="wires"></svg>
+<div class="controls"><div class="views" role="group" aria-label="View"><button data-view-to="target" aria-pressed="true">Target</button><button data-view-to="removed" aria-pressed="false">Target + what it removes</button><button data-view-to="today" aria-pressed="false">Today</button></div><button class="toggle" data-untouched-toggle aria-pressed="false">Untouched modules and their seams</button></div><div class="row"><div id="hogexec" class="mod" style="flex:1.2"><div class="seam" id="hogexec-seam"><span class="tag">seam</span><span class="fn">executeWithAsyncFunctions</span><span class="fn changed ask fork">routeEmailToQueue<span class="q">Q1 B</span></span></div><div class="name">Hog executor (hogflow worker) <small>hog-executor-async.service.ts</small> <span class="used">2 used outside</span></div><div class="chips"><span id="hx-route" class="chip">route: queue=email, priority, scheduled=now</span><span id="hx-pace" class="chip v-added new ask fork">claim paced slot, scheduled = slot<span class="q">Q1 B</span></span></div></div><div id="jobs" class="mod external" style="flex:0.8"><div class="name">cyclotron_jobs, queue email</div><div class="chips"><span id="jobs-rows" class="chip">row visible when scheduled ≤ now</span></div></div></div>
+<div style="height:56px"></div><div class="row"><div id="gate" class="mod" style="flex:1"><div class="seam" id="gate-seam"><span class="tag">seam</span><span class="fn">claimBatchLimit</span><span class="fn v-removed ask fork">countWork → claim → dequeue<span class="q">Q1 C</span></span></div><div class="name">SES gate (email worker loop) <small>worker-rate-limited.ts + job-queue-rate-limited</small> <span class="used">1 used outside</span></div><div class="chips"><span id="gate-claim" class="chip">1 SES token per visible row</span><span id="gate-loop" class="chip">copied runConsumerLoop: 13 base-worker symbols</span></div></div><div id="email" class="mod" style="flex:1.4"><div class="seam" id="email-seam"><span class="tag">seam</span><span class="fn">executeSendEmail</span></div><div class="name">EmailService <small>email.service.ts</small> <span class="used">3 used outside</span></div><div class="chips"><span id="em-skip" class="chip">skips: suspended, paused, no recipient, suppressed</span><span id="em-park" class="chip changed ask fork">workflow limit: deny → park; B: prepaid wake skips it<span class="q">Q1 B</span></span><span id="em-cap" class="chip">team cap: deny → hold</span><span id="em-refund" class="chip v-added new ask fork">settle: refund token on non-send<span class="q">Q1 A</span></span><span id="em-claim" class="chip v-added new ask fork">claim recipients at SES call<span class="q">Q1 C</span></span><span id="em-ses" class="chip">sendEmailWithSES</span></div></div></div>
+<div style="height:56px"></div><div class="row"><div id="limiter" class="mod" style="flex:1.4"><div class="seam" id="limiter-seam"><span class="tag">seam</span><span class="fn">claimUpTo</span><span class="fn">claimOrReserve</span><span class="fn">claimAllOrNothingPair</span><span class="fn v-added new ask fork">refund<span class="q">Q1 A</span></span></div><div class="name">RateLimiterService (Valkey) <small>rate-limiter.service.ts</small> <span class="used">1 used outside</span></div><div class="chips"><span id="lim-resv" class="chip v-removed ask fork">reserve slot: place in line, not a promise<span class="q">Q1 B</span></span><span id="lim-prepaid" class="chip v-added new ask fork">prepaid slot: debit token at reserve time<span class="q">Q1 B</span></span></div></div><div id="ses" class="mod external" style="flex:0.6"><div class="name">Amazon SES</div><div class="chips"><span class="chip">account send rate</span></div></div></div><div class="untouched"><h4>Untouched by this change. The top bar is the seam, with its most used functions.</h4><div class="grid"><div class="mini"><div class="seam"><span class="tag">seam</span><span class="fn">connect</span><span class="fn">disconnect</span><span class="fn">isHealthy</span></div><b>CyclotronV2Worker (worker.ts)</b><p>3 used outside · knows the email queue: fair dequeue, dequeue_seq</p></div><div class="mini"><div class="seam"><span class="tag">seam</span><span class="fn">getEmailQueuePriority</span><span class="fn">getEmailQueuePriorityClass</span></div><b>email-priority.ts</b><p>3 used outside</p></div><div class="mini"><div class="seam"><span class="tag">seam</span><span class="fn">removeSuppressedRecipients</span></div><b>suppressed-recipients.ts</b><p>3 used outside</p></div><div class="mini"><div class="seam"><span class="tag">seam</span><span class="fn">TeamSendingCap.claim</span></div><b>email-pacing.ts (#128506, not on master)</b><p>team cap moves here</p></div></div></div><div class="legend"><span><b class="swatch seamkey">fn</b><span class="key">seam</span> a module's interface; parts sit below it</span><span><i style="border-color:#334155;border-top-style:solid"></i><span class="key">call</span> through a seam</span><span><i style="border-color:#15803d;border-top-style:solid"></i><span class="key">added</span> by this change, green</span><span><span class="swatch chip changed">part</span><span class="key">changed</span> by this change</span><span><i style="border-color:#94a3b8;border-top-style:dashed"></i><span class="key">removed</span> ✕ by this change, struck through</span><span><i style="border-color:#7c3aed;border-top-style:dotted"></i><span class="key">fork</span> alternatives, open in their question</span><span><span class="swatch mod external">&nbsp;</span><span class="key">external</span> an actor or external system</span><span><span class="used">n</span><span class="key">used outside</span> exports other modules use</span></div>
+</div>
+<script>const strokes = {
+  call: { color: "#334155", width: 1.7 },
+  bus: { color: "#475569", width: 1.5 },
+  leak: { color: "#dc2626", width: 2.2 },
+  added: { color: "#15803d", width: 2.2 },
+  changed: { color: "#ca8a04", width: 2.2 },
+  followUp: { color: "#ea580c", dash: "6 4", width: 2 },
+  ask: { color: "#7c3aed", dash: "6 4", width: 2 },
+  fork: { color: "#7c3aed", dash: "2 3", width: 2 },
+  removed: { color: "#94a3b8", dash: "4 4", width: 1.6, cross: true, strike: true },
+};
+
+function strokeOf(wire, view) {
+  if (wire.change === "removed" && view === "removed") return "removed";
+  if (wire.q && view !== "today") return wire.fork ? "fork" : "ask";
+  if (wire.followUp) return "followUp";
+  if (wire.kind === "leak") return "leak";
+  if (wire.change === "added" || wire.change === "changed") return wire.change;
+  return wire.kind ?? "call";
+}
+
+function shownIn(wire, view) {
+  if (wire.change === "added") return view !== "today";
+  if (wire.change === "removed") return view !== "target";
+  if (wire.change === "todayOnly") return view === "today";
+  return true;
+}
+
+function anchorOf(element, side, at, root) {
+  const box = element.getBoundingClientRect(), origin = root.getBoundingClientRect();
+  const x = box.left - origin.left, y = box.top - origin.top, along = at ?? 0.5;
+  if (side === "top") return { x: x + box.width * along, y, nx: 0, ny: -1 };
+  if (side === "bottom") return { x: x + box.width * along, y: y + box.height, nx: 0, ny: 1 };
+  if (side === "left") return { x, y: y + box.height * along, nx: -1, ny: 0 };
+  return { x: x + box.width, y: y + box.height * along, nx: 1, ny: 0 };
+}
+
+function svgElement(name, attributes) {
+  const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+  for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+  return element;
+}
+
+function drawLabel(svg, point, text, stroke, align) {
+  const label = svgElement("text", { x: point.x, y: point.y, "text-anchor": align ?? "middle", "dominant-baseline": "middle", "font-size": "10", "font-weight": "600", fill: stroke.color });
+  if (stroke.strike) label.setAttribute("text-decoration", "line-through");
+  label.textContent = text;
+  svg.appendChild(label);
+  const box = label.getBBox();
+  svg.insertBefore(svgElement("rect", { x: box.x - 3, y: box.y - 1, width: box.width + 6, height: box.height + 2, rx: 3, fill: "#ffffff", opacity: "0.95" }), label);
+  return { text, box };
+}
+
+function drawCross(svg, at, name) {
+  const radius = 7.5;
+  svg.appendChild(svgElement("circle", { cx: at.x, cy: at.y, r: radius, fill: "#ffffff", stroke: "#64748b", "stroke-width": 1.5 }));
+  svg.appendChild(svgElement("path", { d: `M${at.x - 3.5},${at.y - 3.5}L${at.x + 3.5},${at.y + 3.5}M${at.x + 3.5},${at.y - 3.5}L${at.x - 3.5},${at.y + 3.5}`, stroke: "#475569", "stroke-width": 2 }));
+  return { text: `✕ on ${name}`, box: { x: at.x - radius, y: at.y - radius, width: radius * 2, height: radius * 2 } };
+}
+
+function apart(a, b) {
+  return a.x + a.width < b.x || b.x + b.width < a.x || a.y + a.height < b.y || b.y + b.height < a.y;
+}
+
+function textBoxes(root) {
+  const origin = root.getBoundingClientRect();
+  return [...root.querySelectorAll(".seam, .name, .chip, .rail")].filter((element) => element.getClientRects().length).map((element) => {
+    const box = element.getBoundingClientRect();
+    return { text: element.innerText.replace(/\s+/g, " ").trim().slice(0, 40), box: { x: box.left - origin.left, y: box.top - origin.top, width: box.width, height: box.height } };
+  });
+}
+
+function collisions(root, labels) {
+  const hits = [];
+  labels.forEach((a, i) => labels.slice(i + 1).forEach((b) => { if (!apart(a.box, b.box)) hits.push(`"${a.text}" overlaps "${b.text}"`); }));
+  const boxes = textBoxes(root);
+  for (const label of labels) for (const text of boxes) if (!apart(label.box, text.box)) hits.push(`"${label.text}" covers "${text.text}"`);
+  const page = root.getBoundingClientRect();
+  for (const { text, box } of labels) if (box.x < 0 || box.x + box.width > page.width) hits.push(`"${text}" runs off the page`);
+  return hits;
+}
+
+function drawWire(svg, root, wire, view) {
+  const from = root.querySelector(`[id="${wire.from}"]`), to = root.querySelector(`[id="${wire.to}"]`);
+  if (!from?.getClientRects().length || !to?.getClientRects().length) return;
+  const strokeName = strokeOf(wire, view), stroke = strokes[strokeName];
+  const a = anchorOf(from, wire.fromSide ?? "bottom", wire.fromAt, root), z = anchorOf(to, wire.toSide ?? "top", wire.toAt, root), bend = wire.bend ?? 40;
+  if (wire.straight === "from") z.x = a.x;
+  if (wire.straight === "to") a.x = z.x;
+  const c1 = { x: a.x + a.nx * bend, y: a.y + a.ny * bend }, c2 = { x: z.x + z.nx * bend, y: z.y + z.ny * bend };
+  const path = svgElement("path", { d: `M${a.x},${a.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${z.x},${z.y}`, fill: "none", stroke: stroke.color, "stroke-width": stroke.width, "marker-end": `url(#arrow-${strokeName})` });
+  if (stroke.dash) path.setAttribute("stroke-dasharray", stroke.dash);
+  svg.appendChild(path);
+  const pointAt = (t) => { const u = 1 - t; return { x: u * u * u * a.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * z.x, y: u * u * u * a.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * z.y }; };
+  const labelAt = wire.labelAt ?? 0.5, [dx, dy] = wire.labelOffset ?? [0, 0];
+  const marks = stroke.cross ? [drawCross(svg, pointAt(wire.crossAt ?? Math.min(labelAt + 0.25, 0.85)), wire.label ?? `${wire.from} → ${wire.to}`)] : [];
+  const text = [view !== "today" && wire.q, (view === "today" && wire.todayLabel) || wire.label].filter(Boolean).join(": ");
+  if (!text) return marks;
+  const at = pointAt(labelAt);
+  return [...marks, drawLabel(svg, { x: at.x + dx, y: at.y + dy }, text, stroke, wire.labelAlign)];
+}
+
+function drawWires(root, wires) {
+  const svg = root.querySelector("svg.wires"), box = root.getBoundingClientRect(), view = root.dataset.view;
+  svg.setAttribute("width", box.width);
+  svg.setAttribute("height", box.height);
+  svg.innerHTML = "<defs>" + Object.entries(strokes).map(([name, { color }]) => `<marker id="arrow-${name}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="${color}"/></marker>`).join("") + "</defs>";
+  const labels = wires.filter((wire) => shownIn(wire, view)).flatMap((wire) => drawWire(svg, root, wire, view) ?? []);
+  root.dataset.collisions = JSON.stringify(collisions(root, labels));
+}
+
+function connect(root, wires) {
+  const redraw = () => drawWires(root, wires);
+  redraw();
+  new ResizeObserver(redraw).observe(root);
+  for (const button of root.querySelectorAll("[data-view-to]")) button.addEventListener("click", () => {
+    root.dataset.view = button.dataset.viewTo;
+    for (const other of root.querySelectorAll("[data-view-to]")) other.setAttribute("aria-pressed", String(other === button));
+    redraw();
+  });
+  const toggle = root.querySelector("[data-untouched-toggle]");
+  toggle?.addEventListener("click", () => {
+    const on = root.dataset.untouched !== "on";
+    root.dataset.untouched = on ? "on" : "off";
+    toggle.setAttribute("aria-pressed", String(on));
+    redraw();
+  });
+}
+
+connect(document.getElementById("modules"), [{"from":"hogexec","to":"jobs","toSide":"left","fromSide":"right","fromAt":0.75,"toAt":0.75,"labelAt":0.5},{"from":"hx-pace","to":"limiter-seam","toAt":0.3,"change":"added","q":"Q1 B","fork":true,"label":"prepaid slot","bend":60,"labelAt":0.15,"labelAlign":"start","labelOffset":[8,0]},{"from":"jobs","to":"gate","fromSide":"bottom","toSide":"top","toAt":0.7,"label":"dequeue"},{"from":"gate","to":"limiter-seam","toAt":0.08,"label":"@ses/global","labelAt":0.5,"labelAlign":"start","labelOffset":[8,0],"fromAt":0.15},{"from":"gate","to":"email-seam","fromSide":"right","toSide":"left","fromAt":0.75,"toAt":0.75},{"from":"em-park","to":"limiter-seam","toAt":0.5,"label":"per workflow","labelAt":0.75,"labelAlign":"end","labelOffset":[-8,0]},{"from":"em-refund","to":"limiter-seam","toAt":0.85,"change":"added","q":"Q1 A","fork":true,"label":"refund","labelAt":0.5},{"from":"em-claim","to":"limiter-seam","toAt":0.95,"change":"added","q":"Q1 C","fork":true,"label":"claim n","labelAt":0.6},{"from":"em-ses","to":"ses","fromSide":"right","toSide":"top","label":"SendEmail"}]);
+</script>
+</body></html>

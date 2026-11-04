@@ -1,0 +1,283 @@
+{
+    "rows": [
+        {
+            "modules": [
+                {
+                    "id": "hogexec",
+                    "name": "Hog executor (hogflow worker)",
+                    "note": "hog-executor-async.service.ts",
+                    "flex": 1.2,
+                    "seam": [
+                        "executeWithAsyncFunctions",
+                        {
+                            "name": "routeEmailToQueue",
+                            "change": "changed",
+                            "q": "Q1 B",
+                            "fork": true
+                        }
+                    ],
+                    "chips": [
+                        {
+                            "id": "hx-route",
+                            "text": "route: queue=email, priority, scheduled=now"
+                        },
+                        {
+                            "id": "hx-pace",
+                            "text": "claim paced slot, scheduled = slot",
+                            "change": "added",
+                            "q": "Q1 B",
+                            "fork": true
+                        }
+                    ],
+                    "used": 2
+                },
+                {
+                    "id": "jobs",
+                    "name": "cyclotron_jobs, queue email",
+                    "external": true,
+                    "flex": 0.8,
+                    "seam": [],
+                    "chips": [
+                        {
+                            "id": "jobs-rows",
+                            "text": "row visible when scheduled ≤ now"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "gate",
+                    "name": "SES gate (email worker loop)",
+                    "note": "worker-rate-limited.ts + job-queue-rate-limited",
+                    "flex": 1,
+                    "seam": [
+                        "claimBatchLimit",
+                        {
+                            "name": "countWork → claim → dequeue",
+                            "change": "removed",
+                            "q": "Q1 C",
+                            "fork": true
+                        }
+                    ],
+                    "chips": [
+                        {
+                            "id": "gate-claim",
+                            "text": "1 SES token per visible row"
+                        },
+                        {
+                            "id": "gate-loop",
+                            "text": "copied runConsumerLoop: 13 base-worker symbols",
+                            "cycle": false
+                        }
+                    ],
+                    "used": 1
+                },
+                {
+                    "id": "email",
+                    "name": "EmailService",
+                    "note": "email.service.ts",
+                    "flex": 1.4,
+                    "seam": ["executeSendEmail"],
+                    "chips": [
+                        {
+                            "id": "em-skip",
+                            "text": "skips: suspended, paused, no recipient, suppressed"
+                        },
+                        {
+                            "id": "em-park",
+                            "text": "workflow limit: deny → park; B: prepaid wake skips it",
+                            "change": "changed",
+                            "q": "Q1 B",
+                            "fork": true
+                        },
+                        {
+                            "id": "em-cap",
+                            "text": "team cap: deny → hold"
+                        },
+                        {
+                            "id": "em-refund",
+                            "text": "settle: refund token on non-send",
+                            "change": "added",
+                            "q": "Q1 A",
+                            "fork": true
+                        },
+                        {
+                            "id": "em-claim",
+                            "text": "claim recipients at SES call",
+                            "change": "added",
+                            "q": "Q1 C",
+                            "fork": true
+                        },
+                        {
+                            "id": "em-ses",
+                            "text": "sendEmailWithSES"
+                        }
+                    ],
+                    "used": 3
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "limiter",
+                    "name": "RateLimiterService (Valkey)",
+                    "note": "rate-limiter.service.ts",
+                    "flex": 1.4,
+                    "seam": [
+                        "claimUpTo",
+                        "claimOrReserve",
+                        "claimAllOrNothingPair",
+                        {
+                            "name": "refund",
+                            "change": "added",
+                            "q": "Q1 A",
+                            "fork": true
+                        }
+                    ],
+                    "chips": [
+                        {
+                            "id": "lim-resv",
+                            "text": "reserve slot: place in line, not a promise",
+                            "change": "removed",
+                            "q": "Q1 B",
+                            "fork": true
+                        },
+                        {
+                            "id": "lim-prepaid",
+                            "text": "prepaid slot: debit token at reserve time",
+                            "change": "added",
+                            "q": "Q1 B",
+                            "fork": true
+                        }
+                    ],
+                    "used": 1
+                },
+                {
+                    "id": "ses",
+                    "name": "Amazon SES",
+                    "external": true,
+                    "flex": 0.6,
+                    "seam": [],
+                    "chips": [
+                        {
+                            "text": "account send rate"
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "wires": [
+        {
+            "from": "hogexec",
+            "to": "jobs",
+            "toSide": "left",
+            "fromSide": "right",
+            "fromAt": 0.75,
+            "toAt": 0.75,
+            "labelAt": 0.5
+        },
+        {
+            "from": "hx-pace",
+            "to": "limiter-seam",
+            "toAt": 0.3,
+            "change": "added",
+            "q": "Q1 B",
+            "fork": true,
+            "label": "prepaid slot",
+            "bend": 60,
+            "labelAt": 0.15,
+            "labelAlign": "start",
+            "labelOffset": [8, 0]
+        },
+        {
+            "from": "jobs",
+            "to": "gate",
+            "fromSide": "bottom",
+            "toSide": "top",
+            "toAt": 0.7,
+            "label": "dequeue"
+        },
+        {
+            "from": "gate",
+            "to": "limiter-seam",
+            "toAt": 0.08,
+            "label": "@ses/global",
+            "labelAt": 0.5,
+            "labelAlign": "start",
+            "labelOffset": [8, 0],
+            "fromAt": 0.15
+        },
+        {
+            "from": "gate",
+            "to": "email-seam",
+            "fromSide": "right",
+            "toSide": "left",
+            "fromAt": 0.75,
+            "toAt": 0.75
+        },
+        {
+            "from": "em-park",
+            "to": "limiter-seam",
+            "toAt": 0.5,
+            "label": "per workflow",
+            "labelAt": 0.75,
+            "labelAlign": "end",
+            "labelOffset": [-8, 0]
+        },
+        {
+            "from": "em-refund",
+            "to": "limiter-seam",
+            "toAt": 0.85,
+            "change": "added",
+            "q": "Q1 A",
+            "fork": true,
+            "label": "refund",
+            "labelAt": 0.5
+        },
+        {
+            "from": "em-claim",
+            "to": "limiter-seam",
+            "toAt": 0.95,
+            "change": "added",
+            "q": "Q1 C",
+            "fork": true,
+            "label": "claim n",
+            "labelAt": 0.6
+        },
+        {
+            "from": "em-ses",
+            "to": "ses",
+            "fromSide": "right",
+            "toSide": "top",
+            "label": "SendEmail"
+        }
+    ],
+    "untouched": [
+        {
+            "name": "CyclotronV2Worker (worker.ts)",
+            "seam": ["connect", "disconnect", "isHealthy"],
+            "used": 3,
+            "note": "knows the email queue: fair dequeue, dequeue_seq"
+        },
+        {
+            "name": "email-priority.ts",
+            "seam": ["getEmailQueuePriority", "getEmailQueuePriorityClass"],
+            "used": 3
+        },
+        {
+            "name": "suppressed-recipients.ts",
+            "seam": ["removeSuppressedRecipients"],
+            "used": 3
+        },
+        {
+            "name": "email-pacing.ts (#128506, not on master)",
+            "seam": ["TeamSendingCap.claim"],
+            "note": "team cap moves here"
+        }
+    ]
+}

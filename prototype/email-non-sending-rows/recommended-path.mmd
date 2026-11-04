@@ -1,0 +1,19 @@
+sequenceDiagram
+    participant HX as Hog executor (hogflow worker)
+    participant WL as Workflow bucket (Valkey)
+    participant Q as cyclotron_jobs (email)
+    participant G as SES gate (email worker)
+    participant SB as SES bucket (Valkey)
+    participant ES as EmailService
+    participant SES as Amazon SES
+    HX->>WL: Q1 B: claimOrReserve(prepaid)
+    WL-->>HX: granted now, or slotAt (token already debited)
+    HX->>Q: insert row, scheduled = slotAt, queueMetadata.paced = slotAt
+    Note over Q: row stays invisible until slotAt, so no batch sees it
+    G->>Q: countWork (due rows only)
+    G->>SB: claimUpTo(visible rows)
+    G->>Q: dequeue granted rows (priority, fair)
+    G->>ES: executeSendEmail(batch)
+    ES->>ES: skips (suspended, paused, suppressed)
+    ES->>ES: paced row: skip the workflow claim
+    ES->>SES: SendEmail
