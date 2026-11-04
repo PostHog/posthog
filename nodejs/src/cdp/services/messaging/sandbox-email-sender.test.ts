@@ -81,6 +81,18 @@ describe('sandbox email content', () => {
             configurationSetName: 'sandbox-email',
         })
     })
+    it('sends from the fixed address, drops the reply-to and adds the footer to the text part', async () => {
+        const result = await sender.withIdentificationFooter(
+            { ...params('<p>Hello</p>', 'Hello'), replyTo: 'replies@example.org' },
+            'Example organization via PostHog',
+            1
+        )
+        expect(result).toMatchObject({
+            from: { name: 'Example organization via PostHog', email: 'fixed-sandbox@example.com' },
+            text: `Hello\n\n${footer}`,
+        })
+        expect(result.replyTo).toBeUndefined()
+    })
     it('preserves already escaped preview text', async () => {
         const result = await sender.withIdentificationFooter(
             params(
