@@ -222,6 +222,7 @@ export interface reportListLogicValues {
     claimSavingReportIds: string[]
     count: number | null
     countLoading: boolean
+    countSettled: boolean
     hasMore: boolean
     hasProjectClosedReports: boolean | null
     hasProjectClosedReportsLoading: boolean
@@ -478,6 +479,14 @@ export interface reportListLogicMeta {
         livePrReportIds: (reports: SignalReport[]) => string[]
         totalCount: (reportsResponse: ReportListResponse | null) => number | null
         loadedQueryKey: (reportsResponse: ReportListResponse | null) => string | null
+        countSettled: (
+            countLoading: boolean,
+            reportsResponseLoading: boolean,
+            reportsResponse: ReportListResponse | null,
+            reportsLoadFailed: boolean,
+            loadedQueryKey: string | null,
+            listApiParams: any
+        ) => boolean
         loadedContext: (reportsResponse: ReportListResponse | null) => ReportListRequestContext | null
         loadedRanker: (reportsResponse: ReportListResponse | null) => string | null
         loadedRankingPill: (reportsResponse: ReportListResponse | null) => boolean
@@ -892,6 +901,31 @@ export const reportListLogic = kea<reportListLogicType>([
             (s) => [s.reportsResponse],
             (reportsResponse: ReportListResponse | null): string | null =>
                 reportsResponse?.requestParams ? JSON.stringify(reportsResponse.requestParams) : null,
+        ],
+        // Nothing that can still change the count is in flight, and the count on screen belongs to
+        // the current query. A loaded section takes its count from the first page, so a scope or
+        // filter change holds the previous query's total until the refetched page lands. A failed
+        // page settles the section on what it had, rather than holding a consumer forever.
+        countSettled: [
+            (s) => [
+                s.countLoading,
+                s.reportsResponseLoading,
+                s.reportsResponse,
+                s.reportsLoadFailed,
+                s.loadedQueryKey,
+                s.listApiParams,
+            ],
+            (
+                countLoading: boolean,
+                reportsResponseLoading: boolean,
+                reportsResponse: ReportListResponse | null,
+                reportsLoadFailed: boolean,
+                loadedQueryKey: string | null,
+                listApiParams: any
+            ): boolean =>
+                !countLoading &&
+                !reportsResponseLoading &&
+                (reportsResponse === null || reportsLoadFailed || loadedQueryKey === JSON.stringify(listApiParams)),
         ],
         // Display context (scope, active-filters flag) as it was when the loaded response was
         // requested — for telemetry, so an in-flight response can't be labeled with context the
