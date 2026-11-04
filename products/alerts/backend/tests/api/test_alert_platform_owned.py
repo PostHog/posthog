@@ -289,7 +289,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         self._record(30, "firing", value=150.0)
 
         with patch(
-            "products.alerts.backend.platform_alert_reads.check_page_by_legacy_id",
+            "products.alerts.backend.platform_alert_reads.check_page_by_public_id",
             side_effect=RuntimeError("ClickHouse is down"),
         ):
             row = self._row("retrieve")

@@ -1,4 +1,5 @@
 use crate::cohorts::cohort_models::MembershipStampPolicy;
+use crate::database::pool_names;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use common_cookieless::CookielessConfig;
 use common_types::TeamId;
@@ -237,6 +238,32 @@ impl FromStr for RateLimitingAllowList {
         }
 
         Ok(RateLimitingAllowList(team_ids))
+    }
+}
+
+/// Comma-separated names of the database pools whose PgBouncer pooler sets statement_timeout.
+/// An unknown name fails startup, because a misspelled pool would keep sending its `SET`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PoolerStatementTimeoutPools(pub HashSet<&'static str>);
+
+impl FromStr for PoolerStatementTimeoutPools {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut pools = HashSet::new();
+        for part in s.split(',').map(|p| p.trim()).filter(|p| !p.is_empty()) {
+            let pool = pool_names::ALL
+                .iter()
+                .find(|name| **name == part)
+                .ok_or_else(|| {
+                    format!(
+                        "Unknown pool '{part}' in POOLER_STATEMENT_TIMEOUT_POOLS. Known pools: {}",
+                        pool_names::ALL.join(", ")
+                    )
+                })?;
+            pools.insert(*pool);
+        }
+        Ok(PoolerStatementTimeoutPools(pools))
     }
 }
 
@@ -606,6 +633,13 @@ pub struct Config {
     // - This timeout is enforced server-side and properly kills queries
     #[envconfig(default = "2000")]
     pub writer_statement_timeout_ms: u64,
+
+    // Pools whose PgBouncer pooler sets statement_timeout with connect_query. These pools send
+    // no session `SET`, because in transaction mode it lands on whichever server connection the
+    // pooler assigns and the next client inherits it. Each pool's timeout still counts in the
+    // REQUEST_TIMEOUT_MS check, so keep it equal to the pooler's value.
+    #[envconfig(default = "")]
+    pub pooler_statement_timeout_pools: PoolerStatementTimeoutPools,
 
     // How often to report database pool metrics (seconds)
     // - Decrease for more granular monitoring (e.g., 10-15)
@@ -1347,6 +1381,7 @@ impl Config {
             flag_definitions_conditional_rate_limits: FlagDefinitionsRateLimits::default(),
             remote_config_default_rate_per_minute: 600,
             rate_limiting_allow_list_teams: RateLimitingAllowList::default(),
+            pooler_statement_timeout_pools: PoolerStatementTimeoutPools::default(),
             flags_log_bodies_teams: BodyLogTeams::default(),
             flags_log_bodies_request_max_bytes: 65_536,
             otel_url: None,
@@ -1780,6 +1815,39 @@ mod tests {
         let limits: FlagDefinitionsRateLimits = json.parse().unwrap();
         assert_eq!(limits.0.len(), 1);
         assert_eq!(limits.0.get(&123), Some(&"600/minute".to_string()));
+    }
+
+    #[rstest::rstest]
+    #[case::empty("", &[])]
+    #[case::whitespace_and_commas(
+        " persons_reader , ,behavioral_cohorts ",
+        &[pool_names::PERSONS_READER, pool_names::BEHAVIORAL_COHORTS]
+    )]
+    fn test_pooler_statement_timeout_pools_parses(#[case] input: &str, #[case] expected: &[&str]) {
+        let pools: PoolerStatementTimeoutPools = input.parse().unwrap();
+        assert_eq!(pools.0, expected.iter().copied().collect::<HashSet<_>>());
+    }
+
+    #[test]
+    fn test_pooler_statement_timeout_pools_reads_env_var() {
+        let env = HashMap::from([(
+            "POOLER_STATEMENT_TIMEOUT_POOLS".to_string(),
+            "persons_reader".to_string(),
+        )]);
+        let config = Config::init_from_hashmap(&env).unwrap();
+
+        assert!(config
+            .pooler_statement_timeout_pools
+            .0
+            .contains(pool_names::PERSONS_READER));
+    }
+
+    #[test]
+    fn test_pooler_statement_timeout_pools_rejects_unknown_pool() {
+        let error = "persons_reader,persons_readr"
+            .parse::<PoolerStatementTimeoutPools>()
+            .unwrap_err();
+        assert!(error.contains("'persons_readr'"), "{error}");
     }
 
     #[test]
