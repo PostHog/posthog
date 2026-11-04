@@ -2122,6 +2122,13 @@ describe('EmailService', () => {
                 true,
                 { $email_template_key: 'welcome' },
             ],
+            [
+                'a transactional step saved with names of the wrong type',
+                { template_uuid: 7, template_key: true },
+                'Test Subject',
+                true,
+                {},
+            ],
         ])(
             'should capture a $workflows_email_sent PostHog event on success, for %s',
             async (_name, extraMetadata, subject, transactional, identity) => {
