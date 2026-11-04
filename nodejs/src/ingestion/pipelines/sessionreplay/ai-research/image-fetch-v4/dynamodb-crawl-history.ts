@@ -13,7 +13,14 @@ import { Counter } from 'prom-client'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
-import { ConfigurationCacheItem, CrawlHistoryItem, CrawlHistoryStore, HttpCacheMetadata } from './crawl-history'
+import {
+    ConfigurationCacheItem,
+    CrawlHistoryItem,
+    CrawlHistoryStore,
+    HttpCacheMetadata,
+    UrlCrawlHistoryItem,
+} from './crawl-history'
+import { isUrlHistoryValue } from './v4-native'
 
 const KEY_ATTRIBUTE = 'key'
 const EXPIRES_AT_ATTRIBUTE = 'expires_at'
@@ -76,26 +83,9 @@ function isOptionalString(value: unknown): value is string | undefined {
     return value === undefined || typeof value === 'string'
 }
 
-function isHttpCacheMetadata(value: unknown): boolean {
-    if (!isRecord(value) || !isFiniteNumber(value.requestTimeMs) || !isFiniteNumber(value.responseTimeMs)) {
-        return false
-    }
-    return ['responseUrlHmac', 'responseUrl', 'etag', 'lastModified', 'date', 'age', 'cacheControl', 'expires'].every(
-        (field) => isOptionalString(value[field])
-    )
-}
-
-function isCrawlHistoryItem(value: unknown, expectedKey: string): value is CrawlHistoryItem {
+function isConfigurationCacheItem(value: unknown, expectedKey: string): value is ConfigurationCacheItem {
     if (!isRecord(value) || value.key !== expectedKey || !isFiniteNumber(value.storageExpiresAtMs)) {
         return false
-    }
-    if (value.kind === 'url') {
-        return (
-            isFiniteNumber(value.nextFetchAtMs) &&
-            typeof value.outcome === 'string' &&
-            (value.cache === undefined || isHttpCacheMetadata(value.cache)) &&
-            (value.storedAtMs === undefined || isFiniteNumber(value.storedAtMs))
-        )
     }
     return (
         (value.kind === 'robots' || value.kind === 'tdmrep') &&
@@ -113,8 +103,8 @@ function isCrawlHistoryItem(value: unknown, expectedKey: string): value is Crawl
  * An older row can hold the response URL in plaintext. It reads as unbound, so its validators are not sent, and the
  * next write of the row does not carry the URL.
  */
-function withoutPlaintextResponseUrl(item: CrawlHistoryItem): CrawlHistoryItem {
-    if (item.kind !== 'url' || !item.cache || !('responseUrl' in item.cache)) {
+function withoutPlaintextResponseUrl(item: UrlCrawlHistoryItem): UrlCrawlHistoryItem {
+    if (!item.cache || !('responseUrl' in item.cache)) {
         return item
     }
     const { responseUrl: _plaintext, ...cache } = item.cache as HttpCacheMetadata & { responseUrl?: string }
@@ -143,17 +133,22 @@ function parseStoredItem(item: Record<string, AttributeValue>): ParsedStoredItem
     if (!isRecord(parsed)) {
         throw new Error('DynamoDB returned an invalid crawl-history value')
     }
-    const storedBodyChunks = parsed._bodyChunks
-    if (storedBodyChunks === undefined) {
-        if (!isCrawlHistoryItem(parsed, key)) {
+    if (parsed.kind === 'url') {
+        if (!isUrlHistoryValue(key, serialized)) {
             throw new Error('DynamoDB returned an invalid crawl-history value')
         }
-        return { item: withoutPlaintextResponseUrl(parsed) }
+        return { item: withoutPlaintextResponseUrl(parsed as unknown as UrlCrawlHistoryItem) }
+    }
+    const storedBodyChunks = parsed._bodyChunks
+    if (storedBodyChunks === undefined) {
+        if (!isConfigurationCacheItem(parsed, key)) {
+            throw new Error('DynamoDB returned an invalid crawl-history value')
+        }
+        return { item: parsed }
     }
     const { _bodyChunks: _storedBodyChunks, ...applicationItem } = parsed
     if (
-        !isCrawlHistoryItem(applicationItem, key) ||
-        applicationItem.kind === 'url' ||
+        !isConfigurationCacheItem(applicationItem, key) ||
         applicationItem.body !== undefined ||
         !isRecord(storedBodyChunks) ||
         !Number.isInteger(storedBodyChunks.count) ||

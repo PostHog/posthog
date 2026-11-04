@@ -206,16 +206,20 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - A menu sizes to its longest row, never narrower than its trigger. Don't set a width on `DropdownMenuContent` unless the content needs a fixed one
   - A row with a second line takes `description` on `DropdownMenuItem` or `DropdownMenuSubTrigger`. Never stack the text yourself: the row has a fixed height until `description` tells it to grow
   - A menu item that navigates calls the router in `onClick`. Never pass a Link through the item's `render`: the item already uses `render` for its row styling
+  - Every list of choices shows what is chosen, in the same place: a radio dot for one choice, a check for several, in a gutter before the label. A chosen row is never told apart by color or a trailing mark alone
+    - That gutter comes from Quill, so use the item as it is (`DropdownMenuRadioItem`, `DropdownMenuCheckboxItem`, `SelectItem`, `ComboboxItem`, `ItemRadio`, `ItemCheckbox`), and never add a check by hand. An option's label lines up with the other options, whether it is chosen or not. If the mark touches the label, fix the item in Quill, not at the call site
+    - Before handoff, open every list you touched with a value chosen and look at it. A list with nothing chosen hides this bug
   - Icon-only menu trigger: `aria-label` and a tooltip with the same string, as for any icon-only button
 - A list of clickable rows (tickets, programs, recent items) → `CardGroup` of `Card size="sm"`, each holding one full-width `<button>` or `<a>`. Item has no clickable variant. `Item tone` is for callouts only, such as a warning or an incident notice
 - Switching views: Tabs (sections of one page; `variant="line"` for page-level) | ToggleGroup (2–4 display modes) | Select (many views, low priority)
-- Filtering a list in a compact area (a sidebar pane, a side panel, a picker inside a menu):
-  - A search field (`InputGroup size="sm"`) and, beside it, one icon-only funnel button (`TodayFilterMenuTrigger`). Never a row of selects: it does not fit, and it hides which filters exist
-  - The funnel opens a DropdownMenu with one row per filter: the label on the left and the choice in force on the right, opening a submenu of the options (`TodayRecentRadioSubmenu`). One choice → radio items; several → checkbox items. The default comes first ("Any user", "All")
-  - While any filter differs from its default, the funnel shows a dot and reads "Filters on", and that row's value takes the primary color
-  - "Clear filters" is the last row, after a separator, `variant="destructive"`, and only shows while a filter is on
+- Filtering a list, anywhere (a scene, a sidebar pane, a side panel, a picker inside a menu):
+  - A search field and, beside it, one `FilterMenuTrigger`, Quill's funnel button. Never a row of selects or filter buttons, even when there is room: it wraps on a narrow scene, and it differs from every other list. In a compact area the search field is `InputGroup size="sm"`
+  - Everything that shapes the list lives in that one menu, built from Quill's `Filter*` parts, in this order, with a separator between the groups: group and sort, the filters, display choices, then `FilterClearItem`. No separate Sort or Display button beside it. Group, sort and display choices are not filters, so they never light the dot
+  - Each filter is one row: the label on the left and the choice in force on the right, opening a submenu of the options. One choice → `FilterRadioSubMenu`. Several from a short list → `FilterCheckboxSubMenu`. Several from a long list, such as people or tags → `FilterSearchSubMenu`. The default comes first ("Any user", "All")
+  - While any filter differs from its default, the funnel shows a dot at its top right and reads "Filters on", and that row's value takes the primary color. The search text is not a filter, so it never lights the dot
+  - "Clear filters" is the last row of that menu, and only shows while a filter is on. It is the only way to clear from the toolbar: no "Clear selection" row in a submenu, and no "Clear filters" button beside the funnel. The no-matches empty state may still offer one
   - Inside another menu (a picker), give the outer `DropdownMenu` `modal={false}`, or it blocks the filter menu's popup
-  - Precedent: `layout/today/TodayViewsFilterMenu`
+  - Precedent: `scenes/analytics/AnalyticsFilterMenu`. A phone sheet, as in `layout/today/TodayRecentFilterMenu`, wraps the same rows
 - Text and numbers:
   - Input: single-line text. Beside default-size buttons, such as a search field next to a filter button, use `size="sm"` on `Input` or `InputGroup` so the heights match
   - Textarea: multi-line or long free text
@@ -228,6 +232,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Cards may contain an `ItemGroup`; never nest cards; never wrap a whole page section in a card
 - Table vs Item list:
   - Table: rows share columns users compare, sort, or scan vertically (DataTable when sorting/filtering/selection is needed)
+  - A link in a table cell is a small link Button, never a bare Link: `<Button variant="link-foreground" size="sm" nativeButton={false} render={<LinkPrimitive to={url} />}>`. It keeps the foreground color and, on hover, shows the normal button fill, because a whole column of `primary` links is too loud. Use `link-muted` for a secondary link. The table keeps its text in line with the column header. See the Table `WithLinks` story
   - Item rows: heterogeneous entries (primary/secondary text + actions)
 - Overlays:
   - Tooltip:

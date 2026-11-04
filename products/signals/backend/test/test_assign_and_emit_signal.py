@@ -17,8 +17,14 @@ from products.signals.backend.agent_runtime import DEFAULT_RUNTIME
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Dismissal, RelatedTo, ReportLink
 from products.signals.backend.daily_limit import DailyReportLimitGate
-from products.signals.backend.enums import ReportLinkKind
-from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact, SignalSpend
+from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType
+from products.signals.backend.models import (
+    SignalEmissionRecord,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportMonitoringAttempt,
+    SignalSpend,
+)
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.spend import complete_signal_pipeline, finish_report_spend, record_llm_spend
@@ -124,6 +130,76 @@ def _build_input(
         embedding=[0.0] * 1536,
         match_result=match_result,
     )
+
+
+async def _monitoring_input(team: Team) -> AssignAndEmitSignalInput:
+    now = timezone.now()
+    report = await SignalReport.objects.acreate(
+        team=team, status="closed", title="Checkout recovery", monitoring_started_at=now
+    )
+    attempt = await SignalReportMonitoringAttempt.objects.for_team(team.id).acreate(
+        team=team, report=report, monitoring_started_at=now, research_requested_at=now
+    )
+    signal = _build_input(team.id, _new_match(), weight=1.0, source_product=SignalSourceProduct.SIGNALS_CHECK)
+    signal.source_type = SignalSourceType.MONITORING_UNRESOLVED
+    signal.source_id = str(attempt.id)
+    signal.extra = {"report_id": str(report.id), "attempt_id": str(attempt.id)}
+    signal.sync_with_source = True
+    return signal
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("existing_count", [None, 0, 4])
+@pytest.mark.parametrize("exempt_origin", [False, True])
+async def test_monitoring_signal_uses_normal_grouping_and_billing(
+    ateam: Team, patch_side_effects, existing_count: int | None, exempt_origin: bool
+) -> None:
+    signal = await _monitoring_input(ateam)
+    exemption = SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK if exempt_origin else None
+    await SignalReport.objects.filter(team=ateam, id=signal.extra["report_id"]).aupdate(billing_exempt_reason=exemption)
+    if existing_count is not None:
+        target = await SignalReport.objects.acreate(
+            team=ateam,
+            status="ready",
+            signal_count=existing_count,
+            signals_researched=existing_count,
+            billing_exempt_reason=SignalReport.BillingExemptReason.POSTHOG_SYSTEM,
+        )
+        signal.match_result = _existing_match(str(target.id))
+    with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+        result = await assign_and_emit_signal_activity(signal)
+    successor = await SignalReport.objects.aget(team=ateam, id=result.report_id)
+    assert successor.billing_exempt_reason == (
+        exemption if existing_count is None else SignalReport.BillingExemptReason.POSTHOG_SYSTEM
+    )
+    assert successor.signal_count == (existing_count or 0) + 1
+    assert result.promoted is (existing_count != 4)
+    assert await SignalReportArtefact.objects.filter(
+        team=ateam, report_id=successor.id, type="report_link", link_target_id=signal.extra["report_id"]
+    ).aexists()
+    assert await SignalReport.objects.filter(team=ateam, id=signal.extra["report_id"], status="closed").aexists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("change", ["ready", "resolved", "suppressed", "new_attempt", "disabled", "wrong_report"])
+async def test_stale_monitoring_signal_cannot_attach_to_a_changed_report(ateam: Team, change: str) -> None:
+    signal = await _monitoring_input(ateam)
+    if change == "new_attempt":
+        await SignalReport.objects.filter(team=ateam, id=signal.extra["report_id"]).aupdate(
+            monitoring_started_at=timezone.now() + timedelta(hours=1)
+        )
+    elif change == "wrong_report":
+        signal.extra["report_id"] = str(uuid.uuid4())
+    elif change != "disabled":
+        await SignalReport.objects.filter(team=ateam, id=signal.extra["report_id"]).aupdate(status=change)
+    with patch(
+        "products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=change != "disabled"
+    ):
+        with pytest.raises(ValueError, match="no longer current"):
+            await assign_and_emit_signal_activity(signal)
+    assert await SignalReport.objects.filter(team=ateam).acount() == 1
 
 
 # ---------------------------------------------------------------------------
@@ -911,23 +987,50 @@ async def test_source_sync_matches_without_semantic_rejudgment(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_source_refresh_bypasses_research_buckets_and_emits_telemetry(ateam, patch_side_effects):
+@pytest.mark.parametrize("researching,pending_is_driver", [(False, False), (True, False), (True, True)])
+async def test_source_refresh_bypasses_research_buckets_and_emits_telemetry(
+    ateam, patch_side_effects, researching, pending_is_driver
+):
+    pending_signal_id = uuid.uuid4() if researching else None
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
-        status=SignalReport.Status.READY,
+        status=SignalReport.Status.IN_PROGRESS if researching else SignalReport.Status.READY,
         total_weight=2,
         signal_count=2,
         signals_researched=2,
+        triggering_signal_id=pending_signal_id if pending_is_driver else uuid.uuid4(),
+        pending_triggering_signal_id=pending_signal_id,
     )
+    if pending_signal_id is not None:
+        await database_sync_to_async(record_llm_spend)(
+            team_id=ateam.id, signal_id=str(pending_signal_id), stage="grouping", token_cost_microusd=100
+        )
+        await database_sync_to_async(complete_signal_pipeline)(
+            team_id=ateam.id, signal_id=str(pending_signal_id), report_id=str(report.id)
+        )
+        pending_spend = await database_sync_to_async(
+            lambda: SignalSpend.objects.for_team(ateam.id).get(signal_id=pending_signal_id)
+        )()
+        assert pending_spend.finalized_at is None
     input_ = _build_input(ateam.id, _existing_match(str(report.id), source_synced=True), weight=0.5)
     input_.sync_with_source = True
 
     result = await assign_and_emit_signal_activity(input_)
 
     assert result.report_id == str(report.id)
-    assert result.promoted is True
+    assert result.promoted is not researching
     await database_sync_to_async(report.refresh_from_db)()
-    assert report.status == SignalReport.Status.CANDIDATE
+    assert report.status == (SignalReport.Status.IN_PROGRESS if researching else SignalReport.Status.CANDIDATE)
+    if researching:
+        assert str(report.pending_triggering_signal_id) == input_.signal_id
+        await database_sync_to_async(pending_spend.refresh_from_db)()
+        assert (pending_spend.finalized_at is None) is pending_is_driver
+        assert pending_spend.spend > 0
+        await database_sync_to_async(complete_signal_pipeline)(
+            team_id=ateam.id, signal_id=str(pending_signal_id), report_id=str(report.id)
+        )
+        await database_sync_to_async(pending_spend.refresh_from_db)()
+        assert (pending_spend.finalized_at is None) is pending_is_driver
     events = [call.kwargs["event"] for call in patch_side_effects["capture"].call_args_list]
     assert "signal_source_report_refresh_requested" in events
     refresh = next(

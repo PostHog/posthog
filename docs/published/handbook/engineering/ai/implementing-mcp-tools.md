@@ -547,9 +547,6 @@ Product teams own their definitions and control which operations are exposed as 
    Scopes come from the API when you omit them. Annotations default for GET and DELETE, so declare them for PATCH, POST and PUT.
    A `scopes` list that misses a scope the API requires fails codegen.
    When an action's scopes depend on the request, list the action in the viewset's `request_dependent_scope_actions`, and declare `scopes` on its tools.
-   A tool that reads ingested project data declares `reads_ingested_data`: `events`, or `events_or_warehouse` for a tool that also reads data warehouse tables.
-   On a project that has not received an event yet, the server can return install guidance for these tools instead of an empty result.
-   Every `query-*` tool must declare it.
    Each YAML file has a top-level structure validated by Zod ([`scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts)):
 
    **Tool names** follow a **`domain-action`** convention in lowercase kebab-case (`[a-z0-9-]`),
@@ -592,6 +589,7 @@ Product teams own their definitions and control which operations are exposed as 
        title: List things # human-friendly title (used in UI)
        description: > # instructions for the LLM
          Human-friendly description for the LLM.
+       search_keywords: [prometheus, promql] # extra search words, matched at title weight
        list: true # marks as a list endpoint
        enrich_url: '{id}' # appended to url_prefix for result URLs
        category: Other product # overrides the file-level category, e.g. for $mcp_tool_category in MCP analytics
@@ -887,6 +885,9 @@ This is a work in progress –
 the goal is to make it easier to generate HogQL queries from typed schemas
 than from freeform SQL.
 A `schema.json` integration into the codegen pipeline is planned.
+
+For SQL table insights, set `query.tableSettings.columns[].settings.display.description` in `insight-create` or `insight-update`.
+For updates, read the saved query first and retain its other fields.
 
 ## Agent skills that support the MCP server
 

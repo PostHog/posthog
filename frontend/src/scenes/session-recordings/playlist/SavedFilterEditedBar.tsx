@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonButton, lemonToast } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 
 import { RecordingUniversalFilters } from '~/types'
@@ -48,23 +49,20 @@ export function SavedFilterEditedBar({
             className="flex items-center gap-2 flex-wrap rounded border border-warning bg-warning-highlight px-2 py-1 text-xs"
             data-attr="list-saved-filter-edited"
         >
-            <span className="text-secondary">Saved filter changed.</span>
-            <LemonButton
-                size="xsmall"
-                type="secondary"
+            <span className="text-muted-foreground">Saved filter changed.</span>
+            <Button
+                variant="outline"
                 loading={updating}
                 onClick={() => void update()}
                 className="max-w-60"
-                truncate
                 data-attr="list-saved-filter-update"
             >
-                Update "{appliedSavedFilter.name || 'Unnamed'}"
-            </LemonButton>
-            <LemonButton size="xsmall" onClick={onSaveAsCopy} data-attr="list-saved-filter-save-copy">
+                <span className="truncate">Update "{appliedSavedFilter.name || 'Unnamed'}"</span>
+            </Button>
+            <Button onClick={onSaveAsCopy} data-attr="list-saved-filter-save-copy">
                 Save as copy
-            </LemonButton>
-            <LemonButton
-                size="xsmall"
+            </Button>
+            <Button
                 onClick={() => {
                     if (appliedSavedFilterFilters) {
                         applySavedFilter(appliedSavedFilterFilters)
@@ -73,7 +71,7 @@ export function SavedFilterEditedBar({
                 data-attr="list-saved-filter-revert"
             >
                 Revert
-            </LemonButton>
+            </Button>
         </div>
     )
 }
