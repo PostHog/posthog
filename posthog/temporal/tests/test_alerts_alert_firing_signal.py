@@ -45,7 +45,11 @@ class TestEmitAlertFiringSignal(BaseTest):
         self.insight = Insight.objects.create(team=self.team, name="Daily signups", query={})
 
     def _alert_and_check(
-        self, *, investigation_agent_enabled: bool = False, detector_config: dict | None = None
+        self,
+        *,
+        investigation_agent_enabled: bool = False,
+        detector_config: dict | None = None,
+        earlier_states: list[AlertState] | None = None,
     ) -> tuple[AlertConfiguration, AlertCheck]:
         alert = AlertConfiguration.objects.create(
             team=self.team,
@@ -56,6 +60,8 @@ class TestEmitAlertFiringSignal(BaseTest):
             detector_config=detector_config,
             created_by=self.user,
         )
+        for state in earlier_states or []:
+            AlertCheck.objects.create(alert_configuration=alert, state=state, calculated_value=1.0)
         check = AlertCheck.objects.create(alert_configuration=alert, state=AlertState.FIRING, calculated_value=1.0)
         return alert, check
 
@@ -95,6 +101,18 @@ class TestEmitAlertFiringSignal(BaseTest):
                 False,
             ),
             ("still_firing_is_the_same_episode", {}, {"previous_state": AlertState.FIRING}, False),
+            (
+                "error_during_an_episode_is_the_same_episode",
+                {"earlier_states": [AlertState.FIRING, AlertState.ERRORED, AlertState.ERRORED]},
+                {"previous_state": AlertState.ERRORED},
+                False,
+            ),
+            (
+                "error_before_the_first_fire_starts_an_episode",
+                {"earlier_states": [AlertState.NOT_FIRING, AlertState.ERRORED]},
+                {"previous_state": AlertState.ERRORED},
+                True,
+            ),
             ("default_scope", {}, {"scope": "investigated_only"}, False),
             ("source_disabled", {}, {"source_enabled": False}, False),
             ("no_source_row", {}, {"source_enabled": None}, False),

@@ -141,6 +141,23 @@ def _log_skip(alert_id: str, alert_check_id: str, reason: AlertFiringSkipReason)
     logger.info("alert_firing.signal_skipped", alert_id=alert_id, alert_check_id=alert_check_id, reason=reason.value)
 
 
+def _resumes_interrupted_episode(alert: AlertConfiguration, alert_check: AlertCheck) -> bool:
+    """Whether the checks before this one, ignoring errored checks, end in a firing check.
+
+    A failed query says nothing about the metric. Without this read, a transient error during an
+    incident would look like a new firing episode, and the incident would file a second signal.
+    """
+    last_state = (
+        AlertCheck.objects.filter(alert_configuration=alert)
+        .exclude(id=alert_check.id)
+        .exclude(state=AlertState.ERRORED)
+        .order_by("-created_at")
+        .values_list("state", flat=True)
+        .first()
+    )
+    return last_state == AlertState.FIRING
+
+
 def _prepare(
     alert: AlertConfiguration, alert_check: AlertCheck, *, previous_state: str, breaches: list[str]
 ) -> tuple[AlertFiringSkipReason | None, AlertFiringSignal | None]:
@@ -154,6 +171,8 @@ def _prepare(
         return AlertFiringSkipReason.SOURCE_DISABLED, None
     if get_analytics_alert_scope(team_id=alert.team_id) != _ALL_FIRING_ALERTS:
         return AlertFiringSkipReason.SCOPE, None
+    if previous_state == AlertState.ERRORED and _resumes_interrupted_episode(alert, alert_check):
+        return AlertFiringSkipReason.NOT_NEW_EPISODE, None
 
     team = alert.team
     # `emit_signal` reads the organization for its consent gate. Loading it here keeps that read off the event loop.
