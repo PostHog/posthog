@@ -99,6 +99,7 @@ def _open_pr_github() -> MagicMock:
     }
     github.list_submitted_pull_request_reviewers.return_value = {"success": True, "reviewed_by": []}
     github.get_removed_pull_request_reviewers.return_value = set()
+    github.list_pull_request_files.return_value = {"success": True, "paths": []}
     return github
 
 
@@ -303,6 +304,68 @@ class TestAssignReviewersToPullRequest:
 
         if owner is None and removed is not None:
             github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, ["other"])
+        else:
+            github.request_pull_request_reviews.assert_not_called()
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        ("team_members", "pinned", "owner", "expected_reviewer"),
+        [
+            (["Other"], None, None, "other"),
+            (["outsider"], None, None, None),
+            (["outsider"], "departed", None, "departed"),
+            (["outsider"], None, "departed", "departed"),
+            ([], None, None, "departed"),
+        ],
+        ids=[
+            "owning_team_member_asked",
+            "no_reviewer_on_the_owning_team",
+            "pinned_reviewer_asked",
+            "owner_asked",
+            "team_with_no_listed_members",
+        ],
+    )
+    def test_without_an_owner_only_the_owning_team_is_asked(
+        self,
+        org_and_team: tuple[Organization, Team],
+        team_members: list[str],
+        pinned: str | None,
+        owner: str | None,
+        expected_reviewer: str | None,
+    ) -> None:
+        org, team = org_and_team
+        for login in ["departed", "other"]:
+            _make_reviewer(org, login, opted_in=False)
+        report = _make_report(team, ["departed", "other"])
+        if pinned:
+            SignalReportArtefact.objects.create(
+                team=team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.REVIEWER_CORRECTIONS,
+                content=ReviewerCorrections(pinned=(SuggestedReviewerEntry(github_login=pinned),)).model_dump_json(),
+            )
+        github = _open_pr_github()
+        github.get_pull_request.return_value["assignees"] = [owner] if owner else []
+        github.list_pull_request_files.return_value = {"success": True, "paths": ["products/signals/a.py"]}
+        github.list_team_members.return_value = {"success": True, "logins": team_members}
+
+        with (
+            patch("products.signals.backend.reviewer_pr_assignment.assignment_side_effects_allowed", return_value=True),
+            patch(
+                "products.signals.backend.pr_owning_team.resolve_path_owners",
+                return_value=PathOwnership(
+                    team_by_path={"products/signals/a.py": "team-signals"}, registry={}, resolved=True
+                ),
+            ),
+            patch(
+                "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository",
+                return_value=github,
+            ),
+        ):
+            assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL)
+
+        if expected_reviewer:
+            github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, [expected_reviewer])
         else:
             github.request_pull_request_reviews.assert_not_called()
 

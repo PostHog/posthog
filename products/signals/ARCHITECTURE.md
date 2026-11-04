@@ -1420,6 +1420,7 @@ This governs what the rule adds. Nobody is ever unassigned, so a person can stil
 "Assignee" here means GitHub's assignee, the person responsible.
 A single assignee receives a review request even when another person or team request exists.
 Without a single owner, the worker requests the highest-ranked eligible report reviewer only when no request exists.
+When `owners.yaml` names a team for the changed files, only members of that team and reviewers a person pinned on the report qualify.
 Each attempt requests at most one person and preserves other requests.
 The worker skips the author, pending recipients, completed reviewers, and people whose review request was removed.
 Incomplete review or removal history prevents a new request.

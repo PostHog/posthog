@@ -11,6 +11,10 @@ separate from report and PR assignment. GitHub failures must not break report wr
 Standing reviewer exclusions for the pull request's repository apply to every automatic candidate,
 including reviewer lists saved before the exclusion existed. The person who chose the work is
 still assigned, because a claim is a person's own decision.
+
+A pull request without a single owner gets a review request from the suggested reviewers. When the
+repository names a team that owns the changed files, that request goes only to members of the team
+or to a reviewer a person pinned on the report.
 """
 
 from __future__ import annotations
@@ -406,6 +410,37 @@ def _add_assignees(
     return AssigneeWrite(assignees=assigned)
 
 
+def _pinned_reviewer_logins(*, team_id: int, report_id: str) -> set[str]:
+    """GitHub logins of the reviewers a person pinned on the report."""
+    pinned = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id).corrections.pinned
+    login_by_uuid = get_org_member_github_logins_by_user_uuid(
+        team_id, [entry.user_uuid for entry in pinned if entry.user_uuid]
+    )
+    return {
+        login.lower()
+        for entry in pinned
+        if (login := login_by_uuid.get(entry.user_uuid) if entry.user_uuid else entry.github_login)
+    }
+
+
+def _owning_team_reviewers(
+    github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef, logins: list[str]
+) -> list[str]:
+    """The report reviewers who still answer for the files the pull request changes.
+
+    Commit history does not show who left the company or moved to another team, so a reviewer
+    selected from an older change can still be an active member with repository access. When
+    `owners.yaml` names a team for the changed files, only members of that team and reviewers a
+    person pinned on the report are asked. A repository without ownership files, or one whose team
+    cannot be read, keeps the full list, because there is nothing to check the list against.
+    """
+    team = _owning_team(github, team_id=team_id, report_id=report_id, parsed=parsed)
+    if team is None or not team.logins:
+        return logins
+    allowed = set(team.logins) | _pinned_reviewer_logins(team_id=team_id, report_id=report_id)
+    return [login for login in logins if login.lower() in allowed]
+
+
 def _request_reviews(
     github: GitHubIntegration,
     *,
@@ -436,6 +471,15 @@ def _request_reviews(
         return []
 
     log = logger.bind(team_id=team_id, report_id=report_id, repository=parsed.repository, pr_number=parsed.number)
+    if owner is None:
+        try:
+            wanted = _owning_team_reviewers(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=wanted)
+        except Exception:
+            log.exception("signals.reviewer_pr_assignment.owning_team_reviewers_failed")
+            return []
+        if not wanted:
+            log.info("signals.reviewer_pr_assignment.no_owning_team_reviewer")
+            return []
     try:
         reviews = github.list_submitted_pull_request_reviewers(parsed.repository, parsed.number)
     except Exception:
