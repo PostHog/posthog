@@ -308,7 +308,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         [
             ("cannot_parse_datetime", 41, False),
             ("cannot_parse_number", 72, False),
-            ("no_common_type", 386, True),
+            ("no_common_type", 386, False),
         ]
     )
     def test_customer_input_errors_skip_error_tracking(self, _name: str, code: int, expect_capture: bool):

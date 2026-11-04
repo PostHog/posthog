@@ -150,18 +150,6 @@ def _is_non_reportable_query_error(error: Exception, *, materialized: bool) -> b
     return isinstance(error, _NON_REPORTABLE_QUERY_ERRORS)
 
 
-# ClickHouse cannot parse a value the customer sent (e.g. a bad date variable). execute() returns a 400.
-_CUSTOMER_INPUT_ERROR_CODES = frozenset(
-    {"cannot_parse_date", "cannot_parse_datetime", "cannot_parse_number", "decimal_overflow"}
-)
-
-
-def _is_customer_input_error(error: BaseException) -> bool:
-    if isinstance(error, ValidationError):
-        return True
-    return isinstance(error, ExposedCHQueryError) and error.code_name in _CUSTOMER_INPUT_ERROR_CODES
-
-
 # Connection loss outside SQLSTATE class 08 (connection_exception).
 _CONNECTION_LOSS_SQLSTATES = frozenset(
     {
