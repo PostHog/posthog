@@ -592,7 +592,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
     }
 
     // The caller must check that the user may edit the workflow: this method trusts `userId`.
-    // Returns the queued run's ID, or throws a SourceWebhookError when no run starts.
     @instrumented('cdpSourceWebhooksConsumer.processManualTrigger')
     public async processManualTrigger(
         teamId: number,
