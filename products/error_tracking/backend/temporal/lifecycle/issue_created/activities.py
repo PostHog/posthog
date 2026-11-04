@@ -49,6 +49,7 @@ from products.error_tracking.backend.temporal.lifecycle.side_effects import (
     dispatch_issue_lifecycle_alert,
     emit_issue_lifecycle_signal,
     produce_issue_lifecycle_internal_event,
+    record_issue_occurrence,
 )
 from products.error_tracking.backend.temporal.lifecycle.summary_worker import generate_summary_on_worker
 from products.ml_inference.backend.facade.contracts import (
@@ -393,8 +394,15 @@ async def emit_issue_created_signal_activity(inputs: IssueCreatedWorkflowInputs)
     )
 
 
+@activity.defn
+@close_db_connections
+def record_issue_created_occurrence_activity(inputs: IssueCreatedWorkflowInputs) -> None:
+    record_issue_occurrence(inputs, reopened=False)
+
+
 ACTIVITIES = [
     dispatch_issue_created_alert_activity,
+    record_issue_created_occurrence_activity,
     generate_issue_created_embedding_activity,
     persist_issue_created_embedding_activity,
     merge_issue_created_fingerprint_activity,

@@ -9,6 +9,7 @@ from products.error_tracking.backend.temporal.lifecycle.side_effects import (
     dispatch_issue_lifecycle_alert,
     emit_issue_lifecycle_signal,
     produce_issue_lifecycle_internal_event,
+    record_issue_occurrence,
 )
 
 
@@ -53,8 +54,15 @@ def generate_issue_reopened_summary_activity(inputs: IssueReopenedWorkflowInputs
     pass
 
 
+@activity.defn
+@close_db_connections
+def record_issue_reopened_occurrence_activity(inputs: IssueReopenedWorkflowInputs) -> None:
+    record_issue_occurrence(inputs, reopened=True)
+
+
 ACTIVITIES = [
     dispatch_issue_reopened_alert_activity,
+    record_issue_reopened_occurrence_activity,
     emit_issue_reopened_internal_event_activity,
     emit_issue_reopened_signal_activity,
     generate_issue_reopened_summary_activity,

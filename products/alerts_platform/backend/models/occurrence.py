@@ -5,6 +5,7 @@ not per alert, so two alerts on one source agree on what is new.
 """
 
 from django.db import models
+from django.utils import timezone
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
@@ -25,6 +26,9 @@ class PlatformOccurrence(TeamScopedRootMixin, UUIDModel):
     first_seen_at = models.DateTimeField()
     # Set by a person. A later sighting clears it and sets `reappeared_at`, which announces the identity again.
     resolved_at = models.DateTimeField(null=True, blank=True)
+    # When the registry last recorded a fact about the identity. A check reads by this, not by when the
+    # fact occurred, so a fact pushed late is still read.
+    recorded_at = models.DateTimeField(default=timezone.now)
     reappeared_at = models.DateTimeField(null=True, blank=True)
 
     labels = models.JSONField(default=dict, db_default={})
@@ -38,12 +42,7 @@ class PlatformOccurrence(TeamScopedRootMixin, UUIDModel):
             )
         ]
         indexes = [
-            models.Index(fields=["team", "source_kind", "first_seen_at"], name="platform_occurrence_new_idx"),
-            models.Index(
-                fields=["team", "source_kind", "reappeared_at"],
-                name="platform_occurrence_back_idx",
-                condition=models.Q(reappeared_at__isnull=False),
-            ),
+            models.Index(fields=["team", "source_kind", "recorded_at"], name="platform_occurrence_rec_idx"),
         ]
 
 
@@ -58,7 +57,6 @@ class PlatformOccurrenceCursor(TeamScopedRootMixin, UUIDModel):
         "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
     )
     source_kind = models.CharField(max_length=32, choices=source_kind_choices)
-    # Null until the first read, which seeds the registry from the feed's lookback.
     registered_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:

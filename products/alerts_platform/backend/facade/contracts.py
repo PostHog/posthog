@@ -57,7 +57,6 @@ class AlertBatchKey:
 
     team_id: int
     slot: str
-    # A source's appearance alerts run in the platform's own evaluation, apart from its threshold alerts.
     alert_kind: PlatformAlertKind = PlatformAlertKind.THRESHOLD
 
 
@@ -559,7 +558,6 @@ class AlertEventKind(StrEnum):
     BROKEN = "broken"
     # A follow-up about a firing that already went out. History readers leave it out of the checks.
     VERDICT_CHANGED = "verdict_changed"
-    # Something new, or back, that an appearance alert announces once. It opens no firing.
     APPEARED = "appeared"
 
     @property
@@ -1790,7 +1788,6 @@ class OccurrenceKind(StrEnum):
     REAPPEARED = "reappeared"
 
 
-# An appearance alert groups by this one label, so each identity has its own instance and thread.
 APPEARANCE_IDENTITY_LABEL: Final = "identity"
 APPEARANCE_GROUPING: Final = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=(APPEARANCE_IDENTITY_LABEL,))
 APPEARANCE_DETAIL_KEY: Final = "appearance"
@@ -1815,26 +1812,10 @@ class Occurrence:
 
 @frozen
 class OccurrenceWindow:
-    """What a store found in a window, oldest first. `truncated` is set when the store stopped at its limit."""
+    """What the registry recorded in a window, oldest first. `truncated` is set when the read stopped at its limit."""
 
     occurrences: tuple[Occurrence, ...]
     truncated: bool = False
-
-
-class OccurrenceStore(Protocol):
-    """Where a source's appearance alerts read which identities are new.
-
-    Every alert on a source reads the same store, so two alerts with different filters agree on what
-    is new, and creating or deleting an alert does not change it.
-    """
-
-    def ready_until(self, *, team_id: int, now: datetime) -> datetime:
-        """The end of the time the store has complete answers for. A check never reads past it."""
-        ...
-
-    def appeared(self, *, team_id: int, since: datetime, until: datetime, limit: int) -> OccurrenceWindow:
-        """The occurrences with `since <= occurred_at < until`, at most `limit` of them."""
-        ...
 
 
 @frozen
@@ -1859,7 +1840,6 @@ class OccurrenceFeed:
     """
 
     ready_until: Callable[[int, datetime], datetime]
-    # Every identity seen with `since <= seen_at < until`, earliest first, at most `limit` of them.
     seen: Callable[[int, datetime, datetime, int], Sequence[SeenIdentity]]
     # How far back the first read of a project goes. Identities seen there are known before any
     # alert can announce them, so an alert does not announce what the project already had.

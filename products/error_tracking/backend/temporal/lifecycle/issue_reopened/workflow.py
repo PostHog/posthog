@@ -10,6 +10,7 @@ from products.error_tracking.backend.temporal.lifecycle.issue_reopened.types imp
     IssueReopenedWorkflowInputs,
     IssueReopenedWorkflowResult,
 )
+from products.error_tracking.backend.temporal.lifecycle.occurrence_activity import record_occurrence_fail_open
 from products.error_tracking.backend.temporal.lifecycle.policies import (
     ACTIVITY_RETRY_POLICY,
     ACTIVITY_START_TO_CLOSE_TIMEOUT,
@@ -19,6 +20,7 @@ from products.error_tracking.backend.temporal.lifecycle.policies import (
 )
 from products.error_tracking.backend.temporal.lifecycle.summary_activity import execute_summary_activity
 
+ISSUE_REOPENED_OCCURRENCE_PATCH = "error-tracking-issue-reopened-occurrence"
 WORKFLOW_NAME = "error-tracking-issue-reopened"
 SUMMARY_ON_REOPEN_PATCH = "error-tracking-summary-on-reopen-activity"
 
@@ -60,6 +62,9 @@ async def run_issue_reopened_side_effects(inputs: IssueReopenedWorkflowInputs) -
         if workflow.patched(SUMMARY_ON_REOPEN_PATCH)
         else None
     )
+    # Patched: executions in flight when this activity shipped replay the old sequence.
+    if workflow.patched(ISSUE_REOPENED_OCCURRENCE_PATCH):
+        await record_occurrence_fail_open("record_issue_reopened_occurrence_activity", inputs)
     try:
         await workflow.execute_activity(
             "emit_issue_reopened_internal_event_activity",

@@ -22,6 +22,7 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
 )
 from products.error_tracking.backend.temporal.lifecycle.issue_reopened.types import IssueReopenedWorkflowInputs
 from products.error_tracking.backend.temporal.lifecycle.issue_reopened.workflow import run_issue_reopened_side_effects
+from products.error_tracking.backend.temporal.lifecycle.occurrence_activity import record_occurrence_fail_open
 from products.error_tracking.backend.temporal.lifecycle.policies import (
     ACTIVITY_RETRY_POLICY,
     ACTIVITY_START_TO_CLOSE_TIMEOUT,
@@ -31,6 +32,7 @@ from products.error_tracking.backend.temporal.lifecycle.policies import (
 )
 from products.error_tracking.backend.temporal.lifecycle.summary_activity import execute_summary_activity
 
+ISSUE_CREATED_OCCURRENCE_PATCH = "error-tracking-issue-created-occurrence"
 WORKFLOW_NAME = "error-tracking-issue-created"
 
 SEVERITY_INFERENCE_PATCH = "error-tracking-severity-inference-activity"
@@ -157,6 +159,9 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
             if workflow.patched(SUMMARY_ON_WRITE_PATCH)
             else None
         )
+        # Patched: executions in flight when this activity shipped replay the old sequence.
+        if workflow.patched(ISSUE_CREATED_OCCURRENCE_PATCH):
+            await record_occurrence_fail_open("record_issue_created_occurrence_activity", inputs)
         try:
             await workflow.execute_activity(
                 "emit_issue_created_internal_event_activity",
