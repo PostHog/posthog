@@ -40,6 +40,12 @@ export function pulseWhy(metric: HighlightMetricApi, today: dayjs.Dayjs = dayjs(
     if (metric.reason === 'popular') {
         return 'People in this project open this insight often.'
     }
+    if (metric.reason === 'watched') {
+        return 'You get an alert or a subscription for this insight.'
+    }
+    if (metric.reason === 'built') {
+        return 'You created or edited this insight recently.'
+    }
     if (metric.reason !== 'routine' && metric.reason !== 'dashboard') {
         return null
     }

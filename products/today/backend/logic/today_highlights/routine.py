@@ -55,6 +55,7 @@ class ViewedItem:
     kind: str
     ref: str
     days: frozenset[date]
+    reason: HighlightMetricReason | None = None
 
 
 @frozen
@@ -143,6 +144,7 @@ def _progressive_metrics(context: Context, excluded: Collection[str], budget: in
                     context,
                     candidate.short_id,
                     viewed=candidate.viewed,
+                    reason=candidate.viewed.reason,
                     dashboard=_dashboard_context(candidate),
                     url=slots[key].url,
                     dashboard_name=dashboard.name if dashboard else None,
@@ -206,7 +208,7 @@ def _eligible_choices(
                 slot=contracts.PulseSlot(
                     key=key,
                     name=definition.name or "Untitled insight",
-                    reason=HighlightMetricReason.ROUTINE,
+                    reason=candidate.viewed.reason or HighlightMetricReason.ROUTINE,
                     url=f"/dashboard/{dashboard.dashboard_id}" if dashboard else f"/insights/{candidate.short_id}",
                     interval=HighlightInterval(interval)
                     if source.get("kind") == "TrendsQuery" and interval in HighlightInterval.values
@@ -286,6 +288,7 @@ def _own_candidates(context: Context) -> list[ViewedItem]:
             insight_short_ids_subscribed_by,
             team_id=context.team.id,
             user_id=context.user.id,
+            email=context.user.email,
             now=timezone.now(),
             limit=SIGNAL_CANDIDATES,
         ),
@@ -305,8 +308,11 @@ def _own_candidates(context: Context) -> list[ViewedItem]:
     watched = [*alerted, *subscribed]
     groups = [
         used,
-        [ViewedItem(kind="insight", ref=ref, days=frozenset()) for ref in dict.fromkeys(watched)],
-        [ViewedItem(kind="insight", ref=ref, days=frozenset()) for ref in built],
+        [
+            ViewedItem(kind="insight", ref=ref, days=frozenset(), reason=HighlightMetricReason.WATCHED)
+            for ref in dict.fromkeys(watched)
+        ],
+        [ViewedItem(kind="insight", ref=ref, days=frozenset(), reason=HighlightMetricReason.BUILT) for ref in built],
     ]
     return _mixed(groups, SIGNAL_MIX)[:SIGNAL_CANDIDATES]
 
@@ -355,7 +361,12 @@ def _frecent_metric(
         if f"insight:{item.ref}" in shown:
             return None
         return insight_metric(
-            context, item.ref, viewed=item, blocking=wait and monotonic() < deadline, wait_until=deadline
+            context,
+            item.ref,
+            viewed=item,
+            reason=item.reason,
+            blocking=wait and monotonic() < deadline,
+            wait_until=deadline,
         )
     if not item.ref.isdigit():
         return None

@@ -468,8 +468,15 @@ class TestRoutineInsights(BaseTest):
             pulse = routine.find(Context(self.team, self.user, TODAY)).pulse
 
         self.assertEqual(
-            [m.key for m in pulse],
-            [f"insight:{ref}" for ref in ("habit", "alerted", "subscribed", "b1", "b2", "b3")],
+            [(m.key, m.reason) for m in pulse],
+            [
+                ("insight:habit", "routine"),
+                ("insight:alerted", "watched"),
+                ("insight:subscribed", "watched"),
+                ("insight:b1", "built"),
+                ("insight:b2", "built"),
+                ("insight:b3", "built"),
+            ],
         )
 
 

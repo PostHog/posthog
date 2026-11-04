@@ -13,7 +13,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 import structlog
@@ -50,7 +50,12 @@ from products.alerts.backend.llm_detector_limits import (
     is_llm_detector_config,
     llm_detector_access_error,
 )
-from products.alerts.backend.models.alert import METRICS_INSIGHT_QUERY_FILTER, AlertCheck, AlertConfiguration
+from products.alerts.backend.models.alert import (
+    METRICS_INSIGHT_QUERY_FILTER,
+    AlertCheck,
+    AlertConfiguration,
+    AlertSubscription,
+)
 from products.alerts_platform.backend.facade.contracts import InvalidPlatformAlertEdit
 
 logger = structlog.get_logger(__name__)
@@ -251,13 +256,17 @@ def list_firing_alerts_created_by(
     ]
 
 
+WATCHED_ROWS_PER_INSIGHT = 4
+
+
 def insight_short_ids_watched_by(*, team_id: int, user_id: int, limit: int) -> list[str]:
     """Short ids of insights with an enabled alert that the user created or subscribes to, newest alert first."""
+    follows = AlertSubscription.objects.filter(alert_configuration=OuterRef("pk"), user_id=user_id, subscribed=True)
     rows = (
         AlertConfiguration.objects.filter(team_id=team_id, enabled=True, insight__deleted=False)
-        .filter(Q(created_by_id=user_id) | Q(alertsubscription__user_id=user_id, alertsubscription__subscribed=True))
+        .filter(Q(created_by_id=user_id) | Exists(follows))
         .order_by("-created_at")
-        .values_list("insight__short_id", flat=True)
+        .values_list("insight__short_id", flat=True)[: limit * WATCHED_ROWS_PER_INSIGHT]
     )
     return list(dict.fromkeys(rows))[:limit]
 

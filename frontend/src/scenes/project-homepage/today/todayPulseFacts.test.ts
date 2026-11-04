@@ -27,6 +27,16 @@ describe('todayPulseFacts', () => {
             { reason: 'key_metric', opened_days: null, last_opened: null },
             'It is a key metric for this project, set in Customer analytics.',
         ],
+        [
+            'a watched insight never opened',
+            { reason: 'watched', opened_days: null, last_opened: null },
+            'You get an alert or a subscription for this insight.',
+        ],
+        [
+            'a built insight never opened',
+            { reason: 'built', opened_days: null, last_opened: null },
+            'You created or edited this insight recently.',
+        ],
         ['a metric computed before reasons existed', { reason: null }, null],
     ] as const)('explains %s', (_name, overrides, expected) => {
         expect(pulseWhy(makePulseMetric(overrides), today)).toBe(expected)

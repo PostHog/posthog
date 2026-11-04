@@ -35,16 +35,32 @@ def subscription_ids_in_team(*, team_id: int, subscription_ids: Collection[int])
     return set(Subscription.objects.filter(team_id=team_id, id__in=subscription_ids).values_list("id", flat=True))
 
 
-def insight_short_ids_subscribed_by(*, team_id: int, user_id: int, now: datetime, limit: int) -> list[str]:
+def insight_short_ids_subscribed_by(*, team_id: int, user_id: int, email: str, now: datetime, limit: int) -> list[str]:
+    email_target = Subscription.SubscriptionTarget.EMAIL
     rows = (
         Subscription.objects.filter(
-            team_id=team_id, created_by_id=user_id, deleted=False, insight__isnull=False, insight__deleted=False
+            team_id=team_id,
+            deleted=False,
+            enabled=True,
+            next_delivery_date__isnull=False,
+            insight__isnull=False,
+            insight__deleted=False,
         )
         .filter(Q(until_date__isnull=True) | Q(until_date__gt=now))
+        .filter(
+            Q(target_type=email_target, target_value__icontains=email)
+            | (~Q(target_type=email_target) & Q(created_by_id=user_id))
+        )
         .order_by("-id")
-        .values_list("insight__short_id", flat=True)
+        .values_list("insight__short_id", "target_type", "target_value")[: limit * 4]
     )
-    return list(dict.fromkeys(rows))[:limit]
+    recipient = email.strip().lower()
+    received = (
+        short_id
+        for short_id, target_type, target_value in rows
+        if target_type != email_target or recipient in {address.strip().lower() for address in target_value.split(",")}
+    )
+    return list(dict.fromkeys(received))[:limit]
 
 
 def user_has_slack_subscription(*, team_id: int, user_id: int) -> bool:
