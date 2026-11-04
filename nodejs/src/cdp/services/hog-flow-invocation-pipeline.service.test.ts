@@ -126,6 +126,7 @@ describe('HogFlowInvocationPipeline', () => {
         const result = await pipeline.buildInvocations([makeGlobals()])
 
         expect(result).toEqual([inv])
+        expect(result[0].state?.quotaChecked).toBe(true)
         expect(hogFunctionMonitoringService.queueAppMetrics).toHaveBeenCalledWith(
             expect.arrayContaining([
                 expect.objectContaining({
