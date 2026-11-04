@@ -121,6 +121,7 @@ A pin whose tile is gone (its insight answers 404, or the cached dashboard no lo
 
 ### Pin actions
 
+- Hold a pin’s title for about 1.3 seconds to drag it directly in Views. The normal long-press menu appears first; keep holding for a second haptic cue, then drag to the highlighted tile and release to insert there. Holding near the top or bottom scrolls the list. This works with mixed tile heights and the two-column layout. Releasing without moving or cancelling leaves the order unchanged. Dragging is disabled while searching; Move up/down and Edit pins remain available, including for screen readers.
 - Long press any pin for its menu: Show as Row, Number or Chart, Choose tile (dashboards), Move up, Move down, Unpin.
 - Long press a Recent, Browse or search row for Pin to Views (or Unpin) and Open.
 - Every Recent, Browse and search row has a pin button. Tap it to pin or unpin the view; rows have no swipe action.
