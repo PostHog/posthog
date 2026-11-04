@@ -17,7 +17,7 @@ export function AddDeliveryWebhookModal(): JSX.Element {
         webhookForm,
         isWebhookFormSubmitting,
         transactionalEmailOptions,
-        templatesLoading,
+        transactionalEmailOptionsLoading,
     } = useValues(deliveryWebhooksLogic)
     const { closeAddModal, submitWebhookForm, setWebhookFormValue } = useActions(deliveryWebhooksLogic)
 
@@ -87,7 +87,12 @@ export function AddDeliveryWebhookModal(): JSX.Element {
                     <LemonInputSelect
                         mode="multiple"
                         options={transactionalEmailOptions}
-                        loading={templatesLoading}
+                        loading={transactionalEmailOptionsLoading}
+                        emptyStateComponent={
+                            <p className="text-secondary italic p-1 m-0">
+                                You have no transactional emails yet. This webhook gets updates for every one you add.
+                            </p>
+                        }
                         placeholder="All transactional emails"
                         data-attr="transactional-webhook-emails"
                     />

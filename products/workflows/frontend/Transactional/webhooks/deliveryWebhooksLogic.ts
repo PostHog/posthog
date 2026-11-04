@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
+import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -12,9 +13,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { TeamPublicType, TeamType } from '~/types'
 
 import { hogFunctionTemplatesRetrieve, hogFunctionsCreate } from 'products/cdp/frontend/generated/api'
+import { messagingTemplatesList } from 'products/messaging/frontend/generated/api'
 
-import { messageTemplatesLogic } from '../../TemplateLibrary/messageTemplatesLogic'
-import { MessageTemplate } from '../../TemplateLibrary/types'
 import {
     DELIVERY_WEBHOOK_EVENTS,
     DELIVERY_WEBHOOK_LIST_FILTER_GROUPS,
@@ -41,6 +41,8 @@ export const DELIVERY_WEBHOOK_LIST_PROPS = {
     type: 'destination' as const,
 }
 
+const TEMPLATES_PAGE_SIZE = 100
+
 const DEFAULT_FORM: DeliveryWebhookForm = {
     url: '',
     events: DELIVERY_WEBHOOK_EVENTS.map(({ event }) => event),
@@ -52,14 +54,13 @@ export interface deliveryWebhooksLogicValues {
     currentProjectId: number | null // projectLogic
     currentTeam: TeamType | TeamPublicType | null // teamLogic
     currentTeamLoading: boolean // teamLogic
-    templatesLoading: boolean // messageTemplatesLogic
-    transactionalTemplates: MessageTemplate[] // messageTemplatesLogic
     createdSecret: string | null
     engagementEventsEnabled: boolean
     isAddModalOpen: boolean
     isWebhookFormSubmitting: boolean
     isWebhookFormValid: boolean
     transactionalEmailOptions: TransactionalEmailOption[]
+    transactionalEmailOptionsLoading: boolean
     showWebhookFormErrors: boolean
     webhookForm: DeliveryWebhookForm
     webhookFormAllErrors: Record<string, any>
@@ -80,6 +81,21 @@ export interface deliveryWebhooksLogicActions {
     }
     enableEngagementEvents: () => {
         value: true
+    }
+    loadTransactionalEmailOptions: () => any
+    loadTransactionalEmailOptionsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadTransactionalEmailOptionsSuccess: (
+        transactionalEmailOptions: TransactionalEmailOption[],
+        payload?: any
+    ) => {
+        transactionalEmailOptions: TransactionalEmailOption[]
+        payload?: any
     }
     openAddModal: () => {
         value: true
@@ -128,7 +144,6 @@ export interface deliveryWebhooksLogicActions {
 export interface deliveryWebhooksLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         engagementEventsEnabled: (currentTeam: TeamType | TeamPublicType | null) => boolean
-        transactionalEmailOptions: (transactionalTemplates: MessageTemplate[]) => TransactionalEmailOption[]
     }
 }
 
@@ -142,14 +157,7 @@ export type deliveryWebhooksLogicType = MakeLogicType<
 export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
     path(['products', 'workflows', 'frontend', 'Transactional', 'webhooks', 'deliveryWebhooksLogic']),
     connect(() => ({
-        values: [
-            teamLogic,
-            ['currentTeam', 'currentTeamLoading'],
-            projectLogic,
-            ['currentProjectId'],
-            messageTemplatesLogic,
-            ['transactionalTemplates', 'templatesLoading'],
-        ],
+        values: [teamLogic, ['currentTeam', 'currentTeamLoading'], projectLogic, ['currentProjectId']],
         actions: [teamLogic, ['updateCurrentTeam']],
     })),
     actions({
@@ -180,16 +188,32 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
             (s) => [s.currentTeam],
             (currentTeam): boolean => !!currentTeam?.workflows_config?.capture_workflows_engagement_events,
         ],
-        transactionalEmailOptions: [
-            (s) => [s.transactionalTemplates],
-            (transactionalTemplates: MessageTemplate[]): TransactionalEmailOption[] =>
-                transactionalTemplates.flatMap((template) =>
-                    template.transactional_hog_flow_id
-                        ? [{ key: template.transactional_hog_flow_id, label: template.name }]
-                        : []
-                ),
-        ],
     }),
+    loaders(({ values }) => ({
+        transactionalEmailOptions: [
+            [] as TransactionalEmailOption[],
+            {
+                // The list endpoint pages, and a team can have more templates than one page holds.
+                loadTransactionalEmailOptions: async () => {
+                    const projectId = String(values.currentProjectId)
+                    const options: TransactionalEmailOption[] = []
+                    let offset = 0
+                    let hasMore = true
+                    while (hasMore) {
+                        const page = await messagingTemplatesList(projectId, { limit: TEMPLATES_PAGE_SIZE, offset })
+                        for (const template of page.results) {
+                            if (template.transactional_hog_flow_id) {
+                                options.push({ key: template.transactional_hog_flow_id, label: template.name })
+                            }
+                        }
+                        offset += page.results.length
+                        hasMore = !!page.next && page.results.length > 0
+                    }
+                    return options
+                },
+            },
+        ],
+    })),
     forms(({ values, actions }) => ({
         webhookForm: {
             defaults: DEFAULT_FORM,
@@ -212,6 +236,7 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
     })),
     listeners(({ actions, values }) => ({
         openAddModal: () => {
+            actions.loadTransactionalEmailOptions()
             // pinned: analytics event name
             posthog.capture('transactional_webhook_add_opened')
         },

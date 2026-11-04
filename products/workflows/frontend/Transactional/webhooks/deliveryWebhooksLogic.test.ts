@@ -10,7 +10,7 @@ describe('deliveryWebhooksLogic', () => {
     let logic: ReturnType<typeof deliveryWebhooksLogic.build>
     let created: Record<string, any>[]
 
-    beforeEach(async () => {
+    beforeEach(() => {
         created = []
         useMocks({
             get: {
@@ -20,12 +20,40 @@ describe('deliveryWebhooksLogic', () => {
                     inputs_schema: [{ key: 'url', type: 'string' }],
                     icon_url: '/static/services/webhook.svg',
                 },
-                '/api/projects/:team_id/messaging_templates/': {
-                    results: [
-                        { id: 'template-receipt', name: 'Receipt', transactional_hog_flow_id: 'flow-receipt' },
-                        { id: 'template-reset', name: 'Password reset', transactional_hog_flow_id: 'flow-reset' },
-                        { id: 'template-newsletter', name: 'Newsletter', transactional_hog_flow_id: null },
-                    ],
+                '/api/projects/:team_id/messaging_templates/': ({ request }) => {
+                    const offset = new URL(request.url).searchParams.get('offset')
+                    return offset === '0'
+                        ? [
+                              200,
+                              {
+                                  next: 'http://localhost/api/projects/997/messaging_templates/?limit=100&offset=2',
+                                  results: [
+                                      {
+                                          id: 'template-receipt',
+                                          name: 'Receipt',
+                                          transactional_hog_flow_id: 'flow-receipt',
+                                      },
+                                      {
+                                          id: 'template-newsletter',
+                                          name: 'Newsletter',
+                                          transactional_hog_flow_id: null,
+                                      },
+                                  ],
+                              },
+                          ]
+                        : [
+                              200,
+                              {
+                                  next: null,
+                                  results: [
+                                      {
+                                          id: 'template-reset',
+                                          name: 'Password reset',
+                                          transactional_hog_flow_id: 'flow-reset',
+                                      },
+                                  ],
+                              },
+                          ]
                 },
             },
             post: {
@@ -39,7 +67,6 @@ describe('deliveryWebhooksLogic', () => {
         initKeaTests()
         logic = deliveryWebhooksLogic()
         logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
     })
 
     afterEach(() => {
@@ -50,8 +77,9 @@ describe('deliveryWebhooksLogic', () => {
         ['every transactional email', [], undefined],
         ['the picked transactional emails', ['Password reset'], ['flow-reset']],
     ])('creates a signed webhook for %s that the webhooks list finds', async (_, picked, workflowIds) => {
-        expect(logic.values.transactionalEmailOptions.map(({ label }) => label)).toEqual(['Receipt', 'Password reset'])
         logic.actions.openAddModal()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.transactionalEmailOptions.map(({ label }) => label)).toEqual(['Receipt', 'Password reset'])
         logic.actions.setWebhookFormValues({
             url: ' https://example.com/hooks ',
             events: ['$workflows_email_delivered', '$workflows_email_bounced'],
