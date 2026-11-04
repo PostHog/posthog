@@ -66,6 +66,10 @@ export class GuidanceProductState {
         return exists
     }
 
+    hasBudgetLeft(): boolean {
+        return this.deadlineAt === undefined || Date.now() < this.deadlineAt
+    }
+
     async withinBudget<T>(check: string, read: () => Promise<T>): Promise<T | undefined> {
         this.deadlineAt ??= Date.now() + LOOKUP_BUDGET_MS
         const work = read()

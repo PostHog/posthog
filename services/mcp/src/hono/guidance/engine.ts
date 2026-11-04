@@ -237,15 +237,17 @@ export class GuidanceEngine {
             return Number(await runScript(suppressing ? 'suppress' : 'match')) as RuleResult
         }
         // `touch` keeps a capped rule's counters alive without the `match` count, so a rejected call
-        // spends no `maxPerSession`. The budget covers every step because the tool result waits here.
-        const result = await productState.withinBudget('rule_gate', async () => {
+        // spends no `maxPerSession`. `match` is a separate step so that a gate that outlives the budget
+        // cannot reserve a notice that nobody receives.
+        const admitted = await productState.withinBudget('rule_gate', async () => {
             const shown = Number(await runScript('touch'))
-            if (shown >= rule.maxPerSession || !(await condition({ call, productState }))) {
-                return RuleResult.None
-            }
-            return Number(await runScript('match')) as RuleResult
+            return shown < rule.maxPerSession && (await condition({ call, productState }))
         })
-        return result ?? RuleResult.None
+        if (admitted !== true || !productState.hasBudgetLeft()) {
+            return RuleResult.None
+        }
+        const result = await productState.withinBudget('rule_match', () => runScript('match'))
+        return result === undefined ? RuleResult.None : (Number(result) as RuleResult)
     }
 }
 

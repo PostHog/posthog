@@ -273,6 +273,25 @@ describe('GuidanceEngine', () => {
             ])
         })
 
+        it('reserves no notice when the gate finishes after the budget', async () => {
+            vi.useFakeTimers()
+            try {
+                const redis = makeGuidanceRedis()
+                const evaluateScript = redis.eval.bind(redis)
+                const lateEval = vi.spyOn(redis, 'eval').mockImplementation(async (script, keys, ...args) => {
+                    await new Promise((resolve) => setTimeout(resolve, 400))
+                    return evaluateScript(script, keys, ...args)
+                })
+                const engine = new GuidanceEngine(redis, [conditionalRule(vi.fn().mockResolvedValue(true))])
+                const pending = engine.evaluate(makeState(), replayQuery)
+                await vi.advanceTimersByTimeAsync(1000)
+                await expect(pending).resolves.toBeUndefined()
+                expect(lateEval.mock.calls.map((call) => call[8])).toEqual(['touch'])
+            } finally {
+                vi.useRealTimers()
+            }
+        })
+
         it.each(['touch', 'match'])('holds the tool result to the budget when Redis stalls on %s', async (stalled) => {
             vi.useFakeTimers()
             try {
