@@ -356,7 +356,9 @@ export function useKeys({
     // Esc stops a running turn; a second Esc straight after clears what is typed, or brings back the chat an empty new chat replaced.
     if (key?.kind === "dismiss" && !composer.showingSuggestions()) {
       const turn = runningTurns.current.get(paneId);
-      const previous = findPane(layout, paneId)?.previous;
+      const pane = findPane(layout, paneId);
+      // A chat opened over a cleared pane keeps its old `previous`; only an empty new chat can go back.
+      const previous = pane?.taskId === null ? pane.previous : undefined;
       // The chat says "Cancelled" once the turn stops, so only a failed stop needs a notice.
       if (turn && control) {
         track("turn stopped", {
