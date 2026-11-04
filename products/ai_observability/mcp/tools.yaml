@@ -435,6 +435,7 @@ tools:
             results are kept. A cancelled backfill cannot be resumed; start a new one over the remaining range instead.
         param_overrides:
             evaluation_id:
+                description: UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.
                 aliases:
                     - evaluationId
             id:
@@ -462,6 +463,7 @@ tools:
             with llma-evaluation-backfill-get. Results are '$ai_evaluation' events.
         param_overrides:
             evaluation_id:
+                description: UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.
                 aliases:
                     - evaluationId
     llma-evaluation-backfill-estimate:
@@ -488,6 +490,7 @@ tools:
             filter needs a value, so pass conditions when the evaluation has none or is still a draft.
         param_overrides:
             evaluation_id:
+                description: UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.
                 aliases:
                     - evaluationId
     llma-evaluation-backfill-get:
@@ -507,6 +510,7 @@ tools:
             window still have no result; null means it was not measured. total_count is the count taken at the start.
         param_overrides:
             evaluation_id:
+                description: UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.
                 aliases:
                     - evaluationId
             id:
@@ -525,10 +529,13 @@ tools:
         list: true
         title: List evaluation backfills
         description: >
-            List the backfills of one evaluation, newest first, with status, window, and counts. At most one is running
-            at a time. See llma-evaluation-backfill-get for what each count means.
+            List the backfills of one evaluation, newest first, with status, window, and counts. evaluation_id is
+            required: there is no project-wide list, so to check every evaluation, get their UUIDs from
+            llma-evaluation-list and call this once per evaluation. At most one is running at a time. See
+            llma-evaluation-backfill-get for what each count means.
         param_overrides:
             evaluation_id:
+                description: UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.
                 aliases:
                     - evaluationId
     llma-evaluation-config-get:
