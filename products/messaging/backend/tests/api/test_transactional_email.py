@@ -30,25 +30,10 @@ from products.messaging.backend.presentation.views.message_templates import (
 )
 from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
+from products.messaging.backend.tests.test_code_send_fields import ADDRESS_VERDICTS
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
-
-ADDRESS_VERDICTS = [
-    ("jane=tag@example.com", True),
-    ("jane~tag@example.com", True),
-    ("jane#tag@example.com", True),
-    ("o'brien@example.com", True),
-    ("a!b$c%d&e*f/g?h^i`j|k~l@example.com", True),
-    ("jane@sub.example.co.uk", True),
-    ("jane@bücher.example", False),
-    ("jane@[192.0.2.1]", False),
-    ('"jane doe"@example.com', False),
-    ("jane@localhost", False),
-    (".jane@example.com", False),
-    ("jane.@example.com", False),
-    ("jane..doe@example.com", False),
-]
 
 
 def _stage_counts() -> dict[str, float]:
@@ -683,9 +668,8 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            (field, address, accepted)
-            for field in ("to", "reply_to", "cc", "bcc")
-            for address, accepted in ADDRESS_VERDICTS
+            *((field, address, accepted) for field in ("to", "reply_to") for address, accepted in ADDRESS_VERDICTS),
+            ("cc", '"jane doe"@example.com', False),
         ]
     )
     def test_a_code_send_takes_the_addresses_the_pipeline_takes(
@@ -701,8 +685,7 @@ class TestTransactionalEmail(APIBaseTest):
         if accepted:
             assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
             sent = json.loads(mock_post.call_args.kwargs["data"])
-            sent_value = sent["to"] if field == "to" else sent["send"][{"reply_to": "replyTo"}.get(field, field)]
-            assert sent_value == value
+            assert (sent["to"] if field == "to" else sent["send"]["replyTo"]) == value
         else:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
             assert response.json()["attr"].startswith(field)

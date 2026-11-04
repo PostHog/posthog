@@ -10,15 +10,36 @@ from parameterized import parameterized
 from products.messaging.backend.presentation.views.code_send_fields import CodeSendFieldRefused
 from products.messaging.backend.presentation.views.message_templates import SendEmailSerializer
 
+ADDRESS_VERDICTS = [
+    ("jane=tag@example.com", True),
+    ("jane~tag@example.com", True),
+    ("jane#tag@example.com", True),
+    ("o'brien@example.com", True),
+    ("a!b$c%d&e*f/g?h^i`j|k~l@example.com", True),
+    ("jane@sub.example.co.uk", True),
+    ("jane@bücher.example", False),
+    ("jane@[192.0.2.1]", False),
+    ('"jane doe"@example.com', False),
+    ("jane@localhost", False),
+    (".jane@example.com", False),
+    ("jane.@example.com", False),
+    ("jane..doe@example.com", False),
+]
+
 
 def _attachment(**fields: Any) -> dict[str, str]:
     return {"filename": "invoice.pdf", "content": "JVBERi0xLjQ=", **fields}
 
 
+def _code_send(fields: dict[str, Any]) -> SendEmailSerializer:
+    return SendEmailSerializer(
+        data={"to": "user@example.com", "template_key": "welcome", "subject": "Hi", "text": "Hi", **fields}
+    )
+
+
 def _refusal(fields: dict[str, Any]) -> CodeSendFieldRefused:
-    body = {"to": "user@example.com", "template_key": "welcome", "subject": "Hi", "text": "Hi", **fields}
     with pytest.raises(CodeSendFieldRefused) as refused:
-        SendEmailSerializer(data=body).is_valid(raise_exception=True)
+        _code_send(fields).is_valid(raise_exception=True)
     return refused.value
 
 
@@ -26,10 +47,7 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
     @parameterized.expand(
         [
             ("cc_with_a_display_name", {"cc": "Jane <jane@example.com>"}, "cc__0"),
-            ("cc_with_a_quoted_local_part", {"cc": ['"jane doe"@example.com']}, "cc__0"),
             ("cc_with_two_addresses_in_one", {"cc": "jane@example.com, joe@example.com"}, "cc__0"),
-            ("cc_with_an_ip_literal_domain", {"cc": ["jane@[192.0.2.1]"]}, "cc__0"),
-            ("bcc_with_a_non_ascii_domain", {"bcc": ["jane@bücher.example"]}, "bcc__0"),
             (
                 "content_that_is_not_base64",
                 {"attachments": [_attachment(content="not base64!")]},
@@ -110,13 +128,6 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
         [
             ("one_address", {"cc": "copy@example.com"}),
             ("empty_lists", {"cc": [], "bcc": [], "attachments": []}),
-            (
-                "addresses_with_atext_symbols",
-                {
-                    "cc": ["copy+tag@example.com", "o'neil@example.com"],
-                    "bcc": ["jane=tag@example.com", "jane~tag@example.com"],
-                },
-            ),
             ("ten_addresses", {"bcc": [f"user{i}@example.com" for i in range(10)]}),
             (
                 "attachments_at_the_size_limit",
@@ -125,6 +136,17 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
         ]
     )
     def test_accepts_extra_fields_at_their_limits(self, _name: str, fields: dict[str, Any]) -> None:
-        body = {"to": "user@example.com", "template_key": "welcome", "subject": "Hi", "text": "Hi", **fields}
+        serializer = _code_send(fields)
 
-        assert SendEmailSerializer(data=body).is_valid(), SendEmailSerializer(data=body).errors
+        assert serializer.is_valid(), serializer.errors
+
+    @parameterized.expand(
+        [(field, address, accepted) for field in ("cc", "bcc") for address, accepted in ADDRESS_VERDICTS]
+    )
+    def test_takes_the_copy_addresses_the_pipeline_takes(self, field: str, address: str, accepted: bool) -> None:
+        if accepted:
+            serializer = _code_send({field: [address]})
+            assert serializer.is_valid(), serializer.errors
+            assert serializer.validated_data[field] == [address]
+        else:
+            assert _refusal({field: [address]}).get_codes() == {f"{field}__0": "invalid_request"}
