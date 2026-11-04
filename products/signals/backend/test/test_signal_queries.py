@@ -156,10 +156,8 @@ class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
         self._emit_version(document_id="d3", report_id="rA", source_product="errors", inserted_at=self.base)
         self._emit_version(document_id="d4", report_id="rB", source_product="surveys", inserted_at=self.base)
 
-        # +1 for the projection kill-switch instance setting the HogQL compile reads, cold-cache here
-        # but TTL-cached per worker in production.
         with (
-            self.assertNumQueries(FuzzyInt(1, 2)),
+            self.assertNumQueries(FuzzyInt(0, 1)),
             patch("products.signals.backend.signal_metadata.execute_hogql_query", wraps=execute_hogql_query) as query,
         ):
             result = fetch_source_products_for_reports(
