@@ -212,6 +212,15 @@ export const broadcastAudienceSuggestionsLogic = kea<broadcastAudienceSuggestion
     listeners(({ actions, values, cache }) => {
         const handleResult = (result: AudienceSuggestionsResponseApi | null): void => {
             cache.disposables.dispose('poll')
+            // Cards can show before their counts, and a click can leave the page before the run ends.
+            if (result?.suggestions.length && !cache.shownCaptured) {
+                cache.shownCaptured = true
+                // pinned: analytics event name - renaming breaks dashboards
+                posthog.capture('broadcast audience suggestions shown', {
+                    kinds: result.suggestions.map((suggestion) => suggestion.kind),
+                    reachable_counts: result.suggestions.map((suggestion) => suggestion.reachable_count),
+                })
+            }
             if (result?.status === 'generating') {
                 if (Date.now() > cache.pollDeadline) {
                     actions.giveUpPolling()
@@ -222,13 +231,6 @@ export const broadcastAudienceSuggestionsLogic = kea<broadcastAudienceSuggestion
                     return () => window.clearTimeout(timer)
                 }, 'poll')
                 return
-            }
-            if (result?.status === 'ready' && result.suggestions.length > 0) {
-                // pinned: analytics event name - renaming breaks dashboards
-                posthog.capture('broadcast audience suggestions shown', {
-                    kinds: result.suggestions.map((suggestion) => suggestion.kind),
-                    reachable_counts: result.suggestions.map((suggestion) => suggestion.reachable_count),
-                })
             }
         }
         return {

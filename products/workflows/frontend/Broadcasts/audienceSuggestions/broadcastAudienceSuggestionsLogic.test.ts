@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
@@ -66,7 +67,8 @@ describe('broadcastAudienceSuggestionsLogic', () => {
         initKeaTests()
     })
 
-    it('shows the cards while their counts run, and keeps polling', async () => {
+    it('shows the cards while their counts run, and records one impression', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
         const counting = { ...suggestion, reachable_count: null }
         jest.mocked(broadcastAudienceSuggestionsGenerate).mockResolvedValue({
             status: 'generating',
@@ -79,6 +81,9 @@ describe('broadcastAudienceSuggestionsLogic', () => {
 
         expect(logic.values.suggestions).toEqual([counting])
         expect(logic.values.generating).toBe(true)
+        logic.actions.pollResultSuccess({ status: 'ready', suggestions: [suggestion] })
+        const shown = capture.mock.calls.filter(([event]) => event === 'broadcast audience suggestions shown')
+        expect(shown).toHaveLength(1)
     })
 
     const minutesAgo = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString()
