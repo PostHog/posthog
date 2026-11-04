@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Final
 
 import structlog
+from redis import Redis
 
 from posthog import redis
 
@@ -23,6 +24,14 @@ logger = structlog.get_logger(__name__)
 # Far past the longest rewind, which a checkpoint more than 5 minutes old bounds, so a floor that
 # matters is never pruned.
 _RETENTION: Final = timedelta(days=1)
+# The batch spends its time budget on queries, so the shared client's long default timeout on a
+# stalled Redis would push the activity past its deadline and lose every verdict. One second is far
+# above a healthy call, and a call that runs out of it costs only the floor.
+_REDIS_TIMEOUT_SECONDS: Final = 1.0
+
+
+def _client() -> Redis:
+    return redis.get_client(socket_timeout=_REDIS_TIMEOUT_SECONDS, socket_connect_timeout=_REDIS_TIMEOUT_SECONDS)
 
 
 def _key(team_id: int) -> str:
@@ -34,7 +43,7 @@ def read_floors(team_id: int, configuration_ids: Sequence[str]) -> dict[str, dat
     if not configuration_ids:
         return {}
     try:
-        scores = redis.get_client().zmscore(_key(team_id), list(configuration_ids))
+        scores = _client().zmscore(_key(team_id), list(configuration_ids))
     except Exception:
         logger.exception("Failed to read metrics alert read floors", team_id=team_id)
         return {}
@@ -51,7 +60,7 @@ def raise_read_floors(team_id: int, reads: Mapping[str, datetime], *, now: datet
         return
     key = _key(team_id)
     try:
-        pipeline = redis.get_client().pipeline(transaction=False)
+        pipeline = _client().pipeline(transaction=False)
         pipeline.zadd(key, {configuration_id: at.timestamp() for configuration_id, at in reads.items()}, gt=True)
         pipeline.zremrangebyscore(key, "-inf", (now - _RETENTION).timestamp())
         pipeline.expire(key, _RETENTION)
