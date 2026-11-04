@@ -3,9 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 
 import { TraceIdentityChips } from 'products/tracing/frontend/components/TraceDrawer/TraceIdentityChips'
 import { TraceLoadErrorNotice } from 'products/tracing/frontend/components/TraceDrawer/TraceLoadErrorNotice'

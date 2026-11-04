@@ -115,8 +115,9 @@ on:
         types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
     # PRs: one group per event; cancel-superseded-runs cancels stale runs. Push: per-SHA so master
-    # pushes never cancel each other (check-migrations always completes).
-    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && format('pr-{0}-{1}-{2}', github.event.pull_request.number, github.event.pull_request.head.sha, github.event.pull_request.updated_at) || github.head_ref || github.ref }}
+    # pushes never cancel each other (check-migrations always completes). `depot ci run` (event `api`)
+    # gets a per-run group: it has the master ref, and would otherwise queue behind the hourly run.
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && format('pr-{0}-{1}-{2}', github.event.pull_request.number, github.event.pull_request.head.sha, github.event.pull_request.updated_at) || github.event_name == 'api' && format('api-{0}', github.run_id) || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
@@ -148,8 +149,9 @@ env:
     # The root conftest ends a green pytest session with os._exit once every report is written.
     # That also hides a crash during interpreter teardown, so the hourly schedule exits normally.
     POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'schedule' && '0' || '1' }}
-    # Scheduled runs test master even when Depot does not populate github.ref.
-    IS_MASTER: ${{ github.event_name == 'schedule' || github.ref == 'refs/heads/master' }}
+    # Scheduled runs test master even when Depot does not populate github.ref. `depot ci run`
+    # (event `api`) has the master ref but runs an unreviewed local patch, so it is not master.
+    IS_MASTER: ${{ github.event_name == 'schedule' || (github.ref == 'refs/heads/master' && github.event_name != 'api') }}
     # Depot CI runners expose OTEL_SERVICE_NAME=ci-worker ambient; GitHub Actions test steps do not.
     # Left set, it leaks into settings.OTEL_SERVICE_NAME (personhog metric client_name label) and
     # diverges from test assertions. Blank it to match the GHA environment. Depot also injects
@@ -223,7 +225,7 @@ jobs:
             # gate reads this output, so the label cannot reach them while the paths
             # filter says false. Nothing under .github/ is in the backend filter, so
             # a sharding or timing script change was untestable on its own PR.
-            backend: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && 'true' || (steps.filter.outputs.backend || 'true') }}
+            backend: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && 'true' || ((steps.filter.outputs.backend || 'true') == 'true' || steps.filter.outputs.product_skills_read_at_runtime == 'true') && 'true' || 'false' }}
             timing_scripts: ${{ fromJSON(toJSON(steps.filter.outputs)).timing_scripts }}
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
@@ -249,10 +251,11 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
+            # `depot ci run` (event `api`) applies its patch after this step, which fails in a sparse tree.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
-                  sparse-checkout: .depot/actions/paths-filter
+                  sparse-checkout: ${{ github.event_name != 'api' && '.depot/actions/paths-filter' || '' }}
                   sparse-checkout-cone-mode: false
             - name: Clean up data directories with container permissions
               run: |
@@ -303,6 +306,10 @@ jobs:
                         # products/desktop is the imported desktop app; it has its own
                         # desktop-* CI and must not drag this suite onto its PRs
                         - '!products/desktop/**'
+                        # Warehouse source vendors have their own job in ci-python.yml. They
+                        # match 'products/**/*.py' above, so a vendor-only diff would start this
+                        # suite too. The product code the vendors build on stays under backend/.
+                        - '!products/warehouse_sources/sources/**'
                         # Each product's package.json declares the per-product
                         # backend:test script that turbo-discover reads to
                         # compose the Product matrix. Without this entry,
@@ -390,6 +397,9 @@ jobs:
                         # files from `backend_files`.
                         - '!**/*.md'
                         - '!**/*.mdx'
+                      product_skills_read_at_runtime:
+                        - 'products/signals/skills/**'
+                        - 'products/review_hog/skills/**'
                       legacy:
                         # Non-product backend code — when only products/ change,
                         # turbo-discover uses Turbo query affectedness to detect changed
@@ -494,16 +504,17 @@ jobs:
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
                       repo_invariants:
-                        # posthog/test/repo_invariants/ reads AGENTS.md and the semgrep
-                        # rule ids it names. Both are excluded from the backend filter
-                        # (markdown is dropped outright, .semgrep is not listed), so a
-                        # change to either would skip repo-checks and report green while
+                        # posthog/test/repo_invariants/ reads AGENTS.md, the .agents/
+                        # guides, and the semgrep rule ids they name. All are excluded
+                        # from the backend filter (markdown is dropped outright,
+                        # .semgrep is not listed), so a change to any would skip repo-checks and report green while
                         # leaving a tag pointing at a rule that no longer exists.
                         # The out-of-band domain ratchet reads these trees, so a resolver added there must run it.
                         - 'nodejs/src/**'
                         - 'rust/**'
                         - 'products/desktop/**'
                         - 'AGENTS.md'
+                        - '.agents/*.md'
                         - '.semgrep/**'
                         - 'pyproject.toml'
                         # A generated file in a frontend-only PR still needs a known producer.
@@ -586,6 +597,11 @@ jobs:
                         # Exec command reference templates - feed generate-exec-docs.ts
                         - 'services/mcp/src/templates/sections/**/*'
                         - 'services/mcp/schema/exec-command-reference.md'
+                        # WebMCP exec tool - rendered from the templates above by generate-webmcp-exec-tool.ts
+                        - 'services/mcp/src/hono/instructions.ts'
+                        - 'services/mcp/src/lib/instructions-formatter.ts'
+                        - 'services/mcp/src/lib/instructions.ts'
+                        - 'products/webmcp/frontend/execTool.generated.ts'
                         # Desktop API client - regenerated by bin/build-desktop-api-client.sh
                         - 'products/desktop/packages/api-client/src/generated.ts'
                         - 'products/desktop/packages/api-client/endpoint-allowlist.json'
@@ -3805,8 +3821,8 @@ jobs:
                   include-hidden-files: true
                   retention-days: 2
 
-            - name: Verify new snapshots for flakiness
-              # Only in UPDATE mode - CHECK mode doesn't update snapshots
+            - name: Prepare snapshot patch
+              id: snapshot-patch
               if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
               shell: bash
               # The reruns must write the same schema mode's snapshot file as the main
@@ -3814,39 +3830,36 @@ jobs:
               env:
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
               run: |
-                  unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
-                  .github/scripts/verify-new-snapshots.sh
-
-            - name: Generate snapshot patch
-              # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
-              shell: bash
-              env:
-                  NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
-              run: |
-                  mkdir -p /tmp/patches
-                  # Stage any new/modified .ambr files so they appear in git diff
-                  git add -N '*.ambr' || true
                   # Each schema leg may only ship its own snapshot files. A leg still
                   # *claims* the other schema mode's snapshot names without writing them,
                   # so syrupy deletes them from the working tree as unused; scoping the
                   # patch keeps those deletions out of the committed diff.
-                  if [[ "$NEW_EVENTS_SCHEMA" == "true" ]]; then
+                  if [[ "$CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA" == "true" ]]; then
                     ambr_pathspec=('*.new_events_schema.ambr')
                   else
                     ambr_pathspec=('*.ambr' ':(exclude)*.new_events_schema.ambr')
                   fi
+                  if [[ -z "$(git ls-files --others --exclude-standard -- "${ambr_pathspec[@]}")" ]] && git diff --quiet -- "${ambr_pathspec[@]}"; then
+                    echo "No snapshot changes"
+                    exit 0
+                  fi
+
+                  unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
+                  .github/scripts/verify-new-snapshots.sh
+                  mkdir -p /tmp/patches
+                  # Stage any new/modified .ambr files so they appear in git diff
+                  git add -N '*.ambr' || true
                   # Generate patch if there are changes
                   if ! git diff --quiet -- "${ambr_pathspec[@]}" 2>/dev/null; then
                     git diff --binary --full-index -- "${ambr_pathspec[@]}" > /tmp/patches/backend-${{ matrix.artifact_key }}.patch
                     echo "Generated patch with $(wc -l < /tmp/patches/backend-${{ matrix.artifact_key }}.patch) lines"
+                    echo "changed=true" >> "$GITHUB_OUTPUT"
                   else
                     echo "No snapshot changes to patch"
                   fi
 
             - name: Upload snapshot patch
-              # Only in UPDATE mode
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
+              if: ${{ steps.snapshot-patch.outputs.changed == 'true' }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: snapshot-patch-${{ matrix.artifact_key }}
@@ -4475,7 +4488,7 @@ jobs:
             (needs.django.result != 'skipped' || needs.turbo-tests.result != 'skipped') &&
             (
             github.event_name == 'schedule' ||
-            (github.event_name != 'pull_request' && github.event_name != 'push' && github.ref == 'refs/heads/master') ||
+            (github.event_name != 'pull_request' && github.event_name != 'push' && github.event_name != 'api' && github.ref == 'refs/heads/master') ||
             (github.event_name == 'pull_request' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
             )
@@ -4531,7 +4544,7 @@ jobs:
 
     backend-coverage-report:
         name: Backend coverage report
-        needs: [changes, turbo-tests, django_tests, turbo-discover]
+        needs: [changes, django, turbo-tests, django_tests, turbo-discover]
         runs-on: depot-ubuntu-24.04
         continue-on-error: true
         timeout-minutes: 10
@@ -4543,7 +4556,7 @@ jobs:
             github.event.pull_request.draft == false &&
             needs.turbo-discover.outputs.mode != 'selected' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
-            (needs.turbo-tests.result != 'skipped' || needs.django_tests.result != 'skipped')
+            (needs.turbo-tests.result != 'skipped' || needs.django.result != 'skipped')
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -4626,7 +4639,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [changes, django_tests]
+        needs: [changes, django, turbo-tests, django_tests]
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
@@ -4638,13 +4651,26 @@ jobs:
         permissions:
             contents: read
         steps:
+            - name: Check whether stale backend coverage can be cleared
+              id: coverage-cleanup
+              if: >-
+                  github.event_name == 'pull_request' &&
+                  github.event.pull_request.draft == false &&
+                  needs.changes.outputs.backend == 'false' &&
+                  needs.django.result == 'skipped' &&
+                  needs.turbo-tests.result == 'skipped' &&
+                  needs.django_tests.result == 'success'
+              run: echo "needed=true" >> "$GITHUB_OUTPUT"
             # Depot evaluates github.run_attempt as empty in a job-level `if`, so the attempt guard sits on the steps.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               id: checkout
-              if: github.run_attempt == '1'
+              if: github.run_attempt == '1' || steps.coverage-cleanup.outputs.needed == 'true'
               continue-on-error: true
               with:
-                  sparse-checkout: .github/scripts/capture_depot_running_time.py
+                  sparse-checkout: |
+                      .github/scripts/capture_depot_running_time.py
+                      frontend/bin/ci-report/update-ci-report.mjs
+                      .nvmrc
                   sparse-checkout-cone-mode: false
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
               id: setup-depot
@@ -4659,3 +4685,27 @@ jobs:
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   STATUS_JOB: django_tests
               run: python3 .github/scripts/capture_depot_running_time.py
+            - name: Get app token for coverage cleanup
+              id: coverage-cleanup-token
+              if: steps.coverage-cleanup.outputs.needed == 'true' && steps.checkout.outcome == 'success' && hashFiles('frontend/bin/ci-report/update-ci-report.mjs') != ''
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-pull-requests: write
+            - name: Set up Node.js for coverage cleanup
+              if: steps.coverage-cleanup-token.outcome == 'success'
+              id: coverage-cleanup-node
+              continue-on-error: true
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.coverage-cleanup-token.outputs.token }}
+            - name: Clear stale backend coverage warning
+              if: steps.coverage-cleanup-node.outcome == 'success' && hashFiles('frontend/bin/ci-report/update-ci-report.mjs') != ''
+              continue-on-error: true
+              env:
+                  GITHUB_TOKEN: ${{ steps.coverage-cleanup-token.outputs.token }}
+              run: |
+                  node --input-type=module -e "import { clearSectionIfPresent } from './frontend/bin/ci-report/update-ci-report.mjs'; await clearSectionIfPresent({ id: 'backend-coverage', summary: 'no backend files changed', body: 'No backend coverage report is needed for this change.' })"

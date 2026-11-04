@@ -42,6 +42,7 @@ from posthog.temporal.ai_observability.evaluation_payload import (
     should_skip_for_payload,
 )
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
+from posthog.temporal.ai_observability.judge_attachments import build_attachment_prompt
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.run_trace_evaluation import TRACE_EVENTS_LOOKBACK
 from posthog.temporal.common.utils import close_db_connections
@@ -56,6 +57,7 @@ from products.ai_observability.backend.text_repr.formatters import (
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
+from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaMarker
 
 # Sessions run ~3.5x a trace at p90 (222 events against a trace's typical handful) and the shared
 # formatter uniformly samples lines rather than truncating, so the trace's 150k budget would hand
@@ -358,7 +360,7 @@ user's conversation, in order — according to this criteria:
 {config.instructions}"""
 
 
-def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
+def format_session_for_judge(traces: list[LLMTrace], media_marker: MediaMarker | None = None) -> str | None:
     """Render a session as the canonical text representation, one section per trace.
 
     Preserve generation outputs across the full session before truncating them, including
@@ -386,6 +388,9 @@ def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
             "include_line_numbers": True,
             "max_length": None if preserve_generation_output else per_trace_budget,
         }
+        if media_marker is not None:
+            # One marker for the whole session, so an image repeated across traces is attached once.
+            options["media_marker"] = media_marker
         sections: list[str] = []
         rendered_length = 0
         for index, trace in enumerate(traces, start=1):
@@ -486,7 +491,14 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
     if outcome.skip_reason or outcome.traces is None:
         return build_session_skip_result(allows_na, outcome.skip_reason or "session_not_found", output_type=output_type)
 
-    transcript = format_session_for_judge(outcome.traces)
+    traces = outcome.traces
+    transcript = format_session_for_judge(traces)
+    attachment_prompt = build_attachment_prompt(
+        evaluation, transcript, lambda media_marker: format_session_for_judge(traces, media_marker)
+    )
+    if transcript is None and attachment_prompt is not None:
+        # Inline base64 can push the plain transcript over the limit when the marked one still fits.
+        transcript = attachment_prompt.unnumbered_text()
     if transcript is None:
         return build_session_skip_result(allows_na, "session_too_long_to_judge", output_type=output_type)
 
@@ -498,6 +510,7 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
         user_prompt=transcript,
         allows_na=allows_na,
         backfill=inputs.backfill_id is not None,
+        attachment_prompt=attachment_prompt,
     )
 
 

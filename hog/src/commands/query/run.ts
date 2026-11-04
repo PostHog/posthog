@@ -64,4 +64,10 @@ export default defineCommand({
     agent({ result, out }) {
         out.jsonLines(result.results ?? [])
     },
+
+    telemetry: ({ result }) => ({
+        row_count: result.results?.length ?? 0,
+        column_count: result.columns?.length ?? 0,
+        has_more: result.hasMore === true,
+    }),
 })

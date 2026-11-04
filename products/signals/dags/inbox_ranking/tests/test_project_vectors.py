@@ -12,7 +12,7 @@ import pyarrow.parquet as pq
 from parameterized import parameterized
 
 from products.signals.backend.ranking import model_store
-from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
+from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS, PROJECT_VECTOR_KINDS
 from products.signals.backend.ranking.serving_manifest import (
     PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY,
     SERVED_ROLE,
@@ -27,6 +27,7 @@ from products.signals.dags.inbox_ranking.dataset import dag
 from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_SCHEMA, LABELS_SCHEMA, USER_INTERACTIONS_SCHEMA
 from products.signals.dags.inbox_ranking.dataset.project_vectors import (
     CONTEXT_KINDS,
+    ENGAGEMENT_EXPORT_COLUMNS,
     HISTORY_LIMIT,
     LABEL_COLUMNS,
     MIN_HISTORY_REPORTS,
@@ -219,9 +220,12 @@ def test_user_vectors_average_the_last_reports_and_skip_a_user_without_history()
 def test_the_asset_writes_only_teams_opted_in_to_ai_training(monkeypatch) -> None:
     partition_key = (AS_OF.date() - datetime.timedelta(days=1)).isoformat()
     reports = [(team_id, index, 1.0, BEFORE) for team_id in (2, 7) for index in range(MIN_HISTORY_REPORTS)]
+    # One fix lands at as_of, so it must stay out of the stored `fixed` vector.
+    fixes = [(7, index, "first_fixed_at", BEFORE) for index in range(MIN_HISTORY_REPORTS - 1)]
+    fixes.append((7, MIN_HISTORY_REPORTS - 1, "first_fixed_at", AS_OF))
     snapshots = {
         common.partition_object_key("inbox_ranking", dag.EMBEDDINGS_TABLE, partition_key): _embeddings(reports),
-        common.partition_object_key("inbox_ranking", dag.LABELS_TABLE, partition_key): _labels([]),
+        common.partition_object_key("inbox_ranking", dag.LABELS_TABLE, partition_key): _labels(fixes),
     }
     captured: dict[str, Any] = {}
 
@@ -242,6 +246,9 @@ def test_the_asset_writes_only_teams_opted_in_to_ai_training(monkeypatch) -> Non
     assert captured["schema_version"] == PROJECT_VECTORS_SCHEMA_VERSION
     assert set(captured["table"].column("team_id").to_pylist()) == {7}
     assert set(captured["table"].column("as_of").to_pylist()) == {AS_OF}
+    rows = _rows_by_key(captured["table"])
+    assert {kind for _, kind in rows} == set(CONTEXT_KINDS)
+    assert rows[(7, "fixed")]["n_reports"] == MIN_HISTORY_REPORTS - 1
 
 
 def _run_user_vectors_asset(monkeypatch, interactions: pa.Table, embeddings: pa.Table, consent: frozenset[int]):
@@ -390,6 +397,7 @@ def test_serving_reads_the_published_day_as_training_builds_it(monkeypatch: pyte
     reports = [(2, index, float(index + 1), BEFORE) for index in range(MIN_HISTORY_REPORTS)]
     reports += [(3, 0, 7.0, BEFORE)]
     engagements = [(2, index, "first_opened_at", BEFORE) for index in range(MIN_HISTORY_REPORTS)]
+    engagements += [(2, index, "first_fixed_at", BEFORE) for index in range(MIN_HISTORY_REPORTS)]
     labels, embeddings = _labels(engagements), _embeddings(reports)
     # Team 4 has no report vector, so the day has no row for it.
     teams = [2, 3, 4]
@@ -398,12 +406,16 @@ def test_serving_reads_the_published_day_as_training_builds_it(monkeypatch: pyte
 
     # A report born on AS_OF's day reads the day before it, whose as_of is AS_OF.
     key = serving_project_vectors_key("inbox_ranking", (AS_OF.date() - datetime.timedelta(days=1)).isoformat())
-    buffer = io.BytesIO()
-    pq.write_table(project_vectors(labels, embeddings, AS_OF), buffer)
+    days: dict[str, bytes] = {}
+    for kinds in (CONTEXT_KINDS, PROJECT_VECTOR_KINDS):
+        buffer = io.BytesIO()
+        pq.write_table(project_vectors(labels, embeddings, AS_OF, kinds), buffer)
+        days[",".join(kinds)] = buffer.getvalue()
+    published = [days[",".join(CONTEXT_KINDS)]]
     monkeypatch.setattr(
         model_store.object_storage,
         "read_bytes",
-        lambda name, bucket=None, *, missing_ok=False: buffer.getvalue() if name == key else None,
+        lambda name, bucket=None, *, missing_ok=False: published[0] if name == key else None,
     )
     entry = ServingManifestEntry(
         key="nn@2026-07-29",
@@ -416,18 +428,28 @@ def test_serving_reads_the_published_day_as_training_builds_it(monkeypatch: pyte
         model_file="model.onnx",
         reads_project_vectors=True,
     )
-    serving = model_store.load_project_vectors(
-        ServingManifest(manifest_version=AS_OF.isoformat(), models=[entry], project_vectors=key), teams
-    )
+    manifest = ServingManifest(manifest_version=AS_OF.isoformat(), models=[entry], project_vectors=key)
+    serving = model_store.load_project_vectors(manifest, teams)
+    published[0] = days[",".join(PROJECT_VECTOR_KINDS)]
+    four_kind_serving = model_store.load_project_vectors(manifest, teams)
 
+    assert serving.kinds == set(CONTEXT_KINDS)
+    assert four_kind_serving.missing_kinds(CONTEXT_KINDS) == ["fixed"]
     for position, team_id in enumerate(teams):
         served = serving.for_team(team_id)
-        assert served is not None
+        four_kind_served = four_kind_serving.for_team(team_id)
+        assert served is not None and four_kind_served is not None
         pair = training.index[position]
         np.testing.assert_array_equal(served.vectors[0], training.vectors[pair])
         np.testing.assert_array_equal(served.has_history[0], training.has_history[pair])
+        # A four-kind model gets the same bytes from a five-kind day as from a four-kind day.
+        assert served.vectors.tobytes() == four_kind_served.vectors.tobytes()
+        assert served.has_history.tobytes() == four_kind_served.has_history.tobytes()
     assert training.has_history[training.index].tolist() == [[1, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
     assert not training.vectors[training.index[2]].any()
+    fixed_first = serving.for_team(2, ("fixed", "typical"))
+    assert fixed_first is not None
+    assert fixed_first.has_history.tolist() == [[1, 1]]
 
 
 LOCAL_REPORT_ID = "00000000-0000-4000-8000-000000000001"
@@ -555,13 +577,13 @@ def test_the_engagement_export_sends_only_remote_reports_to_the_mirror(
     assert write["extras"]["ACL"] == "bucket-owner-full-control"
     assert write["extras"]["Metadata"][common.SCHEMA_VERSION_METADATA_KEY] == str(dag.ENGAGEMENT_EXPORT_SCHEMA_VERSION)
     exported = pq.read_table(io.BytesIO(write["content"]))
-    assert exported.column_names == list(LABEL_COLUMNS)
+    assert exported.column_names == list(ENGAGEMENT_EXPORT_COLUMNS)
     if not label_ids:
         assert exported.num_rows == 0
         return
     assert looked_up == [[LOCAL_REPORT_ID, REMOTE_REPORT_ID]]
     assert exported.to_pylist() == [
-        dict.fromkeys(LABEL_COLUMNS) | {"report_id": REMOTE_REPORT_ID, "first_opened_at": BEFORE}
+        dict.fromkeys(ENGAGEMENT_EXPORT_COLUMNS) | {"report_id": REMOTE_REPORT_ID, "first_opened_at": BEFORE}
     ]
 
 
@@ -583,8 +605,9 @@ class _RegionStorage:
 
 
 def _export_object(engagements: list[tuple[int, int, str, datetime.datetime]], schema_version: int) -> tuple:
+    columns = LABEL_COLUMNS if schema_version == 1 else ENGAGEMENT_EXPORT_COLUMNS
     buffer = io.BytesIO()
-    pq.write_table(_labels(engagements).select(list(LABEL_COLUMNS)), buffer)
+    pq.write_table(_labels(engagements).select(list(columns)), buffer)
     return buffer.getvalue(), {common.SCHEMA_VERSION_METADATA_KEY: str(schema_version)}
 
 
@@ -593,10 +616,11 @@ def _export_object(engagements: list[tuple[int, int, str, datetime.datetime]], s
     [
         ([0, 1], dag.ENGAGEMENT_EXPORT_SCHEMA_VERSION, 0),
         ([1], dag.ENGAGEMENT_EXPORT_SCHEMA_VERSION, 1),
+        ([0], 1, 0),
         ([mirror_dag.ENGAGEMENT_EXPORT_MAX_AGE_DAYS + 1], dag.ENGAGEMENT_EXPORT_SCHEMA_VERSION, None),
         ([0], dag.ENGAGEMENT_EXPORT_SCHEMA_VERSION + 1, None),
     ],
-    ids=["fresh", "one_day_late", "too_stale", "unknown_schema"],
+    ids=["fresh", "one_day_late", "previous_schema", "too_stale", "unknown_schema"],
 )
 def test_the_mirror_region_builds_its_vectors_from_its_embeddings_and_the_export(
     monkeypatch: pytest.MonkeyPatch, export_ages: list[int], schema_version: int, expected_export_age: int | None
@@ -604,6 +628,7 @@ def test_the_mirror_region_builds_its_vectors_from_its_embeddings_and_the_export
     partition_day = AS_OF.date() - datetime.timedelta(days=1)
     reports = [(team_id, index, 1.0, BEFORE) for team_id in (5, 9) for index in range(MIN_HISTORY_REPORTS)]
     engagements = [(5, index, "first_opened_at", BEFORE) for index in range(MIN_HISTORY_REPORTS)]
+    engagements += [(5, index, "first_fixed_at", BEFORE) for index in range(MIN_HISTORY_REPORTS)]
     storage = _RegionStorage(
         {
             serving_engagement_key(
@@ -651,6 +676,10 @@ def test_the_mirror_region_builds_its_vectors_from_its_embeddings_and_the_export
     rows = _rows_by_key(written)
     assert {team_id for team_id, _ in rows} == {5}
     assert rows[(5, "open")]["n_reports"] == MIN_HISTORY_REPORTS
+    if schema_version == 1:
+        assert {kind for _, kind in rows} == set(PROJECT_VECTOR_KINDS)
+    else:
+        assert rows[(5, "fixed")]["n_reports"] == MIN_HISTORY_REPORTS
     assert set(written.column("as_of").to_pylist()) == {AS_OF}
 
 

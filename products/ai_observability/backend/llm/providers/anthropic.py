@@ -17,6 +17,7 @@ from posthoganalytics.ai.anthropic.anthropic import WrappedMessages
 from posthoganalytics.client import Client as PostHogClient
 from pydantic import BaseModel
 
+from products.ai_observability.backend.llm.attachments import AttachmentPart, convert_attachment_parts
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ContextWindowExceededError,
@@ -27,7 +28,7 @@ from products.ai_observability.backend.llm.errors import (
     ProviderConfigurationError,
     ProviderConnectionError,
     QuotaExceededError,
-    RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
     error_field_for_message,
     is_context_window_error_message,
@@ -196,6 +197,8 @@ class AnthropicAdapter:
 
     name = "anthropic"
 
+    max_retries: int = anthropic.DEFAULT_MAX_RETRIES
+
     def __init__(self, foundry_endpoint: str = ""):
         # Set when the key belongs to a Microsoft Foundry resource that serves Claude.
         self.foundry_endpoint = foundry_endpoint
@@ -207,6 +210,7 @@ class AnthropicAdapter:
         kwargs: dict[str, Any] = {
             "api_key": api_key,
             "timeout": AnthropicConfig.TIMEOUT,
+            "max_retries": self.max_retries,
             "http_client": tagged_http_client(timeout=AnthropicConfig.TIMEOUT),
         }
         if self.foundry_endpoint:
@@ -229,7 +233,7 @@ class AnthropicAdapter:
         effective_api_key = api_key or self._get_default_api_key()
         client = self._create_client(effective_api_key, analytics)
 
-        messages: Any = request.messages
+        messages: Any = convert_attachment_parts(request.messages, _anthropic_attachment_block)
         system_prompt = request.system or ""
         use_structured = request.response_format and issubclass(request.response_format, BaseModel)
 
@@ -333,7 +337,7 @@ class AnthropicAdapter:
         if isinstance(error, anthropic.RateLimitError):
             if _is_quota_or_billing_error(error):
                 return QuotaExceededError(str(error))
-            return RateLimitError(str(error))
+            return RetryableRateLimitError(str(error), error.response.headers.get("Retry-After"))
         if isinstance(error, anthropic.APIConnectionError):
             # Transient transport failure (connection reset, read timeout). Map to a quiet
             # retryable error so the caller retries silently instead of spamming error tracking.
@@ -359,7 +363,7 @@ class AnthropicAdapter:
         tools = self._convert_tools(request.tools) if request.tools else None
 
         system = request.system or ""
-        messages = request.messages
+        messages = convert_attachment_parts(request.messages, _anthropic_attachment_block)
 
         # Handle cache control for supported models
         system_prompt: list[TextBlockParam] = []
@@ -638,3 +642,10 @@ class AnthropicAdapter:
             prepared_messages.append(prepared_message)
 
         return prepared_messages
+
+
+def _anthropic_attachment_block(part: AttachmentPart) -> dict[str, Any]:
+    block_type = "document" if part.is_pdf else "image"
+    if part.url is not None:
+        return {"type": block_type, "source": {"type": "url", "url": part.url}}
+    return {"type": block_type, "source": {"type": "base64", "media_type": part.mime_type, "data": part.base64()}}

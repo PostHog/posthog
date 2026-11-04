@@ -292,6 +292,42 @@ class TraceFeedback(Contract):
     summary: TraceFeedbackSummary
 
 
+class TraceHumanReviewScore(Contract):
+    name: str = Field(description="The scorer's name.")
+    value: str = Field(
+        description="The saved score as a reviewer reads it: option labels joined by commas, a number, or the "
+        "scorer's yes or no label."
+    )
+    label: str = Field(description="The scorer's name and the score together, such as `Tone: 4.5`.")
+
+
+class TraceHumanReview(Contract):
+    reviewed_by: str | None = Field(
+        description="The display name of whoever last saved the review, or null when that user was removed."
+    )
+    reviewed_at: datetime = Field(description="When the review was last saved.")
+    comment: str | None = Field(description="The reviewer's reasoning, if any.")
+    scores: list[TraceHumanReviewScore] = Field(
+        description="Ordered by scorer name. Empty when the review only marks the trace as reviewed."
+    )
+
+
+class TraceReviewQueueAssignment(Contract):
+    id: str = Field(description="The review queue's id.")
+    name: str = Field(description="The review queue's name.")
+    item_id: str = Field(description="The queue item that holds the trace, for moving or removing it.")
+
+
+class TraceReviewStatus(Contract):
+    review: TraceHumanReview | None = Field(
+        description="The trace's human review, or null when it has none or the user may not see it."
+    )
+    queue: TraceReviewQueueAssignment | None = Field(
+        description="The review queue the trace waits in, or null when it waits in none the user may see. Saving a review "
+        "normally takes the trace out of its queue."
+    )
+
+
 class TraceSearchMatch(Contract):
     node_id: str = Field(description="A step whose stored data contains the query. The root's id is the trace id.")
     count: int = Field(
@@ -375,6 +411,31 @@ class TracePullRequestLookup(Contract):
     pull_request: TracePullRequest | None = Field(
         description="The pull request the trace's git branch belongs to, ranked by engineering analytics, or null "
         "when the trace has no branch, the project has no GitHub source, or no pull request matches."
+    )
+
+
+TraceExportStatus = Literal["pending", "complete", "failed"]
+TRACE_EXPORT_STATUSES: tuple[TraceExportStatus, ...] = get_args(TraceExportStatus)
+
+
+class TraceExport(Contract):
+    id: int = Field(description="The export id, used to read its status and download the file.")
+    status: TraceExportStatus = Field(description="Whether the file is still being written, ready, or failed.")
+    filename: str = Field(description="The name the downloaded JSON file gets.")
+    created_at: datetime = Field(description="When the export was requested.")
+    expires_after: datetime | None = Field(description="When the file is deleted.")
+    exception: str | None = Field(description="Why the export failed, null unless status is failed.")
+
+
+class TraceExportFile(Contract):
+    trace: Trace = Field(description="The trace as the trace endpoint returns it.")
+    truncated: bool = Field(
+        description="True when the trace has more events than an export reads. The file then holds the earliest "
+        "events only, and leaves out the later steps."
+    )
+    nodes: list[TraceNodeDetail] = Field(
+        description="Every node with its event properties as ingested, inputs and outputs included: the root first, "
+        "then the tree in pre-order."
     )
 
 

@@ -71,6 +71,9 @@ export interface observationsDockLogicActions {
     setSidebarOpen: (open: boolean) => {
         open: boolean
     } // playerSettingsLogic
+    setWatchPanelTab: (tab: import('scenes/session-recordings/player/playerSettingsLogic').WatchPanelTab) => {
+        tab: import('scenes/session-recordings/player/playerSettingsLogic').WatchPanelTab
+    } // playerSettingsLogic
     setAutoTab: (tab: SessionRecordingSidebarTab | null) => {
         tab: SessionRecordingSidebarTab | null
     } // playerSidebarLogic
@@ -193,7 +196,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             playerSidebarLogic,
             ['setTab', 'setAutoTab'],
             playerSettingsLogic,
-            ['setSidebarOpen'],
+            ['setSidebarOpen', 'setWatchPanelTab'],
         ],
     })),
 
@@ -374,7 +377,10 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 actions.loadObservations
             )
         }
-        const landOnExistingSummary = (): void => {
+        const landOnExistingObservations = (): void => {
+            if (values.observations.length > 0) {
+                actions.setWatchPanelTab('observations')
+            }
             if (values.observations.some((o) => isSummaryObservation(o) && o.status === 'succeeded')) {
                 actions.setAutoTab(SessionRecordingSidebarTab.OBSERVATIONS)
             }
@@ -526,7 +532,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 }
                 if (!cache.openingLoadDone) {
                     cache.openingLoadDone = true
-                    landOnExistingSummary()
+                    landOnExistingObservations()
                 }
                 settleSummarizeIfDone()
 
@@ -541,11 +547,11 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             },
 
             showObservations: ({ inWatchLayout }) => {
-                // In the watch layout the observations live in the list's Moments segment, which follows the tab change
-                // itself. Opening the sidebar there would switch the page into Debug mode.
-                if (!inWatchLayout) {
-                    actions.setSidebarOpen(true)
+                if (inWatchLayout) {
+                    actions.setWatchPanelTab('observations')
+                    return
                 }
+                actions.setSidebarOpen(true)
                 actions.setTab(SessionRecordingSidebarTab.OBSERVATIONS)
             },
 

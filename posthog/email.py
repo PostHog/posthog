@@ -122,6 +122,14 @@ EMAIL_SEND_COUNTER = Counter(
     labelnames=["outcome", "transport"],
 )
 
+# `failed` counts every attempt, including one that a retry later sends. This counts only the recipients a send gave
+# up on, so it shows the emails that did not go out.
+EMAIL_SEND_DROPPED_COUNTER = Counter(
+    "posthog_email_send_dropped_total",
+    "Recipients whose email send failed with no retry to follow, so the email did not go out, by transport.",
+    labelnames=["transport"],
+)
+
 # Retryable connection/network errors only. NOT bare OSError: every smtplib exception subclasses
 # it, so OSError would also retry auth/recipient failures and re-hammer the relay's per-IP limit.
 _TRANSIENT_SMTP_ERRORS = (
@@ -170,6 +178,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "posthog_ai_access_requested": "72",
     "wizard_pr_ready": "74",
     "loop_run_summary": "77",
+    "workload_trust_policy_changed": "80",
 }
 
 # Message template ids in the US project, for templates that can send through Workflows instead of Customer.io.
@@ -211,6 +220,7 @@ WORKFLOWS_TEMPLATE_ID_MAP: dict[str, str] = {
     "posthog_ai_access_requested": "01a16471-350d-0000-75a6-3ebb077c03a1",
     "wizard_pr_ready": "01a16471-c17b-0000-8ee5-eb254065b7a1",
     "loop_run_summary": "01a16473-9c4d-0000-99d8-958c03b0f1a0",
+    "workload_trust_policy_changed": "01a19e4f-595d-0000-bb58-5b9ae018bceb",
 }
 
 # Release conditions match the `email`, `transactional_email_template` and `region` person properties passed at
@@ -646,9 +656,10 @@ def _send_via_http_batch(
             )
         # Count every recipient that did not get through (the failing one + any not yet attempted),
         # so `failed` shares the per-recipient unit with `sent` instead of registering once per batch.
-        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc(
-            len(to) - already_sent_count - sent_count - undeliverable_count
-        )
+        unsent_count = len(to) - already_sent_count - sent_count - undeliverable_count
+        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc(unsent_count)
+        if not retrying:
+            EMAIL_SEND_DROPPED_COUNTER.labels(transport="http").inc(unsent_count)
         if retryable:
             # The retry sends the same idempotency key, so Workflows returns an email it already queued instead of
             # sending a second one, and recipients already marked sent are skipped.

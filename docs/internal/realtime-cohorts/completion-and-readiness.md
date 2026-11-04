@@ -218,18 +218,19 @@ Person readiness may be enabled only once every region's flags service runs that
 
 A `person_metadata` leaf makes a cohort non-realtime in the first place, so such a cohort is never compatible.
 A cohort made only of references needs no stamp, so it is never compatible either.
+On a team whose access row is at `processing` or `off` and that is not on `REALTIME_COHORT_TEAM_ALLOWLIST`, no stamp counts, even one from before the grant, so its cohorts are never compatible.
 
 The flag API accepts a cohort with event-based criteria, or one that depends on such a cohort, only when the realtime targeting rollout flag is on for the user and every such cohort is flag-compatible.
 The same rollout flag lets the flag editor's cohort picker list these cohorts.
 
-Behind the same rollout flag, for allowlisted teams, the cohort API's `realtime` field reports one state per cohort that has event or person criteria: `static`, `person_properties`, `daily`, `building`, `rebuilding`, `ready`, or `needs_attention`.
+Behind the same rollout flag, for teams at the `serving` level, the cohort API's `realtime` field reports one state per cohort that has event or person criteria: `static`, `person_properties`, `daily`, `building`, `rebuilding`, `ready`, or `needs_attention`.
 
 ### In the feature flags service
 
 The Rust flags service reads cohorts from the flags cache, or from Postgres through a short-lived cache when the flags cache has none.
 It routes a cohort to the membership table when all of these hold:
 
-- the team is in `REALTIME_COHORT_EVALUATION_TEAM_IDS`,
+- the team is in `REALTIME_COHORT_EVALUATION_TEAM_IDS`, or its team access row is at `serving`,
 - the cohort's type is `realtime`, or the legacy `behavioral` type,
 - its `condition_type` marks a behavioral or lifecycle condition,
 - its stamps satisfy the configured stamp policy.

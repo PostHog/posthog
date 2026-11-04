@@ -11,6 +11,7 @@ import {
     serializeFrontierRecord,
 } from './collected-urls-record'
 import { ImageFetchRequestMetrics, RepublishTopic } from './metrics'
+import { urlAssetOf } from './v4-native'
 
 export interface DelayTier {
     topic: string
@@ -207,7 +208,8 @@ class BufferedRepublishBatch implements RepublishBatch {
     private planMessages(): PlannedRepublishMessage[] {
         const groups = new Map<string, PendingRepublish[]>()
         for (const item of this.pending) {
-            const key = `${item.destination.topic}\0${item.candidate.registrableDomain}`
+            // An older fetcher dead-letters a whole record when it cannot parse one reference, so font and image jobs never share a record.
+            const key = `${item.destination.topic}\0${item.candidate.registrableDomain}\0${urlAssetOf(item.candidate.originalRef)}`
             const group = groups.get(key)
             if (group) {
                 group.push(item)

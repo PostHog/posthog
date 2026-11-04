@@ -423,6 +423,42 @@ def test_can_patch_config(
             "Higher frequency batch exports are not enabled for this team.",
             id="Cannot update to high frequency batch exports without feature flag",
         ),
+        pytest.param(
+            {
+                "interval": "day",
+                "timezone": "Europe/Berlin",
+                "offset_day": None,
+                "offset_hour": 1,
+            },
+            {"offset_hour": 5},
+            {
+                "interval": "day",
+                "timezone": "Europe/Berlin",
+                "offset_day": None,
+                "offset_hour": 5,
+                "interval_offset": 5 * 3600,
+            },
+            None,
+            id="Patching only the offset of a daily export",
+        ),
+        pytest.param(
+            {
+                "interval": "week",
+                "timezone": "UTC",
+                "offset_day": 3,
+                "offset_hour": 2,
+            },
+            {"offset_hour": 5},
+            {
+                "interval": "week",
+                "timezone": "UTC",
+                "offset_day": 3,  # the saved day stays
+                "offset_hour": 5,
+                "interval_offset": 3 * 86400 + 5 * 3600,
+            },
+            None,
+            id="Patching only the hour offset of a weekly export",
+        ),
     ],
 )
 def test_can_patch_schedule_configuration(

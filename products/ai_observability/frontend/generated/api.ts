@@ -17,6 +17,7 @@ import type {
     AiObservabilityOfflineExperimentsScorerSummariesListParams,
     AiObservabilityOfflineScorersHistoryListParams,
     AiObservabilityTracesClustersRetrieveParams,
+    AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
     AiObservabilityTracesNodesRetrieveParams,
     AiObservabilityTracesPullRequestRetrieveParams,
@@ -156,11 +157,15 @@ import type {
     TraceApi,
     TraceClustersApi,
     TraceEvaluationResultsApi,
+    TraceExportApi,
+    TraceExportCreateApi,
+    TraceExportFileApi,
     TraceFeedbackApi,
     TraceNodeDetailApi,
     TracePullRequestLookupApi,
     TraceReviewApi,
     TraceReviewCreateApi,
+    TraceReviewStatusApi,
     TraceSearchResultsApi,
     TraceSummaryApi,
     TraceSummaryRequestApi,
@@ -747,6 +752,86 @@ export const aiObservabilityTracesEvaluationsRetrieve = async (
     })
 }
 
+export const getAiObservabilityTracesExportsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/${id}/exports/`
+}
+
+/**
+ * Starts writing the trace and every node, inputs and outputs included, to a JSON file. Poll the export until it completes, then download it.
+ */
+export const aiObservabilityTracesExportsCreate = async (
+    projectId: string,
+    id: string,
+    traceExportCreateApi?: TraceExportCreateApi,
+    options?: RequestInit
+): Promise<TraceExportApi> => {
+    return apiMutator<TraceExportApi>(getAiObservabilityTracesExportsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(traceExportCreateApi),
+    })
+}
+
+export const getAiObservabilityTracesExportsRetrieveUrl = (projectId: string, id: string, exportId: number) => {
+    return `/api/projects/${projectId}/ai_observability/traces/${id}/exports/${exportId}/`
+}
+
+/**
+ * The state of one of your exports of this trace.
+ */
+export const aiObservabilityTracesExportsRetrieve = async (
+    projectId: string,
+    id: string,
+    exportId: number,
+    options?: RequestInit
+): Promise<TraceExportApi> => {
+    return apiMutator<TraceExportApi>(getAiObservabilityTracesExportsRetrieveUrl(projectId, id, exportId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesExportsContentRetrieveUrl = (
+    projectId: string,
+    id: string,
+    exportId: number,
+    params?: AiObservabilityTracesExportsContentRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/exports/${exportId}/content/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/exports/${exportId}/content/`
+}
+
+/**
+ * Downloads a completed export as a JSON file.
+ */
+export const aiObservabilityTracesExportsContentRetrieve = async (
+    projectId: string,
+    id: string,
+    exportId: number,
+    params?: AiObservabilityTracesExportsContentRetrieveParams,
+    options?: RequestInit
+): Promise<TraceExportFileApi> => {
+    return apiMutator<TraceExportFileApi>(
+        getAiObservabilityTracesExportsContentRetrieveUrl(projectId, id, exportId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getAiObservabilityTracesFeedbackRetrieveUrl = (
     projectId: string,
     id: string,
@@ -855,6 +940,24 @@ export const aiObservabilityTracesPullRequestRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getAiObservabilityTracesReviewRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/${id}/review/`
+}
+
+/**
+ * The trace's human review with its scores ready to render, and the review queue the trace waits in.
+ */
+export const aiObservabilityTracesReviewRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TraceReviewStatusApi> => {
+    return apiMutator<TraceReviewStatusApi>(getAiObservabilityTracesReviewRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getAiObservabilityTracesSearchRetrieveUrl = (

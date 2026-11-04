@@ -59,8 +59,8 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         slug: 'posthog',
         owner: 'posthog',
         scheme,
-        version: '1.4.0',
-        orientation: 'portrait',
+        version: '1.9.0',
+        orientation: 'default',
         userInterfaceStyle: 'automatic',
         icon: icons.png,
         ios: {
@@ -154,6 +154,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
             ],
             ['./plugins/withAndroidLoopbackNetworking', { allowLoopback: variant !== 'production' }],
             './plugins/withAndroidAdaptiveIconInsets',
+            './plugins/withAndroidNotificationIntents',
             './plugins/withIosSceneLifecycle',
             '@bacons/apple-targets',
         ],

@@ -169,6 +169,63 @@ export const FIXTURE_GENERATION_OUTPUT: ThreadMessage[] = [
 
 export const FIXTURE_GENERATION_MESSAGES: ThreadMessage[] = [...FIXTURE_GENERATION_INPUT, ...FIXTURE_GENERATION_OUTPUT]
 
+const AGENT_TURNS: { ask: string; tool: string; args: Record<string, unknown>; result: string; answer: string }[] = [
+    {
+        ask: 'Which plan are we on?',
+        tool: 'get_subscription',
+        args: { team: 'hedgebox' },
+        result: '{"plan": "Team", "seats": 6, "renews": "2026-09-30"}',
+        answer: 'You are on the **Team** plan with 6 seats, renewing on September 30.',
+    },
+    {
+        ask: 'How many seats did we use last month?',
+        tool: 'seat_usage',
+        args: { month: '2026-08' },
+        result: '{"peak": 6, "average": 5.2}',
+        answer: 'Usage peaked at 6 seats in August, with an average of 5.2.',
+    },
+    {
+        ask: 'Can we drop back to 4 seats?',
+        tool: 'seat_change_preview',
+        args: { seats: 4 },
+        result: '{"allowed": true, "effective": "2026-09-30", "saving_usd": 60}',
+        answer: 'Yes. The change takes effect on September 30 and saves $60 a month.',
+    },
+    {
+        ask: 'Do it, and email me the new invoice.',
+        tool: 'change_seats',
+        args: { seats: 4, notify: 'ana@example.com' },
+        result: '{"status": "scheduled", "effective": "2026-09-30"}',
+        answer: '',
+    },
+]
+
+function agentMessage(id: string, role: ThreadMessage['role'], parts: ThreadMessage['parts']): ThreadMessage {
+    return { id, role, parts, isInternal: role !== 'user', sourceNodeId: 'gen-answer' }
+}
+
+/** An agent step whose input holds four user turns, each with a tool call, so the earlier turns can collapse. */
+export const FIXTURE_LONG_AGENT_INPUT: ThreadMessage[] = [
+    FIXTURE_GENERATION_INPUT[0],
+    ...AGENT_TURNS.flatMap((turn, index) => [
+        agentMessage(`agent-${index}-user`, 'user', [{ kind: 'text', text: turn.ask }]),
+        agentMessage(`agent-${index}-call`, 'assistant', [{ kind: 'toolCall', name: turn.tool, args: turn.args }]),
+        agentMessage(`agent-${index}-result`, 'tool', [{ kind: 'text', text: turn.result }]),
+        ...(turn.answer
+            ? [agentMessage(`agent-${index}-answer`, 'assistant', [{ kind: 'text', text: turn.answer }])]
+            : []),
+    ]),
+]
+
+export const FIXTURE_LONG_AGENT_OUTPUT: ThreadMessage[] = [
+    agentMessage('agent-final', 'assistant', [
+        {
+            kind: 'text',
+            text: 'Done. Your team drops to **4 seats** on September 30, and the new invoice is on its way to ana@example.com.',
+        },
+    ]),
+]
+
 export const FIXTURE_TURN: ConversationTurn = {
     id: 'trace-1',
     timestamp: '2026-09-01T10:15:00Z',
@@ -380,9 +437,9 @@ export const FIXTURE_TRACE: SampleTraceFixture = {
     header: {
         name: 'answer-billing-question',
         hasError: false,
-        olderHref: '/older',
-        newerHref: '/newer',
         backLink: { label: 'Back to traces', href: '/traces' },
+        copyAction: { loading: false, onCopy: () => {} },
+        exportAction: { loading: false, onExport: () => {} },
     },
     summary: {
         traceId: '3f9c2a71-5b8e-4d0f-a1c2-7e6d5b4a3c21',
@@ -558,6 +615,12 @@ export const FIXTURE_SUMMARY: TraceSummaryContentApi = {
     model: 'gpt-4.1-mini',
     generatedAt: '2026-09-01T10:20:00Z',
 }
+
+export const withStepScroller: Decorator = (Story) => (
+    <div className="h-120 w-160 overflow-y-auto border border-dashed border-primary">
+        <Story />
+    </div>
+)
 
 export function withWidth(px: number): Decorator {
     return (Story) => (

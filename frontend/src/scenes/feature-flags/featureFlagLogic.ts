@@ -45,6 +45,7 @@ import { capitalizeFirstLetter, humanList, slugify } from 'lib/utils/strings'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { percentageDistribution } from 'scenes/experiments/utils'
 import {
     FeatureFlagsTab,
     carriedListFilterParams,
@@ -110,6 +111,7 @@ import {
     reloadIfStaleRowVersion,
     rowVersionToken,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { forgetFlagLookup } from 'products/feature_flags/frontend/featureFlagSummaryLogic'
 import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 import {
     featureFlagsCopyFlagsCreate,
@@ -166,6 +168,7 @@ import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import { confirmFeatureFlagKeyChange } from './featureFlagKeyChangeDialog'
 import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
+import { MAX_VARIANTS } from './featureFlagRulesV2Draft'
 import {
     ProjectSelectOption,
     aggregateCopyResponse,
@@ -663,6 +666,26 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
             rollout_percentage: 50,
         },
     ],
+}
+
+/** The `?key=` from a new-flag link, or null when it isn't a valid key. Code examples render it before save-time validation. */
+export function prefilledFlagKey(value: unknown): string | null {
+    const key = scalarParam(value) ?? ''
+    return validateFeatureFlagKey(key) ? null : key
+}
+
+// The router JSON-decodes `[...]` and `{...}` params, and `String()` can throw on an object.
+function scalarParam(value: unknown): string | null {
+    return ['string', 'number', 'boolean'].includes(typeof value) ? String(value) : null
+}
+
+function variantsFromSearchParam(value: unknown): MultivariateFlagVariant[] {
+    const raw = Array.isArray(value) ? value.map(scalarParam) : (scalarParam(value)?.split(',') ?? [])
+    const keys = [...new Set(raw.map((key) => (key ?? '').trim()))]
+        .filter((key) => !validateFeatureFlagVariantKey(key))
+        .slice(0, MAX_VARIANTS)
+    const percentages = percentageDistribution(keys.length)
+    return keys.map((key, index) => ({ key, name: '', rollout_percentage: percentages[index] }))
 }
 
 const FLAG_DEPENDENCY_TIMEOUT_MS = 2000
@@ -3451,6 +3474,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
 
             const shouldDisplayConfirmation = featureFlagConfirmationEnabled || dependentFlags.length > 0
+            // Releasing an existing flag to everyone is always confirmed, whatever the team setting says.
+            const releasesToEveryone = flagWentLive(originalFlag, updatedFlag as FeatureFlagType)
 
             const confirmationShown = checkFeatureFlagConfirmation(
                 originalFlag,
@@ -3462,7 +3487,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 dependentFlags,
                 isBeingDisabled,
                 requireStatusConfirmation,
-                onDisableAndArchive
+                onDisableAndArchive,
+                releasesToEveryone
             )
 
             // If no confirmation was shown, proceed immediately
@@ -3606,17 +3632,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         }
                     }
 
+                    const prefilledKey = prefilledFlagKey(router.values.searchParams.key)
+                    if (prefilledKey) {
+                        baseFlagConfig = { ...baseFlagConfig, key: prefilledKey }
+                    }
+
                     // Apply type-specific configuration
                     if (flagType === 'multivariate') {
+                        const prefilledVariants = variantsFromSearchParam(router.values.searchParams.variants)
                         baseFlagConfig = {
                             ...baseFlagConfig,
                             filters: {
                                 ...baseFlagConfig.filters,
                                 multivariate: {
-                                    variants: [
-                                        { key: 'control', name: '', rollout_percentage: 50 },
-                                        { key: 'test', name: '', rollout_percentage: 50 },
-                                    ],
+                                    variants:
+                                        prefilledVariants.length > 0
+                                            ? prefilledVariants
+                                            : EMPTY_MULTIVARIATE_OPTIONS.variants,
                                 },
                             },
                         }
@@ -4511,6 +4543,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             delete cache.rollbackReasonAnswer
+            forgetFlagLookup(featureFlag.key)
             lemonToast.success(
                 'Feature flag saved',
                 liveFlagToastOptions(
@@ -4961,6 +4994,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
             actions.loadRelatedInsights()
             actions.loadDependentFlags()
+            // A key prefilled from the URL never goes through the key field, so check it once here.
+            if (props.id === 'new' && featureFlag?.key) {
+                actions.checkKeyConflict(featureFlag.key)
+            }
             reportFlagWithDeletedCohortLoaded(featureFlag, cache)
             // Experiment is now loaded inline during loadFeatureFlag, not here
 

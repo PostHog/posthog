@@ -321,6 +321,18 @@ def customized_alert_destination_ids(
     )
 
 
+def unrevised_hold_backs(
+    config: AlertDestinationConfig, *, allowed_event_ids: Collection[str]
+) -> tuple[DestinationHoldBack, ...]:
+    """What a destination built from this config holds back when it has no revision to compare with.
+
+    Empty means the source lists every message the builder wrote as one of its defaults.
+    """
+    return destination_eligibility.unrevised_hold_backs(
+        config.payload["template_id"], config.payload["inputs"], allowed_event_ids
+    )
+
+
 def unbound_alert_destinations(
     *, team_id: int, allowed_event_ids: Collection[str], include_disabled: bool = False
 ) -> tuple[UUID, ...]:

@@ -3,8 +3,9 @@ import { useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 /**
  * Point the agent at the catalog rather than pasting the definition into the prompt. The definition

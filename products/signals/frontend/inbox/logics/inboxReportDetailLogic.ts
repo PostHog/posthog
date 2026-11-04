@@ -28,6 +28,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
@@ -85,13 +86,14 @@ import {
     InboxReportFeedbackSentiment,
 } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
-import { REPORT_AI_PANEL, ReportDiscussionIntent, inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
+import { ReportDiscussionIntent, inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { EnrichedReviewer, ReviewerRemoval, SignalReport, SignalReportArtefact, SignalReportStatus } from '../types'
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
 import { isReportClaimable, reportClaimant, requestReportClaim, teammateClaimHolder } from '../utils/reportClaim'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
 import { withInboxWriteTimeout } from '../utils/writeTimeout'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
+import { reportSpendLogic } from './reportSpendLogic'
 
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus` / `ReportTasksSection`. */
 const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
@@ -2205,6 +2207,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             cache.sidebarAlignmentPending = false
         },
         loadReportTasksSuccess: (_, __, ___, previousState) => {
+            const previousTasks = selectors.reportTasks(previousState)
+            const spendLogic = reportSpendLogic({
+                teamId: teamLogic.values.currentTeamId ?? 0,
+                reportId: props.reportId,
+            })
+            if (previousTasks !== null && spendLogic.isMounted()) {
+                spendLogic.actions.refreshSpend()
+            }
             if (
                 cache.sidebarAlignmentPending &&
                 values.selectedTab === SidePanelTab.Max &&
@@ -2224,7 +2234,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     actions.warmReportDiscussion(values.report)
                 }
             }
-            const before = selectors.reportTasks(previousState) ?? []
+            const before = previousTasks ?? []
             const settled = (values.reportTasks ?? []).some((entry) => {
                 const run = entry.task.latest_run
                 const prior = before.find((row) => row.task.id === entry.task.id)?.task.latest_run

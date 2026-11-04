@@ -885,6 +885,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/dashboards/': { results: DASHBOARDS, count: DASHBOARDS.length },
             },
             post: {
+                '/api/projects/:team_id/file_system/home_folder/': { id: 'home-folder', path: 'Home' },
                 '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
                 '/api/projects/:team_id/signals/reports/:id/state/': (req) => [
                     200,
@@ -931,7 +932,6 @@ export const HomeWithFrequentItems: Story = {
         featureFlags: {
             [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
             [FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS]: true,
-            [FEATURE_FLAGS.TODAY_JUMP_BACK_RANKING]: 'test',
         },
     },
     decorators: [
@@ -958,17 +958,6 @@ export const HomeWithFrequentItems: Story = {
             },
         }),
     ],
-}
-
-export const HomeWithRecentRanking: Story = {
-    ...HomeWithFrequentItems,
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
-            [FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS]: true,
-            [FEATURE_FLAGS.TODAY_JUMP_BACK_RANKING]: 'control',
-        },
-    },
 }
 
 export const HomeWithSampleReports: Story = {
@@ -1315,4 +1304,105 @@ export const ListItemAppearanceDialog: Story = {
         // The dialog opens in a portal outside the story's canvas.
         await within(document.body).findByText('Edit list item appearance')
     },
+}
+
+export const HomePulseLoading: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': {
+                    ...HIGHLIGHTS,
+                    status: 'computing',
+                    generated_at: null,
+                    pulse: [],
+                    items: [],
+                },
+            },
+        }),
+    ],
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
+
+export const HomePulsePartial: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': {
+                    ...HIGHLIGHTS,
+                    status: 'computing',
+                    pulse: HIGHLIGHTS.pulse.slice(0, 1),
+                    items: [],
+                },
+            },
+        }),
+    ],
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
+
+export const HomePulseTitlesLoading: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': {
+                    ...HIGHLIGHTS,
+                    status: 'computing',
+                    pulse: [],
+                    items: [],
+                    pulse_slots: HIGHLIGHTS.pulse.slice(0, 4).map((metric) => ({
+                        key: metric.key,
+                        name: metric.name,
+                        url: metric.url,
+                        interval: metric.interval,
+                        status: 'pending',
+                    })),
+                },
+            },
+        }),
+    ],
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
+
+export const HomePulseMixed: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': {
+                    ...HIGHLIGHTS,
+                    status: 'computing',
+                    pulse: HIGHLIGHTS.pulse.slice(0, 1),
+                    items: [],
+                    pulse_slots: HIGHLIGHTS.pulse.slice(0, 4).map((metric, i) => ({
+                        key: metric.key,
+                        name: metric.name,
+                        url: metric.url,
+                        interval: metric.interval,
+                        status: i === 0 ? 'ready' : 'pending',
+                    })),
+                },
+            },
+        }),
+    ],
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
+
+export const HomePulseEmptyAndError: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': {
+                    ...HIGHLIGHTS,
+                    status: 'ready',
+                    pulse: HIGHLIGHTS.pulse.slice(0, 2),
+                    items: [],
+                    pulse_slots: HIGHLIGHTS.pulse.slice(0, 4).map((metric, i) => ({
+                        key: metric.key,
+                        name: metric.name,
+                        url: metric.url,
+                        interval: metric.interval,
+                        status: i < 2 ? 'ready' : i === 2 ? 'empty' : 'error',
+                    })),
+                },
+            },
+        }),
+    ],
 }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from functools import partial
 from typing import TypedDict
@@ -15,7 +16,7 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
 
@@ -224,7 +225,7 @@ def claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> Repo
         return claim or create_claim(report, actor)
 
 
-def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
+def _pull_request_details(team_id: int, pr_url: str, *, raise_on_error: bool = False) -> PullRequestDetails:
     parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
     if parsed is None:
         raise InvalidPullRequestUrl("pr_url must be a GitHub pull request URL.")
@@ -251,6 +252,8 @@ def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
             team_id=team_id,
             repository=parsed.repository,
         )
+        if raise_on_error:
+            raise
         return details
     if github is None:
         return details
@@ -264,6 +267,8 @@ def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
             repository=parsed.repository,
             pr_number=parsed.number,
         )
+        if raise_on_error:
+            raise
         return details
     if not status.get("success"):
         logger.warning(
@@ -273,6 +278,8 @@ def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
             pr_number=parsed.number,
             error=status.get("error"),
         )
+        if raise_on_error and status.get("status_code") != 404:
+            raise GitHubIntegrationError("Unable to verify pull request state", status_code=status.get("status_code"))
         return details
 
     merged = bool(status.get("merged"))
@@ -424,8 +431,13 @@ def claim_report(
     claim_id: str | None = None,
     takeover: bool = False,
     takeover_claim_id: str | None = None,
+    on_new_claim: Callable[..., None] | None = None,
 ) -> ReportClaim | None:
-    """Claim, release, or attach a PR to one report and return the current assignment."""
+    """Claim, release, or attach a PR to one report and return the current assignment.
+
+    `on_new_claim` runs after commit, only when this call started a claim, with `takeover` set when
+    it replaced someone else's claim.
+    """
     if release and (pr_url or pull_requests or takeover):
         raise ReportClaimConflict("Release cannot be combined with pull requests or takeover.")
     urls = list(dict.fromkeys(([pr_url] if pr_url else []) + (pull_requests or [])))
@@ -470,6 +482,7 @@ def claim_report(
                 ):
                     return assignment
                 raise ReportClaimConflict(f"Reports with status '{report_status}' cannot be claimed.")
+            took_over = False
             if assignment is not None and not actor_works_under_claim(assignment, actor):
                 if takeover_claim_id and str(assignment.claim_id) != takeover_claim_id:
                     raise ReportClaimConflict("The report's claim changed. Reload the report and try again.")
@@ -491,8 +504,11 @@ def claim_report(
                     )
                 release_claim(assignment, actor, takeover=True)
                 assignment = None
+                took_over = True
             if assignment is None:
                 assignment = create_claim(locked_report, actor)
+                if on_new_claim is not None:
+                    transaction.on_commit(partial(on_new_claim, takeover=took_over))
 
         for pr_details in details:
             link_pull_request(

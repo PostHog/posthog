@@ -1,7 +1,6 @@
 import posthog, { BeforeSendFn, PostHogConfig } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import {
@@ -12,6 +11,7 @@ import {
 } from 'lib/utils/exceptionFilters'
 import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
 import { redactMetricVariableUrls } from 'lib/utils/metricVariableUrlRedaction'
+import { isOAuthMode } from 'lib/utils/oauthClient'
 import { identifyInstanceInPostHog, identifyUserInPostHog } from 'lib/utils/posthogIdentity'
 
 import { dropWebMCPToolErrors } from 'products/webmcp/frontend/webmcpToolError'
@@ -57,6 +57,17 @@ export function withLastSeenFeatureFlags(
 // pinned: analytics property name. Insights filter the framed pages by it.
 const stampEmbeddedPageFrame: BeforeSendFn = (event) =>
     event && { ...event, properties: { ...event.properties, embedded_page_frame: true } }
+
+const dropExceptions: BeforeSendFn = (event) => (event?.event === '$exception' ? null : event)
+
+/**
+ * Local development without self-capture sends its events to PostHog Cloud. Its crashes come from
+ * dev-only state, for example a stale Vite prebundle, and file issues that no user can hit.
+ * This reads the raw context because getAppContext() hides it in OAuth mode, which also runs locally.
+ */
+function sendsLocalDevelopmentToCloud(): boolean {
+    return window.POSTHOG_APP_CONTEXT?.run_mode === 'LOCAL' && !window.JS_POSTHOG_SELF_CAPTURE
+}
 
 function readLastSeenFeatureFlags(): LastSeenFeatureFlags | null {
     try {
@@ -141,6 +152,7 @@ export function loadPostHogJS(): void {
                 // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
                 // `register` would persist the property in storage the main window shares, so it is stamped per event.
                 ...(isEmbeddedPageFrame() ? [stampEmbeddedPageFrame] : []),
+                ...(sendsLocalDevelopmentToCloud() ? [dropExceptions] : []),
             ],
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
