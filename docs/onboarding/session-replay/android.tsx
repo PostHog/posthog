@@ -20,7 +20,7 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 file: 'build.gradle',
                                 code: dedent`
                                     dependencies {
-                                        implementation("com.posthog:posthog-android:3.+")
+                                        implementation("com.posthog:posthog-android:4.+")
                                     }
                                 `,
                             },
@@ -74,7 +74,7 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                             super.onCreate()
 
                                             val config = PostHogAndroidConfig(
-                                                apiKey = POSTHOG_TOKEN,
+                                                projectToken = POSTHOG_TOKEN,
                                                 host = POSTHOG_HOST
                                             )
 

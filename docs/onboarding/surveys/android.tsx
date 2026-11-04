@@ -56,7 +56,7 @@ function getSurveysAndroidSteps(ctx: OnboardingComponentsContext): StepDefinitio
                                 file: 'SampleApp.kt',
                                 code: dedent`
                                     val config = PostHogAndroidConfig(
-                                        apiKey = POSTHOG_PROJECT_TOKEN,
+                                        projectToken = POSTHOG_PROJECT_TOKEN,
                                         host = POSTHOG_HOST
                                     ).apply {
                                         surveys = true

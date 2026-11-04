@@ -16,7 +16,7 @@ import { PushPlatform, pushDeviceCheckLogic } from './pushDeviceCheckLogic'
 
 const PLATFORMS: Record<PushPlatform, { label: string; provider: 'apns' | 'firebase'; minVersion: string }> = {
     ios: { label: 'iOS', provider: 'apns', minVersion: '3.69.0' },
-    android: { label: 'Android', provider: 'firebase', minVersion: '3.58.0' },
+    android: { label: 'Android', provider: 'firebase', minVersion: '3.72.0' },
 }
 
 function sdkSnippet(platform: PushPlatform, token: string, host: string, appId: string | undefined): string {
@@ -32,7 +32,7 @@ UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge
     }
 }`
     }
-    return `val config = PostHogAndroidConfig(apiKey = "${token}", host = "${host}").apply {
+    return `val config = PostHogAndroidConfig(projectToken = "${token}", host = "${host}").apply {
     capturePushNotificationSubscriptions = true // on by default, needs firebase-messaging
 }
 PostHogAndroid.setup(this, config)
