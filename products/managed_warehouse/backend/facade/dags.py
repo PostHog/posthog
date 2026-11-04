@@ -1,3 +1,3 @@
-from products.managed_warehouse.dags import groups_backfill
+from products.managed_warehouse.dags import groups_backfill, trino_conversion
 
-__all__ = ["groups_backfill"]
+__all__ = ["groups_backfill", "trino_conversion"]

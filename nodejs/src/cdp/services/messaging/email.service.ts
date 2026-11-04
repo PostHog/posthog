@@ -589,10 +589,10 @@ export class EmailService {
             // so record a skip with its own metric instead of an `email_failed`. Otherwise one project
             // with bad data inflates the platform send failure rate.
             if (!params.to?.email?.trim()) {
-                addLog(
-                    'warn',
+                const skipReason =
                     'Skipping send: the recipient has no email address. Add a filter so only people with an email address reach this step.'
-                )
+                addLog('warn', skipReason)
+                result.emailSendResult = { status: 'skipped', reason: skipReason }
                 if (!isTest) {
                     result.metrics.push({
                         team_id: invocation.teamId,
@@ -702,6 +702,7 @@ export class EmailService {
                     // send. Mirrors the fetch-retry (`result.invocation.queueParameters = params`) and
                     // queue-routing paths, which re-attach the same way.
                     result.invocation.queueParameters = params
+                    result.invocation.queueMetadata = invocation.queueMetadata
                     const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, refillPerSecond, claim.reserved)
                     emailReservedParkMs.labels('workflow-email').observe(retryDelayMs)
                     result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
@@ -805,6 +806,7 @@ export class EmailService {
                 throttled = true
                 result.finished = false
                 result.invocation.queueParameters = params
+                result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
             } else {
