@@ -209,15 +209,26 @@ async function readResponse<T>(
     fetcher: Fetcher,
     path: string,
     init: ApiInit,
-    read: (response: Response, signal: AbortSignal) => Promise<T>
+    read: (response: Response, signal: AbortSignal) => Promise<T>,
+    requestController?: AbortController
 ): Promise<T> {
     return withAppReloadBlocked(() =>
         requestWithDeadline(async (signal) => {
-            const response = await send(fetcher, path, { ...init, signal }, 'application/json')
-            if (signal.aborted) {
-                throw abortError()
+            const abortRequest = (): void => requestController?.abort()
+            if (requestController) signal.addEventListener('abort', abortRequest, { once: true })
+            const requestSignal = requestController?.signal ?? signal
+            try {
+                const response = await send(fetcher, path, { ...init, signal: requestSignal }, 'application/json')
+                if (signal.aborted) {
+                    throw abortError()
+                }
+                return await read(response, requestSignal)
+            } catch (error) {
+                abortRequest()
+                throw error
+            } finally {
+                if (requestController) signal.removeEventListener('abort', abortRequest)
             }
-            return read(response, signal)
         }, init.signal)
     )
 }
@@ -239,7 +250,8 @@ export function apiReadStreamResponse<T>(
         (url, options) => streamingFetch(url, options as Parameters<typeof streamingFetch>[1]) as Promise<Response>,
         path,
         init,
-        read
+        read,
+        new AbortController()
     )
 }
 

@@ -112,22 +112,26 @@ describe('bounded replay block transport', () => {
         }
     )
 
-    test.each(['timeout', 'abort', 'transport'] as const)(
+    test.each(['timeout', 'abort', 'transport', 'budget'] as const)(
         'cancels an unfinished stream on %s and releases reload blocking',
         async (failure) => {
-            const { response, reader } = streamedResponse([], false)
+            const { response, reader } = streamedResponse(failure === 'budget' ? [new Uint8Array([65, 66])] : [], false)
             streamFetch.mockResolvedValue(response)
             if (failure === 'transport') reader.read.mockRejectedValue(new Error('Offline'))
+            const budget = new ReplayByteBudget()
+            if (failure === 'budget') budget.claimEncoded(MAX_PLAYER_BYTES - 1)
             const controller = new AbortController()
             const request = fetchReplayBlock('example', { source: 'blob_v2', blob_key: '0' }, controller.signal, {
-                budget: new ReplayByteBudget(),
+                budget,
             })
             const assertion =
                 failure === 'abort'
                     ? expect(request).rejects.toMatchObject({ name: 'AbortError' })
-                    : expect(request).rejects.toBeInstanceOf(
-                          failure === 'timeout' ? RequestTimeoutError : TransportError
-                      )
+                    : failure === 'budget'
+                      ? expect(request).rejects.toThrow('This recording is too large to play on this device.')
+                      : expect(request).rejects.toBeInstanceOf(
+                            failure === 'timeout' ? RequestTimeoutError : TransportError
+                        )
             expect(isAppReloadBlocked()).toBe(true)
             await jest.advanceTimersByTimeAsync(0)
             if (failure === 'timeout') await jest.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS)
@@ -135,6 +139,8 @@ describe('bounded replay block transport', () => {
             await assertion
             expect(reader.cancel).toHaveBeenCalled()
             expect(reader.releaseLock).toHaveBeenCalled()
+            expect(streamFetch.mock.calls[0]?.[1].signal.aborted).toBe(true)
+            expect(controller.signal.aborted).toBe(failure === 'abort')
             expect(isAppReloadBlocked()).toBe(false)
             expect(jest.getTimerCount()).toBe(0)
         }
