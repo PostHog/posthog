@@ -26,6 +26,7 @@ import { QuillChecksPanelBanners } from './QuillChecksPanelBanners'
 import { QuillChecksPanelHeader } from './QuillChecksPanelHeader'
 import { QuillChecksTable } from './QuillChecksTable'
 import { QuillMetricChecksEmptyState } from './QuillMetricChecksEmptyState'
+import { QuillRecentRunsStrip } from './QuillRecentRunsStrip'
 import { QuillRunHistoryDialog } from './QuillRunHistoryDialog'
 
 export interface QuillDataQualityChecksPanelProps extends DataQualityChecksLogicProps {
@@ -112,6 +113,7 @@ export function QuillDataQualityChecksPanel({
             <BindLogic logic={dataQualityCheckEditorLogic} props={editorProps}>
                 <div className={cn(CHECKS_CONTAINER, 'flex flex-col gap-3')} data-attr="data-quality-checks-panel">
                     {notice}
+                    <QuillRecentRunsStrip {...logicProps} />
                     {isMetric ? (
                         <QuillMetricChecksEmptyState
                             metricName={subjectName}
@@ -122,6 +124,7 @@ export function QuillDataQualityChecksPanel({
                         <NoChecksYet onAddCheck={addCheck} disabledReason={newCheckDisabledReason} />
                     )}
                     <QuillCheckEditorDialog />
+                    <QuillRunHistoryDialog {...logicProps} />
                 </div>
             </BindLogic>
         )

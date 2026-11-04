@@ -39,11 +39,26 @@ function RecentRunDot({ suiteRun }: { suiteRun: DataQualitySuiteRunApi }): JSX.E
 
 export function QuillRecentRunsStrip(props: DataQualityChecksLogicProps): JSX.Element | null {
     const logic = dataQualityChecksLogic(props)
-    const { suiteRuns } = useValues(logic)
-    const { openRunHistory } = useActions(logic)
+    const { suiteRuns, suiteRunsError, suiteRunsLoading } = useValues(logic)
+    const { openRunHistory, loadSuiteRuns } = useActions(logic)
 
     if (suiteRuns.length === 0) {
-        return null
+        return suiteRunsError ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1" data-attr="data-quality-recent-runs">
+                <Text size="xs" variant="muted" render={<span />}>
+                    Couldn't load recent runs.
+                </Text>
+                <Button
+                    variant="link"
+                    size="inline"
+                    onClick={loadSuiteRuns}
+                    loading={suiteRunsLoading}
+                    data-attr="data-quality-recent-runs-retry"
+                >
+                    Try again
+                </Button>
+            </div>
+        ) : null
     }
     const latestRun = suiteRuns[0]
     const recentRuns = suiteRuns.slice(0, RECENT_RUN_COUNT).reverse()

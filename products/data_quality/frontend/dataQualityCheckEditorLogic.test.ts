@@ -605,6 +605,28 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(logic.values.checkForm.customSql).toEqual('SELECT * FROM {metric} WHERE signups < 10')
     })
 
+    it('keeps unsaved edits flagged when the metric columns arrive after them', async () => {
+        let resolveSchema: (schema: unknown) => void = () => {}
+        ;(dataQualityChecksOutputSchemaRetrieve as jest.Mock).mockReturnValue(
+            new Promise((resolve) => {
+                resolveSchema = resolve
+            })
+        )
+        ;(dataQualityChecksCheckTypesList as jest.Mock).mockResolvedValue(
+            CHECK_TYPE_CATALOG.filter((type) => type.check_type === 'custom_sql')
+        )
+        await mountLogic()
+
+        logic.actions.openEditorWithStarter({ subjectType: 'metric', subjectId: 'metric-1' }, 'no_sharp_drop')
+        logic.actions.setCheckFormValues({ name: 'signups_drop' })
+        resolveSchema({ columns: [{ name: 'signups', type: 'UInt64' }] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checkForm.customSql).toContain('lagInFrame(signups)')
+        expect(logic.values.checkForm.name).toEqual('signups_drop')
+        expect(logic.values.checkFormChanged).toBe(true)
+    })
+
     it('creates the check once when the form is submitted twice', async () => {
         // Enter submits the form even while the save button is disabled by its loading state.
         ;(dataQualityChecksCreate as jest.Mock).mockResolvedValue(buildCheck({ id: 'check-new' }))
