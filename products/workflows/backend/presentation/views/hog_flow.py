@@ -276,6 +276,8 @@ from products.workflows.backend.facade.secrets import (
     TemplateCache,
     action_bindings,
     action_credential_move_needs_reauth,
+    draft_test_moves_live_credentials,
+    flow_holds_credentials,
     mask_workflow_fields,
     merge_secret_maps,
     plaintext_secret_map,
@@ -793,6 +795,28 @@ def _replay_vision_step_error(request: Request | None, team: Team, inputs: Any) 
     if scanner_id not in cache:
         cache[scanner_id] = workflow_scan_editor_error(user=user, team=team, scanner_id=scanner_id)
     return cache[scanner_id]
+
+
+def _require_recent_authentication_for_variable_edits(
+    context: dict[str, Any], instance: WorkflowEditState, variables: Any
+) -> None:
+    # A step input can template in a variable, for example `https://{variables.host}`, so a variable
+    # edit moves every credential the flow keeps, as any step edit does.
+    draft = instance.draft or {}
+    use_draft = "variables" in draft and not context.get("publishing_draft")
+    stored = draft["variables"] if use_draft else instance.variables
+    if json.dumps(variables, sort_keys=True, default=str) == json.dumps(stored, sort_keys=True, default=str):
+        return
+    template_cache = context.setdefault("_hogflow_template_cache", {})
+    holds_credentials = any(
+        flow_holds_credentials(actions, secrets, template_cache)
+        for actions, secrets in (
+            (instance.actions, instance.encrypted_inputs),
+            (draft.get("actions"), instance.draft_encrypted_inputs),
+        )
+    )
+    if holds_credentials and secret_binding_enforced(context["get_team"]()):
+        require_recent_authentication(context.get("request"), max_age=settings.SESSION_INTEGRATION_LINK_AGE)
 
 
 def _require_replay_vision_editor_access(request: Request | None, context: dict[str, Any], actions: Any) -> None:
@@ -1867,6 +1891,12 @@ class HogFlowActionSerializer(serializers.Serializer):
         if error is not None:
             raise serializers.ValidationError({"template_id": error})
 
+    def _secret_binding_enforced(self) -> bool:
+        # One flag check per request, however many steps the flow has.
+        if "secret_binding_enforced" not in self.context:
+            self.context["secret_binding_enforced"] = secret_binding_enforced(self.context["get_team"]())
+        return self.context["secret_binding_enforced"]
+
     def _validate_add_to_static_cohort_action(self, inputs: dict, *, strict: bool) -> None:
         """The step adds people as a service, so whoever saves it must be able to edit the cohort it names.
 
@@ -2246,10 +2276,6 @@ class HogFlowActionSerializer(serializers.Serializer):
                 if template_id == _FIXED_TEMPLATE_IDS["function_push"]:
                     _fill_default_push_title(inputs, input_schema)
 
-                if "secret_binding_enforced" not in self.context:
-                    self.context["secret_binding_enforced"] = secret_binding_enforced(self.context["get_team"]())
-                enforced = self.context["secret_binding_enforced"]
-
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
                     data={
                         "inputs_schema": input_schema,
@@ -2262,10 +2288,6 @@ class HogFlowActionSerializer(serializers.Serializer):
                         # {"secret": true} marker recovers the stored value instead of wiping it.
                         "encrypted_inputs": (self.context.get("existing_encrypted_inputs") or {}).get(data.get("id"))
                         or {},
-                        "secret_bindings": (self.context.get("existing_secret_bindings") or {}).get(data.get("id"))
-                        or {},
-                        "secret_binding_code": template.code,
-                        "secret_binding_enforced": enforced,
                         # Team plus this action's stored sender override, so a literal custom
                         # sender address is checked against the integration's verified domain at
                         # save time, while an unchanged stored value is grandfathered.
@@ -2296,13 +2318,15 @@ class HogFlowActionSerializer(serializers.Serializer):
                     data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
                     kept_secret_keys = function_config_serializer.context.get("kept_secret_keys", set())
 
-                if enforced and action_credential_move_needs_reauth(
-                    (self.context.get("stored_action_bindings") or {}).get(data.get("id")),
-                    template.code,
-                    data["config"].get("inputs"),
-                    input_schema,
-                    (self.context.get("existing_secret_bindings") or {}).get(data.get("id")),
-                    kept_secret_keys,
+                if (
+                    action_credential_move_needs_reauth(
+                        (self.context.get("stored_action_bindings") or {}).get(data.get("id")),
+                        data,
+                        template,
+                        kept_secret_keys,
+                        (self.context.get("existing_secret_bindings") or {}).get(data.get("id")),
+                    )
+                    and self._secret_binding_enforced()
                 ):
                     require_recent_authentication(
                         self.context.get("request"), max_age=settings.SESSION_INTEGRATION_LINK_AGE
@@ -3703,10 +3727,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             self.context["existing_secret_bindings"] = secret_bindings(
                 instance, template_cache=self.context["_hogflow_template_cache"]
             )
-            # Draft wins over live, as for secrets: it is the config the client last saw.
+            # Draft wins over live, as for secrets: it is the config the client last saw. A publish
+            # compares with live, because nothing checked a draft that a revision restore staged.
             self.context["stored_action_bindings"] = {
                 **action_bindings(instance.actions, self.context["_hogflow_template_cache"]),
-                **action_bindings((instance.draft or {}).get("actions"), self.context["_hogflow_template_cache"]),
+                **(
+                    {}
+                    if self.context.get("publishing_draft")
+                    else action_bindings((instance.draft or {}).get("actions"), self.context["_hogflow_template_cache"])
+                ),
             }
             # Stored sender overrides, keyed by action id, so child action validation only holds
             # newly written custom sender addresses to the verified-domain rule. Draft wins over
@@ -3842,6 +3871,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             draft_actions = (instance.draft or {}).get("actions")
             for stored in (instance.actions, draft_actions):
                 _require_replay_vision_editor_access(self.context.get("request"), self.context, stored)
+
+        if instance and "variables" in data:
+            _require_recent_authentication_for_variable_edits(self.context, instance, data["variables"])
 
         # When activating a draft, re-validate actions from the instance with full (non-draft) checks
         status = data.get("status", instance.status if instance else "draft")
@@ -5836,10 +5868,11 @@ class HogFlowViewSet(
             )
 
     def _validate_locked_content(
-        self, state: WorkflowEditState, data: dict, enforce_graph_structure: bool = False
+        self, state: WorkflowEditState, data: dict, enforce_graph_structure: bool = False, publishing: bool = False
     ) -> dict:
         # Runs inside the write's row lock, against the locked row the service passes in.
         serializer = self.get_serializer(state, data=data, partial=True)
+        serializer.context["publishing_draft"] = publishing
         if enforce_graph_structure:
             # The surgical endpoints are the paths where structural corruption would be newly introduced,
             # so they enforce graph validation as a hard error (unlike the lenient full-save path).
@@ -6087,7 +6120,7 @@ class HogFlowViewSet(
             )
 
         def validate(state: WorkflowEditState, content: dict) -> dict:
-            return self._validate_locked_content(state, content)
+            return self._validate_locked_content(state, content, publishing=True)
 
         try:
             result = publish_draft(
@@ -6643,6 +6676,22 @@ class HogFlowViewSet(
             if error is not None:
                 raise exceptions.PermissionDenied(error)
 
+    def _require_recent_authentication_for_draft_test(self, hog_flow: WorkflowEditState) -> None:
+        draft = hog_flow.draft or {}
+        template_cache: TemplateCache = {}
+        variables_changed = "variables" in draft and json.dumps(draft["variables"], sort_keys=True, default=str) != (
+            json.dumps(hog_flow.variables, sort_keys=True, default=str)
+        )
+        moves = draft_test_moves_live_credentials(
+            hog_flow.actions,
+            draft.get("actions"),
+            hog_flow.encrypted_inputs,
+            hog_flow.draft_encrypted_inputs,
+            template_cache,
+        ) or (variables_changed and flow_holds_credentials(hog_flow.actions, hog_flow.encrypted_inputs, template_cache))
+        if moves and secret_binding_enforced(self.team):
+            require_recent_authentication(self.request, max_age=settings.SESSION_INTEGRATION_LINK_AGE)
+
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
@@ -6681,6 +6730,7 @@ class HogFlowViewSet(
             # The draft's actions are stripped of secrets, and this inline path bypasses the worker's
             # manager (which normally decrypts), so fold the draft's secrets back in before dispatch.
             draft = dict(hog_flow.draft)
+            self._require_recent_authentication_for_draft_test(hog_flow)
             draft_secrets = merge_secret_maps(hog_flow.encrypted_inputs, hog_flow.draft_encrypted_inputs)
             if isinstance(draft.get("actions"), list):
                 draft["actions"] = rehydrate_flow_secrets(draft["actions"], draft_secrets)

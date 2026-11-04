@@ -155,13 +155,32 @@ def mint_publish_confirm_token(hog_function: HogFunction) -> str:
     return TimestampSigner(salt=_PUBLISH_CONFIRM_SALT).sign(_publish_confirm_value(hog_function))
 
 
-def stored_secret_bindings(hog_function: HogFunction) -> dict[str, SecretBinding]:
-    """The code and inputs each stored secret of a function was saved with."""
-    stored = hog_function.encrypted_inputs
-    if not isinstance(stored, dict):
-        return {}
-    binding = SecretBinding(code=hog_function.hog, inputs=hog_function.inputs or {}, mappings=hog_function.mappings)
-    return dict.fromkeys(stored, binding)
+def secret_binding(hog_function: HogFunction) -> SecretBinding:
+    return SecretBinding(
+        code=hog_function.hog,
+        inputs=hog_function.inputs or {},
+        inputs_schema=hog_function.inputs_schema,
+        mappings=hog_function.mappings,
+    )
+
+
+def staged_secret_bindings(hog_function: HogFunction) -> dict[str, SecretBinding]:
+    """The draft's config for each secret the draft staged itself.
+
+    A staged value equal to the live one was recovered from the live function, not entered, so
+    it stays bound to the live config.
+    """
+    draft = hog_function.draft or {}
+    live = hog_function.encrypted_inputs or {}
+    binding = SecretBinding(
+        code=draft.get("hog", hog_function.hog),
+        inputs=draft.get("inputs") or {},
+        inputs_schema=draft.get("inputs_schema", hog_function.inputs_schema),
+        mappings=draft.get("mappings", hog_function.mappings),
+    )
+    return {
+        key: binding for key, value in (hog_function.draft_encrypted_inputs or {}).items() if value != live.get(key)
+    }
 
 
 def split_content_secrets(content: dict) -> dict:
@@ -648,18 +667,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         ):
             raise serializers.ValidationError({"filters": "Select the materialized view to trigger on."})
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
-        # A stored secret stays bound to the code and inputs it was saved with. `publish` adds the
-        # draft's own bindings for the secrets the draft staged.
-        # `data` is the unvalidated request body, so `hog` is whatever the caller sent. The tracer
-        # is cached on the code, and an unhashable value would raise before it can be rejected.
-        submitted_code = data.get("hog", instance.hog if instance else None)
-        self.context["secret_binding_code"] = submitted_code if isinstance(submitted_code, str) else None
-        self.context["secret_binding_mappings"] = data.get("mappings", instance.mappings if instance else None)
-        self.context["secret_bindings"] = {
-            **(stored_secret_bindings(instance) if instance else {}),
-            **(self.context.get("staged_secret_bindings") or {}),
-        }
-        self.context["secret_binding_enforced"] = secret_binding_enforced(team)
 
         template = None
         if data["template_id"]:
@@ -893,24 +900,20 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         return attrs
 
     def _require_recent_authentication_for_credential_moves(self, attrs: dict, instance: Optional[HogFunction]) -> None:
+        stored = secret_binding(instance) if instance else None
         current = SecretBinding(
-            code=attrs.get("hog", instance.hog if instance else None),
-            inputs=attrs.get("inputs") or {},
-            mappings=attrs.get("mappings", instance.mappings if instance else None),
+            code=attrs.get("hog", stored.code if stored else None),
+            inputs=attrs.get("inputs", stored.inputs if stored else {}) or {},
+            inputs_schema=attrs.get("inputs_schema", stored.inputs_schema if stored else []),
+            mappings=attrs.get("mappings", stored.mappings if stored else None),
         )
-        stored = (
-            SecretBinding(code=instance.hog, inputs=instance.inputs or {}, mappings=instance.mappings)
-            if instance
-            else None
-        )
-        inputs_schema = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
-        if self.context.get("secret_binding_enforced") and credential_move_needs_reauth(
-            stored,
-            current,
-            inputs_schema,
-            self.context.get("secret_bindings"),
-            self.context.get("kept_secret_keys", set()),
-        ):
+        kept_secret_keys = set(self.context.get("kept_secret_keys", set()))
+        if self.context.get("stored_secrets_inherited") and instance:
+            # A test run of a saved function gets its stored secrets from the worker, whatever the request sends.
+            kept_secret_keys |= set(instance.encrypted_inputs or {})
+        if credential_move_needs_reauth(
+            stored, current, kept_secret_keys, self.context.get("staged_secret_bindings")
+        ) and secret_binding_enforced(attrs["team"]):
             require_recent_authentication(self.context.get("request"), max_age=settings.SESSION_INTEGRATION_LINK_AGE)
 
     def to_representation(self, data):
@@ -1471,7 +1474,8 @@ class HogFunctionViewSet(
             raise exceptions.ValidationError({"configuration": "Required unless use_draft is true."})
 
         serializer = HogFunctionInvocationSerializer(
-            data=data, context={**self.get_serializer_context(), "instance": hog_function}
+            data=data,
+            context={**self.get_serializer_context(), "instance": hog_function, "stored_secrets_inherited": True},
         )
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
@@ -1810,14 +1814,7 @@ class HogFunctionViewSet(
             # The draft goes back through the normal serializer so publish revalidates strictly and
             # recompiles bytecode — a stored blob is never trusted to be execution-ready.
             serializer = self.get_serializer(locked, data=dict(locked.draft), partial=True)
-            draft_binding = SecretBinding(
-                code=locked.draft.get("hog", locked.hog),
-                inputs=locked.draft.get("inputs") or {},
-                mappings=locked.draft.get("mappings", locked.mappings),
-            )
-            serializer.context["staged_secret_bindings"] = dict.fromkeys(
-                locked.draft_encrypted_inputs or {}, draft_binding
-            )
+            serializer.context["staged_secret_bindings"] = staged_secret_bindings(before_update)
             serializer.is_valid(raise_exception=True)
             serializer.save()
             self._record_revision(locked, before_update, before_content)

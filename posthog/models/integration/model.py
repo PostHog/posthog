@@ -253,6 +253,7 @@ _HOST_CONFIG_KEYS = frozenset(
         "host",
         "hostname",
         "instance_url",
+        "port",
         "server",
         "server_hostname",
         "site_url",

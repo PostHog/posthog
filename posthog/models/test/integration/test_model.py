@@ -109,6 +109,7 @@ class TestIntegrationModel(BaseTest):
     @parameterized.expand(
         [
             ("new_host_without_credentials", {"host": "attacker.example.com"}, None, {}),
+            ("new_port_without_credentials", {"port": 6543}, None, {}),
             ("new_host_with_credentials", {"host": "new.example.com"}, {"password": "new"}, {"password": "new"}),
             ("same_host", {"name": "Renamed"}, None, {"password": "stored"}),
         ]

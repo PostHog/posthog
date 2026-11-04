@@ -7349,8 +7349,12 @@ class TestHogFlowSecretInputs(APIBaseTest):
     @parameterized.expand(
         [
             ("create", None, 403),
-            ("headers_change", {"headers": {"value": {"X-Note": "changed"}}}, 200),
+            ("unchanged", {"api_key": {"secret": True}}, 200),
+            # No input is safe to change: a template can pick its URL from any of them.
+            ("headers_change", {"headers": {"value": {"X-Note": "changed"}}, "api_key": {"secret": True}}, 403),
             ("url_change", {"url": {"value": "https://new.example.com"}}, 403),
+            ("variable_change", {"api_key": {"secret": True}, "variables": "changed"}, 403),
+            # The secret is entered again and nothing stays linked, so nothing stored moves.
             ("unlink", {"connection": {"value": None}}, 200),
             # Nothing is linked any more, but the step's own stored secret still moves.
             (
@@ -7368,7 +7372,10 @@ class TestHogFlowSecretInputs(APIBaseTest):
         self, _name: str, input_changes: Optional[dict], expected_status: int
     ) -> None:
         integration = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
-        payload = self._flow_payload(extra_inputs={"connection": {"value": integration.id}})
+        payload = {
+            **self._flow_payload(extra_inputs={"connection": {"value": integration.id}}),
+            "variables": [{"key": "host", "type": "string", "label": "Host", "default": "example.com"}],
+        }
         stale = time.time() - settings.SESSION_INTEGRATION_LINK_AGE - 60
 
         def make_session_stale() -> None:
@@ -7383,7 +7390,10 @@ class TestHogFlowSecretInputs(APIBaseTest):
         else:
             flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload).json()["id"]
             make_session_stale()
-            self._function_inputs(payload).update(input_changes)
+            changes = dict(input_changes)
+            if changes.pop("variables", None):
+                payload["variables"] = [{**payload["variables"][0], "default": "attacker.example.com"}]
+            self._function_inputs(payload).update(changes)
             response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
 
         assert response.status_code == expected_status, response.json()

