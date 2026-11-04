@@ -1073,7 +1073,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # stop the run, it only leaves the sandbox without store skills for this session.
     store_skills_updates: dict[str, Any] | None
     try:
-        if not include_live_context:
+        if not include_live_context or state.get("disable_skills") is True:
             store_skills_updates = disabled_store_skills_state()
             state.update(store_skills_updates)
         else:

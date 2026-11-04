@@ -4,6 +4,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+import time_machine
 from unittest import mock
 
 import requests
@@ -166,6 +167,15 @@ class TestBuildInitialParams:
                 {"start_month": "2026-03"},
                 [],
             ),
+            # The endpoint 400s with no params unless start_month/start_date is sent; a bare
+            # first sync (no incremental state) must still seed start_month from the lookback.
+            (
+                "usage_estimated_cost",
+                False,
+                None,
+                {"start_month": "2026-02"},
+                [],
+            ),
         ],
     )
     def test_build_initial_params(
@@ -177,11 +187,12 @@ class TestBuildInitialParams:
         expected_absent: list[str],
     ) -> None:
         config = DATADOG_ENDPOINTS[endpoint]
-        params = _build_initial_params(
-            config,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=last_value,
-        )
+        with time_machine.travel(datetime(2026, 3, 4, tzinfo=UTC), tick=False):
+            params = _build_initial_params(
+                config,
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=last_value,
+            )
 
         for key, value in expected_present.items():
             assert params[key] == value

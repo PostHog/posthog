@@ -127,6 +127,30 @@ const aeoPromptsList = (): ToolBase<
     },
 })
 
+const AeoPromptsOverviewGetSchema = () => {
+    const AeoPromptsOverviewQueryParams = orvalSchemas.AeoPromptsOverviewQueryParams()
+    return AeoPromptsOverviewQueryParams
+}
+
+const aeoPromptsOverviewGet = (): ToolBase<
+    ReturnType<typeof AeoPromptsOverviewGetSchema>,
+    Schemas.AEOPromptSetOverview
+> => ({
+    name: 'aeo-prompts-overview-get',
+    schema: AeoPromptsOverviewGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoPromptsOverviewGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AEOPromptSetOverview>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/overview/`,
+            query: {
+                days: params.days,
+            },
+        })
+        return result
+    },
+})
+
 const AeoPromptsStatsGetSchema = () => {
     const AeoPromptsStatsParams = orvalSchemas.AeoPromptsStatsParams()
     return AeoPromptsStatsParams.omit({ project_id: true }).extend({
@@ -234,6 +258,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'aeo-prompts-get': aeoPromptsGet,
     'aeo-prompts-import': aeoPromptsImport,
     'aeo-prompts-list': aeoPromptsList,
+    'aeo-prompts-overview-get': aeoPromptsOverviewGet,
     'aeo-prompts-stats-get': aeoPromptsStatsGet,
     'aeo-prompts-topics-list': aeoPromptsTopicsList,
     'aeo-prompts-update': aeoPromptsUpdate,
