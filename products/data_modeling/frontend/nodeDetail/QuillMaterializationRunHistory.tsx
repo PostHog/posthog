@@ -331,10 +331,10 @@ export function QuillMaterializationRunHistory({
                     </TableBody>
                 )}
             </Table>
-            {count > 0 && (
+            {(count > 0 || jobsPage > 1) && (
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <Text size="xs" variant="muted" render={<span className="tabular-nums" />}>
-                        {firstRow}-{lastRow} of {count} runs
+                        {count > 0 ? `${firstRow}-${lastRow} of ${count} runs` : ''}
                     </Text>
                     <div className="flex items-center gap-2">
                         <Button

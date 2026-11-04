@@ -19,17 +19,26 @@ export interface RunActionConfirmation {
 
 export function QuillRunActionConfirmDialog({
     confirmation,
+    open,
     onClose,
+    onClosed,
 }: {
     confirmation: RunActionConfirmation | null
+    open: boolean
     onClose: () => void
+    onClosed: () => void
 }): JSX.Element {
     return (
         <AlertDialog
-            open={!!confirmation}
-            onOpenChange={(open: boolean) => {
-                if (!open) {
+            open={open}
+            onOpenChange={(nextOpen: boolean) => {
+                if (!nextOpen) {
                     onClose()
+                }
+            }}
+            onOpenChangeComplete={(nextOpen: boolean) => {
+                if (!nextOpen) {
+                    onClosed()
                 }
             }}
         >

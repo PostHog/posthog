@@ -63,6 +63,11 @@ export function QuillMaterializationRunActions({
         revertMaterialization,
     } = useActions(dataWarehouseViewsLogic)
     const [confirmation, setConfirmation] = useState<RunActionConfirmation | null>(null)
+    const [confirmationOpen, setConfirmationOpen] = useState(false)
+    const askToConfirm = (nextConfirmation: RunActionConfirmation): void => {
+        setConfirmation(nextConfirmation)
+        setConfirmationOpen(true)
+    }
 
     if (!savedQuery) {
         return null
@@ -114,7 +119,7 @@ export function QuillMaterializationRunActions({
     })
 
     const confirmDelete = (): void =>
-        setConfirmation({ ...deleteViewConfirmation(savedQuery), destructive: true, onConfirm: deleteView })
+        askToConfirm({ ...deleteViewConfirmation(savedQuery), destructive: true, onConfirm: deleteView })
     const deleteItem = (
         <DropdownMenuItem
             variant="destructive"
@@ -125,7 +130,14 @@ export function QuillMaterializationRunActions({
             {deleteLabel}
         </DropdownMenuItem>
     )
-    const dialog = <QuillRunActionConfirmDialog confirmation={confirmation} onClose={() => setConfirmation(null)} />
+    const dialog = (
+        <QuillRunActionConfirmDialog
+            confirmation={confirmation}
+            open={confirmationOpen}
+            onClose={() => setConfirmationOpen(false)}
+            onClosed={() => setConfirmation(null)}
+        />
+    )
 
     if (!savedQuery.is_materialized) {
         return (
@@ -250,7 +262,7 @@ export function QuillMaterializationRunActions({
                                     <DropdownMenuItem
                                         disabledReason={accessReason || busyReason}
                                         onClick={() =>
-                                            setConfirmation({
+                                            askToConfirm({
                                                 ...FULL_REFRESH_CONFIRMATION,
                                                 destructive: false,
                                                 onConfirm: () => run(true),
@@ -278,7 +290,7 @@ export function QuillMaterializationRunActions({
                                     variant="destructive"
                                     disabledReason={revertReason}
                                     onClick={() =>
-                                        setConfirmation({
+                                        askToConfirm({
                                             ...REVERT_MATERIALIZATION_CONFIRMATION,
                                             destructive: true,
                                             onConfirm: () => revertMaterialization(viewId),

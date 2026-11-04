@@ -29,8 +29,9 @@ import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 const COLUMNS_PAGE_SIZE = 10
 
 function ColumnsTable({ columns }: { columns: DatabaseSchemaField[] }): JSX.Element {
-    const [page, setPage] = useState(0)
+    const [requestedPage, setPage] = useState(0)
     const pageCount = Math.max(Math.ceil(columns.length / COLUMNS_PAGE_SIZE), 1)
+    const page = Math.min(requestedPage, pageCount - 1)
     const pageColumns = columns.slice(page * COLUMNS_PAGE_SIZE, (page + 1) * COLUMNS_PAGE_SIZE)
 
     return (
@@ -64,8 +65,7 @@ function ColumnsTable({ columns }: { columns: DatabaseSchemaField[] }): JSX.Elem
             {pageCount > 1 && (
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <Text size="xs" variant="muted" render={<span className="tabular-nums" />}>
-                        {page * COLUMNS_PAGE_SIZE + 1}-{page * COLUMNS_PAGE_SIZE + pageColumns.length} of{' '}
-                        {columns.length} columns
+                        {`${page * COLUMNS_PAGE_SIZE + 1}-${page * COLUMNS_PAGE_SIZE + pageColumns.length} of ${columns.length} columns`}
                     </Text>
                     <div className="flex items-center gap-2">
                         <Button
