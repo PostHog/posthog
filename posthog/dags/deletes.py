@@ -9,7 +9,7 @@ from functools import partial
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Min, Q
+from django.db.models import Count, Min, Q, QuerySet
 from django.utils import timezone
 
 import dagster
@@ -59,6 +59,7 @@ from posthog.models.deletion_targets import (
 from posthog.models.events_plan_deletion import (
     CLEANUP_DAY_OF_MONTH,
     CLEANUP_HOUR,
+    PlanDeletionState,
     TeamEventsPlanDeletion,
     after_pass,
     cleanup_date,
@@ -183,7 +184,7 @@ class MonthlyCleanupConfig(dagster.Config):
 
 
 PLAN_DELETION_TEAMS_PER_RUN = 0
-_ADMISSION_CHUNK_SIZE = 1000
+_TEAM_CHUNK_SIZE = 1000
 
 
 class PlanDeletionConfig(dagster.Config):
@@ -1619,31 +1620,30 @@ def teams_losing_events_at_first_pass(
     cluster: ClickhouseCluster, window_months_by_team: dict[int, int], first_pass_on: date
 ) -> set[int]:
     first_pass = datetime.combine(first_pass_on, datetime.min.time())
-    cutoffs = {team_id: whole_month_cutoff(first_pass, months) for team_id, months in window_months_by_team.items()}
-    parameters = {"team_ids": sorted(cutoffs), "cutoff": max(cutoffs.values())}
-    oldest_partition: dict[int, int] = {}
+    teams_by_cutoff: dict[datetime, list[int]] = defaultdict(list)
+    for team_id, months in sorted(window_months_by_team.items()):
+        teams_by_cutoff[whole_month_cutoff(first_pass, months)].append(team_id)
+    losing: set[int] = set()
     for placement in resolve_placements(cluster, EVENTS_TARGETS):
         query = f"""
-            SELECT team_id, toYYYYMM(min(timestamp))
+            SELECT DISTINCT team_id
             FROM {placement.target.data_table}
             WHERE team_id IN %(team_ids)s
             AND timestamp < %(cutoff)s
-            GROUP BY team_id
         """
-        results = placement.cluster.map_one_host_per_shard(Query(query, parameters=parameters)).result()
-        for rows in results.values():
-            for team_id, partition in rows:
-                oldest_partition[team_id] = min(partition, oldest_partition.get(team_id, partition))
-    return {team_id for team_id, partition in oldest_partition.items() if partition < _yyyymm(cutoffs[team_id])}
+        for cutoff, team_ids in teams_by_cutoff.items():
+            parameters = {"team_ids": team_ids, "cutoff": cutoff}
+            results = placement.cluster.map_one_host_per_shard(Query(query, parameters=parameters)).result()
+            losing.update(team_id for rows in results.values() for (team_id,) in rows)
+    return losing
 
 
-def _enforced_plans(team_ids: list[int]) -> list[TeamPlan]:
-    teams = Team.objects.filter(id__in=team_ids) if team_ids else Team.objects.all()
+def _enforced_plans(teams: QuerySet[Team]) -> list[TeamPlan]:
     return [
         team_plan(team)
         for team in teams.order_by("organization_id", "id")
         .only("id", "organization_id", "event_retention_months")
-        .iterator(chunk_size=_ADMISSION_CHUNK_SIZE)
+        .iterator(chunk_size=_TEAM_CHUNK_SIZE)
         if should_enforce_events_retention(team.id)
     ]
 
@@ -1652,7 +1652,7 @@ def _admit(cluster: ClickhouseCluster, queue: list[TeamPlan], cap: int, today: d
     admissions = _Admissions(losing_events=[], losing_nothing=[])
     if cap <= 0:
         return admissions
-    for chunk in chunked(queue, _ADMISSION_CHUNK_SIZE):
+    for chunk in chunked(queue, _TEAM_CHUNK_SIZE):
         windows = retention_windows(chunk)
         losing = teams_losing_events_at_first_pass(cluster, windows, next_pass_on(today))
         for team_id in windows:
@@ -1673,7 +1673,7 @@ def update_plan_deletions(
 ) -> PlanDeletionPasses:
     """Admit teams to window deletion, follow their window changes, and find the passes due."""
     today = cleanup_date()
-    plans = _enforced_plans(config.team_ids)
+    plans = _enforced_plans(Team.objects.filter(id__in=config.team_ids) if config.team_ids else Team.objects.all())
     admitted_team_ids = set(
         TeamEventsPlanDeletion.objects.filter(team_id__in=[plan.team_id for plan in plans]).values_list(
             "team_id", flat=True
@@ -1682,8 +1682,11 @@ def update_plan_deletions(
     queue = [plan for plan in plans if plan.team_id not in admitted_team_ids]
     admissions = _admit(cluster, queue, config.max_new_plan_deletion_teams, today)
 
-    with transaction.atomic():
-        states = reschedule_plan_deletions(plans, today, admit={*admissions.losing_events, *admissions.losing_nothing})
+    admitted = {*admissions.losing_events, *admissions.losing_nothing}
+    states: dict[int, PlanDeletionState] = {}
+    for chunk in chunked(plans, _TEAM_CHUNK_SIZE):
+        with transaction.atomic():
+            states.update(reschedule_plan_deletions(chunk, today, admit=admitted))
     due_team_ids = sorted(team_id for team_id, state in states.items() if state.next_deletion_on <= today)
 
     context.add_output_metadata(
@@ -1699,7 +1702,40 @@ def update_plan_deletions(
 
 def _still_due_pass_months(passes: PlanDeletionPasses) -> dict[int, int]:
     rows = TeamEventsPlanDeletion.objects.filter(team_id__in=passes.due_team_ids, next_deletion_on__lte=passes.run_on)
-    return dict(rows.values_list("team_id", "months"))
+    pass_months = dict(rows.values_list("team_id", "months"))
+    windows = retention_windows(_enforced_plans(Team.objects.filter(id__in=pass_months)))
+    return {team_id: max(months, windows.get(team_id, months)) for team_id, months in pass_months.items()}
+
+
+def _planned_partitions(
+    context: dagster.OpExecutionContext, team_months: set[tuple[int, int]], cutoff_partitions: dict[int, int]
+) -> list[PartitionCleanup]:
+    teams_by_partition: dict[int, list[int]] = defaultdict(list)
+    for team_id, partition in sorted(team_months):
+        if partition < cutoff_partitions[team_id]:
+            teams_by_partition[partition].append(team_id)
+    partitions = [
+        PartitionCleanup(partition=partition, team_ids=team_ids)
+        for partition, team_ids in sorted(teams_by_partition.items(), reverse=True)
+    ]
+    for item in partitions:
+        context.log.info(f"{item.partition}: teams {item.team_ids}")
+    context.add_output_metadata(
+        {
+            "teams": dagster.MetadataValue.int(len(cutoff_partitions)),
+            "partitions": dagster.MetadataValue.int(len(partitions)),
+        }
+    )
+    return partitions
+
+
+def _deleted_partitions_metadata(partitions: list[PartitionCleanup]) -> dict[str, dagster.MetadataValue]:
+    return {
+        "partitions_processed": dagster.MetadataValue.int(len(partitions)),
+        "team_ids": dagster.MetadataValue.text(
+            ", ".join(str(tid) for tid in sorted({tid for item in partitions for tid in item.team_ids}))
+        ),
+    }
 
 
 @dagster.op
@@ -1753,29 +1789,13 @@ def plan_old_events_cleanup(
         results = placement.cluster.map_one_host_per_shard(Query(query, parameters=parameters)).result()
         team_months.update((team_id, partition) for rows in results.values() for team_id, partition in rows)
 
-    teams_by_partition: dict[int, list[int]] = defaultdict(list)
-    for team_id, partition in sorted(team_months):
-        if partition < _yyyymm(team_cutoffs[team_id]):
-            teams_by_partition[partition].append(team_id)
-
-    plan = OldEventsCleanupPlan(
-        partitions=[
-            PartitionCleanup(partition=partition, team_ids=team_ids)
-            for partition, team_ids in sorted(teams_by_partition.items(), reverse=True)
-        ],
+    return OldEventsCleanupPlan(
+        partitions=_planned_partitions(
+            context, team_months, {team_id: _yyyymm(cutoff) for team_id, cutoff in team_cutoffs.items()}
+        ),
         window_months_by_team=window_months,
         completed_pass_team_ids=completed_pass_team_ids,
     )
-    for partition_cleanup in plan.partitions:
-        context.log.info(f"{partition_cleanup.partition}: teams {partition_cleanup.team_ids}")
-
-    context.add_output_metadata(
-        {
-            "teams": dagster.MetadataValue.int(len(team_cutoffs)),
-            "partitions": dagster.MetadataValue.int(len(plan.partitions)),
-        }
-    )
-    return plan
 
 
 @dagster.op(out=dagster.Out(dagster.Nothing))
@@ -1833,14 +1853,7 @@ def cleanup_old_events_by_partition(
 
         context.log.info(f"Completed deletion for partition {item.partition}")
 
-    context.add_output_metadata(
-        {
-            "partitions_processed": dagster.MetadataValue.int(total_partitions),
-            "team_ids": dagster.MetadataValue.text(
-                ", ".join(str(tid) for tid in sorted({tid for item in plan.partitions for tid in item.team_ids}))
-            ),
-        }
-    )
+    context.add_output_metadata(_deleted_partitions_metadata(plan.partitions))
 
 
 @dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
@@ -1885,28 +1898,10 @@ def plan_old_sessions_cleanup(
         results = sessions.cluster.map_one_host_per_shard(Query(query, parameters=parameters)).result()
         team_months.update((team_id, partition) for rows in results.values() for team_id, partition in rows)
 
-    teams_by_partition: dict[int, list[int]] = defaultdict(list)
-    for team_id, partition in sorted(team_months):
-        if partition < team_cutoffs[team_id]:
-            teams_by_partition[partition].append(team_id)
-
-    plan = OldSessionsCleanupPlan(
-        partitions=[
-            PartitionCleanup(partition=partition, team_ids=team_ids)
-            for partition, team_ids in sorted(teams_by_partition.items(), reverse=True)
-        ],
+    return OldSessionsCleanupPlan(
+        partitions=_planned_partitions(context, team_months, team_cutoffs),
         completed_pass_team_ids=completed_pass_team_ids,
     )
-    for partition_cleanup in plan.partitions:
-        context.log.info(f"{partition_cleanup.partition}: teams {partition_cleanup.team_ids}")
-
-    context.add_output_metadata(
-        {
-            "teams": dagster.MetadataValue.int(len(team_cutoffs)),
-            "partitions": dagster.MetadataValue.int(len(plan.partitions)),
-        }
-    )
-    return plan
 
 
 @dagster.op(out=dagster.Out(dagster.Nothing))
@@ -1938,14 +1933,7 @@ def cleanup_old_sessions_by_partition(
             _run_on_every_shard(sessions.cluster, delete_mutation_runner)
         context.log.info(f"Completed sessions deletion for partition {item.partition}")
 
-    context.add_output_metadata(
-        {
-            "partitions_processed": dagster.MetadataValue.int(total_partitions),
-            "team_ids": dagster.MetadataValue.text(
-                ", ".join(str(tid) for tid in sorted({tid for item in plan.partitions for tid in item.team_ids}))
-            ),
-        }
-    )
+    context.add_output_metadata(_deleted_partitions_metadata(plan.partitions))
 
 
 @dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
@@ -1957,7 +1945,7 @@ def advance_plan_deletion_passes(
         rows = list(TeamEventsPlanDeletion.objects.select_for_update().filter(team_id__in=plan.completed_pass_team_ids))
         for row in rows:
             row.next_deletion_on = after_pass(row.state, passes.run_on).next_deletion_on
-        TeamEventsPlanDeletion.objects.bulk_update(rows, ["next_deletion_on"], batch_size=_ADMISSION_CHUNK_SIZE)
+        TeamEventsPlanDeletion.objects.bulk_update(rows, ["next_deletion_on"], batch_size=_TEAM_CHUNK_SIZE)
     context.add_output_metadata({"passes": dagster.MetadataValue.int(len(rows))})
 
 
