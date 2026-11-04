@@ -3,6 +3,8 @@ from datetime import datetime
 from functools import cached_property
 from typing import Any, Optional, cast
 
+from prometheus_client import Counter
+
 from posthog.schema import (
     CachedHogQLQueryResponse,
     CacheMissResponse,
@@ -23,21 +25,31 @@ from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_dir
 from posthog.hogql.direct_sql import get_adapter_for_source
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
+from posthog.hogql.helpers.events_time_bounds import reads_events_without_lower_bound
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import CacheOrigin, parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.user_query_validator import validate_user_query
+from posthog.hogql.resolver import resolve_types
+from posthog.hogql.user_query_validator import (
+    EVENTS_LOWER_BOUND_REQUIRED_MESSAGE,
+    HOGQL_API_KEY_REQUIRE_EVENTS_LOWER_BOUND_FLAG,
+    EventsLowerBoundRequiredError,
+    record_request_query_warning,
+    validate_user_query,
+)
 from posthog.hogql.variables import replace_variables
+from posthog.hogql.visitor import clone_expr
 
 from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
-from posthog.clickhouse.query_tagging import tag_contains_user_hogql
+from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_contains_user_hogql
 from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
+from posthog.permissions import posthog_feature_flag_enabled
 
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import (
@@ -48,6 +60,27 @@ from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLM
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 _ACTIVITY_LOGS_TABLE = "system.activity_logs"
+
+EVENTS_LOWER_BOUND_CHECK_COUNTER = Counter(
+    "posthog_hogql_api_key_events_lower_bound_total",
+    "Personal API key HogQL queries checked for a lower time bound on every events read.",
+    labelnames=["outcome"],
+)
+
+
+def _events_lower_bound_enforced(team: Team) -> bool:
+    org_id = str(team.organization_id)
+    try:
+        return posthog_feature_flag_enabled(
+            HOGQL_API_KEY_REQUIRE_EVENTS_LOWER_BOUND_FLAG,
+            org_id,
+            organization_id=org_id,
+            team_id=team.id,
+            person_properties={"organization_plan": team.organization.billing_plan_label()},
+            only_evaluate_locally=True,
+        )
+    except Exception:
+        return False
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -306,6 +339,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         if self.is_query_service:
             validate_user_query(query, team=self.team)
+            self._check_events_lower_bound(query)
 
         paginator = None
         if self.limit_context == LimitContext.SQL_ALERT:
@@ -349,6 +383,26 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if paginator:
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})
         return response
+
+    def _check_events_lower_bound(self, query: ast.SelectQuery | ast.SelectSetQuery) -> None:
+        if not self._reads_events_route() or get_query_tag_value("product") == Product.ENDPOINTS:
+            return
+        try:
+            context = self.build_hogql_context(enable_select_queries=True, modifiers=self.modifiers)
+            missing = reads_events_without_lower_bound(
+                resolve_types(clone_expr(query), context, dialect="hogql"), context
+            )
+        except Exception:
+            EVENTS_LOWER_BOUND_CHECK_COUNTER.labels(outcome="error").inc()
+            return
+        if not missing:
+            EVENTS_LOWER_BOUND_CHECK_COUNTER.labels(outcome="bounded").inc()
+            return
+        if _events_lower_bound_enforced(self.team):
+            EVENTS_LOWER_BOUND_CHECK_COUNTER.labels(outcome="rejected").inc()
+            raise EventsLowerBoundRequiredError(EVENTS_LOWER_BOUND_REQUIRED_MESSAGE)
+        EVENTS_LOWER_BOUND_CHECK_COUNTER.labels(outcome="warned").inc()
+        record_request_query_warning(EVENTS_LOWER_BOUND_REQUIRED_MESSAGE)
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         self.query.filters = self.query.filters or HogQLFilters()

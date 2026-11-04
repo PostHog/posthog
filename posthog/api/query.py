@@ -41,6 +41,7 @@ from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.metadata import enrich_hogql_validation_error
+from posthog.hogql.user_query_validator import get_request_query_warnings, reset_request_query_warnings
 
 from posthog import settings
 from posthog.api.documentation import _FallbackSerializer, extend_schema
@@ -367,6 +368,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 limit_context = None
 
             reset_request_query_cost()
+            reset_request_query_warnings()
             is_query_service = get_query_tag_value("access_method") == "personal_api_key"
             if is_query_service:
                 tag_queries(api_queries_budgeted=True)
@@ -434,6 +436,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     cost.bytes_read,
                     int(cost.remaining_bytes) if cost.remaining_bytes is not None else None,
                 )
+            query_warnings = get_request_query_warnings()
+            if query_warnings:
+                response["X-PostHog-Warn"] = " ".join(query_warnings)
             return response
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             detail = str(e)

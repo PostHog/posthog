@@ -22,10 +22,19 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG, OFFSET_NOT_ALLOWED_MESSAGE
+from posthog.hogql.user_query_validator import (
+    EVENTS_LOWER_BOUND_REQUIRED_MESSAGE,
+    HOGQL_API_KEY_REQUIRE_EVENTS_LOWER_BOUND_FLAG,
+    HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG,
+    OFFSET_NOT_ALLOWED_MESSAGE,
+    EventsLowerBoundRequiredError,
+    get_request_query_warnings,
+    reset_request_query_warnings,
+)
 from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.utils import UUIDT
@@ -528,7 +537,10 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner.calculate()
         self.assertEqual(OFFSET_NOT_ALLOWED_MESSAGE, str(ctx.exception))
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch(
+        "posthoganalytics.feature_enabled",
+        side_effect=lambda flag, *_args, **_kwargs: flag == HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG,
+    )
     def test_query_service_allows_offset_when_org_on_allow_list(self, _mock_flag):
         # Grandfathered via the allow-list flag → query passes through to execution.
         runner = self._create_runner(HogQLQuery(query="select event from events limit 10 offset 5"))
@@ -564,6 +576,41 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 app_runner.get_cache_key(),
                 app_runner.single_flight_variant(),
             )
+
+    @parameterized.expand(
+        [
+            ("api_key_enforced", True, None, True, "rejected"),
+            ("api_key_observed", True, None, False, "warned"),
+            ("flag_service_error", True, None, None, "warned"),
+            ("session_auth", False, None, True, "untouched"),
+            ("endpoint", True, Product.ENDPOINTS, True, "untouched"),
+        ]
+    )
+    def test_query_service_events_lower_bound(self, _name, is_query_service, product, enforced, outcome):
+        runner = self._create_runner(HogQLQuery(query="select event from events limit 1"))
+        runner.is_query_service = is_query_service
+        reset_request_query_warnings()
+
+        def flag_side_effect(flag, *_args, **_kwargs):
+            if flag != HOGQL_API_KEY_REQUIRE_EVENTS_LOWER_BOUND_FLAG:
+                return False
+            if enforced is None:
+                raise RuntimeError("flag service down")
+            return enforced
+
+        with (
+            patch("posthoganalytics.feature_enabled", side_effect=flag_side_effect),
+            tags_context(**({"product": product} if product else {})),
+        ):
+            if outcome == "rejected":
+                with self.assertRaises(EventsLowerBoundRequiredError) as ctx:
+                    runner.calculate()
+                self.assertEqual(EVENTS_LOWER_BOUND_REQUIRED_MESSAGE, str(ctx.exception))
+            else:
+                self.assertEqual(len(runner.calculate().results), 1)
+
+        expected_warnings = [EVENTS_LOWER_BOUND_REQUIRED_MESSAGE] if outcome == "warned" else []
+        self.assertEqual(expected_warnings, get_request_query_warnings())
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_non_query_service_allows_offset(self, _mock_flag):

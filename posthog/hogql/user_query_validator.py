@@ -7,7 +7,13 @@ work happens.
 
 The validator itself does *not* check ``is_query_service`` — callers gate on that
 and only invoke this for user-submitted queries.
+
+Also holds the events lower bound policy: its message, its error, and the warnings
+a request collects for the ``X-PostHog-Warn`` response header.
 """
+
+from contextvars import ContextVar
+from typing import Optional
 
 import posthoganalytics
 
@@ -30,6 +36,33 @@ OFFSET_NOT_ALLOWED_MESSAGE = (
 # customers (Fivetran/Runway/etc.) while they migrate to keyset pagination or
 # batch exports.
 HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG = "hogql-personal-api-key-offset-allowed"
+
+EVENTS_LOWER_BOUND_REQUIRED_MESSAGE = (
+    "This query reads the events table without a lower time bound. "
+    "Add a filter such as `timestamp >= now() - INTERVAL 7 DAY` to the WHERE clause of each SELECT that reads events. "
+    "To export all events, use batch exports: https://posthog.com/docs/cdp/batch-exports"
+)
+HOGQL_API_KEY_REQUIRE_EVENTS_LOWER_BOUND_FLAG = "hogql-api-key-require-events-lower-bound"
+
+_request_query_warnings: ContextVar[Optional[list[str]]] = ContextVar("request_query_warnings", default=None)
+
+
+class EventsLowerBoundRequiredError(QueryError):
+    code_name = "events_timestamp_bound_required"
+
+
+def reset_request_query_warnings() -> None:
+    _request_query_warnings.set([])
+
+
+def record_request_query_warning(message: str) -> None:
+    warnings = _request_query_warnings.get()
+    if warnings is not None and message not in warnings:
+        warnings.append(message)
+
+
+def get_request_query_warnings() -> list[str]:
+    return list(_request_query_warnings.get() or [])
 
 
 class _OffsetDetectingVisitor(TraversingVisitor):
