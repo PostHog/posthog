@@ -11231,6 +11231,8 @@ export namespace Schemas {
     export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
 
     export interface ChartSettings {
+      /** Shows only the annotations saved at this level. Unset shows every level. */
+      annotationsScope?: AnnotationScope | null;
       barGap?: number | null;
       boxPlot?: BoxPlotSettings | null;
       /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
@@ -125804,9 +125806,9 @@ export namespace Schemas {
 
     export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**
-     * Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.
+     * Ignored. The server derives the metric's calculation key from the experiment's current settings. Accepted so that existing clients keep working.
      */
-    fingerprint: string;
+    fingerprint?: string;
     /**
      * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
      */
