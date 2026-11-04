@@ -6,6 +6,7 @@ from unittest.mock import patch
 COMMIT_SHA = "b" * 40
 START_MERGE_CHECK = "products.knowledge_writer.backend.temporal.client.start_merge_check"
 KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer_enabled"
+DAILY_MERGE_CHECK_CAP = "products.knowledge_writer.backend.logic.caps.DAILY_MERGE_CHECK_CAP"
 
 
 @pytest.fixture
@@ -23,20 +24,22 @@ def writer_env(team, user):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "commit_sha, is_writer_enabled, expected_status_code",
+    "commit_sha, is_writer_enabled, daily_merge_check_cap, expected_status_code",
     [
-        pytest.param(COMMIT_SHA, True, 202, id="merge"),
-        pytest.param("not-a-sha", True, 400, id="invalid"),
-        pytest.param(COMMIT_SHA, False, 404, id="flagged_off"),
+        pytest.param(COMMIT_SHA, True, 1000, 202, id="merge"),
+        pytest.param("not-a-sha", True, 1000, 400, id="invalid"),
+        pytest.param(COMMIT_SHA, False, 1000, 404, id="flagged_off"),
+        pytest.param(COMMIT_SHA, True, 0, 429, id="daily_cap_reached"),
     ],
 )
 def test_merge_pushes_endpoint_starts_the_merge_check(
-    client, team, user, writer_env, commit_sha, is_writer_enabled, expected_status_code
+    client, team, user, writer_env, commit_sha, is_writer_enabled, daily_merge_check_cap, expected_status_code
 ) -> None:
     client.force_login(user)
 
     with (
         patch(KNOWLEDGE_WRITER_ENABLED, return_value=is_writer_enabled),
+        patch(DAILY_MERGE_CHECK_CAP, daily_merge_check_cap),
         patch(START_MERGE_CHECK) as start_merge_check,
     ):
         response = client.post(

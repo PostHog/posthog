@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from django.core.cache import cache
 from django.db import connection
 from django.utils import timezone
 
@@ -13,6 +14,8 @@ from .records import JOIN_STATE_KEY, PUBLICATION_CLAIM_STATE_KEY, SECTION_STATE_
 
 DAILY_RUN_CAP = 60
 OPEN_PULL_REQUEST_CAP = 10
+DAILY_MERGE_CHECK_CAP = 1000
+MERGE_CHECK_COUNTER_TTL = timedelta(days=2)
 
 
 class WriterCapReached(Exception):
@@ -90,3 +93,18 @@ def alert_cap_reached(cap: str, *, team_id: int, dedupe_id: str) -> None:
         WriterCapReached(f"knowledge writer {cap} cap reached"),
         additional_properties={"team_id": team_id, "dedupe_id": dedupe_id, "cap": cap},
     )
+
+
+def admit_merge_check(team_id: int, *, commit_sha: str) -> bool:
+    counter_key = f"knowledge_writer_merge_checks:{team_id}:{timezone.now().date().isoformat()}"
+    try:
+        cache.add(counter_key, 0, timeout=int(MERGE_CHECK_COUNTER_TTL.total_seconds()))
+        admitted_today = cache.incr(counter_key)
+    except Exception as error:
+        capture_exception(error, additional_properties={"team_id": team_id, "commit_sha": commit_sha})
+        return True
+    if admitted_today <= DAILY_MERGE_CHECK_CAP:
+        return True
+    if admitted_today == DAILY_MERGE_CHECK_CAP + 1:
+        alert_cap_reached("daily_merge_check", team_id=team_id, dedupe_id=commit_sha)
+    return False

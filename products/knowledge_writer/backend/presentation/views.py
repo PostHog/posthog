@@ -1,5 +1,5 @@
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import serializers, status, viewsets
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -25,12 +25,16 @@ class MergePushViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         request=MergePushSerializer,
-        responses={202: OpenApiResponse(response=MergePushResponseSerializer)},
+        responses={
+            202: OpenApiResponse(response=MergePushResponseSerializer),
+            429: OpenApiResponse(description="The daily merge check limit is reached."),
+        },
     )
     def create(self, request: Request, **kwargs) -> Response:
         if api.writer_team_id() != self.team_id:
             return Response({"detail": "The knowledge writer does not run in this project."}, status=404)
         merge_push = MergePushSerializer(data=request.data)
         merge_push.is_valid(raise_exception=True)
-        api.record_merge_push(merge_push.validated_data["commit_sha"])
+        if not api.record_merge_push(merge_push.validated_data["commit_sha"]):
+            raise exceptions.Throttled(detail="The daily merge check limit is reached. Try again tomorrow.")
         return Response({"status": "accepted"}, status=status.HTTP_202_ACCEPTED)
