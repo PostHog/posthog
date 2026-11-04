@@ -5824,6 +5824,40 @@ describe('a flag in config version 2', () => {
         ])
         newLogic.unmount()
     })
+
+    it.each([
+        [
+            'splits prefilled variants evenly',
+            { type: 'multivariate' as const, variants: ['control', 'compact', 'wide'] },
+            [
+                { key: 'control', name: '', rollout_percentage: 34 },
+                { key: 'compact', name: '', rollout_percentage: 33 },
+                { key: 'wide', name: '', rollout_percentage: 33 },
+            ],
+        ],
+        [
+            'keeps the default variants without a variants param',
+            { type: 'multivariate' as const },
+            [
+                { key: 'control', name: '', rollout_percentage: 50 },
+                { key: 'test', name: '', rollout_percentage: 50 },
+            ],
+        ],
+        ['ignores variants on a boolean flag', { variants: ['control', 'compact'] }, null],
+    ])('prefills the key from the link and %s', async (_label, params, expectedVariants) => {
+        defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+            enabled: false,
+            default_groups: [],
+        })
+        router.actions.push(urls.featureFlagNew({ key: 'checkout-layout', ...params }))
+        const newLogic = featureFlagLogic({ id: 'new' })
+        newLogic.mount()
+        await expectLogic(newLogic).toFinishAllListeners()
+
+        expect(newLogic.values.featureFlag.key).toBe('checkout-layout')
+        expect(newLogic.values.featureFlag.filters.multivariate?.variants ?? null).toEqual(expectedVariants)
+        newLogic.unmount()
+    })
 })
 
 describe('the editor a flag opens in', () => {

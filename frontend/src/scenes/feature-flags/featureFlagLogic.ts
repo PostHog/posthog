@@ -666,6 +666,19 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
     ],
 }
 
+// `?variants=a,b,c` on the new-flag URL. The router JSON-decodes params, so a lone numeric key arrives as a number.
+function variantsFromSearchParam(value: unknown): MultivariateFlagVariant[] {
+    const raw = Array.isArray(value) ? value : value == null ? [] : String(value).split(',')
+    const keys = [...new Set(raw.map((key) => String(key).trim()).filter(Boolean))]
+    const share = Math.floor(100 / Math.max(keys.length, 1))
+    // The first variants take the remainder so the rollout adds up to 100.
+    return keys.map((key, index) => ({
+        key,
+        name: '',
+        rollout_percentage: share + (index < 100 - share * keys.length ? 1 : 0),
+    }))
+}
+
 const FLAG_DEPENDENCY_TIMEOUT_MS = 2000
 
 // Only returns true when groups are present and ALL explicitly set to 0.
@@ -3610,17 +3623,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         }
                     }
 
+                    const prefilledKey = router.values.searchParams.key
+                    if (prefilledKey != null && prefilledKey !== '') {
+                        baseFlagConfig = { ...baseFlagConfig, key: String(prefilledKey) }
+                    }
+
                     // Apply type-specific configuration
                     if (flagType === 'multivariate') {
+                        const prefilledVariants = variantsFromSearchParam(router.values.searchParams.variants)
                         baseFlagConfig = {
                             ...baseFlagConfig,
                             filters: {
                                 ...baseFlagConfig.filters,
                                 multivariate: {
-                                    variants: [
-                                        { key: 'control', name: '', rollout_percentage: 50 },
-                                        { key: 'test', name: '', rollout_percentage: 50 },
-                                    ],
+                                    variants:
+                                        prefilledVariants.length > 0
+                                            ? prefilledVariants
+                                            : [
+                                                  { key: 'control', name: '', rollout_percentage: 50 },
+                                                  { key: 'test', name: '', rollout_percentage: 50 },
+                                              ],
                                 },
                             },
                         }
