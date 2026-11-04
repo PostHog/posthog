@@ -23,6 +23,7 @@ from hogli_commands.worktrees import (
     _discover_root_worktrees,
     _du_sizes,
     _execute,
+    _in_use,
     _include_orphans,
     _is_under,
     _match_worktree_boxes,
@@ -59,6 +60,20 @@ def _git_stub(responses: dict[str, tuple[int, str]]):
 
 # Frozen reference clock (2023-11-14T22:13:20Z) for deterministic cutoff math.
 _NOW = 1_700_000_000.0
+
+
+@pytest.mark.parametrize(
+    ("cwd", "expected"),
+    [
+        (Path("/repo/.claude/worktrees/a"), True),
+        (Path("/repo/.claude/worktrees/a/frontend/src"), True),
+        (Path("/repo/.claude/worktrees/ab"), False),
+        (Path("/repo"), False),
+    ],
+    ids=["worktree itself", "subdirectory", "sibling with same prefix", "parent"],
+)
+def test_in_use_matches_the_worktree_and_its_subdirectories(cwd: Path, expected: bool) -> None:
+    assert _in_use(Path("/repo/.claude/worktrees/a"), {cwd}) is expected
 
 
 class TestUnattendedLock:

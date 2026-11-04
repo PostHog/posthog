@@ -202,8 +202,12 @@ export GOTOOLCHAIN=local
 export GOPATH="$HOME/.cache/posthog/go"
 export GOCACHE="$HOME/.cache/posthog/go-build"
 export GOMODCACHE="$GOPATH/pkg/mod"
-# A copy left under this checkout's flox cache is unused.
-rm -rf "$FLOX_ENV_CACHE/go" "$FLOX_ENV_CACHE/go-build"
+# A copy left under this checkout's flox cache is unused. Module caches made
+# without -modcacherw are read-only, and this hook runs under set -e.
+if [[ -d "$FLOX_ENV_CACHE/go" || -d "$FLOX_ENV_CACHE/go-build" ]]; then
+  chmod -R u+w "$FLOX_ENV_CACHE/go" "$FLOX_ENV_CACHE/go-build" 2>/dev/null || true
+  rm -rf "$FLOX_ENV_CACHE/go" "$FLOX_ENV_CACHE/go-build" 2>/dev/null || true
+fi
 # Go creates the module cache read-only by default, and `rm -rf` on a worktree
 # cannot delete a read-only directory tree.
 export GOFLAGS=-modcacherw
@@ -378,9 +382,9 @@ fi
 # orphans, which git no longer tracks. POSTHOG_WORKTREES_AUTOCLEAN=0 opts out.
 # hogli writes the lock file on each real run, so a fresh one means skip.
 WORKTREES_CLEAN_LOCK="$HOME/.config/posthog/worktrees-clean.lock"
-if [[ "${POSTHOG_WORKTREES_AUTOCLEAN:-1}" != "0" ]] && [[ -z "${CI:-}" ]] && [[ -x "$UV_PROJECT_ENVIRONMENT/bin/hogli" ]] \
+if [[ "${POSTHOG_WORKTREES_AUTOCLEAN:-1}" != "0" ]] && [[ -z "${CI:-}" ]] && [[ -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] \
   && [[ -z "$(find "$WORKTREES_CLEAN_LOCK" -size +0c -mmin -1440 2>/dev/null)" ]]; then
-  "$UV_PROJECT_ENVIRONMENT/bin/hogli" worktrees:clean --unattended >>"$FLOX_ENV_CACHE/worktrees-clean.log" 2>&1 &
+  "$UV_PROJECT_ENVIRONMENT/bin/python" -m hogli worktrees:clean --unattended >>"$FLOX_ENV_CACHE/worktrees-clean.log" 2>&1 &
   disown
 fi
 

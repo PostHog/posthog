@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import time
 import fcntl
 import shutil
@@ -292,6 +293,7 @@ def worktrees_clean(
                 mode=tier,
                 repo=repo,
                 sources=sources,
+                orphans=orphans,
                 dry_run=dry_run,
                 yes=True,
                 keep_boxes=True,
@@ -331,6 +333,8 @@ def worktrees_clean(
         click.echo("Could not read `git worktree list` for this repo; aborting to stay safe.")
         return
 
+    busy = _process_cwds()
+    in_use: list[Path] = []
     candidates: list[Worktree] = []
     for source, root in _worktree_roots(repo_root):
         if selected_sources is not None and source not in selected_sources:
@@ -346,6 +350,9 @@ def worktrees_clean(
             meta = registry.get(resolved)
             if meta and meta["locked"]:
                 continue  # never touch a git-locked worktree
+            if _in_use(resolved, busy):
+                in_use.append(path)
+                continue
             candidates.append(
                 Worktree(
                     source=source,
@@ -356,6 +363,12 @@ def worktrees_clean(
                     last_activity=_last_activity(path),
                 )
             )
+
+    if in_use:
+        click.echo(f"Skipping {len(in_use)} worktree(s) that a running process has as its working directory:")
+        for path in in_use:
+            click.echo(f"  {_display_path(path)}")
+        click.echo("")
 
     if not candidates:
         click.echo(f"No agent worktrees found for {_display_path(repo_root)}.")
@@ -912,6 +925,31 @@ def _resolve(path: Path) -> Path:
         return path.resolve()
     except (OSError, RuntimeError):
         return path
+
+
+def _process_cwds() -> set[Path]:
+    """Working directories of every process this user can see.
+
+    A dev server, editor or agent session sitting in a worktree leaves no git
+    activity, so its working directory is the only sign the worktree is in use."""
+
+    if sys.platform == "linux":
+        cwds: set[Path] = set()
+        for proc in Path("/proc").glob("[0-9]*"):
+            try:
+                cwds.add(Path(os.readlink(proc / "cwd")))
+            except OSError:
+                continue
+        return cwds
+    try:
+        result = subprocess.run(["lsof", "-a", "-d", "cwd", "-F", "n"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    return {Path(line[1:]) for line in result.stdout.splitlines() if line.startswith("n/")}
+
+
+def _in_use(worktree: Path, cwds: set[Path]) -> bool:
+    return any(cwd == worktree or worktree in cwd.parents for cwd in cwds)
 
 
 def _is_under(child: Path, parent: Path) -> bool:
