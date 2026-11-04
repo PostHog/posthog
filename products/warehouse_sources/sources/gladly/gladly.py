@@ -456,7 +456,7 @@ def _rejected_event_entities(error: requests.HTTPError) -> set[str]:
     errors = body.get("errors") if isinstance(body, dict) else None
     rejected: set[str] = set()
     for item in errors if isinstance(errors, list) else []:
-        if not isinstance(item, dict) or item.get("attr") != "entities" or item.get("code") != "invalid":
+        if not isinstance(item, dict) or item.get("attr") != "entities":
             continue
         meta = item.get("meta")
         value = meta.get("entities") if isinstance(meta, dict) else None
@@ -513,8 +513,6 @@ def _event_rows(
         try:
             response = fetch(f"{base_url}/events?{urlencode(params)}")
         except requests.HTTPError as error:
-            # Accounts reject entity types they don't have enabled, and one rejected
-            # type fails the whole request. Drop it and re-read the same window.
             rejected = _rejected_event_entities(error) & set(requested)
             if not rejected or rejected == set(requested):
                 raise

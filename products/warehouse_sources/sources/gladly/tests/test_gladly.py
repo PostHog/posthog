@@ -329,7 +329,19 @@ class TestGetEventRows:
     @pytest.mark.parametrize(
         "error_body, recovers",
         [
-            ({"errors": [{"attr": "entities", "code": "invalid", "meta": {"entities": "PAYMENT_REQUEST"}}]}, True),
+            (
+                {
+                    "errors": [
+                        {
+                            "attr": "entities",
+                            "code": "invalid",
+                            "detail": "not a valid value",
+                            "meta": {"entities": "PAYMENT_REQUEST"},
+                        }
+                    ]
+                },
+                True,
+            ),
             ({"errors": [{"attr": "startAt", "code": "invalid"}]}, False),
         ],
         ids=["rejected_entity_type_is_dropped", "other_bad_request_still_fails"],
