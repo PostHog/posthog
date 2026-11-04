@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any
 
+from django.conf import settings
 from django.db import close_old_connections, transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -19,17 +20,19 @@ import structlog
 import posthoganalytics
 from temporalio.exceptions import ApplicationError
 
-from posthog.schema import ExperimentQuery
+from posthog.schema import ExperimentQuery, PrecomputationMode
 
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.errors import NonReportableApplicationError
 
@@ -48,6 +51,7 @@ from products.experiments.backend.metric_calculation.config import (
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     CAPACITY_RETRY_BACKOFF_COEFFICIENT,
@@ -124,6 +128,48 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
     )
 
 
+@frozen
+class _CalcRoute:
+    """The queue and precompute mode of one metric's calc activity, for a run on the activity queue flag."""
+
+    task_queue: str
+    precomputation_mode: PrecomputationMode | None
+
+
+def _calc_route(
+    experiment: Experiment, team_experiments_config: TeamExperimentsConfig, definition: dict[str, Any]
+) -> _CalcRoute:
+    """
+    A metric that can read precomputed exposures and metric events goes to the precompute queue in the AUTO
+    mode, and the runner checks the gates again when it calculates. The route does not use
+    PrecomputationMode.PRECOMPUTED, which is reserved for staff tools, so for now the check runs twice. Any other
+    metric goes to the activity queue and scans directly, so it never starts a precompute build there.
+    """
+    try:
+        runner = ExperimentQueryRunner(
+            query=ExperimentQuery(experiment_id=experiment.id, metric=build_metric(definition)),
+            team=experiment.team,
+            experiment=experiment,
+            team_experiments_config=team_experiments_config,
+            bypass_warehouse_access_control=True,
+            user_facing=False,
+            error_event_context=None,
+        )
+        reads_precomputed = runner._exposures_precompute_applicable() and runner._metric_events_precompute_applicable()
+    except Exception as e:
+        # The AUTO mode is what every run used before this routing, so a failed check falls back to it. Report
+        # it, because a broken check sends every metric to the precompute queue.
+        capture_exception(e, additional_properties={"tag": "experiment_recalculation_route_failed"})
+        reads_precomputed = True
+
+    if reads_precomputed:
+        return _CalcRoute(task_queue=settings.EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE, precomputation_mode=None)
+    return _CalcRoute(
+        task_queue=settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
+        precomputation_mode=PrecomputationMode.DIRECT,
+    )
+
+
 @database_sync_to_async_pool
 def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
     close_old_connections()
@@ -133,12 +179,36 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
         recalculation = ExperimentMetricsRecalculation.objects.select_related("experiment").get(id=recalculation_id)
         experiment = recalculation.experiment
 
+        # Deferred: recalculation.py imports temporal.models, whose package __init__ imports this module.
+        from products.experiments.backend.recalculation import _activity_task_queue  # noqa: PLC0415
+
+        # The same flag check as the start step, so an organization off the flag (or a failed check) keeps the
+        # AUTO mode on the run's queue and pays for no routing.
+        team_experiments_config = (
+            get_or_create_team_extension(experiment.team, TeamExperimentsConfig)
+            if _activity_task_queue(str(experiment.team.organization_id)) is not None
+            else None
+        )
+        routes: dict[str, _CalcRoute] = {}
+        metrics_to_recalculate = []
         # request_recalculation sets total_metrics from the same resolver, so the run's progress count
         # matches the metrics this activity schedules.
-        metrics_to_recalculate = [
-            ExperimentMetricToRecalculate(experiment_id=experiment.id, metric_uuid=metric.uuid, role=metric.role)
-            for metric in get_metrics_for_calculation(experiment)
-        ]
+        for metric in get_metrics_for_calculation(experiment):
+            route: _CalcRoute | None = None
+            if team_experiments_config is not None:
+                # Metrics that share a uuid share one definition, so they share one route.
+                route = routes.get(metric.uuid)
+                if route is None:
+                    route = routes[metric.uuid] = _calc_route(experiment, team_experiments_config, metric.definition)
+            metrics_to_recalculate.append(
+                ExperimentMetricToRecalculate(
+                    experiment_id=experiment.id,
+                    metric_uuid=metric.uuid,
+                    role=metric.role,
+                    task_queue=route.task_queue if route is not None else None,
+                    precomputation_mode=route.precomputation_mode if route is not None else None,
+                )
+            )
 
         recalculation.metric_uuids = [m.metric_uuid for m in metrics_to_recalculate]
         recalculation.save(update_fields=["metric_uuids"])
@@ -629,6 +699,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
     role: str = "primary",
     is_final_attempt: bool = True,
     attempt: int = 1,
+    precomputation_mode: PrecomputationMode | None = None,
     calculation_key_version: int = 1,
 ) -> MetricRecalculationResult:
     close_old_connections()
@@ -759,7 +830,11 @@ def _calculate_experiment_metric_for_recalculation_sync(
 
         try:
             runner = ExperimentQueryRunner(
-                query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
+                query=ExperimentQuery(
+                    experiment_id=experiment_id,
+                    metric=build_metric(metric_dict),
+                    precomputation_mode=precomputation_mode,
+                ),
                 team=experiment.team,
                 as_of=query_to_dt,
                 workload=Workload.OFFLINE,

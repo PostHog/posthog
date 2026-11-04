@@ -8,6 +8,7 @@ use common_kafka_consumer::Partition;
 
 use common::one_message_batcher;
 use ingestion_consumer::batcher::worker_pool::WorkerPoolSource;
+use ingestion_consumer::batcher::RevokeId;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
 use ingestion_consumer::routing::RoutingStrategy;
 use ingestion_consumer::types::{Accumulator, SerializedKafkaMessage};
@@ -59,7 +60,7 @@ async fn purging_a_just_submitted_batch_is_not_fatal() {
     accumulator.push(Partition(0), make_msg("a").into());
     batcher.submit(accumulator, &HashMap::new());
     // No await, so the task gets the submit and the purge before it runs.
-    batcher.revoker().purge_revoked(&[("test".to_string(), 0)]);
+    batcher.revoke(RevokeId(1), &[("test".to_string(), 0)]);
 
     match tokio::time::timeout(Duration::from_millis(100), outputs.errors.recv()).await {
         Err(_) => {}
