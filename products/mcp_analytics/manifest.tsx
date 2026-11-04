@@ -32,6 +32,13 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'mcp_analytics',
         },
+        MCPAnalyticsIntentMap: {
+            import: () => import('./frontend/intents/MCPAnalyticsIntentMap'),
+            projectBased: true,
+            name: 'Intent map',
+            layout: 'app-container',
+            iconType: 'mcp_analytics',
+        },
     },
     routes: {
         // Define routes here
@@ -41,6 +48,7 @@ export const manifest: ProductManifest = {
         '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
         '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
         '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
+        '/mcp-analytics/intents': ['MCPAnalyticsIntentMap', 'mcpAnalyticsIntentMap'],
         '/mcp-analytics/missing-capabilities': ['MCPAnalytics', 'mcpAnalyticsMissingCapabilities'],
         '/mcp-analytics/notifications': ['MCPAnalytics', 'mcpAnalyticsNotifications'],
     },
@@ -59,6 +67,18 @@ export const manifest: ProductManifest = {
         mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
         mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
         mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
+        mcpAnalyticsIntentMap: (params?: {
+            tool?: string
+            topic?: string
+            dateFrom?: string | null
+            dateTo?: string | null
+        }): string =>
+            combineUrl('/mcp-analytics/intents', {
+                ...(params?.tool ? { tool: params.tool } : {}),
+                ...(params?.topic ? { topic: params.topic } : {}),
+                ...(params?.dateFrom ? { date_from: params.dateFrom } : {}),
+                ...(params?.dateTo ? { date_to: params.dateTo } : {}),
+            }).url,
         mcpAnalyticsMissingCapabilities: (): string => '/mcp-analytics/missing-capabilities',
         mcpAnalyticsNotifications: (): string => '/mcp-analytics/notifications',
     },

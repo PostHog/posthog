@@ -50,6 +50,9 @@ import { formatMs, formatMsAsSeconds, formatNumber } from './dashboard/formatter
 import { HarnessPill } from './dashboard/harness'
 import { harnessMark } from './dashboard/harnessRegistry'
 import { MetricTile } from './dashboard/MetricTile'
+import { IntentTopicsScopeNote } from './intents/IntentTopicsScopeNote'
+import { ToolIntentProfile } from './intents/ToolIntentProfile'
+import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
 import {
     type DailyChartData,
     IntentCoverage,
@@ -520,6 +523,8 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
         failureBucketsLoading,
         sampleIntentRows,
         sampleIntentRowsLoading,
+        intentProfile,
+        intentProfileLoading,
         intentCoverage,
         intentCoverageLoading,
         neighborsBeforeRows,
@@ -540,6 +545,8 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const intentRoutingEnabled = !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]
+    const intentTopicsEnabled = !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]
+    const { hasActiveFilters } = useValues(mcpAnalyticsFiltersLogic)
 
     const theme = useChartTheme()
     const callsSeries = useMemo<Series[]>(
@@ -581,6 +588,7 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
                         failureBucketsLoading ||
                         sampleIntentRowsLoading ||
                         intentCoverageLoading ||
+                        intentProfileLoading ||
                         neighborsBeforeRowsLoading ||
                         neighborsAfterRowsLoading ||
                         byHarnessRowsLoading ||
@@ -681,6 +689,28 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
                     </div>
                 </div>
             </div>
+
+            {intentTopicsEnabled && (
+                <>
+                    <LemonDivider />
+
+                    <div className="flex flex-col gap-3 px-4 pb-4">
+                        <SectionHeader title="How this tool is used" subtitle={dateRangeLabel} />
+                        <IntentTopicsScopeNote
+                            filtersIgnored={hasActiveFilters}
+                            dateFrom={dateFilter.dateFrom}
+                            dateTo={dateFilter.dateTo}
+                        />
+                        <ToolIntentProfile
+                            toolName={toolName}
+                            dateFrom={dateFilter.dateFrom}
+                            dateTo={dateFilter.dateTo}
+                            profile={intentProfile}
+                            loading={intentProfileLoading}
+                        />
+                    </div>
+                </>
+            )}
 
             {intentRoutingEnabled && (
                 <>

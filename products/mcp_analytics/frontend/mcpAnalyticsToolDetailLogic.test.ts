@@ -1,6 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -331,5 +333,60 @@ describe('shared filter wiring', () => {
         resolveSlow({ results: [{ calls: 1 }] })
         await new Promise((resolve) => setTimeout(resolve, 0))
         expect(logic.values.summary?.calls).toBe(42)
+    })
+})
+
+describe('intent profile section', () => {
+    const mockQuery = api.query as jest.Mock
+
+    beforeEach(() => {
+        initKeaTests()
+        mockQuery.mockReset()
+        mockQuery.mockResolvedValue({ results: [] })
+    })
+
+    it('loads the tool intent profile only when the intent topics flag is on', async () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS], {
+            [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]: true,
+        })
+        const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query-trends' })
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.loadAllSections()).toDispatchActions(['loadIntentProfile'])
+
+        expect(mockQuery).toHaveBeenCalledWith(
+            expect.objectContaining({ kind: 'MCPToolIntentProfileQuery', toolName: 'query-trends' })
+        )
+        logic.unmount()
+    })
+
+    it('skips the profile when the flag is off', async () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query-trends' })
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.loadAllSections()).toDispatchActions(['loadSummary'])
+
+        expect(mockQuery).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'MCPToolIntentProfileQuery' }))
+        logic.unmount()
+    })
+
+    it('loads the profile once when the flag turns on after the first load', async () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query-trends' })
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.loadAllSections()).toDispatchActions(['loadSummary'])
+
+        const flagsOn = { [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]: true }
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS], flagsOn)
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS], flagsOn)
+        await expectLogic(logic).toDispatchActions(['loadIntentProfileSuccess'])
+
+        const profileQueries = mockQuery.mock.calls.filter(([query]) => query.kind === 'MCPToolIntentProfileQuery')
+        expect(profileQueries).toEqual([[expect.objectContaining({ toolName: 'query-trends' })]])
+        logic.unmount()
     })
 })
