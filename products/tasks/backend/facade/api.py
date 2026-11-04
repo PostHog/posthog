@@ -235,6 +235,7 @@ _TASK_LOG_READ_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="
 TaskRunStatus = TaskRun.Status
 TaskRunEnvironment = TaskRun.Environment
 TaskOriginProduct = Task.OriginProduct
+TASK_SERVER_ONLY_ORIGIN_PRODUCTS = Task.SERVER_ONLY_ORIGIN_PRODUCTS
 TaskRuntime = Task.Runtime
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
@@ -260,10 +261,12 @@ __all__ = [
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
     "TASK_RUN_SUMMARY_STATE_KEY",
+    "TASK_SERVER_ONLY_ORIGIN_PRODUCTS",
     "TaskOriginProduct",
     "TaskRuntime",
     "TaskRunEnvironment",
     "TaskRunStatus",
+    "ActiveSessionCapRefused",
     "WarmRunActivationUnavailable",
     "append_imported_task_run_log",
     "append_task_run_log",
@@ -501,6 +504,7 @@ def _task_run_to_dto(run: TaskRun, *, task: Task | None = None) -> contracts.Tas
         workflow_id=run.workflow_id,
         mode=run.mode,
         task_origin_product=parent.origin_product if parent is not None else None,
+        task_created_at=parent.created_at if parent is not None else None,
         created_by_id=parent.created_by_id if parent is not None else None,
         created_by_distinct_id=str(created_by.distinct_id) if created_by is not None else None,
         pr_url=(run.output or {}).get("pr_url"),
@@ -578,6 +582,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "context_window",
         "custom_image_id",
         "disable_repo_hooks",
+        "disable_skills",
         "fast_mode",
         # An imported transcript's provenance and mirror cursor: the viewer marks the run as
         # imported, and the legacy mirror reads its own cursor back through this DTO.
@@ -3029,6 +3034,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "scout_trial_judge",
         "scout_trial_private",
         "include_live_context",
+        "disable_skills",
         "analytics_query_context",
         "sandbox_oauth_token_ids",
         # Sandbox run-start lineage and fan-out count. A child sandbox that removed its parent keys
@@ -3208,6 +3214,7 @@ TASK_RUN_FAILURE_ERROR_TYPES = (
     "subscription_usage_limit",
     "task_spend_limit",
     "agent_error",
+    "ActiveSessionCapError",
 )
 
 # `output.pr_merged` is GitHub's word, recorded by the PR webhook (`_record_run_pr_merged`) — never
@@ -3936,6 +3943,7 @@ def set_task_run_summary(
     *,
     summary: str,
     tags: list[str] | None = None,
+    sync_task_tags: bool = True,
     include_agent_state: bool = False,
     user_id: int | None = None,
     analytics_context_reader: Callable[[object], bool] | None = None,
@@ -3949,7 +3957,7 @@ def set_task_run_summary(
         updates[TASK_RUN_TAGS_STATE_KEY] = list(dict.fromkeys(tags))
     with transaction.atomic():
         run.state = TaskRun.update_state_atomic(run.id, updates=updates)
-        if tags is not None and not run.task.is_scout_experiment:
+        if sync_task_tags and tags is not None and not run.task.is_scout_experiment:
             replace_tags_on_object(tags, run.task)
     run.refresh_from_db()
     run.publish_stream_state_event()
@@ -8008,8 +8016,6 @@ def create_task(
 
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
-    created_by = validated_data.get("created_by")
-    title_distinct_id = created_by.distinct_id if created_by else None
 
     if validated_data.get("repository") and not validated_data.get("github_integration"):
         default_integration = IntegrationManager.github.oauth.find(team.id)
@@ -8108,6 +8114,8 @@ def create_task(
                 raise ComputeBillingLimitError(
                     {"team_id": team_id, "task_id": str(warm_task.id), "run_id": str(warm_run.id)}, reason
                 )
+            if (cap_detail := _active_session_cap_refusal(warm_task)) is not None:
+                raise ActiveSessionCapRefused(cap_detail)
             report_reservation = (
                 _reserve_report_warm_activation(
                     team,
@@ -8129,7 +8137,7 @@ def create_task(
                 warm_task.title_manually_set = True
                 update_fields += ["title", "title_manually_set"]
             elif description and not (warm_task.title or "").strip():
-                warm_task.title = generate_task_title(naming_source or description, distinct_id=title_distinct_id)
+                warm_task.title = generate_task_title(naming_source or description)
                 warm_task.title_manually_set = False
                 update_fields += ["title", "title_manually_set"]
             if description and not (warm_task.description or "").strip():
@@ -8263,9 +8271,7 @@ def create_task(
 
     title = (validated_data.get("title") or "").strip()
     if not title and (naming_source or validated_data.get("description")):
-        validated_data["title"] = generate_task_title(
-            naming_source or validated_data["description"], distinct_id=title_distinct_id
-        )
+        validated_data["title"] = generate_task_title(naming_source or validated_data["description"])
         validated_data.setdefault("title_manually_set", False)
     elif title:
         validated_data.setdefault("title_manually_set", True)
@@ -8962,6 +8968,17 @@ REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED = (
 )
 
 
+ACTIVE_SESSION_CAP_CODE = "active_session_cap"
+
+
+class ActiveSessionCapRefused(Exception):
+    code = ACTIVE_SESSION_CAP_CODE
+
+    def __init__(self, detail: str) -> None:
+        self.detail = detail
+        super().__init__(detail)
+
+
 class WarmRunActivationUnavailable(Exception):
     code = "warm_run_activation_unavailable"
 
@@ -9566,6 +9583,27 @@ def _branches_worked_on(run: TaskRun) -> set[str]:
     return branches
 
 
+def _active_session_cap_refusal(task: Task) -> str | None:
+    from products.tasks.backend.logic.services.warm import (
+        SandboxWarmer,  # noqa: PLC0415 — keep warming deps off the api import path
+    )
+    from products.tasks.backend.metrics import (
+        observe_active_session_cap_hit,  # noqa: PLC0415 — keep prometheus deps off the api import path
+    )
+
+    scope = SandboxWarmer.active_session_cap_hit(
+        task.origin_product,
+        organization_id=task.team.organization_id,
+        created_by_id=task.created_by_id,
+        signal_report_id=task.signal_report_id,
+        task_id=task.id,
+    )
+    if scope is None:
+        return None
+    observe_active_session_cap_hit(task.origin_product, scope)
+    return SandboxWarmer.active_session_cap_detail(task.origin_product, scope, signal_report_id=task.signal_report_id)
+
+
 def run_task(
     task_id: str | UUID,
     team_id: int,
@@ -9613,6 +9651,12 @@ def run_task(
         return contracts.TaskRunResult(
             error=contracts.TaskValidationError(kind="detail", detail=REPORT_WARM_RUN_NOT_ACTIVATED)
         )
+    if not validated_data.get("scheduled_at"):
+        cap_detail = _active_session_cap_refusal(task)
+        if cap_detail is not None:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(kind="detail", detail=cap_detail, code=ACTIVE_SESSION_CAP_CODE)
+            )
     report_id_for_slot_check = (
         str(task.signal_report_id)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT

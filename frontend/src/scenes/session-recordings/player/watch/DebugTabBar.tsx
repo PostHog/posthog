@@ -1,6 +1,6 @@
 import { ReactNode } from 'react'
 
-import { IconBug, IconPulse } from '@posthog/icons'
+import { IconPulse, IconWarning } from '@posthog/icons'
 
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { PaneTab, PaneTabBar } from 'scenes/session-recordings/components/PaneTabBar'
@@ -26,7 +26,7 @@ const DEBUG_TABS: Partial<Record<SessionRecordingSidebarTab, { label: string; ic
     },
     [SessionRecordingSidebarTab.LINKED_ISSUES]: {
         label: 'Linked issues',
-        icon: <IconBug />,
+        icon: <IconWarning />,
         dataAttr: 'watch-panel-debug-linked-issues',
     },
 }

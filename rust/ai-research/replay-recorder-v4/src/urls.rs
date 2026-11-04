@@ -7,9 +7,7 @@ use metrics::counter;
 use replay_core_v4::keys::batch::{FlushKeys, SessionId};
 use replay_core_v4::refs::{public_font_url_ref, reference_hash, url_ref, UrlAsset};
 use replay_core_v4::seal::image_url_key;
-use replay_core_v4::url_policy::{
-    is_public_host, is_tracking_beacon, try_canonicalize, CanonicalUrl, Decline,
-};
+use replay_core_v4::url_policy::{checked_url, CanonicalUrl, Decline};
 use serde_json::{json, Value};
 
 use replay_core_v4::inspect::stats::BlockStats;
@@ -151,16 +149,7 @@ pub fn url_reference(
     key_month: &str,
     url_key: &[u8; 32],
 ) -> Result<(CanonicalUrl, String), Decline> {
-    let url = try_canonicalize(raw)?;
-    let path = url::Url::parse(&url.fetch)
-        .map(|u| u.path().to_owned())
-        .unwrap_or_default();
-    if !is_public_host(&url.host) {
-        return Err(Decline::NonPublicHost);
-    }
-    if is_tracking_beacon(&url.host, &path) {
-        return Err(Decline::TrackingBeacon);
-    }
+    let url = checked_url(raw)?;
     let public = match asset {
         UrlAsset::Font => public_font_url_ref(&url),
         UrlAsset::Image => None,
@@ -239,6 +228,7 @@ pub fn sent_urls(capacity: u64) -> moka::sync::Cache<(String, String), ()> {
 #[cfg(test)]
 mod tests {
     use replay_core_v4::keys::batch::SessionKey as Key;
+    use replay_core_v4::url_policy::try_canonicalize;
 
     use super::*;
     use crate::batch::{Origin, SessionKey, Tp};
@@ -276,10 +266,9 @@ mod tests {
             moments: Vec::new(),
             image_urls: urls.iter().map(|u| (*u).to_owned()).collect(),
             font_urls: Vec::new(),
-            remote_urls: Vec::new(),
             url_limit: None,
-            srcsets: Vec::new(),
-            css_rewrites: Vec::new(),
+            edits: Vec::new(),
+            unplaced: false,
             visited_urls: Vec::new(),
             captured_at_ms: None,
         }

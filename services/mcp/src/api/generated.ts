@@ -240,6 +240,123 @@ export namespace Schemas {
       count: number;
     }
 
+    export interface AEOPromptSetCounts {
+      /**
+         * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly citation_rate: number | null;
+      /**
+         * Share of answered checks whose answer names the brand. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly mention_rate: number | null;
+      /** Checks in the window, failed ones included. */
+      checks: number;
+      /** Checks in the window where the engine did not answer. */
+      failed: number;
+      /** Checks in the window whose answer cited a target domain. */
+      cited: number;
+      /** Checks in the window whose answer names the brand. Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+      mentioned: number;
+      /** Distinct prompts that ran at least once in the window. */
+      prompts: number;
+      /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
+      prompts_cited: number;
+    }
+
+    export interface AEOPromptSetDomain {
+      /** Host of the cited URLs, for example 'docs.example.com'. */
+      domain: string;
+      /** Answers in the window that cited at least one URL on this domain. */
+      answers: number;
+      /** Share (0-1) of all answered checks in the window that cited the domain. */
+      share_of_answers: number;
+      /** Whether the domain is one of the project's target domains (the project's own site). */
+      is_target: boolean;
+    }
+
+    export interface AEOPromptSetEngineCounts {
+      /**
+         * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly citation_rate: number | null;
+      /**
+         * Share of answered checks whose answer names the brand. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly mention_rate: number | null;
+      /** Checks in the window, failed ones included. */
+      checks: number;
+      /** Checks in the window where the engine did not answer. */
+      failed: number;
+      /** Checks in the window whose answer cited a target domain. */
+      cited: number;
+      /** Checks in the window whose answer names the brand. Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+      mentioned: number;
+      /** Distinct prompts that ran at least once in the window. */
+      prompts: number;
+      /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
+      prompts_cited: number;
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      engine: string;
+    }
+
+    export interface AEOPromptSetTopicCounts {
+      /**
+         * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly citation_rate: number | null;
+      /**
+         * Share of answered checks whose answer names the brand. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly mention_rate: number | null;
+      /** Checks in the window, failed ones included. */
+      checks: number;
+      /** Checks in the window where the engine did not answer. */
+      failed: number;
+      /** Checks in the window whose answer cited a target domain. */
+      cited: number;
+      /** Checks in the window whose answer names the brand. Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+      mentioned: number;
+      /** Distinct prompts that ran at least once in the window. */
+      prompts: number;
+      /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
+      prompts_cited: number;
+      /** Topic the checks ran with. Empty for prompts that have no topic. A prompt moved to another topic keeps its past checks under the old one. */
+      topic: string;
+      /** Prompts that are on, not archived, and have this topic now. */
+      active_prompts: number;
+    }
+
+    export interface AEOPromptSetOverview {
+      /** Checks across the prompt set in the last 'days' days. */
+      current: AEOPromptSetCounts;
+      /** The same counts for the 'days' days before 'window_from'. */
+      previous: AEOPromptSetCounts;
+      /** The current window split per answer engine, ordered by engine. Engines that did not run are left out. */
+      engines: AEOPromptSetEngineCounts[];
+      /** The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks. */
+      topics: AEOPromptSetTopicCounts[];
+      /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
+      top_domains: AEOPromptSetDomain[];
+      /** Length of each window in days. */
+      days: number;
+      /** First day of the current window, in the project's timezone. */
+      window_from: string;
+      /** Last day of the current window (today), in the project's timezone. */
+      window_to: string;
+      /** Prompts that are on and not archived: the ones the next daily run takes. */
+      prompts_tracked: number;
+      /** Domains that count as the project's own site in citations. */
+      target_domains: string[];
+      /** Lower-cased brand names, derived from the target domains. An answer that contains one of them as a word counts as a mention. */
+      brand_names: string[];
+    }
+
     export interface AEOPromptStats {
       /** Totals per answer engine over the prompt's whole history. */
       engines: AEOPromptEngineStats[];
@@ -669,6 +786,7 @@ export namespace Schemas {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -702,6 +820,7 @@ export namespace Schemas {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
@@ -717,6 +836,7 @@ export namespace Schemas {
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
      * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy
      */
     export type ScopeObjectEnum = typeof ScopeObjectEnum[keyof typeof ScopeObjectEnum];
 
@@ -792,6 +912,7 @@ export namespace Schemas {
       MarketingAnalytics: 'marketing_analytics',
       McpAnalytics: 'mcp_analytics',
       McpRegistry: 'mcp_registry',
+      MessagingPreference: 'messaging_preference',
       Metrics: 'metrics',
       Notebook: 'notebook',
       OfflineEvaluationIngestion: 'offline_evaluation_ingestion',
@@ -825,6 +946,7 @@ export namespace Schemas {
       Today: 'today',
       Toolbar: 'toolbar',
       Tracing: 'tracing',
+      TransactionalEmail: 'transactional_email',
       FieldNote: 'field_note',
       UploadedMedia: 'uploaded_media',
       UsageMetric: 'usage_metric',
@@ -840,6 +962,7 @@ export namespace Schemas {
       Webhook: 'webhook',
       WizardSession: 'wizard_session',
       WizardRun: 'wizard_run',
+      WorkloadTrustPolicy: 'workload_trust_policy',
     } as const;
 
     export interface AccessControlObjectRuleResource {
@@ -915,6 +1038,7 @@ export namespace Schemas {
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
        * * `mcp_registry` - mcp_registry
+       * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -948,6 +1072,7 @@ export namespace Schemas {
        * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
+       * * `transactional_email` - transactional_email
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -962,7 +1087,8 @@ export namespace Schemas {
        * * `web_analytics` - web_analytics
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
-       * * `wizard_run` - wizard_run */
+       * * `wizard_run` - wizard_run
+       * * `workload_trust_policy` - workload_trust_policy */
       resource: ScopeObjectEnum;
       /** The levels an object rule on this resource type accepts, lowest first. */
       available_access_levels: string[];
@@ -1161,6 +1287,7 @@ export namespace Schemas {
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
        * * `mcp_registry` - mcp_registry
+       * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -1194,6 +1321,7 @@ export namespace Schemas {
        * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
+       * * `transactional_email` - transactional_email
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -1208,7 +1336,8 @@ export namespace Schemas {
        * * `web_analytics` - web_analytics
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
-       * * `wizard_run` - wizard_run */
+       * * `wizard_run` - wizard_run
+       * * `workload_trust_policy` - workload_trust_policy */
       source_resource: ScopeObjectEnum;
       /**
          * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -1573,6 +1702,7 @@ export namespace Schemas {
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
        * * `mcp_registry` - mcp_registry
+       * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -1606,6 +1736,7 @@ export namespace Schemas {
        * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
+       * * `transactional_email` - transactional_email
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -1620,7 +1751,8 @@ export namespace Schemas {
        * * `web_analytics` - web_analytics
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
-       * * `wizard_run` - wizard_run */
+       * * `wizard_run` - wizard_run
+       * * `workload_trust_policy` - workload_trust_policy */
       resource: ScopeObjectEnum;
       /** The object's primary key. */
       resource_id: string;
@@ -2359,260 +2491,68 @@ export namespace Schemas {
       readonly last_modified_by: UserBasic;
     }
 
-    export interface AccountPresenceViewer {
-      /** PostHog user ID of the teammate viewing this account. */
-      readonly user_id: number;
-      /** Display name of the teammate viewing this account. */
-      readonly display_name: string;
-    }
-
-    export interface AccountPresence {
-      /** Customer analytics account ID. */
-      readonly account_id: string;
-      /** People viewing this account. */
-      readonly viewers: readonly AccountPresenceViewer[];
-    }
-
-    export interface AccountPresenceListRequest {
-      /**
-         * Up to 100 account IDs to read presence for.
-         * @maxItems 100
-         */
-      account_ids: string[];
-    }
-
     /**
-     * * `custom_property` - Custom property
-     * * `relationship` - Relationship
-     * * `account_field` - Account field
+     * Selected visible person properties.
      */
-    export type AccountPropertyPinKindEnum = typeof AccountPropertyPinKindEnum[keyof typeof AccountPropertyPinKindEnum];
+    export type AccountPersonProperties = {[key: string]: unknown};
 
+    export interface AccountPerson {
+      /** Current person ID. */
+      id: string;
+      /** Display name from visible person properties, or the person ID. */
+      display_name: string;
+      /** Current membership distinct IDs for person navigation, up to 101. */
+      distinct_ids: string[];
+      /** Selected visible person properties. */
+      properties: AccountPersonProperties;
+      /** Earliest account activity across current distinct IDs, in UTC. */
+      account_first_seen: string;
+      /** Latest account activity across current distinct IDs, in UTC. */
+      account_last_seen: string;
+    }
 
-    export const AccountPropertyPinKindEnum = {
-      CustomProperty: 'custom_property',
-      Relationship: 'relationship',
-      AccountField: 'account_field',
+    export interface PersonPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      /** Person properties */
+      type?: 'person';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface PersonMetadataPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+      type?: 'person_metadata';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface CohortPropertyFilter {
+      /** Set by the feature flag API when the cohort is deleted or does not exist. */
+      cohort_deleted?: boolean | null;
+      /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+      cohort_missing?: boolean | null;
+      cohort_name?: string | null;
+      key?: 'id';
+      label?: string | null;
+      operator?: PropertyOperator | null;
+      type?: 'cohort';
+      value: number;
+    }
+
+    export interface HogQLPropertyFilter {
+      key: string;
+      label?: string | null;
+      type?: 'hogql';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export const EmptyPropertyFilterValue = {
+      type: 'empty',
     } as const;
-
-    /**
-     * A team-defined account relationship type (CSM, Onboarding manager, ...).
-     */
-    export interface AccountRelationshipDefinition {
-      /** Relationship definition UUID. */
-      readonly id: string;
-      /**
-         * Human-readable name of the relationship. Unique within the team.
-         * @maxLength 400
-         */
-      name: string;
-      /**
-         * What this relationship means, e.g. 'The customer success manager responsible for this account'.
-         * @nullable
-         */
-      description?: string | null;
-      /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
-      is_single_holder?: boolean;
-      /** Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API. */
-      readonly is_controlled: boolean;
-    }
-
-    /**
-     * * `human` - Human
-     * * `workflow` - Workflow
-     * * `ai` - AI
-     * * `salesforce_claim` - Salesforce claim
-     * * `migration` - Migration
-     */
-    export type AccountRelationshipSourceEnum = typeof AccountRelationshipSourceEnum[keyof typeof AccountRelationshipSourceEnum];
-
-
-    export const AccountRelationshipSourceEnum = {
-      Human: 'human',
-      Workflow: 'workflow',
-      Ai: 'ai',
-      SalesforceClaim: 'salesforce_claim',
-      Migration: 'migration',
-    } as const;
-
-    /**
-     * One assignment of a user to an account relationship, with its effective range.
-     */
-    export interface AccountRelationship {
-      /** Unique id of this assignment row. */
-      readonly id: string;
-      /** The relationship type this assignment belongs to. */
-      readonly definition: AccountRelationshipDefinition;
-      /** The assigned user; null when their account was deleted. */
-      readonly user: AccountAssignment | null;
-      /** When this assignment became effective. */
-      readonly started_at: string;
-      /**
-         * When this assignment ended; null while it is active.
-         * @nullable
-         */
-      readonly ended_at: string | null;
-      /** Which kind of writer made this assignment; null on rows older than provenance tracking.
-       *
-       * * `human` - Human
-       * * `workflow` - Workflow
-       * * `ai` - AI
-       * * `salesforce_claim` - Salesforce claim
-       * * `migration` - Migration */
-      readonly source: AccountRelationshipSourceEnum | null;
-    }
-
-    /**
-     * Input for assigning a user to an account relationship.
-     */
-    export interface AccountRelationshipWrite {
-      /** Id of the relationship definition to assign. */
-      definition: string;
-      /** PostHog user id of the assignee. Must be a member of the account's organization. */
-      user: number;
-    }
-
-    export interface AccountSupportTicketMessage {
-      /** UUID of the support ticket message. */
-      readonly id: string;
-      /** Plain-text message content. */
-      readonly content: string;
-      /** Display name of the message author. */
-      readonly author_name: string;
-      /** Whether PostHog received or sent the message.
-       *
-       * * `inbound` - Inbound
-       * * `outbound` - Outbound */
-      readonly direction: EmailThreadMessageDirectionEnum;
-      /** Whether the message is an internal note hidden from the customer. */
-      readonly is_private: boolean;
-      /** When the message was created. */
-      readonly created_at: string;
-    }
-
-    /**
-     * * `account_field` - account_field
-     * * `custom_property` - custom_property
-     */
-    export type AccountTrackRuleFieldKindEnum = typeof AccountTrackRuleFieldKindEnum[keyof typeof AccountTrackRuleFieldKindEnum];
-
-
-    export const AccountTrackRuleFieldKindEnum = {
-      AccountField: 'account_field',
-      CustomProperty: 'custom_property',
-    } as const;
-
-    /**
-     * * `name` - name
-     * * `external_id` - external_id
-     * * `created_at` - created_at
-     * * `updated_at` - updated_at
-     * * `churned_at` - churned_at
-     * * `ignored_at` - ignored_at
-     * * `stripe_customer_id` - stripe_customer_id
-     * * `hubspot_deal_id` - hubspot_deal_id
-     * * `billing_id` - billing_id
-     * * `sfdc_id` - sfdc_id
-     * * `zendesk_id` - zendesk_id
-     */
-    export type AccountTrackRuleFieldFieldEnum = typeof AccountTrackRuleFieldFieldEnum[keyof typeof AccountTrackRuleFieldFieldEnum];
-
-
-    export const AccountTrackRuleFieldFieldEnum = {
-      Name: 'name',
-      ExternalId: 'external_id',
-      CreatedAt: 'created_at',
-      UpdatedAt: 'updated_at',
-      ChurnedAt: 'churned_at',
-      IgnoredAt: 'ignored_at',
-      StripeCustomerId: 'stripe_customer_id',
-      HubspotDealId: 'hubspot_deal_id',
-      BillingId: 'billing_id',
-      SfdcId: 'sfdc_id',
-      ZendeskId: 'zendesk_id',
-    } as const;
-
-    export interface AccountTrackRuleField {
-      kind: AccountTrackRuleFieldKindEnum;
-      field?: AccountTrackRuleFieldFieldEnum | null;
-      /** @nullable */
-      definition_id?: string | null;
-    }
-
-    export interface AccountTrackRuleCondition {
-      field: AccountTrackRuleField;
-      operator: string;
-      values?: unknown[];
-    }
-
-    export interface AccountTrackRuleGroup {
-      conditions: AccountTrackRuleCondition[];
-    }
-
-    export type AccountTrackRuleSampleRuleValues = { [key: string]: unknown };
-
-    export interface AccountTrackRuleSample {
-      readonly id: string;
-      readonly name: string;
-      /** @nullable */
-      readonly external_id: string | null;
-      readonly rule_values: AccountTrackRuleSampleRuleValues;
-    }
-
-    export interface AccountTrackRulePreview {
-      config_version: number;
-      eligible_active: number;
-      skipped_churned: number;
-      tracked: number;
-      ignored: number;
-      newly_ignored: number;
-      restored: number;
-      readonly tracked_samples: readonly AccountTrackRuleSample[];
-      readonly ignored_samples: readonly AccountTrackRuleSample[];
-      validation_errors?: string[];
-    }
-
-    export interface AccountTrackRuleRunRequest {
-      idempotency_key: string;
-      confirmed: boolean;
-    }
-
-    export interface AccountTrackRuleRunView {
-      readonly id: string;
-      /** @minimum 0 */
-      readonly config_version: number;
-      readonly trigger: string;
-      readonly status: string;
-      /** @minimum 0 */
-      readonly eligible_active: number;
-      /** @minimum 0 */
-      readonly skipped_churned: number;
-      /** @minimum 0 */
-      readonly tracked: number;
-      /** @minimum 0 */
-      readonly ignored: number;
-      /** @minimum 0 */
-      readonly newly_ignored: number;
-      /** @minimum 0 */
-      readonly restored: number;
-      /** @nullable */
-      readonly started_at: string | null;
-      /** @nullable */
-      readonly finished_at: string | null;
-      /** @nullable */
-      readonly error: string | null;
-      /** @nullable */
-      readonly created_by: number | null;
-      readonly created_at: string;
-    }
-
-    export interface AccountTrackRulesConfig {
-      schema_version: number;
-      /** @minimum 0 */
-      version: number;
-      enabled: boolean;
-      groups: AccountTrackRuleGroup[];
-    }
+    export type EmptyPropertyFilter = typeof EmptyPropertyFilterValue;
 
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
 
@@ -2890,6 +2830,244 @@ export namespace Schemas {
       webAnalyticsFirstPageviewFilters?: boolean | null;
     }
 
+    export interface EventPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator?: PropertyOperator | null;
+      /** Event properties */
+      type?: 'event';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type Key10 = typeof Key10[keyof typeof Key10];
+
+
+    export const Key10 = {
+      TagName: 'tag_name',
+      Text: 'text',
+      Href: 'href',
+      Selector: 'selector',
+    } as const;
+
+    export interface ElementPropertyFilter {
+      key: Key10;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'element';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface EventMetadataPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'event_metadata';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface SessionPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'session';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type DurationType = typeof DurationType[keyof typeof DurationType];
+
+
+    export const DurationType = {
+      Duration: 'duration',
+      ActiveSeconds: 'active_seconds',
+      InactiveSeconds: 'inactive_seconds',
+    } as const;
+
+    export interface RecordingPropertyFilter {
+      key: DurationType | string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'recording';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface LogEntryPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'log_entry';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type GroupPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
+    export interface GroupPropertyFilter {
+      group_key_names?: GroupPropertyFilterGroupKeyNames;
+      group_type_index?: number | null;
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'group';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface FeaturePropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      /** Event property with "$feature/" prepended */
+      type?: 'feature';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface FlagPropertyFilter {
+      /** The key should be the flag ID */
+      key: string;
+      label?: string | null;
+      /** Only flag_evaluates_to operator is allowed for flag dependencies */
+      operator?: 'flag_evaluates_to';
+      /** Feature flag dependency */
+      type?: 'flag';
+      /** The value can be true, false, or a variant name */
+      value: boolean | string;
+    }
+
+    export interface DataWarehousePropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'data_warehouse';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface DataWarehousePersonPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'data_warehouse_person_property';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface ErrorTrackingIssueFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'error_tracking_issue';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type LogPropertyFilterType = typeof LogPropertyFilterType[keyof typeof LogPropertyFilterType];
+
+
+    export const LogPropertyFilterType = {
+      Log: 'log',
+      LogAttribute: 'log_attribute',
+      LogResourceAttribute: 'log_resource_attribute',
+    } as const;
+
+    export interface LogPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type: LogPropertyFilterType;
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface MetricPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'metric_attribute';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type SpanPropertyFilterType = typeof SpanPropertyFilterType[keyof typeof SpanPropertyFilterType];
+
+
+    export const SpanPropertyFilterType = {
+      Span: 'span',
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
+    } as const;
+
+    export interface SpanPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type: SpanPropertyFilterType;
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface RevenueAnalyticsPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'revenue_analytics';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface WorkflowVariablePropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'workflow_variable';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type BehavioralEventSource = typeof BehavioralEventSource[keyof typeof BehavioralEventSource];
+
+
+    export const BehavioralEventSource = {
+      Events: 'events',
+      Actions: 'actions',
+    } as const;
+
+    export type TimeUnitType = typeof TimeUnitType[keyof typeof TimeUnitType];
+
+
+    export const TimeUnitType = {
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+      Year: 'year',
+    } as const;
+
+    export type InlineBehavioralType = typeof InlineBehavioralType[keyof typeof InlineBehavioralType];
+
+
+    export const InlineBehavioralType = {
+      PerformedEvent: 'performed_event',
+      PerformedEventMultiple: 'performed_event_multiple',
+    } as const;
+
+    export interface BehavioralPropertyFilter {
+      /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
+      event_filters?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | FeaturePropertyFilter | HogQLPropertyFilter)[] | null;
+      event_type: BehavioralEventSource;
+      /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
+      explicit_datetime?: string | null;
+      explicit_datetime_to?: string | null;
+      /** Event name, or action id when event_type is 'actions' */
+      key: string;
+      label?: string | null;
+      /** Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators */
+      negation?: boolean | null;
+      /** Count comparison for performed_event_multiple, defaults to exact */
+      operator?: PropertyOperator | null;
+      /** Count threshold for performed_event_multiple */
+      operator_value?: number | null;
+      time_interval?: TimeUnitType | null;
+      /** Relative time window size, paired with time_interval */
+      time_value?: number | null;
+      /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
+      type?: 'behavioral';
+      value: InlineBehavioralType;
+    }
+
+    export interface PropertyGroupFilterValue {
+      type: FilterLogicalOperator;
+      values: (PropertyGroupFilterValue | EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[];
+    }
+
     export interface ClickhouseQueryProgress {
       active_cpu_time: number;
       bytes_read: number;
@@ -3085,6 +3263,491 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+    }
+
+    export interface AccountPersonsActorsQuery {
+      /** Exclude persons matching the team's "internal and test account" filters. Only person-scoped filters (person properties, cohorts) are applied. Event-scoped test account filters have no meaning in a persons query and are ignored. */
+      filterTestAccounts?: boolean | null;
+      /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
+      fixedProperties?: (PersonPropertyFilter | PersonMetadataPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter)[] | null;
+      kind?: 'ActorsQuery';
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      orderBy?: string[] | null;
+      /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
+      properties?: (PersonPropertyFilter | PersonMetadataPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter)[] | PropertyGroupFilterValue | null;
+      response?: ActorsQueryResponse | null;
+      search?: string | null;
+      select?: string[] | null;
+      /** Account membership source for the table. */
+      source: AccountUsersQuery;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface AccountPersonsPage {
+      /** Matching current persons for this account. */
+      results: AccountPerson[];
+      /** Selected visible property keys, in request order. */
+      columns: string[];
+      /** Maximum persons per page. */
+      limit: number;
+      /** Number of matching persons skipped. */
+      offset: number;
+      /** Whether another page exists. */
+      has_more: boolean;
+      /**
+         * Offset of the next page, or null.
+         * @nullable
+         */
+      next_offset: number | null;
+    }
+
+    /**
+     * Read cached results or calculate synchronously.
+     */
+    export type AccountPersonsQueryRequestRefresh = typeof AccountPersonsQueryRequestRefresh[keyof typeof AccountPersonsQueryRequestRefresh] | null;
+
+
+    export const AccountPersonsQueryRequestRefresh = {
+      Blocking: 'blocking',
+      ForceBlocking: 'force_blocking',
+    } as const;
+
+    export type AccountPersonsQueryRequestVariablesOverride = {[key: string]: { [key: string]: unknown }} | null;
+
+    export type BreakdownType = typeof BreakdownType[keyof typeof BreakdownType];
+
+
+    export const BreakdownType = {
+      Cohort: 'cohort',
+      Person: 'person',
+      Event: 'event',
+      EventMetadata: 'event_metadata',
+      Element: 'element',
+      Group: 'group',
+      Session: 'session',
+      Hogql: 'hogql',
+      DataWarehouse: 'data_warehouse',
+      DataWarehousePersonProperty: 'data_warehouse_person_property',
+      RevenueAnalytics: 'revenue_analytics',
+    } as const;
+
+    export type MultipleBreakdownType = typeof MultipleBreakdownType[keyof typeof MultipleBreakdownType];
+
+
+    export const MultipleBreakdownType = {
+      Person: 'person',
+      Event: 'event',
+      EventMetadata: 'event_metadata',
+      Element: 'element',
+      Group: 'group',
+      Session: 'session',
+      Hogql: 'hogql',
+      Cohort: 'cohort',
+      RevenueAnalytics: 'revenue_analytics',
+      DataWarehouse: 'data_warehouse',
+      DataWarehousePersonProperty: 'data_warehouse_person_property',
+    } as const;
+
+    export interface Breakdown {
+      group_type_index?: number | null;
+      histogram_bin_count?: number | null;
+      normalize_url?: boolean | null;
+      property: string | number;
+      type?: MultipleBreakdownType | null;
+    }
+
+    export interface BreakdownFilter {
+      breakdown?: string | (string | number)[] | number | null;
+      breakdown_group_type_index?: number | null;
+      breakdown_hide_other_aggregation?: boolean | null;
+      breakdown_histogram_bin_count?: number | null;
+      breakdown_limit?: number | null;
+      breakdown_normalize_url?: boolean | null;
+      breakdown_path_cleaning?: boolean | null;
+      breakdown_type?: BreakdownType | null;
+      breakdowns?: Breakdown[] | null;
+    }
+
+    export interface CompareFilter {
+      /** Whether to compare the current date range to a previous date range. */
+      compare?: boolean | null;
+      /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+      compare_to?: string | null;
+    }
+
+    export type IntervalType = typeof IntervalType[keyof typeof IntervalType];
+
+
+    export const IntervalType = {
+      Second: 'second',
+      Minute: 'minute',
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+      Quarter: 'quarter',
+      Year: 'year',
+    } as const;
+
+    export type MetricsFilterOp = typeof MetricsFilterOp[keyof typeof MetricsFilterOp];
+
+
+    export const MetricsFilterOp = {
+      Eq: 'eq',
+      Neq: 'neq',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+    } as const;
+
+    export type MetricsAttributeScope = typeof MetricsAttributeScope[keyof typeof MetricsAttributeScope];
+
+
+    export const MetricsAttributeScope = {
+      Resource: 'resource',
+      Attribute: 'attribute',
+      Auto: 'auto',
+    } as const;
+
+    export interface MetricsQueryFilter {
+      key: string;
+      op: MetricsFilterOp;
+      scope?: MetricsAttributeScope | null;
+      value: string;
+    }
+
+    export interface MetricsDashboardVariableSelection {
+      all?: boolean | null;
+      /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
+      values: string[];
+    }
+
+    export type MetricsDashboardVariableSource = typeof MetricsDashboardVariableSource[keyof typeof MetricsDashboardVariableSource];
+
+
+    export const MetricsDashboardVariableSource = {
+      Custom: 'custom',
+      Promql: 'promql',
+      Sql: 'sql',
+      Textbox: 'textbox',
+    } as const;
+
+    export interface MetricsDashboardVariable {
+      /** The text that All puts in a PromQL query. `.*` when it is empty. */
+      allValue?: string | null;
+      current?: MetricsDashboardVariableSelection | null;
+      /** The options when `source` is `custom`. */
+      customValues?: string[] | null;
+      includeAll?: boolean | null;
+      /** Shown in the dashboard filter bar. The name is shown when it is empty. */
+      label?: string | null;
+      multi?: boolean | null;
+      /** Letters, digits and underscores. Tiles refer to it as `$name`. */
+      name: string;
+      /** The options query when `source` is `promql` or `sql`. It can refer to other variables. PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`, `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column. */
+      query?: string | null;
+      /** RE2 pattern that options must match. When it has a capture group, the option is the first group. */
+      regex?: string | null;
+      source: MetricsDashboardVariableSource;
+    }
+
+    export interface DashboardFilter {
+      breakdown_filter?: BreakdownFilter | null;
+      /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
+      compareFilter?: CompareFilter | null;
+      date_from?: string | null;
+      date_to?: string | null;
+      explicitDate?: boolean | null;
+      /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+      filterTestAccounts?: boolean | null;
+      /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+      interval?: IntervalType | null;
+      metricFilters?: MetricsQueryFilter[] | null;
+      /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
+      metricVariables?: MetricsDashboardVariable[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+    }
+
+    export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
+
+
+    export const LimitContext = {
+      PosthogAi: 'posthog_ai',
+    } as const;
+
+    export interface AccountPersonsQueryRequest {
+      async?: false | null;
+      /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
+      client_query_id?: string | null;
+      filters_override?: DashboardFilter | null;
+      /** Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value. */
+      limit_context?: LimitContext | null;
+      /** Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name. */
+      name?: string | null;
+      /** Account-user table query to run. */
+      query: AccountPersonsActorsQuery;
+      /** Read cached results or calculate synchronously. */
+      refresh?: AccountPersonsQueryRequestRefresh;
+      variables_override?: AccountPersonsQueryRequestVariablesOverride;
+    }
+
+    export interface AccountPresenceViewer {
+      /** PostHog user ID of the teammate viewing this account. */
+      readonly user_id: number;
+      /** Display name of the teammate viewing this account. */
+      readonly display_name: string;
+    }
+
+    export interface AccountPresence {
+      /** Customer analytics account ID. */
+      readonly account_id: string;
+      /** People viewing this account. */
+      readonly viewers: readonly AccountPresenceViewer[];
+    }
+
+    export interface AccountPresenceListRequest {
+      /**
+         * Up to 100 account IDs to read presence for.
+         * @maxItems 100
+         */
+      account_ids: string[];
+    }
+
+    /**
+     * * `custom_property` - Custom property
+     * * `relationship` - Relationship
+     * * `account_field` - Account field
+     */
+    export type AccountPropertyPinKindEnum = typeof AccountPropertyPinKindEnum[keyof typeof AccountPropertyPinKindEnum];
+
+
+    export const AccountPropertyPinKindEnum = {
+      CustomProperty: 'custom_property',
+      Relationship: 'relationship',
+      AccountField: 'account_field',
+    } as const;
+
+    /**
+     * A team-defined account relationship type (CSM, Onboarding manager, ...).
+     */
+    export interface AccountRelationshipDefinition {
+      /** Relationship definition UUID. */
+      readonly id: string;
+      /**
+         * Human-readable name of the relationship. Unique within the team.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * What this relationship means, e.g. 'The customer success manager responsible for this account'.
+         * @nullable
+         */
+      description?: string | null;
+      /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
+      is_single_holder?: boolean;
+      /** Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API. */
+      readonly is_controlled: boolean;
+    }
+
+    /**
+     * * `human` - Human
+     * * `workflow` - Workflow
+     * * `ai` - AI
+     * * `salesforce_claim` - Salesforce claim
+     * * `migration` - Migration
+     */
+    export type AccountRelationshipSourceEnum = typeof AccountRelationshipSourceEnum[keyof typeof AccountRelationshipSourceEnum];
+
+
+    export const AccountRelationshipSourceEnum = {
+      Human: 'human',
+      Workflow: 'workflow',
+      Ai: 'ai',
+      SalesforceClaim: 'salesforce_claim',
+      Migration: 'migration',
+    } as const;
+
+    /**
+     * One assignment of a user to an account relationship, with its effective range.
+     */
+    export interface AccountRelationship {
+      /** Unique id of this assignment row. */
+      readonly id: string;
+      /** The relationship type this assignment belongs to. */
+      readonly definition: AccountRelationshipDefinition;
+      /** The assigned user; null when their account was deleted. */
+      readonly user: AccountAssignment | null;
+      /** When this assignment became effective. */
+      readonly started_at: string;
+      /**
+         * When this assignment ended; null while it is active.
+         * @nullable
+         */
+      readonly ended_at: string | null;
+      /** Which kind of writer made this assignment; null on rows older than provenance tracking.
+       *
+       * * `human` - Human
+       * * `workflow` - Workflow
+       * * `ai` - AI
+       * * `salesforce_claim` - Salesforce claim
+       * * `migration` - Migration */
+      readonly source: AccountRelationshipSourceEnum | null;
+    }
+
+    /**
+     * Input for assigning a user to an account relationship.
+     */
+    export interface AccountRelationshipWrite {
+      /** Id of the relationship definition to assign. */
+      definition: string;
+      /** PostHog user id of the assignee. Must be a member of the account's organization. */
+      user: number;
+    }
+
+    export interface AccountSupportTicketMessage {
+      /** UUID of the support ticket message. */
+      readonly id: string;
+      /** Plain-text message content. */
+      readonly content: string;
+      /** Display name of the message author. */
+      readonly author_name: string;
+      /** Whether PostHog received or sent the message.
+       *
+       * * `inbound` - Inbound
+       * * `outbound` - Outbound */
+      readonly direction: EmailThreadMessageDirectionEnum;
+      /** Whether the message is an internal note hidden from the customer. */
+      readonly is_private: boolean;
+      /** When the message was created. */
+      readonly created_at: string;
+    }
+
+    /**
+     * * `account_field` - account_field
+     * * `custom_property` - custom_property
+     */
+    export type AccountTrackRuleFieldKindEnum = typeof AccountTrackRuleFieldKindEnum[keyof typeof AccountTrackRuleFieldKindEnum];
+
+
+    export const AccountTrackRuleFieldKindEnum = {
+      AccountField: 'account_field',
+      CustomProperty: 'custom_property',
+    } as const;
+
+    /**
+     * * `name` - name
+     * * `external_id` - external_id
+     * * `created_at` - created_at
+     * * `updated_at` - updated_at
+     * * `churned_at` - churned_at
+     * * `ignored_at` - ignored_at
+     * * `stripe_customer_id` - stripe_customer_id
+     * * `hubspot_deal_id` - hubspot_deal_id
+     * * `billing_id` - billing_id
+     * * `sfdc_id` - sfdc_id
+     * * `zendesk_id` - zendesk_id
+     */
+    export type AccountTrackRuleFieldFieldEnum = typeof AccountTrackRuleFieldFieldEnum[keyof typeof AccountTrackRuleFieldFieldEnum];
+
+
+    export const AccountTrackRuleFieldFieldEnum = {
+      Name: 'name',
+      ExternalId: 'external_id',
+      CreatedAt: 'created_at',
+      UpdatedAt: 'updated_at',
+      ChurnedAt: 'churned_at',
+      IgnoredAt: 'ignored_at',
+      StripeCustomerId: 'stripe_customer_id',
+      HubspotDealId: 'hubspot_deal_id',
+      BillingId: 'billing_id',
+      SfdcId: 'sfdc_id',
+      ZendeskId: 'zendesk_id',
+    } as const;
+
+    export interface AccountTrackRuleField {
+      kind: AccountTrackRuleFieldKindEnum;
+      field?: AccountTrackRuleFieldFieldEnum | null;
+      /** @nullable */
+      definition_id?: string | null;
+    }
+
+    export interface AccountTrackRuleCondition {
+      field: AccountTrackRuleField;
+      operator: string;
+      values?: unknown[];
+    }
+
+    export interface AccountTrackRuleGroup {
+      conditions: AccountTrackRuleCondition[];
+    }
+
+    export type AccountTrackRuleSampleRuleValues = { [key: string]: unknown };
+
+    export interface AccountTrackRuleSample {
+      readonly id: string;
+      readonly name: string;
+      /** @nullable */
+      readonly external_id: string | null;
+      readonly rule_values: AccountTrackRuleSampleRuleValues;
+    }
+
+    export interface AccountTrackRulePreview {
+      config_version: number;
+      eligible_active: number;
+      skipped_churned: number;
+      tracked: number;
+      ignored: number;
+      newly_ignored: number;
+      restored: number;
+      readonly tracked_samples: readonly AccountTrackRuleSample[];
+      readonly ignored_samples: readonly AccountTrackRuleSample[];
+      validation_errors?: string[];
+    }
+
+    export interface AccountTrackRuleRunRequest {
+      idempotency_key: string;
+      confirmed: boolean;
+    }
+
+    export interface AccountTrackRuleRunView {
+      readonly id: string;
+      /** @minimum 0 */
+      readonly config_version: number;
+      readonly trigger: string;
+      readonly status: string;
+      /** @minimum 0 */
+      readonly eligible_active: number;
+      /** @minimum 0 */
+      readonly skipped_churned: number;
+      /** @minimum 0 */
+      readonly tracked: number;
+      /** @minimum 0 */
+      readonly ignored: number;
+      /** @minimum 0 */
+      readonly newly_ignored: number;
+      /** @minimum 0 */
+      readonly restored: number;
+      /** @nullable */
+      readonly started_at: string | null;
+      /** @nullable */
+      readonly finished_at: string | null;
+      /** @nullable */
+      readonly error: string | null;
+      /** @nullable */
+      readonly created_by: number | null;
+      readonly created_at: string;
+    }
+
+    export interface AccountTrackRulesConfig {
+      schema_version: number;
+      /** @minimum 0 */
+      version: number;
+      enabled: boolean;
+      groups: AccountTrackRuleGroup[];
     }
 
     /**
@@ -3645,442 +4308,6 @@ export namespace Schemas {
     }
 
     export type AccountsTableQueryRequestVariablesOverride = {[key: string]: { [key: string]: unknown }} | null;
-
-    export type BreakdownType = typeof BreakdownType[keyof typeof BreakdownType];
-
-
-    export const BreakdownType = {
-      Cohort: 'cohort',
-      Person: 'person',
-      Event: 'event',
-      EventMetadata: 'event_metadata',
-      Element: 'element',
-      Group: 'group',
-      Session: 'session',
-      Hogql: 'hogql',
-      DataWarehouse: 'data_warehouse',
-      DataWarehousePersonProperty: 'data_warehouse_person_property',
-      RevenueAnalytics: 'revenue_analytics',
-    } as const;
-
-    export type MultipleBreakdownType = typeof MultipleBreakdownType[keyof typeof MultipleBreakdownType];
-
-
-    export const MultipleBreakdownType = {
-      Person: 'person',
-      Event: 'event',
-      EventMetadata: 'event_metadata',
-      Element: 'element',
-      Group: 'group',
-      Session: 'session',
-      Hogql: 'hogql',
-      Cohort: 'cohort',
-      RevenueAnalytics: 'revenue_analytics',
-      DataWarehouse: 'data_warehouse',
-      DataWarehousePersonProperty: 'data_warehouse_person_property',
-    } as const;
-
-    export interface Breakdown {
-      group_type_index?: number | null;
-      histogram_bin_count?: number | null;
-      normalize_url?: boolean | null;
-      property: string | number;
-      type?: MultipleBreakdownType | null;
-    }
-
-    export interface BreakdownFilter {
-      breakdown?: string | (string | number)[] | number | null;
-      breakdown_group_type_index?: number | null;
-      breakdown_hide_other_aggregation?: boolean | null;
-      breakdown_histogram_bin_count?: number | null;
-      breakdown_limit?: number | null;
-      breakdown_normalize_url?: boolean | null;
-      breakdown_path_cleaning?: boolean | null;
-      breakdown_type?: BreakdownType | null;
-      breakdowns?: Breakdown[] | null;
-    }
-
-    export interface CompareFilter {
-      /** Whether to compare the current date range to a previous date range. */
-      compare?: boolean | null;
-      /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
-      compare_to?: string | null;
-    }
-
-    export type IntervalType = typeof IntervalType[keyof typeof IntervalType];
-
-
-    export const IntervalType = {
-      Second: 'second',
-      Minute: 'minute',
-      Hour: 'hour',
-      Day: 'day',
-      Week: 'week',
-      Month: 'month',
-      Quarter: 'quarter',
-      Year: 'year',
-    } as const;
-
-    export type MetricsFilterOp = typeof MetricsFilterOp[keyof typeof MetricsFilterOp];
-
-
-    export const MetricsFilterOp = {
-      Eq: 'eq',
-      Neq: 'neq',
-      Regex: 'regex',
-      NotRegex: 'not_regex',
-    } as const;
-
-    export type MetricsAttributeScope = typeof MetricsAttributeScope[keyof typeof MetricsAttributeScope];
-
-
-    export const MetricsAttributeScope = {
-      Resource: 'resource',
-      Attribute: 'attribute',
-      Auto: 'auto',
-    } as const;
-
-    export interface MetricsQueryFilter {
-      key: string;
-      op: MetricsFilterOp;
-      scope?: MetricsAttributeScope | null;
-      value: string;
-    }
-
-    export interface MetricsDashboardVariableSelection {
-      all?: boolean | null;
-      /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
-      values: string[];
-    }
-
-    export type MetricsDashboardVariableSource = typeof MetricsDashboardVariableSource[keyof typeof MetricsDashboardVariableSource];
-
-
-    export const MetricsDashboardVariableSource = {
-      Custom: 'custom',
-      Promql: 'promql',
-      Sql: 'sql',
-      Textbox: 'textbox',
-    } as const;
-
-    export interface MetricsDashboardVariable {
-      /** The text that All puts in a PromQL query. `.*` when it is empty. */
-      allValue?: string | null;
-      current?: MetricsDashboardVariableSelection | null;
-      /** The options when `source` is `custom`. */
-      customValues?: string[] | null;
-      includeAll?: boolean | null;
-      /** Shown in the dashboard filter bar. The name is shown when it is empty. */
-      label?: string | null;
-      multi?: boolean | null;
-      /** Letters, digits and underscores. Tiles refer to it as `$name`. */
-      name: string;
-      /** The options query when `source` is `promql` or `sql`. It can refer to other variables. PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`, `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column. */
-      query?: string | null;
-      /** RE2 pattern that options must match. When it has a capture group, the option is the first group. */
-      regex?: string | null;
-      source: MetricsDashboardVariableSource;
-    }
-
-    export interface EventPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator?: PropertyOperator | null;
-      /** Event properties */
-      type?: 'event';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface PersonPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      /** Person properties */
-      type?: 'person';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface PersonMetadataPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
-      type?: 'person_metadata';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type Key10 = typeof Key10[keyof typeof Key10];
-
-
-    export const Key10 = {
-      TagName: 'tag_name',
-      Text: 'text',
-      Href: 'href',
-      Selector: 'selector',
-    } as const;
-
-    export interface ElementPropertyFilter {
-      key: Key10;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'element';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface EventMetadataPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'event_metadata';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface SessionPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'session';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface CohortPropertyFilter {
-      /** Set by the feature flag API when the cohort is deleted or does not exist. */
-      cohort_deleted?: boolean | null;
-      /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
-      cohort_missing?: boolean | null;
-      cohort_name?: string | null;
-      key?: 'id';
-      label?: string | null;
-      operator?: PropertyOperator | null;
-      type?: 'cohort';
-      value: number;
-    }
-
-    export type DurationType = typeof DurationType[keyof typeof DurationType];
-
-
-    export const DurationType = {
-      Duration: 'duration',
-      ActiveSeconds: 'active_seconds',
-      InactiveSeconds: 'inactive_seconds',
-    } as const;
-
-    export interface RecordingPropertyFilter {
-      key: DurationType | string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'recording';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface LogEntryPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'log_entry';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type GroupPropertyFilterGroupKeyNames = {[key: string]: string} | null;
-
-    export interface GroupPropertyFilter {
-      group_key_names?: GroupPropertyFilterGroupKeyNames;
-      group_type_index?: number | null;
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'group';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface FeaturePropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      /** Event property with "$feature/" prepended */
-      type?: 'feature';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface FlagPropertyFilter {
-      /** The key should be the flag ID */
-      key: string;
-      label?: string | null;
-      /** Only flag_evaluates_to operator is allowed for flag dependencies */
-      operator?: 'flag_evaluates_to';
-      /** Feature flag dependency */
-      type?: 'flag';
-      /** The value can be true, false, or a variant name */
-      value: boolean | string;
-    }
-
-    export interface HogQLPropertyFilter {
-      key: string;
-      label?: string | null;
-      type?: 'hogql';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export const EmptyPropertyFilterValue = {
-      type: 'empty',
-    } as const;
-    export type EmptyPropertyFilter = typeof EmptyPropertyFilterValue;
-
-    export interface DataWarehousePropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'data_warehouse';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface DataWarehousePersonPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'data_warehouse_person_property';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface ErrorTrackingIssueFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'error_tracking_issue';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type LogPropertyFilterType = typeof LogPropertyFilterType[keyof typeof LogPropertyFilterType];
-
-
-    export const LogPropertyFilterType = {
-      Log: 'log',
-      LogAttribute: 'log_attribute',
-      LogResourceAttribute: 'log_resource_attribute',
-    } as const;
-
-    export interface LogPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type: LogPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface MetricPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'metric_attribute';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type SpanPropertyFilterType = typeof SpanPropertyFilterType[keyof typeof SpanPropertyFilterType];
-
-
-    export const SpanPropertyFilterType = {
-      Span: 'span',
-      SpanAttribute: 'span_attribute',
-      SpanResourceAttribute: 'span_resource_attribute',
-    } as const;
-
-    export interface SpanPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type: SpanPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface RevenueAnalyticsPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'revenue_analytics';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface WorkflowVariablePropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'workflow_variable';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type BehavioralEventSource = typeof BehavioralEventSource[keyof typeof BehavioralEventSource];
-
-
-    export const BehavioralEventSource = {
-      Events: 'events',
-      Actions: 'actions',
-    } as const;
-
-    export type TimeUnitType = typeof TimeUnitType[keyof typeof TimeUnitType];
-
-
-    export const TimeUnitType = {
-      Day: 'day',
-      Week: 'week',
-      Month: 'month',
-      Year: 'year',
-    } as const;
-
-    export type InlineBehavioralType = typeof InlineBehavioralType[keyof typeof InlineBehavioralType];
-
-
-    export const InlineBehavioralType = {
-      PerformedEvent: 'performed_event',
-      PerformedEventMultiple: 'performed_event_multiple',
-    } as const;
-
-    export interface BehavioralPropertyFilter {
-      /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
-      event_filters?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | FeaturePropertyFilter | HogQLPropertyFilter)[] | null;
-      event_type: BehavioralEventSource;
-      /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
-      explicit_datetime?: string | null;
-      explicit_datetime_to?: string | null;
-      /** Event name, or action id when event_type is 'actions' */
-      key: string;
-      label?: string | null;
-      /** Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators */
-      negation?: boolean | null;
-      /** Count comparison for performed_event_multiple, defaults to exact */
-      operator?: PropertyOperator | null;
-      /** Count threshold for performed_event_multiple */
-      operator_value?: number | null;
-      time_interval?: TimeUnitType | null;
-      /** Relative time window size, paired with time_interval */
-      time_value?: number | null;
-      /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
-      type?: 'behavioral';
-      value: InlineBehavioralType;
-    }
-
-    export interface DashboardFilter {
-      breakdown_filter?: BreakdownFilter | null;
-      /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
-      compareFilter?: CompareFilter | null;
-      date_from?: string | null;
-      date_to?: string | null;
-      explicitDate?: boolean | null;
-      /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
-      filterTestAccounts?: boolean | null;
-      /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
-      interval?: IntervalType | null;
-      metricFilters?: MetricsQueryFilter[] | null;
-      /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
-      metricVariables?: MetricsDashboardVariable[] | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
-    }
-
-    export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
-
-
-    export const LimitContext = {
-      PosthogAi: 'posthog_ai',
-    } as const;
 
     export type RefreshType = typeof RefreshType[keyof typeof RefreshType];
 
@@ -5330,6 +5557,56 @@ export namespace Schemas {
       Created: 'created',
     } as const;
 
+    /**
+     * * `session` - session
+     * * `personal_api_key` - personal_api_key
+     * * `oauth` - oauth
+     * * `project_secret_key` - project_secret_key
+     * * `team_secret_token` - team_secret_token
+     * * `id_jag` - id_jag
+     * * `internal_jwt` - internal_jwt
+     * * `service_jwt` - service_jwt
+     * * `internal_api_secret` - internal_api_secret
+     * * `scim` - scim
+     * * `vercel` - vercel
+     * * `partner` - partner
+     * * `sharing_access_token` - sharing_access_token
+     * * `sharing_password` - sharing_password
+     * * `widget_token` - widget_token
+     * * `billing_service` - billing_service
+     * * `gateway_agent` - gateway_agent
+     * * `export_renderer` - export_renderer
+     * * `webhook` - webhook
+     * * `cross_region_signature` - cross_region_signature
+     * * `unattributed` - unattributed
+     */
+    export type ActivityLogCredentialTypeEnum = typeof ActivityLogCredentialTypeEnum[keyof typeof ActivityLogCredentialTypeEnum];
+
+
+    export const ActivityLogCredentialTypeEnum = {
+      Session: 'session',
+      PersonalApiKey: 'personal_api_key',
+      Oauth: 'oauth',
+      ProjectSecretKey: 'project_secret_key',
+      TeamSecretToken: 'team_secret_token',
+      IdJag: 'id_jag',
+      InternalJwt: 'internal_jwt',
+      ServiceJwt: 'service_jwt',
+      InternalApiSecret: 'internal_api_secret',
+      Scim: 'scim',
+      Vercel: 'vercel',
+      Partner: 'partner',
+      SharingAccessToken: 'sharing_access_token',
+      SharingPassword: 'sharing_password',
+      WidgetToken: 'widget_token',
+      BillingService: 'billing_service',
+      GatewayAgent: 'gateway_agent',
+      ExportRenderer: 'export_renderer',
+      Webhook: 'webhook',
+      CrossRegionSignature: 'cross_region_signature',
+      Unattributed: 'unattributed',
+    } as const;
+
     export interface ActivityLog {
       readonly id: string;
       user: UserBasic;
@@ -5354,6 +5631,35 @@ export namespace Schemas {
       client?: string | null;
       /** @nullable */
       ip_address?: string | null;
+      /** Kind of credential that authenticated the request that made the change. 'unattributed' means the request recorded no credential. Null for changes made outside a request, such as background jobs, and for entries recorded before PostHog stored the credential.
+       *
+       * * `session` - session
+       * * `personal_api_key` - personal_api_key
+       * * `oauth` - oauth
+       * * `project_secret_key` - project_secret_key
+       * * `team_secret_token` - team_secret_token
+       * * `id_jag` - id_jag
+       * * `internal_jwt` - internal_jwt
+       * * `service_jwt` - service_jwt
+       * * `internal_api_secret` - internal_api_secret
+       * * `scim` - scim
+       * * `vercel` - vercel
+       * * `partner` - partner
+       * * `sharing_access_token` - sharing_access_token
+       * * `sharing_password` - sharing_password
+       * * `widget_token` - widget_token
+       * * `billing_service` - billing_service
+       * * `gateway_agent` - gateway_agent
+       * * `export_renderer` - export_renderer
+       * * `webhook` - webhook
+       * * `cross_region_signature` - cross_region_signature
+       * * `unattributed` - unattributed */
+      readonly credential_type: ActivityLogCredentialTypeEnum | null;
+      /**
+         * Id of the credential that authenticated the change: the login session id for 'session', or the key id for 'personal_api_key' and 'project_secret_key'. Null for every other credential type and for impersonated changes.
+         * @nullable
+         */
+      readonly credential_id: string | null;
       /** @maxLength 79 */
       activity: string;
       /**
@@ -5862,11 +6168,6 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
-    }
-
-    export interface PropertyGroupFilterValue {
-      type: FilterLogicalOperator;
-      values: (PropertyGroupFilterValue | EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[];
     }
 
     export type Compare = typeof Compare[keyof typeof Compare];
@@ -10388,6 +10689,8 @@ export namespace Schemas {
       response?: ErrorTrackingQueryResponse | null;
       /** Free-text search across exception type, message, and stack frames. */
       searchQuery?: string | null;
+      /** Filter by issue severity. */
+      severity?: ErrorTrackingQueryIssueSeverity | null;
       /** Filter by issue status. */
       status?: ErrorTrackingIssueStatus | string | null;
       tags?: QueryLogTags | null;
@@ -10909,6 +11212,7 @@ export namespace Schemas {
 
     export interface ChartSettingsDisplay {
       color?: string | null;
+      description?: string | null;
       displayType?: DisplayType | null;
       /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
       excludeFromTotal?: boolean | null;
@@ -10952,6 +11256,8 @@ export namespace Schemas {
     export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
 
     export interface ChartSettings {
+      /** Shows only the annotations saved at this level. Unset shows every level. */
+      annotationsScope?: AnnotationScope | null;
       barGap?: number | null;
       boxPlot?: BoxPlotSettings | null;
       /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
@@ -12889,10 +13195,17 @@ export namespace Schemas {
       MetricsAlertConfig: 'MetricsAlertConfig',
     } as const;
 
+    /**
+     * Values for the `$name` variables in the insight's query.
+     */
+    export type MetricsAlertConfigVariables = {[key: string]: MetricsDashboardVariableSelection} | null;
+
     export interface MetricsAlertConfig {
       /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
       check_ongoing_interval?: boolean | null;
       type: MetricsAlertConfigType;
+      /** Values for the `$name` variables in the insight's query. */
+      variables?: MetricsAlertConfigVariables;
     }
 
     /**
@@ -13483,10 +13796,23 @@ export namespace Schemas {
       Evaluation: 'evaluation',
     } as const;
 
+    export interface AnalyticsAlertFiringSignalExtra {
+      alert_id: string;
+      alert_name: string;
+      insight_id: string;
+      alert_check_id: string;
+      detector_type: string;
+      breaches: string[];
+      episode_started_at: string;
+      url: string;
+      insight_name?: string | null;
+      insight_short_id?: string | null;
+      triggered_dates?: string[] | null;
+    }
+
     export interface AnalyticsAnomalyInvestigationSignalExtra {
       alert_id: string;
       alert_name: string;
-      alert_check_id: string;
       insight_id: string;
       detector_type: string;
       verdict: InvestigationVerdictEnum;
@@ -13495,6 +13821,9 @@ export namespace Schemas {
       insight_short_id?: string | null;
       triggered_dates?: string[] | null;
       notebook_short_id?: string | null;
+      alert_check_id?: string | null;
+      investigation_id?: string | null;
+      evaluation_key?: string | null;
     }
 
     /**
@@ -14718,8 +15047,11 @@ export namespace Schemas {
          * @nullable
          */
       min_count: number | null;
-      /** People in the audience with an email address, counted when the suggestion was made. */
-      reachable_count: number;
+      /**
+         * Roughly how many people in the audience have an email address, counted when the suggestion was made. Null while the count runs, or when it failed.
+         * @nullable
+         */
+      reachable_count: number | null;
       /** The audience's cohort filters, in the cohorts endpoint's `filters` format. Saved as a static cohort. */
       cohort_filters: unknown;
     }
@@ -14741,7 +15073,7 @@ export namespace Schemas {
     } as const;
 
     export interface AudienceSuggestionsResponse {
-      /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
+      /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends, the list can already hold cards being counted), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
        *
        * * `ready` - Ready
        * * `generating` - Generating
@@ -21089,11 +21421,46 @@ export namespace Schemas {
       Zip: 'zip',
     } as const;
 
+    /**
+     * * `running` - Reading past tickets
+     * * `completed` - Read every past ticket
+     */
+    export type LearningBackfillStatusEnum = typeof LearningBackfillStatusEnum[keyof typeof LearningBackfillStatusEnum];
+
+
+    export const LearningBackfillStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+    } as const;
+
+    export interface LearningBackfillProgress {
+      /** `running` while PostHog reads past tickets. `completed` once every ticket in the window is read.
+       *
+       * * `running` - Reading past tickets
+       * * `completed` - Read every past ticket */
+      status: LearningBackfillStatusEnum;
+      /** When someone started learning from past tickets. */
+      started_at: string;
+      /**
+         * When every past ticket was read. Null while the run continues.
+         * @nullable
+         */
+      finished_at: string | null;
+      /** Tickets analyzed since the run started, including tickets from the regular 7-day pass. */
+      tickets_read: number;
+      /** Tickets that are being analyzed now. */
+      tickets_in_progress: number;
+      /** Analyzed tickets that added a learned source to business knowledge. */
+      knowledge_created: number;
+    }
+
     export interface BusinessKnowledgeSettings {
       /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Requires Support to be enabled for this environment. */
       learn_from_support_enabled: boolean;
       /** Whether Support is enabled for this environment. Learning cannot be turned on while this is false. */
       readonly support_enabled: boolean;
+      /** The last run of learning from past tickets. Null when none ran since learning was turned on. */
+      readonly learning_backfill: LearningBackfillProgress | null;
     }
 
     /**
@@ -25750,6 +26117,22 @@ export namespace Schemas {
       count?: number | null;
     }
 
+    export interface SerializedMatchedRecordingEvent {
+      /** UUID of the matched event. */
+      uuid: string;
+      /** When the matched event happened. */
+      timestamp: string;
+      /** ID of the browser window the event was captured in. */
+      window_id: string;
+    }
+
+    export interface SerializedMatchedRecording {
+      /** ID of the session recording. */
+      session_id: string;
+      /** Events of the recording that matched the query. */
+      events: SerializedMatchedRecordingEvent[];
+    }
+
     /**
      * Marks this actor as a person.
      */
@@ -25765,8 +26148,6 @@ export namespace Schemas {
      */
     export type SerializedPersonActorProperties = { [key: string]: unknown };
 
-    export type SerializedPersonActorMatchedRecordingsItem = { [key: string]: unknown };
-
     export interface SerializedPersonActor {
       /** The person's UUID, or the group's key. */
       id: string;
@@ -25778,7 +26159,7 @@ export namespace Schemas {
          */
       created_at: string | null;
       /** Recordings that matched the query. Empty unless the endpoint asks for them. */
-      matched_recordings: SerializedPersonActorMatchedRecordingsItem[];
+      matched_recordings: SerializedMatchedRecording[];
       /**
          * The actor's value at the data point it was queried for. Null unless the query computes one.
          * @nullable
@@ -25797,11 +26178,8 @@ export namespace Schemas {
          * @nullable
          */
       last_seen_at: string | null;
-      /**
-         * Whether the person has been identified.
-         * @nullable
-         */
-      is_identified: boolean | null;
+      /** Whether the person has been identified. */
+      is_identified: boolean;
     }
 
     export interface CohortPersonsResponse {
@@ -32778,6 +33156,8 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
       readonly suspended: DataWarehouseSavedQuerySuspended;
+      /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+      readonly is_raw_managed_trino: boolean;
     }
 
     /**
@@ -32921,6 +33301,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+      readonly is_raw_managed_trino: boolean;
     }
 
     export type DataWarehouseSourceCategory = typeof DataWarehouseSourceCategory[keyof typeof DataWarehouseSourceCategory];
@@ -33264,2844 +33646,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `Ashby` - Ashby
-     * * `Supabase` - Supabase
-     * * `CustomerIO` - CustomerIO
-     * * `Github` - Github
-     * * `Stripe` - Stripe
-     * * `Hubspot` - Hubspot
-     * * `Postgres` - Postgres
-     * * `Zendesk` - Zendesk
-     * * `Snowflake` - Snowflake
-     * * `Salesforce` - Salesforce
-     * * `MySQL` - MySQL
-     * * `MongoDB` - MongoDB
-     * * `MSSQL` - MSSQL
-     * * `Vitally` - Vitally
-     * * `BigQuery` - BigQuery
-     * * `Chargebee` - Chargebee
-     * * `Clerk` - Clerk
-     * * `GoogleAds` - GoogleAds
-     * * `GoogleSearchConsole` - GoogleSearchConsole
-     * * `TemporalIO` - TemporalIO
-     * * `DoIt` - DoIt
-     * * `GoogleSheets` - GoogleSheets
-     * * `MetaAds` - MetaAds
-     * * `Klaviyo` - Klaviyo
-     * * `Mailchimp` - Mailchimp
-     * * `Braze` - Braze
-     * * `Mailjet` - Mailjet
-     * * `Redshift` - Redshift
-     * * `Polar` - Polar
-     * * `RevenueCat` - RevenueCat
-     * * `LinkedinAds` - LinkedinAds
-     * * `RedditAds` - RedditAds
-     * * `TikTokAds` - TikTokAds
-     * * `BingAds` - BingAds
-     * * `Shopify` - Shopify
-     * * `Attio` - Attio
-     * * `SnapchatAds` - SnapchatAds
-     * * `Linear` - Linear
-     * * `LiteLLM` - LiteLLM
-     * * `Intercom` - Intercom
-     * * `Amplitude` - Amplitude
-     * * `Mixpanel` - Mixpanel
-     * * `Jira` - Jira
-     * * `ActiveCampaign` - ActiveCampaign
-     * * `Marketo` - Marketo
-     * * `Adjust` - Adjust
-     * * `AppsFlyer` - AppsFlyer
-     * * `Freshdesk` - Freshdesk
-     * * `GoogleAnalytics` - GoogleAnalytics
-     * * `Pipedrive` - Pipedrive
-     * * `SendGrid` - SendGrid
-     * * `Slack` - Slack
-     * * `PagerDuty` - PagerDuty
-     * * `Asana` - Asana
-     * * `Notion` - Notion
-     * * `Airtable` - Airtable
-     * * `Greenhouse` - Greenhouse
-     * * `BambooHR` - BambooHR
-     * * `Lever` - Lever
-     * * `GitLab` - GitLab
-     * * `Datadog` - Datadog
-     * * `Sentry` - Sentry
-     * * `Pendo` - Pendo
-     * * `FullStory` - FullStory
-     * * `AmazonAds` - AmazonAds
-     * * `PinterestAds` - PinterestAds
-     * * `AppleSearchAds` - AppleSearchAds
-     * * `QuickBooks` - QuickBooks
-     * * `Xero` - Xero
-     * * `NetSuite` - NetSuite
-     * * `WooCommerce` - WooCommerce
-     * * `BigCommerce` - BigCommerce
-     * * `PayPal` - PayPal
-     * * `Square` - Square
-     * * `Zoom` - Zoom
-     * * `Trello` - Trello
-     * * `TrafficStars` - TrafficStars
-     * * `Monday` - Monday
-     * * `ClickUp` - ClickUp
-     * * `Confluence` - Confluence
-     * * `Recurly` - Recurly
-     * * `SalesLoft` - SalesLoft
-     * * `Outreach` - Outreach
-     * * `Gong` - Gong
-     * * `Calendly` - Calendly
-     * * `Typeform` - Typeform
-     * * `UnityAds` - UnityAds
-     * * `Iterable` - Iterable
-     * * `ZohoCRM` - ZohoCRM
-     * * `Close` - Close
-     * * `Oracle` - Oracle
-     * * `DynamoDB` - DynamoDB
-     * * `Elasticsearch` - Elasticsearch
-     * * `Kafka` - Kafka
-     * * `LaunchDarkly` - LaunchDarkly
-     * * `Braintree` - Braintree
-     * * `Recharge` - Recharge
-     * * `HelpScout` - HelpScout
-     * * `Gorgias` - Gorgias
-     * * `Instagram` - Instagram
-     * * `YouTubeAnalytics` - YouTubeAnalytics
-     * * `FacebookPages` - FacebookPages
-     * * `TwitterAds` - TwitterAds
-     * * `Workday` - Workday
-     * * `ServiceNow` - ServiceNow
-     * * `Pardot` - Pardot
-     * * `Copper` - Copper
-     * * `Front` - Front
-     * * `ChartMogul` - ChartMogul
-     * * `Zuora` - Zuora
-     * * `Paddle` - Paddle
-     * * `CircleCI` - CircleCI
-     * * `CockroachDB` - CockroachDB
-     * * `Firebase` - Firebase
-     * * `AzureBlob` - AzureBlob
-     * * `GoogleDrive` - GoogleDrive
-     * * `OneDrive` - OneDrive
-     * * `SharePoint` - SharePoint
-     * * `Box` - Box
-     * * `SFTP` - SFTP
-     * * `MicrosoftTeams` - MicrosoftTeams
-     * * `Aircall` - Aircall
-     * * `Webflow` - Webflow
-     * * `Okta` - Okta
-     * * `Auth0` - Auth0
-     * * `Productboard` - Productboard
-     * * `Smartsheet` - Smartsheet
-     * * `Wrike` - Wrike
-     * * `Plaid` - Plaid
-     * * `SurveyMonkey` - SurveyMonkey
-     * * `Eventbrite` - Eventbrite
-     * * `Everflow` - Everflow
-     * * `RingCentral` - RingCentral
-     * * `Twilio` - Twilio
-     * * `Freshsales` - Freshsales
-     * * `Shortcut` - Shortcut
-     * * `ConvertKit` - ConvertKit
-     * * `Drip` - Drip
-     * * `CampaignMonitor` - CampaignMonitor
-     * * `MailerLite` - MailerLite
-     * * `Omnisend` - Omnisend
-     * * `Brevo` - Brevo
-     * * `Postmark` - Postmark
-     * * `Granola` - Granola
-     * * `BuildBetter` - BuildBetter
-     * * `Convex` - Convex
-     * * `ClickHouse` - ClickHouse
-     * * `Plain` - Plain
-     * * `Resend` - Resend
-     * * `PgAnalyze` - PgAnalyze
-     * * `WorkOS` - WorkOS
-     * * `AmazonS3` - AmazonS3
-     * * `GoogleCloudStorage` - GoogleCloudStorage
-     * * `Databricks` - Databricks
-     * * `Dynamics365` - Dynamics365
-     * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
-     * * `Db2` - Db2
-     * * `Heap` - Heap
-     * * `AdobeAnalytics` - AdobeAnalytics
-     * * `Matomo` - Matomo
-     * * `Optimizely` - Optimizely
-     * * `Adyen` - Adyen
-     * * `GoCardless` - GoCardless
-     * * `Mollie` - Mollie
-     * * `CheckoutCom` - CheckoutCom
-     * * `Branch` - Branch
-     * * `Criteo` - Criteo
-     * * `Outbrain` - Outbrain
-     * * `Taboola` - Taboola
-     * * `AdRoll` - AdRoll
-     * * `DisplayVideo360` - DisplayVideo360
-     * * `GoogleAdManager` - GoogleAdManager
-     * * `CampaignManager360` - CampaignManager360
-     * * `SearchAds360` - SearchAds360
-     * * `AdobeCommerce` - AdobeCommerce
-     * * `AmazonSellingPartner` - AmazonSellingPartner
-     * * `Ebay` - Ebay
-     * * `Commercetools` - Commercetools
-     * * `LightspeedRetail` - LightspeedRetail
-     * * `Shipmail` - Shipmail
-     * * `ShipStation` - ShipStation
-     * * `ConstantContact` - ConstantContact
-     * * `Mailgun` - Mailgun
-     * * `Eloqua` - Eloqua
-     * * `Sailthru` - Sailthru
-     * * `Ortto` - Ortto
-     * * `Attentive` - Attentive
-     * * `Kustomer` - Kustomer
-     * * `Dixa` - Dixa
-     * * `Gladly` - Gladly
-     * * `Qualtrics` - Qualtrics
-     * * `AzureDevOps` - AzureDevOps
-     * * `RoktAds` - RoktAds
-     * * `Rollbar` - Rollbar
-     * * `Opsgenie` - Opsgenie
-     * * `IncidentIo` - IncidentIo
-     * * `Pingdom` - Pingdom
-     * * `Cloudflare` - Cloudflare
-     * * `CloudflareD1` - CloudflareD1
-     * * `CosmosDB` - CosmosDB
-     * * `PlanetScaleMySQL` - PlanetScaleMySQL
-     * * `PlanetScalePostgres` - PlanetScalePostgres
-     * * `Plane` - Plane
-     * * `Scarf` - Scarf
-     * * `SapHana` - SapHana
-     * * `Rippling` - Rippling
-     * * `HiBob` - HiBob
-     * * `Personio` - Personio
-     * * `Deel` - Deel
-     * * `AdpWorkforceNow` - AdpWorkforceNow
-     * * `Paylocity` - Paylocity
-     * * `Gusto` - Gusto
-     * * `CultureAmp` - CultureAmp
-     * * `Lattice` - Lattice
-     * * `SageIntacct` - SageIntacct
-     * * `FreshBooks` - FreshBooks
-     * * `Expensify` - Expensify
-     * * `Ramp` - Ramp
-     * * `Brex` - Brex
-     * * `Coupa` - Coupa
-     * * `SapConcur` - SapConcur
-     * * `Apollo` - Apollo
-     * * `Crunchbase` - Crunchbase
-     * * `ZoomInfo` - ZoomInfo
-     * * `Clari` - Clari
-     * * `Chorus` - Chorus
-     * * `Coda` - Coda
-     * * `Guru` - Guru
-     * * `Dropbox` - Dropbox
-     * * `Docusign` - Docusign
-     * * `PandaDoc` - PandaDoc
-     * * `SapErp` - SapErp
-     * * `SapSuccessFactors` - SapSuccessFactors
-     * * `OracleEbs` - OracleEbs
-     * * `OracleFusion` - OracleFusion
-     * * `AmazonSNS` - AmazonSNS
-     * * `AmazonEventBridge` - AmazonEventBridge
-     * * `AmazonSQS` - AmazonSQS
-     * * `AmazonKinesis` - AmazonKinesis
-     * * `AmazonCloudWatch` - AmazonCloudWatch
-     * * `OpenAIAds` - OpenAIAds
-     * * `OneHundredMs` - OneHundredMs
-     * * `SevenShifts` - SevenShifts
-     * * `AcuityScheduling` - AcuityScheduling
-     * * `AgileCRM` - AgileCRM
-     * * `Aha` - Aha
-     * * `Airbyte` - Airbyte
-     * * `Akeneo` - Akeneo
-     * * `Algolia` - Algolia
-     * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
-     * * `ApifyDataset` - ApifyDataset
-     * * `Appcues` - Appcues
-     * * `Appfigures` - Appfigures
-     * * `Appfollow` - Appfollow
-     * * `Apptivo` - Apptivo
-     * * `AssemblyAI` - AssemblyAI
-     * * `Awin` - Awin
-     * * `AwsCloudTrail` - AwsCloudTrail
-     * * `AzureTableStorage` - AzureTableStorage
-     * * `Babelforce` - Babelforce
-     * * `Basecamp` - Basecamp
-     * * `Beamer` - Beamer
-     * * `BigMailer` - BigMailer
-     * * `Bluetally` - Bluetally
-     * * `BoldSign` - BoldSign
-     * * `BreezyHR` - BreezyHR
-     * * `Bugsnag` - Bugsnag
-     * * `Buildkite` - Buildkite
-     * * `Bunny` - Bunny
-     * * `Buzzsprout` - Buzzsprout
-     * * `CalCom` - CalCom
-     * * `CallRail` - CallRail
-     * * `Campayn` - Campayn
-     * * `Canny` - Canny
-     * * `CapsuleCRM` - CapsuleCRM
-     * * `CaptainData` - CaptainData
-     * * `CartCom` - CartCom
-     * * `CastorEDC` - CastorEDC
-     * * `Chameleon` - Chameleon
-     * * `Chargedesk` - Chargedesk
-     * * `Chargify` - Chargify
-     * * `Chift` - Chift
-     * * `Churnkey` - Churnkey
-     * * `Cin7` - Cin7
-     * * `CiscoMeraki` - CiscoMeraki
-     * * `Clazar` - Clazar
-     * * `Clockify` - Clockify
-     * * `Clockodo` - Clockodo
-     * * `Cloudbeds` - Cloudbeds
-     * * `Coassemble` - Coassemble
-     * * `Codefresh` - Codefresh
-     * * `Concord` - Concord
-     * * `ConfigCat` - ConfigCat
-     * * `Couchbase` - Couchbase
-     * * `Curve` - Curve
-     * * `Customerly` - Customerly
-     * * `Datascope` - Datascope
-     * * `Dbt` - Dbt
-     * * `Demodesk` - Demodesk
-     * * `Deputy` - Deputy
-     * * `DevinAI` - DevinAI
-     * * `Docuseal` - Docuseal
-     * * `Dolibarr` - Dolibarr
-     * * `Dremio` - Dremio
-     * * `DropboxSign` - DropboxSign
-     * * `Dwolla` - Dwolla
-     * * `EConomic` - EConomic
-     * * `Easypost` - Easypost
-     * * `Easypromos` - Easypromos
-     * * `Elasticemail` - Elasticemail
-     * * `EmailOctopus` - EmailOctopus
-     * * `EmploymentHero` - EmploymentHero
-     * * `Encharge` - Encharge
-     * * `Eventee` - Eventee
-     * * `Eventzilla` - Eventzilla
-     * * `Everhour` - Everhour
-     * * `EZOfficeInventory` - EZOfficeInventory
-     * * `Factorial` - Factorial
-     * * `Fastbill` - Fastbill
-     * * `Fastly` - Fastly
-     * * `Fauna` - Fauna
-     * * `Feishu` - Feishu
-     * * `Fillout` - Fillout
-     * * `Finage` - Finage
-     * * `Firebolt` - Firebolt
-     * * `FireHydrant` - FireHydrant
-     * * `Fleetio` - Fleetio
-     * * `Flexmail` - Flexmail
-     * * `Flexport` - Flexport
-     * * `FloatApp` - FloatApp
-     * * `Flowlu` - Flowlu
-     * * `Formbricks` - Formbricks
-     * * `Framer` - Framer
-     * * `FreeAgent` - FreeAgent
-     * * `Freightview` - Freightview
-     * * `Freshcaller` - Freshcaller
-     * * `Freshchat` - Freshchat
-     * * `Freshservice` - Freshservice
-     * * `Fulcrum` - Fulcrum
-     * * `GainsightCs` - GainsightCs
-     * * `GainsightPx` - GainsightPx
-     * * `GitBook` - GitBook
-     * * `Glassfrog` - Glassfrog
-     * * `Goldcast` - Goldcast
-     * * `GoLogin` - GoLogin
-     * * `Grafana` - Grafana
-     * * `GreytHr` - GreytHr
-     * * `Gridly` - Gridly
-     * * `Harness` - Harness
-     * * `Height` - Height
-     * * `Hellobaton` - Hellobaton
-     * * `HighLevel` - HighLevel
-     * * `HoorayHR` - HoorayHR
-     * * `Hubplanner` - Hubplanner
-     * * `Humanitix` - Humanitix
-     * * `Huntr` - Huntr
-     * * `Inflowinventory` - Inflowinventory
-     * * `InforNexus` - InforNexus
-     * * `Insightful` - Insightful
-     * * `Insightly` - Insightly
-     * * `Instantly` - Instantly
-     * * `Instatus` - Instatus
-     * * `Intruder` - Intruder
-     * * `Invoiced` - Invoiced
-     * * `Invoiceninja` - Invoiceninja
-     * * `JamfPro` - JamfPro
-     * * `JobNimbus` - JobNimbus
-     * * `Jotform` - Jotform
-     * * `JudgeMeReviews` - JudgeMeReviews
-     * * `JustCall` - JustCall
-     * * `JustSift` - JustSift
-     * * `K6Cloud` - K6Cloud
-     * * `Katana` - Katana
-     * * `Keka` - Keka
-     * * `Kisi` - Kisi
-     * * `Kissmetrics` - Kissmetrics
-     * * `Klarna` - Klarna
-     * * `Klaus` - Klaus
-     * * `Lago` - Lago
-     * * `Leadfeeder` - Leadfeeder
-     * * `Lemlist` - Lemlist
-     * * `LessAnnoyingCRM` - LessAnnoyingCRM
-     * * `LinkedinPages` - LinkedinPages
-     * * `Linkrunner` - Linkrunner
-     * * `Linnworks` - Linnworks
-     * * `Lob` - Lob
-     * * `Lokalise` - Lokalise
-     * * `Looker` - Looker
-     * * `Luma` - Luma
-     * * `MailerSend` - MailerSend
-     * * `Mailosaur` - Mailosaur
-     * * `Mailtrap` - Mailtrap
-     * * `Mantle` - Mantle
-     * * `Mention` - Mention
-     * * `MercadoAds` - MercadoAds
-     * * `Merge` - Merge
-     * * `Metabase` - Metabase
-     * * `Metricool` - Metricool
-     * * `MicrosoftDataverse` - MicrosoftDataverse
-     * * `MicrosoftEntraId` - MicrosoftEntraId
-     * * `MicrosoftLists` - MicrosoftLists
-     * * `Miro` - Miro
-     * * `Missive` - Missive
-     * * `MixMax` - MixMax
-     * * `Mode` - Mode
-     * * `Mux` - Mux
-     * * `MyHours` - MyHours
-     * * `N8n` - N8n
-     * * `Navan` - Navan
-     * * `NebiusAI` - NebiusAI
-     * * `Nexiopay` - Nexiopay
-     * * `NinjaOneRMM` - NinjaOneRMM
-     * * `NoCRM` - NoCRM
-     * * `NorthpassLMS` - NorthpassLMS
-     * * `Nutshell` - Nutshell
-     * * `Nylas` - Nylas
-     * * `Oncehub` - Oncehub
-     * * `Onepagecrm` - Onepagecrm
-     * * `OneSignal` - OneSignal
-     * * `Onfleet` - Onfleet
-     * * `OpinionStage` - OpinionStage
-     * * `OPUSWatch` - OPUSWatch
-     * * `Orb` - Orb
-     * * `Orbit` - Orbit
-     * * `Oura` - Oura
-     * * `Oveit` - Oveit
-     * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
-     * * `Paperform` - Paperform
-     * * `Papersign` - Papersign
-     * * `Partnerize` - Partnerize
-     * * `PartnerStack` - PartnerStack
-     * * `PayFit` - PayFit
-     * * `Paystack` - Paystack
-     * * `Pennylane` - Pennylane
-     * * `Perk` - Perk
-     * * `PersistIq` - PersistIq
-     * * `Persona` - Persona
-     * * `Phyllo` - Phyllo
-     * * `Picqer` - Picqer
-     * * `Pipeliner` - Pipeliner
-     * * `PivotalTracker` - PivotalTracker
-     * * `Piwik` - Piwik
-     * * `Planhat` - Planhat
-     * * `Plausible` - Plausible
-     * * `Poplar` - Poplar
-     * * `PrestaShop` - PrestaShop
-     * * `Pretix` - Pretix
-     * * `Primetric` - Primetric
-     * * `Printavo` - Printavo
-     * * `Printify` - Printify
-     * * `Productive` - Productive
-     * * `Pylon` - Pylon
-     * * `Qonto` - Qonto
-     * * `Qualaroo` - Qualaroo
-     * * `Railz` - Railz
-     * * `RDStationMarketing` - RDStationMarketing
-     * * `Recruitee` - Recruitee
-     * * `Reddit` - Reddit
-     * * `ReferralHero` - ReferralHero
-     * * `RentCast` - RentCast
-     * * `Repairshopr` - Repairshopr
-     * * `ReplyIo` - ReplyIo
-     * * `RetailExpress` - RetailExpress
-     * * `Retently` - Retently
-     * * `Retreaver` - Retreaver
-     * * `RevolutMerchant` - RevolutMerchant
-     * * `RocketChat` - RocketChat
-     * * `Rocketlane` - Rocketlane
-     * * `Rootly` - Rootly
-     * * `Ruddr` - Ruddr
-     * * `SafetyCulture` - SafetyCulture
-     * * `SageHR` - SageHR
-     * * `Salesflare` - Salesflare
-     * * `SAPFieldglass` - SAPFieldglass
-     * * `SavvyCal` - SavvyCal
-     * * `Secoda` - Secoda
-     * * `Segment` - Segment
-     * * `Sendowl` - Sendowl
-     * * `SendPulse` - SendPulse
-     * * `Senseforce` - Senseforce
-     * * `Serpstat` - Serpstat
-     * * `Sharetribe` - Sharetribe
-     * * `Shippo` - Shippo
-     * * `ShopWired` - ShopWired
-     * * `Shortio` - Shortio
-     * * `Shutterstock` - Shutterstock
-     * * `SigmaComputing` - SigmaComputing
-     * * `SignNow` - SignNow
-     * * `SimpleCast` - SimpleCast
-     * * `Simplesat` - Simplesat
-     * * `Smaily` - Smaily
-     * * `SmartEngage` - SmartEngage
-     * * `Smartreach` - Smartreach
-     * * `Smartwaiver` - Smartwaiver
-     * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
-     * * `SonarCloud` - SonarCloud
-     * * `SparkPost` - SparkPost
-     * * `SplitIo` - SplitIo
-     * * `SpotifyAds` - SpotifyAds
-     * * `SpotlerCRM` - SpotlerCRM
-     * * `Squarespace` - Squarespace
-     * * `Statsig` - Statsig
-     * * `Statuspage` - Statuspage
-     * * `Steam` - Steam
-     * * `Stigg` - Stigg
-     * * `Strava` - Strava
-     * * `SurveySparrow` - SurveySparrow
-     * * `Survicate` - Survicate
-     * * `Svix` - Svix
-     * * `Systeme` - Systeme
-     * * `Tavus` - Tavus
-     * * `Teamtailor` - Teamtailor
-     * * `Teamwork` - Teamwork
-     * * `Tempo` - Tempo
-     * * `Testrail` - Testrail
-     * * `Thinkific` - Thinkific
-     * * `ThinkificCourses` - ThinkificCourses
-     * * `ThriveLearning` - ThriveLearning
-     * * `Ticketmaster` - Ticketmaster
-     * * `TicketTailor` - TicketTailor
-     * * `TickTick` - TickTick
-     * * `Timely` - Timely
-     * * `Tinyemail` - Tinyemail
-     * * `Todoist` - Todoist
-     * * `Toggl` - Toggl
-     * * `TrackPMS` - TrackPMS
-     * * `Tremendous` - Tremendous
-     * * `TrustPilot` - TrustPilot
-     * * `Twitter` - Twitter
-     * * `TyntecSMS` - TyntecSMS
-     * * `Unleash` - Unleash
-     * * `UpPromote` - UpPromote
-     * * `Uptick` - Uptick
-     * * `Uservoice` - Uservoice
-     * * `Vantage` - Vantage
-     * * `Veeqo` - Veeqo
-     * * `Vercel` - Vercel
-     * * `VismaEconomic` - VismaEconomic
-     * * `VWO` - VWO
-     * * `Waiteraid` - Waiteraid
-     * * `Wasabi` - Wasabi
-     * * `WhenIWork` - WhenIWork
-     * * `Wordpress` - Wordpress
-     * * `Workable` - Workable
-     * * `Workflowmax` - Workflowmax
-     * * `Workramp` - Workramp
-     * * `Wufoo` - Wufoo
-     * * `Xsolla` - Xsolla
-     * * `YandexMetrica` - YandexMetrica
-     * * `Yotpo` - Yotpo
-     * * `Ynab` - Ynab
-     * * `Younium` - Younium
-     * * `YouSign` - YouSign
-     * * `YoutubeData` - YoutubeData
-     * * `ZapierSupportedStorage` - ZapierSupportedStorage
-     * * `ZapSign` - ZapSign
-     * * `ZendeskSell` - ZendeskSell
-     * * `ZendeskSunshine` - ZendeskSunshine
-     * * `Zenefits` - Zenefits
-     * * `Zenloop` - Zenloop
-     * * `ZohoAnalytics` - ZohoAnalytics
-     * * `ZohoBigin` - ZohoBigin
-     * * `ZohoBilling` - ZohoBilling
-     * * `ZohoBooks` - ZohoBooks
-     * * `ZohoCampaign` - ZohoCampaign
-     * * `ZohoDesk` - ZohoDesk
-     * * `ZohoExpense` - ZohoExpense
-     * * `ZohoInventory` - ZohoInventory
-     * * `ZohoInvoice` - ZohoInvoice
-     * * `ZonkaFeedback` - ZonkaFeedback
-     * * `AlphaVantage` - AlphaVantage
-     * * `Aviationstack` - Aviationstack
-     * * `Bitly` - Bitly
-     * * `Blogger` - Blogger
-     * * `Breezometer` - Breezometer
-     * * `CareQualityCommission` - CareQualityCommission
-     * * `Cimis` - Cimis
-     * * `CoinApi` - CoinApi
-     * * `CoinGecko` - CoinGecko
-     * * `CoinMarketCap` - CoinMarketCap
-     * * `DingConnect` - DingConnect
-     * * `Dockerhub` - Dockerhub
-     * * `ExchangeRatesApi` - ExchangeRatesApi
-     * * `FinancialModelling` - FinancialModelling
-     * * `Finnhub` - Finnhub
-     * * `Finnworlds` - Finnworlds
-     * * `Giphy` - Giphy
-     * * `Gmail` - Gmail
-     * * `GNews` - GNews
-     * * `GoogleCalendar` - GoogleCalendar
-     * * `GoogleClassroom` - GoogleClassroom
-     * * `GoogleDirectory` - GoogleDirectory
-     * * `GoogleForms` - GoogleForms
-     * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
-     * * `GoogleTasks` - GoogleTasks
-     * * `GoogleWebfonts` - GoogleWebfonts
-     * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
-     * * `HuggingFace` - HuggingFace
-     * * `IlluminaBasespace` - IlluminaBasespace
-     * * `Imagga` - Imagga
-     * * `Interzoid` - Interzoid
-     * * `IP2Whois` - IP2Whois
-     * * `KYVE` - KYVE
-     * * `Marketstack` - Marketstack
-     * * `Mendeley` - Mendeley
-     * * `Nasa` - Nasa
-     * * `NewYorkTimes` - NewYorkTimes
-     * * `NewsApi` - NewsApi
-     * * `NewsData` - NewsData
-     * * `OpenDataDc` - OpenDataDc
-     * * `OpenExchangeRates` - OpenExchangeRates
-     * * `OpenAQ` - OpenAQ
-     * * `OpenFDA` - OpenFDA
-     * * `OpenWeather` - OpenWeather
-     * * `Outlook` - Outlook
-     * * `Perigon` - Perigon
-     * * `Pexels` - Pexels
-     * * `Pocket` - Pocket
-     * * `Polygon` - Polygon
-     * * `PyPI` - PyPI
-     * * `Recreation` - Recreation
-     * * `RKICovid` - RKICovid
-     * * `Rss` - Rss
-     * * `SimFin` - SimFin
-     * * `StockData` - StockData
-     * * `Guardian` - Guardian
-     * * `TMDb` - TMDb
-     * * `TVMaze` - TVMaze
-     * * `TwelveData` - TwelveData
-     * * `Ubidots` - Ubidots
-     * * `USCensus` - USCensus
-     * * `Watchmode` - Watchmode
-     * * `WikipediaPageviews` - WikipediaPageviews
-     * * `YahooFinance` - YahooFinance
-     * * `Clarifai` - Clarifai
-     * * `Adapty` - Adapty
-     * * `Braintrust` - Braintrust
-     * * `StreamElements` - StreamElements
-     * * `Streamlabs` - Streamlabs
-     * * `Datorama` - Datorama
-     * * `Ahrefs` - Ahrefs
-     * * `Lightfield` - Lightfield
-     * * `Appstack` - Appstack
-     * * `Razorpay` - Razorpay
-     * * `Neon` - Neon
-     * * `NewRelic` - NewRelic
-     * * `Custom` - Custom
-     * * `Tile38` - Tile38
-     * * `Chatwoot` - Chatwoot
-     * * `Sanity` - Sanity
-     * * `Metronome` - Metronome
-     * * `Jobber` - Jobber
-     * * `Knock` - Knock
-     * * `Leexi` - Leexi
-     * * `RB2B` - RB2B
-     * * `Superwall` - Superwall
-     * * `Liana` - Liana
-     * * `TawkTo` - TawkTo
-     * * `Hightouch` - Hightouch
-     * * `LemonSqueezy` - LemonSqueezy
-     * * `Ikas` - Ikas
-     * * `Talkwalker` - Talkwalker
-     * * `NextdoorAds` - NextdoorAds
-     * * `AppLovin` - AppLovin
-     * * `Baserow` - Baserow
-     * * `Plunk` - Plunk
-     * * `Dub` - Dub
-     * * `AirOps` - AirOps
-     * * `Podium` - Podium
-     * * `Loops` - Loops
-     * * `Redis` - Redis
-     * * `Mercury` - Mercury
-     * * `Gojiberry` - Gojiberry
-     * * `Teachable` - Teachable
-     * * `PeecAI` - PeecAI
-     * * `Healthchecks` - Healthchecks
-     * * `Impact` - Impact
-     * * `AikidoSecurity` - AikidoSecurity
-     * * `Alguna` - Alguna
-     * * `Anthropic` - Anthropic
-     * * `Appwrite` - Appwrite
-     * * `BlandAI` - BlandAI
-     * * `BrowseAI` - BrowseAI
-     * * `BrowserUse` - BrowserUse
-     * * `ChartHop` - ChartHop
-     * * `Cody` - Cody
-     * * `Cursor` - Cursor
-     * * `Decagon` - Decagon
-     * * `Deepgram` - Deepgram
-     * * `ElevenLabs` - ElevenLabs
-     * * `Harvey` - Harvey
-     * * `Hyperspell` - Hyperspell
-     * * `Langfuse` - Langfuse
-     * * `LingoDev` - LingoDev
-     * * `M3ter` - M3ter
-     * * `Maxio` - Maxio
-     * * `Metorial` - Metorial
-     * * `OpenRouter` - OpenRouter
-     * * `TogetherAI` - TogetherAI
-     * * `Vapi` - Vapi
-     * * `Vespa` - Vespa
-     * * `Writesonic` - Writesonic
-     * * `Aiven` - Aiven
-     * * `Aviator` - Aviator
-     * * `Backblaze` - Backblaze
-     * * `Baseten` - Baseten
-     * * `Browserbase` - Browserbase
-     * * `Cohere` - Cohere
-     * * `DenoDeploy` - DenoDeploy
-     * * `DigitalOcean` - DigitalOcean
-     * * `E2B` - E2B
-     * * `Fintoc` - Fintoc
-     * * `Firecrawl` - Firecrawl
-     * * `FireworksAI` - FireworksAI
-     * * `FlyIo` - FlyIo
-     * * `Groq` - Groq
-     * * `GrowthBook` - GrowthBook
-     * * `Gumloop` - Gumloop
-     * * `Hatchet` - Hatchet
-     * * `Helicone` - Helicone
-     * * `Heroku` - Heroku
-     * * `Hetzner` - Hetzner
-     * * `HeyGen` - HeyGen
-     * * `Infisical` - Infisical
-     * * `Inngest` - Inngest
-     * * `KapaAI` - KapaAI
-     * * `Kernel` - Kernel
-     * * `Koyeb` - Koyeb
-     * * `LambdaLabs` - LambdaLabs
-     * * `LangSmith` - LangSmith
-     * * `Linode` - Linode
-     * * `Listmonk` - Listmonk
-     * * `LlamaCloud` - LlamaCloud
-     * * `Mem0` - Mem0
-     * * `Metriport` - Metriport
-     * * `Mintlify` - Mintlify
-     * * `MistralAI` - MistralAI
-     * * `Mono` - Mono
-     * * `Netlify` - Netlify
-     * * `Northflank` - Northflank
-     * * `OpenAI` - OpenAI
-     * * `Pinecone` - Pinecone
-     * * `PlatformSh` - PlatformSh
-     * * `PromptingCompany` - PromptingCompany
-     * * `Qdrant` - Qdrant
-     * * `Render` - Render
-     * * `Replicate` - Replicate
-     * * `RetellAI` - RetellAI
-     * * `Roark` - Roark
-     * * `RunPod` - RunPod
-     * * `ScaleAI` - ScaleAI
-     * * `Scaleway` - Scaleway
-     * * `SigNoz` - SigNoz
-     * * `Sim` - Sim
-     * * `Skyvern` - Skyvern
-     * * `Slash` - Slash
-     * * `Synthesia` - Synthesia
-     * * `Telli` - Telli
-     * * `TerraApi` - TerraApi
-     * * `TriggerDev` - TriggerDev
-     * * `Turso` - Turso
-     * * `Singular` - Singular
-     * * `Swonkie` - Swonkie
-     * * `TwelveLabs` - TwelveLabs
-     * * `Twenty` - Twenty
-     * * `Unstructured` - Unstructured
-     * * `Upstash` - Upstash
-     * * `Vellum` - Vellum
-     * * `Vultr` - Vultr
-     * * `Windmill` - Windmill
-     * * `Zep` - Zep
-     * * `Hex` - Hex
-     * * `Sumsub` - Sumsub
-     * * `GoogleChat` - GoogleChat
-     * * `Kickscale` - Kickscale
-     * * `Zellify` - Zellify
-     * * `RudderStack` - RudderStack
-     * * `DodoPayments` - DodoPayments
-     * * `Salestrics` - Salestrics
-     * * `Doppler` - Doppler
-     * * `Usersnap` - Usersnap
-     * * `Asknicely` - Asknicely
-     * * `Featurebase` - Featurebase
-     * * `Frill` - Frill
-     * * `Bettermode` - Bettermode
-     * * `Dynatrace` - Dynatrace
-     * * `Honeycomb` - Honeycomb
-     * * `SumoLogic` - SumoLogic
-     * * `LogzIO` - LogzIO
-     * * `Coralogix` - Coralogix
-     * * `BetterStack` - BetterStack
-     * * `Raygun` - Raygun
-     * * `Honeybadger` - Honeybadger
-     * * `Airbrake` - Airbrake
-     * * `Appsignal` - Appsignal
-     * * `Appdynamics` - Appdynamics
-     * * `Instana` - Instana
-     * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
-     * * `Uptimerobot` - Uptimerobot
-     * * `Statuscake` - Statuscake
-     * * `Tailscale` - Tailscale
-     * * `Flagsmith` - Flagsmith
-     * * `Xmatters` - Xmatters
-     * * `Squadcast` - Squadcast
-     * * `Zenduty` - Zenduty
-     * * `Cronitor` - Cronitor
-     * * `Jenkins` - Jenkins
-     * * `Bitbucket` - Bitbucket
-     * * `Gitea` - Gitea
-     * * `Teamcity` - Teamcity
-     * * `TravisCI` - TravisCI
-     * * `Semaphore` - Semaphore
-     * * `CircleciInsights` - CircleciInsights
-     * * `OctopusDeploy` - OctopusDeploy
-     * * `Sourcegraph` - Sourcegraph
-     * * `Bitrise` - Bitrise
-     * * `Gerrit` - Gerrit
-     * * `TerraformCloud` - TerraformCloud
-     * * `PulumiCloud` - PulumiCloud
-     * * `Spacelift` - Spacelift
-     * * `Railway` - Railway
-     * * `Argocd` - Argocd
-     * * `PrefectCloud` - PrefectCloud
-     * * `DagsterCloud` - DagsterCloud
-     * * `Env0` - Env0
-     * * `Kubecost` - Kubecost
-     * * `Snyk` - Snyk
-     * * `Semgrep` - Semgrep
-     * * `Veracode` - Veracode
-     * * `Checkmarx` - Checkmarx
-     * * `Gitguardian` - Gitguardian
-     * * `QualysVmdr` - QualysVmdr
-     * * `Rapid7Insightvm` - Rapid7Insightvm
-     * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
-     * * `Sentinelone` - Sentinelone
-     * * `Lacework` - Lacework
-     * * `OrcaSecurity` - OrcaSecurity
-     * * `Drata` - Drata
-     * * `Secureframe` - Secureframe
-     * * `CiscoDuo` - CiscoDuo
-     * * `Jumpcloud` - Jumpcloud
-     * * `OnePassword` - OnePassword
-     * * `Stytch` - Stytch
-     * * `Sonarqube` - Sonarqube
-     * * `Codecov` - Codecov
-     * * `Coveralls` - Coveralls
-     * * `Codacy` - Codacy
-     * * `Deepsource` - Deepsource
-     * * `Linearb` - Linearb
-     * * `Jellyfish` - Jellyfish
-     * * `Swarmia` - Swarmia
-     * * `Packagist` - Packagist
-     * * `Nuget` - Nuget
-     * * `CratesIO` - CratesIO
-     * * `SonatypeNexus` - SonatypeNexus
-     * * `JfrogArtifactory` - JfrogArtifactory
-     * * `Snowplow` - Snowplow
-     * * `WeightsAndBiases` - WeightsAndBiases
-     * * `MonteCarlo` - MonteCarlo
-     * * `Metaplane` - Metaplane
-     * * `Datahub` - Datahub
-     * * `ClickhouseCloud` - ClickhouseCloud
-     * * `ConfluentCloud` - ConfluentCloud
-     * * `KongKonnect` - KongKonnect
-     * * `Kandji` - Kandji
-     * * `Automox` - Automox
-     * * `Autumn` - Autumn
-     * * `GetStream` - GetStream
-     * * `Octolens` - Octolens
-     * * `Kajabi` - Kajabi
-     * * `Shopware` - Shopware
-     * * `Dubsado` - Dubsado
-     * * `Campfire` - Campfire
-     * * `PromptWatch` - PromptWatch
-     * * `Crisp` - Crisp
-     * * `Kommo` - Kommo
-     * * `Axiom` - Axiom
-     * * `Plivo` - Plivo
-     * * `DataForSEO` - DataForSEO
-     * * `Sleekplan` - Sleekplan
-     * * `AbTasty` - AbTasty
-     * * `Ably` - Ably
-     * * `AbnormalSecurity` - AbnormalSecurity
-     * * `Acast` - Acast
-     * * `Acculynx` - Acculynx
-     * * `Actionstep` - Actionstep
-     * * `Aftership` - Aftership
-     * * `AhaIdeas` - AhaIdeas
-     * * `AkamaiReporting` - AkamaiReporting
-     * * `Alation` - Alation
-     * * `Alegra` - Alegra
-     * * `Allegro` - Allegro
-     * * `AnodotCost` - AnodotCost
-     * * `Anomalo` - Anomalo
-     * * `Apaleo` - Apaleo
-     * * `Apitally` - Apitally
-     * * `AppStoreConnect` - AppStoreConnect
-     * * `Appdirect` - Appdirect
-     * * `Appfolio` - Appfolio
-     * * `Arxiv` - Arxiv
-     * * `Asaas` - Asaas
-     * * `Astronomer` - Astronomer
-     * * `Athenahealth` - Athenahealth
-     * * `Atlan` - Atlan
-     * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
-     * * `Avalara` - Avalara
-     * * `AwsAthena` - AwsAthena
-     * * `AwsBatch` - AwsBatch
-     * * `AwsBudgets` - AwsBudgets
-     * * `AwsCloudformation` - AwsCloudformation
-     * * `AwsComputeOptimizer` - AwsComputeOptimizer
-     * * `AwsConfig` - AwsConfig
-     * * `AwsConnect` - AwsConnect
-     * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
-     * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
-     * * `AwsCostExplorer` - AwsCostExplorer
-     * * `AwsDocumentDB` - AwsDocumentDB
-     * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
-     * * `AwsGuardduty` - AwsGuardduty
-     * * `AwsHealth` - AwsHealth
-     * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
-     * * `AwsInspector` - AwsInspector
-     * * `AwsMacie` - AwsMacie
-     * * `AwsOrganizations` - AwsOrganizations
-     * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
-     * * `AwsSagemaker` - AwsSagemaker
-     * * `AwsSavingsPlans` - AwsSavingsPlans
-     * * `AwsSecurityHub` - AwsSecurityHub
-     * * `AwsSes` - AwsSes
-     * * `AwsStepFunctions` - AwsStepFunctions
-     * * `AwsSupport` - AwsSupport
-     * * `AwsSystemsManager` - AwsSystemsManager
-     * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
-     * * `AwsWaf` - AwsWaf
-     * * `AwsXray` - AwsXray
-     * * `AzureActivityLog` - AzureActivityLog
-     * * `AzureAdvisor` - AzureAdvisor
-     * * `AzureApiManagement` - AzureApiManagement
-     * * `AzureApplicationInsights` - AzureApplicationInsights
-     * * `AzureCostManagement` - AzureCostManagement
-     * * `AzureDataExplorer` - AzureDataExplorer
-     * * `AzureDataFactory` - AzureDataFactory
-     * * `AzureLogAnalytics` - AzureLogAnalytics
-     * * `AzureMonitorAlerts` - AzureMonitorAlerts
-     * * `AzureMonitorMetrics` - AzureMonitorMetrics
-     * * `AzureOpenaiUsage` - AzureOpenaiUsage
-     * * `AzurePolicyInsights` - AzurePolicyInsights
-     * * `AzureReservations` - AzureReservations
-     * * `AzureResourceGraph` - AzureResourceGraph
-     * * `AzureResourceHealth` - AzureResourceHealth
-     * * `AzureServiceHealth` - AzureServiceHealth
-     * * `AzureSynapse` - AzureSynapse
-     * * `BackMarket` - BackMarket
-     * * `Beehiiv` - Beehiiv
-     * * `Bigeye` - Bigeye
-     * * `BillCom` - BillCom
-     * * `Billomat` - Billomat
-     * * `BingWebmasterTools` - BingWebmasterTools
-     * * `Bitwarden` - Bitwarden
-     * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
-     * * `BlackboardLearn` - BlackboardLearn
-     * * `Bling` - Bling
-     * * `Bloomerang` - Bloomerang
-     * * `Blueshift` - Blueshift
-     * * `Bluesky` - Bluesky
-     * * `BolRetailer` - BolRetailer
-     * * `Boulevard` - Boulevard
-     * * `Buffer` - Buffer
-     * * `Bugherd` - Bugherd
-     * * `Buildium` - Buildium
-     * * `Buttondown` - Buttondown
-     * * `BuyMeACoffee` - BuyMeACoffee
-     * * `Calendarific` - Calendarific
-     * * `Calibre` - Calibre
-     * * `CanvasLms` - CanvasLms
-     * * `Captivate` - Captivate
-     * * `Cashfree` - Cashfree
-     * * `CastAi` - CastAi
-     * * `Catchpoint` - Catchpoint
-     * * `CdcOpenData` - CdcOpenData
-     * * `Census` - Census
-     * * `Checkly` - Checkly
-     * * `CircleSo` - CircleSo
-     * * `Classy` - Classy
-     * * `Cleartax` - Cleartax
-     * * `Clever` - Clever
-     * * `Clevertap` - Clevertap
-     * * `Cliniko` - Cliniko
-     * * `Clio` - Clio
-     * * `Clip` - Clip
-     * * `Cloudability` - Cloudability
-     * * `Cloudsmith` - Cloudsmith
-     * * `Cloudzero` - Cloudzero
-     * * `Clover` - Clover
-     * * `Codemagic` - Codemagic
-     * * `Codescene` - Codescene
-     * * `Collibra` - Collibra
-     * * `Companycam` - Companycam
-     * * `Conekta` - Conekta
-     * * `ContaAzul` - ContaAzul
-     * * `Contentsquare` - Contentsquare
-     * * `Cortex` - Cortex
-     * * `Courier` - Courier
-     * * `Crossref` - Crossref
-     * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
-     * * `CubeCloud` - CubeCloud
-     * * `D2lBrightspace` - D2lBrightspace
-     * * `Dayforce` - Dayforce
-     * * `Debugbear` - Debugbear
-     * * `Descope` - Descope
-     * * `Develocity` - Develocity
-     * * `Dialpad` - Dialpad
-     * * `Discord` - Discord
-     * * `Discourse` - Discourse
-     * * `Donorbox` - Donorbox
-     * * `Doorloop` - Doorloop
-     * * `Dovetail` - Dovetail
-     * * `Dragonboat` - Dragonboat
-     * * `Drchrono` - Drchrono
-     * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
-     * * `EcbDataPortal` - EcbDataPortal
-     * * `Emarsys` - Emarsys
-     * * `Embrace` - Embrace
-     * * `Entsoe` - Entsoe
-     * * `Eppo` - Eppo
-     * * `Etsy` - Etsy
-     * * `Eurostat` - Eurostat
-     * * `Faire` - Faire
-     * * `FarosAi` - FarosAi
-     * * `Fieldpulse` - Fieldpulse
-     * * `Fieldwire` - Fieldwire
-     * * `Filevine` - Filevine
-     * * `Finout` - Finout
-     * * `Five9` - Five9
-     * * `FlexeraCloudCost` - FlexeraCloudCost
-     * * `Flutterwave` - Flutterwave
-     * * `Fortnox` - Fortnox
-     * * `Fourthwall` - Fourthwall
-     * * `Fred` - Fred
-     * * `Frontegg` - Frontegg
-     * * `FusionAuth` - FusionAuth
-     * * `G2` - G2
-     * * `Gcore` - Gcore
-     * * `GcpApigee` - GcpApigee
-     * * `GcpArtifactRegistry` - GcpArtifactRegistry
-     * * `GcpBigtable` - GcpBigtable
-     * * `GcpChronicle` - GcpChronicle
-     * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
-     * * `GcpCloudBilling` - GcpCloudBilling
-     * * `GcpCloudBuild` - GcpCloudBuild
-     * * `GcpCloudDeploy` - GcpCloudDeploy
-     * * `GcpCloudDns` - GcpCloudDns
-     * * `GcpCloudFunctions` - GcpCloudFunctions
-     * * `GcpCloudLogging` - GcpCloudLogging
-     * * `GcpCloudMonitoring` - GcpCloudMonitoring
-     * * `GcpCloudRun` - GcpCloudRun
-     * * `GcpCloudSpanner` - GcpCloudSpanner
-     * * `GcpCloudSql` - GcpCloudSql
-     * * `GcpCloudTrace` - GcpCloudTrace
-     * * `GcpCloudWorkflows` - GcpCloudWorkflows
-     * * `GcpComputeEngine` - GcpComputeEngine
-     * * `GcpContainerAnalysis` - GcpContainerAnalysis
-     * * `GcpDataflow` - GcpDataflow
-     * * `GcpDataplex` - GcpDataplex
-     * * `GcpDataproc` - GcpDataproc
-     * * `GcpErrorReporting` - GcpErrorReporting
-     * * `GcpGke` - GcpGke
-     * * `GcpPubsub` - GcpPubsub
-     * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
-     * * `GcpRecommender` - GcpRecommender
-     * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
-     * * `Gdelt` - Gdelt
-     * * `GenesysCloud` - GenesysCloud
-     * * `Getdx` - Getdx
-     * * `Ghost` - Ghost
-     * * `Givebutter` - Givebutter
-     * * `Gleif` - Gleif
-     * * `GooglePlayConsole` - GooglePlayConsole
-     * * `Guesty` - Guesty
-     * * `Gumroad` - Gumroad
-     * * `HarnessCcm` - HarnessCcm
-     * * `HarnessSei` - HarnessSei
-     * * `Harvest` - Harvest
-     * * `Healthie` - Healthie
-     * * `Hitpay` - Hitpay
-     * * `Hivebrite` - Hivebrite
-     * * `Holded` - Holded
-     * * `Hostaway` - Hostaway
-     * * `HousecallPro` - HousecallPro
-     * * `Humanitec` - Humanitec
-     * * `ImfData` - ImfData
-     * * `Imperva` - Imperva
-     * * `InfluxdbCloud` - InfluxdbCloud
-     * * `Iyzico` - Iyzico
-     * * `Jobtread` - Jobtread
-     * * `Kameleoon` - Kameleoon
-     * * `KauflandMarketplace` - KauflandMarketplace
-     * * `Kestra` - Kestra
-     * * `Kick` - Kick
-     * * `Kinde` - Kinde
-     * * `Kion` - Kion
-     * * `Knowbe4` - Knowbe4
-     * * `Komodor` - Komodor
-     * * `Labelbox` - Labelbox
-     * * `Lawmatics` - Lawmatics
-     * * `Learnworlds` - Learnworlds
-     * * `LexwareOffice` - LexwareOffice
-     * * `Lightdash` - Lightdash
-     * * `Lodgify` - Lodgify
-     * * `Logicmonitor` - Logicmonitor
-     * * `Logrocket` - Logrocket
-     * * `LoopReturns` - LoopReturns
-     * * `Mastodon` - Mastodon
-     * * `Meetup` - Meetup
-     * * `Megaphone` - Megaphone
-     * * `Memberful` - Memberful
-     * * `MercadoPago` - MercadoPago
-     * * `Meteostat` - Meteostat
-     * * `Mews` - Mews
-     * * `Mezmo` - Mezmo
-     * * `Microsoft365UsageReports` - Microsoft365UsageReports
-     * * `MicrosoftAdvertising` - MicrosoftAdvertising
-     * * `MicrosoftClarity` - MicrosoftClarity
-     * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
-     * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
-     * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
-     * * `MicrosoftIntune` - MicrosoftIntune
-     * * `MicrosoftPurview` - MicrosoftPurview
-     * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
-     * * `MicrosoftSentinel` - MicrosoftSentinel
-     * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
-     * * `Midtrans` - Midtrans
-     * * `MightyNetworks` - MightyNetworks
-     * * `Mindbody` - Mindbody
-     * * `Mirakl` - Mirakl
-     * * `Moesif` - Moesif
-     * * `Moneybird` - Moneybird
-     * * `Moodle` - Moodle
-     * * `Motherduck` - Motherduck
-     * * `Mycase` - Mycase
-     * * `NagerDate` - NagerDate
-     * * `NeonCrm` - NeonCrm
-     * * `Nexhealth` - Nexhealth
-     * * `NoaaCdo` - NoaaCdo
-     * * `Nobl9` - Nobl9
-     * * `Nolt` - Nolt
-     * * `Nops` - Nops
-     * * `NpmRegistry` - NpmRegistry
-     * * `Oecd` - Oecd
-     * * `Okendo` - Okendo
-     * * `Omni` - Omni
-     * * `Onelogin` - Onelogin
-     * * `OpenDental` - OpenDental
-     * * `OpenMeteo` - OpenMeteo
-     * * `Openalex` - Openalex
-     * * `Opencorporates` - Opencorporates
-     * * `Openfec` - Openfec
-     * * `OpnPayments` - OpnPayments
-     * * `Opslevel` - Opslevel
-     * * `OttoMarket` - OttoMarket
-     * * `Ownerrez` - Ownerrez
-     * * `Pagbank` - Pagbank
-     * * `Patreon` - Patreon
-     * * `Pax8` - Pax8
-     * * `Paychex` - Paychex
-     * * `Paymob` - Paymob
-     * * `Paymongo` - Paymongo
-     * * `Phonepe` - Phonepe
-     * * `Pike13` - Pike13
-     * * `Pingone` - Pingone
-     * * `PinterestOrganic` - PinterestOrganic
-     * * `PlanningCenter` - PlanningCenter
-     * * `PluralsightFlow` - PluralsightFlow
-     * * `Podbean` - Podbean
-     * * `Postscript` - Postscript
-     * * `PowerBiAdmin` - PowerBiAdmin
-     * * `Practicepanther` - Practicepanther
-     * * `Preset` - Preset
-     * * `Procore` - Procore
-     * * `Productiv` - Productiv
-     * * `ProofpointTap` - ProofpointTap
-     * * `Propertyware` - Propertyware
-     * * `Pubnub` - Pubnub
-     * * `Quay` - Quay
-     * * `Raken` - Raken
-     * * `RedpandaCloud` - RedpandaCloud
-     * * `RentManager` - RentManager
-     * * `Reverb` - Reverb
-     * * `RocketMatter` - RocketMatter
-     * * `Rubygems` - Rubygems
-     * * `Scalr` - Scalr
-     * * `SecEdgar` - SecEdgar
-     * * `SelectStar` - SelectStar
-     * * `SemanticScholar` - SemanticScholar
-     * * `Semrush` - Semrush
-     * * `ServiceFusion` - ServiceFusion
-     * * `Servicem8` - Servicem8
-     * * `Servicetitan` - Servicetitan
-     * * `Servicetrade` - Servicetrade
-     * * `Sevdesk` - Sevdesk
-     * * `Similarweb` - Similarweb
-     * * `Simpro` - Simpro
-     * * `Sinch` - Sinch
-     * * `Singlestore` - Singlestore
-     * * `Site24x7` - Site24x7
-     * * `Sleuth` - Sleuth
-     * * `Smartlook` - Smartlook
-     * * `Smartrecruiters` - Smartrecruiters
-     * * `Smokeball` - Smokeball
-     * * `SodaCloud` - SodaCloud
-     * * `Speedcurve` - Speedcurve
-     * * `SpotIo` - SpotIo
-     * * `Sprig` - Sprig
-     * * `Sprinklr` - Sprinklr
-     * * `SproutSocial` - SproutSocial
-     * * `StackOverflowForTeams` - StackOverflowForTeams
-     * * `Stockx` - Stockx
-     * * `TackleIo` - TackleIo
-     * * `Talkdesk` - Talkdesk
-     * * `TeamupFitness` - TeamupFitness
-     * * `Tebra` - Tebra
-     * * `Telnyx` - Telnyx
-     * * `Ternary` - Ternary
-     * * `Thoughtspot` - Thoughtspot
-     * * `Thousandeyes` - Thousandeyes
-     * * `Threads` - Threads
-     * * `TiktokShop` - TiktokShop
-     * * `TinyErp` - TinyErp
-     * * `Tinybird` - Tinybird
-     * * `Tipalti` - Tipalti
-     * * `Toast` - Toast
-     * * `Torii` - Torii
-     * * `Transistor` - Transistor
-     * * `TrunkIo` - TrunkIo
-     * * `Trustradius` - Trustradius
-     * * `Twitch` - Twitch
-     * * `TwoC2p` - TwoC2p
-     * * `UkCompaniesHouse` - UkCompaniesHouse
-     * * `UkOns` - UkOns
-     * * `UnComtrade` - UnComtrade
-     * * `UsBea` - UsBea
-     * * `UsBls` - UsBls
-     * * `UsEia` - UsEia
-     * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
-     * * `Vanta` - Vanta
-     * * `Vendr` - Vendr
-     * * `Virtuous` - Virtuous
-     * * `Vonage` - Vonage
-     * * `WalmartMarketplace` - WalmartMarketplace
-     * * `Waydev` - Waydev
-     * * `Wayfair` - Wayfair
-     * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
-     * * `WhoGho` - WhoGho
-     * * `Whop` - Whop
-     * * `Wistia` - Wistia
-     * * `Wiz` - Wiz
-     * * `Wompi` - Wompi
-     * * `Workiz` - Workiz
-     * * `WorldBank` - WorldBank
-     * * `Xendit` - Xendit
-     * * `Yoco` - Yoco
-     * * `ZalandoZdirect` - ZalandoZdirect
-     * * `Zluri` - Zluri
-     * * `Zylo` - Zylo
-     * * `Tally` - Tally
-     * * `Nuntly` - Nuntly
-     * * `Vturb` - Vturb
-     * * `Meltwater` - Meltwater
-     * * `UserCom` - UserCom
-     * * `Latitude` - Latitude
-     * * `Workato` - Workato
-     * * `SideShift` - SideShift
-     * * `DuckLake` - DuckLake
-     * * `Starburst` - Starburst
-     * * `Trino` - Trino
-     * * `Easybill` - Easybill
-     * * `Bexio` - Bexio
-     * * `Umami` - Umami
-     * * `Manychat` - Manychat
-     * * `Kickstarter` - Kickstarter
-     * * `Typesense` - Typesense
-     * * `FirstPromoter` - FirstPromoter
-     * * `Zero` - Zero
-     * * `Inth` - Inth
-     * * `BCMS` - BCMS
-     * * `Convonite` - Convonite
-     * * `Hookdeck` - Hookdeck
-     * * `Billit` - Billit
-     * * `Moxie` - Moxie
-     * * `TripleWhale` - TripleWhale
-     * * `Directus` - Directus
-     * * `Clay` - Clay
-     * * `TradableBits` - TradableBits
-     * * `Swan` - Swan
-     * * `Hyros` - Hyros
-     * * `Odoo` - Odoo
-     * * `Airbridge` - Airbridge
-     * * `Snovio` - Snovio
-     * * `GoogleMerchantCenter` - GoogleMerchantCenter
-     * * `Raisely` - Raisely
-     * * `RakutenAdvertising` - RakutenAdvertising
-     * * `Zitadel` - Zitadel
-     * * `DeelFlows` - DeelFlows
-     * * `WindsorAi` - WindsorAi
-     * * `Wix` - Wix
-     * * `Sevalla` - Sevalla
-     * * `Motion` - Motion
-     * * `ImpactPartner` - ImpactPartner
-     * * `Cloudinary` - Cloudinary
-     * * `Uploadcare` - Uploadcare
-     * * `WHMCS` - WHMCS
-     * * `MSG91` - MSG91
-     * * `Depot` - Depot
-     * * `Schematic` - Schematic
-     * * `Dokploy` - Dokploy
-     * * `Hootsuite` - Hootsuite
-     * * `WisprFlow` - WisprFlow
-     * * `SamCart` - SamCart
-     * * `IronSourceAds` - IronSourceAds
-     * * `MicrosoftExcel` - MicrosoftExcel
-     * * `Profound` - Profound
-     * * `Airwallex` - Airwallex
-     * * `Polymarket` - Polymarket
-     * * `Kalshi` - Kalshi
-     * * `Capterra` - Capterra
-     * * `GooglePostmasterTools` - GooglePostmasterTools
-     * * `Growi` - Growi
-     * * `Clarify` - Clarify
-     * * `DatoCMS` - DatoCMS
-     * * `WPSOffice` - WPSOffice
-     * * `TeraBox` - TeraBox
-     * * `SimonData` - SimonData
-     * * `CommissionJunction` - CommissionJunction
-     * * `Liveblocks` - Liveblocks
-     * * `Livestorm` - Livestorm
-     * * `NationBuilder` - NationBuilder
-     * * `Tana` - Tana
-     * * `Zenchef` - Zenchef
-     * * `Lovable` - Lovable
-     * * `Anvil` - Anvil
-     * * `Coolify` - Coolify
-     * * `SocialPilot` - SocialPilot
-     * * `Strato` - Strato
-     * * `Medusa` - Medusa
-     * * `Membrain` - Membrain
-     * * `RecallAI` - RecallAI
-     * * `Tenjin` - Tenjin
-     * * `Folk` - Folk
-     * * `Cybersource` - Cybersource
-     * * `GoogleAdSense` - GoogleAdSense
-     * * `Sequenzy` - Sequenzy
-     * * `Skio` - Skio
-     * * `Smartlead` - Smartlead
-     * * `Substack` - Substack
-     * * `ElectricityMaps` - ElectricityMaps
-     * * `Amplemarket` - Amplemarket
-     * * `Quo` - Quo
-     * * `HeyReach` - HeyReach
-     * * `MoEngage` - MoEngage
-     * * `Monaco` - Monaco
-     * * `Oneleet` - Oneleet
-     * * `Expo` - Expo
-     * * `PostNord` - PostNord
-     * * `Commslayer` - Commslayer
-     * * `Sprinto` - Sprinto
-     * * `Gem` - Gem
-     * * `AudioGO` - AudioGO
-     * * `ExactOnline` - ExactOnline
-     * * `LettrLabs` - LettrLabs
-     * * `GrafanaIRM` - GrafanaIRM
-     * * `Tessitura` - Tessitura
-     * * `ChargebackStop` - ChargebackStop
-     * * `Chargeflow` - Chargeflow
-     * * `Dreamdata` - Dreamdata
-     * * `GoogleBusinessProfile` - GoogleBusinessProfile
-     * * `Ledyer` - Ledyer
-     * * `Supermetrics` - Supermetrics
-     * * `SQLite` - SQLite
-     * * `Modal` - Modal
-     * * `Vimeo` - Vimeo
-     * * `Scrunch` - Scrunch
-     * * `Loom` - Loom
-     * * `Arcade` - Arcade
-     * * `Neo4j` - Neo4j
-     * * `TestDino` - TestDino
-     * * `ChessCom` - ChessCom
-     * * `Userback` - Userback
-     * * `Rewardful` - Rewardful
-     * * `Tracklution` - Tracklution
-     * * `StackAdapt` - StackAdapt
-     * * `CheckHQ` - CheckHQ
-     * * `RainforestPay` - RainforestPay
-     * * `Wise` - Wise
-     * * `LaravelCloud` - LaravelCloud
-     * * `Northbeam` - Northbeam
-     * * `NaverAds` - NaverAds
-     * * `ChannelIO` - ChannelIO
-     * * `Airship` - Airship
-     * * `Creem` - Creem
-     * * `Leantime` - Leantime
-     * * `Testomatio` - Testomatio
-     * * `GoogleAdMob` - GoogleAdMob
-     * * `Klar` - Klar
-     * * `ConectoCRM` - ConectoCRM
-     * * `CloudflareR2` - CloudflareR2
-     * * `Particle` - Particle
-     * * `FileUpload` - FileUpload
-     * * `Dripify` - Dripify
-     * * `AwsS3Tables` - AwsS3Tables
-     * * `Beacons` - Beacons
-     * * `WooPayments` - WooPayments
-     * * `Soniox` - Soniox
-     * * `Nango` - Nango
-     * * `Fathom` - Fathom
-     * * `Stamped` - Stamped
-     */
-    export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
-
-
-    export const ExternalDataSourceTypeEnum = {
-      Ashby: 'Ashby',
-      Supabase: 'Supabase',
-      CustomerIO: 'CustomerIO',
-      Github: 'Github',
-      Stripe: 'Stripe',
-      Hubspot: 'Hubspot',
-      Postgres: 'Postgres',
-      Zendesk: 'Zendesk',
-      Snowflake: 'Snowflake',
-      Salesforce: 'Salesforce',
-      MySQL: 'MySQL',
-      MongoDB: 'MongoDB',
-      Mssql: 'MSSQL',
-      Vitally: 'Vitally',
-      BigQuery: 'BigQuery',
-      Chargebee: 'Chargebee',
-      Clerk: 'Clerk',
-      GoogleAds: 'GoogleAds',
-      GoogleSearchConsole: 'GoogleSearchConsole',
-      TemporalIO: 'TemporalIO',
-      DoIt: 'DoIt',
-      GoogleSheets: 'GoogleSheets',
-      MetaAds: 'MetaAds',
-      Klaviyo: 'Klaviyo',
-      Mailchimp: 'Mailchimp',
-      Braze: 'Braze',
-      Mailjet: 'Mailjet',
-      Redshift: 'Redshift',
-      Polar: 'Polar',
-      RevenueCat: 'RevenueCat',
-      LinkedinAds: 'LinkedinAds',
-      RedditAds: 'RedditAds',
-      TikTokAds: 'TikTokAds',
-      BingAds: 'BingAds',
-      Shopify: 'Shopify',
-      Attio: 'Attio',
-      SnapchatAds: 'SnapchatAds',
-      Linear: 'Linear',
-      LiteLLM: 'LiteLLM',
-      Intercom: 'Intercom',
-      Amplitude: 'Amplitude',
-      Mixpanel: 'Mixpanel',
-      Jira: 'Jira',
-      ActiveCampaign: 'ActiveCampaign',
-      Marketo: 'Marketo',
-      Adjust: 'Adjust',
-      AppsFlyer: 'AppsFlyer',
-      Freshdesk: 'Freshdesk',
-      GoogleAnalytics: 'GoogleAnalytics',
-      Pipedrive: 'Pipedrive',
-      SendGrid: 'SendGrid',
-      Slack: 'Slack',
-      PagerDuty: 'PagerDuty',
-      Asana: 'Asana',
-      Notion: 'Notion',
-      Airtable: 'Airtable',
-      Greenhouse: 'Greenhouse',
-      BambooHR: 'BambooHR',
-      Lever: 'Lever',
-      GitLab: 'GitLab',
-      Datadog: 'Datadog',
-      Sentry: 'Sentry',
-      Pendo: 'Pendo',
-      FullStory: 'FullStory',
-      AmazonAds: 'AmazonAds',
-      PinterestAds: 'PinterestAds',
-      AppleSearchAds: 'AppleSearchAds',
-      QuickBooks: 'QuickBooks',
-      Xero: 'Xero',
-      NetSuite: 'NetSuite',
-      WooCommerce: 'WooCommerce',
-      BigCommerce: 'BigCommerce',
-      PayPal: 'PayPal',
-      Square: 'Square',
-      Zoom: 'Zoom',
-      Trello: 'Trello',
-      TrafficStars: 'TrafficStars',
-      Monday: 'Monday',
-      ClickUp: 'ClickUp',
-      Confluence: 'Confluence',
-      Recurly: 'Recurly',
-      SalesLoft: 'SalesLoft',
-      Outreach: 'Outreach',
-      Gong: 'Gong',
-      Calendly: 'Calendly',
-      Typeform: 'Typeform',
-      UnityAds: 'UnityAds',
-      Iterable: 'Iterable',
-      ZohoCRM: 'ZohoCRM',
-      Close: 'Close',
-      Oracle: 'Oracle',
-      DynamoDB: 'DynamoDB',
-      Elasticsearch: 'Elasticsearch',
-      Kafka: 'Kafka',
-      LaunchDarkly: 'LaunchDarkly',
-      Braintree: 'Braintree',
-      Recharge: 'Recharge',
-      HelpScout: 'HelpScout',
-      Gorgias: 'Gorgias',
-      Instagram: 'Instagram',
-      YouTubeAnalytics: 'YouTubeAnalytics',
-      FacebookPages: 'FacebookPages',
-      TwitterAds: 'TwitterAds',
-      Workday: 'Workday',
-      ServiceNow: 'ServiceNow',
-      Pardot: 'Pardot',
-      Copper: 'Copper',
-      Front: 'Front',
-      ChartMogul: 'ChartMogul',
-      Zuora: 'Zuora',
-      Paddle: 'Paddle',
-      CircleCI: 'CircleCI',
-      CockroachDB: 'CockroachDB',
-      Firebase: 'Firebase',
-      AzureBlob: 'AzureBlob',
-      GoogleDrive: 'GoogleDrive',
-      OneDrive: 'OneDrive',
-      SharePoint: 'SharePoint',
-      Box: 'Box',
-      Sftp: 'SFTP',
-      MicrosoftTeams: 'MicrosoftTeams',
-      Aircall: 'Aircall',
-      Webflow: 'Webflow',
-      Okta: 'Okta',
-      Auth0: 'Auth0',
-      Productboard: 'Productboard',
-      Smartsheet: 'Smartsheet',
-      Wrike: 'Wrike',
-      Plaid: 'Plaid',
-      SurveyMonkey: 'SurveyMonkey',
-      Eventbrite: 'Eventbrite',
-      Everflow: 'Everflow',
-      RingCentral: 'RingCentral',
-      Twilio: 'Twilio',
-      Freshsales: 'Freshsales',
-      Shortcut: 'Shortcut',
-      ConvertKit: 'ConvertKit',
-      Drip: 'Drip',
-      CampaignMonitor: 'CampaignMonitor',
-      MailerLite: 'MailerLite',
-      Omnisend: 'Omnisend',
-      Brevo: 'Brevo',
-      Postmark: 'Postmark',
-      Granola: 'Granola',
-      BuildBetter: 'BuildBetter',
-      Convex: 'Convex',
-      ClickHouse: 'ClickHouse',
-      Plain: 'Plain',
-      Resend: 'Resend',
-      PgAnalyze: 'PgAnalyze',
-      WorkOS: 'WorkOS',
-      AmazonS3: 'AmazonS3',
-      GoogleCloudStorage: 'GoogleCloudStorage',
-      Databricks: 'Databricks',
-      Dynamics365: 'Dynamics365',
-      SalesforceMarketingCloud: 'SalesforceMarketingCloud',
-      Db2: 'Db2',
-      Heap: 'Heap',
-      AdobeAnalytics: 'AdobeAnalytics',
-      Matomo: 'Matomo',
-      Optimizely: 'Optimizely',
-      Adyen: 'Adyen',
-      GoCardless: 'GoCardless',
-      Mollie: 'Mollie',
-      CheckoutCom: 'CheckoutCom',
-      Branch: 'Branch',
-      Criteo: 'Criteo',
-      Outbrain: 'Outbrain',
-      Taboola: 'Taboola',
-      AdRoll: 'AdRoll',
-      DisplayVideo360: 'DisplayVideo360',
-      GoogleAdManager: 'GoogleAdManager',
-      CampaignManager360: 'CampaignManager360',
-      SearchAds360: 'SearchAds360',
-      AdobeCommerce: 'AdobeCommerce',
-      AmazonSellingPartner: 'AmazonSellingPartner',
-      Ebay: 'Ebay',
-      Commercetools: 'Commercetools',
-      LightspeedRetail: 'LightspeedRetail',
-      Shipmail: 'Shipmail',
-      ShipStation: 'ShipStation',
-      ConstantContact: 'ConstantContact',
-      Mailgun: 'Mailgun',
-      Eloqua: 'Eloqua',
-      Sailthru: 'Sailthru',
-      Ortto: 'Ortto',
-      Attentive: 'Attentive',
-      Kustomer: 'Kustomer',
-      Dixa: 'Dixa',
-      Gladly: 'Gladly',
-      Qualtrics: 'Qualtrics',
-      AzureDevOps: 'AzureDevOps',
-      RoktAds: 'RoktAds',
-      Rollbar: 'Rollbar',
-      Opsgenie: 'Opsgenie',
-      IncidentIo: 'IncidentIo',
-      Pingdom: 'Pingdom',
-      Cloudflare: 'Cloudflare',
-      CloudflareD1: 'CloudflareD1',
-      CosmosDB: 'CosmosDB',
-      PlanetScaleMySQL: 'PlanetScaleMySQL',
-      PlanetScalePostgres: 'PlanetScalePostgres',
-      Plane: 'Plane',
-      Scarf: 'Scarf',
-      SapHana: 'SapHana',
-      Rippling: 'Rippling',
-      HiBob: 'HiBob',
-      Personio: 'Personio',
-      Deel: 'Deel',
-      AdpWorkforceNow: 'AdpWorkforceNow',
-      Paylocity: 'Paylocity',
-      Gusto: 'Gusto',
-      CultureAmp: 'CultureAmp',
-      Lattice: 'Lattice',
-      SageIntacct: 'SageIntacct',
-      FreshBooks: 'FreshBooks',
-      Expensify: 'Expensify',
-      Ramp: 'Ramp',
-      Brex: 'Brex',
-      Coupa: 'Coupa',
-      SapConcur: 'SapConcur',
-      Apollo: 'Apollo',
-      Crunchbase: 'Crunchbase',
-      ZoomInfo: 'ZoomInfo',
-      Clari: 'Clari',
-      Chorus: 'Chorus',
-      Coda: 'Coda',
-      Guru: 'Guru',
-      Dropbox: 'Dropbox',
-      Docusign: 'Docusign',
-      PandaDoc: 'PandaDoc',
-      SapErp: 'SapErp',
-      SapSuccessFactors: 'SapSuccessFactors',
-      OracleEbs: 'OracleEbs',
-      OracleFusion: 'OracleFusion',
-      AmazonSNS: 'AmazonSNS',
-      AmazonEventBridge: 'AmazonEventBridge',
-      AmazonSQS: 'AmazonSQS',
-      AmazonKinesis: 'AmazonKinesis',
-      AmazonCloudWatch: 'AmazonCloudWatch',
-      OpenAIAds: 'OpenAIAds',
-      OneHundredMs: 'OneHundredMs',
-      SevenShifts: 'SevenShifts',
-      AcuityScheduling: 'AcuityScheduling',
-      AgileCRM: 'AgileCRM',
-      Aha: 'Aha',
-      Airbyte: 'Airbyte',
-      Akeneo: 'Akeneo',
-      Algolia: 'Algolia',
-      AlpacaBrokerAPI: 'AlpacaBrokerAPI',
-      ApifyDataset: 'ApifyDataset',
-      Appcues: 'Appcues',
-      Appfigures: 'Appfigures',
-      Appfollow: 'Appfollow',
-      Apptivo: 'Apptivo',
-      AssemblyAI: 'AssemblyAI',
-      Awin: 'Awin',
-      AwsCloudTrail: 'AwsCloudTrail',
-      AzureTableStorage: 'AzureTableStorage',
-      Babelforce: 'Babelforce',
-      Basecamp: 'Basecamp',
-      Beamer: 'Beamer',
-      BigMailer: 'BigMailer',
-      Bluetally: 'Bluetally',
-      BoldSign: 'BoldSign',
-      BreezyHR: 'BreezyHR',
-      Bugsnag: 'Bugsnag',
-      Buildkite: 'Buildkite',
-      Bunny: 'Bunny',
-      Buzzsprout: 'Buzzsprout',
-      CalCom: 'CalCom',
-      CallRail: 'CallRail',
-      Campayn: 'Campayn',
-      Canny: 'Canny',
-      CapsuleCRM: 'CapsuleCRM',
-      CaptainData: 'CaptainData',
-      CartCom: 'CartCom',
-      CastorEDC: 'CastorEDC',
-      Chameleon: 'Chameleon',
-      Chargedesk: 'Chargedesk',
-      Chargify: 'Chargify',
-      Chift: 'Chift',
-      Churnkey: 'Churnkey',
-      Cin7: 'Cin7',
-      CiscoMeraki: 'CiscoMeraki',
-      Clazar: 'Clazar',
-      Clockify: 'Clockify',
-      Clockodo: 'Clockodo',
-      Cloudbeds: 'Cloudbeds',
-      Coassemble: 'Coassemble',
-      Codefresh: 'Codefresh',
-      Concord: 'Concord',
-      ConfigCat: 'ConfigCat',
-      Couchbase: 'Couchbase',
-      Curve: 'Curve',
-      Customerly: 'Customerly',
-      Datascope: 'Datascope',
-      Dbt: 'Dbt',
-      Demodesk: 'Demodesk',
-      Deputy: 'Deputy',
-      DevinAI: 'DevinAI',
-      Docuseal: 'Docuseal',
-      Dolibarr: 'Dolibarr',
-      Dremio: 'Dremio',
-      DropboxSign: 'DropboxSign',
-      Dwolla: 'Dwolla',
-      EConomic: 'EConomic',
-      Easypost: 'Easypost',
-      Easypromos: 'Easypromos',
-      Elasticemail: 'Elasticemail',
-      EmailOctopus: 'EmailOctopus',
-      EmploymentHero: 'EmploymentHero',
-      Encharge: 'Encharge',
-      Eventee: 'Eventee',
-      Eventzilla: 'Eventzilla',
-      Everhour: 'Everhour',
-      EZOfficeInventory: 'EZOfficeInventory',
-      Factorial: 'Factorial',
-      Fastbill: 'Fastbill',
-      Fastly: 'Fastly',
-      Fauna: 'Fauna',
-      Feishu: 'Feishu',
-      Fillout: 'Fillout',
-      Finage: 'Finage',
-      Firebolt: 'Firebolt',
-      FireHydrant: 'FireHydrant',
-      Fleetio: 'Fleetio',
-      Flexmail: 'Flexmail',
-      Flexport: 'Flexport',
-      FloatApp: 'FloatApp',
-      Flowlu: 'Flowlu',
-      Formbricks: 'Formbricks',
-      Framer: 'Framer',
-      FreeAgent: 'FreeAgent',
-      Freightview: 'Freightview',
-      Freshcaller: 'Freshcaller',
-      Freshchat: 'Freshchat',
-      Freshservice: 'Freshservice',
-      Fulcrum: 'Fulcrum',
-      GainsightCs: 'GainsightCs',
-      GainsightPx: 'GainsightPx',
-      GitBook: 'GitBook',
-      Glassfrog: 'Glassfrog',
-      Goldcast: 'Goldcast',
-      GoLogin: 'GoLogin',
-      Grafana: 'Grafana',
-      GreytHr: 'GreytHr',
-      Gridly: 'Gridly',
-      Harness: 'Harness',
-      Height: 'Height',
-      Hellobaton: 'Hellobaton',
-      HighLevel: 'HighLevel',
-      HoorayHR: 'HoorayHR',
-      Hubplanner: 'Hubplanner',
-      Humanitix: 'Humanitix',
-      Huntr: 'Huntr',
-      Inflowinventory: 'Inflowinventory',
-      InforNexus: 'InforNexus',
-      Insightful: 'Insightful',
-      Insightly: 'Insightly',
-      Instantly: 'Instantly',
-      Instatus: 'Instatus',
-      Intruder: 'Intruder',
-      Invoiced: 'Invoiced',
-      Invoiceninja: 'Invoiceninja',
-      JamfPro: 'JamfPro',
-      JobNimbus: 'JobNimbus',
-      Jotform: 'Jotform',
-      JudgeMeReviews: 'JudgeMeReviews',
-      JustCall: 'JustCall',
-      JustSift: 'JustSift',
-      K6Cloud: 'K6Cloud',
-      Katana: 'Katana',
-      Keka: 'Keka',
-      Kisi: 'Kisi',
-      Kissmetrics: 'Kissmetrics',
-      Klarna: 'Klarna',
-      Klaus: 'Klaus',
-      Lago: 'Lago',
-      Leadfeeder: 'Leadfeeder',
-      Lemlist: 'Lemlist',
-      LessAnnoyingCRM: 'LessAnnoyingCRM',
-      LinkedinPages: 'LinkedinPages',
-      Linkrunner: 'Linkrunner',
-      Linnworks: 'Linnworks',
-      Lob: 'Lob',
-      Lokalise: 'Lokalise',
-      Looker: 'Looker',
-      Luma: 'Luma',
-      MailerSend: 'MailerSend',
-      Mailosaur: 'Mailosaur',
-      Mailtrap: 'Mailtrap',
-      Mantle: 'Mantle',
-      Mention: 'Mention',
-      MercadoAds: 'MercadoAds',
-      Merge: 'Merge',
-      Metabase: 'Metabase',
-      Metricool: 'Metricool',
-      MicrosoftDataverse: 'MicrosoftDataverse',
-      MicrosoftEntraId: 'MicrosoftEntraId',
-      MicrosoftLists: 'MicrosoftLists',
-      Miro: 'Miro',
-      Missive: 'Missive',
-      MixMax: 'MixMax',
-      Mode: 'Mode',
-      Mux: 'Mux',
-      MyHours: 'MyHours',
-      N8n: 'N8n',
-      Navan: 'Navan',
-      NebiusAI: 'NebiusAI',
-      Nexiopay: 'Nexiopay',
-      NinjaOneRMM: 'NinjaOneRMM',
-      NoCRM: 'NoCRM',
-      NorthpassLMS: 'NorthpassLMS',
-      Nutshell: 'Nutshell',
-      Nylas: 'Nylas',
-      Oncehub: 'Oncehub',
-      Onepagecrm: 'Onepagecrm',
-      OneSignal: 'OneSignal',
-      Onfleet: 'Onfleet',
-      OpinionStage: 'OpinionStage',
-      OPUSWatch: 'OPUSWatch',
-      Orb: 'Orb',
-      Orbit: 'Orbit',
-      Oura: 'Oura',
-      Oveit: 'Oveit',
-      PabblySubscriptionsBilling: 'PabblySubscriptionsBilling',
-      Paperform: 'Paperform',
-      Papersign: 'Papersign',
-      Partnerize: 'Partnerize',
-      PartnerStack: 'PartnerStack',
-      PayFit: 'PayFit',
-      Paystack: 'Paystack',
-      Pennylane: 'Pennylane',
-      Perk: 'Perk',
-      PersistIq: 'PersistIq',
-      Persona: 'Persona',
-      Phyllo: 'Phyllo',
-      Picqer: 'Picqer',
-      Pipeliner: 'Pipeliner',
-      PivotalTracker: 'PivotalTracker',
-      Piwik: 'Piwik',
-      Planhat: 'Planhat',
-      Plausible: 'Plausible',
-      Poplar: 'Poplar',
-      PrestaShop: 'PrestaShop',
-      Pretix: 'Pretix',
-      Primetric: 'Primetric',
-      Printavo: 'Printavo',
-      Printify: 'Printify',
-      Productive: 'Productive',
-      Pylon: 'Pylon',
-      Qonto: 'Qonto',
-      Qualaroo: 'Qualaroo',
-      Railz: 'Railz',
-      RDStationMarketing: 'RDStationMarketing',
-      Recruitee: 'Recruitee',
-      Reddit: 'Reddit',
-      ReferralHero: 'ReferralHero',
-      RentCast: 'RentCast',
-      Repairshopr: 'Repairshopr',
-      ReplyIo: 'ReplyIo',
-      RetailExpress: 'RetailExpress',
-      Retently: 'Retently',
-      Retreaver: 'Retreaver',
-      RevolutMerchant: 'RevolutMerchant',
-      RocketChat: 'RocketChat',
-      Rocketlane: 'Rocketlane',
-      Rootly: 'Rootly',
-      Ruddr: 'Ruddr',
-      SafetyCulture: 'SafetyCulture',
-      SageHR: 'SageHR',
-      Salesflare: 'Salesflare',
-      SAPFieldglass: 'SAPFieldglass',
-      SavvyCal: 'SavvyCal',
-      Secoda: 'Secoda',
-      Segment: 'Segment',
-      Sendowl: 'Sendowl',
-      SendPulse: 'SendPulse',
-      Senseforce: 'Senseforce',
-      Serpstat: 'Serpstat',
-      Sharetribe: 'Sharetribe',
-      Shippo: 'Shippo',
-      ShopWired: 'ShopWired',
-      Shortio: 'Shortio',
-      Shutterstock: 'Shutterstock',
-      SigmaComputing: 'SigmaComputing',
-      SignNow: 'SignNow',
-      SimpleCast: 'SimpleCast',
-      Simplesat: 'Simplesat',
-      Smaily: 'Smaily',
-      SmartEngage: 'SmartEngage',
-      Smartreach: 'Smartreach',
-      Smartwaiver: 'Smartwaiver',
-      SolarwindsServiceDesk: 'SolarwindsServiceDesk',
-      SonarCloud: 'SonarCloud',
-      SparkPost: 'SparkPost',
-      SplitIo: 'SplitIo',
-      SpotifyAds: 'SpotifyAds',
-      SpotlerCRM: 'SpotlerCRM',
-      Squarespace: 'Squarespace',
-      Statsig: 'Statsig',
-      Statuspage: 'Statuspage',
-      Steam: 'Steam',
-      Stigg: 'Stigg',
-      Strava: 'Strava',
-      SurveySparrow: 'SurveySparrow',
-      Survicate: 'Survicate',
-      Svix: 'Svix',
-      Systeme: 'Systeme',
-      Tavus: 'Tavus',
-      Teamtailor: 'Teamtailor',
-      Teamwork: 'Teamwork',
-      Tempo: 'Tempo',
-      Testrail: 'Testrail',
-      Thinkific: 'Thinkific',
-      ThinkificCourses: 'ThinkificCourses',
-      ThriveLearning: 'ThriveLearning',
-      Ticketmaster: 'Ticketmaster',
-      TicketTailor: 'TicketTailor',
-      TickTick: 'TickTick',
-      Timely: 'Timely',
-      Tinyemail: 'Tinyemail',
-      Todoist: 'Todoist',
-      Toggl: 'Toggl',
-      TrackPMS: 'TrackPMS',
-      Tremendous: 'Tremendous',
-      TrustPilot: 'TrustPilot',
-      Twitter: 'Twitter',
-      TyntecSMS: 'TyntecSMS',
-      Unleash: 'Unleash',
-      UpPromote: 'UpPromote',
-      Uptick: 'Uptick',
-      Uservoice: 'Uservoice',
-      Vantage: 'Vantage',
-      Veeqo: 'Veeqo',
-      Vercel: 'Vercel',
-      VismaEconomic: 'VismaEconomic',
-      Vwo: 'VWO',
-      Waiteraid: 'Waiteraid',
-      Wasabi: 'Wasabi',
-      WhenIWork: 'WhenIWork',
-      Wordpress: 'Wordpress',
-      Workable: 'Workable',
-      Workflowmax: 'Workflowmax',
-      Workramp: 'Workramp',
-      Wufoo: 'Wufoo',
-      Xsolla: 'Xsolla',
-      YandexMetrica: 'YandexMetrica',
-      Yotpo: 'Yotpo',
-      Ynab: 'Ynab',
-      Younium: 'Younium',
-      YouSign: 'YouSign',
-      YoutubeData: 'YoutubeData',
-      ZapierSupportedStorage: 'ZapierSupportedStorage',
-      ZapSign: 'ZapSign',
-      ZendeskSell: 'ZendeskSell',
-      ZendeskSunshine: 'ZendeskSunshine',
-      Zenefits: 'Zenefits',
-      Zenloop: 'Zenloop',
-      ZohoAnalytics: 'ZohoAnalytics',
-      ZohoBigin: 'ZohoBigin',
-      ZohoBilling: 'ZohoBilling',
-      ZohoBooks: 'ZohoBooks',
-      ZohoCampaign: 'ZohoCampaign',
-      ZohoDesk: 'ZohoDesk',
-      ZohoExpense: 'ZohoExpense',
-      ZohoInventory: 'ZohoInventory',
-      ZohoInvoice: 'ZohoInvoice',
-      ZonkaFeedback: 'ZonkaFeedback',
-      AlphaVantage: 'AlphaVantage',
-      Aviationstack: 'Aviationstack',
-      Bitly: 'Bitly',
-      Blogger: 'Blogger',
-      Breezometer: 'Breezometer',
-      CareQualityCommission: 'CareQualityCommission',
-      Cimis: 'Cimis',
-      CoinApi: 'CoinApi',
-      CoinGecko: 'CoinGecko',
-      CoinMarketCap: 'CoinMarketCap',
-      DingConnect: 'DingConnect',
-      Dockerhub: 'Dockerhub',
-      ExchangeRatesApi: 'ExchangeRatesApi',
-      FinancialModelling: 'FinancialModelling',
-      Finnhub: 'Finnhub',
-      Finnworlds: 'Finnworlds',
-      Giphy: 'Giphy',
-      Gmail: 'Gmail',
-      GNews: 'GNews',
-      GoogleCalendar: 'GoogleCalendar',
-      GoogleClassroom: 'GoogleClassroom',
-      GoogleDirectory: 'GoogleDirectory',
-      GoogleForms: 'GoogleForms',
-      GooglePageSpeedInsights: 'GooglePageSpeedInsights',
-      GoogleTasks: 'GoogleTasks',
-      GoogleWebfonts: 'GoogleWebfonts',
-      GoogleWorkspaceAdminReports: 'GoogleWorkspaceAdminReports',
-      HuggingFace: 'HuggingFace',
-      IlluminaBasespace: 'IlluminaBasespace',
-      Imagga: 'Imagga',
-      Interzoid: 'Interzoid',
-      IP2Whois: 'IP2Whois',
-      Kyve: 'KYVE',
-      Marketstack: 'Marketstack',
-      Mendeley: 'Mendeley',
-      Nasa: 'Nasa',
-      NewYorkTimes: 'NewYorkTimes',
-      NewsApi: 'NewsApi',
-      NewsData: 'NewsData',
-      OpenDataDc: 'OpenDataDc',
-      OpenExchangeRates: 'OpenExchangeRates',
-      OpenAQ: 'OpenAQ',
-      OpenFDA: 'OpenFDA',
-      OpenWeather: 'OpenWeather',
-      Outlook: 'Outlook',
-      Perigon: 'Perigon',
-      Pexels: 'Pexels',
-      Pocket: 'Pocket',
-      Polygon: 'Polygon',
-      PyPI: 'PyPI',
-      Recreation: 'Recreation',
-      RKICovid: 'RKICovid',
-      Rss: 'Rss',
-      SimFin: 'SimFin',
-      StockData: 'StockData',
-      Guardian: 'Guardian',
-      TMDb: 'TMDb',
-      TVMaze: 'TVMaze',
-      TwelveData: 'TwelveData',
-      Ubidots: 'Ubidots',
-      USCensus: 'USCensus',
-      Watchmode: 'Watchmode',
-      WikipediaPageviews: 'WikipediaPageviews',
-      YahooFinance: 'YahooFinance',
-      Clarifai: 'Clarifai',
-      Adapty: 'Adapty',
-      Braintrust: 'Braintrust',
-      StreamElements: 'StreamElements',
-      Streamlabs: 'Streamlabs',
-      Datorama: 'Datorama',
-      Ahrefs: 'Ahrefs',
-      Lightfield: 'Lightfield',
-      Appstack: 'Appstack',
-      Razorpay: 'Razorpay',
-      Neon: 'Neon',
-      NewRelic: 'NewRelic',
-      Custom: 'Custom',
-      Tile38: 'Tile38',
-      Chatwoot: 'Chatwoot',
-      Sanity: 'Sanity',
-      Metronome: 'Metronome',
-      Jobber: 'Jobber',
-      Knock: 'Knock',
-      Leexi: 'Leexi',
-      Rb2b: 'RB2B',
-      Superwall: 'Superwall',
-      Liana: 'Liana',
-      TawkTo: 'TawkTo',
-      Hightouch: 'Hightouch',
-      LemonSqueezy: 'LemonSqueezy',
-      Ikas: 'Ikas',
-      Talkwalker: 'Talkwalker',
-      NextdoorAds: 'NextdoorAds',
-      AppLovin: 'AppLovin',
-      Baserow: 'Baserow',
-      Plunk: 'Plunk',
-      Dub: 'Dub',
-      AirOps: 'AirOps',
-      Podium: 'Podium',
-      Loops: 'Loops',
-      Redis: 'Redis',
-      Mercury: 'Mercury',
-      Gojiberry: 'Gojiberry',
-      Teachable: 'Teachable',
-      PeecAI: 'PeecAI',
-      Healthchecks: 'Healthchecks',
-      Impact: 'Impact',
-      AikidoSecurity: 'AikidoSecurity',
-      Alguna: 'Alguna',
-      Anthropic: 'Anthropic',
-      Appwrite: 'Appwrite',
-      BlandAI: 'BlandAI',
-      BrowseAI: 'BrowseAI',
-      BrowserUse: 'BrowserUse',
-      ChartHop: 'ChartHop',
-      Cody: 'Cody',
-      Cursor: 'Cursor',
-      Decagon: 'Decagon',
-      Deepgram: 'Deepgram',
-      ElevenLabs: 'ElevenLabs',
-      Harvey: 'Harvey',
-      Hyperspell: 'Hyperspell',
-      Langfuse: 'Langfuse',
-      LingoDev: 'LingoDev',
-      M3ter: 'M3ter',
-      Maxio: 'Maxio',
-      Metorial: 'Metorial',
-      OpenRouter: 'OpenRouter',
-      TogetherAI: 'TogetherAI',
-      Vapi: 'Vapi',
-      Vespa: 'Vespa',
-      Writesonic: 'Writesonic',
-      Aiven: 'Aiven',
-      Aviator: 'Aviator',
-      Backblaze: 'Backblaze',
-      Baseten: 'Baseten',
-      Browserbase: 'Browserbase',
-      Cohere: 'Cohere',
-      DenoDeploy: 'DenoDeploy',
-      DigitalOcean: 'DigitalOcean',
-      E2b: 'E2B',
-      Fintoc: 'Fintoc',
-      Firecrawl: 'Firecrawl',
-      FireworksAI: 'FireworksAI',
-      FlyIo: 'FlyIo',
-      Groq: 'Groq',
-      GrowthBook: 'GrowthBook',
-      Gumloop: 'Gumloop',
-      Hatchet: 'Hatchet',
-      Helicone: 'Helicone',
-      Heroku: 'Heroku',
-      Hetzner: 'Hetzner',
-      HeyGen: 'HeyGen',
-      Infisical: 'Infisical',
-      Inngest: 'Inngest',
-      KapaAI: 'KapaAI',
-      Kernel: 'Kernel',
-      Koyeb: 'Koyeb',
-      LambdaLabs: 'LambdaLabs',
-      LangSmith: 'LangSmith',
-      Linode: 'Linode',
-      Listmonk: 'Listmonk',
-      LlamaCloud: 'LlamaCloud',
-      Mem0: 'Mem0',
-      Metriport: 'Metriport',
-      Mintlify: 'Mintlify',
-      MistralAI: 'MistralAI',
-      Mono: 'Mono',
-      Netlify: 'Netlify',
-      Northflank: 'Northflank',
-      OpenAI: 'OpenAI',
-      Pinecone: 'Pinecone',
-      PlatformSh: 'PlatformSh',
-      PromptingCompany: 'PromptingCompany',
-      Qdrant: 'Qdrant',
-      Render: 'Render',
-      Replicate: 'Replicate',
-      RetellAI: 'RetellAI',
-      Roark: 'Roark',
-      RunPod: 'RunPod',
-      ScaleAI: 'ScaleAI',
-      Scaleway: 'Scaleway',
-      SigNoz: 'SigNoz',
-      Sim: 'Sim',
-      Skyvern: 'Skyvern',
-      Slash: 'Slash',
-      Synthesia: 'Synthesia',
-      Telli: 'Telli',
-      TerraApi: 'TerraApi',
-      TriggerDev: 'TriggerDev',
-      Turso: 'Turso',
-      Singular: 'Singular',
-      Swonkie: 'Swonkie',
-      TwelveLabs: 'TwelveLabs',
-      Twenty: 'Twenty',
-      Unstructured: 'Unstructured',
-      Upstash: 'Upstash',
-      Vellum: 'Vellum',
-      Vultr: 'Vultr',
-      Windmill: 'Windmill',
-      Zep: 'Zep',
-      Hex: 'Hex',
-      Sumsub: 'Sumsub',
-      GoogleChat: 'GoogleChat',
-      Kickscale: 'Kickscale',
-      Zellify: 'Zellify',
-      RudderStack: 'RudderStack',
-      DodoPayments: 'DodoPayments',
-      Salestrics: 'Salestrics',
-      Doppler: 'Doppler',
-      Usersnap: 'Usersnap',
-      Asknicely: 'Asknicely',
-      Featurebase: 'Featurebase',
-      Frill: 'Frill',
-      Bettermode: 'Bettermode',
-      Dynatrace: 'Dynatrace',
-      Honeycomb: 'Honeycomb',
-      SumoLogic: 'SumoLogic',
-      LogzIO: 'LogzIO',
-      Coralogix: 'Coralogix',
-      BetterStack: 'BetterStack',
-      Raygun: 'Raygun',
-      Honeybadger: 'Honeybadger',
-      Airbrake: 'Airbrake',
-      Appsignal: 'Appsignal',
-      Appdynamics: 'Appdynamics',
-      Instana: 'Instana',
-      SplunkObservabilityCloud: 'SplunkObservabilityCloud',
-      Uptimerobot: 'Uptimerobot',
-      Statuscake: 'Statuscake',
-      Tailscale: 'Tailscale',
-      Flagsmith: 'Flagsmith',
-      Xmatters: 'Xmatters',
-      Squadcast: 'Squadcast',
-      Zenduty: 'Zenduty',
-      Cronitor: 'Cronitor',
-      Jenkins: 'Jenkins',
-      Bitbucket: 'Bitbucket',
-      Gitea: 'Gitea',
-      Teamcity: 'Teamcity',
-      TravisCI: 'TravisCI',
-      Semaphore: 'Semaphore',
-      CircleciInsights: 'CircleciInsights',
-      OctopusDeploy: 'OctopusDeploy',
-      Sourcegraph: 'Sourcegraph',
-      Bitrise: 'Bitrise',
-      Gerrit: 'Gerrit',
-      TerraformCloud: 'TerraformCloud',
-      PulumiCloud: 'PulumiCloud',
-      Spacelift: 'Spacelift',
-      Railway: 'Railway',
-      Argocd: 'Argocd',
-      PrefectCloud: 'PrefectCloud',
-      DagsterCloud: 'DagsterCloud',
-      Env0: 'Env0',
-      Kubecost: 'Kubecost',
-      Snyk: 'Snyk',
-      Semgrep: 'Semgrep',
-      Veracode: 'Veracode',
-      Checkmarx: 'Checkmarx',
-      Gitguardian: 'Gitguardian',
-      QualysVmdr: 'QualysVmdr',
-      Rapid7Insightvm: 'Rapid7Insightvm',
-      TenableVulnerabilityManagement: 'TenableVulnerabilityManagement',
-      Sentinelone: 'Sentinelone',
-      Lacework: 'Lacework',
-      OrcaSecurity: 'OrcaSecurity',
-      Drata: 'Drata',
-      Secureframe: 'Secureframe',
-      CiscoDuo: 'CiscoDuo',
-      Jumpcloud: 'Jumpcloud',
-      OnePassword: 'OnePassword',
-      Stytch: 'Stytch',
-      Sonarqube: 'Sonarqube',
-      Codecov: 'Codecov',
-      Coveralls: 'Coveralls',
-      Codacy: 'Codacy',
-      Deepsource: 'Deepsource',
-      Linearb: 'Linearb',
-      Jellyfish: 'Jellyfish',
-      Swarmia: 'Swarmia',
-      Packagist: 'Packagist',
-      Nuget: 'Nuget',
-      CratesIO: 'CratesIO',
-      SonatypeNexus: 'SonatypeNexus',
-      JfrogArtifactory: 'JfrogArtifactory',
-      Snowplow: 'Snowplow',
-      WeightsAndBiases: 'WeightsAndBiases',
-      MonteCarlo: 'MonteCarlo',
-      Metaplane: 'Metaplane',
-      Datahub: 'Datahub',
-      ClickhouseCloud: 'ClickhouseCloud',
-      ConfluentCloud: 'ConfluentCloud',
-      KongKonnect: 'KongKonnect',
-      Kandji: 'Kandji',
-      Automox: 'Automox',
-      Autumn: 'Autumn',
-      GetStream: 'GetStream',
-      Octolens: 'Octolens',
-      Kajabi: 'Kajabi',
-      Shopware: 'Shopware',
-      Dubsado: 'Dubsado',
-      Campfire: 'Campfire',
-      PromptWatch: 'PromptWatch',
-      Crisp: 'Crisp',
-      Kommo: 'Kommo',
-      Axiom: 'Axiom',
-      Plivo: 'Plivo',
-      DataForSEO: 'DataForSEO',
-      Sleekplan: 'Sleekplan',
-      AbTasty: 'AbTasty',
-      Ably: 'Ably',
-      AbnormalSecurity: 'AbnormalSecurity',
-      Acast: 'Acast',
-      Acculynx: 'Acculynx',
-      Actionstep: 'Actionstep',
-      Aftership: 'Aftership',
-      AhaIdeas: 'AhaIdeas',
-      AkamaiReporting: 'AkamaiReporting',
-      Alation: 'Alation',
-      Alegra: 'Alegra',
-      Allegro: 'Allegro',
-      AnodotCost: 'AnodotCost',
-      Anomalo: 'Anomalo',
-      Apaleo: 'Apaleo',
-      Apitally: 'Apitally',
-      AppStoreConnect: 'AppStoreConnect',
-      Appdirect: 'Appdirect',
-      Appfolio: 'Appfolio',
-      Arxiv: 'Arxiv',
-      Asaas: 'Asaas',
-      Astronomer: 'Astronomer',
-      Athenahealth: 'Athenahealth',
-      Atlan: 'Atlan',
-      AutodeskConstructionCloud: 'AutodeskConstructionCloud',
-      Avalara: 'Avalara',
-      AwsAthena: 'AwsAthena',
-      AwsBatch: 'AwsBatch',
-      AwsBudgets: 'AwsBudgets',
-      AwsCloudformation: 'AwsCloudformation',
-      AwsComputeOptimizer: 'AwsComputeOptimizer',
-      AwsConfig: 'AwsConfig',
-      AwsConnect: 'AwsConnect',
-      AwsCostAndUsageReport: 'AwsCostAndUsageReport',
-      AwsCostAnomalyDetection: 'AwsCostAnomalyDetection',
-      AwsCostExplorer: 'AwsCostExplorer',
-      AwsDocumentDB: 'AwsDocumentDB',
-      AwsGlueDataCatalog: 'AwsGlueDataCatalog',
-      AwsGuardduty: 'AwsGuardduty',
-      AwsHealth: 'AwsHealth',
-      AwsIamAccessAnalyzer: 'AwsIamAccessAnalyzer',
-      AwsInspector: 'AwsInspector',
-      AwsMacie: 'AwsMacie',
-      AwsOrganizations: 'AwsOrganizations',
-      AwsRdsPerformanceInsights: 'AwsRdsPerformanceInsights',
-      AwsSagemaker: 'AwsSagemaker',
-      AwsSavingsPlans: 'AwsSavingsPlans',
-      AwsSecurityHub: 'AwsSecurityHub',
-      AwsSes: 'AwsSes',
-      AwsStepFunctions: 'AwsStepFunctions',
-      AwsSupport: 'AwsSupport',
-      AwsSystemsManager: 'AwsSystemsManager',
-      AwsTrustedAdvisor: 'AwsTrustedAdvisor',
-      AwsWaf: 'AwsWaf',
-      AwsXray: 'AwsXray',
-      AzureActivityLog: 'AzureActivityLog',
-      AzureAdvisor: 'AzureAdvisor',
-      AzureApiManagement: 'AzureApiManagement',
-      AzureApplicationInsights: 'AzureApplicationInsights',
-      AzureCostManagement: 'AzureCostManagement',
-      AzureDataExplorer: 'AzureDataExplorer',
-      AzureDataFactory: 'AzureDataFactory',
-      AzureLogAnalytics: 'AzureLogAnalytics',
-      AzureMonitorAlerts: 'AzureMonitorAlerts',
-      AzureMonitorMetrics: 'AzureMonitorMetrics',
-      AzureOpenaiUsage: 'AzureOpenaiUsage',
-      AzurePolicyInsights: 'AzurePolicyInsights',
-      AzureReservations: 'AzureReservations',
-      AzureResourceGraph: 'AzureResourceGraph',
-      AzureResourceHealth: 'AzureResourceHealth',
-      AzureServiceHealth: 'AzureServiceHealth',
-      AzureSynapse: 'AzureSynapse',
-      BackMarket: 'BackMarket',
-      Beehiiv: 'Beehiiv',
-      Bigeye: 'Bigeye',
-      BillCom: 'BillCom',
-      Billomat: 'Billomat',
-      BingWebmasterTools: 'BingWebmasterTools',
-      Bitwarden: 'Bitwarden',
-      BlackbaudRaisersEdgeNxt: 'BlackbaudRaisersEdgeNxt',
-      BlackboardLearn: 'BlackboardLearn',
-      Bling: 'Bling',
-      Bloomerang: 'Bloomerang',
-      Blueshift: 'Blueshift',
-      Bluesky: 'Bluesky',
-      BolRetailer: 'BolRetailer',
-      Boulevard: 'Boulevard',
-      Buffer: 'Buffer',
-      Bugherd: 'Bugherd',
-      Buildium: 'Buildium',
-      Buttondown: 'Buttondown',
-      BuyMeACoffee: 'BuyMeACoffee',
-      Calendarific: 'Calendarific',
-      Calibre: 'Calibre',
-      CanvasLms: 'CanvasLms',
-      Captivate: 'Captivate',
-      Cashfree: 'Cashfree',
-      CastAi: 'CastAi',
-      Catchpoint: 'Catchpoint',
-      CdcOpenData: 'CdcOpenData',
-      Census: 'Census',
-      Checkly: 'Checkly',
-      CircleSo: 'CircleSo',
-      Classy: 'Classy',
-      Cleartax: 'Cleartax',
-      Clever: 'Clever',
-      Clevertap: 'Clevertap',
-      Cliniko: 'Cliniko',
-      Clio: 'Clio',
-      Clip: 'Clip',
-      Cloudability: 'Cloudability',
-      Cloudsmith: 'Cloudsmith',
-      Cloudzero: 'Cloudzero',
-      Clover: 'Clover',
-      Codemagic: 'Codemagic',
-      Codescene: 'Codescene',
-      Collibra: 'Collibra',
-      Companycam: 'Companycam',
-      Conekta: 'Conekta',
-      ContaAzul: 'ContaAzul',
-      Contentsquare: 'Contentsquare',
-      Cortex: 'Cortex',
-      Courier: 'Courier',
-      Crossref: 'Crossref',
-      CrowdstrikeFalcon: 'CrowdstrikeFalcon',
-      CubeCloud: 'CubeCloud',
-      D2lBrightspace: 'D2lBrightspace',
-      Dayforce: 'Dayforce',
-      Debugbear: 'Debugbear',
-      Descope: 'Descope',
-      Develocity: 'Develocity',
-      Dialpad: 'Dialpad',
-      Discord: 'Discord',
-      Discourse: 'Discourse',
-      Donorbox: 'Donorbox',
-      Doorloop: 'Doorloop',
-      Dovetail: 'Dovetail',
-      Dragonboat: 'Dragonboat',
-      Drchrono: 'Drchrono',
-      Dynamics365BusinessCentral: 'Dynamics365BusinessCentral',
-      EcbDataPortal: 'EcbDataPortal',
-      Emarsys: 'Emarsys',
-      Embrace: 'Embrace',
-      Entsoe: 'Entsoe',
-      Eppo: 'Eppo',
-      Etsy: 'Etsy',
-      Eurostat: 'Eurostat',
-      Faire: 'Faire',
-      FarosAi: 'FarosAi',
-      Fieldpulse: 'Fieldpulse',
-      Fieldwire: 'Fieldwire',
-      Filevine: 'Filevine',
-      Finout: 'Finout',
-      Five9: 'Five9',
-      FlexeraCloudCost: 'FlexeraCloudCost',
-      Flutterwave: 'Flutterwave',
-      Fortnox: 'Fortnox',
-      Fourthwall: 'Fourthwall',
-      Fred: 'Fred',
-      Frontegg: 'Frontegg',
-      FusionAuth: 'FusionAuth',
-      G2: 'G2',
-      Gcore: 'Gcore',
-      GcpApigee: 'GcpApigee',
-      GcpArtifactRegistry: 'GcpArtifactRegistry',
-      GcpBigtable: 'GcpBigtable',
-      GcpChronicle: 'GcpChronicle',
-      GcpCloudAssetInventory: 'GcpCloudAssetInventory',
-      GcpCloudBilling: 'GcpCloudBilling',
-      GcpCloudBuild: 'GcpCloudBuild',
-      GcpCloudDeploy: 'GcpCloudDeploy',
-      GcpCloudDns: 'GcpCloudDns',
-      GcpCloudFunctions: 'GcpCloudFunctions',
-      GcpCloudLogging: 'GcpCloudLogging',
-      GcpCloudMonitoring: 'GcpCloudMonitoring',
-      GcpCloudRun: 'GcpCloudRun',
-      GcpCloudSpanner: 'GcpCloudSpanner',
-      GcpCloudSql: 'GcpCloudSql',
-      GcpCloudTrace: 'GcpCloudTrace',
-      GcpCloudWorkflows: 'GcpCloudWorkflows',
-      GcpComputeEngine: 'GcpComputeEngine',
-      GcpContainerAnalysis: 'GcpContainerAnalysis',
-      GcpDataflow: 'GcpDataflow',
-      GcpDataplex: 'GcpDataplex',
-      GcpDataproc: 'GcpDataproc',
-      GcpErrorReporting: 'GcpErrorReporting',
-      GcpGke: 'GcpGke',
-      GcpPubsub: 'GcpPubsub',
-      GcpRecaptchaEnterprise: 'GcpRecaptchaEnterprise',
-      GcpRecommender: 'GcpRecommender',
-      GcpSecurityCommandCenter: 'GcpSecurityCommandCenter',
-      Gdelt: 'Gdelt',
-      GenesysCloud: 'GenesysCloud',
-      Getdx: 'Getdx',
-      Ghost: 'Ghost',
-      Givebutter: 'Givebutter',
-      Gleif: 'Gleif',
-      GooglePlayConsole: 'GooglePlayConsole',
-      Guesty: 'Guesty',
-      Gumroad: 'Gumroad',
-      HarnessCcm: 'HarnessCcm',
-      HarnessSei: 'HarnessSei',
-      Harvest: 'Harvest',
-      Healthie: 'Healthie',
-      Hitpay: 'Hitpay',
-      Hivebrite: 'Hivebrite',
-      Holded: 'Holded',
-      Hostaway: 'Hostaway',
-      HousecallPro: 'HousecallPro',
-      Humanitec: 'Humanitec',
-      ImfData: 'ImfData',
-      Imperva: 'Imperva',
-      InfluxdbCloud: 'InfluxdbCloud',
-      Iyzico: 'Iyzico',
-      Jobtread: 'Jobtread',
-      Kameleoon: 'Kameleoon',
-      KauflandMarketplace: 'KauflandMarketplace',
-      Kestra: 'Kestra',
-      Kick: 'Kick',
-      Kinde: 'Kinde',
-      Kion: 'Kion',
-      Knowbe4: 'Knowbe4',
-      Komodor: 'Komodor',
-      Labelbox: 'Labelbox',
-      Lawmatics: 'Lawmatics',
-      Learnworlds: 'Learnworlds',
-      LexwareOffice: 'LexwareOffice',
-      Lightdash: 'Lightdash',
-      Lodgify: 'Lodgify',
-      Logicmonitor: 'Logicmonitor',
-      Logrocket: 'Logrocket',
-      LoopReturns: 'LoopReturns',
-      Mastodon: 'Mastodon',
-      Meetup: 'Meetup',
-      Megaphone: 'Megaphone',
-      Memberful: 'Memberful',
-      MercadoPago: 'MercadoPago',
-      Meteostat: 'Meteostat',
-      Mews: 'Mews',
-      Mezmo: 'Mezmo',
-      Microsoft365UsageReports: 'Microsoft365UsageReports',
-      MicrosoftAdvertising: 'MicrosoftAdvertising',
-      MicrosoftClarity: 'MicrosoftClarity',
-      MicrosoftDefenderCloudApps: 'MicrosoftDefenderCloudApps',
-      MicrosoftDefenderEndpoint: 'MicrosoftDefenderEndpoint',
-      MicrosoftDefenderForCloud: 'MicrosoftDefenderForCloud',
-      MicrosoftIntune: 'MicrosoftIntune',
-      MicrosoftPurview: 'MicrosoftPurview',
-      MicrosoftPurviewAudit: 'MicrosoftPurviewAudit',
-      MicrosoftSentinel: 'MicrosoftSentinel',
-      MicrosoftTeamsCallRecords: 'MicrosoftTeamsCallRecords',
-      Midtrans: 'Midtrans',
-      MightyNetworks: 'MightyNetworks',
-      Mindbody: 'Mindbody',
-      Mirakl: 'Mirakl',
-      Moesif: 'Moesif',
-      Moneybird: 'Moneybird',
-      Moodle: 'Moodle',
-      Motherduck: 'Motherduck',
-      Mycase: 'Mycase',
-      NagerDate: 'NagerDate',
-      NeonCrm: 'NeonCrm',
-      Nexhealth: 'Nexhealth',
-      NoaaCdo: 'NoaaCdo',
-      Nobl9: 'Nobl9',
-      Nolt: 'Nolt',
-      Nops: 'Nops',
-      NpmRegistry: 'NpmRegistry',
-      Oecd: 'Oecd',
-      Okendo: 'Okendo',
-      Omni: 'Omni',
-      Onelogin: 'Onelogin',
-      OpenDental: 'OpenDental',
-      OpenMeteo: 'OpenMeteo',
-      Openalex: 'Openalex',
-      Opencorporates: 'Opencorporates',
-      Openfec: 'Openfec',
-      OpnPayments: 'OpnPayments',
-      Opslevel: 'Opslevel',
-      OttoMarket: 'OttoMarket',
-      Ownerrez: 'Ownerrez',
-      Pagbank: 'Pagbank',
-      Patreon: 'Patreon',
-      Pax8: 'Pax8',
-      Paychex: 'Paychex',
-      Paymob: 'Paymob',
-      Paymongo: 'Paymongo',
-      Phonepe: 'Phonepe',
-      Pike13: 'Pike13',
-      Pingone: 'Pingone',
-      PinterestOrganic: 'PinterestOrganic',
-      PlanningCenter: 'PlanningCenter',
-      PluralsightFlow: 'PluralsightFlow',
-      Podbean: 'Podbean',
-      Postscript: 'Postscript',
-      PowerBiAdmin: 'PowerBiAdmin',
-      Practicepanther: 'Practicepanther',
-      Preset: 'Preset',
-      Procore: 'Procore',
-      Productiv: 'Productiv',
-      ProofpointTap: 'ProofpointTap',
-      Propertyware: 'Propertyware',
-      Pubnub: 'Pubnub',
-      Quay: 'Quay',
-      Raken: 'Raken',
-      RedpandaCloud: 'RedpandaCloud',
-      RentManager: 'RentManager',
-      Reverb: 'Reverb',
-      RocketMatter: 'RocketMatter',
-      Rubygems: 'Rubygems',
-      Scalr: 'Scalr',
-      SecEdgar: 'SecEdgar',
-      SelectStar: 'SelectStar',
-      SemanticScholar: 'SemanticScholar',
-      Semrush: 'Semrush',
-      ServiceFusion: 'ServiceFusion',
-      Servicem8: 'Servicem8',
-      Servicetitan: 'Servicetitan',
-      Servicetrade: 'Servicetrade',
-      Sevdesk: 'Sevdesk',
-      Similarweb: 'Similarweb',
-      Simpro: 'Simpro',
-      Sinch: 'Sinch',
-      Singlestore: 'Singlestore',
-      Site24x7: 'Site24x7',
-      Sleuth: 'Sleuth',
-      Smartlook: 'Smartlook',
-      Smartrecruiters: 'Smartrecruiters',
-      Smokeball: 'Smokeball',
-      SodaCloud: 'SodaCloud',
-      Speedcurve: 'Speedcurve',
-      SpotIo: 'SpotIo',
-      Sprig: 'Sprig',
-      Sprinklr: 'Sprinklr',
-      SproutSocial: 'SproutSocial',
-      StackOverflowForTeams: 'StackOverflowForTeams',
-      Stockx: 'Stockx',
-      TackleIo: 'TackleIo',
-      Talkdesk: 'Talkdesk',
-      TeamupFitness: 'TeamupFitness',
-      Tebra: 'Tebra',
-      Telnyx: 'Telnyx',
-      Ternary: 'Ternary',
-      Thoughtspot: 'Thoughtspot',
-      Thousandeyes: 'Thousandeyes',
-      Threads: 'Threads',
-      TiktokShop: 'TiktokShop',
-      TinyErp: 'TinyErp',
-      Tinybird: 'Tinybird',
-      Tipalti: 'Tipalti',
-      Toast: 'Toast',
-      Torii: 'Torii',
-      Transistor: 'Transistor',
-      TrunkIo: 'TrunkIo',
-      Trustradius: 'Trustradius',
-      Twitch: 'Twitch',
-      TwoC2p: 'TwoC2p',
-      UkCompaniesHouse: 'UkCompaniesHouse',
-      UkOns: 'UkOns',
-      UnComtrade: 'UnComtrade',
-      UsBea: 'UsBea',
-      UsBls: 'UsBls',
-      UsEia: 'UsEia',
-      UsTreasuryFiscalData: 'UsTreasuryFiscalData',
-      Vanta: 'Vanta',
-      Vendr: 'Vendr',
-      Virtuous: 'Virtuous',
-      Vonage: 'Vonage',
-      WalmartMarketplace: 'WalmartMarketplace',
-      Waydev: 'Waydev',
-      Wayfair: 'Wayfair',
-      WhatsappBusinessManagement: 'WhatsappBusinessManagement',
-      WhoGho: 'WhoGho',
-      Whop: 'Whop',
-      Wistia: 'Wistia',
-      Wiz: 'Wiz',
-      Wompi: 'Wompi',
-      Workiz: 'Workiz',
-      WorldBank: 'WorldBank',
-      Xendit: 'Xendit',
-      Yoco: 'Yoco',
-      ZalandoZdirect: 'ZalandoZdirect',
-      Zluri: 'Zluri',
-      Zylo: 'Zylo',
-      Tally: 'Tally',
-      Nuntly: 'Nuntly',
-      Vturb: 'Vturb',
-      Meltwater: 'Meltwater',
-      UserCom: 'UserCom',
-      Latitude: 'Latitude',
-      Workato: 'Workato',
-      SideShift: 'SideShift',
-      DuckLake: 'DuckLake',
-      Starburst: 'Starburst',
-      Trino: 'Trino',
-      Easybill: 'Easybill',
-      Bexio: 'Bexio',
-      Umami: 'Umami',
-      Manychat: 'Manychat',
-      Kickstarter: 'Kickstarter',
-      Typesense: 'Typesense',
-      FirstPromoter: 'FirstPromoter',
-      Zero: 'Zero',
-      Inth: 'Inth',
-      Bcms: 'BCMS',
-      Convonite: 'Convonite',
-      Hookdeck: 'Hookdeck',
-      Billit: 'Billit',
-      Moxie: 'Moxie',
-      TripleWhale: 'TripleWhale',
-      Directus: 'Directus',
-      Clay: 'Clay',
-      TradableBits: 'TradableBits',
-      Swan: 'Swan',
-      Hyros: 'Hyros',
-      Odoo: 'Odoo',
-      Airbridge: 'Airbridge',
-      Snovio: 'Snovio',
-      GoogleMerchantCenter: 'GoogleMerchantCenter',
-      Raisely: 'Raisely',
-      RakutenAdvertising: 'RakutenAdvertising',
-      Zitadel: 'Zitadel',
-      DeelFlows: 'DeelFlows',
-      WindsorAi: 'WindsorAi',
-      Wix: 'Wix',
-      Sevalla: 'Sevalla',
-      Motion: 'Motion',
-      ImpactPartner: 'ImpactPartner',
-      Cloudinary: 'Cloudinary',
-      Uploadcare: 'Uploadcare',
-      Whmcs: 'WHMCS',
-      Msg91: 'MSG91',
-      Depot: 'Depot',
-      Schematic: 'Schematic',
-      Dokploy: 'Dokploy',
-      Hootsuite: 'Hootsuite',
-      WisprFlow: 'WisprFlow',
-      SamCart: 'SamCart',
-      IronSourceAds: 'IronSourceAds',
-      MicrosoftExcel: 'MicrosoftExcel',
-      Profound: 'Profound',
-      Airwallex: 'Airwallex',
-      Polymarket: 'Polymarket',
-      Kalshi: 'Kalshi',
-      Capterra: 'Capterra',
-      GooglePostmasterTools: 'GooglePostmasterTools',
-      Growi: 'Growi',
-      Clarify: 'Clarify',
-      DatoCMS: 'DatoCMS',
-      WPSOffice: 'WPSOffice',
-      TeraBox: 'TeraBox',
-      SimonData: 'SimonData',
-      CommissionJunction: 'CommissionJunction',
-      Liveblocks: 'Liveblocks',
-      Livestorm: 'Livestorm',
-      NationBuilder: 'NationBuilder',
-      Tana: 'Tana',
-      Zenchef: 'Zenchef',
-      Lovable: 'Lovable',
-      Anvil: 'Anvil',
-      Coolify: 'Coolify',
-      SocialPilot: 'SocialPilot',
-      Strato: 'Strato',
-      Medusa: 'Medusa',
-      Membrain: 'Membrain',
-      RecallAI: 'RecallAI',
-      Tenjin: 'Tenjin',
-      Folk: 'Folk',
-      Cybersource: 'Cybersource',
-      GoogleAdSense: 'GoogleAdSense',
-      Sequenzy: 'Sequenzy',
-      Skio: 'Skio',
-      Smartlead: 'Smartlead',
-      Substack: 'Substack',
-      ElectricityMaps: 'ElectricityMaps',
-      Amplemarket: 'Amplemarket',
-      Quo: 'Quo',
-      HeyReach: 'HeyReach',
-      MoEngage: 'MoEngage',
-      Monaco: 'Monaco',
-      Oneleet: 'Oneleet',
-      Expo: 'Expo',
-      PostNord: 'PostNord',
-      Commslayer: 'Commslayer',
-      Sprinto: 'Sprinto',
-      Gem: 'Gem',
-      AudioGO: 'AudioGO',
-      ExactOnline: 'ExactOnline',
-      LettrLabs: 'LettrLabs',
-      GrafanaIRM: 'GrafanaIRM',
-      Tessitura: 'Tessitura',
-      ChargebackStop: 'ChargebackStop',
-      Chargeflow: 'Chargeflow',
-      Dreamdata: 'Dreamdata',
-      GoogleBusinessProfile: 'GoogleBusinessProfile',
-      Ledyer: 'Ledyer',
-      Supermetrics: 'Supermetrics',
-      SQLite: 'SQLite',
-      Modal: 'Modal',
-      Vimeo: 'Vimeo',
-      Scrunch: 'Scrunch',
-      Loom: 'Loom',
-      Arcade: 'Arcade',
-      Neo4j: 'Neo4j',
-      TestDino: 'TestDino',
-      ChessCom: 'ChessCom',
-      Userback: 'Userback',
-      Rewardful: 'Rewardful',
-      Tracklution: 'Tracklution',
-      StackAdapt: 'StackAdapt',
-      CheckHQ: 'CheckHQ',
-      RainforestPay: 'RainforestPay',
-      Wise: 'Wise',
-      LaravelCloud: 'LaravelCloud',
-      Northbeam: 'Northbeam',
-      NaverAds: 'NaverAds',
-      ChannelIO: 'ChannelIO',
-      Airship: 'Airship',
-      Creem: 'Creem',
-      Leantime: 'Leantime',
-      Testomatio: 'Testomatio',
-      GoogleAdMob: 'GoogleAdMob',
-      Klar: 'Klar',
-      ConectoCRM: 'ConectoCRM',
-      CloudflareR2: 'CloudflareR2',
-      Particle: 'Particle',
-      FileUpload: 'FileUpload',
-      Dripify: 'Dripify',
-      AwsS3Tables: 'AwsS3Tables',
-      Beacons: 'Beacons',
-      WooPayments: 'WooPayments',
-      Soniox: 'Soniox',
-      Nango: 'Nango',
-      Fathom: 'Fathom',
-      Stamped: 'Stamped',
-    } as const;
-
-    /**
      * Validate credentials and preview available tables from a remote database.
      *
      * The request body contains source_type plus flat source-specific credential fields
@@ -36116,1424 +33660,8 @@ export namespace Schemas {
      * detected primary keys and incremental cursors.
      */
     export interface DatabaseSchemaRequest {
-      /** The source type to validate against.
-       *
-       * * `Ashby` - Ashby
-       * * `Supabase` - Supabase
-       * * `CustomerIO` - CustomerIO
-       * * `Github` - Github
-       * * `Stripe` - Stripe
-       * * `Hubspot` - Hubspot
-       * * `Postgres` - Postgres
-       * * `Zendesk` - Zendesk
-       * * `Snowflake` - Snowflake
-       * * `Salesforce` - Salesforce
-       * * `MySQL` - MySQL
-       * * `MongoDB` - MongoDB
-       * * `MSSQL` - MSSQL
-       * * `Vitally` - Vitally
-       * * `BigQuery` - BigQuery
-       * * `Chargebee` - Chargebee
-       * * `Clerk` - Clerk
-       * * `GoogleAds` - GoogleAds
-       * * `GoogleSearchConsole` - GoogleSearchConsole
-       * * `TemporalIO` - TemporalIO
-       * * `DoIt` - DoIt
-       * * `GoogleSheets` - GoogleSheets
-       * * `MetaAds` - MetaAds
-       * * `Klaviyo` - Klaviyo
-       * * `Mailchimp` - Mailchimp
-       * * `Braze` - Braze
-       * * `Mailjet` - Mailjet
-       * * `Redshift` - Redshift
-       * * `Polar` - Polar
-       * * `RevenueCat` - RevenueCat
-       * * `LinkedinAds` - LinkedinAds
-       * * `RedditAds` - RedditAds
-       * * `TikTokAds` - TikTokAds
-       * * `BingAds` - BingAds
-       * * `Shopify` - Shopify
-       * * `Attio` - Attio
-       * * `SnapchatAds` - SnapchatAds
-       * * `Linear` - Linear
-       * * `LiteLLM` - LiteLLM
-       * * `Intercom` - Intercom
-       * * `Amplitude` - Amplitude
-       * * `Mixpanel` - Mixpanel
-       * * `Jira` - Jira
-       * * `ActiveCampaign` - ActiveCampaign
-       * * `Marketo` - Marketo
-       * * `Adjust` - Adjust
-       * * `AppsFlyer` - AppsFlyer
-       * * `Freshdesk` - Freshdesk
-       * * `GoogleAnalytics` - GoogleAnalytics
-       * * `Pipedrive` - Pipedrive
-       * * `SendGrid` - SendGrid
-       * * `Slack` - Slack
-       * * `PagerDuty` - PagerDuty
-       * * `Asana` - Asana
-       * * `Notion` - Notion
-       * * `Airtable` - Airtable
-       * * `Greenhouse` - Greenhouse
-       * * `BambooHR` - BambooHR
-       * * `Lever` - Lever
-       * * `GitLab` - GitLab
-       * * `Datadog` - Datadog
-       * * `Sentry` - Sentry
-       * * `Pendo` - Pendo
-       * * `FullStory` - FullStory
-       * * `AmazonAds` - AmazonAds
-       * * `PinterestAds` - PinterestAds
-       * * `AppleSearchAds` - AppleSearchAds
-       * * `QuickBooks` - QuickBooks
-       * * `Xero` - Xero
-       * * `NetSuite` - NetSuite
-       * * `WooCommerce` - WooCommerce
-       * * `BigCommerce` - BigCommerce
-       * * `PayPal` - PayPal
-       * * `Square` - Square
-       * * `Zoom` - Zoom
-       * * `Trello` - Trello
-       * * `TrafficStars` - TrafficStars
-       * * `Monday` - Monday
-       * * `ClickUp` - ClickUp
-       * * `Confluence` - Confluence
-       * * `Recurly` - Recurly
-       * * `SalesLoft` - SalesLoft
-       * * `Outreach` - Outreach
-       * * `Gong` - Gong
-       * * `Calendly` - Calendly
-       * * `Typeform` - Typeform
-       * * `UnityAds` - UnityAds
-       * * `Iterable` - Iterable
-       * * `ZohoCRM` - ZohoCRM
-       * * `Close` - Close
-       * * `Oracle` - Oracle
-       * * `DynamoDB` - DynamoDB
-       * * `Elasticsearch` - Elasticsearch
-       * * `Kafka` - Kafka
-       * * `LaunchDarkly` - LaunchDarkly
-       * * `Braintree` - Braintree
-       * * `Recharge` - Recharge
-       * * `HelpScout` - HelpScout
-       * * `Gorgias` - Gorgias
-       * * `Instagram` - Instagram
-       * * `YouTubeAnalytics` - YouTubeAnalytics
-       * * `FacebookPages` - FacebookPages
-       * * `TwitterAds` - TwitterAds
-       * * `Workday` - Workday
-       * * `ServiceNow` - ServiceNow
-       * * `Pardot` - Pardot
-       * * `Copper` - Copper
-       * * `Front` - Front
-       * * `ChartMogul` - ChartMogul
-       * * `Zuora` - Zuora
-       * * `Paddle` - Paddle
-       * * `CircleCI` - CircleCI
-       * * `CockroachDB` - CockroachDB
-       * * `Firebase` - Firebase
-       * * `AzureBlob` - AzureBlob
-       * * `GoogleDrive` - GoogleDrive
-       * * `OneDrive` - OneDrive
-       * * `SharePoint` - SharePoint
-       * * `Box` - Box
-       * * `SFTP` - SFTP
-       * * `MicrosoftTeams` - MicrosoftTeams
-       * * `Aircall` - Aircall
-       * * `Webflow` - Webflow
-       * * `Okta` - Okta
-       * * `Auth0` - Auth0
-       * * `Productboard` - Productboard
-       * * `Smartsheet` - Smartsheet
-       * * `Wrike` - Wrike
-       * * `Plaid` - Plaid
-       * * `SurveyMonkey` - SurveyMonkey
-       * * `Eventbrite` - Eventbrite
-       * * `Everflow` - Everflow
-       * * `RingCentral` - RingCentral
-       * * `Twilio` - Twilio
-       * * `Freshsales` - Freshsales
-       * * `Shortcut` - Shortcut
-       * * `ConvertKit` - ConvertKit
-       * * `Drip` - Drip
-       * * `CampaignMonitor` - CampaignMonitor
-       * * `MailerLite` - MailerLite
-       * * `Omnisend` - Omnisend
-       * * `Brevo` - Brevo
-       * * `Postmark` - Postmark
-       * * `Granola` - Granola
-       * * `BuildBetter` - BuildBetter
-       * * `Convex` - Convex
-       * * `ClickHouse` - ClickHouse
-       * * `Plain` - Plain
-       * * `Resend` - Resend
-       * * `PgAnalyze` - PgAnalyze
-       * * `WorkOS` - WorkOS
-       * * `AmazonS3` - AmazonS3
-       * * `GoogleCloudStorage` - GoogleCloudStorage
-       * * `Databricks` - Databricks
-       * * `Dynamics365` - Dynamics365
-       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
-       * * `Db2` - Db2
-       * * `Heap` - Heap
-       * * `AdobeAnalytics` - AdobeAnalytics
-       * * `Matomo` - Matomo
-       * * `Optimizely` - Optimizely
-       * * `Adyen` - Adyen
-       * * `GoCardless` - GoCardless
-       * * `Mollie` - Mollie
-       * * `CheckoutCom` - CheckoutCom
-       * * `Branch` - Branch
-       * * `Criteo` - Criteo
-       * * `Outbrain` - Outbrain
-       * * `Taboola` - Taboola
-       * * `AdRoll` - AdRoll
-       * * `DisplayVideo360` - DisplayVideo360
-       * * `GoogleAdManager` - GoogleAdManager
-       * * `CampaignManager360` - CampaignManager360
-       * * `SearchAds360` - SearchAds360
-       * * `AdobeCommerce` - AdobeCommerce
-       * * `AmazonSellingPartner` - AmazonSellingPartner
-       * * `Ebay` - Ebay
-       * * `Commercetools` - Commercetools
-       * * `LightspeedRetail` - LightspeedRetail
-       * * `Shipmail` - Shipmail
-       * * `ShipStation` - ShipStation
-       * * `ConstantContact` - ConstantContact
-       * * `Mailgun` - Mailgun
-       * * `Eloqua` - Eloqua
-       * * `Sailthru` - Sailthru
-       * * `Ortto` - Ortto
-       * * `Attentive` - Attentive
-       * * `Kustomer` - Kustomer
-       * * `Dixa` - Dixa
-       * * `Gladly` - Gladly
-       * * `Qualtrics` - Qualtrics
-       * * `AzureDevOps` - AzureDevOps
-       * * `RoktAds` - RoktAds
-       * * `Rollbar` - Rollbar
-       * * `Opsgenie` - Opsgenie
-       * * `IncidentIo` - IncidentIo
-       * * `Pingdom` - Pingdom
-       * * `Cloudflare` - Cloudflare
-       * * `CloudflareD1` - CloudflareD1
-       * * `CosmosDB` - CosmosDB
-       * * `PlanetScaleMySQL` - PlanetScaleMySQL
-       * * `PlanetScalePostgres` - PlanetScalePostgres
-       * * `Plane` - Plane
-       * * `Scarf` - Scarf
-       * * `SapHana` - SapHana
-       * * `Rippling` - Rippling
-       * * `HiBob` - HiBob
-       * * `Personio` - Personio
-       * * `Deel` - Deel
-       * * `AdpWorkforceNow` - AdpWorkforceNow
-       * * `Paylocity` - Paylocity
-       * * `Gusto` - Gusto
-       * * `CultureAmp` - CultureAmp
-       * * `Lattice` - Lattice
-       * * `SageIntacct` - SageIntacct
-       * * `FreshBooks` - FreshBooks
-       * * `Expensify` - Expensify
-       * * `Ramp` - Ramp
-       * * `Brex` - Brex
-       * * `Coupa` - Coupa
-       * * `SapConcur` - SapConcur
-       * * `Apollo` - Apollo
-       * * `Crunchbase` - Crunchbase
-       * * `ZoomInfo` - ZoomInfo
-       * * `Clari` - Clari
-       * * `Chorus` - Chorus
-       * * `Coda` - Coda
-       * * `Guru` - Guru
-       * * `Dropbox` - Dropbox
-       * * `Docusign` - Docusign
-       * * `PandaDoc` - PandaDoc
-       * * `SapErp` - SapErp
-       * * `SapSuccessFactors` - SapSuccessFactors
-       * * `OracleEbs` - OracleEbs
-       * * `OracleFusion` - OracleFusion
-       * * `AmazonSNS` - AmazonSNS
-       * * `AmazonEventBridge` - AmazonEventBridge
-       * * `AmazonSQS` - AmazonSQS
-       * * `AmazonKinesis` - AmazonKinesis
-       * * `AmazonCloudWatch` - AmazonCloudWatch
-       * * `OpenAIAds` - OpenAIAds
-       * * `OneHundredMs` - OneHundredMs
-       * * `SevenShifts` - SevenShifts
-       * * `AcuityScheduling` - AcuityScheduling
-       * * `AgileCRM` - AgileCRM
-       * * `Aha` - Aha
-       * * `Airbyte` - Airbyte
-       * * `Akeneo` - Akeneo
-       * * `Algolia` - Algolia
-       * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
-       * * `ApifyDataset` - ApifyDataset
-       * * `Appcues` - Appcues
-       * * `Appfigures` - Appfigures
-       * * `Appfollow` - Appfollow
-       * * `Apptivo` - Apptivo
-       * * `AssemblyAI` - AssemblyAI
-       * * `Awin` - Awin
-       * * `AwsCloudTrail` - AwsCloudTrail
-       * * `AzureTableStorage` - AzureTableStorage
-       * * `Babelforce` - Babelforce
-       * * `Basecamp` - Basecamp
-       * * `Beamer` - Beamer
-       * * `BigMailer` - BigMailer
-       * * `Bluetally` - Bluetally
-       * * `BoldSign` - BoldSign
-       * * `BreezyHR` - BreezyHR
-       * * `Bugsnag` - Bugsnag
-       * * `Buildkite` - Buildkite
-       * * `Bunny` - Bunny
-       * * `Buzzsprout` - Buzzsprout
-       * * `CalCom` - CalCom
-       * * `CallRail` - CallRail
-       * * `Campayn` - Campayn
-       * * `Canny` - Canny
-       * * `CapsuleCRM` - CapsuleCRM
-       * * `CaptainData` - CaptainData
-       * * `CartCom` - CartCom
-       * * `CastorEDC` - CastorEDC
-       * * `Chameleon` - Chameleon
-       * * `Chargedesk` - Chargedesk
-       * * `Chargify` - Chargify
-       * * `Chift` - Chift
-       * * `Churnkey` - Churnkey
-       * * `Cin7` - Cin7
-       * * `CiscoMeraki` - CiscoMeraki
-       * * `Clazar` - Clazar
-       * * `Clockify` - Clockify
-       * * `Clockodo` - Clockodo
-       * * `Cloudbeds` - Cloudbeds
-       * * `Coassemble` - Coassemble
-       * * `Codefresh` - Codefresh
-       * * `Concord` - Concord
-       * * `ConfigCat` - ConfigCat
-       * * `Couchbase` - Couchbase
-       * * `Curve` - Curve
-       * * `Customerly` - Customerly
-       * * `Datascope` - Datascope
-       * * `Dbt` - Dbt
-       * * `Demodesk` - Demodesk
-       * * `Deputy` - Deputy
-       * * `DevinAI` - DevinAI
-       * * `Docuseal` - Docuseal
-       * * `Dolibarr` - Dolibarr
-       * * `Dremio` - Dremio
-       * * `DropboxSign` - DropboxSign
-       * * `Dwolla` - Dwolla
-       * * `EConomic` - EConomic
-       * * `Easypost` - Easypost
-       * * `Easypromos` - Easypromos
-       * * `Elasticemail` - Elasticemail
-       * * `EmailOctopus` - EmailOctopus
-       * * `EmploymentHero` - EmploymentHero
-       * * `Encharge` - Encharge
-       * * `Eventee` - Eventee
-       * * `Eventzilla` - Eventzilla
-       * * `Everhour` - Everhour
-       * * `EZOfficeInventory` - EZOfficeInventory
-       * * `Factorial` - Factorial
-       * * `Fastbill` - Fastbill
-       * * `Fastly` - Fastly
-       * * `Fauna` - Fauna
-       * * `Feishu` - Feishu
-       * * `Fillout` - Fillout
-       * * `Finage` - Finage
-       * * `Firebolt` - Firebolt
-       * * `FireHydrant` - FireHydrant
-       * * `Fleetio` - Fleetio
-       * * `Flexmail` - Flexmail
-       * * `Flexport` - Flexport
-       * * `FloatApp` - FloatApp
-       * * `Flowlu` - Flowlu
-       * * `Formbricks` - Formbricks
-       * * `Framer` - Framer
-       * * `FreeAgent` - FreeAgent
-       * * `Freightview` - Freightview
-       * * `Freshcaller` - Freshcaller
-       * * `Freshchat` - Freshchat
-       * * `Freshservice` - Freshservice
-       * * `Fulcrum` - Fulcrum
-       * * `GainsightCs` - GainsightCs
-       * * `GainsightPx` - GainsightPx
-       * * `GitBook` - GitBook
-       * * `Glassfrog` - Glassfrog
-       * * `Goldcast` - Goldcast
-       * * `GoLogin` - GoLogin
-       * * `Grafana` - Grafana
-       * * `GreytHr` - GreytHr
-       * * `Gridly` - Gridly
-       * * `Harness` - Harness
-       * * `Height` - Height
-       * * `Hellobaton` - Hellobaton
-       * * `HighLevel` - HighLevel
-       * * `HoorayHR` - HoorayHR
-       * * `Hubplanner` - Hubplanner
-       * * `Humanitix` - Humanitix
-       * * `Huntr` - Huntr
-       * * `Inflowinventory` - Inflowinventory
-       * * `InforNexus` - InforNexus
-       * * `Insightful` - Insightful
-       * * `Insightly` - Insightly
-       * * `Instantly` - Instantly
-       * * `Instatus` - Instatus
-       * * `Intruder` - Intruder
-       * * `Invoiced` - Invoiced
-       * * `Invoiceninja` - Invoiceninja
-       * * `JamfPro` - JamfPro
-       * * `JobNimbus` - JobNimbus
-       * * `Jotform` - Jotform
-       * * `JudgeMeReviews` - JudgeMeReviews
-       * * `JustCall` - JustCall
-       * * `JustSift` - JustSift
-       * * `K6Cloud` - K6Cloud
-       * * `Katana` - Katana
-       * * `Keka` - Keka
-       * * `Kisi` - Kisi
-       * * `Kissmetrics` - Kissmetrics
-       * * `Klarna` - Klarna
-       * * `Klaus` - Klaus
-       * * `Lago` - Lago
-       * * `Leadfeeder` - Leadfeeder
-       * * `Lemlist` - Lemlist
-       * * `LessAnnoyingCRM` - LessAnnoyingCRM
-       * * `LinkedinPages` - LinkedinPages
-       * * `Linkrunner` - Linkrunner
-       * * `Linnworks` - Linnworks
-       * * `Lob` - Lob
-       * * `Lokalise` - Lokalise
-       * * `Looker` - Looker
-       * * `Luma` - Luma
-       * * `MailerSend` - MailerSend
-       * * `Mailosaur` - Mailosaur
-       * * `Mailtrap` - Mailtrap
-       * * `Mantle` - Mantle
-       * * `Mention` - Mention
-       * * `MercadoAds` - MercadoAds
-       * * `Merge` - Merge
-       * * `Metabase` - Metabase
-       * * `Metricool` - Metricool
-       * * `MicrosoftDataverse` - MicrosoftDataverse
-       * * `MicrosoftEntraId` - MicrosoftEntraId
-       * * `MicrosoftLists` - MicrosoftLists
-       * * `Miro` - Miro
-       * * `Missive` - Missive
-       * * `MixMax` - MixMax
-       * * `Mode` - Mode
-       * * `Mux` - Mux
-       * * `MyHours` - MyHours
-       * * `N8n` - N8n
-       * * `Navan` - Navan
-       * * `NebiusAI` - NebiusAI
-       * * `Nexiopay` - Nexiopay
-       * * `NinjaOneRMM` - NinjaOneRMM
-       * * `NoCRM` - NoCRM
-       * * `NorthpassLMS` - NorthpassLMS
-       * * `Nutshell` - Nutshell
-       * * `Nylas` - Nylas
-       * * `Oncehub` - Oncehub
-       * * `Onepagecrm` - Onepagecrm
-       * * `OneSignal` - OneSignal
-       * * `Onfleet` - Onfleet
-       * * `OpinionStage` - OpinionStage
-       * * `OPUSWatch` - OPUSWatch
-       * * `Orb` - Orb
-       * * `Orbit` - Orbit
-       * * `Oura` - Oura
-       * * `Oveit` - Oveit
-       * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
-       * * `Paperform` - Paperform
-       * * `Papersign` - Papersign
-       * * `Partnerize` - Partnerize
-       * * `PartnerStack` - PartnerStack
-       * * `PayFit` - PayFit
-       * * `Paystack` - Paystack
-       * * `Pennylane` - Pennylane
-       * * `Perk` - Perk
-       * * `PersistIq` - PersistIq
-       * * `Persona` - Persona
-       * * `Phyllo` - Phyllo
-       * * `Picqer` - Picqer
-       * * `Pipeliner` - Pipeliner
-       * * `PivotalTracker` - PivotalTracker
-       * * `Piwik` - Piwik
-       * * `Planhat` - Planhat
-       * * `Plausible` - Plausible
-       * * `Poplar` - Poplar
-       * * `PrestaShop` - PrestaShop
-       * * `Pretix` - Pretix
-       * * `Primetric` - Primetric
-       * * `Printavo` - Printavo
-       * * `Printify` - Printify
-       * * `Productive` - Productive
-       * * `Pylon` - Pylon
-       * * `Qonto` - Qonto
-       * * `Qualaroo` - Qualaroo
-       * * `Railz` - Railz
-       * * `RDStationMarketing` - RDStationMarketing
-       * * `Recruitee` - Recruitee
-       * * `Reddit` - Reddit
-       * * `ReferralHero` - ReferralHero
-       * * `RentCast` - RentCast
-       * * `Repairshopr` - Repairshopr
-       * * `ReplyIo` - ReplyIo
-       * * `RetailExpress` - RetailExpress
-       * * `Retently` - Retently
-       * * `Retreaver` - Retreaver
-       * * `RevolutMerchant` - RevolutMerchant
-       * * `RocketChat` - RocketChat
-       * * `Rocketlane` - Rocketlane
-       * * `Rootly` - Rootly
-       * * `Ruddr` - Ruddr
-       * * `SafetyCulture` - SafetyCulture
-       * * `SageHR` - SageHR
-       * * `Salesflare` - Salesflare
-       * * `SAPFieldglass` - SAPFieldglass
-       * * `SavvyCal` - SavvyCal
-       * * `Secoda` - Secoda
-       * * `Segment` - Segment
-       * * `Sendowl` - Sendowl
-       * * `SendPulse` - SendPulse
-       * * `Senseforce` - Senseforce
-       * * `Serpstat` - Serpstat
-       * * `Sharetribe` - Sharetribe
-       * * `Shippo` - Shippo
-       * * `ShopWired` - ShopWired
-       * * `Shortio` - Shortio
-       * * `Shutterstock` - Shutterstock
-       * * `SigmaComputing` - SigmaComputing
-       * * `SignNow` - SignNow
-       * * `SimpleCast` - SimpleCast
-       * * `Simplesat` - Simplesat
-       * * `Smaily` - Smaily
-       * * `SmartEngage` - SmartEngage
-       * * `Smartreach` - Smartreach
-       * * `Smartwaiver` - Smartwaiver
-       * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
-       * * `SonarCloud` - SonarCloud
-       * * `SparkPost` - SparkPost
-       * * `SplitIo` - SplitIo
-       * * `SpotifyAds` - SpotifyAds
-       * * `SpotlerCRM` - SpotlerCRM
-       * * `Squarespace` - Squarespace
-       * * `Statsig` - Statsig
-       * * `Statuspage` - Statuspage
-       * * `Steam` - Steam
-       * * `Stigg` - Stigg
-       * * `Strava` - Strava
-       * * `SurveySparrow` - SurveySparrow
-       * * `Survicate` - Survicate
-       * * `Svix` - Svix
-       * * `Systeme` - Systeme
-       * * `Tavus` - Tavus
-       * * `Teamtailor` - Teamtailor
-       * * `Teamwork` - Teamwork
-       * * `Tempo` - Tempo
-       * * `Testrail` - Testrail
-       * * `Thinkific` - Thinkific
-       * * `ThinkificCourses` - ThinkificCourses
-       * * `ThriveLearning` - ThriveLearning
-       * * `Ticketmaster` - Ticketmaster
-       * * `TicketTailor` - TicketTailor
-       * * `TickTick` - TickTick
-       * * `Timely` - Timely
-       * * `Tinyemail` - Tinyemail
-       * * `Todoist` - Todoist
-       * * `Toggl` - Toggl
-       * * `TrackPMS` - TrackPMS
-       * * `Tremendous` - Tremendous
-       * * `TrustPilot` - TrustPilot
-       * * `Twitter` - Twitter
-       * * `TyntecSMS` - TyntecSMS
-       * * `Unleash` - Unleash
-       * * `UpPromote` - UpPromote
-       * * `Uptick` - Uptick
-       * * `Uservoice` - Uservoice
-       * * `Vantage` - Vantage
-       * * `Veeqo` - Veeqo
-       * * `Vercel` - Vercel
-       * * `VismaEconomic` - VismaEconomic
-       * * `VWO` - VWO
-       * * `Waiteraid` - Waiteraid
-       * * `Wasabi` - Wasabi
-       * * `WhenIWork` - WhenIWork
-       * * `Wordpress` - Wordpress
-       * * `Workable` - Workable
-       * * `Workflowmax` - Workflowmax
-       * * `Workramp` - Workramp
-       * * `Wufoo` - Wufoo
-       * * `Xsolla` - Xsolla
-       * * `YandexMetrica` - YandexMetrica
-       * * `Yotpo` - Yotpo
-       * * `Ynab` - Ynab
-       * * `Younium` - Younium
-       * * `YouSign` - YouSign
-       * * `YoutubeData` - YoutubeData
-       * * `ZapierSupportedStorage` - ZapierSupportedStorage
-       * * `ZapSign` - ZapSign
-       * * `ZendeskSell` - ZendeskSell
-       * * `ZendeskSunshine` - ZendeskSunshine
-       * * `Zenefits` - Zenefits
-       * * `Zenloop` - Zenloop
-       * * `ZohoAnalytics` - ZohoAnalytics
-       * * `ZohoBigin` - ZohoBigin
-       * * `ZohoBilling` - ZohoBilling
-       * * `ZohoBooks` - ZohoBooks
-       * * `ZohoCampaign` - ZohoCampaign
-       * * `ZohoDesk` - ZohoDesk
-       * * `ZohoExpense` - ZohoExpense
-       * * `ZohoInventory` - ZohoInventory
-       * * `ZohoInvoice` - ZohoInvoice
-       * * `ZonkaFeedback` - ZonkaFeedback
-       * * `AlphaVantage` - AlphaVantage
-       * * `Aviationstack` - Aviationstack
-       * * `Bitly` - Bitly
-       * * `Blogger` - Blogger
-       * * `Breezometer` - Breezometer
-       * * `CareQualityCommission` - CareQualityCommission
-       * * `Cimis` - Cimis
-       * * `CoinApi` - CoinApi
-       * * `CoinGecko` - CoinGecko
-       * * `CoinMarketCap` - CoinMarketCap
-       * * `DingConnect` - DingConnect
-       * * `Dockerhub` - Dockerhub
-       * * `ExchangeRatesApi` - ExchangeRatesApi
-       * * `FinancialModelling` - FinancialModelling
-       * * `Finnhub` - Finnhub
-       * * `Finnworlds` - Finnworlds
-       * * `Giphy` - Giphy
-       * * `Gmail` - Gmail
-       * * `GNews` - GNews
-       * * `GoogleCalendar` - GoogleCalendar
-       * * `GoogleClassroom` - GoogleClassroom
-       * * `GoogleDirectory` - GoogleDirectory
-       * * `GoogleForms` - GoogleForms
-       * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
-       * * `GoogleTasks` - GoogleTasks
-       * * `GoogleWebfonts` - GoogleWebfonts
-       * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
-       * * `HuggingFace` - HuggingFace
-       * * `IlluminaBasespace` - IlluminaBasespace
-       * * `Imagga` - Imagga
-       * * `Interzoid` - Interzoid
-       * * `IP2Whois` - IP2Whois
-       * * `KYVE` - KYVE
-       * * `Marketstack` - Marketstack
-       * * `Mendeley` - Mendeley
-       * * `Nasa` - Nasa
-       * * `NewYorkTimes` - NewYorkTimes
-       * * `NewsApi` - NewsApi
-       * * `NewsData` - NewsData
-       * * `OpenDataDc` - OpenDataDc
-       * * `OpenExchangeRates` - OpenExchangeRates
-       * * `OpenAQ` - OpenAQ
-       * * `OpenFDA` - OpenFDA
-       * * `OpenWeather` - OpenWeather
-       * * `Outlook` - Outlook
-       * * `Perigon` - Perigon
-       * * `Pexels` - Pexels
-       * * `Pocket` - Pocket
-       * * `Polygon` - Polygon
-       * * `PyPI` - PyPI
-       * * `Recreation` - Recreation
-       * * `RKICovid` - RKICovid
-       * * `Rss` - Rss
-       * * `SimFin` - SimFin
-       * * `StockData` - StockData
-       * * `Guardian` - Guardian
-       * * `TMDb` - TMDb
-       * * `TVMaze` - TVMaze
-       * * `TwelveData` - TwelveData
-       * * `Ubidots` - Ubidots
-       * * `USCensus` - USCensus
-       * * `Watchmode` - Watchmode
-       * * `WikipediaPageviews` - WikipediaPageviews
-       * * `YahooFinance` - YahooFinance
-       * * `Clarifai` - Clarifai
-       * * `Adapty` - Adapty
-       * * `Braintrust` - Braintrust
-       * * `StreamElements` - StreamElements
-       * * `Streamlabs` - Streamlabs
-       * * `Datorama` - Datorama
-       * * `Ahrefs` - Ahrefs
-       * * `Lightfield` - Lightfield
-       * * `Appstack` - Appstack
-       * * `Razorpay` - Razorpay
-       * * `Neon` - Neon
-       * * `NewRelic` - NewRelic
-       * * `Custom` - Custom
-       * * `Tile38` - Tile38
-       * * `Chatwoot` - Chatwoot
-       * * `Sanity` - Sanity
-       * * `Metronome` - Metronome
-       * * `Jobber` - Jobber
-       * * `Knock` - Knock
-       * * `Leexi` - Leexi
-       * * `RB2B` - RB2B
-       * * `Superwall` - Superwall
-       * * `Liana` - Liana
-       * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch
-       * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas
-       * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds
-       * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow
-       * * `Plunk` - Plunk
-       * * `Dub` - Dub
-       * * `AirOps` - AirOps
-       * * `Podium` - Podium
-       * * `Loops` - Loops
-       * * `Redis` - Redis
-       * * `Mercury` - Mercury
-       * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable
-       * * `PeecAI` - PeecAI
-       * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact
-       * * `AikidoSecurity` - AikidoSecurity
-       * * `Alguna` - Alguna
-       * * `Anthropic` - Anthropic
-       * * `Appwrite` - Appwrite
-       * * `BlandAI` - BlandAI
-       * * `BrowseAI` - BrowseAI
-       * * `BrowserUse` - BrowserUse
-       * * `ChartHop` - ChartHop
-       * * `Cody` - Cody
-       * * `Cursor` - Cursor
-       * * `Decagon` - Decagon
-       * * `Deepgram` - Deepgram
-       * * `ElevenLabs` - ElevenLabs
-       * * `Harvey` - Harvey
-       * * `Hyperspell` - Hyperspell
-       * * `Langfuse` - Langfuse
-       * * `LingoDev` - LingoDev
-       * * `M3ter` - M3ter
-       * * `Maxio` - Maxio
-       * * `Metorial` - Metorial
-       * * `OpenRouter` - OpenRouter
-       * * `TogetherAI` - TogetherAI
-       * * `Vapi` - Vapi
-       * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic
-       * * `Aiven` - Aiven
-       * * `Aviator` - Aviator
-       * * `Backblaze` - Backblaze
-       * * `Baseten` - Baseten
-       * * `Browserbase` - Browserbase
-       * * `Cohere` - Cohere
-       * * `DenoDeploy` - DenoDeploy
-       * * `DigitalOcean` - DigitalOcean
-       * * `E2B` - E2B
-       * * `Fintoc` - Fintoc
-       * * `Firecrawl` - Firecrawl
-       * * `FireworksAI` - FireworksAI
-       * * `FlyIo` - FlyIo
-       * * `Groq` - Groq
-       * * `GrowthBook` - GrowthBook
-       * * `Gumloop` - Gumloop
-       * * `Hatchet` - Hatchet
-       * * `Helicone` - Helicone
-       * * `Heroku` - Heroku
-       * * `Hetzner` - Hetzner
-       * * `HeyGen` - HeyGen
-       * * `Infisical` - Infisical
-       * * `Inngest` - Inngest
-       * * `KapaAI` - KapaAI
-       * * `Kernel` - Kernel
-       * * `Koyeb` - Koyeb
-       * * `LambdaLabs` - LambdaLabs
-       * * `LangSmith` - LangSmith
-       * * `Linode` - Linode
-       * * `Listmonk` - Listmonk
-       * * `LlamaCloud` - LlamaCloud
-       * * `Mem0` - Mem0
-       * * `Metriport` - Metriport
-       * * `Mintlify` - Mintlify
-       * * `MistralAI` - MistralAI
-       * * `Mono` - Mono
-       * * `Netlify` - Netlify
-       * * `Northflank` - Northflank
-       * * `OpenAI` - OpenAI
-       * * `Pinecone` - Pinecone
-       * * `PlatformSh` - PlatformSh
-       * * `PromptingCompany` - PromptingCompany
-       * * `Qdrant` - Qdrant
-       * * `Render` - Render
-       * * `Replicate` - Replicate
-       * * `RetellAI` - RetellAI
-       * * `Roark` - Roark
-       * * `RunPod` - RunPod
-       * * `ScaleAI` - ScaleAI
-       * * `Scaleway` - Scaleway
-       * * `SigNoz` - SigNoz
-       * * `Sim` - Sim
-       * * `Skyvern` - Skyvern
-       * * `Slash` - Slash
-       * * `Synthesia` - Synthesia
-       * * `Telli` - Telli
-       * * `TerraApi` - TerraApi
-       * * `TriggerDev` - TriggerDev
-       * * `Turso` - Turso
-       * * `Singular` - Singular
-       * * `Swonkie` - Swonkie
-       * * `TwelveLabs` - TwelveLabs
-       * * `Twenty` - Twenty
-       * * `Unstructured` - Unstructured
-       * * `Upstash` - Upstash
-       * * `Vellum` - Vellum
-       * * `Vultr` - Vultr
-       * * `Windmill` - Windmill
-       * * `Zep` - Zep
-       * * `Hex` - Hex
-       * * `Sumsub` - Sumsub
-       * * `GoogleChat` - GoogleChat
-       * * `Kickscale` - Kickscale
-       * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack
-       * * `DodoPayments` - DodoPayments
-       * * `Salestrics` - Salestrics
-       * * `Doppler` - Doppler
-       * * `Usersnap` - Usersnap
-       * * `Asknicely` - Asknicely
-       * * `Featurebase` - Featurebase
-       * * `Frill` - Frill
-       * * `Bettermode` - Bettermode
-       * * `Dynatrace` - Dynatrace
-       * * `Honeycomb` - Honeycomb
-       * * `SumoLogic` - SumoLogic
-       * * `LogzIO` - LogzIO
-       * * `Coralogix` - Coralogix
-       * * `BetterStack` - BetterStack
-       * * `Raygun` - Raygun
-       * * `Honeybadger` - Honeybadger
-       * * `Airbrake` - Airbrake
-       * * `Appsignal` - Appsignal
-       * * `Appdynamics` - Appdynamics
-       * * `Instana` - Instana
-       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
-       * * `Uptimerobot` - Uptimerobot
-       * * `Statuscake` - Statuscake
-       * * `Tailscale` - Tailscale
-       * * `Flagsmith` - Flagsmith
-       * * `Xmatters` - Xmatters
-       * * `Squadcast` - Squadcast
-       * * `Zenduty` - Zenduty
-       * * `Cronitor` - Cronitor
-       * * `Jenkins` - Jenkins
-       * * `Bitbucket` - Bitbucket
-       * * `Gitea` - Gitea
-       * * `Teamcity` - Teamcity
-       * * `TravisCI` - TravisCI
-       * * `Semaphore` - Semaphore
-       * * `CircleciInsights` - CircleciInsights
-       * * `OctopusDeploy` - OctopusDeploy
-       * * `Sourcegraph` - Sourcegraph
-       * * `Bitrise` - Bitrise
-       * * `Gerrit` - Gerrit
-       * * `TerraformCloud` - TerraformCloud
-       * * `PulumiCloud` - PulumiCloud
-       * * `Spacelift` - Spacelift
-       * * `Railway` - Railway
-       * * `Argocd` - Argocd
-       * * `PrefectCloud` - PrefectCloud
-       * * `DagsterCloud` - DagsterCloud
-       * * `Env0` - Env0
-       * * `Kubecost` - Kubecost
-       * * `Snyk` - Snyk
-       * * `Semgrep` - Semgrep
-       * * `Veracode` - Veracode
-       * * `Checkmarx` - Checkmarx
-       * * `Gitguardian` - Gitguardian
-       * * `QualysVmdr` - QualysVmdr
-       * * `Rapid7Insightvm` - Rapid7Insightvm
-       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
-       * * `Sentinelone` - Sentinelone
-       * * `Lacework` - Lacework
-       * * `OrcaSecurity` - OrcaSecurity
-       * * `Drata` - Drata
-       * * `Secureframe` - Secureframe
-       * * `CiscoDuo` - CiscoDuo
-       * * `Jumpcloud` - Jumpcloud
-       * * `OnePassword` - OnePassword
-       * * `Stytch` - Stytch
-       * * `Sonarqube` - Sonarqube
-       * * `Codecov` - Codecov
-       * * `Coveralls` - Coveralls
-       * * `Codacy` - Codacy
-       * * `Deepsource` - Deepsource
-       * * `Linearb` - Linearb
-       * * `Jellyfish` - Jellyfish
-       * * `Swarmia` - Swarmia
-       * * `Packagist` - Packagist
-       * * `Nuget` - Nuget
-       * * `CratesIO` - CratesIO
-       * * `SonatypeNexus` - SonatypeNexus
-       * * `JfrogArtifactory` - JfrogArtifactory
-       * * `Snowplow` - Snowplow
-       * * `WeightsAndBiases` - WeightsAndBiases
-       * * `MonteCarlo` - MonteCarlo
-       * * `Metaplane` - Metaplane
-       * * `Datahub` - Datahub
-       * * `ClickhouseCloud` - ClickhouseCloud
-       * * `ConfluentCloud` - ConfluentCloud
-       * * `KongKonnect` - KongKonnect
-       * * `Kandji` - Kandji
-       * * `Automox` - Automox
-       * * `Autumn` - Autumn
-       * * `GetStream` - GetStream
-       * * `Octolens` - Octolens
-       * * `Kajabi` - Kajabi
-       * * `Shopware` - Shopware
-       * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch
-       * * `Crisp` - Crisp
-       * * `Kommo` - Kommo
-       * * `Axiom` - Axiom
-       * * `Plivo` - Plivo
-       * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan
-       * * `AbTasty` - AbTasty
-       * * `Ably` - Ably
-       * * `AbnormalSecurity` - AbnormalSecurity
-       * * `Acast` - Acast
-       * * `Acculynx` - Acculynx
-       * * `Actionstep` - Actionstep
-       * * `Aftership` - Aftership
-       * * `AhaIdeas` - AhaIdeas
-       * * `AkamaiReporting` - AkamaiReporting
-       * * `Alation` - Alation
-       * * `Alegra` - Alegra
-       * * `Allegro` - Allegro
-       * * `AnodotCost` - AnodotCost
-       * * `Anomalo` - Anomalo
-       * * `Apaleo` - Apaleo
-       * * `Apitally` - Apitally
-       * * `AppStoreConnect` - AppStoreConnect
-       * * `Appdirect` - Appdirect
-       * * `Appfolio` - Appfolio
-       * * `Arxiv` - Arxiv
-       * * `Asaas` - Asaas
-       * * `Astronomer` - Astronomer
-       * * `Athenahealth` - Athenahealth
-       * * `Atlan` - Atlan
-       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
-       * * `Avalara` - Avalara
-       * * `AwsAthena` - AwsAthena
-       * * `AwsBatch` - AwsBatch
-       * * `AwsBudgets` - AwsBudgets
-       * * `AwsCloudformation` - AwsCloudformation
-       * * `AwsComputeOptimizer` - AwsComputeOptimizer
-       * * `AwsConfig` - AwsConfig
-       * * `AwsConnect` - AwsConnect
-       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
-       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
-       * * `AwsCostExplorer` - AwsCostExplorer
-       * * `AwsDocumentDB` - AwsDocumentDB
-       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
-       * * `AwsGuardduty` - AwsGuardduty
-       * * `AwsHealth` - AwsHealth
-       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
-       * * `AwsInspector` - AwsInspector
-       * * `AwsMacie` - AwsMacie
-       * * `AwsOrganizations` - AwsOrganizations
-       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
-       * * `AwsSagemaker` - AwsSagemaker
-       * * `AwsSavingsPlans` - AwsSavingsPlans
-       * * `AwsSecurityHub` - AwsSecurityHub
-       * * `AwsSes` - AwsSes
-       * * `AwsStepFunctions` - AwsStepFunctions
-       * * `AwsSupport` - AwsSupport
-       * * `AwsSystemsManager` - AwsSystemsManager
-       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
-       * * `AwsWaf` - AwsWaf
-       * * `AwsXray` - AwsXray
-       * * `AzureActivityLog` - AzureActivityLog
-       * * `AzureAdvisor` - AzureAdvisor
-       * * `AzureApiManagement` - AzureApiManagement
-       * * `AzureApplicationInsights` - AzureApplicationInsights
-       * * `AzureCostManagement` - AzureCostManagement
-       * * `AzureDataExplorer` - AzureDataExplorer
-       * * `AzureDataFactory` - AzureDataFactory
-       * * `AzureLogAnalytics` - AzureLogAnalytics
-       * * `AzureMonitorAlerts` - AzureMonitorAlerts
-       * * `AzureMonitorMetrics` - AzureMonitorMetrics
-       * * `AzureOpenaiUsage` - AzureOpenaiUsage
-       * * `AzurePolicyInsights` - AzurePolicyInsights
-       * * `AzureReservations` - AzureReservations
-       * * `AzureResourceGraph` - AzureResourceGraph
-       * * `AzureResourceHealth` - AzureResourceHealth
-       * * `AzureServiceHealth` - AzureServiceHealth
-       * * `AzureSynapse` - AzureSynapse
-       * * `BackMarket` - BackMarket
-       * * `Beehiiv` - Beehiiv
-       * * `Bigeye` - Bigeye
-       * * `BillCom` - BillCom
-       * * `Billomat` - Billomat
-       * * `BingWebmasterTools` - BingWebmasterTools
-       * * `Bitwarden` - Bitwarden
-       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
-       * * `BlackboardLearn` - BlackboardLearn
-       * * `Bling` - Bling
-       * * `Bloomerang` - Bloomerang
-       * * `Blueshift` - Blueshift
-       * * `Bluesky` - Bluesky
-       * * `BolRetailer` - BolRetailer
-       * * `Boulevard` - Boulevard
-       * * `Buffer` - Buffer
-       * * `Bugherd` - Bugherd
-       * * `Buildium` - Buildium
-       * * `Buttondown` - Buttondown
-       * * `BuyMeACoffee` - BuyMeACoffee
-       * * `Calendarific` - Calendarific
-       * * `Calibre` - Calibre
-       * * `CanvasLms` - CanvasLms
-       * * `Captivate` - Captivate
-       * * `Cashfree` - Cashfree
-       * * `CastAi` - CastAi
-       * * `Catchpoint` - Catchpoint
-       * * `CdcOpenData` - CdcOpenData
-       * * `Census` - Census
-       * * `Checkly` - Checkly
-       * * `CircleSo` - CircleSo
-       * * `Classy` - Classy
-       * * `Cleartax` - Cleartax
-       * * `Clever` - Clever
-       * * `Clevertap` - Clevertap
-       * * `Cliniko` - Cliniko
-       * * `Clio` - Clio
-       * * `Clip` - Clip
-       * * `Cloudability` - Cloudability
-       * * `Cloudsmith` - Cloudsmith
-       * * `Cloudzero` - Cloudzero
-       * * `Clover` - Clover
-       * * `Codemagic` - Codemagic
-       * * `Codescene` - Codescene
-       * * `Collibra` - Collibra
-       * * `Companycam` - Companycam
-       * * `Conekta` - Conekta
-       * * `ContaAzul` - ContaAzul
-       * * `Contentsquare` - Contentsquare
-       * * `Cortex` - Cortex
-       * * `Courier` - Courier
-       * * `Crossref` - Crossref
-       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
-       * * `CubeCloud` - CubeCloud
-       * * `D2lBrightspace` - D2lBrightspace
-       * * `Dayforce` - Dayforce
-       * * `Debugbear` - Debugbear
-       * * `Descope` - Descope
-       * * `Develocity` - Develocity
-       * * `Dialpad` - Dialpad
-       * * `Discord` - Discord
-       * * `Discourse` - Discourse
-       * * `Donorbox` - Donorbox
-       * * `Doorloop` - Doorloop
-       * * `Dovetail` - Dovetail
-       * * `Dragonboat` - Dragonboat
-       * * `Drchrono` - Drchrono
-       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
-       * * `EcbDataPortal` - EcbDataPortal
-       * * `Emarsys` - Emarsys
-       * * `Embrace` - Embrace
-       * * `Entsoe` - Entsoe
-       * * `Eppo` - Eppo
-       * * `Etsy` - Etsy
-       * * `Eurostat` - Eurostat
-       * * `Faire` - Faire
-       * * `FarosAi` - FarosAi
-       * * `Fieldpulse` - Fieldpulse
-       * * `Fieldwire` - Fieldwire
-       * * `Filevine` - Filevine
-       * * `Finout` - Finout
-       * * `Five9` - Five9
-       * * `FlexeraCloudCost` - FlexeraCloudCost
-       * * `Flutterwave` - Flutterwave
-       * * `Fortnox` - Fortnox
-       * * `Fourthwall` - Fourthwall
-       * * `Fred` - Fred
-       * * `Frontegg` - Frontegg
-       * * `FusionAuth` - FusionAuth
-       * * `G2` - G2
-       * * `Gcore` - Gcore
-       * * `GcpApigee` - GcpApigee
-       * * `GcpArtifactRegistry` - GcpArtifactRegistry
-       * * `GcpBigtable` - GcpBigtable
-       * * `GcpChronicle` - GcpChronicle
-       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
-       * * `GcpCloudBilling` - GcpCloudBilling
-       * * `GcpCloudBuild` - GcpCloudBuild
-       * * `GcpCloudDeploy` - GcpCloudDeploy
-       * * `GcpCloudDns` - GcpCloudDns
-       * * `GcpCloudFunctions` - GcpCloudFunctions
-       * * `GcpCloudLogging` - GcpCloudLogging
-       * * `GcpCloudMonitoring` - GcpCloudMonitoring
-       * * `GcpCloudRun` - GcpCloudRun
-       * * `GcpCloudSpanner` - GcpCloudSpanner
-       * * `GcpCloudSql` - GcpCloudSql
-       * * `GcpCloudTrace` - GcpCloudTrace
-       * * `GcpCloudWorkflows` - GcpCloudWorkflows
-       * * `GcpComputeEngine` - GcpComputeEngine
-       * * `GcpContainerAnalysis` - GcpContainerAnalysis
-       * * `GcpDataflow` - GcpDataflow
-       * * `GcpDataplex` - GcpDataplex
-       * * `GcpDataproc` - GcpDataproc
-       * * `GcpErrorReporting` - GcpErrorReporting
-       * * `GcpGke` - GcpGke
-       * * `GcpPubsub` - GcpPubsub
-       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
-       * * `GcpRecommender` - GcpRecommender
-       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
-       * * `Gdelt` - Gdelt
-       * * `GenesysCloud` - GenesysCloud
-       * * `Getdx` - Getdx
-       * * `Ghost` - Ghost
-       * * `Givebutter` - Givebutter
-       * * `Gleif` - Gleif
-       * * `GooglePlayConsole` - GooglePlayConsole
-       * * `Guesty` - Guesty
-       * * `Gumroad` - Gumroad
-       * * `HarnessCcm` - HarnessCcm
-       * * `HarnessSei` - HarnessSei
-       * * `Harvest` - Harvest
-       * * `Healthie` - Healthie
-       * * `Hitpay` - Hitpay
-       * * `Hivebrite` - Hivebrite
-       * * `Holded` - Holded
-       * * `Hostaway` - Hostaway
-       * * `HousecallPro` - HousecallPro
-       * * `Humanitec` - Humanitec
-       * * `ImfData` - ImfData
-       * * `Imperva` - Imperva
-       * * `InfluxdbCloud` - InfluxdbCloud
-       * * `Iyzico` - Iyzico
-       * * `Jobtread` - Jobtread
-       * * `Kameleoon` - Kameleoon
-       * * `KauflandMarketplace` - KauflandMarketplace
-       * * `Kestra` - Kestra
-       * * `Kick` - Kick
-       * * `Kinde` - Kinde
-       * * `Kion` - Kion
-       * * `Knowbe4` - Knowbe4
-       * * `Komodor` - Komodor
-       * * `Labelbox` - Labelbox
-       * * `Lawmatics` - Lawmatics
-       * * `Learnworlds` - Learnworlds
-       * * `LexwareOffice` - LexwareOffice
-       * * `Lightdash` - Lightdash
-       * * `Lodgify` - Lodgify
-       * * `Logicmonitor` - Logicmonitor
-       * * `Logrocket` - Logrocket
-       * * `LoopReturns` - LoopReturns
-       * * `Mastodon` - Mastodon
-       * * `Meetup` - Meetup
-       * * `Megaphone` - Megaphone
-       * * `Memberful` - Memberful
-       * * `MercadoPago` - MercadoPago
-       * * `Meteostat` - Meteostat
-       * * `Mews` - Mews
-       * * `Mezmo` - Mezmo
-       * * `Microsoft365UsageReports` - Microsoft365UsageReports
-       * * `MicrosoftAdvertising` - MicrosoftAdvertising
-       * * `MicrosoftClarity` - MicrosoftClarity
-       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
-       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
-       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
-       * * `MicrosoftIntune` - MicrosoftIntune
-       * * `MicrosoftPurview` - MicrosoftPurview
-       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
-       * * `MicrosoftSentinel` - MicrosoftSentinel
-       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
-       * * `Midtrans` - Midtrans
-       * * `MightyNetworks` - MightyNetworks
-       * * `Mindbody` - Mindbody
-       * * `Mirakl` - Mirakl
-       * * `Moesif` - Moesif
-       * * `Moneybird` - Moneybird
-       * * `Moodle` - Moodle
-       * * `Motherduck` - Motherduck
-       * * `Mycase` - Mycase
-       * * `NagerDate` - NagerDate
-       * * `NeonCrm` - NeonCrm
-       * * `Nexhealth` - Nexhealth
-       * * `NoaaCdo` - NoaaCdo
-       * * `Nobl9` - Nobl9
-       * * `Nolt` - Nolt
-       * * `Nops` - Nops
-       * * `NpmRegistry` - NpmRegistry
-       * * `Oecd` - Oecd
-       * * `Okendo` - Okendo
-       * * `Omni` - Omni
-       * * `Onelogin` - Onelogin
-       * * `OpenDental` - OpenDental
-       * * `OpenMeteo` - OpenMeteo
-       * * `Openalex` - Openalex
-       * * `Opencorporates` - Opencorporates
-       * * `Openfec` - Openfec
-       * * `OpnPayments` - OpnPayments
-       * * `Opslevel` - Opslevel
-       * * `OttoMarket` - OttoMarket
-       * * `Ownerrez` - Ownerrez
-       * * `Pagbank` - Pagbank
-       * * `Patreon` - Patreon
-       * * `Pax8` - Pax8
-       * * `Paychex` - Paychex
-       * * `Paymob` - Paymob
-       * * `Paymongo` - Paymongo
-       * * `Phonepe` - Phonepe
-       * * `Pike13` - Pike13
-       * * `Pingone` - Pingone
-       * * `PinterestOrganic` - PinterestOrganic
-       * * `PlanningCenter` - PlanningCenter
-       * * `PluralsightFlow` - PluralsightFlow
-       * * `Podbean` - Podbean
-       * * `Postscript` - Postscript
-       * * `PowerBiAdmin` - PowerBiAdmin
-       * * `Practicepanther` - Practicepanther
-       * * `Preset` - Preset
-       * * `Procore` - Procore
-       * * `Productiv` - Productiv
-       * * `ProofpointTap` - ProofpointTap
-       * * `Propertyware` - Propertyware
-       * * `Pubnub` - Pubnub
-       * * `Quay` - Quay
-       * * `Raken` - Raken
-       * * `RedpandaCloud` - RedpandaCloud
-       * * `RentManager` - RentManager
-       * * `Reverb` - Reverb
-       * * `RocketMatter` - RocketMatter
-       * * `Rubygems` - Rubygems
-       * * `Scalr` - Scalr
-       * * `SecEdgar` - SecEdgar
-       * * `SelectStar` - SelectStar
-       * * `SemanticScholar` - SemanticScholar
-       * * `Semrush` - Semrush
-       * * `ServiceFusion` - ServiceFusion
-       * * `Servicem8` - Servicem8
-       * * `Servicetitan` - Servicetitan
-       * * `Servicetrade` - Servicetrade
-       * * `Sevdesk` - Sevdesk
-       * * `Similarweb` - Similarweb
-       * * `Simpro` - Simpro
-       * * `Sinch` - Sinch
-       * * `Singlestore` - Singlestore
-       * * `Site24x7` - Site24x7
-       * * `Sleuth` - Sleuth
-       * * `Smartlook` - Smartlook
-       * * `Smartrecruiters` - Smartrecruiters
-       * * `Smokeball` - Smokeball
-       * * `SodaCloud` - SodaCloud
-       * * `Speedcurve` - Speedcurve
-       * * `SpotIo` - SpotIo
-       * * `Sprig` - Sprig
-       * * `Sprinklr` - Sprinklr
-       * * `SproutSocial` - SproutSocial
-       * * `StackOverflowForTeams` - StackOverflowForTeams
-       * * `Stockx` - Stockx
-       * * `TackleIo` - TackleIo
-       * * `Talkdesk` - Talkdesk
-       * * `TeamupFitness` - TeamupFitness
-       * * `Tebra` - Tebra
-       * * `Telnyx` - Telnyx
-       * * `Ternary` - Ternary
-       * * `Thoughtspot` - Thoughtspot
-       * * `Thousandeyes` - Thousandeyes
-       * * `Threads` - Threads
-       * * `TiktokShop` - TiktokShop
-       * * `TinyErp` - TinyErp
-       * * `Tinybird` - Tinybird
-       * * `Tipalti` - Tipalti
-       * * `Toast` - Toast
-       * * `Torii` - Torii
-       * * `Transistor` - Transistor
-       * * `TrunkIo` - TrunkIo
-       * * `Trustradius` - Trustradius
-       * * `Twitch` - Twitch
-       * * `TwoC2p` - TwoC2p
-       * * `UkCompaniesHouse` - UkCompaniesHouse
-       * * `UkOns` - UkOns
-       * * `UnComtrade` - UnComtrade
-       * * `UsBea` - UsBea
-       * * `UsBls` - UsBls
-       * * `UsEia` - UsEia
-       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
-       * * `Vanta` - Vanta
-       * * `Vendr` - Vendr
-       * * `Virtuous` - Virtuous
-       * * `Vonage` - Vonage
-       * * `WalmartMarketplace` - WalmartMarketplace
-       * * `Waydev` - Waydev
-       * * `Wayfair` - Wayfair
-       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
-       * * `WhoGho` - WhoGho
-       * * `Whop` - Whop
-       * * `Wistia` - Wistia
-       * * `Wiz` - Wiz
-       * * `Wompi` - Wompi
-       * * `Workiz` - Workiz
-       * * `WorldBank` - WorldBank
-       * * `Xendit` - Xendit
-       * * `Yoco` - Yoco
-       * * `ZalandoZdirect` - ZalandoZdirect
-       * * `Zluri` - Zluri
-       * * `Zylo` - Zylo
-       * * `Tally` - Tally
-       * * `Nuntly` - Nuntly
-       * * `Vturb` - Vturb
-       * * `Meltwater` - Meltwater
-       * * `UserCom` - UserCom
-       * * `Latitude` - Latitude
-       * * `Workato` - Workato
-       * * `SideShift` - SideShift
-       * * `DuckLake` - DuckLake
-       * * `Starburst` - Starburst
-       * * `Trino` - Trino
-       * * `Easybill` - Easybill
-       * * `Bexio` - Bexio
-       * * `Umami` - Umami
-       * * `Manychat` - Manychat
-       * * `Kickstarter` - Kickstarter
-       * * `Typesense` - Typesense
-       * * `FirstPromoter` - FirstPromoter
-       * * `Zero` - Zero
-       * * `Inth` - Inth
-       * * `BCMS` - BCMS
-       * * `Convonite` - Convonite
-       * * `Hookdeck` - Hookdeck
-       * * `Billit` - Billit
-       * * `Moxie` - Moxie
-       * * `TripleWhale` - TripleWhale
-       * * `Directus` - Directus
-       * * `Clay` - Clay
-       * * `TradableBits` - TradableBits
-       * * `Swan` - Swan
-       * * `Hyros` - Hyros
-       * * `Odoo` - Odoo
-       * * `Airbridge` - Airbridge
-       * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter
-       * * `Raisely` - Raisely
-       * * `RakutenAdvertising` - RakutenAdvertising
-       * * `Zitadel` - Zitadel
-       * * `DeelFlows` - DeelFlows
-       * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix
-       * * `Sevalla` - Sevalla
-       * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner
-       * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare
-       * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91
-       * * `Depot` - Depot
-       * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy
-       * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart
-       * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound
-       * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi
-       * * `Capterra` - Capterra
-       * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi
-       * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS
-       * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox
-       * * `SimonData` - SimonData
-       * * `CommissionJunction` - CommissionJunction
-       * * `Liveblocks` - Liveblocks
-       * * `Livestorm` - Livestorm
-       * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana
-       * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable
-       * * `Anvil` - Anvil
-       * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato
-       * * `Medusa` - Medusa
-       * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin
-       * * `Folk` - Folk
-       * * `Cybersource` - Cybersource
-       * * `GoogleAdSense` - GoogleAdSense
-       * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio
-       * * `Smartlead` - Smartlead
-       * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket
-       * * `Quo` - Quo
-       * * `HeyReach` - HeyReach
-       * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet
-       * * `Expo` - Expo
-       * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer
-       * * `Sprinto` - Sprinto
-       * * `Gem` - Gem
-       * * `AudioGO` - AudioGO
-       * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs
-       * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura
-       * * `ChargebackStop` - ChargebackStop
-       * * `Chargeflow` - Chargeflow
-       * * `Dreamdata` - Dreamdata
-       * * `GoogleBusinessProfile` - GoogleBusinessProfile
-       * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite
-       * * `Modal` - Modal
-       * * `Vimeo` - Vimeo
-       * * `Scrunch` - Scrunch
-       * * `Loom` - Loom
-       * * `Arcade` - Arcade
-       * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom
-       * * `Userback` - Userback
-       * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution
-       * * `StackAdapt` - StackAdapt
-       * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay
-       * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud
-       * * `Northbeam` - Northbeam
-       * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO
-       * * `Airship` - Airship
-       * * `Creem` - Creem
-       * * `Leantime` - Leantime
-       * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob
-       * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2
-       * * `Particle` - Particle
-       * * `FileUpload` - FileUpload
-       * * `Dripify` - Dripify
-       * * `AwsS3Tables` - AwsS3Tables
-       * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments
-       * * `Soniox` - Soniox
-       * * `Nango` - Nango
-       * * `Fathom` - Fathom
-       * * `Stamped` - Stamped */
-      source_type: ExternalDataSourceTypeEnum;
+      /** The source type to validate against. */
+      source_type: string;
     }
 
     /**
@@ -37844,6 +33972,13 @@ export namespace Schemas {
       readonly tags: readonly string[];
       readonly archived: boolean;
       /**
+         * Earliest cleanup time if the dataset remains unused.
+         * @nullable
+         */
+      readonly expires_at: string | null;
+      /** Whether the dataset is within seven days of expiry. */
+      readonly expiring_soon: boolean;
+      /**
          * Latest dataset revision, or null before the first item is added.
          * @nullable
          */
@@ -37875,6 +34010,13 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
       /** Project that owns the revision. */
       readonly team_id: number;
+      /**
+         * Earliest expiry time of this dataset snapshot if unused.
+         * @nullable
+         */
+      readonly expires_at: string | null;
+      /** Whether this snapshot is within seven days of expiry. */
+      readonly expiring_soon: boolean;
     }
 
     export interface DayItem {
@@ -38153,7 +34295,7 @@ export namespace Schemas {
      * Typed view over the Subscription.delivery_config JSON blob.
      */
     export interface DeliveryConfig {
-      /** Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message. */
+      /** Slack subscriptions only. Insight and dashboard subscriptions: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Prompt subscriptions: when true, post the chart images in the main message with the summary; when false, post them in the first thread reply. Defaults to false. The request is rejected when target_type is not 'slack', or when an insight or dashboard subscription's Slack integration does not hold the files:write permission. Omit it unless the user asks for all images or charts in the main message. */
       post_all_insights_in_main_message?: boolean;
       /** Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that. */
       include_images?: boolean;
@@ -38391,6 +34533,15 @@ export namespace Schemas {
       deployment_count: number;
     }
 
+    export interface DepotCIRepoUsage {
+      /** Repository the Depot source syncs, as lowercase 'owner/name'. */
+      repo: string;
+      /** Run time of the finished Depot CI job attempts that started in the window, hand-off jobs included. */
+      elapsed_seconds: number;
+      /** elapsed_seconds at the Depot CI list price for a 2-vCPU sandbox. Depot does not report the sandbox size of an attempt. */
+      estimated_cost_usd: number;
+    }
+
     export interface DeprovisionWarehouseResponse {
       /** Deprovisioning lifecycle message, e.g. 'deprovisioning started' */
       status: string;
@@ -38589,6 +34740,19 @@ export namespace Schemas {
       response_id: string;
     }
 
+    export interface DestinationConnectCompleteRequest {
+      /**
+         * The connect token from the connect link URL.
+         * @maxLength 128
+         */
+      connect_token: string;
+      /**
+         * Id of the integration the user saved on the connect page.
+         * @minimum 1
+         */
+      integration_id: number;
+    }
+
     export interface DestinationConnectLink {
       /** The destination type the link is for. */
       destination_type: string;
@@ -38596,8 +34760,50 @@ export namespace Schemas {
       integration_kind: string;
       /** Full URL to share with the user. It opens the connection form for this integration kind in PostHog, so credentials never pass through the agent or the chat. */
       connect_url: string;
+      /** Secret token in the link. Pass it to the connect link status endpoint to learn which integration the user saved. Only the user who asked for the link can read its status. */
+      connect_token: string;
+      /** When the link stops accepting a new connection. Ask for a new link after this time. */
+      expires_at: string;
       /** Next steps for the agent to relay to the user. */
       instructions: string;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `connected` - Connected
+     * * `expired` - Expired
+     */
+    export type DestinationConnectStatusEnum = typeof DestinationConnectStatusEnum[keyof typeof DestinationConnectStatusEnum];
+
+
+    export const DestinationConnectStatusEnum = {
+      Pending: 'pending',
+      Connected: 'connected',
+      Expired: 'expired',
+    } as const;
+
+    export interface DestinationConnectStatus {
+      /** `pending`: the user has not saved a connection yet. `connected`: the user saved one, and integration_id holds it. `expired`: the link is no longer valid, or it is unknown or belongs to another user. Ask for a new link.
+       *
+       * * `pending` - Pending
+       * * `connected` - Connected
+       * * `expired` - Expired */
+      status: DestinationConnectStatusEnum;
+      /**
+         * Id of the saved integration when status is `connected`. Pass it to destination create.
+         * @nullable
+         */
+      integration_id: number | null;
+      /**
+         * The integration kind the link is for. Null when status is `expired`.
+         * @nullable
+         */
+      integration_kind: string | null;
+      /**
+         * Name of the saved connection, such as the account or host, to confirm with the user.
+         * @nullable
+         */
+      display_name: string | null;
     }
 
     /**
@@ -38844,6 +35050,77 @@ export namespace Schemas {
       tokens: DevToken[];
     }
 
+    export interface DeviceApproval {
+      /**
+         * The code the device shows, as the person typed it. Case and dashes don't matter.
+         * @maxLength 20
+         */
+      user_code: string;
+      /** The project the token is scoped to. */
+      project_id: number;
+      /** The requested scopes the person kept. Leave it out to grant every requested scope. It must include every scope in `required_scopes`, and nothing outside the requested scopes. */
+      scopes?: string[];
+    }
+
+    /**
+     * * `authorized` - Authorized
+     * * `denied` - Denied
+     */
+    export type DeviceDecisionEnum = typeof DeviceDecisionEnum[keyof typeof DeviceDecisionEnum];
+
+
+    export const DeviceDecisionEnum = {
+      Authorized: 'authorized',
+      Denied: 'denied',
+    } as const;
+
+    export interface DeviceDecision {
+      /** The device grant's status after the decision.
+       *
+       * * `authorized` - Authorized
+       * * `denied` - Denied */
+      status: DeviceDecisionEnum;
+    }
+
+    export interface GrantedScopes {
+      /**
+         * The project these scopes work in. Null when the connection is not limited to projects.
+         * @nullable
+         */
+      project_id: number | null;
+      /**
+         * The organization these scopes work in, for a connection limited to organizations. Null when the connection is not limited to organizations.
+         * @nullable
+         */
+      organization_id: string | null;
+      /** The scopes granted in the project. */
+      scopes: string[];
+    }
+
+    export interface DeviceGrantDetails {
+      /** The code, in the form the device shows it. */
+      user_code: string;
+      /** The client that started the device grant. */
+      client_id: string;
+      /** The client's display name. */
+      client_name: string;
+      /**
+         * The client's logo, if it declared one.
+         * @nullable
+         */
+      logo_uri: string | null;
+      /** Whether PostHog has verified the client. */
+      is_verified: boolean;
+      /** The scopes the token will carry if the person approves. */
+      scopes: string[];
+      /** The requested scopes the person can't leave out: the client's required scopes and identity scopes such as `openid`. */
+      required_scopes: string[];
+      /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones, and the page lists only the new ones. */
+      granted_scopes: GrantedScopes[];
+      /** When the code expires. */
+      expires_at: string;
+    }
+
     /**
      * * `Desktop` - Desktop
      * * `Mobile` - Mobile
@@ -38857,6 +35134,14 @@ export namespace Schemas {
       Mobile: 'Mobile',
       Tablet: 'Tablet',
     } as const;
+
+    export interface DeviceUserCode {
+      /**
+         * The code the device shows, as the person typed it. Case and dashes don't matter.
+         * @maxLength 20
+         */
+      user_code: string;
+    }
 
     /**
      * * `passed` - passed
@@ -39109,1424 +35394,8 @@ export namespace Schemas {
      * A source type that can be added as a direct (live-query) connection, with display metadata.
      */
     export interface DirectConnectionSourceOption {
-      /** The source type to start a direct-connection setup for (e.g. 'Postgres', 'ClickHouse').
-       *
-       * * `Ashby` - Ashby
-       * * `Supabase` - Supabase
-       * * `CustomerIO` - CustomerIO
-       * * `Github` - Github
-       * * `Stripe` - Stripe
-       * * `Hubspot` - Hubspot
-       * * `Postgres` - Postgres
-       * * `Zendesk` - Zendesk
-       * * `Snowflake` - Snowflake
-       * * `Salesforce` - Salesforce
-       * * `MySQL` - MySQL
-       * * `MongoDB` - MongoDB
-       * * `MSSQL` - MSSQL
-       * * `Vitally` - Vitally
-       * * `BigQuery` - BigQuery
-       * * `Chargebee` - Chargebee
-       * * `Clerk` - Clerk
-       * * `GoogleAds` - GoogleAds
-       * * `GoogleSearchConsole` - GoogleSearchConsole
-       * * `TemporalIO` - TemporalIO
-       * * `DoIt` - DoIt
-       * * `GoogleSheets` - GoogleSheets
-       * * `MetaAds` - MetaAds
-       * * `Klaviyo` - Klaviyo
-       * * `Mailchimp` - Mailchimp
-       * * `Braze` - Braze
-       * * `Mailjet` - Mailjet
-       * * `Redshift` - Redshift
-       * * `Polar` - Polar
-       * * `RevenueCat` - RevenueCat
-       * * `LinkedinAds` - LinkedinAds
-       * * `RedditAds` - RedditAds
-       * * `TikTokAds` - TikTokAds
-       * * `BingAds` - BingAds
-       * * `Shopify` - Shopify
-       * * `Attio` - Attio
-       * * `SnapchatAds` - SnapchatAds
-       * * `Linear` - Linear
-       * * `LiteLLM` - LiteLLM
-       * * `Intercom` - Intercom
-       * * `Amplitude` - Amplitude
-       * * `Mixpanel` - Mixpanel
-       * * `Jira` - Jira
-       * * `ActiveCampaign` - ActiveCampaign
-       * * `Marketo` - Marketo
-       * * `Adjust` - Adjust
-       * * `AppsFlyer` - AppsFlyer
-       * * `Freshdesk` - Freshdesk
-       * * `GoogleAnalytics` - GoogleAnalytics
-       * * `Pipedrive` - Pipedrive
-       * * `SendGrid` - SendGrid
-       * * `Slack` - Slack
-       * * `PagerDuty` - PagerDuty
-       * * `Asana` - Asana
-       * * `Notion` - Notion
-       * * `Airtable` - Airtable
-       * * `Greenhouse` - Greenhouse
-       * * `BambooHR` - BambooHR
-       * * `Lever` - Lever
-       * * `GitLab` - GitLab
-       * * `Datadog` - Datadog
-       * * `Sentry` - Sentry
-       * * `Pendo` - Pendo
-       * * `FullStory` - FullStory
-       * * `AmazonAds` - AmazonAds
-       * * `PinterestAds` - PinterestAds
-       * * `AppleSearchAds` - AppleSearchAds
-       * * `QuickBooks` - QuickBooks
-       * * `Xero` - Xero
-       * * `NetSuite` - NetSuite
-       * * `WooCommerce` - WooCommerce
-       * * `BigCommerce` - BigCommerce
-       * * `PayPal` - PayPal
-       * * `Square` - Square
-       * * `Zoom` - Zoom
-       * * `Trello` - Trello
-       * * `TrafficStars` - TrafficStars
-       * * `Monday` - Monday
-       * * `ClickUp` - ClickUp
-       * * `Confluence` - Confluence
-       * * `Recurly` - Recurly
-       * * `SalesLoft` - SalesLoft
-       * * `Outreach` - Outreach
-       * * `Gong` - Gong
-       * * `Calendly` - Calendly
-       * * `Typeform` - Typeform
-       * * `UnityAds` - UnityAds
-       * * `Iterable` - Iterable
-       * * `ZohoCRM` - ZohoCRM
-       * * `Close` - Close
-       * * `Oracle` - Oracle
-       * * `DynamoDB` - DynamoDB
-       * * `Elasticsearch` - Elasticsearch
-       * * `Kafka` - Kafka
-       * * `LaunchDarkly` - LaunchDarkly
-       * * `Braintree` - Braintree
-       * * `Recharge` - Recharge
-       * * `HelpScout` - HelpScout
-       * * `Gorgias` - Gorgias
-       * * `Instagram` - Instagram
-       * * `YouTubeAnalytics` - YouTubeAnalytics
-       * * `FacebookPages` - FacebookPages
-       * * `TwitterAds` - TwitterAds
-       * * `Workday` - Workday
-       * * `ServiceNow` - ServiceNow
-       * * `Pardot` - Pardot
-       * * `Copper` - Copper
-       * * `Front` - Front
-       * * `ChartMogul` - ChartMogul
-       * * `Zuora` - Zuora
-       * * `Paddle` - Paddle
-       * * `CircleCI` - CircleCI
-       * * `CockroachDB` - CockroachDB
-       * * `Firebase` - Firebase
-       * * `AzureBlob` - AzureBlob
-       * * `GoogleDrive` - GoogleDrive
-       * * `OneDrive` - OneDrive
-       * * `SharePoint` - SharePoint
-       * * `Box` - Box
-       * * `SFTP` - SFTP
-       * * `MicrosoftTeams` - MicrosoftTeams
-       * * `Aircall` - Aircall
-       * * `Webflow` - Webflow
-       * * `Okta` - Okta
-       * * `Auth0` - Auth0
-       * * `Productboard` - Productboard
-       * * `Smartsheet` - Smartsheet
-       * * `Wrike` - Wrike
-       * * `Plaid` - Plaid
-       * * `SurveyMonkey` - SurveyMonkey
-       * * `Eventbrite` - Eventbrite
-       * * `Everflow` - Everflow
-       * * `RingCentral` - RingCentral
-       * * `Twilio` - Twilio
-       * * `Freshsales` - Freshsales
-       * * `Shortcut` - Shortcut
-       * * `ConvertKit` - ConvertKit
-       * * `Drip` - Drip
-       * * `CampaignMonitor` - CampaignMonitor
-       * * `MailerLite` - MailerLite
-       * * `Omnisend` - Omnisend
-       * * `Brevo` - Brevo
-       * * `Postmark` - Postmark
-       * * `Granola` - Granola
-       * * `BuildBetter` - BuildBetter
-       * * `Convex` - Convex
-       * * `ClickHouse` - ClickHouse
-       * * `Plain` - Plain
-       * * `Resend` - Resend
-       * * `PgAnalyze` - PgAnalyze
-       * * `WorkOS` - WorkOS
-       * * `AmazonS3` - AmazonS3
-       * * `GoogleCloudStorage` - GoogleCloudStorage
-       * * `Databricks` - Databricks
-       * * `Dynamics365` - Dynamics365
-       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
-       * * `Db2` - Db2
-       * * `Heap` - Heap
-       * * `AdobeAnalytics` - AdobeAnalytics
-       * * `Matomo` - Matomo
-       * * `Optimizely` - Optimizely
-       * * `Adyen` - Adyen
-       * * `GoCardless` - GoCardless
-       * * `Mollie` - Mollie
-       * * `CheckoutCom` - CheckoutCom
-       * * `Branch` - Branch
-       * * `Criteo` - Criteo
-       * * `Outbrain` - Outbrain
-       * * `Taboola` - Taboola
-       * * `AdRoll` - AdRoll
-       * * `DisplayVideo360` - DisplayVideo360
-       * * `GoogleAdManager` - GoogleAdManager
-       * * `CampaignManager360` - CampaignManager360
-       * * `SearchAds360` - SearchAds360
-       * * `AdobeCommerce` - AdobeCommerce
-       * * `AmazonSellingPartner` - AmazonSellingPartner
-       * * `Ebay` - Ebay
-       * * `Commercetools` - Commercetools
-       * * `LightspeedRetail` - LightspeedRetail
-       * * `Shipmail` - Shipmail
-       * * `ShipStation` - ShipStation
-       * * `ConstantContact` - ConstantContact
-       * * `Mailgun` - Mailgun
-       * * `Eloqua` - Eloqua
-       * * `Sailthru` - Sailthru
-       * * `Ortto` - Ortto
-       * * `Attentive` - Attentive
-       * * `Kustomer` - Kustomer
-       * * `Dixa` - Dixa
-       * * `Gladly` - Gladly
-       * * `Qualtrics` - Qualtrics
-       * * `AzureDevOps` - AzureDevOps
-       * * `RoktAds` - RoktAds
-       * * `Rollbar` - Rollbar
-       * * `Opsgenie` - Opsgenie
-       * * `IncidentIo` - IncidentIo
-       * * `Pingdom` - Pingdom
-       * * `Cloudflare` - Cloudflare
-       * * `CloudflareD1` - CloudflareD1
-       * * `CosmosDB` - CosmosDB
-       * * `PlanetScaleMySQL` - PlanetScaleMySQL
-       * * `PlanetScalePostgres` - PlanetScalePostgres
-       * * `Plane` - Plane
-       * * `Scarf` - Scarf
-       * * `SapHana` - SapHana
-       * * `Rippling` - Rippling
-       * * `HiBob` - HiBob
-       * * `Personio` - Personio
-       * * `Deel` - Deel
-       * * `AdpWorkforceNow` - AdpWorkforceNow
-       * * `Paylocity` - Paylocity
-       * * `Gusto` - Gusto
-       * * `CultureAmp` - CultureAmp
-       * * `Lattice` - Lattice
-       * * `SageIntacct` - SageIntacct
-       * * `FreshBooks` - FreshBooks
-       * * `Expensify` - Expensify
-       * * `Ramp` - Ramp
-       * * `Brex` - Brex
-       * * `Coupa` - Coupa
-       * * `SapConcur` - SapConcur
-       * * `Apollo` - Apollo
-       * * `Crunchbase` - Crunchbase
-       * * `ZoomInfo` - ZoomInfo
-       * * `Clari` - Clari
-       * * `Chorus` - Chorus
-       * * `Coda` - Coda
-       * * `Guru` - Guru
-       * * `Dropbox` - Dropbox
-       * * `Docusign` - Docusign
-       * * `PandaDoc` - PandaDoc
-       * * `SapErp` - SapErp
-       * * `SapSuccessFactors` - SapSuccessFactors
-       * * `OracleEbs` - OracleEbs
-       * * `OracleFusion` - OracleFusion
-       * * `AmazonSNS` - AmazonSNS
-       * * `AmazonEventBridge` - AmazonEventBridge
-       * * `AmazonSQS` - AmazonSQS
-       * * `AmazonKinesis` - AmazonKinesis
-       * * `AmazonCloudWatch` - AmazonCloudWatch
-       * * `OpenAIAds` - OpenAIAds
-       * * `OneHundredMs` - OneHundredMs
-       * * `SevenShifts` - SevenShifts
-       * * `AcuityScheduling` - AcuityScheduling
-       * * `AgileCRM` - AgileCRM
-       * * `Aha` - Aha
-       * * `Airbyte` - Airbyte
-       * * `Akeneo` - Akeneo
-       * * `Algolia` - Algolia
-       * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
-       * * `ApifyDataset` - ApifyDataset
-       * * `Appcues` - Appcues
-       * * `Appfigures` - Appfigures
-       * * `Appfollow` - Appfollow
-       * * `Apptivo` - Apptivo
-       * * `AssemblyAI` - AssemblyAI
-       * * `Awin` - Awin
-       * * `AwsCloudTrail` - AwsCloudTrail
-       * * `AzureTableStorage` - AzureTableStorage
-       * * `Babelforce` - Babelforce
-       * * `Basecamp` - Basecamp
-       * * `Beamer` - Beamer
-       * * `BigMailer` - BigMailer
-       * * `Bluetally` - Bluetally
-       * * `BoldSign` - BoldSign
-       * * `BreezyHR` - BreezyHR
-       * * `Bugsnag` - Bugsnag
-       * * `Buildkite` - Buildkite
-       * * `Bunny` - Bunny
-       * * `Buzzsprout` - Buzzsprout
-       * * `CalCom` - CalCom
-       * * `CallRail` - CallRail
-       * * `Campayn` - Campayn
-       * * `Canny` - Canny
-       * * `CapsuleCRM` - CapsuleCRM
-       * * `CaptainData` - CaptainData
-       * * `CartCom` - CartCom
-       * * `CastorEDC` - CastorEDC
-       * * `Chameleon` - Chameleon
-       * * `Chargedesk` - Chargedesk
-       * * `Chargify` - Chargify
-       * * `Chift` - Chift
-       * * `Churnkey` - Churnkey
-       * * `Cin7` - Cin7
-       * * `CiscoMeraki` - CiscoMeraki
-       * * `Clazar` - Clazar
-       * * `Clockify` - Clockify
-       * * `Clockodo` - Clockodo
-       * * `Cloudbeds` - Cloudbeds
-       * * `Coassemble` - Coassemble
-       * * `Codefresh` - Codefresh
-       * * `Concord` - Concord
-       * * `ConfigCat` - ConfigCat
-       * * `Couchbase` - Couchbase
-       * * `Curve` - Curve
-       * * `Customerly` - Customerly
-       * * `Datascope` - Datascope
-       * * `Dbt` - Dbt
-       * * `Demodesk` - Demodesk
-       * * `Deputy` - Deputy
-       * * `DevinAI` - DevinAI
-       * * `Docuseal` - Docuseal
-       * * `Dolibarr` - Dolibarr
-       * * `Dremio` - Dremio
-       * * `DropboxSign` - DropboxSign
-       * * `Dwolla` - Dwolla
-       * * `EConomic` - EConomic
-       * * `Easypost` - Easypost
-       * * `Easypromos` - Easypromos
-       * * `Elasticemail` - Elasticemail
-       * * `EmailOctopus` - EmailOctopus
-       * * `EmploymentHero` - EmploymentHero
-       * * `Encharge` - Encharge
-       * * `Eventee` - Eventee
-       * * `Eventzilla` - Eventzilla
-       * * `Everhour` - Everhour
-       * * `EZOfficeInventory` - EZOfficeInventory
-       * * `Factorial` - Factorial
-       * * `Fastbill` - Fastbill
-       * * `Fastly` - Fastly
-       * * `Fauna` - Fauna
-       * * `Feishu` - Feishu
-       * * `Fillout` - Fillout
-       * * `Finage` - Finage
-       * * `Firebolt` - Firebolt
-       * * `FireHydrant` - FireHydrant
-       * * `Fleetio` - Fleetio
-       * * `Flexmail` - Flexmail
-       * * `Flexport` - Flexport
-       * * `FloatApp` - FloatApp
-       * * `Flowlu` - Flowlu
-       * * `Formbricks` - Formbricks
-       * * `Framer` - Framer
-       * * `FreeAgent` - FreeAgent
-       * * `Freightview` - Freightview
-       * * `Freshcaller` - Freshcaller
-       * * `Freshchat` - Freshchat
-       * * `Freshservice` - Freshservice
-       * * `Fulcrum` - Fulcrum
-       * * `GainsightCs` - GainsightCs
-       * * `GainsightPx` - GainsightPx
-       * * `GitBook` - GitBook
-       * * `Glassfrog` - Glassfrog
-       * * `Goldcast` - Goldcast
-       * * `GoLogin` - GoLogin
-       * * `Grafana` - Grafana
-       * * `GreytHr` - GreytHr
-       * * `Gridly` - Gridly
-       * * `Harness` - Harness
-       * * `Height` - Height
-       * * `Hellobaton` - Hellobaton
-       * * `HighLevel` - HighLevel
-       * * `HoorayHR` - HoorayHR
-       * * `Hubplanner` - Hubplanner
-       * * `Humanitix` - Humanitix
-       * * `Huntr` - Huntr
-       * * `Inflowinventory` - Inflowinventory
-       * * `InforNexus` - InforNexus
-       * * `Insightful` - Insightful
-       * * `Insightly` - Insightly
-       * * `Instantly` - Instantly
-       * * `Instatus` - Instatus
-       * * `Intruder` - Intruder
-       * * `Invoiced` - Invoiced
-       * * `Invoiceninja` - Invoiceninja
-       * * `JamfPro` - JamfPro
-       * * `JobNimbus` - JobNimbus
-       * * `Jotform` - Jotform
-       * * `JudgeMeReviews` - JudgeMeReviews
-       * * `JustCall` - JustCall
-       * * `JustSift` - JustSift
-       * * `K6Cloud` - K6Cloud
-       * * `Katana` - Katana
-       * * `Keka` - Keka
-       * * `Kisi` - Kisi
-       * * `Kissmetrics` - Kissmetrics
-       * * `Klarna` - Klarna
-       * * `Klaus` - Klaus
-       * * `Lago` - Lago
-       * * `Leadfeeder` - Leadfeeder
-       * * `Lemlist` - Lemlist
-       * * `LessAnnoyingCRM` - LessAnnoyingCRM
-       * * `LinkedinPages` - LinkedinPages
-       * * `Linkrunner` - Linkrunner
-       * * `Linnworks` - Linnworks
-       * * `Lob` - Lob
-       * * `Lokalise` - Lokalise
-       * * `Looker` - Looker
-       * * `Luma` - Luma
-       * * `MailerSend` - MailerSend
-       * * `Mailosaur` - Mailosaur
-       * * `Mailtrap` - Mailtrap
-       * * `Mantle` - Mantle
-       * * `Mention` - Mention
-       * * `MercadoAds` - MercadoAds
-       * * `Merge` - Merge
-       * * `Metabase` - Metabase
-       * * `Metricool` - Metricool
-       * * `MicrosoftDataverse` - MicrosoftDataverse
-       * * `MicrosoftEntraId` - MicrosoftEntraId
-       * * `MicrosoftLists` - MicrosoftLists
-       * * `Miro` - Miro
-       * * `Missive` - Missive
-       * * `MixMax` - MixMax
-       * * `Mode` - Mode
-       * * `Mux` - Mux
-       * * `MyHours` - MyHours
-       * * `N8n` - N8n
-       * * `Navan` - Navan
-       * * `NebiusAI` - NebiusAI
-       * * `Nexiopay` - Nexiopay
-       * * `NinjaOneRMM` - NinjaOneRMM
-       * * `NoCRM` - NoCRM
-       * * `NorthpassLMS` - NorthpassLMS
-       * * `Nutshell` - Nutshell
-       * * `Nylas` - Nylas
-       * * `Oncehub` - Oncehub
-       * * `Onepagecrm` - Onepagecrm
-       * * `OneSignal` - OneSignal
-       * * `Onfleet` - Onfleet
-       * * `OpinionStage` - OpinionStage
-       * * `OPUSWatch` - OPUSWatch
-       * * `Orb` - Orb
-       * * `Orbit` - Orbit
-       * * `Oura` - Oura
-       * * `Oveit` - Oveit
-       * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
-       * * `Paperform` - Paperform
-       * * `Papersign` - Papersign
-       * * `Partnerize` - Partnerize
-       * * `PartnerStack` - PartnerStack
-       * * `PayFit` - PayFit
-       * * `Paystack` - Paystack
-       * * `Pennylane` - Pennylane
-       * * `Perk` - Perk
-       * * `PersistIq` - PersistIq
-       * * `Persona` - Persona
-       * * `Phyllo` - Phyllo
-       * * `Picqer` - Picqer
-       * * `Pipeliner` - Pipeliner
-       * * `PivotalTracker` - PivotalTracker
-       * * `Piwik` - Piwik
-       * * `Planhat` - Planhat
-       * * `Plausible` - Plausible
-       * * `Poplar` - Poplar
-       * * `PrestaShop` - PrestaShop
-       * * `Pretix` - Pretix
-       * * `Primetric` - Primetric
-       * * `Printavo` - Printavo
-       * * `Printify` - Printify
-       * * `Productive` - Productive
-       * * `Pylon` - Pylon
-       * * `Qonto` - Qonto
-       * * `Qualaroo` - Qualaroo
-       * * `Railz` - Railz
-       * * `RDStationMarketing` - RDStationMarketing
-       * * `Recruitee` - Recruitee
-       * * `Reddit` - Reddit
-       * * `ReferralHero` - ReferralHero
-       * * `RentCast` - RentCast
-       * * `Repairshopr` - Repairshopr
-       * * `ReplyIo` - ReplyIo
-       * * `RetailExpress` - RetailExpress
-       * * `Retently` - Retently
-       * * `Retreaver` - Retreaver
-       * * `RevolutMerchant` - RevolutMerchant
-       * * `RocketChat` - RocketChat
-       * * `Rocketlane` - Rocketlane
-       * * `Rootly` - Rootly
-       * * `Ruddr` - Ruddr
-       * * `SafetyCulture` - SafetyCulture
-       * * `SageHR` - SageHR
-       * * `Salesflare` - Salesflare
-       * * `SAPFieldglass` - SAPFieldglass
-       * * `SavvyCal` - SavvyCal
-       * * `Secoda` - Secoda
-       * * `Segment` - Segment
-       * * `Sendowl` - Sendowl
-       * * `SendPulse` - SendPulse
-       * * `Senseforce` - Senseforce
-       * * `Serpstat` - Serpstat
-       * * `Sharetribe` - Sharetribe
-       * * `Shippo` - Shippo
-       * * `ShopWired` - ShopWired
-       * * `Shortio` - Shortio
-       * * `Shutterstock` - Shutterstock
-       * * `SigmaComputing` - SigmaComputing
-       * * `SignNow` - SignNow
-       * * `SimpleCast` - SimpleCast
-       * * `Simplesat` - Simplesat
-       * * `Smaily` - Smaily
-       * * `SmartEngage` - SmartEngage
-       * * `Smartreach` - Smartreach
-       * * `Smartwaiver` - Smartwaiver
-       * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
-       * * `SonarCloud` - SonarCloud
-       * * `SparkPost` - SparkPost
-       * * `SplitIo` - SplitIo
-       * * `SpotifyAds` - SpotifyAds
-       * * `SpotlerCRM` - SpotlerCRM
-       * * `Squarespace` - Squarespace
-       * * `Statsig` - Statsig
-       * * `Statuspage` - Statuspage
-       * * `Steam` - Steam
-       * * `Stigg` - Stigg
-       * * `Strava` - Strava
-       * * `SurveySparrow` - SurveySparrow
-       * * `Survicate` - Survicate
-       * * `Svix` - Svix
-       * * `Systeme` - Systeme
-       * * `Tavus` - Tavus
-       * * `Teamtailor` - Teamtailor
-       * * `Teamwork` - Teamwork
-       * * `Tempo` - Tempo
-       * * `Testrail` - Testrail
-       * * `Thinkific` - Thinkific
-       * * `ThinkificCourses` - ThinkificCourses
-       * * `ThriveLearning` - ThriveLearning
-       * * `Ticketmaster` - Ticketmaster
-       * * `TicketTailor` - TicketTailor
-       * * `TickTick` - TickTick
-       * * `Timely` - Timely
-       * * `Tinyemail` - Tinyemail
-       * * `Todoist` - Todoist
-       * * `Toggl` - Toggl
-       * * `TrackPMS` - TrackPMS
-       * * `Tremendous` - Tremendous
-       * * `TrustPilot` - TrustPilot
-       * * `Twitter` - Twitter
-       * * `TyntecSMS` - TyntecSMS
-       * * `Unleash` - Unleash
-       * * `UpPromote` - UpPromote
-       * * `Uptick` - Uptick
-       * * `Uservoice` - Uservoice
-       * * `Vantage` - Vantage
-       * * `Veeqo` - Veeqo
-       * * `Vercel` - Vercel
-       * * `VismaEconomic` - VismaEconomic
-       * * `VWO` - VWO
-       * * `Waiteraid` - Waiteraid
-       * * `Wasabi` - Wasabi
-       * * `WhenIWork` - WhenIWork
-       * * `Wordpress` - Wordpress
-       * * `Workable` - Workable
-       * * `Workflowmax` - Workflowmax
-       * * `Workramp` - Workramp
-       * * `Wufoo` - Wufoo
-       * * `Xsolla` - Xsolla
-       * * `YandexMetrica` - YandexMetrica
-       * * `Yotpo` - Yotpo
-       * * `Ynab` - Ynab
-       * * `Younium` - Younium
-       * * `YouSign` - YouSign
-       * * `YoutubeData` - YoutubeData
-       * * `ZapierSupportedStorage` - ZapierSupportedStorage
-       * * `ZapSign` - ZapSign
-       * * `ZendeskSell` - ZendeskSell
-       * * `ZendeskSunshine` - ZendeskSunshine
-       * * `Zenefits` - Zenefits
-       * * `Zenloop` - Zenloop
-       * * `ZohoAnalytics` - ZohoAnalytics
-       * * `ZohoBigin` - ZohoBigin
-       * * `ZohoBilling` - ZohoBilling
-       * * `ZohoBooks` - ZohoBooks
-       * * `ZohoCampaign` - ZohoCampaign
-       * * `ZohoDesk` - ZohoDesk
-       * * `ZohoExpense` - ZohoExpense
-       * * `ZohoInventory` - ZohoInventory
-       * * `ZohoInvoice` - ZohoInvoice
-       * * `ZonkaFeedback` - ZonkaFeedback
-       * * `AlphaVantage` - AlphaVantage
-       * * `Aviationstack` - Aviationstack
-       * * `Bitly` - Bitly
-       * * `Blogger` - Blogger
-       * * `Breezometer` - Breezometer
-       * * `CareQualityCommission` - CareQualityCommission
-       * * `Cimis` - Cimis
-       * * `CoinApi` - CoinApi
-       * * `CoinGecko` - CoinGecko
-       * * `CoinMarketCap` - CoinMarketCap
-       * * `DingConnect` - DingConnect
-       * * `Dockerhub` - Dockerhub
-       * * `ExchangeRatesApi` - ExchangeRatesApi
-       * * `FinancialModelling` - FinancialModelling
-       * * `Finnhub` - Finnhub
-       * * `Finnworlds` - Finnworlds
-       * * `Giphy` - Giphy
-       * * `Gmail` - Gmail
-       * * `GNews` - GNews
-       * * `GoogleCalendar` - GoogleCalendar
-       * * `GoogleClassroom` - GoogleClassroom
-       * * `GoogleDirectory` - GoogleDirectory
-       * * `GoogleForms` - GoogleForms
-       * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
-       * * `GoogleTasks` - GoogleTasks
-       * * `GoogleWebfonts` - GoogleWebfonts
-       * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
-       * * `HuggingFace` - HuggingFace
-       * * `IlluminaBasespace` - IlluminaBasespace
-       * * `Imagga` - Imagga
-       * * `Interzoid` - Interzoid
-       * * `IP2Whois` - IP2Whois
-       * * `KYVE` - KYVE
-       * * `Marketstack` - Marketstack
-       * * `Mendeley` - Mendeley
-       * * `Nasa` - Nasa
-       * * `NewYorkTimes` - NewYorkTimes
-       * * `NewsApi` - NewsApi
-       * * `NewsData` - NewsData
-       * * `OpenDataDc` - OpenDataDc
-       * * `OpenExchangeRates` - OpenExchangeRates
-       * * `OpenAQ` - OpenAQ
-       * * `OpenFDA` - OpenFDA
-       * * `OpenWeather` - OpenWeather
-       * * `Outlook` - Outlook
-       * * `Perigon` - Perigon
-       * * `Pexels` - Pexels
-       * * `Pocket` - Pocket
-       * * `Polygon` - Polygon
-       * * `PyPI` - PyPI
-       * * `Recreation` - Recreation
-       * * `RKICovid` - RKICovid
-       * * `Rss` - Rss
-       * * `SimFin` - SimFin
-       * * `StockData` - StockData
-       * * `Guardian` - Guardian
-       * * `TMDb` - TMDb
-       * * `TVMaze` - TVMaze
-       * * `TwelveData` - TwelveData
-       * * `Ubidots` - Ubidots
-       * * `USCensus` - USCensus
-       * * `Watchmode` - Watchmode
-       * * `WikipediaPageviews` - WikipediaPageviews
-       * * `YahooFinance` - YahooFinance
-       * * `Clarifai` - Clarifai
-       * * `Adapty` - Adapty
-       * * `Braintrust` - Braintrust
-       * * `StreamElements` - StreamElements
-       * * `Streamlabs` - Streamlabs
-       * * `Datorama` - Datorama
-       * * `Ahrefs` - Ahrefs
-       * * `Lightfield` - Lightfield
-       * * `Appstack` - Appstack
-       * * `Razorpay` - Razorpay
-       * * `Neon` - Neon
-       * * `NewRelic` - NewRelic
-       * * `Custom` - Custom
-       * * `Tile38` - Tile38
-       * * `Chatwoot` - Chatwoot
-       * * `Sanity` - Sanity
-       * * `Metronome` - Metronome
-       * * `Jobber` - Jobber
-       * * `Knock` - Knock
-       * * `Leexi` - Leexi
-       * * `RB2B` - RB2B
-       * * `Superwall` - Superwall
-       * * `Liana` - Liana
-       * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch
-       * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas
-       * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds
-       * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow
-       * * `Plunk` - Plunk
-       * * `Dub` - Dub
-       * * `AirOps` - AirOps
-       * * `Podium` - Podium
-       * * `Loops` - Loops
-       * * `Redis` - Redis
-       * * `Mercury` - Mercury
-       * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable
-       * * `PeecAI` - PeecAI
-       * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact
-       * * `AikidoSecurity` - AikidoSecurity
-       * * `Alguna` - Alguna
-       * * `Anthropic` - Anthropic
-       * * `Appwrite` - Appwrite
-       * * `BlandAI` - BlandAI
-       * * `BrowseAI` - BrowseAI
-       * * `BrowserUse` - BrowserUse
-       * * `ChartHop` - ChartHop
-       * * `Cody` - Cody
-       * * `Cursor` - Cursor
-       * * `Decagon` - Decagon
-       * * `Deepgram` - Deepgram
-       * * `ElevenLabs` - ElevenLabs
-       * * `Harvey` - Harvey
-       * * `Hyperspell` - Hyperspell
-       * * `Langfuse` - Langfuse
-       * * `LingoDev` - LingoDev
-       * * `M3ter` - M3ter
-       * * `Maxio` - Maxio
-       * * `Metorial` - Metorial
-       * * `OpenRouter` - OpenRouter
-       * * `TogetherAI` - TogetherAI
-       * * `Vapi` - Vapi
-       * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic
-       * * `Aiven` - Aiven
-       * * `Aviator` - Aviator
-       * * `Backblaze` - Backblaze
-       * * `Baseten` - Baseten
-       * * `Browserbase` - Browserbase
-       * * `Cohere` - Cohere
-       * * `DenoDeploy` - DenoDeploy
-       * * `DigitalOcean` - DigitalOcean
-       * * `E2B` - E2B
-       * * `Fintoc` - Fintoc
-       * * `Firecrawl` - Firecrawl
-       * * `FireworksAI` - FireworksAI
-       * * `FlyIo` - FlyIo
-       * * `Groq` - Groq
-       * * `GrowthBook` - GrowthBook
-       * * `Gumloop` - Gumloop
-       * * `Hatchet` - Hatchet
-       * * `Helicone` - Helicone
-       * * `Heroku` - Heroku
-       * * `Hetzner` - Hetzner
-       * * `HeyGen` - HeyGen
-       * * `Infisical` - Infisical
-       * * `Inngest` - Inngest
-       * * `KapaAI` - KapaAI
-       * * `Kernel` - Kernel
-       * * `Koyeb` - Koyeb
-       * * `LambdaLabs` - LambdaLabs
-       * * `LangSmith` - LangSmith
-       * * `Linode` - Linode
-       * * `Listmonk` - Listmonk
-       * * `LlamaCloud` - LlamaCloud
-       * * `Mem0` - Mem0
-       * * `Metriport` - Metriport
-       * * `Mintlify` - Mintlify
-       * * `MistralAI` - MistralAI
-       * * `Mono` - Mono
-       * * `Netlify` - Netlify
-       * * `Northflank` - Northflank
-       * * `OpenAI` - OpenAI
-       * * `Pinecone` - Pinecone
-       * * `PlatformSh` - PlatformSh
-       * * `PromptingCompany` - PromptingCompany
-       * * `Qdrant` - Qdrant
-       * * `Render` - Render
-       * * `Replicate` - Replicate
-       * * `RetellAI` - RetellAI
-       * * `Roark` - Roark
-       * * `RunPod` - RunPod
-       * * `ScaleAI` - ScaleAI
-       * * `Scaleway` - Scaleway
-       * * `SigNoz` - SigNoz
-       * * `Sim` - Sim
-       * * `Skyvern` - Skyvern
-       * * `Slash` - Slash
-       * * `Synthesia` - Synthesia
-       * * `Telli` - Telli
-       * * `TerraApi` - TerraApi
-       * * `TriggerDev` - TriggerDev
-       * * `Turso` - Turso
-       * * `Singular` - Singular
-       * * `Swonkie` - Swonkie
-       * * `TwelveLabs` - TwelveLabs
-       * * `Twenty` - Twenty
-       * * `Unstructured` - Unstructured
-       * * `Upstash` - Upstash
-       * * `Vellum` - Vellum
-       * * `Vultr` - Vultr
-       * * `Windmill` - Windmill
-       * * `Zep` - Zep
-       * * `Hex` - Hex
-       * * `Sumsub` - Sumsub
-       * * `GoogleChat` - GoogleChat
-       * * `Kickscale` - Kickscale
-       * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack
-       * * `DodoPayments` - DodoPayments
-       * * `Salestrics` - Salestrics
-       * * `Doppler` - Doppler
-       * * `Usersnap` - Usersnap
-       * * `Asknicely` - Asknicely
-       * * `Featurebase` - Featurebase
-       * * `Frill` - Frill
-       * * `Bettermode` - Bettermode
-       * * `Dynatrace` - Dynatrace
-       * * `Honeycomb` - Honeycomb
-       * * `SumoLogic` - SumoLogic
-       * * `LogzIO` - LogzIO
-       * * `Coralogix` - Coralogix
-       * * `BetterStack` - BetterStack
-       * * `Raygun` - Raygun
-       * * `Honeybadger` - Honeybadger
-       * * `Airbrake` - Airbrake
-       * * `Appsignal` - Appsignal
-       * * `Appdynamics` - Appdynamics
-       * * `Instana` - Instana
-       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
-       * * `Uptimerobot` - Uptimerobot
-       * * `Statuscake` - Statuscake
-       * * `Tailscale` - Tailscale
-       * * `Flagsmith` - Flagsmith
-       * * `Xmatters` - Xmatters
-       * * `Squadcast` - Squadcast
-       * * `Zenduty` - Zenduty
-       * * `Cronitor` - Cronitor
-       * * `Jenkins` - Jenkins
-       * * `Bitbucket` - Bitbucket
-       * * `Gitea` - Gitea
-       * * `Teamcity` - Teamcity
-       * * `TravisCI` - TravisCI
-       * * `Semaphore` - Semaphore
-       * * `CircleciInsights` - CircleciInsights
-       * * `OctopusDeploy` - OctopusDeploy
-       * * `Sourcegraph` - Sourcegraph
-       * * `Bitrise` - Bitrise
-       * * `Gerrit` - Gerrit
-       * * `TerraformCloud` - TerraformCloud
-       * * `PulumiCloud` - PulumiCloud
-       * * `Spacelift` - Spacelift
-       * * `Railway` - Railway
-       * * `Argocd` - Argocd
-       * * `PrefectCloud` - PrefectCloud
-       * * `DagsterCloud` - DagsterCloud
-       * * `Env0` - Env0
-       * * `Kubecost` - Kubecost
-       * * `Snyk` - Snyk
-       * * `Semgrep` - Semgrep
-       * * `Veracode` - Veracode
-       * * `Checkmarx` - Checkmarx
-       * * `Gitguardian` - Gitguardian
-       * * `QualysVmdr` - QualysVmdr
-       * * `Rapid7Insightvm` - Rapid7Insightvm
-       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
-       * * `Sentinelone` - Sentinelone
-       * * `Lacework` - Lacework
-       * * `OrcaSecurity` - OrcaSecurity
-       * * `Drata` - Drata
-       * * `Secureframe` - Secureframe
-       * * `CiscoDuo` - CiscoDuo
-       * * `Jumpcloud` - Jumpcloud
-       * * `OnePassword` - OnePassword
-       * * `Stytch` - Stytch
-       * * `Sonarqube` - Sonarqube
-       * * `Codecov` - Codecov
-       * * `Coveralls` - Coveralls
-       * * `Codacy` - Codacy
-       * * `Deepsource` - Deepsource
-       * * `Linearb` - Linearb
-       * * `Jellyfish` - Jellyfish
-       * * `Swarmia` - Swarmia
-       * * `Packagist` - Packagist
-       * * `Nuget` - Nuget
-       * * `CratesIO` - CratesIO
-       * * `SonatypeNexus` - SonatypeNexus
-       * * `JfrogArtifactory` - JfrogArtifactory
-       * * `Snowplow` - Snowplow
-       * * `WeightsAndBiases` - WeightsAndBiases
-       * * `MonteCarlo` - MonteCarlo
-       * * `Metaplane` - Metaplane
-       * * `Datahub` - Datahub
-       * * `ClickhouseCloud` - ClickhouseCloud
-       * * `ConfluentCloud` - ConfluentCloud
-       * * `KongKonnect` - KongKonnect
-       * * `Kandji` - Kandji
-       * * `Automox` - Automox
-       * * `Autumn` - Autumn
-       * * `GetStream` - GetStream
-       * * `Octolens` - Octolens
-       * * `Kajabi` - Kajabi
-       * * `Shopware` - Shopware
-       * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch
-       * * `Crisp` - Crisp
-       * * `Kommo` - Kommo
-       * * `Axiom` - Axiom
-       * * `Plivo` - Plivo
-       * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan
-       * * `AbTasty` - AbTasty
-       * * `Ably` - Ably
-       * * `AbnormalSecurity` - AbnormalSecurity
-       * * `Acast` - Acast
-       * * `Acculynx` - Acculynx
-       * * `Actionstep` - Actionstep
-       * * `Aftership` - Aftership
-       * * `AhaIdeas` - AhaIdeas
-       * * `AkamaiReporting` - AkamaiReporting
-       * * `Alation` - Alation
-       * * `Alegra` - Alegra
-       * * `Allegro` - Allegro
-       * * `AnodotCost` - AnodotCost
-       * * `Anomalo` - Anomalo
-       * * `Apaleo` - Apaleo
-       * * `Apitally` - Apitally
-       * * `AppStoreConnect` - AppStoreConnect
-       * * `Appdirect` - Appdirect
-       * * `Appfolio` - Appfolio
-       * * `Arxiv` - Arxiv
-       * * `Asaas` - Asaas
-       * * `Astronomer` - Astronomer
-       * * `Athenahealth` - Athenahealth
-       * * `Atlan` - Atlan
-       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
-       * * `Avalara` - Avalara
-       * * `AwsAthena` - AwsAthena
-       * * `AwsBatch` - AwsBatch
-       * * `AwsBudgets` - AwsBudgets
-       * * `AwsCloudformation` - AwsCloudformation
-       * * `AwsComputeOptimizer` - AwsComputeOptimizer
-       * * `AwsConfig` - AwsConfig
-       * * `AwsConnect` - AwsConnect
-       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
-       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
-       * * `AwsCostExplorer` - AwsCostExplorer
-       * * `AwsDocumentDB` - AwsDocumentDB
-       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
-       * * `AwsGuardduty` - AwsGuardduty
-       * * `AwsHealth` - AwsHealth
-       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
-       * * `AwsInspector` - AwsInspector
-       * * `AwsMacie` - AwsMacie
-       * * `AwsOrganizations` - AwsOrganizations
-       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
-       * * `AwsSagemaker` - AwsSagemaker
-       * * `AwsSavingsPlans` - AwsSavingsPlans
-       * * `AwsSecurityHub` - AwsSecurityHub
-       * * `AwsSes` - AwsSes
-       * * `AwsStepFunctions` - AwsStepFunctions
-       * * `AwsSupport` - AwsSupport
-       * * `AwsSystemsManager` - AwsSystemsManager
-       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
-       * * `AwsWaf` - AwsWaf
-       * * `AwsXray` - AwsXray
-       * * `AzureActivityLog` - AzureActivityLog
-       * * `AzureAdvisor` - AzureAdvisor
-       * * `AzureApiManagement` - AzureApiManagement
-       * * `AzureApplicationInsights` - AzureApplicationInsights
-       * * `AzureCostManagement` - AzureCostManagement
-       * * `AzureDataExplorer` - AzureDataExplorer
-       * * `AzureDataFactory` - AzureDataFactory
-       * * `AzureLogAnalytics` - AzureLogAnalytics
-       * * `AzureMonitorAlerts` - AzureMonitorAlerts
-       * * `AzureMonitorMetrics` - AzureMonitorMetrics
-       * * `AzureOpenaiUsage` - AzureOpenaiUsage
-       * * `AzurePolicyInsights` - AzurePolicyInsights
-       * * `AzureReservations` - AzureReservations
-       * * `AzureResourceGraph` - AzureResourceGraph
-       * * `AzureResourceHealth` - AzureResourceHealth
-       * * `AzureServiceHealth` - AzureServiceHealth
-       * * `AzureSynapse` - AzureSynapse
-       * * `BackMarket` - BackMarket
-       * * `Beehiiv` - Beehiiv
-       * * `Bigeye` - Bigeye
-       * * `BillCom` - BillCom
-       * * `Billomat` - Billomat
-       * * `BingWebmasterTools` - BingWebmasterTools
-       * * `Bitwarden` - Bitwarden
-       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
-       * * `BlackboardLearn` - BlackboardLearn
-       * * `Bling` - Bling
-       * * `Bloomerang` - Bloomerang
-       * * `Blueshift` - Blueshift
-       * * `Bluesky` - Bluesky
-       * * `BolRetailer` - BolRetailer
-       * * `Boulevard` - Boulevard
-       * * `Buffer` - Buffer
-       * * `Bugherd` - Bugherd
-       * * `Buildium` - Buildium
-       * * `Buttondown` - Buttondown
-       * * `BuyMeACoffee` - BuyMeACoffee
-       * * `Calendarific` - Calendarific
-       * * `Calibre` - Calibre
-       * * `CanvasLms` - CanvasLms
-       * * `Captivate` - Captivate
-       * * `Cashfree` - Cashfree
-       * * `CastAi` - CastAi
-       * * `Catchpoint` - Catchpoint
-       * * `CdcOpenData` - CdcOpenData
-       * * `Census` - Census
-       * * `Checkly` - Checkly
-       * * `CircleSo` - CircleSo
-       * * `Classy` - Classy
-       * * `Cleartax` - Cleartax
-       * * `Clever` - Clever
-       * * `Clevertap` - Clevertap
-       * * `Cliniko` - Cliniko
-       * * `Clio` - Clio
-       * * `Clip` - Clip
-       * * `Cloudability` - Cloudability
-       * * `Cloudsmith` - Cloudsmith
-       * * `Cloudzero` - Cloudzero
-       * * `Clover` - Clover
-       * * `Codemagic` - Codemagic
-       * * `Codescene` - Codescene
-       * * `Collibra` - Collibra
-       * * `Companycam` - Companycam
-       * * `Conekta` - Conekta
-       * * `ContaAzul` - ContaAzul
-       * * `Contentsquare` - Contentsquare
-       * * `Cortex` - Cortex
-       * * `Courier` - Courier
-       * * `Crossref` - Crossref
-       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
-       * * `CubeCloud` - CubeCloud
-       * * `D2lBrightspace` - D2lBrightspace
-       * * `Dayforce` - Dayforce
-       * * `Debugbear` - Debugbear
-       * * `Descope` - Descope
-       * * `Develocity` - Develocity
-       * * `Dialpad` - Dialpad
-       * * `Discord` - Discord
-       * * `Discourse` - Discourse
-       * * `Donorbox` - Donorbox
-       * * `Doorloop` - Doorloop
-       * * `Dovetail` - Dovetail
-       * * `Dragonboat` - Dragonboat
-       * * `Drchrono` - Drchrono
-       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
-       * * `EcbDataPortal` - EcbDataPortal
-       * * `Emarsys` - Emarsys
-       * * `Embrace` - Embrace
-       * * `Entsoe` - Entsoe
-       * * `Eppo` - Eppo
-       * * `Etsy` - Etsy
-       * * `Eurostat` - Eurostat
-       * * `Faire` - Faire
-       * * `FarosAi` - FarosAi
-       * * `Fieldpulse` - Fieldpulse
-       * * `Fieldwire` - Fieldwire
-       * * `Filevine` - Filevine
-       * * `Finout` - Finout
-       * * `Five9` - Five9
-       * * `FlexeraCloudCost` - FlexeraCloudCost
-       * * `Flutterwave` - Flutterwave
-       * * `Fortnox` - Fortnox
-       * * `Fourthwall` - Fourthwall
-       * * `Fred` - Fred
-       * * `Frontegg` - Frontegg
-       * * `FusionAuth` - FusionAuth
-       * * `G2` - G2
-       * * `Gcore` - Gcore
-       * * `GcpApigee` - GcpApigee
-       * * `GcpArtifactRegistry` - GcpArtifactRegistry
-       * * `GcpBigtable` - GcpBigtable
-       * * `GcpChronicle` - GcpChronicle
-       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
-       * * `GcpCloudBilling` - GcpCloudBilling
-       * * `GcpCloudBuild` - GcpCloudBuild
-       * * `GcpCloudDeploy` - GcpCloudDeploy
-       * * `GcpCloudDns` - GcpCloudDns
-       * * `GcpCloudFunctions` - GcpCloudFunctions
-       * * `GcpCloudLogging` - GcpCloudLogging
-       * * `GcpCloudMonitoring` - GcpCloudMonitoring
-       * * `GcpCloudRun` - GcpCloudRun
-       * * `GcpCloudSpanner` - GcpCloudSpanner
-       * * `GcpCloudSql` - GcpCloudSql
-       * * `GcpCloudTrace` - GcpCloudTrace
-       * * `GcpCloudWorkflows` - GcpCloudWorkflows
-       * * `GcpComputeEngine` - GcpComputeEngine
-       * * `GcpContainerAnalysis` - GcpContainerAnalysis
-       * * `GcpDataflow` - GcpDataflow
-       * * `GcpDataplex` - GcpDataplex
-       * * `GcpDataproc` - GcpDataproc
-       * * `GcpErrorReporting` - GcpErrorReporting
-       * * `GcpGke` - GcpGke
-       * * `GcpPubsub` - GcpPubsub
-       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
-       * * `GcpRecommender` - GcpRecommender
-       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
-       * * `Gdelt` - Gdelt
-       * * `GenesysCloud` - GenesysCloud
-       * * `Getdx` - Getdx
-       * * `Ghost` - Ghost
-       * * `Givebutter` - Givebutter
-       * * `Gleif` - Gleif
-       * * `GooglePlayConsole` - GooglePlayConsole
-       * * `Guesty` - Guesty
-       * * `Gumroad` - Gumroad
-       * * `HarnessCcm` - HarnessCcm
-       * * `HarnessSei` - HarnessSei
-       * * `Harvest` - Harvest
-       * * `Healthie` - Healthie
-       * * `Hitpay` - Hitpay
-       * * `Hivebrite` - Hivebrite
-       * * `Holded` - Holded
-       * * `Hostaway` - Hostaway
-       * * `HousecallPro` - HousecallPro
-       * * `Humanitec` - Humanitec
-       * * `ImfData` - ImfData
-       * * `Imperva` - Imperva
-       * * `InfluxdbCloud` - InfluxdbCloud
-       * * `Iyzico` - Iyzico
-       * * `Jobtread` - Jobtread
-       * * `Kameleoon` - Kameleoon
-       * * `KauflandMarketplace` - KauflandMarketplace
-       * * `Kestra` - Kestra
-       * * `Kick` - Kick
-       * * `Kinde` - Kinde
-       * * `Kion` - Kion
-       * * `Knowbe4` - Knowbe4
-       * * `Komodor` - Komodor
-       * * `Labelbox` - Labelbox
-       * * `Lawmatics` - Lawmatics
-       * * `Learnworlds` - Learnworlds
-       * * `LexwareOffice` - LexwareOffice
-       * * `Lightdash` - Lightdash
-       * * `Lodgify` - Lodgify
-       * * `Logicmonitor` - Logicmonitor
-       * * `Logrocket` - Logrocket
-       * * `LoopReturns` - LoopReturns
-       * * `Mastodon` - Mastodon
-       * * `Meetup` - Meetup
-       * * `Megaphone` - Megaphone
-       * * `Memberful` - Memberful
-       * * `MercadoPago` - MercadoPago
-       * * `Meteostat` - Meteostat
-       * * `Mews` - Mews
-       * * `Mezmo` - Mezmo
-       * * `Microsoft365UsageReports` - Microsoft365UsageReports
-       * * `MicrosoftAdvertising` - MicrosoftAdvertising
-       * * `MicrosoftClarity` - MicrosoftClarity
-       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
-       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
-       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
-       * * `MicrosoftIntune` - MicrosoftIntune
-       * * `MicrosoftPurview` - MicrosoftPurview
-       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
-       * * `MicrosoftSentinel` - MicrosoftSentinel
-       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
-       * * `Midtrans` - Midtrans
-       * * `MightyNetworks` - MightyNetworks
-       * * `Mindbody` - Mindbody
-       * * `Mirakl` - Mirakl
-       * * `Moesif` - Moesif
-       * * `Moneybird` - Moneybird
-       * * `Moodle` - Moodle
-       * * `Motherduck` - Motherduck
-       * * `Mycase` - Mycase
-       * * `NagerDate` - NagerDate
-       * * `NeonCrm` - NeonCrm
-       * * `Nexhealth` - Nexhealth
-       * * `NoaaCdo` - NoaaCdo
-       * * `Nobl9` - Nobl9
-       * * `Nolt` - Nolt
-       * * `Nops` - Nops
-       * * `NpmRegistry` - NpmRegistry
-       * * `Oecd` - Oecd
-       * * `Okendo` - Okendo
-       * * `Omni` - Omni
-       * * `Onelogin` - Onelogin
-       * * `OpenDental` - OpenDental
-       * * `OpenMeteo` - OpenMeteo
-       * * `Openalex` - Openalex
-       * * `Opencorporates` - Opencorporates
-       * * `Openfec` - Openfec
-       * * `OpnPayments` - OpnPayments
-       * * `Opslevel` - Opslevel
-       * * `OttoMarket` - OttoMarket
-       * * `Ownerrez` - Ownerrez
-       * * `Pagbank` - Pagbank
-       * * `Patreon` - Patreon
-       * * `Pax8` - Pax8
-       * * `Paychex` - Paychex
-       * * `Paymob` - Paymob
-       * * `Paymongo` - Paymongo
-       * * `Phonepe` - Phonepe
-       * * `Pike13` - Pike13
-       * * `Pingone` - Pingone
-       * * `PinterestOrganic` - PinterestOrganic
-       * * `PlanningCenter` - PlanningCenter
-       * * `PluralsightFlow` - PluralsightFlow
-       * * `Podbean` - Podbean
-       * * `Postscript` - Postscript
-       * * `PowerBiAdmin` - PowerBiAdmin
-       * * `Practicepanther` - Practicepanther
-       * * `Preset` - Preset
-       * * `Procore` - Procore
-       * * `Productiv` - Productiv
-       * * `ProofpointTap` - ProofpointTap
-       * * `Propertyware` - Propertyware
-       * * `Pubnub` - Pubnub
-       * * `Quay` - Quay
-       * * `Raken` - Raken
-       * * `RedpandaCloud` - RedpandaCloud
-       * * `RentManager` - RentManager
-       * * `Reverb` - Reverb
-       * * `RocketMatter` - RocketMatter
-       * * `Rubygems` - Rubygems
-       * * `Scalr` - Scalr
-       * * `SecEdgar` - SecEdgar
-       * * `SelectStar` - SelectStar
-       * * `SemanticScholar` - SemanticScholar
-       * * `Semrush` - Semrush
-       * * `ServiceFusion` - ServiceFusion
-       * * `Servicem8` - Servicem8
-       * * `Servicetitan` - Servicetitan
-       * * `Servicetrade` - Servicetrade
-       * * `Sevdesk` - Sevdesk
-       * * `Similarweb` - Similarweb
-       * * `Simpro` - Simpro
-       * * `Sinch` - Sinch
-       * * `Singlestore` - Singlestore
-       * * `Site24x7` - Site24x7
-       * * `Sleuth` - Sleuth
-       * * `Smartlook` - Smartlook
-       * * `Smartrecruiters` - Smartrecruiters
-       * * `Smokeball` - Smokeball
-       * * `SodaCloud` - SodaCloud
-       * * `Speedcurve` - Speedcurve
-       * * `SpotIo` - SpotIo
-       * * `Sprig` - Sprig
-       * * `Sprinklr` - Sprinklr
-       * * `SproutSocial` - SproutSocial
-       * * `StackOverflowForTeams` - StackOverflowForTeams
-       * * `Stockx` - Stockx
-       * * `TackleIo` - TackleIo
-       * * `Talkdesk` - Talkdesk
-       * * `TeamupFitness` - TeamupFitness
-       * * `Tebra` - Tebra
-       * * `Telnyx` - Telnyx
-       * * `Ternary` - Ternary
-       * * `Thoughtspot` - Thoughtspot
-       * * `Thousandeyes` - Thousandeyes
-       * * `Threads` - Threads
-       * * `TiktokShop` - TiktokShop
-       * * `TinyErp` - TinyErp
-       * * `Tinybird` - Tinybird
-       * * `Tipalti` - Tipalti
-       * * `Toast` - Toast
-       * * `Torii` - Torii
-       * * `Transistor` - Transistor
-       * * `TrunkIo` - TrunkIo
-       * * `Trustradius` - Trustradius
-       * * `Twitch` - Twitch
-       * * `TwoC2p` - TwoC2p
-       * * `UkCompaniesHouse` - UkCompaniesHouse
-       * * `UkOns` - UkOns
-       * * `UnComtrade` - UnComtrade
-       * * `UsBea` - UsBea
-       * * `UsBls` - UsBls
-       * * `UsEia` - UsEia
-       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
-       * * `Vanta` - Vanta
-       * * `Vendr` - Vendr
-       * * `Virtuous` - Virtuous
-       * * `Vonage` - Vonage
-       * * `WalmartMarketplace` - WalmartMarketplace
-       * * `Waydev` - Waydev
-       * * `Wayfair` - Wayfair
-       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
-       * * `WhoGho` - WhoGho
-       * * `Whop` - Whop
-       * * `Wistia` - Wistia
-       * * `Wiz` - Wiz
-       * * `Wompi` - Wompi
-       * * `Workiz` - Workiz
-       * * `WorldBank` - WorldBank
-       * * `Xendit` - Xendit
-       * * `Yoco` - Yoco
-       * * `ZalandoZdirect` - ZalandoZdirect
-       * * `Zluri` - Zluri
-       * * `Zylo` - Zylo
-       * * `Tally` - Tally
-       * * `Nuntly` - Nuntly
-       * * `Vturb` - Vturb
-       * * `Meltwater` - Meltwater
-       * * `UserCom` - UserCom
-       * * `Latitude` - Latitude
-       * * `Workato` - Workato
-       * * `SideShift` - SideShift
-       * * `DuckLake` - DuckLake
-       * * `Starburst` - Starburst
-       * * `Trino` - Trino
-       * * `Easybill` - Easybill
-       * * `Bexio` - Bexio
-       * * `Umami` - Umami
-       * * `Manychat` - Manychat
-       * * `Kickstarter` - Kickstarter
-       * * `Typesense` - Typesense
-       * * `FirstPromoter` - FirstPromoter
-       * * `Zero` - Zero
-       * * `Inth` - Inth
-       * * `BCMS` - BCMS
-       * * `Convonite` - Convonite
-       * * `Hookdeck` - Hookdeck
-       * * `Billit` - Billit
-       * * `Moxie` - Moxie
-       * * `TripleWhale` - TripleWhale
-       * * `Directus` - Directus
-       * * `Clay` - Clay
-       * * `TradableBits` - TradableBits
-       * * `Swan` - Swan
-       * * `Hyros` - Hyros
-       * * `Odoo` - Odoo
-       * * `Airbridge` - Airbridge
-       * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter
-       * * `Raisely` - Raisely
-       * * `RakutenAdvertising` - RakutenAdvertising
-       * * `Zitadel` - Zitadel
-       * * `DeelFlows` - DeelFlows
-       * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix
-       * * `Sevalla` - Sevalla
-       * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner
-       * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare
-       * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91
-       * * `Depot` - Depot
-       * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy
-       * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart
-       * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound
-       * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi
-       * * `Capterra` - Capterra
-       * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi
-       * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS
-       * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox
-       * * `SimonData` - SimonData
-       * * `CommissionJunction` - CommissionJunction
-       * * `Liveblocks` - Liveblocks
-       * * `Livestorm` - Livestorm
-       * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana
-       * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable
-       * * `Anvil` - Anvil
-       * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato
-       * * `Medusa` - Medusa
-       * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin
-       * * `Folk` - Folk
-       * * `Cybersource` - Cybersource
-       * * `GoogleAdSense` - GoogleAdSense
-       * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio
-       * * `Smartlead` - Smartlead
-       * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket
-       * * `Quo` - Quo
-       * * `HeyReach` - HeyReach
-       * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet
-       * * `Expo` - Expo
-       * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer
-       * * `Sprinto` - Sprinto
-       * * `Gem` - Gem
-       * * `AudioGO` - AudioGO
-       * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs
-       * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura
-       * * `ChargebackStop` - ChargebackStop
-       * * `Chargeflow` - Chargeflow
-       * * `Dreamdata` - Dreamdata
-       * * `GoogleBusinessProfile` - GoogleBusinessProfile
-       * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite
-       * * `Modal` - Modal
-       * * `Vimeo` - Vimeo
-       * * `Scrunch` - Scrunch
-       * * `Loom` - Loom
-       * * `Arcade` - Arcade
-       * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom
-       * * `Userback` - Userback
-       * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution
-       * * `StackAdapt` - StackAdapt
-       * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay
-       * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud
-       * * `Northbeam` - Northbeam
-       * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO
-       * * `Airship` - Airship
-       * * `Creem` - Creem
-       * * `Leantime` - Leantime
-       * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob
-       * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2
-       * * `Particle` - Particle
-       * * `FileUpload` - FileUpload
-       * * `Dripify` - Dripify
-       * * `AwsS3Tables` - AwsS3Tables
-       * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments
-       * * `Soniox` - Soniox
-       * * `Nango` - Nango
-       * * `Fathom` - Fathom
-       * * `Stamped` - Stamped */
-      readonly source_type: ExternalDataSourceTypeEnum;
+      /** The source type to start a direct-connection setup for (e.g. 'Postgres', 'ClickHouse'). */
+      readonly source_type: string;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
       /**
@@ -42396,7 +37265,8 @@ export namespace Schemas {
       footers?: EmailTemplateDesignBodyFootersItem[];
       /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
       values?: EmailTemplateDesignBodyValues;
-    };
+      [key: string]: unknown;
+     };
 
     /**
      * Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.
@@ -42407,7 +37277,8 @@ export namespace Schemas {
       /** Design schema version, e.g. 16. */
       schemaVersion: number;
       body: EmailTemplateDesignBody;
-    };
+      [key: string]: unknown;
+     };
 
     export interface EmailTemplateSender {
       /**
@@ -42601,7 +37472,8 @@ export namespace Schemas {
     }
 
     /**
-     * Request body for `emit-report`. Run attribution is taken from the URL path.
+     * Request body for the scout `emit-report` action and the inbox report `create` action. A scout run is
+     * taken from the URL path; a person is the authenticated caller.
      */
     export interface EmitReportRequest {
       /**
@@ -42624,10 +37496,10 @@ export namespace Schemas {
        * * `requires_human_input` - requires_human_input
        * * `not_actionable` - not_actionable */
       actionability: ActionabilityEnum;
-      /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately. */
+      /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart of a scout report, so a wrong `false` opens a duplicate PR. Tracked separately. */
       already_addressed?: boolean;
       /**
-         * Optional repo for opening a draft PR, by autostart or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
+         * Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
          * @nullable
          */
       repository?: string | null;
@@ -42645,7 +37517,7 @@ export namespace Schemas {
          */
       priority_explanation?: string | null;
       /**
-         * Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold.
+         * Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. On a scout report it also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold. A report a person files never autostarts.
          * @maxItems 10
          */
       suggested_reviewers?: SuggestedReviewer[];
@@ -42676,7 +37548,7 @@ export namespace Schemas {
          */
       tags?: string[];
       /**
-         * Optional name for this emission, unique within the run. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report.
+         * Optional name for this emission, unique within a scout's run or within a person's own reports. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report.
          * @maxLength 200
          * @nullable
          */
@@ -44323,7 +39195,7 @@ export namespace Schemas {
 
     /**
      * * `ready` - Ready
-     * * `generating` - Generating
+     * * `not_generated` - Not Generated
      * * `unavailable` - Unavailable
      */
     export type IssueSummaryStatusEnum = typeof IssueSummaryStatusEnum[keyof typeof IssueSummaryStatusEnum];
@@ -44331,8 +39203,22 @@ export namespace Schemas {
 
     export const IssueSummaryStatusEnum = {
       Ready: 'ready',
-      Generating: 'generating',
+      NotGenerated: 'not_generated',
       Unavailable: 'unavailable',
+    } as const;
+
+    /**
+     * * `restricted` - Restricted
+     * * `disabled` - Disabled
+     * * `ai_not_approved` - Ai Not Approved
+     */
+    export type IssueSummaryUnavailableReasonEnum = typeof IssueSummaryUnavailableReasonEnum[keyof typeof IssueSummaryUnavailableReasonEnum];
+
+
+    export const IssueSummaryUnavailableReasonEnum = {
+      Restricted: 'restricted',
+      Disabled: 'disabled',
+      AiNotApproved: 'ai_not_approved',
     } as const;
 
     export interface ErrorTrackingIssueDetail {
@@ -44395,14 +39281,20 @@ export namespace Schemas {
       sparkline?: number[];
       /** Aggregate over matching events. Returned only when includeBreakdown is true. */
       breakdown?: ErrorTrackingIssueBreakdown;
-      /** A model-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
+      /** An AI-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
       summary?: ErrorTrackingIssueSummary;
-      /** 'ready' means summary is present. 'generating' means a summary may still be written: call once more after a few seconds, and continue without it if the status does not change. 'unavailable' means no summary exists for this issue and none is being written.
+      /** 'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is written only when an issue is created. 'unavailable' means no summary can be shown, and summary_reason says why.
        *
        * * `ready` - Ready
-       * * `generating` - Generating
+       * * `not_generated` - Not Generated
        * * `unavailable` - Unavailable */
       summary_status: IssueSummaryStatusEnum;
+      /** Present only when summary_status is 'unavailable'. 'restricted': the user may not read a property that the summary is written from. 'disabled': summaries are off for the project. 'ai_not_approved': the organization has not approved AI data processing.
+       *
+       * * `restricted` - Restricted
+       * * `disabled` - Disabled
+       * * `ai_not_approved` - Ai Not Approved */
+      summary_reason?: IssueSummaryUnavailableReasonEnum;
     }
 
     export interface ErrorTrackingIssueEventsQueryResponse {
@@ -44808,19 +39700,25 @@ export namespace Schemas {
       model: string;
       /** When the summary was written. */
       generated_at: string;
-      /** When generation last wrote the summary or confirmed it unchanged. The regenerate interval runs from it. */
+      /** When generation last wrote the summary. */
       checked_at: string;
     }
 
     export interface ErrorTrackingIssueSummaryResponse {
-      /** ready: `summary` holds the stored summary. generating: a summary is being written in the background, so poll again. `summary` holds the previous one, if any. unavailable: no summary exists and none will be written, for example because the feature is off.
+      /** ready: `summary` holds the stored summary. not_generated: no summary is stored for this issue. A summary is written only when an issue is created. unavailable: no summary can be shown. `reason` says why.
        *
        * * `ready` - Ready
-       * * `generating` - Generating
+       * * `not_generated` - Not Generated
        * * `unavailable` - Unavailable */
       status: IssueSummaryStatusEnum;
-      /** The stored summary, or null when none exists yet. */
+      /** The stored summary, or null when the status is not ready. */
       summary: ErrorTrackingStoredIssueSummary | null;
+      /** Why the status is unavailable, else null. restricted: the user may not read a property that the summary is written from. disabled: summaries are off for the project. ai_not_approved: the organization has not approved AI data processing.
+       *
+       * * `restricted` - Restricted
+       * * `disabled` - Disabled
+       * * `ai_not_approved` - Ai Not Approved */
+      reason: IssueSummaryUnavailableReasonEnum | null;
     }
 
     export interface ErrorTrackingIssueValue {
@@ -45160,6 +40058,8 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingSettings {
+      /** Project preference for adaptive ingestion. Turning this on does not currently change ingestion. */
+      adaptive_ingestion_enabled?: boolean;
       /**
          * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
          * @minimum 1
@@ -45555,6 +40455,7 @@ export namespace Schemas {
      * * `subscription_usage_limit` - subscription_usage_limit
      * * `task_spend_limit` - task_spend_limit
      * * `agent_error` - agent_error
+     * * `ActiveSessionCapError` - ActiveSessionCapError
      */
     export type ErrorTypeEnum = typeof ErrorTypeEnum[keyof typeof ErrorTypeEnum];
 
@@ -45576,6 +40477,7 @@ export namespace Schemas {
       SubscriptionUsageLimit: 'subscription_usage_limit',
       TaskSpendLimit: 'task_spend_limit',
       AgentError: 'agent_error',
+      ActiveSessionCapError: 'ActiveSessionCapError',
     } as const;
 
     export interface EstimateExperimentScope {
@@ -48321,6 +43223,47 @@ export namespace Schemas {
       NotChecked: 'not_checked',
     } as const;
 
+    /**
+     * * `percentage` - Percentage of exposed units
+     * * `p_value` - P-value of a statistical test
+     */
+    export type ExperimentHealthMeasurementUnitEnum = typeof ExperimentHealthMeasurementUnitEnum[keyof typeof ExperimentHealthMeasurementUnitEnum];
+
+
+    export const ExperimentHealthMeasurementUnitEnum = {
+      Percentage: 'percentage',
+      PValue: 'p_value',
+    } as const;
+
+    /**
+     * * `above` - Finding above the threshold
+     * * `below` - Finding below the threshold
+     */
+    export type ExperimentHealthMeasurementSideEnum = typeof ExperimentHealthMeasurementSideEnum[keyof typeof ExperimentHealthMeasurementSideEnum];
+
+
+    export const ExperimentHealthMeasurementSideEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    export interface ExperimentHealthMeasurement {
+      /** The value that the check measured on the experiment. */
+      value: number;
+      /** The value at which the check reports a finding. */
+      threshold: number;
+      /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test.
+       *
+       * * `percentage` - Percentage of exposed units
+       * * `p_value` - P-value of a statistical test */
+      unit: ExperimentHealthMeasurementUnitEnum;
+      /** The side of the threshold that reports a finding: above or below.
+       *
+       * * `above` - Finding above the threshold
+       * * `below` - Finding below the threshold */
+      warns: ExperimentHealthMeasurementSideEnum;
+    }
+
     export interface ExperimentHealthCheckResult {
       /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
        *
@@ -48350,6 +43293,8 @@ export namespace Schemas {
       key: ExperimentHealthCheckKeyEnum;
       /** The problem the check looks for, for example 'Metrics not set up'. */
       name: string;
+      /** What the check looks for and why it matters. The same for every experiment and every status. */
+      description: string;
       /** passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
        *
        * * `passed` - Passed
@@ -48362,6 +43307,8 @@ export namespace Schemas {
          * @nullable
          */
       reason: string | null;
+      /** The value that decided a passed check, against its threshold. Null for the other statuses, and for a pass without a value. A finding carries its values in `evidence`. */
+      measurement: ExperimentHealthMeasurement | null;
     }
 
     export interface ExperimentHealth {
@@ -48628,6 +43575,33 @@ export namespace Schemas {
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     } as const;
 
+    export type ExperimentExposureHealthMeasurementUnit = typeof ExperimentExposureHealthMeasurementUnit[keyof typeof ExperimentExposureHealthMeasurementUnit];
+
+
+    export const ExperimentExposureHealthMeasurementUnit = {
+      Percentage: 'percentage',
+      PValue: 'p_value',
+    } as const;
+
+    export type ExperimentExposureHealthMeasurementSide = typeof ExperimentExposureHealthMeasurementSide[keyof typeof ExperimentExposureHealthMeasurementSide];
+
+
+    export const ExperimentExposureHealthMeasurementSide = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    export interface ExperimentExposureHealthMeasurement {
+      /** The value at which the check reports a finding. */
+      threshold: number;
+      /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test. */
+      unit: ExperimentExposureHealthMeasurementUnit;
+      /** The value that the check measured on the experiment. */
+      value: number;
+      /** The side of the threshold that reports a finding. */
+      warns: ExperimentExposureHealthMeasurementSide;
+    }
+
     export type ExperimentExposureHealthCheckStatus = typeof ExperimentExposureHealthCheckStatus[keyof typeof ExperimentExposureHealthCheckStatus];
 
 
@@ -48639,8 +43613,12 @@ export namespace Schemas {
     } as const;
 
     export interface ExperimentExposureHealthCheck {
+      /** What the check looks for and why it matters. Missing on an answer cached before the field existed. */
+      description?: string | null;
       /** Stable identifier of the check. */
       key: ExperimentExposureHealthCheckKey;
+      /** The value that decided a passed check. Null for the other statuses and for a pass without a value. */
+      measurement?: ExperimentExposureHealthMeasurement | null;
       /** The problem the check looks for, as the health panel lists it. */
       name: string;
       /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
@@ -52284,11 +47262,18 @@ export namespace Schemas {
        * * `missing_primary_key` - Missing primary key
        * * `duplicate_primary_key` - Duplicate primary key */
       readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnum | null;
+      /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
+      readonly webhook_not_registered: boolean;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again.
+         * @nullable
+         */
+      masked_columns?: string[] | null;
       /**
          * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
          * @nullable
@@ -52411,6 +47396,11 @@ export namespace Schemas {
          */
       enabled_columns?: string[] | null;
       /**
+         * Columns whose values are replaced with a one-way digest at sync time. Null means mask nothing. Any change starts a full resync of the table.
+         * @nullable
+         */
+      masked_columns?: string[] | null;
+      /**
          * Row-filter predicates ANDed onto the source query. Null/empty means sync all rows.
          * @nullable
          */
@@ -52435,1424 +47425,8 @@ export namespace Schemas {
       readonly prefix: string | null;
       /** Backend engine detected for the direct connection. */
       readonly engine: EngineEnum | null;
-      /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
-       *
-       * * `Ashby` - Ashby
-       * * `Supabase` - Supabase
-       * * `CustomerIO` - CustomerIO
-       * * `Github` - Github
-       * * `Stripe` - Stripe
-       * * `Hubspot` - Hubspot
-       * * `Postgres` - Postgres
-       * * `Zendesk` - Zendesk
-       * * `Snowflake` - Snowflake
-       * * `Salesforce` - Salesforce
-       * * `MySQL` - MySQL
-       * * `MongoDB` - MongoDB
-       * * `MSSQL` - MSSQL
-       * * `Vitally` - Vitally
-       * * `BigQuery` - BigQuery
-       * * `Chargebee` - Chargebee
-       * * `Clerk` - Clerk
-       * * `GoogleAds` - GoogleAds
-       * * `GoogleSearchConsole` - GoogleSearchConsole
-       * * `TemporalIO` - TemporalIO
-       * * `DoIt` - DoIt
-       * * `GoogleSheets` - GoogleSheets
-       * * `MetaAds` - MetaAds
-       * * `Klaviyo` - Klaviyo
-       * * `Mailchimp` - Mailchimp
-       * * `Braze` - Braze
-       * * `Mailjet` - Mailjet
-       * * `Redshift` - Redshift
-       * * `Polar` - Polar
-       * * `RevenueCat` - RevenueCat
-       * * `LinkedinAds` - LinkedinAds
-       * * `RedditAds` - RedditAds
-       * * `TikTokAds` - TikTokAds
-       * * `BingAds` - BingAds
-       * * `Shopify` - Shopify
-       * * `Attio` - Attio
-       * * `SnapchatAds` - SnapchatAds
-       * * `Linear` - Linear
-       * * `LiteLLM` - LiteLLM
-       * * `Intercom` - Intercom
-       * * `Amplitude` - Amplitude
-       * * `Mixpanel` - Mixpanel
-       * * `Jira` - Jira
-       * * `ActiveCampaign` - ActiveCampaign
-       * * `Marketo` - Marketo
-       * * `Adjust` - Adjust
-       * * `AppsFlyer` - AppsFlyer
-       * * `Freshdesk` - Freshdesk
-       * * `GoogleAnalytics` - GoogleAnalytics
-       * * `Pipedrive` - Pipedrive
-       * * `SendGrid` - SendGrid
-       * * `Slack` - Slack
-       * * `PagerDuty` - PagerDuty
-       * * `Asana` - Asana
-       * * `Notion` - Notion
-       * * `Airtable` - Airtable
-       * * `Greenhouse` - Greenhouse
-       * * `BambooHR` - BambooHR
-       * * `Lever` - Lever
-       * * `GitLab` - GitLab
-       * * `Datadog` - Datadog
-       * * `Sentry` - Sentry
-       * * `Pendo` - Pendo
-       * * `FullStory` - FullStory
-       * * `AmazonAds` - AmazonAds
-       * * `PinterestAds` - PinterestAds
-       * * `AppleSearchAds` - AppleSearchAds
-       * * `QuickBooks` - QuickBooks
-       * * `Xero` - Xero
-       * * `NetSuite` - NetSuite
-       * * `WooCommerce` - WooCommerce
-       * * `BigCommerce` - BigCommerce
-       * * `PayPal` - PayPal
-       * * `Square` - Square
-       * * `Zoom` - Zoom
-       * * `Trello` - Trello
-       * * `TrafficStars` - TrafficStars
-       * * `Monday` - Monday
-       * * `ClickUp` - ClickUp
-       * * `Confluence` - Confluence
-       * * `Recurly` - Recurly
-       * * `SalesLoft` - SalesLoft
-       * * `Outreach` - Outreach
-       * * `Gong` - Gong
-       * * `Calendly` - Calendly
-       * * `Typeform` - Typeform
-       * * `UnityAds` - UnityAds
-       * * `Iterable` - Iterable
-       * * `ZohoCRM` - ZohoCRM
-       * * `Close` - Close
-       * * `Oracle` - Oracle
-       * * `DynamoDB` - DynamoDB
-       * * `Elasticsearch` - Elasticsearch
-       * * `Kafka` - Kafka
-       * * `LaunchDarkly` - LaunchDarkly
-       * * `Braintree` - Braintree
-       * * `Recharge` - Recharge
-       * * `HelpScout` - HelpScout
-       * * `Gorgias` - Gorgias
-       * * `Instagram` - Instagram
-       * * `YouTubeAnalytics` - YouTubeAnalytics
-       * * `FacebookPages` - FacebookPages
-       * * `TwitterAds` - TwitterAds
-       * * `Workday` - Workday
-       * * `ServiceNow` - ServiceNow
-       * * `Pardot` - Pardot
-       * * `Copper` - Copper
-       * * `Front` - Front
-       * * `ChartMogul` - ChartMogul
-       * * `Zuora` - Zuora
-       * * `Paddle` - Paddle
-       * * `CircleCI` - CircleCI
-       * * `CockroachDB` - CockroachDB
-       * * `Firebase` - Firebase
-       * * `AzureBlob` - AzureBlob
-       * * `GoogleDrive` - GoogleDrive
-       * * `OneDrive` - OneDrive
-       * * `SharePoint` - SharePoint
-       * * `Box` - Box
-       * * `SFTP` - SFTP
-       * * `MicrosoftTeams` - MicrosoftTeams
-       * * `Aircall` - Aircall
-       * * `Webflow` - Webflow
-       * * `Okta` - Okta
-       * * `Auth0` - Auth0
-       * * `Productboard` - Productboard
-       * * `Smartsheet` - Smartsheet
-       * * `Wrike` - Wrike
-       * * `Plaid` - Plaid
-       * * `SurveyMonkey` - SurveyMonkey
-       * * `Eventbrite` - Eventbrite
-       * * `Everflow` - Everflow
-       * * `RingCentral` - RingCentral
-       * * `Twilio` - Twilio
-       * * `Freshsales` - Freshsales
-       * * `Shortcut` - Shortcut
-       * * `ConvertKit` - ConvertKit
-       * * `Drip` - Drip
-       * * `CampaignMonitor` - CampaignMonitor
-       * * `MailerLite` - MailerLite
-       * * `Omnisend` - Omnisend
-       * * `Brevo` - Brevo
-       * * `Postmark` - Postmark
-       * * `Granola` - Granola
-       * * `BuildBetter` - BuildBetter
-       * * `Convex` - Convex
-       * * `ClickHouse` - ClickHouse
-       * * `Plain` - Plain
-       * * `Resend` - Resend
-       * * `PgAnalyze` - PgAnalyze
-       * * `WorkOS` - WorkOS
-       * * `AmazonS3` - AmazonS3
-       * * `GoogleCloudStorage` - GoogleCloudStorage
-       * * `Databricks` - Databricks
-       * * `Dynamics365` - Dynamics365
-       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
-       * * `Db2` - Db2
-       * * `Heap` - Heap
-       * * `AdobeAnalytics` - AdobeAnalytics
-       * * `Matomo` - Matomo
-       * * `Optimizely` - Optimizely
-       * * `Adyen` - Adyen
-       * * `GoCardless` - GoCardless
-       * * `Mollie` - Mollie
-       * * `CheckoutCom` - CheckoutCom
-       * * `Branch` - Branch
-       * * `Criteo` - Criteo
-       * * `Outbrain` - Outbrain
-       * * `Taboola` - Taboola
-       * * `AdRoll` - AdRoll
-       * * `DisplayVideo360` - DisplayVideo360
-       * * `GoogleAdManager` - GoogleAdManager
-       * * `CampaignManager360` - CampaignManager360
-       * * `SearchAds360` - SearchAds360
-       * * `AdobeCommerce` - AdobeCommerce
-       * * `AmazonSellingPartner` - AmazonSellingPartner
-       * * `Ebay` - Ebay
-       * * `Commercetools` - Commercetools
-       * * `LightspeedRetail` - LightspeedRetail
-       * * `Shipmail` - Shipmail
-       * * `ShipStation` - ShipStation
-       * * `ConstantContact` - ConstantContact
-       * * `Mailgun` - Mailgun
-       * * `Eloqua` - Eloqua
-       * * `Sailthru` - Sailthru
-       * * `Ortto` - Ortto
-       * * `Attentive` - Attentive
-       * * `Kustomer` - Kustomer
-       * * `Dixa` - Dixa
-       * * `Gladly` - Gladly
-       * * `Qualtrics` - Qualtrics
-       * * `AzureDevOps` - AzureDevOps
-       * * `RoktAds` - RoktAds
-       * * `Rollbar` - Rollbar
-       * * `Opsgenie` - Opsgenie
-       * * `IncidentIo` - IncidentIo
-       * * `Pingdom` - Pingdom
-       * * `Cloudflare` - Cloudflare
-       * * `CloudflareD1` - CloudflareD1
-       * * `CosmosDB` - CosmosDB
-       * * `PlanetScaleMySQL` - PlanetScaleMySQL
-       * * `PlanetScalePostgres` - PlanetScalePostgres
-       * * `Plane` - Plane
-       * * `Scarf` - Scarf
-       * * `SapHana` - SapHana
-       * * `Rippling` - Rippling
-       * * `HiBob` - HiBob
-       * * `Personio` - Personio
-       * * `Deel` - Deel
-       * * `AdpWorkforceNow` - AdpWorkforceNow
-       * * `Paylocity` - Paylocity
-       * * `Gusto` - Gusto
-       * * `CultureAmp` - CultureAmp
-       * * `Lattice` - Lattice
-       * * `SageIntacct` - SageIntacct
-       * * `FreshBooks` - FreshBooks
-       * * `Expensify` - Expensify
-       * * `Ramp` - Ramp
-       * * `Brex` - Brex
-       * * `Coupa` - Coupa
-       * * `SapConcur` - SapConcur
-       * * `Apollo` - Apollo
-       * * `Crunchbase` - Crunchbase
-       * * `ZoomInfo` - ZoomInfo
-       * * `Clari` - Clari
-       * * `Chorus` - Chorus
-       * * `Coda` - Coda
-       * * `Guru` - Guru
-       * * `Dropbox` - Dropbox
-       * * `Docusign` - Docusign
-       * * `PandaDoc` - PandaDoc
-       * * `SapErp` - SapErp
-       * * `SapSuccessFactors` - SapSuccessFactors
-       * * `OracleEbs` - OracleEbs
-       * * `OracleFusion` - OracleFusion
-       * * `AmazonSNS` - AmazonSNS
-       * * `AmazonEventBridge` - AmazonEventBridge
-       * * `AmazonSQS` - AmazonSQS
-       * * `AmazonKinesis` - AmazonKinesis
-       * * `AmazonCloudWatch` - AmazonCloudWatch
-       * * `OpenAIAds` - OpenAIAds
-       * * `OneHundredMs` - OneHundredMs
-       * * `SevenShifts` - SevenShifts
-       * * `AcuityScheduling` - AcuityScheduling
-       * * `AgileCRM` - AgileCRM
-       * * `Aha` - Aha
-       * * `Airbyte` - Airbyte
-       * * `Akeneo` - Akeneo
-       * * `Algolia` - Algolia
-       * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
-       * * `ApifyDataset` - ApifyDataset
-       * * `Appcues` - Appcues
-       * * `Appfigures` - Appfigures
-       * * `Appfollow` - Appfollow
-       * * `Apptivo` - Apptivo
-       * * `AssemblyAI` - AssemblyAI
-       * * `Awin` - Awin
-       * * `AwsCloudTrail` - AwsCloudTrail
-       * * `AzureTableStorage` - AzureTableStorage
-       * * `Babelforce` - Babelforce
-       * * `Basecamp` - Basecamp
-       * * `Beamer` - Beamer
-       * * `BigMailer` - BigMailer
-       * * `Bluetally` - Bluetally
-       * * `BoldSign` - BoldSign
-       * * `BreezyHR` - BreezyHR
-       * * `Bugsnag` - Bugsnag
-       * * `Buildkite` - Buildkite
-       * * `Bunny` - Bunny
-       * * `Buzzsprout` - Buzzsprout
-       * * `CalCom` - CalCom
-       * * `CallRail` - CallRail
-       * * `Campayn` - Campayn
-       * * `Canny` - Canny
-       * * `CapsuleCRM` - CapsuleCRM
-       * * `CaptainData` - CaptainData
-       * * `CartCom` - CartCom
-       * * `CastorEDC` - CastorEDC
-       * * `Chameleon` - Chameleon
-       * * `Chargedesk` - Chargedesk
-       * * `Chargify` - Chargify
-       * * `Chift` - Chift
-       * * `Churnkey` - Churnkey
-       * * `Cin7` - Cin7
-       * * `CiscoMeraki` - CiscoMeraki
-       * * `Clazar` - Clazar
-       * * `Clockify` - Clockify
-       * * `Clockodo` - Clockodo
-       * * `Cloudbeds` - Cloudbeds
-       * * `Coassemble` - Coassemble
-       * * `Codefresh` - Codefresh
-       * * `Concord` - Concord
-       * * `ConfigCat` - ConfigCat
-       * * `Couchbase` - Couchbase
-       * * `Curve` - Curve
-       * * `Customerly` - Customerly
-       * * `Datascope` - Datascope
-       * * `Dbt` - Dbt
-       * * `Demodesk` - Demodesk
-       * * `Deputy` - Deputy
-       * * `DevinAI` - DevinAI
-       * * `Docuseal` - Docuseal
-       * * `Dolibarr` - Dolibarr
-       * * `Dremio` - Dremio
-       * * `DropboxSign` - DropboxSign
-       * * `Dwolla` - Dwolla
-       * * `EConomic` - EConomic
-       * * `Easypost` - Easypost
-       * * `Easypromos` - Easypromos
-       * * `Elasticemail` - Elasticemail
-       * * `EmailOctopus` - EmailOctopus
-       * * `EmploymentHero` - EmploymentHero
-       * * `Encharge` - Encharge
-       * * `Eventee` - Eventee
-       * * `Eventzilla` - Eventzilla
-       * * `Everhour` - Everhour
-       * * `EZOfficeInventory` - EZOfficeInventory
-       * * `Factorial` - Factorial
-       * * `Fastbill` - Fastbill
-       * * `Fastly` - Fastly
-       * * `Fauna` - Fauna
-       * * `Feishu` - Feishu
-       * * `Fillout` - Fillout
-       * * `Finage` - Finage
-       * * `Firebolt` - Firebolt
-       * * `FireHydrant` - FireHydrant
-       * * `Fleetio` - Fleetio
-       * * `Flexmail` - Flexmail
-       * * `Flexport` - Flexport
-       * * `FloatApp` - FloatApp
-       * * `Flowlu` - Flowlu
-       * * `Formbricks` - Formbricks
-       * * `Framer` - Framer
-       * * `FreeAgent` - FreeAgent
-       * * `Freightview` - Freightview
-       * * `Freshcaller` - Freshcaller
-       * * `Freshchat` - Freshchat
-       * * `Freshservice` - Freshservice
-       * * `Fulcrum` - Fulcrum
-       * * `GainsightCs` - GainsightCs
-       * * `GainsightPx` - GainsightPx
-       * * `GitBook` - GitBook
-       * * `Glassfrog` - Glassfrog
-       * * `Goldcast` - Goldcast
-       * * `GoLogin` - GoLogin
-       * * `Grafana` - Grafana
-       * * `GreytHr` - GreytHr
-       * * `Gridly` - Gridly
-       * * `Harness` - Harness
-       * * `Height` - Height
-       * * `Hellobaton` - Hellobaton
-       * * `HighLevel` - HighLevel
-       * * `HoorayHR` - HoorayHR
-       * * `Hubplanner` - Hubplanner
-       * * `Humanitix` - Humanitix
-       * * `Huntr` - Huntr
-       * * `Inflowinventory` - Inflowinventory
-       * * `InforNexus` - InforNexus
-       * * `Insightful` - Insightful
-       * * `Insightly` - Insightly
-       * * `Instantly` - Instantly
-       * * `Instatus` - Instatus
-       * * `Intruder` - Intruder
-       * * `Invoiced` - Invoiced
-       * * `Invoiceninja` - Invoiceninja
-       * * `JamfPro` - JamfPro
-       * * `JobNimbus` - JobNimbus
-       * * `Jotform` - Jotform
-       * * `JudgeMeReviews` - JudgeMeReviews
-       * * `JustCall` - JustCall
-       * * `JustSift` - JustSift
-       * * `K6Cloud` - K6Cloud
-       * * `Katana` - Katana
-       * * `Keka` - Keka
-       * * `Kisi` - Kisi
-       * * `Kissmetrics` - Kissmetrics
-       * * `Klarna` - Klarna
-       * * `Klaus` - Klaus
-       * * `Lago` - Lago
-       * * `Leadfeeder` - Leadfeeder
-       * * `Lemlist` - Lemlist
-       * * `LessAnnoyingCRM` - LessAnnoyingCRM
-       * * `LinkedinPages` - LinkedinPages
-       * * `Linkrunner` - Linkrunner
-       * * `Linnworks` - Linnworks
-       * * `Lob` - Lob
-       * * `Lokalise` - Lokalise
-       * * `Looker` - Looker
-       * * `Luma` - Luma
-       * * `MailerSend` - MailerSend
-       * * `Mailosaur` - Mailosaur
-       * * `Mailtrap` - Mailtrap
-       * * `Mantle` - Mantle
-       * * `Mention` - Mention
-       * * `MercadoAds` - MercadoAds
-       * * `Merge` - Merge
-       * * `Metabase` - Metabase
-       * * `Metricool` - Metricool
-       * * `MicrosoftDataverse` - MicrosoftDataverse
-       * * `MicrosoftEntraId` - MicrosoftEntraId
-       * * `MicrosoftLists` - MicrosoftLists
-       * * `Miro` - Miro
-       * * `Missive` - Missive
-       * * `MixMax` - MixMax
-       * * `Mode` - Mode
-       * * `Mux` - Mux
-       * * `MyHours` - MyHours
-       * * `N8n` - N8n
-       * * `Navan` - Navan
-       * * `NebiusAI` - NebiusAI
-       * * `Nexiopay` - Nexiopay
-       * * `NinjaOneRMM` - NinjaOneRMM
-       * * `NoCRM` - NoCRM
-       * * `NorthpassLMS` - NorthpassLMS
-       * * `Nutshell` - Nutshell
-       * * `Nylas` - Nylas
-       * * `Oncehub` - Oncehub
-       * * `Onepagecrm` - Onepagecrm
-       * * `OneSignal` - OneSignal
-       * * `Onfleet` - Onfleet
-       * * `OpinionStage` - OpinionStage
-       * * `OPUSWatch` - OPUSWatch
-       * * `Orb` - Orb
-       * * `Orbit` - Orbit
-       * * `Oura` - Oura
-       * * `Oveit` - Oveit
-       * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
-       * * `Paperform` - Paperform
-       * * `Papersign` - Papersign
-       * * `Partnerize` - Partnerize
-       * * `PartnerStack` - PartnerStack
-       * * `PayFit` - PayFit
-       * * `Paystack` - Paystack
-       * * `Pennylane` - Pennylane
-       * * `Perk` - Perk
-       * * `PersistIq` - PersistIq
-       * * `Persona` - Persona
-       * * `Phyllo` - Phyllo
-       * * `Picqer` - Picqer
-       * * `Pipeliner` - Pipeliner
-       * * `PivotalTracker` - PivotalTracker
-       * * `Piwik` - Piwik
-       * * `Planhat` - Planhat
-       * * `Plausible` - Plausible
-       * * `Poplar` - Poplar
-       * * `PrestaShop` - PrestaShop
-       * * `Pretix` - Pretix
-       * * `Primetric` - Primetric
-       * * `Printavo` - Printavo
-       * * `Printify` - Printify
-       * * `Productive` - Productive
-       * * `Pylon` - Pylon
-       * * `Qonto` - Qonto
-       * * `Qualaroo` - Qualaroo
-       * * `Railz` - Railz
-       * * `RDStationMarketing` - RDStationMarketing
-       * * `Recruitee` - Recruitee
-       * * `Reddit` - Reddit
-       * * `ReferralHero` - ReferralHero
-       * * `RentCast` - RentCast
-       * * `Repairshopr` - Repairshopr
-       * * `ReplyIo` - ReplyIo
-       * * `RetailExpress` - RetailExpress
-       * * `Retently` - Retently
-       * * `Retreaver` - Retreaver
-       * * `RevolutMerchant` - RevolutMerchant
-       * * `RocketChat` - RocketChat
-       * * `Rocketlane` - Rocketlane
-       * * `Rootly` - Rootly
-       * * `Ruddr` - Ruddr
-       * * `SafetyCulture` - SafetyCulture
-       * * `SageHR` - SageHR
-       * * `Salesflare` - Salesflare
-       * * `SAPFieldglass` - SAPFieldglass
-       * * `SavvyCal` - SavvyCal
-       * * `Secoda` - Secoda
-       * * `Segment` - Segment
-       * * `Sendowl` - Sendowl
-       * * `SendPulse` - SendPulse
-       * * `Senseforce` - Senseforce
-       * * `Serpstat` - Serpstat
-       * * `Sharetribe` - Sharetribe
-       * * `Shippo` - Shippo
-       * * `ShopWired` - ShopWired
-       * * `Shortio` - Shortio
-       * * `Shutterstock` - Shutterstock
-       * * `SigmaComputing` - SigmaComputing
-       * * `SignNow` - SignNow
-       * * `SimpleCast` - SimpleCast
-       * * `Simplesat` - Simplesat
-       * * `Smaily` - Smaily
-       * * `SmartEngage` - SmartEngage
-       * * `Smartreach` - Smartreach
-       * * `Smartwaiver` - Smartwaiver
-       * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
-       * * `SonarCloud` - SonarCloud
-       * * `SparkPost` - SparkPost
-       * * `SplitIo` - SplitIo
-       * * `SpotifyAds` - SpotifyAds
-       * * `SpotlerCRM` - SpotlerCRM
-       * * `Squarespace` - Squarespace
-       * * `Statsig` - Statsig
-       * * `Statuspage` - Statuspage
-       * * `Steam` - Steam
-       * * `Stigg` - Stigg
-       * * `Strava` - Strava
-       * * `SurveySparrow` - SurveySparrow
-       * * `Survicate` - Survicate
-       * * `Svix` - Svix
-       * * `Systeme` - Systeme
-       * * `Tavus` - Tavus
-       * * `Teamtailor` - Teamtailor
-       * * `Teamwork` - Teamwork
-       * * `Tempo` - Tempo
-       * * `Testrail` - Testrail
-       * * `Thinkific` - Thinkific
-       * * `ThinkificCourses` - ThinkificCourses
-       * * `ThriveLearning` - ThriveLearning
-       * * `Ticketmaster` - Ticketmaster
-       * * `TicketTailor` - TicketTailor
-       * * `TickTick` - TickTick
-       * * `Timely` - Timely
-       * * `Tinyemail` - Tinyemail
-       * * `Todoist` - Todoist
-       * * `Toggl` - Toggl
-       * * `TrackPMS` - TrackPMS
-       * * `Tremendous` - Tremendous
-       * * `TrustPilot` - TrustPilot
-       * * `Twitter` - Twitter
-       * * `TyntecSMS` - TyntecSMS
-       * * `Unleash` - Unleash
-       * * `UpPromote` - UpPromote
-       * * `Uptick` - Uptick
-       * * `Uservoice` - Uservoice
-       * * `Vantage` - Vantage
-       * * `Veeqo` - Veeqo
-       * * `Vercel` - Vercel
-       * * `VismaEconomic` - VismaEconomic
-       * * `VWO` - VWO
-       * * `Waiteraid` - Waiteraid
-       * * `Wasabi` - Wasabi
-       * * `WhenIWork` - WhenIWork
-       * * `Wordpress` - Wordpress
-       * * `Workable` - Workable
-       * * `Workflowmax` - Workflowmax
-       * * `Workramp` - Workramp
-       * * `Wufoo` - Wufoo
-       * * `Xsolla` - Xsolla
-       * * `YandexMetrica` - YandexMetrica
-       * * `Yotpo` - Yotpo
-       * * `Ynab` - Ynab
-       * * `Younium` - Younium
-       * * `YouSign` - YouSign
-       * * `YoutubeData` - YoutubeData
-       * * `ZapierSupportedStorage` - ZapierSupportedStorage
-       * * `ZapSign` - ZapSign
-       * * `ZendeskSell` - ZendeskSell
-       * * `ZendeskSunshine` - ZendeskSunshine
-       * * `Zenefits` - Zenefits
-       * * `Zenloop` - Zenloop
-       * * `ZohoAnalytics` - ZohoAnalytics
-       * * `ZohoBigin` - ZohoBigin
-       * * `ZohoBilling` - ZohoBilling
-       * * `ZohoBooks` - ZohoBooks
-       * * `ZohoCampaign` - ZohoCampaign
-       * * `ZohoDesk` - ZohoDesk
-       * * `ZohoExpense` - ZohoExpense
-       * * `ZohoInventory` - ZohoInventory
-       * * `ZohoInvoice` - ZohoInvoice
-       * * `ZonkaFeedback` - ZonkaFeedback
-       * * `AlphaVantage` - AlphaVantage
-       * * `Aviationstack` - Aviationstack
-       * * `Bitly` - Bitly
-       * * `Blogger` - Blogger
-       * * `Breezometer` - Breezometer
-       * * `CareQualityCommission` - CareQualityCommission
-       * * `Cimis` - Cimis
-       * * `CoinApi` - CoinApi
-       * * `CoinGecko` - CoinGecko
-       * * `CoinMarketCap` - CoinMarketCap
-       * * `DingConnect` - DingConnect
-       * * `Dockerhub` - Dockerhub
-       * * `ExchangeRatesApi` - ExchangeRatesApi
-       * * `FinancialModelling` - FinancialModelling
-       * * `Finnhub` - Finnhub
-       * * `Finnworlds` - Finnworlds
-       * * `Giphy` - Giphy
-       * * `Gmail` - Gmail
-       * * `GNews` - GNews
-       * * `GoogleCalendar` - GoogleCalendar
-       * * `GoogleClassroom` - GoogleClassroom
-       * * `GoogleDirectory` - GoogleDirectory
-       * * `GoogleForms` - GoogleForms
-       * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
-       * * `GoogleTasks` - GoogleTasks
-       * * `GoogleWebfonts` - GoogleWebfonts
-       * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
-       * * `HuggingFace` - HuggingFace
-       * * `IlluminaBasespace` - IlluminaBasespace
-       * * `Imagga` - Imagga
-       * * `Interzoid` - Interzoid
-       * * `IP2Whois` - IP2Whois
-       * * `KYVE` - KYVE
-       * * `Marketstack` - Marketstack
-       * * `Mendeley` - Mendeley
-       * * `Nasa` - Nasa
-       * * `NewYorkTimes` - NewYorkTimes
-       * * `NewsApi` - NewsApi
-       * * `NewsData` - NewsData
-       * * `OpenDataDc` - OpenDataDc
-       * * `OpenExchangeRates` - OpenExchangeRates
-       * * `OpenAQ` - OpenAQ
-       * * `OpenFDA` - OpenFDA
-       * * `OpenWeather` - OpenWeather
-       * * `Outlook` - Outlook
-       * * `Perigon` - Perigon
-       * * `Pexels` - Pexels
-       * * `Pocket` - Pocket
-       * * `Polygon` - Polygon
-       * * `PyPI` - PyPI
-       * * `Recreation` - Recreation
-       * * `RKICovid` - RKICovid
-       * * `Rss` - Rss
-       * * `SimFin` - SimFin
-       * * `StockData` - StockData
-       * * `Guardian` - Guardian
-       * * `TMDb` - TMDb
-       * * `TVMaze` - TVMaze
-       * * `TwelveData` - TwelveData
-       * * `Ubidots` - Ubidots
-       * * `USCensus` - USCensus
-       * * `Watchmode` - Watchmode
-       * * `WikipediaPageviews` - WikipediaPageviews
-       * * `YahooFinance` - YahooFinance
-       * * `Clarifai` - Clarifai
-       * * `Adapty` - Adapty
-       * * `Braintrust` - Braintrust
-       * * `StreamElements` - StreamElements
-       * * `Streamlabs` - Streamlabs
-       * * `Datorama` - Datorama
-       * * `Ahrefs` - Ahrefs
-       * * `Lightfield` - Lightfield
-       * * `Appstack` - Appstack
-       * * `Razorpay` - Razorpay
-       * * `Neon` - Neon
-       * * `NewRelic` - NewRelic
-       * * `Custom` - Custom
-       * * `Tile38` - Tile38
-       * * `Chatwoot` - Chatwoot
-       * * `Sanity` - Sanity
-       * * `Metronome` - Metronome
-       * * `Jobber` - Jobber
-       * * `Knock` - Knock
-       * * `Leexi` - Leexi
-       * * `RB2B` - RB2B
-       * * `Superwall` - Superwall
-       * * `Liana` - Liana
-       * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch
-       * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas
-       * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds
-       * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow
-       * * `Plunk` - Plunk
-       * * `Dub` - Dub
-       * * `AirOps` - AirOps
-       * * `Podium` - Podium
-       * * `Loops` - Loops
-       * * `Redis` - Redis
-       * * `Mercury` - Mercury
-       * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable
-       * * `PeecAI` - PeecAI
-       * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact
-       * * `AikidoSecurity` - AikidoSecurity
-       * * `Alguna` - Alguna
-       * * `Anthropic` - Anthropic
-       * * `Appwrite` - Appwrite
-       * * `BlandAI` - BlandAI
-       * * `BrowseAI` - BrowseAI
-       * * `BrowserUse` - BrowserUse
-       * * `ChartHop` - ChartHop
-       * * `Cody` - Cody
-       * * `Cursor` - Cursor
-       * * `Decagon` - Decagon
-       * * `Deepgram` - Deepgram
-       * * `ElevenLabs` - ElevenLabs
-       * * `Harvey` - Harvey
-       * * `Hyperspell` - Hyperspell
-       * * `Langfuse` - Langfuse
-       * * `LingoDev` - LingoDev
-       * * `M3ter` - M3ter
-       * * `Maxio` - Maxio
-       * * `Metorial` - Metorial
-       * * `OpenRouter` - OpenRouter
-       * * `TogetherAI` - TogetherAI
-       * * `Vapi` - Vapi
-       * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic
-       * * `Aiven` - Aiven
-       * * `Aviator` - Aviator
-       * * `Backblaze` - Backblaze
-       * * `Baseten` - Baseten
-       * * `Browserbase` - Browserbase
-       * * `Cohere` - Cohere
-       * * `DenoDeploy` - DenoDeploy
-       * * `DigitalOcean` - DigitalOcean
-       * * `E2B` - E2B
-       * * `Fintoc` - Fintoc
-       * * `Firecrawl` - Firecrawl
-       * * `FireworksAI` - FireworksAI
-       * * `FlyIo` - FlyIo
-       * * `Groq` - Groq
-       * * `GrowthBook` - GrowthBook
-       * * `Gumloop` - Gumloop
-       * * `Hatchet` - Hatchet
-       * * `Helicone` - Helicone
-       * * `Heroku` - Heroku
-       * * `Hetzner` - Hetzner
-       * * `HeyGen` - HeyGen
-       * * `Infisical` - Infisical
-       * * `Inngest` - Inngest
-       * * `KapaAI` - KapaAI
-       * * `Kernel` - Kernel
-       * * `Koyeb` - Koyeb
-       * * `LambdaLabs` - LambdaLabs
-       * * `LangSmith` - LangSmith
-       * * `Linode` - Linode
-       * * `Listmonk` - Listmonk
-       * * `LlamaCloud` - LlamaCloud
-       * * `Mem0` - Mem0
-       * * `Metriport` - Metriport
-       * * `Mintlify` - Mintlify
-       * * `MistralAI` - MistralAI
-       * * `Mono` - Mono
-       * * `Netlify` - Netlify
-       * * `Northflank` - Northflank
-       * * `OpenAI` - OpenAI
-       * * `Pinecone` - Pinecone
-       * * `PlatformSh` - PlatformSh
-       * * `PromptingCompany` - PromptingCompany
-       * * `Qdrant` - Qdrant
-       * * `Render` - Render
-       * * `Replicate` - Replicate
-       * * `RetellAI` - RetellAI
-       * * `Roark` - Roark
-       * * `RunPod` - RunPod
-       * * `ScaleAI` - ScaleAI
-       * * `Scaleway` - Scaleway
-       * * `SigNoz` - SigNoz
-       * * `Sim` - Sim
-       * * `Skyvern` - Skyvern
-       * * `Slash` - Slash
-       * * `Synthesia` - Synthesia
-       * * `Telli` - Telli
-       * * `TerraApi` - TerraApi
-       * * `TriggerDev` - TriggerDev
-       * * `Turso` - Turso
-       * * `Singular` - Singular
-       * * `Swonkie` - Swonkie
-       * * `TwelveLabs` - TwelveLabs
-       * * `Twenty` - Twenty
-       * * `Unstructured` - Unstructured
-       * * `Upstash` - Upstash
-       * * `Vellum` - Vellum
-       * * `Vultr` - Vultr
-       * * `Windmill` - Windmill
-       * * `Zep` - Zep
-       * * `Hex` - Hex
-       * * `Sumsub` - Sumsub
-       * * `GoogleChat` - GoogleChat
-       * * `Kickscale` - Kickscale
-       * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack
-       * * `DodoPayments` - DodoPayments
-       * * `Salestrics` - Salestrics
-       * * `Doppler` - Doppler
-       * * `Usersnap` - Usersnap
-       * * `Asknicely` - Asknicely
-       * * `Featurebase` - Featurebase
-       * * `Frill` - Frill
-       * * `Bettermode` - Bettermode
-       * * `Dynatrace` - Dynatrace
-       * * `Honeycomb` - Honeycomb
-       * * `SumoLogic` - SumoLogic
-       * * `LogzIO` - LogzIO
-       * * `Coralogix` - Coralogix
-       * * `BetterStack` - BetterStack
-       * * `Raygun` - Raygun
-       * * `Honeybadger` - Honeybadger
-       * * `Airbrake` - Airbrake
-       * * `Appsignal` - Appsignal
-       * * `Appdynamics` - Appdynamics
-       * * `Instana` - Instana
-       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
-       * * `Uptimerobot` - Uptimerobot
-       * * `Statuscake` - Statuscake
-       * * `Tailscale` - Tailscale
-       * * `Flagsmith` - Flagsmith
-       * * `Xmatters` - Xmatters
-       * * `Squadcast` - Squadcast
-       * * `Zenduty` - Zenduty
-       * * `Cronitor` - Cronitor
-       * * `Jenkins` - Jenkins
-       * * `Bitbucket` - Bitbucket
-       * * `Gitea` - Gitea
-       * * `Teamcity` - Teamcity
-       * * `TravisCI` - TravisCI
-       * * `Semaphore` - Semaphore
-       * * `CircleciInsights` - CircleciInsights
-       * * `OctopusDeploy` - OctopusDeploy
-       * * `Sourcegraph` - Sourcegraph
-       * * `Bitrise` - Bitrise
-       * * `Gerrit` - Gerrit
-       * * `TerraformCloud` - TerraformCloud
-       * * `PulumiCloud` - PulumiCloud
-       * * `Spacelift` - Spacelift
-       * * `Railway` - Railway
-       * * `Argocd` - Argocd
-       * * `PrefectCloud` - PrefectCloud
-       * * `DagsterCloud` - DagsterCloud
-       * * `Env0` - Env0
-       * * `Kubecost` - Kubecost
-       * * `Snyk` - Snyk
-       * * `Semgrep` - Semgrep
-       * * `Veracode` - Veracode
-       * * `Checkmarx` - Checkmarx
-       * * `Gitguardian` - Gitguardian
-       * * `QualysVmdr` - QualysVmdr
-       * * `Rapid7Insightvm` - Rapid7Insightvm
-       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
-       * * `Sentinelone` - Sentinelone
-       * * `Lacework` - Lacework
-       * * `OrcaSecurity` - OrcaSecurity
-       * * `Drata` - Drata
-       * * `Secureframe` - Secureframe
-       * * `CiscoDuo` - CiscoDuo
-       * * `Jumpcloud` - Jumpcloud
-       * * `OnePassword` - OnePassword
-       * * `Stytch` - Stytch
-       * * `Sonarqube` - Sonarqube
-       * * `Codecov` - Codecov
-       * * `Coveralls` - Coveralls
-       * * `Codacy` - Codacy
-       * * `Deepsource` - Deepsource
-       * * `Linearb` - Linearb
-       * * `Jellyfish` - Jellyfish
-       * * `Swarmia` - Swarmia
-       * * `Packagist` - Packagist
-       * * `Nuget` - Nuget
-       * * `CratesIO` - CratesIO
-       * * `SonatypeNexus` - SonatypeNexus
-       * * `JfrogArtifactory` - JfrogArtifactory
-       * * `Snowplow` - Snowplow
-       * * `WeightsAndBiases` - WeightsAndBiases
-       * * `MonteCarlo` - MonteCarlo
-       * * `Metaplane` - Metaplane
-       * * `Datahub` - Datahub
-       * * `ClickhouseCloud` - ClickhouseCloud
-       * * `ConfluentCloud` - ConfluentCloud
-       * * `KongKonnect` - KongKonnect
-       * * `Kandji` - Kandji
-       * * `Automox` - Automox
-       * * `Autumn` - Autumn
-       * * `GetStream` - GetStream
-       * * `Octolens` - Octolens
-       * * `Kajabi` - Kajabi
-       * * `Shopware` - Shopware
-       * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch
-       * * `Crisp` - Crisp
-       * * `Kommo` - Kommo
-       * * `Axiom` - Axiom
-       * * `Plivo` - Plivo
-       * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan
-       * * `AbTasty` - AbTasty
-       * * `Ably` - Ably
-       * * `AbnormalSecurity` - AbnormalSecurity
-       * * `Acast` - Acast
-       * * `Acculynx` - Acculynx
-       * * `Actionstep` - Actionstep
-       * * `Aftership` - Aftership
-       * * `AhaIdeas` - AhaIdeas
-       * * `AkamaiReporting` - AkamaiReporting
-       * * `Alation` - Alation
-       * * `Alegra` - Alegra
-       * * `Allegro` - Allegro
-       * * `AnodotCost` - AnodotCost
-       * * `Anomalo` - Anomalo
-       * * `Apaleo` - Apaleo
-       * * `Apitally` - Apitally
-       * * `AppStoreConnect` - AppStoreConnect
-       * * `Appdirect` - Appdirect
-       * * `Appfolio` - Appfolio
-       * * `Arxiv` - Arxiv
-       * * `Asaas` - Asaas
-       * * `Astronomer` - Astronomer
-       * * `Athenahealth` - Athenahealth
-       * * `Atlan` - Atlan
-       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
-       * * `Avalara` - Avalara
-       * * `AwsAthena` - AwsAthena
-       * * `AwsBatch` - AwsBatch
-       * * `AwsBudgets` - AwsBudgets
-       * * `AwsCloudformation` - AwsCloudformation
-       * * `AwsComputeOptimizer` - AwsComputeOptimizer
-       * * `AwsConfig` - AwsConfig
-       * * `AwsConnect` - AwsConnect
-       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
-       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
-       * * `AwsCostExplorer` - AwsCostExplorer
-       * * `AwsDocumentDB` - AwsDocumentDB
-       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
-       * * `AwsGuardduty` - AwsGuardduty
-       * * `AwsHealth` - AwsHealth
-       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
-       * * `AwsInspector` - AwsInspector
-       * * `AwsMacie` - AwsMacie
-       * * `AwsOrganizations` - AwsOrganizations
-       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
-       * * `AwsSagemaker` - AwsSagemaker
-       * * `AwsSavingsPlans` - AwsSavingsPlans
-       * * `AwsSecurityHub` - AwsSecurityHub
-       * * `AwsSes` - AwsSes
-       * * `AwsStepFunctions` - AwsStepFunctions
-       * * `AwsSupport` - AwsSupport
-       * * `AwsSystemsManager` - AwsSystemsManager
-       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
-       * * `AwsWaf` - AwsWaf
-       * * `AwsXray` - AwsXray
-       * * `AzureActivityLog` - AzureActivityLog
-       * * `AzureAdvisor` - AzureAdvisor
-       * * `AzureApiManagement` - AzureApiManagement
-       * * `AzureApplicationInsights` - AzureApplicationInsights
-       * * `AzureCostManagement` - AzureCostManagement
-       * * `AzureDataExplorer` - AzureDataExplorer
-       * * `AzureDataFactory` - AzureDataFactory
-       * * `AzureLogAnalytics` - AzureLogAnalytics
-       * * `AzureMonitorAlerts` - AzureMonitorAlerts
-       * * `AzureMonitorMetrics` - AzureMonitorMetrics
-       * * `AzureOpenaiUsage` - AzureOpenaiUsage
-       * * `AzurePolicyInsights` - AzurePolicyInsights
-       * * `AzureReservations` - AzureReservations
-       * * `AzureResourceGraph` - AzureResourceGraph
-       * * `AzureResourceHealth` - AzureResourceHealth
-       * * `AzureServiceHealth` - AzureServiceHealth
-       * * `AzureSynapse` - AzureSynapse
-       * * `BackMarket` - BackMarket
-       * * `Beehiiv` - Beehiiv
-       * * `Bigeye` - Bigeye
-       * * `BillCom` - BillCom
-       * * `Billomat` - Billomat
-       * * `BingWebmasterTools` - BingWebmasterTools
-       * * `Bitwarden` - Bitwarden
-       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
-       * * `BlackboardLearn` - BlackboardLearn
-       * * `Bling` - Bling
-       * * `Bloomerang` - Bloomerang
-       * * `Blueshift` - Blueshift
-       * * `Bluesky` - Bluesky
-       * * `BolRetailer` - BolRetailer
-       * * `Boulevard` - Boulevard
-       * * `Buffer` - Buffer
-       * * `Bugherd` - Bugherd
-       * * `Buildium` - Buildium
-       * * `Buttondown` - Buttondown
-       * * `BuyMeACoffee` - BuyMeACoffee
-       * * `Calendarific` - Calendarific
-       * * `Calibre` - Calibre
-       * * `CanvasLms` - CanvasLms
-       * * `Captivate` - Captivate
-       * * `Cashfree` - Cashfree
-       * * `CastAi` - CastAi
-       * * `Catchpoint` - Catchpoint
-       * * `CdcOpenData` - CdcOpenData
-       * * `Census` - Census
-       * * `Checkly` - Checkly
-       * * `CircleSo` - CircleSo
-       * * `Classy` - Classy
-       * * `Cleartax` - Cleartax
-       * * `Clever` - Clever
-       * * `Clevertap` - Clevertap
-       * * `Cliniko` - Cliniko
-       * * `Clio` - Clio
-       * * `Clip` - Clip
-       * * `Cloudability` - Cloudability
-       * * `Cloudsmith` - Cloudsmith
-       * * `Cloudzero` - Cloudzero
-       * * `Clover` - Clover
-       * * `Codemagic` - Codemagic
-       * * `Codescene` - Codescene
-       * * `Collibra` - Collibra
-       * * `Companycam` - Companycam
-       * * `Conekta` - Conekta
-       * * `ContaAzul` - ContaAzul
-       * * `Contentsquare` - Contentsquare
-       * * `Cortex` - Cortex
-       * * `Courier` - Courier
-       * * `Crossref` - Crossref
-       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
-       * * `CubeCloud` - CubeCloud
-       * * `D2lBrightspace` - D2lBrightspace
-       * * `Dayforce` - Dayforce
-       * * `Debugbear` - Debugbear
-       * * `Descope` - Descope
-       * * `Develocity` - Develocity
-       * * `Dialpad` - Dialpad
-       * * `Discord` - Discord
-       * * `Discourse` - Discourse
-       * * `Donorbox` - Donorbox
-       * * `Doorloop` - Doorloop
-       * * `Dovetail` - Dovetail
-       * * `Dragonboat` - Dragonboat
-       * * `Drchrono` - Drchrono
-       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
-       * * `EcbDataPortal` - EcbDataPortal
-       * * `Emarsys` - Emarsys
-       * * `Embrace` - Embrace
-       * * `Entsoe` - Entsoe
-       * * `Eppo` - Eppo
-       * * `Etsy` - Etsy
-       * * `Eurostat` - Eurostat
-       * * `Faire` - Faire
-       * * `FarosAi` - FarosAi
-       * * `Fieldpulse` - Fieldpulse
-       * * `Fieldwire` - Fieldwire
-       * * `Filevine` - Filevine
-       * * `Finout` - Finout
-       * * `Five9` - Five9
-       * * `FlexeraCloudCost` - FlexeraCloudCost
-       * * `Flutterwave` - Flutterwave
-       * * `Fortnox` - Fortnox
-       * * `Fourthwall` - Fourthwall
-       * * `Fred` - Fred
-       * * `Frontegg` - Frontegg
-       * * `FusionAuth` - FusionAuth
-       * * `G2` - G2
-       * * `Gcore` - Gcore
-       * * `GcpApigee` - GcpApigee
-       * * `GcpArtifactRegistry` - GcpArtifactRegistry
-       * * `GcpBigtable` - GcpBigtable
-       * * `GcpChronicle` - GcpChronicle
-       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
-       * * `GcpCloudBilling` - GcpCloudBilling
-       * * `GcpCloudBuild` - GcpCloudBuild
-       * * `GcpCloudDeploy` - GcpCloudDeploy
-       * * `GcpCloudDns` - GcpCloudDns
-       * * `GcpCloudFunctions` - GcpCloudFunctions
-       * * `GcpCloudLogging` - GcpCloudLogging
-       * * `GcpCloudMonitoring` - GcpCloudMonitoring
-       * * `GcpCloudRun` - GcpCloudRun
-       * * `GcpCloudSpanner` - GcpCloudSpanner
-       * * `GcpCloudSql` - GcpCloudSql
-       * * `GcpCloudTrace` - GcpCloudTrace
-       * * `GcpCloudWorkflows` - GcpCloudWorkflows
-       * * `GcpComputeEngine` - GcpComputeEngine
-       * * `GcpContainerAnalysis` - GcpContainerAnalysis
-       * * `GcpDataflow` - GcpDataflow
-       * * `GcpDataplex` - GcpDataplex
-       * * `GcpDataproc` - GcpDataproc
-       * * `GcpErrorReporting` - GcpErrorReporting
-       * * `GcpGke` - GcpGke
-       * * `GcpPubsub` - GcpPubsub
-       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
-       * * `GcpRecommender` - GcpRecommender
-       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
-       * * `Gdelt` - Gdelt
-       * * `GenesysCloud` - GenesysCloud
-       * * `Getdx` - Getdx
-       * * `Ghost` - Ghost
-       * * `Givebutter` - Givebutter
-       * * `Gleif` - Gleif
-       * * `GooglePlayConsole` - GooglePlayConsole
-       * * `Guesty` - Guesty
-       * * `Gumroad` - Gumroad
-       * * `HarnessCcm` - HarnessCcm
-       * * `HarnessSei` - HarnessSei
-       * * `Harvest` - Harvest
-       * * `Healthie` - Healthie
-       * * `Hitpay` - Hitpay
-       * * `Hivebrite` - Hivebrite
-       * * `Holded` - Holded
-       * * `Hostaway` - Hostaway
-       * * `HousecallPro` - HousecallPro
-       * * `Humanitec` - Humanitec
-       * * `ImfData` - ImfData
-       * * `Imperva` - Imperva
-       * * `InfluxdbCloud` - InfluxdbCloud
-       * * `Iyzico` - Iyzico
-       * * `Jobtread` - Jobtread
-       * * `Kameleoon` - Kameleoon
-       * * `KauflandMarketplace` - KauflandMarketplace
-       * * `Kestra` - Kestra
-       * * `Kick` - Kick
-       * * `Kinde` - Kinde
-       * * `Kion` - Kion
-       * * `Knowbe4` - Knowbe4
-       * * `Komodor` - Komodor
-       * * `Labelbox` - Labelbox
-       * * `Lawmatics` - Lawmatics
-       * * `Learnworlds` - Learnworlds
-       * * `LexwareOffice` - LexwareOffice
-       * * `Lightdash` - Lightdash
-       * * `Lodgify` - Lodgify
-       * * `Logicmonitor` - Logicmonitor
-       * * `Logrocket` - Logrocket
-       * * `LoopReturns` - LoopReturns
-       * * `Mastodon` - Mastodon
-       * * `Meetup` - Meetup
-       * * `Megaphone` - Megaphone
-       * * `Memberful` - Memberful
-       * * `MercadoPago` - MercadoPago
-       * * `Meteostat` - Meteostat
-       * * `Mews` - Mews
-       * * `Mezmo` - Mezmo
-       * * `Microsoft365UsageReports` - Microsoft365UsageReports
-       * * `MicrosoftAdvertising` - MicrosoftAdvertising
-       * * `MicrosoftClarity` - MicrosoftClarity
-       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
-       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
-       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
-       * * `MicrosoftIntune` - MicrosoftIntune
-       * * `MicrosoftPurview` - MicrosoftPurview
-       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
-       * * `MicrosoftSentinel` - MicrosoftSentinel
-       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
-       * * `Midtrans` - Midtrans
-       * * `MightyNetworks` - MightyNetworks
-       * * `Mindbody` - Mindbody
-       * * `Mirakl` - Mirakl
-       * * `Moesif` - Moesif
-       * * `Moneybird` - Moneybird
-       * * `Moodle` - Moodle
-       * * `Motherduck` - Motherduck
-       * * `Mycase` - Mycase
-       * * `NagerDate` - NagerDate
-       * * `NeonCrm` - NeonCrm
-       * * `Nexhealth` - Nexhealth
-       * * `NoaaCdo` - NoaaCdo
-       * * `Nobl9` - Nobl9
-       * * `Nolt` - Nolt
-       * * `Nops` - Nops
-       * * `NpmRegistry` - NpmRegistry
-       * * `Oecd` - Oecd
-       * * `Okendo` - Okendo
-       * * `Omni` - Omni
-       * * `Onelogin` - Onelogin
-       * * `OpenDental` - OpenDental
-       * * `OpenMeteo` - OpenMeteo
-       * * `Openalex` - Openalex
-       * * `Opencorporates` - Opencorporates
-       * * `Openfec` - Openfec
-       * * `OpnPayments` - OpnPayments
-       * * `Opslevel` - Opslevel
-       * * `OttoMarket` - OttoMarket
-       * * `Ownerrez` - Ownerrez
-       * * `Pagbank` - Pagbank
-       * * `Patreon` - Patreon
-       * * `Pax8` - Pax8
-       * * `Paychex` - Paychex
-       * * `Paymob` - Paymob
-       * * `Paymongo` - Paymongo
-       * * `Phonepe` - Phonepe
-       * * `Pike13` - Pike13
-       * * `Pingone` - Pingone
-       * * `PinterestOrganic` - PinterestOrganic
-       * * `PlanningCenter` - PlanningCenter
-       * * `PluralsightFlow` - PluralsightFlow
-       * * `Podbean` - Podbean
-       * * `Postscript` - Postscript
-       * * `PowerBiAdmin` - PowerBiAdmin
-       * * `Practicepanther` - Practicepanther
-       * * `Preset` - Preset
-       * * `Procore` - Procore
-       * * `Productiv` - Productiv
-       * * `ProofpointTap` - ProofpointTap
-       * * `Propertyware` - Propertyware
-       * * `Pubnub` - Pubnub
-       * * `Quay` - Quay
-       * * `Raken` - Raken
-       * * `RedpandaCloud` - RedpandaCloud
-       * * `RentManager` - RentManager
-       * * `Reverb` - Reverb
-       * * `RocketMatter` - RocketMatter
-       * * `Rubygems` - Rubygems
-       * * `Scalr` - Scalr
-       * * `SecEdgar` - SecEdgar
-       * * `SelectStar` - SelectStar
-       * * `SemanticScholar` - SemanticScholar
-       * * `Semrush` - Semrush
-       * * `ServiceFusion` - ServiceFusion
-       * * `Servicem8` - Servicem8
-       * * `Servicetitan` - Servicetitan
-       * * `Servicetrade` - Servicetrade
-       * * `Sevdesk` - Sevdesk
-       * * `Similarweb` - Similarweb
-       * * `Simpro` - Simpro
-       * * `Sinch` - Sinch
-       * * `Singlestore` - Singlestore
-       * * `Site24x7` - Site24x7
-       * * `Sleuth` - Sleuth
-       * * `Smartlook` - Smartlook
-       * * `Smartrecruiters` - Smartrecruiters
-       * * `Smokeball` - Smokeball
-       * * `SodaCloud` - SodaCloud
-       * * `Speedcurve` - Speedcurve
-       * * `SpotIo` - SpotIo
-       * * `Sprig` - Sprig
-       * * `Sprinklr` - Sprinklr
-       * * `SproutSocial` - SproutSocial
-       * * `StackOverflowForTeams` - StackOverflowForTeams
-       * * `Stockx` - Stockx
-       * * `TackleIo` - TackleIo
-       * * `Talkdesk` - Talkdesk
-       * * `TeamupFitness` - TeamupFitness
-       * * `Tebra` - Tebra
-       * * `Telnyx` - Telnyx
-       * * `Ternary` - Ternary
-       * * `Thoughtspot` - Thoughtspot
-       * * `Thousandeyes` - Thousandeyes
-       * * `Threads` - Threads
-       * * `TiktokShop` - TiktokShop
-       * * `TinyErp` - TinyErp
-       * * `Tinybird` - Tinybird
-       * * `Tipalti` - Tipalti
-       * * `Toast` - Toast
-       * * `Torii` - Torii
-       * * `Transistor` - Transistor
-       * * `TrunkIo` - TrunkIo
-       * * `Trustradius` - Trustradius
-       * * `Twitch` - Twitch
-       * * `TwoC2p` - TwoC2p
-       * * `UkCompaniesHouse` - UkCompaniesHouse
-       * * `UkOns` - UkOns
-       * * `UnComtrade` - UnComtrade
-       * * `UsBea` - UsBea
-       * * `UsBls` - UsBls
-       * * `UsEia` - UsEia
-       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
-       * * `Vanta` - Vanta
-       * * `Vendr` - Vendr
-       * * `Virtuous` - Virtuous
-       * * `Vonage` - Vonage
-       * * `WalmartMarketplace` - WalmartMarketplace
-       * * `Waydev` - Waydev
-       * * `Wayfair` - Wayfair
-       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
-       * * `WhoGho` - WhoGho
-       * * `Whop` - Whop
-       * * `Wistia` - Wistia
-       * * `Wiz` - Wiz
-       * * `Wompi` - Wompi
-       * * `Workiz` - Workiz
-       * * `WorldBank` - WorldBank
-       * * `Xendit` - Xendit
-       * * `Yoco` - Yoco
-       * * `ZalandoZdirect` - ZalandoZdirect
-       * * `Zluri` - Zluri
-       * * `Zylo` - Zylo
-       * * `Tally` - Tally
-       * * `Nuntly` - Nuntly
-       * * `Vturb` - Vturb
-       * * `Meltwater` - Meltwater
-       * * `UserCom` - UserCom
-       * * `Latitude` - Latitude
-       * * `Workato` - Workato
-       * * `SideShift` - SideShift
-       * * `DuckLake` - DuckLake
-       * * `Starburst` - Starburst
-       * * `Trino` - Trino
-       * * `Easybill` - Easybill
-       * * `Bexio` - Bexio
-       * * `Umami` - Umami
-       * * `Manychat` - Manychat
-       * * `Kickstarter` - Kickstarter
-       * * `Typesense` - Typesense
-       * * `FirstPromoter` - FirstPromoter
-       * * `Zero` - Zero
-       * * `Inth` - Inth
-       * * `BCMS` - BCMS
-       * * `Convonite` - Convonite
-       * * `Hookdeck` - Hookdeck
-       * * `Billit` - Billit
-       * * `Moxie` - Moxie
-       * * `TripleWhale` - TripleWhale
-       * * `Directus` - Directus
-       * * `Clay` - Clay
-       * * `TradableBits` - TradableBits
-       * * `Swan` - Swan
-       * * `Hyros` - Hyros
-       * * `Odoo` - Odoo
-       * * `Airbridge` - Airbridge
-       * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter
-       * * `Raisely` - Raisely
-       * * `RakutenAdvertising` - RakutenAdvertising
-       * * `Zitadel` - Zitadel
-       * * `DeelFlows` - DeelFlows
-       * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix
-       * * `Sevalla` - Sevalla
-       * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner
-       * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare
-       * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91
-       * * `Depot` - Depot
-       * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy
-       * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart
-       * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound
-       * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi
-       * * `Capterra` - Capterra
-       * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi
-       * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS
-       * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox
-       * * `SimonData` - SimonData
-       * * `CommissionJunction` - CommissionJunction
-       * * `Liveblocks` - Liveblocks
-       * * `Livestorm` - Livestorm
-       * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana
-       * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable
-       * * `Anvil` - Anvil
-       * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato
-       * * `Medusa` - Medusa
-       * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin
-       * * `Folk` - Folk
-       * * `Cybersource` - Cybersource
-       * * `GoogleAdSense` - GoogleAdSense
-       * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio
-       * * `Smartlead` - Smartlead
-       * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket
-       * * `Quo` - Quo
-       * * `HeyReach` - HeyReach
-       * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet
-       * * `Expo` - Expo
-       * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer
-       * * `Sprinto` - Sprinto
-       * * `Gem` - Gem
-       * * `AudioGO` - AudioGO
-       * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs
-       * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura
-       * * `ChargebackStop` - ChargebackStop
-       * * `Chargeflow` - Chargeflow
-       * * `Dreamdata` - Dreamdata
-       * * `GoogleBusinessProfile` - GoogleBusinessProfile
-       * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite
-       * * `Modal` - Modal
-       * * `Vimeo` - Vimeo
-       * * `Scrunch` - Scrunch
-       * * `Loom` - Loom
-       * * `Arcade` - Arcade
-       * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom
-       * * `Userback` - Userback
-       * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution
-       * * `StackAdapt` - StackAdapt
-       * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay
-       * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud
-       * * `Northbeam` - Northbeam
-       * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO
-       * * `Airship` - Airship
-       * * `Creem` - Creem
-       * * `Leantime` - Leantime
-       * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob
-       * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2
-       * * `Particle` - Particle
-       * * `FileUpload` - FileUpload
-       * * `Dripify` - Dripify
-       * * `AwsS3Tables` - AwsS3Tables
-       * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments
-       * * `Soniox` - Soniox
-       * * `Nango` - Nango
-       * * `Fathom` - Fathom
-       * * `Stamped` - Stamped */
-      readonly source_type: ExternalDataSourceTypeEnum;
+      /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake'). */
+      readonly source_type: string;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
        * * `warehouse` - warehouse
@@ -53889,1424 +47463,8 @@ export namespace Schemas {
     } as const;
 
     export interface ExternalDataSourceCreate {
-      /** The source type (e.g. 'Postgres', 'Stripe').
-       *
-       * * `Ashby` - Ashby
-       * * `Supabase` - Supabase
-       * * `CustomerIO` - CustomerIO
-       * * `Github` - Github
-       * * `Stripe` - Stripe
-       * * `Hubspot` - Hubspot
-       * * `Postgres` - Postgres
-       * * `Zendesk` - Zendesk
-       * * `Snowflake` - Snowflake
-       * * `Salesforce` - Salesforce
-       * * `MySQL` - MySQL
-       * * `MongoDB` - MongoDB
-       * * `MSSQL` - MSSQL
-       * * `Vitally` - Vitally
-       * * `BigQuery` - BigQuery
-       * * `Chargebee` - Chargebee
-       * * `Clerk` - Clerk
-       * * `GoogleAds` - GoogleAds
-       * * `GoogleSearchConsole` - GoogleSearchConsole
-       * * `TemporalIO` - TemporalIO
-       * * `DoIt` - DoIt
-       * * `GoogleSheets` - GoogleSheets
-       * * `MetaAds` - MetaAds
-       * * `Klaviyo` - Klaviyo
-       * * `Mailchimp` - Mailchimp
-       * * `Braze` - Braze
-       * * `Mailjet` - Mailjet
-       * * `Redshift` - Redshift
-       * * `Polar` - Polar
-       * * `RevenueCat` - RevenueCat
-       * * `LinkedinAds` - LinkedinAds
-       * * `RedditAds` - RedditAds
-       * * `TikTokAds` - TikTokAds
-       * * `BingAds` - BingAds
-       * * `Shopify` - Shopify
-       * * `Attio` - Attio
-       * * `SnapchatAds` - SnapchatAds
-       * * `Linear` - Linear
-       * * `LiteLLM` - LiteLLM
-       * * `Intercom` - Intercom
-       * * `Amplitude` - Amplitude
-       * * `Mixpanel` - Mixpanel
-       * * `Jira` - Jira
-       * * `ActiveCampaign` - ActiveCampaign
-       * * `Marketo` - Marketo
-       * * `Adjust` - Adjust
-       * * `AppsFlyer` - AppsFlyer
-       * * `Freshdesk` - Freshdesk
-       * * `GoogleAnalytics` - GoogleAnalytics
-       * * `Pipedrive` - Pipedrive
-       * * `SendGrid` - SendGrid
-       * * `Slack` - Slack
-       * * `PagerDuty` - PagerDuty
-       * * `Asana` - Asana
-       * * `Notion` - Notion
-       * * `Airtable` - Airtable
-       * * `Greenhouse` - Greenhouse
-       * * `BambooHR` - BambooHR
-       * * `Lever` - Lever
-       * * `GitLab` - GitLab
-       * * `Datadog` - Datadog
-       * * `Sentry` - Sentry
-       * * `Pendo` - Pendo
-       * * `FullStory` - FullStory
-       * * `AmazonAds` - AmazonAds
-       * * `PinterestAds` - PinterestAds
-       * * `AppleSearchAds` - AppleSearchAds
-       * * `QuickBooks` - QuickBooks
-       * * `Xero` - Xero
-       * * `NetSuite` - NetSuite
-       * * `WooCommerce` - WooCommerce
-       * * `BigCommerce` - BigCommerce
-       * * `PayPal` - PayPal
-       * * `Square` - Square
-       * * `Zoom` - Zoom
-       * * `Trello` - Trello
-       * * `TrafficStars` - TrafficStars
-       * * `Monday` - Monday
-       * * `ClickUp` - ClickUp
-       * * `Confluence` - Confluence
-       * * `Recurly` - Recurly
-       * * `SalesLoft` - SalesLoft
-       * * `Outreach` - Outreach
-       * * `Gong` - Gong
-       * * `Calendly` - Calendly
-       * * `Typeform` - Typeform
-       * * `UnityAds` - UnityAds
-       * * `Iterable` - Iterable
-       * * `ZohoCRM` - ZohoCRM
-       * * `Close` - Close
-       * * `Oracle` - Oracle
-       * * `DynamoDB` - DynamoDB
-       * * `Elasticsearch` - Elasticsearch
-       * * `Kafka` - Kafka
-       * * `LaunchDarkly` - LaunchDarkly
-       * * `Braintree` - Braintree
-       * * `Recharge` - Recharge
-       * * `HelpScout` - HelpScout
-       * * `Gorgias` - Gorgias
-       * * `Instagram` - Instagram
-       * * `YouTubeAnalytics` - YouTubeAnalytics
-       * * `FacebookPages` - FacebookPages
-       * * `TwitterAds` - TwitterAds
-       * * `Workday` - Workday
-       * * `ServiceNow` - ServiceNow
-       * * `Pardot` - Pardot
-       * * `Copper` - Copper
-       * * `Front` - Front
-       * * `ChartMogul` - ChartMogul
-       * * `Zuora` - Zuora
-       * * `Paddle` - Paddle
-       * * `CircleCI` - CircleCI
-       * * `CockroachDB` - CockroachDB
-       * * `Firebase` - Firebase
-       * * `AzureBlob` - AzureBlob
-       * * `GoogleDrive` - GoogleDrive
-       * * `OneDrive` - OneDrive
-       * * `SharePoint` - SharePoint
-       * * `Box` - Box
-       * * `SFTP` - SFTP
-       * * `MicrosoftTeams` - MicrosoftTeams
-       * * `Aircall` - Aircall
-       * * `Webflow` - Webflow
-       * * `Okta` - Okta
-       * * `Auth0` - Auth0
-       * * `Productboard` - Productboard
-       * * `Smartsheet` - Smartsheet
-       * * `Wrike` - Wrike
-       * * `Plaid` - Plaid
-       * * `SurveyMonkey` - SurveyMonkey
-       * * `Eventbrite` - Eventbrite
-       * * `Everflow` - Everflow
-       * * `RingCentral` - RingCentral
-       * * `Twilio` - Twilio
-       * * `Freshsales` - Freshsales
-       * * `Shortcut` - Shortcut
-       * * `ConvertKit` - ConvertKit
-       * * `Drip` - Drip
-       * * `CampaignMonitor` - CampaignMonitor
-       * * `MailerLite` - MailerLite
-       * * `Omnisend` - Omnisend
-       * * `Brevo` - Brevo
-       * * `Postmark` - Postmark
-       * * `Granola` - Granola
-       * * `BuildBetter` - BuildBetter
-       * * `Convex` - Convex
-       * * `ClickHouse` - ClickHouse
-       * * `Plain` - Plain
-       * * `Resend` - Resend
-       * * `PgAnalyze` - PgAnalyze
-       * * `WorkOS` - WorkOS
-       * * `AmazonS3` - AmazonS3
-       * * `GoogleCloudStorage` - GoogleCloudStorage
-       * * `Databricks` - Databricks
-       * * `Dynamics365` - Dynamics365
-       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
-       * * `Db2` - Db2
-       * * `Heap` - Heap
-       * * `AdobeAnalytics` - AdobeAnalytics
-       * * `Matomo` - Matomo
-       * * `Optimizely` - Optimizely
-       * * `Adyen` - Adyen
-       * * `GoCardless` - GoCardless
-       * * `Mollie` - Mollie
-       * * `CheckoutCom` - CheckoutCom
-       * * `Branch` - Branch
-       * * `Criteo` - Criteo
-       * * `Outbrain` - Outbrain
-       * * `Taboola` - Taboola
-       * * `AdRoll` - AdRoll
-       * * `DisplayVideo360` - DisplayVideo360
-       * * `GoogleAdManager` - GoogleAdManager
-       * * `CampaignManager360` - CampaignManager360
-       * * `SearchAds360` - SearchAds360
-       * * `AdobeCommerce` - AdobeCommerce
-       * * `AmazonSellingPartner` - AmazonSellingPartner
-       * * `Ebay` - Ebay
-       * * `Commercetools` - Commercetools
-       * * `LightspeedRetail` - LightspeedRetail
-       * * `Shipmail` - Shipmail
-       * * `ShipStation` - ShipStation
-       * * `ConstantContact` - ConstantContact
-       * * `Mailgun` - Mailgun
-       * * `Eloqua` - Eloqua
-       * * `Sailthru` - Sailthru
-       * * `Ortto` - Ortto
-       * * `Attentive` - Attentive
-       * * `Kustomer` - Kustomer
-       * * `Dixa` - Dixa
-       * * `Gladly` - Gladly
-       * * `Qualtrics` - Qualtrics
-       * * `AzureDevOps` - AzureDevOps
-       * * `RoktAds` - RoktAds
-       * * `Rollbar` - Rollbar
-       * * `Opsgenie` - Opsgenie
-       * * `IncidentIo` - IncidentIo
-       * * `Pingdom` - Pingdom
-       * * `Cloudflare` - Cloudflare
-       * * `CloudflareD1` - CloudflareD1
-       * * `CosmosDB` - CosmosDB
-       * * `PlanetScaleMySQL` - PlanetScaleMySQL
-       * * `PlanetScalePostgres` - PlanetScalePostgres
-       * * `Plane` - Plane
-       * * `Scarf` - Scarf
-       * * `SapHana` - SapHana
-       * * `Rippling` - Rippling
-       * * `HiBob` - HiBob
-       * * `Personio` - Personio
-       * * `Deel` - Deel
-       * * `AdpWorkforceNow` - AdpWorkforceNow
-       * * `Paylocity` - Paylocity
-       * * `Gusto` - Gusto
-       * * `CultureAmp` - CultureAmp
-       * * `Lattice` - Lattice
-       * * `SageIntacct` - SageIntacct
-       * * `FreshBooks` - FreshBooks
-       * * `Expensify` - Expensify
-       * * `Ramp` - Ramp
-       * * `Brex` - Brex
-       * * `Coupa` - Coupa
-       * * `SapConcur` - SapConcur
-       * * `Apollo` - Apollo
-       * * `Crunchbase` - Crunchbase
-       * * `ZoomInfo` - ZoomInfo
-       * * `Clari` - Clari
-       * * `Chorus` - Chorus
-       * * `Coda` - Coda
-       * * `Guru` - Guru
-       * * `Dropbox` - Dropbox
-       * * `Docusign` - Docusign
-       * * `PandaDoc` - PandaDoc
-       * * `SapErp` - SapErp
-       * * `SapSuccessFactors` - SapSuccessFactors
-       * * `OracleEbs` - OracleEbs
-       * * `OracleFusion` - OracleFusion
-       * * `AmazonSNS` - AmazonSNS
-       * * `AmazonEventBridge` - AmazonEventBridge
-       * * `AmazonSQS` - AmazonSQS
-       * * `AmazonKinesis` - AmazonKinesis
-       * * `AmazonCloudWatch` - AmazonCloudWatch
-       * * `OpenAIAds` - OpenAIAds
-       * * `OneHundredMs` - OneHundredMs
-       * * `SevenShifts` - SevenShifts
-       * * `AcuityScheduling` - AcuityScheduling
-       * * `AgileCRM` - AgileCRM
-       * * `Aha` - Aha
-       * * `Airbyte` - Airbyte
-       * * `Akeneo` - Akeneo
-       * * `Algolia` - Algolia
-       * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
-       * * `ApifyDataset` - ApifyDataset
-       * * `Appcues` - Appcues
-       * * `Appfigures` - Appfigures
-       * * `Appfollow` - Appfollow
-       * * `Apptivo` - Apptivo
-       * * `AssemblyAI` - AssemblyAI
-       * * `Awin` - Awin
-       * * `AwsCloudTrail` - AwsCloudTrail
-       * * `AzureTableStorage` - AzureTableStorage
-       * * `Babelforce` - Babelforce
-       * * `Basecamp` - Basecamp
-       * * `Beamer` - Beamer
-       * * `BigMailer` - BigMailer
-       * * `Bluetally` - Bluetally
-       * * `BoldSign` - BoldSign
-       * * `BreezyHR` - BreezyHR
-       * * `Bugsnag` - Bugsnag
-       * * `Buildkite` - Buildkite
-       * * `Bunny` - Bunny
-       * * `Buzzsprout` - Buzzsprout
-       * * `CalCom` - CalCom
-       * * `CallRail` - CallRail
-       * * `Campayn` - Campayn
-       * * `Canny` - Canny
-       * * `CapsuleCRM` - CapsuleCRM
-       * * `CaptainData` - CaptainData
-       * * `CartCom` - CartCom
-       * * `CastorEDC` - CastorEDC
-       * * `Chameleon` - Chameleon
-       * * `Chargedesk` - Chargedesk
-       * * `Chargify` - Chargify
-       * * `Chift` - Chift
-       * * `Churnkey` - Churnkey
-       * * `Cin7` - Cin7
-       * * `CiscoMeraki` - CiscoMeraki
-       * * `Clazar` - Clazar
-       * * `Clockify` - Clockify
-       * * `Clockodo` - Clockodo
-       * * `Cloudbeds` - Cloudbeds
-       * * `Coassemble` - Coassemble
-       * * `Codefresh` - Codefresh
-       * * `Concord` - Concord
-       * * `ConfigCat` - ConfigCat
-       * * `Couchbase` - Couchbase
-       * * `Curve` - Curve
-       * * `Customerly` - Customerly
-       * * `Datascope` - Datascope
-       * * `Dbt` - Dbt
-       * * `Demodesk` - Demodesk
-       * * `Deputy` - Deputy
-       * * `DevinAI` - DevinAI
-       * * `Docuseal` - Docuseal
-       * * `Dolibarr` - Dolibarr
-       * * `Dremio` - Dremio
-       * * `DropboxSign` - DropboxSign
-       * * `Dwolla` - Dwolla
-       * * `EConomic` - EConomic
-       * * `Easypost` - Easypost
-       * * `Easypromos` - Easypromos
-       * * `Elasticemail` - Elasticemail
-       * * `EmailOctopus` - EmailOctopus
-       * * `EmploymentHero` - EmploymentHero
-       * * `Encharge` - Encharge
-       * * `Eventee` - Eventee
-       * * `Eventzilla` - Eventzilla
-       * * `Everhour` - Everhour
-       * * `EZOfficeInventory` - EZOfficeInventory
-       * * `Factorial` - Factorial
-       * * `Fastbill` - Fastbill
-       * * `Fastly` - Fastly
-       * * `Fauna` - Fauna
-       * * `Feishu` - Feishu
-       * * `Fillout` - Fillout
-       * * `Finage` - Finage
-       * * `Firebolt` - Firebolt
-       * * `FireHydrant` - FireHydrant
-       * * `Fleetio` - Fleetio
-       * * `Flexmail` - Flexmail
-       * * `Flexport` - Flexport
-       * * `FloatApp` - FloatApp
-       * * `Flowlu` - Flowlu
-       * * `Formbricks` - Formbricks
-       * * `Framer` - Framer
-       * * `FreeAgent` - FreeAgent
-       * * `Freightview` - Freightview
-       * * `Freshcaller` - Freshcaller
-       * * `Freshchat` - Freshchat
-       * * `Freshservice` - Freshservice
-       * * `Fulcrum` - Fulcrum
-       * * `GainsightCs` - GainsightCs
-       * * `GainsightPx` - GainsightPx
-       * * `GitBook` - GitBook
-       * * `Glassfrog` - Glassfrog
-       * * `Goldcast` - Goldcast
-       * * `GoLogin` - GoLogin
-       * * `Grafana` - Grafana
-       * * `GreytHr` - GreytHr
-       * * `Gridly` - Gridly
-       * * `Harness` - Harness
-       * * `Height` - Height
-       * * `Hellobaton` - Hellobaton
-       * * `HighLevel` - HighLevel
-       * * `HoorayHR` - HoorayHR
-       * * `Hubplanner` - Hubplanner
-       * * `Humanitix` - Humanitix
-       * * `Huntr` - Huntr
-       * * `Inflowinventory` - Inflowinventory
-       * * `InforNexus` - InforNexus
-       * * `Insightful` - Insightful
-       * * `Insightly` - Insightly
-       * * `Instantly` - Instantly
-       * * `Instatus` - Instatus
-       * * `Intruder` - Intruder
-       * * `Invoiced` - Invoiced
-       * * `Invoiceninja` - Invoiceninja
-       * * `JamfPro` - JamfPro
-       * * `JobNimbus` - JobNimbus
-       * * `Jotform` - Jotform
-       * * `JudgeMeReviews` - JudgeMeReviews
-       * * `JustCall` - JustCall
-       * * `JustSift` - JustSift
-       * * `K6Cloud` - K6Cloud
-       * * `Katana` - Katana
-       * * `Keka` - Keka
-       * * `Kisi` - Kisi
-       * * `Kissmetrics` - Kissmetrics
-       * * `Klarna` - Klarna
-       * * `Klaus` - Klaus
-       * * `Lago` - Lago
-       * * `Leadfeeder` - Leadfeeder
-       * * `Lemlist` - Lemlist
-       * * `LessAnnoyingCRM` - LessAnnoyingCRM
-       * * `LinkedinPages` - LinkedinPages
-       * * `Linkrunner` - Linkrunner
-       * * `Linnworks` - Linnworks
-       * * `Lob` - Lob
-       * * `Lokalise` - Lokalise
-       * * `Looker` - Looker
-       * * `Luma` - Luma
-       * * `MailerSend` - MailerSend
-       * * `Mailosaur` - Mailosaur
-       * * `Mailtrap` - Mailtrap
-       * * `Mantle` - Mantle
-       * * `Mention` - Mention
-       * * `MercadoAds` - MercadoAds
-       * * `Merge` - Merge
-       * * `Metabase` - Metabase
-       * * `Metricool` - Metricool
-       * * `MicrosoftDataverse` - MicrosoftDataverse
-       * * `MicrosoftEntraId` - MicrosoftEntraId
-       * * `MicrosoftLists` - MicrosoftLists
-       * * `Miro` - Miro
-       * * `Missive` - Missive
-       * * `MixMax` - MixMax
-       * * `Mode` - Mode
-       * * `Mux` - Mux
-       * * `MyHours` - MyHours
-       * * `N8n` - N8n
-       * * `Navan` - Navan
-       * * `NebiusAI` - NebiusAI
-       * * `Nexiopay` - Nexiopay
-       * * `NinjaOneRMM` - NinjaOneRMM
-       * * `NoCRM` - NoCRM
-       * * `NorthpassLMS` - NorthpassLMS
-       * * `Nutshell` - Nutshell
-       * * `Nylas` - Nylas
-       * * `Oncehub` - Oncehub
-       * * `Onepagecrm` - Onepagecrm
-       * * `OneSignal` - OneSignal
-       * * `Onfleet` - Onfleet
-       * * `OpinionStage` - OpinionStage
-       * * `OPUSWatch` - OPUSWatch
-       * * `Orb` - Orb
-       * * `Orbit` - Orbit
-       * * `Oura` - Oura
-       * * `Oveit` - Oveit
-       * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
-       * * `Paperform` - Paperform
-       * * `Papersign` - Papersign
-       * * `Partnerize` - Partnerize
-       * * `PartnerStack` - PartnerStack
-       * * `PayFit` - PayFit
-       * * `Paystack` - Paystack
-       * * `Pennylane` - Pennylane
-       * * `Perk` - Perk
-       * * `PersistIq` - PersistIq
-       * * `Persona` - Persona
-       * * `Phyllo` - Phyllo
-       * * `Picqer` - Picqer
-       * * `Pipeliner` - Pipeliner
-       * * `PivotalTracker` - PivotalTracker
-       * * `Piwik` - Piwik
-       * * `Planhat` - Planhat
-       * * `Plausible` - Plausible
-       * * `Poplar` - Poplar
-       * * `PrestaShop` - PrestaShop
-       * * `Pretix` - Pretix
-       * * `Primetric` - Primetric
-       * * `Printavo` - Printavo
-       * * `Printify` - Printify
-       * * `Productive` - Productive
-       * * `Pylon` - Pylon
-       * * `Qonto` - Qonto
-       * * `Qualaroo` - Qualaroo
-       * * `Railz` - Railz
-       * * `RDStationMarketing` - RDStationMarketing
-       * * `Recruitee` - Recruitee
-       * * `Reddit` - Reddit
-       * * `ReferralHero` - ReferralHero
-       * * `RentCast` - RentCast
-       * * `Repairshopr` - Repairshopr
-       * * `ReplyIo` - ReplyIo
-       * * `RetailExpress` - RetailExpress
-       * * `Retently` - Retently
-       * * `Retreaver` - Retreaver
-       * * `RevolutMerchant` - RevolutMerchant
-       * * `RocketChat` - RocketChat
-       * * `Rocketlane` - Rocketlane
-       * * `Rootly` - Rootly
-       * * `Ruddr` - Ruddr
-       * * `SafetyCulture` - SafetyCulture
-       * * `SageHR` - SageHR
-       * * `Salesflare` - Salesflare
-       * * `SAPFieldglass` - SAPFieldglass
-       * * `SavvyCal` - SavvyCal
-       * * `Secoda` - Secoda
-       * * `Segment` - Segment
-       * * `Sendowl` - Sendowl
-       * * `SendPulse` - SendPulse
-       * * `Senseforce` - Senseforce
-       * * `Serpstat` - Serpstat
-       * * `Sharetribe` - Sharetribe
-       * * `Shippo` - Shippo
-       * * `ShopWired` - ShopWired
-       * * `Shortio` - Shortio
-       * * `Shutterstock` - Shutterstock
-       * * `SigmaComputing` - SigmaComputing
-       * * `SignNow` - SignNow
-       * * `SimpleCast` - SimpleCast
-       * * `Simplesat` - Simplesat
-       * * `Smaily` - Smaily
-       * * `SmartEngage` - SmartEngage
-       * * `Smartreach` - Smartreach
-       * * `Smartwaiver` - Smartwaiver
-       * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
-       * * `SonarCloud` - SonarCloud
-       * * `SparkPost` - SparkPost
-       * * `SplitIo` - SplitIo
-       * * `SpotifyAds` - SpotifyAds
-       * * `SpotlerCRM` - SpotlerCRM
-       * * `Squarespace` - Squarespace
-       * * `Statsig` - Statsig
-       * * `Statuspage` - Statuspage
-       * * `Steam` - Steam
-       * * `Stigg` - Stigg
-       * * `Strava` - Strava
-       * * `SurveySparrow` - SurveySparrow
-       * * `Survicate` - Survicate
-       * * `Svix` - Svix
-       * * `Systeme` - Systeme
-       * * `Tavus` - Tavus
-       * * `Teamtailor` - Teamtailor
-       * * `Teamwork` - Teamwork
-       * * `Tempo` - Tempo
-       * * `Testrail` - Testrail
-       * * `Thinkific` - Thinkific
-       * * `ThinkificCourses` - ThinkificCourses
-       * * `ThriveLearning` - ThriveLearning
-       * * `Ticketmaster` - Ticketmaster
-       * * `TicketTailor` - TicketTailor
-       * * `TickTick` - TickTick
-       * * `Timely` - Timely
-       * * `Tinyemail` - Tinyemail
-       * * `Todoist` - Todoist
-       * * `Toggl` - Toggl
-       * * `TrackPMS` - TrackPMS
-       * * `Tremendous` - Tremendous
-       * * `TrustPilot` - TrustPilot
-       * * `Twitter` - Twitter
-       * * `TyntecSMS` - TyntecSMS
-       * * `Unleash` - Unleash
-       * * `UpPromote` - UpPromote
-       * * `Uptick` - Uptick
-       * * `Uservoice` - Uservoice
-       * * `Vantage` - Vantage
-       * * `Veeqo` - Veeqo
-       * * `Vercel` - Vercel
-       * * `VismaEconomic` - VismaEconomic
-       * * `VWO` - VWO
-       * * `Waiteraid` - Waiteraid
-       * * `Wasabi` - Wasabi
-       * * `WhenIWork` - WhenIWork
-       * * `Wordpress` - Wordpress
-       * * `Workable` - Workable
-       * * `Workflowmax` - Workflowmax
-       * * `Workramp` - Workramp
-       * * `Wufoo` - Wufoo
-       * * `Xsolla` - Xsolla
-       * * `YandexMetrica` - YandexMetrica
-       * * `Yotpo` - Yotpo
-       * * `Ynab` - Ynab
-       * * `Younium` - Younium
-       * * `YouSign` - YouSign
-       * * `YoutubeData` - YoutubeData
-       * * `ZapierSupportedStorage` - ZapierSupportedStorage
-       * * `ZapSign` - ZapSign
-       * * `ZendeskSell` - ZendeskSell
-       * * `ZendeskSunshine` - ZendeskSunshine
-       * * `Zenefits` - Zenefits
-       * * `Zenloop` - Zenloop
-       * * `ZohoAnalytics` - ZohoAnalytics
-       * * `ZohoBigin` - ZohoBigin
-       * * `ZohoBilling` - ZohoBilling
-       * * `ZohoBooks` - ZohoBooks
-       * * `ZohoCampaign` - ZohoCampaign
-       * * `ZohoDesk` - ZohoDesk
-       * * `ZohoExpense` - ZohoExpense
-       * * `ZohoInventory` - ZohoInventory
-       * * `ZohoInvoice` - ZohoInvoice
-       * * `ZonkaFeedback` - ZonkaFeedback
-       * * `AlphaVantage` - AlphaVantage
-       * * `Aviationstack` - Aviationstack
-       * * `Bitly` - Bitly
-       * * `Blogger` - Blogger
-       * * `Breezometer` - Breezometer
-       * * `CareQualityCommission` - CareQualityCommission
-       * * `Cimis` - Cimis
-       * * `CoinApi` - CoinApi
-       * * `CoinGecko` - CoinGecko
-       * * `CoinMarketCap` - CoinMarketCap
-       * * `DingConnect` - DingConnect
-       * * `Dockerhub` - Dockerhub
-       * * `ExchangeRatesApi` - ExchangeRatesApi
-       * * `FinancialModelling` - FinancialModelling
-       * * `Finnhub` - Finnhub
-       * * `Finnworlds` - Finnworlds
-       * * `Giphy` - Giphy
-       * * `Gmail` - Gmail
-       * * `GNews` - GNews
-       * * `GoogleCalendar` - GoogleCalendar
-       * * `GoogleClassroom` - GoogleClassroom
-       * * `GoogleDirectory` - GoogleDirectory
-       * * `GoogleForms` - GoogleForms
-       * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
-       * * `GoogleTasks` - GoogleTasks
-       * * `GoogleWebfonts` - GoogleWebfonts
-       * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
-       * * `HuggingFace` - HuggingFace
-       * * `IlluminaBasespace` - IlluminaBasespace
-       * * `Imagga` - Imagga
-       * * `Interzoid` - Interzoid
-       * * `IP2Whois` - IP2Whois
-       * * `KYVE` - KYVE
-       * * `Marketstack` - Marketstack
-       * * `Mendeley` - Mendeley
-       * * `Nasa` - Nasa
-       * * `NewYorkTimes` - NewYorkTimes
-       * * `NewsApi` - NewsApi
-       * * `NewsData` - NewsData
-       * * `OpenDataDc` - OpenDataDc
-       * * `OpenExchangeRates` - OpenExchangeRates
-       * * `OpenAQ` - OpenAQ
-       * * `OpenFDA` - OpenFDA
-       * * `OpenWeather` - OpenWeather
-       * * `Outlook` - Outlook
-       * * `Perigon` - Perigon
-       * * `Pexels` - Pexels
-       * * `Pocket` - Pocket
-       * * `Polygon` - Polygon
-       * * `PyPI` - PyPI
-       * * `Recreation` - Recreation
-       * * `RKICovid` - RKICovid
-       * * `Rss` - Rss
-       * * `SimFin` - SimFin
-       * * `StockData` - StockData
-       * * `Guardian` - Guardian
-       * * `TMDb` - TMDb
-       * * `TVMaze` - TVMaze
-       * * `TwelveData` - TwelveData
-       * * `Ubidots` - Ubidots
-       * * `USCensus` - USCensus
-       * * `Watchmode` - Watchmode
-       * * `WikipediaPageviews` - WikipediaPageviews
-       * * `YahooFinance` - YahooFinance
-       * * `Clarifai` - Clarifai
-       * * `Adapty` - Adapty
-       * * `Braintrust` - Braintrust
-       * * `StreamElements` - StreamElements
-       * * `Streamlabs` - Streamlabs
-       * * `Datorama` - Datorama
-       * * `Ahrefs` - Ahrefs
-       * * `Lightfield` - Lightfield
-       * * `Appstack` - Appstack
-       * * `Razorpay` - Razorpay
-       * * `Neon` - Neon
-       * * `NewRelic` - NewRelic
-       * * `Custom` - Custom
-       * * `Tile38` - Tile38
-       * * `Chatwoot` - Chatwoot
-       * * `Sanity` - Sanity
-       * * `Metronome` - Metronome
-       * * `Jobber` - Jobber
-       * * `Knock` - Knock
-       * * `Leexi` - Leexi
-       * * `RB2B` - RB2B
-       * * `Superwall` - Superwall
-       * * `Liana` - Liana
-       * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch
-       * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas
-       * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds
-       * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow
-       * * `Plunk` - Plunk
-       * * `Dub` - Dub
-       * * `AirOps` - AirOps
-       * * `Podium` - Podium
-       * * `Loops` - Loops
-       * * `Redis` - Redis
-       * * `Mercury` - Mercury
-       * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable
-       * * `PeecAI` - PeecAI
-       * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact
-       * * `AikidoSecurity` - AikidoSecurity
-       * * `Alguna` - Alguna
-       * * `Anthropic` - Anthropic
-       * * `Appwrite` - Appwrite
-       * * `BlandAI` - BlandAI
-       * * `BrowseAI` - BrowseAI
-       * * `BrowserUse` - BrowserUse
-       * * `ChartHop` - ChartHop
-       * * `Cody` - Cody
-       * * `Cursor` - Cursor
-       * * `Decagon` - Decagon
-       * * `Deepgram` - Deepgram
-       * * `ElevenLabs` - ElevenLabs
-       * * `Harvey` - Harvey
-       * * `Hyperspell` - Hyperspell
-       * * `Langfuse` - Langfuse
-       * * `LingoDev` - LingoDev
-       * * `M3ter` - M3ter
-       * * `Maxio` - Maxio
-       * * `Metorial` - Metorial
-       * * `OpenRouter` - OpenRouter
-       * * `TogetherAI` - TogetherAI
-       * * `Vapi` - Vapi
-       * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic
-       * * `Aiven` - Aiven
-       * * `Aviator` - Aviator
-       * * `Backblaze` - Backblaze
-       * * `Baseten` - Baseten
-       * * `Browserbase` - Browserbase
-       * * `Cohere` - Cohere
-       * * `DenoDeploy` - DenoDeploy
-       * * `DigitalOcean` - DigitalOcean
-       * * `E2B` - E2B
-       * * `Fintoc` - Fintoc
-       * * `Firecrawl` - Firecrawl
-       * * `FireworksAI` - FireworksAI
-       * * `FlyIo` - FlyIo
-       * * `Groq` - Groq
-       * * `GrowthBook` - GrowthBook
-       * * `Gumloop` - Gumloop
-       * * `Hatchet` - Hatchet
-       * * `Helicone` - Helicone
-       * * `Heroku` - Heroku
-       * * `Hetzner` - Hetzner
-       * * `HeyGen` - HeyGen
-       * * `Infisical` - Infisical
-       * * `Inngest` - Inngest
-       * * `KapaAI` - KapaAI
-       * * `Kernel` - Kernel
-       * * `Koyeb` - Koyeb
-       * * `LambdaLabs` - LambdaLabs
-       * * `LangSmith` - LangSmith
-       * * `Linode` - Linode
-       * * `Listmonk` - Listmonk
-       * * `LlamaCloud` - LlamaCloud
-       * * `Mem0` - Mem0
-       * * `Metriport` - Metriport
-       * * `Mintlify` - Mintlify
-       * * `MistralAI` - MistralAI
-       * * `Mono` - Mono
-       * * `Netlify` - Netlify
-       * * `Northflank` - Northflank
-       * * `OpenAI` - OpenAI
-       * * `Pinecone` - Pinecone
-       * * `PlatformSh` - PlatformSh
-       * * `PromptingCompany` - PromptingCompany
-       * * `Qdrant` - Qdrant
-       * * `Render` - Render
-       * * `Replicate` - Replicate
-       * * `RetellAI` - RetellAI
-       * * `Roark` - Roark
-       * * `RunPod` - RunPod
-       * * `ScaleAI` - ScaleAI
-       * * `Scaleway` - Scaleway
-       * * `SigNoz` - SigNoz
-       * * `Sim` - Sim
-       * * `Skyvern` - Skyvern
-       * * `Slash` - Slash
-       * * `Synthesia` - Synthesia
-       * * `Telli` - Telli
-       * * `TerraApi` - TerraApi
-       * * `TriggerDev` - TriggerDev
-       * * `Turso` - Turso
-       * * `Singular` - Singular
-       * * `Swonkie` - Swonkie
-       * * `TwelveLabs` - TwelveLabs
-       * * `Twenty` - Twenty
-       * * `Unstructured` - Unstructured
-       * * `Upstash` - Upstash
-       * * `Vellum` - Vellum
-       * * `Vultr` - Vultr
-       * * `Windmill` - Windmill
-       * * `Zep` - Zep
-       * * `Hex` - Hex
-       * * `Sumsub` - Sumsub
-       * * `GoogleChat` - GoogleChat
-       * * `Kickscale` - Kickscale
-       * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack
-       * * `DodoPayments` - DodoPayments
-       * * `Salestrics` - Salestrics
-       * * `Doppler` - Doppler
-       * * `Usersnap` - Usersnap
-       * * `Asknicely` - Asknicely
-       * * `Featurebase` - Featurebase
-       * * `Frill` - Frill
-       * * `Bettermode` - Bettermode
-       * * `Dynatrace` - Dynatrace
-       * * `Honeycomb` - Honeycomb
-       * * `SumoLogic` - SumoLogic
-       * * `LogzIO` - LogzIO
-       * * `Coralogix` - Coralogix
-       * * `BetterStack` - BetterStack
-       * * `Raygun` - Raygun
-       * * `Honeybadger` - Honeybadger
-       * * `Airbrake` - Airbrake
-       * * `Appsignal` - Appsignal
-       * * `Appdynamics` - Appdynamics
-       * * `Instana` - Instana
-       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
-       * * `Uptimerobot` - Uptimerobot
-       * * `Statuscake` - Statuscake
-       * * `Tailscale` - Tailscale
-       * * `Flagsmith` - Flagsmith
-       * * `Xmatters` - Xmatters
-       * * `Squadcast` - Squadcast
-       * * `Zenduty` - Zenduty
-       * * `Cronitor` - Cronitor
-       * * `Jenkins` - Jenkins
-       * * `Bitbucket` - Bitbucket
-       * * `Gitea` - Gitea
-       * * `Teamcity` - Teamcity
-       * * `TravisCI` - TravisCI
-       * * `Semaphore` - Semaphore
-       * * `CircleciInsights` - CircleciInsights
-       * * `OctopusDeploy` - OctopusDeploy
-       * * `Sourcegraph` - Sourcegraph
-       * * `Bitrise` - Bitrise
-       * * `Gerrit` - Gerrit
-       * * `TerraformCloud` - TerraformCloud
-       * * `PulumiCloud` - PulumiCloud
-       * * `Spacelift` - Spacelift
-       * * `Railway` - Railway
-       * * `Argocd` - Argocd
-       * * `PrefectCloud` - PrefectCloud
-       * * `DagsterCloud` - DagsterCloud
-       * * `Env0` - Env0
-       * * `Kubecost` - Kubecost
-       * * `Snyk` - Snyk
-       * * `Semgrep` - Semgrep
-       * * `Veracode` - Veracode
-       * * `Checkmarx` - Checkmarx
-       * * `Gitguardian` - Gitguardian
-       * * `QualysVmdr` - QualysVmdr
-       * * `Rapid7Insightvm` - Rapid7Insightvm
-       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
-       * * `Sentinelone` - Sentinelone
-       * * `Lacework` - Lacework
-       * * `OrcaSecurity` - OrcaSecurity
-       * * `Drata` - Drata
-       * * `Secureframe` - Secureframe
-       * * `CiscoDuo` - CiscoDuo
-       * * `Jumpcloud` - Jumpcloud
-       * * `OnePassword` - OnePassword
-       * * `Stytch` - Stytch
-       * * `Sonarqube` - Sonarqube
-       * * `Codecov` - Codecov
-       * * `Coveralls` - Coveralls
-       * * `Codacy` - Codacy
-       * * `Deepsource` - Deepsource
-       * * `Linearb` - Linearb
-       * * `Jellyfish` - Jellyfish
-       * * `Swarmia` - Swarmia
-       * * `Packagist` - Packagist
-       * * `Nuget` - Nuget
-       * * `CratesIO` - CratesIO
-       * * `SonatypeNexus` - SonatypeNexus
-       * * `JfrogArtifactory` - JfrogArtifactory
-       * * `Snowplow` - Snowplow
-       * * `WeightsAndBiases` - WeightsAndBiases
-       * * `MonteCarlo` - MonteCarlo
-       * * `Metaplane` - Metaplane
-       * * `Datahub` - Datahub
-       * * `ClickhouseCloud` - ClickhouseCloud
-       * * `ConfluentCloud` - ConfluentCloud
-       * * `KongKonnect` - KongKonnect
-       * * `Kandji` - Kandji
-       * * `Automox` - Automox
-       * * `Autumn` - Autumn
-       * * `GetStream` - GetStream
-       * * `Octolens` - Octolens
-       * * `Kajabi` - Kajabi
-       * * `Shopware` - Shopware
-       * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch
-       * * `Crisp` - Crisp
-       * * `Kommo` - Kommo
-       * * `Axiom` - Axiom
-       * * `Plivo` - Plivo
-       * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan
-       * * `AbTasty` - AbTasty
-       * * `Ably` - Ably
-       * * `AbnormalSecurity` - AbnormalSecurity
-       * * `Acast` - Acast
-       * * `Acculynx` - Acculynx
-       * * `Actionstep` - Actionstep
-       * * `Aftership` - Aftership
-       * * `AhaIdeas` - AhaIdeas
-       * * `AkamaiReporting` - AkamaiReporting
-       * * `Alation` - Alation
-       * * `Alegra` - Alegra
-       * * `Allegro` - Allegro
-       * * `AnodotCost` - AnodotCost
-       * * `Anomalo` - Anomalo
-       * * `Apaleo` - Apaleo
-       * * `Apitally` - Apitally
-       * * `AppStoreConnect` - AppStoreConnect
-       * * `Appdirect` - Appdirect
-       * * `Appfolio` - Appfolio
-       * * `Arxiv` - Arxiv
-       * * `Asaas` - Asaas
-       * * `Astronomer` - Astronomer
-       * * `Athenahealth` - Athenahealth
-       * * `Atlan` - Atlan
-       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
-       * * `Avalara` - Avalara
-       * * `AwsAthena` - AwsAthena
-       * * `AwsBatch` - AwsBatch
-       * * `AwsBudgets` - AwsBudgets
-       * * `AwsCloudformation` - AwsCloudformation
-       * * `AwsComputeOptimizer` - AwsComputeOptimizer
-       * * `AwsConfig` - AwsConfig
-       * * `AwsConnect` - AwsConnect
-       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
-       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
-       * * `AwsCostExplorer` - AwsCostExplorer
-       * * `AwsDocumentDB` - AwsDocumentDB
-       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
-       * * `AwsGuardduty` - AwsGuardduty
-       * * `AwsHealth` - AwsHealth
-       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
-       * * `AwsInspector` - AwsInspector
-       * * `AwsMacie` - AwsMacie
-       * * `AwsOrganizations` - AwsOrganizations
-       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
-       * * `AwsSagemaker` - AwsSagemaker
-       * * `AwsSavingsPlans` - AwsSavingsPlans
-       * * `AwsSecurityHub` - AwsSecurityHub
-       * * `AwsSes` - AwsSes
-       * * `AwsStepFunctions` - AwsStepFunctions
-       * * `AwsSupport` - AwsSupport
-       * * `AwsSystemsManager` - AwsSystemsManager
-       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
-       * * `AwsWaf` - AwsWaf
-       * * `AwsXray` - AwsXray
-       * * `AzureActivityLog` - AzureActivityLog
-       * * `AzureAdvisor` - AzureAdvisor
-       * * `AzureApiManagement` - AzureApiManagement
-       * * `AzureApplicationInsights` - AzureApplicationInsights
-       * * `AzureCostManagement` - AzureCostManagement
-       * * `AzureDataExplorer` - AzureDataExplorer
-       * * `AzureDataFactory` - AzureDataFactory
-       * * `AzureLogAnalytics` - AzureLogAnalytics
-       * * `AzureMonitorAlerts` - AzureMonitorAlerts
-       * * `AzureMonitorMetrics` - AzureMonitorMetrics
-       * * `AzureOpenaiUsage` - AzureOpenaiUsage
-       * * `AzurePolicyInsights` - AzurePolicyInsights
-       * * `AzureReservations` - AzureReservations
-       * * `AzureResourceGraph` - AzureResourceGraph
-       * * `AzureResourceHealth` - AzureResourceHealth
-       * * `AzureServiceHealth` - AzureServiceHealth
-       * * `AzureSynapse` - AzureSynapse
-       * * `BackMarket` - BackMarket
-       * * `Beehiiv` - Beehiiv
-       * * `Bigeye` - Bigeye
-       * * `BillCom` - BillCom
-       * * `Billomat` - Billomat
-       * * `BingWebmasterTools` - BingWebmasterTools
-       * * `Bitwarden` - Bitwarden
-       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
-       * * `BlackboardLearn` - BlackboardLearn
-       * * `Bling` - Bling
-       * * `Bloomerang` - Bloomerang
-       * * `Blueshift` - Blueshift
-       * * `Bluesky` - Bluesky
-       * * `BolRetailer` - BolRetailer
-       * * `Boulevard` - Boulevard
-       * * `Buffer` - Buffer
-       * * `Bugherd` - Bugherd
-       * * `Buildium` - Buildium
-       * * `Buttondown` - Buttondown
-       * * `BuyMeACoffee` - BuyMeACoffee
-       * * `Calendarific` - Calendarific
-       * * `Calibre` - Calibre
-       * * `CanvasLms` - CanvasLms
-       * * `Captivate` - Captivate
-       * * `Cashfree` - Cashfree
-       * * `CastAi` - CastAi
-       * * `Catchpoint` - Catchpoint
-       * * `CdcOpenData` - CdcOpenData
-       * * `Census` - Census
-       * * `Checkly` - Checkly
-       * * `CircleSo` - CircleSo
-       * * `Classy` - Classy
-       * * `Cleartax` - Cleartax
-       * * `Clever` - Clever
-       * * `Clevertap` - Clevertap
-       * * `Cliniko` - Cliniko
-       * * `Clio` - Clio
-       * * `Clip` - Clip
-       * * `Cloudability` - Cloudability
-       * * `Cloudsmith` - Cloudsmith
-       * * `Cloudzero` - Cloudzero
-       * * `Clover` - Clover
-       * * `Codemagic` - Codemagic
-       * * `Codescene` - Codescene
-       * * `Collibra` - Collibra
-       * * `Companycam` - Companycam
-       * * `Conekta` - Conekta
-       * * `ContaAzul` - ContaAzul
-       * * `Contentsquare` - Contentsquare
-       * * `Cortex` - Cortex
-       * * `Courier` - Courier
-       * * `Crossref` - Crossref
-       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
-       * * `CubeCloud` - CubeCloud
-       * * `D2lBrightspace` - D2lBrightspace
-       * * `Dayforce` - Dayforce
-       * * `Debugbear` - Debugbear
-       * * `Descope` - Descope
-       * * `Develocity` - Develocity
-       * * `Dialpad` - Dialpad
-       * * `Discord` - Discord
-       * * `Discourse` - Discourse
-       * * `Donorbox` - Donorbox
-       * * `Doorloop` - Doorloop
-       * * `Dovetail` - Dovetail
-       * * `Dragonboat` - Dragonboat
-       * * `Drchrono` - Drchrono
-       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
-       * * `EcbDataPortal` - EcbDataPortal
-       * * `Emarsys` - Emarsys
-       * * `Embrace` - Embrace
-       * * `Entsoe` - Entsoe
-       * * `Eppo` - Eppo
-       * * `Etsy` - Etsy
-       * * `Eurostat` - Eurostat
-       * * `Faire` - Faire
-       * * `FarosAi` - FarosAi
-       * * `Fieldpulse` - Fieldpulse
-       * * `Fieldwire` - Fieldwire
-       * * `Filevine` - Filevine
-       * * `Finout` - Finout
-       * * `Five9` - Five9
-       * * `FlexeraCloudCost` - FlexeraCloudCost
-       * * `Flutterwave` - Flutterwave
-       * * `Fortnox` - Fortnox
-       * * `Fourthwall` - Fourthwall
-       * * `Fred` - Fred
-       * * `Frontegg` - Frontegg
-       * * `FusionAuth` - FusionAuth
-       * * `G2` - G2
-       * * `Gcore` - Gcore
-       * * `GcpApigee` - GcpApigee
-       * * `GcpArtifactRegistry` - GcpArtifactRegistry
-       * * `GcpBigtable` - GcpBigtable
-       * * `GcpChronicle` - GcpChronicle
-       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
-       * * `GcpCloudBilling` - GcpCloudBilling
-       * * `GcpCloudBuild` - GcpCloudBuild
-       * * `GcpCloudDeploy` - GcpCloudDeploy
-       * * `GcpCloudDns` - GcpCloudDns
-       * * `GcpCloudFunctions` - GcpCloudFunctions
-       * * `GcpCloudLogging` - GcpCloudLogging
-       * * `GcpCloudMonitoring` - GcpCloudMonitoring
-       * * `GcpCloudRun` - GcpCloudRun
-       * * `GcpCloudSpanner` - GcpCloudSpanner
-       * * `GcpCloudSql` - GcpCloudSql
-       * * `GcpCloudTrace` - GcpCloudTrace
-       * * `GcpCloudWorkflows` - GcpCloudWorkflows
-       * * `GcpComputeEngine` - GcpComputeEngine
-       * * `GcpContainerAnalysis` - GcpContainerAnalysis
-       * * `GcpDataflow` - GcpDataflow
-       * * `GcpDataplex` - GcpDataplex
-       * * `GcpDataproc` - GcpDataproc
-       * * `GcpErrorReporting` - GcpErrorReporting
-       * * `GcpGke` - GcpGke
-       * * `GcpPubsub` - GcpPubsub
-       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
-       * * `GcpRecommender` - GcpRecommender
-       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
-       * * `Gdelt` - Gdelt
-       * * `GenesysCloud` - GenesysCloud
-       * * `Getdx` - Getdx
-       * * `Ghost` - Ghost
-       * * `Givebutter` - Givebutter
-       * * `Gleif` - Gleif
-       * * `GooglePlayConsole` - GooglePlayConsole
-       * * `Guesty` - Guesty
-       * * `Gumroad` - Gumroad
-       * * `HarnessCcm` - HarnessCcm
-       * * `HarnessSei` - HarnessSei
-       * * `Harvest` - Harvest
-       * * `Healthie` - Healthie
-       * * `Hitpay` - Hitpay
-       * * `Hivebrite` - Hivebrite
-       * * `Holded` - Holded
-       * * `Hostaway` - Hostaway
-       * * `HousecallPro` - HousecallPro
-       * * `Humanitec` - Humanitec
-       * * `ImfData` - ImfData
-       * * `Imperva` - Imperva
-       * * `InfluxdbCloud` - InfluxdbCloud
-       * * `Iyzico` - Iyzico
-       * * `Jobtread` - Jobtread
-       * * `Kameleoon` - Kameleoon
-       * * `KauflandMarketplace` - KauflandMarketplace
-       * * `Kestra` - Kestra
-       * * `Kick` - Kick
-       * * `Kinde` - Kinde
-       * * `Kion` - Kion
-       * * `Knowbe4` - Knowbe4
-       * * `Komodor` - Komodor
-       * * `Labelbox` - Labelbox
-       * * `Lawmatics` - Lawmatics
-       * * `Learnworlds` - Learnworlds
-       * * `LexwareOffice` - LexwareOffice
-       * * `Lightdash` - Lightdash
-       * * `Lodgify` - Lodgify
-       * * `Logicmonitor` - Logicmonitor
-       * * `Logrocket` - Logrocket
-       * * `LoopReturns` - LoopReturns
-       * * `Mastodon` - Mastodon
-       * * `Meetup` - Meetup
-       * * `Megaphone` - Megaphone
-       * * `Memberful` - Memberful
-       * * `MercadoPago` - MercadoPago
-       * * `Meteostat` - Meteostat
-       * * `Mews` - Mews
-       * * `Mezmo` - Mezmo
-       * * `Microsoft365UsageReports` - Microsoft365UsageReports
-       * * `MicrosoftAdvertising` - MicrosoftAdvertising
-       * * `MicrosoftClarity` - MicrosoftClarity
-       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
-       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
-       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
-       * * `MicrosoftIntune` - MicrosoftIntune
-       * * `MicrosoftPurview` - MicrosoftPurview
-       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
-       * * `MicrosoftSentinel` - MicrosoftSentinel
-       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
-       * * `Midtrans` - Midtrans
-       * * `MightyNetworks` - MightyNetworks
-       * * `Mindbody` - Mindbody
-       * * `Mirakl` - Mirakl
-       * * `Moesif` - Moesif
-       * * `Moneybird` - Moneybird
-       * * `Moodle` - Moodle
-       * * `Motherduck` - Motherduck
-       * * `Mycase` - Mycase
-       * * `NagerDate` - NagerDate
-       * * `NeonCrm` - NeonCrm
-       * * `Nexhealth` - Nexhealth
-       * * `NoaaCdo` - NoaaCdo
-       * * `Nobl9` - Nobl9
-       * * `Nolt` - Nolt
-       * * `Nops` - Nops
-       * * `NpmRegistry` - NpmRegistry
-       * * `Oecd` - Oecd
-       * * `Okendo` - Okendo
-       * * `Omni` - Omni
-       * * `Onelogin` - Onelogin
-       * * `OpenDental` - OpenDental
-       * * `OpenMeteo` - OpenMeteo
-       * * `Openalex` - Openalex
-       * * `Opencorporates` - Opencorporates
-       * * `Openfec` - Openfec
-       * * `OpnPayments` - OpnPayments
-       * * `Opslevel` - Opslevel
-       * * `OttoMarket` - OttoMarket
-       * * `Ownerrez` - Ownerrez
-       * * `Pagbank` - Pagbank
-       * * `Patreon` - Patreon
-       * * `Pax8` - Pax8
-       * * `Paychex` - Paychex
-       * * `Paymob` - Paymob
-       * * `Paymongo` - Paymongo
-       * * `Phonepe` - Phonepe
-       * * `Pike13` - Pike13
-       * * `Pingone` - Pingone
-       * * `PinterestOrganic` - PinterestOrganic
-       * * `PlanningCenter` - PlanningCenter
-       * * `PluralsightFlow` - PluralsightFlow
-       * * `Podbean` - Podbean
-       * * `Postscript` - Postscript
-       * * `PowerBiAdmin` - PowerBiAdmin
-       * * `Practicepanther` - Practicepanther
-       * * `Preset` - Preset
-       * * `Procore` - Procore
-       * * `Productiv` - Productiv
-       * * `ProofpointTap` - ProofpointTap
-       * * `Propertyware` - Propertyware
-       * * `Pubnub` - Pubnub
-       * * `Quay` - Quay
-       * * `Raken` - Raken
-       * * `RedpandaCloud` - RedpandaCloud
-       * * `RentManager` - RentManager
-       * * `Reverb` - Reverb
-       * * `RocketMatter` - RocketMatter
-       * * `Rubygems` - Rubygems
-       * * `Scalr` - Scalr
-       * * `SecEdgar` - SecEdgar
-       * * `SelectStar` - SelectStar
-       * * `SemanticScholar` - SemanticScholar
-       * * `Semrush` - Semrush
-       * * `ServiceFusion` - ServiceFusion
-       * * `Servicem8` - Servicem8
-       * * `Servicetitan` - Servicetitan
-       * * `Servicetrade` - Servicetrade
-       * * `Sevdesk` - Sevdesk
-       * * `Similarweb` - Similarweb
-       * * `Simpro` - Simpro
-       * * `Sinch` - Sinch
-       * * `Singlestore` - Singlestore
-       * * `Site24x7` - Site24x7
-       * * `Sleuth` - Sleuth
-       * * `Smartlook` - Smartlook
-       * * `Smartrecruiters` - Smartrecruiters
-       * * `Smokeball` - Smokeball
-       * * `SodaCloud` - SodaCloud
-       * * `Speedcurve` - Speedcurve
-       * * `SpotIo` - SpotIo
-       * * `Sprig` - Sprig
-       * * `Sprinklr` - Sprinklr
-       * * `SproutSocial` - SproutSocial
-       * * `StackOverflowForTeams` - StackOverflowForTeams
-       * * `Stockx` - Stockx
-       * * `TackleIo` - TackleIo
-       * * `Talkdesk` - Talkdesk
-       * * `TeamupFitness` - TeamupFitness
-       * * `Tebra` - Tebra
-       * * `Telnyx` - Telnyx
-       * * `Ternary` - Ternary
-       * * `Thoughtspot` - Thoughtspot
-       * * `Thousandeyes` - Thousandeyes
-       * * `Threads` - Threads
-       * * `TiktokShop` - TiktokShop
-       * * `TinyErp` - TinyErp
-       * * `Tinybird` - Tinybird
-       * * `Tipalti` - Tipalti
-       * * `Toast` - Toast
-       * * `Torii` - Torii
-       * * `Transistor` - Transistor
-       * * `TrunkIo` - TrunkIo
-       * * `Trustradius` - Trustradius
-       * * `Twitch` - Twitch
-       * * `TwoC2p` - TwoC2p
-       * * `UkCompaniesHouse` - UkCompaniesHouse
-       * * `UkOns` - UkOns
-       * * `UnComtrade` - UnComtrade
-       * * `UsBea` - UsBea
-       * * `UsBls` - UsBls
-       * * `UsEia` - UsEia
-       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
-       * * `Vanta` - Vanta
-       * * `Vendr` - Vendr
-       * * `Virtuous` - Virtuous
-       * * `Vonage` - Vonage
-       * * `WalmartMarketplace` - WalmartMarketplace
-       * * `Waydev` - Waydev
-       * * `Wayfair` - Wayfair
-       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
-       * * `WhoGho` - WhoGho
-       * * `Whop` - Whop
-       * * `Wistia` - Wistia
-       * * `Wiz` - Wiz
-       * * `Wompi` - Wompi
-       * * `Workiz` - Workiz
-       * * `WorldBank` - WorldBank
-       * * `Xendit` - Xendit
-       * * `Yoco` - Yoco
-       * * `ZalandoZdirect` - ZalandoZdirect
-       * * `Zluri` - Zluri
-       * * `Zylo` - Zylo
-       * * `Tally` - Tally
-       * * `Nuntly` - Nuntly
-       * * `Vturb` - Vturb
-       * * `Meltwater` - Meltwater
-       * * `UserCom` - UserCom
-       * * `Latitude` - Latitude
-       * * `Workato` - Workato
-       * * `SideShift` - SideShift
-       * * `DuckLake` - DuckLake
-       * * `Starburst` - Starburst
-       * * `Trino` - Trino
-       * * `Easybill` - Easybill
-       * * `Bexio` - Bexio
-       * * `Umami` - Umami
-       * * `Manychat` - Manychat
-       * * `Kickstarter` - Kickstarter
-       * * `Typesense` - Typesense
-       * * `FirstPromoter` - FirstPromoter
-       * * `Zero` - Zero
-       * * `Inth` - Inth
-       * * `BCMS` - BCMS
-       * * `Convonite` - Convonite
-       * * `Hookdeck` - Hookdeck
-       * * `Billit` - Billit
-       * * `Moxie` - Moxie
-       * * `TripleWhale` - TripleWhale
-       * * `Directus` - Directus
-       * * `Clay` - Clay
-       * * `TradableBits` - TradableBits
-       * * `Swan` - Swan
-       * * `Hyros` - Hyros
-       * * `Odoo` - Odoo
-       * * `Airbridge` - Airbridge
-       * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter
-       * * `Raisely` - Raisely
-       * * `RakutenAdvertising` - RakutenAdvertising
-       * * `Zitadel` - Zitadel
-       * * `DeelFlows` - DeelFlows
-       * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix
-       * * `Sevalla` - Sevalla
-       * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner
-       * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare
-       * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91
-       * * `Depot` - Depot
-       * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy
-       * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart
-       * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound
-       * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi
-       * * `Capterra` - Capterra
-       * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi
-       * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS
-       * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox
-       * * `SimonData` - SimonData
-       * * `CommissionJunction` - CommissionJunction
-       * * `Liveblocks` - Liveblocks
-       * * `Livestorm` - Livestorm
-       * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana
-       * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable
-       * * `Anvil` - Anvil
-       * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato
-       * * `Medusa` - Medusa
-       * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin
-       * * `Folk` - Folk
-       * * `Cybersource` - Cybersource
-       * * `GoogleAdSense` - GoogleAdSense
-       * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio
-       * * `Smartlead` - Smartlead
-       * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket
-       * * `Quo` - Quo
-       * * `HeyReach` - HeyReach
-       * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet
-       * * `Expo` - Expo
-       * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer
-       * * `Sprinto` - Sprinto
-       * * `Gem` - Gem
-       * * `AudioGO` - AudioGO
-       * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs
-       * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura
-       * * `ChargebackStop` - ChargebackStop
-       * * `Chargeflow` - Chargeflow
-       * * `Dreamdata` - Dreamdata
-       * * `GoogleBusinessProfile` - GoogleBusinessProfile
-       * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite
-       * * `Modal` - Modal
-       * * `Vimeo` - Vimeo
-       * * `Scrunch` - Scrunch
-       * * `Loom` - Loom
-       * * `Arcade` - Arcade
-       * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom
-       * * `Userback` - Userback
-       * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution
-       * * `StackAdapt` - StackAdapt
-       * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay
-       * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud
-       * * `Northbeam` - Northbeam
-       * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO
-       * * `Airship` - Airship
-       * * `Creem` - Creem
-       * * `Leantime` - Leantime
-       * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob
-       * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2
-       * * `Particle` - Particle
-       * * `FileUpload` - FileUpload
-       * * `Dripify` - Dripify
-       * * `AwsS3Tables` - AwsS3Tables
-       * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments
-       * * `Soniox` - Soniox
-       * * `Nango` - Nango
-       * * `Fathom` - Fathom
-       * * `Stamped` - Stamped */
-      source_type: ExternalDataSourceTypeEnum;
+      /** The source type (e.g. 'Postgres', 'Stripe'). */
+      source_type: string;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
       /**
@@ -55419,7 +47577,8 @@ export namespace Schemas {
       readonly status: string;
       client_secret: string;
       account_id: string;
-      readonly source_type: ExternalDataSourceTypeEnum;
+      /** The source type (e.g. 'Postgres', 'Stripe'). */
+      readonly source_type: string;
       /** @nullable */
       readonly latest_error: string | null;
       /**
@@ -55466,6 +47625,8 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
       readonly supports_webhooks: boolean;
+      /** Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables. */
+      readonly webhook_not_registered: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection: boolean;
       /**
@@ -57166,6 +49327,22 @@ export namespace Schemas {
       /** Size of the stored file in bytes. */
       size_bytes: number;
     }
+
+    /**
+     * * `monitoring` - Monitoring
+     * * `verifying` - Verifying
+     * * `assessment_required` - Assessment required
+     * * `verification_complete` - Verification complete
+     */
+    export type FinalVerificationStateEnum = typeof FinalVerificationStateEnum[keyof typeof FinalVerificationStateEnum];
+
+
+    export const FinalVerificationStateEnum = {
+      Monitoring: 'monitoring',
+      Verifying: 'verifying',
+      AssessmentRequired: 'assessment_required',
+      VerificationComplete: 'verification_complete',
+    } as const;
 
     /**
      * * `review` - review
@@ -59867,6 +52044,7 @@ export namespace Schemas {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys
      */
     export type HogFlowOriginProductEnum = typeof HogFlowOriginProductEnum[keyof typeof HogFlowOriginProductEnum];
 
@@ -59875,6 +52053,7 @@ export namespace Schemas {
       Loops: 'loops',
       Broadcasts: 'broadcasts',
       TransactionalEmails: 'transactional_emails',
+      TransactionalEmailKeys: 'transactional_email_keys',
     } as const;
 
     export interface HogFlowMasking {
@@ -60195,11 +52374,12 @@ export namespace Schemas {
        * * `active` - Active
        * * `archived` - Archived */
       status?: HogFlowStateEnum;
-      /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
+      /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.
        *
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
-       * * `transactional_emails` - Transactional emails */
+       * * `transactional_emails` - Transactional emails
+       * * `transactional_email_keys` - Transactional email keys */
       origin_product?: HogFlowOriginProductEnum | null;
       /**
          * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
@@ -60278,6 +52458,7 @@ export namespace Schemas {
      * * `queued` - Queued
      * * `active` - Active
      * * `completed` - Completed
+     * * `partially_failed` - Partially failed
      * * `cancelled` - Cancelled
      * * `failed` - Failed
      */
@@ -60289,6 +52470,7 @@ export namespace Schemas {
       Queued: 'queued',
       Active: 'active',
       Completed: 'completed',
+      PartiallyFailed: 'partially_failed',
       Cancelled: 'cancelled',
       Failed: 'failed',
     } as const;
@@ -60296,12 +52478,13 @@ export namespace Schemas {
     export interface HogFlowBatchJob {
       /** ID of the batch run. */
       readonly id: string;
-      /** Not currently tracked — stays at its initial value. Use the workflow logs/metrics endpoints for run outcome.
+      /** Status of the batch run. waiting: the audience's cohort is still calculating. queued and active: the run is enrolling its audience. completed: the whole audience was enrolled. When every enrolled person's run has ended, or a day after the run completed, PostHog checks for errored sends. A completed run stays completed when no send errored, becomes partially_failed when some sends errored, and becomes failed when every send errored. failed also means the run could not enroll its audience. cancelled: someone stopped the run. A send errors when its step throws, for example on a template that does not render. Provider failures such as bounces are not errored sends; read them from the run's metrics.
        *
        * * `waiting` - Waiting
        * * `queued` - Queued
        * * `active` - Active
        * * `completed` - Completed
+       * * `partially_failed` - Partially failed
        * * `cancelled` - Cancelled
        * * `failed` - Failed */
       status?: HogFlowBatchJobStateEnum;
@@ -60331,6 +52514,7 @@ export namespace Schemas {
        * * `queued` - Queued
        * * `active` - Active
        * * `completed` - Completed
+       * * `partially_failed` - Partially failed
        * * `cancelled` - Cancelled
        * * `failed` - Failed */
       status: HogFlowBatchJobStateEnum;
@@ -60349,7 +52533,8 @@ export namespace Schemas {
        *
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
-       * * `transactional_emails` - Transactional emails */
+       * * `transactional_emails` - Transactional emails
+       * * `transactional_email_keys` - Transactional email keys */
       readonly origin_product: HogFlowOriginProductEnum;
     }
 
@@ -60819,7 +53004,8 @@ export namespace Schemas {
        *
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
-       * * `transactional_emails` - Transactional emails */
+       * * `transactional_emails` - Transactional emails
+       * * `transactional_email_keys` - Transactional email keys */
       readonly origin_product: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -60960,6 +53146,7 @@ export namespace Schemas {
      * * `task_repository` - task_repository
      * * `task_mcp_installations` - task_mcp_installations
      * * `signals_scout` - signals_scout
+     * * `posthog_survey` - posthog_survey
      * * `task_skills` - task_skills
      * * `replay_vision_scan` - replay_vision_scan
      */
@@ -60988,6 +53175,7 @@ export namespace Schemas {
       TaskRepository: 'task_repository',
       TaskMcpInstallations: 'task_mcp_installations',
       SignalsScout: 'signals_scout',
+      PosthogSurvey: 'posthog_survey',
       TaskSkills: 'task_skills',
       ReplayVisionScan: 'replay_vision_scan',
     } as const;
@@ -62181,6 +54369,8 @@ export namespace Schemas {
       customerTable?: string | null;
       /** Google Ads search term table for Performance Max campaigns. */
       performanceMaxSearchTermTable?: string | null;
+      /** Google Search Console table with one row per query and page, used to find the page that ranks for a search. */
+      queryPageTable?: string | null;
       /** Google Search Console table with one row per query, or per query and page. */
       queryTable?: string | null;
       /** Google Ads search term table split by the keyword that matched each term. */
@@ -64598,6 +56788,8 @@ export namespace Schemas {
 
     export interface MCPMissingCapabilitiesQuery {
       dateRange?: DateRange | null;
+      /** Exclude reports from the project's internal and test users. */
+      filterTestAccounts?: boolean | null;
       kind?: 'MCPMissingCapabilitiesQuery';
       /** Page size; defaults to 100, capped at 500. */
       limit?: number | null;
@@ -65152,6 +57344,7 @@ export namespace Schemas {
      * * `pganalyze` - pganalyze
      * * `signals_scout` - Signals scout
      * * `signals_check` - Report check
+     * * `user_authored` - Team member
      * * `logs` - Logs
      * * `health_checks` - Health checks
      * * `endpoints` - Endpoints
@@ -65269,6 +57462,7 @@ export namespace Schemas {
       Pganalyze: 'pganalyze',
       SignalsScout: 'signals_scout',
       SignalsCheck: 'signals_check',
+      UserAuthored: 'user_authored',
       Logs: 'logs',
       HealthChecks: 'health_checks',
       Endpoints: 'endpoints',
@@ -65436,6 +57630,7 @@ export namespace Schemas {
        * * `pganalyze` - pganalyze
        * * `signals_scout` - Signals scout
        * * `signals_check` - Report check
+       * * `user_authored` - Team member
        * * `logs` - Logs
        * * `health_checks` - Health checks
        * * `endpoints` - Endpoints
@@ -66838,6 +59033,11 @@ export namespace Schemas {
       readonly installation_shared: boolean | null;
       /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
       readonly installation_status: InstallationStatusEnum | null;
+      /**
+         * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+         * @nullable
+         */
+      readonly needs_webhook_reconnect: boolean | null;
     }
 
     /**
@@ -66918,6 +59118,11 @@ export namespace Schemas {
       readonly installation_shared: boolean | null;
       /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
       readonly installation_status: InstallationStatusEnum | null;
+      /**
+         * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+         * @nullable
+         */
+      readonly needs_webhook_reconnect: boolean | null;
     }
 
     export interface RecommendedAction {
@@ -66988,11 +59193,6 @@ export namespace Schemas {
     export interface InterestingNote {
       text: string;
       line_refs: string;
-    }
-
-    export interface InternalFeedbackResponse {
-      /** True when the feedback reached Slack. */
-      success: boolean;
     }
 
     /**
@@ -68724,6 +60924,7 @@ export namespace Schemas {
      * * `posthog-node` - posthog-node
      * * `posthog-python` - posthog-python
      * * `posthog-php` - posthog-php
+     * * `posthog-laravel` - posthog-laravel
      * * `posthog-ruby` - posthog-ruby
      * * `posthog-go` - posthog-go
      * * `posthog-flutter` - posthog-flutter
@@ -68744,6 +60945,7 @@ export namespace Schemas {
      * * `posthog-unreal` - posthog-unreal
      * * `posthog-go-mcp` - posthog-go-mcp
      * * `posthog-ruby-mcp` - posthog-ruby-mcp
+     * * `posthog-roblox` - posthog-roblox
      * * `js` - js
      */
     export type LibEnum = typeof LibEnum[keyof typeof LibEnum];
@@ -68758,6 +60960,7 @@ export namespace Schemas {
       PosthogNode: 'posthog-node',
       PosthogPython: 'posthog-python',
       PosthogPhp: 'posthog-php',
+      PosthogLaravel: 'posthog-laravel',
       PosthogRuby: 'posthog-ruby',
       PosthogGo: 'posthog-go',
       PosthogFlutter: 'posthog-flutter',
@@ -68778,6 +60981,7 @@ export namespace Schemas {
       PosthogUnreal: 'posthog-unreal',
       PosthogGoMcp: 'posthog-go-mcp',
       PosthogRubyMcp: 'posthog-ruby-mcp',
+      PosthogRoblox: 'posthog-roblox',
       Js: 'js',
     } as const;
 
@@ -69019,6 +61223,25 @@ export namespace Schemas {
       readonly user_tag: string | null;
       /** @nullable */
       readonly sync_interval: string | null;
+      /**
+         * How often this node actually refreshes. A downstream view can make an unpinned view refresh more often than `sync_interval`, and a slow source can make it refresh less often. Null when the node is not scheduled.
+         * @nullable
+         */
+      readonly effective_sync_interval: string | null;
+      /** How often this view refreshes. 'never' clears the cadence, and with it the pin. Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.
+       *
+       * * `never` - never
+       * * `15min` - 15min
+       * * `30min` - 30min
+       * * `1hour` - 1hour
+       * * `6hour` - 6hour
+       * * `12hour` - 12hour
+       * * `24hour` - 24hour
+       * * `7day` - 7day
+       * * `30day` - 30day */
+      sync_frequency?: SavedQuerySyncFrequencyEnum;
+      /** Pin this view to its own cadence. A pinned view does not refresh more often when downstream views or endpoints need fresher data, so they read data up to one pinned interval old. Requires a cadence. Set false to refresh as often as downstream views need again. */
+      pinned?: boolean;
       /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
       readonly suspended: NodeSuspended;
       /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
@@ -73100,6 +65323,70 @@ export namespace Schemas {
     }
 
     /**
+     * * `dashboard` - Dashboard
+     * * `insight` - Insight
+     * * `notebook` - Notebook
+     * * `recording` - Session recording
+     * * `subscription` - Subscription
+     * * `alert` - Alert
+     */
+    export type MemberOffboardingResourceKindEnum = typeof MemberOffboardingResourceKindEnum[keyof typeof MemberOffboardingResourceKindEnum];
+
+
+    export const MemberOffboardingResourceKindEnum = {
+      Dashboard: 'dashboard',
+      Insight: 'insight',
+      Notebook: 'notebook',
+      Recording: 'recording',
+      Subscription: 'subscription',
+      Alert: 'alert',
+    } as const;
+
+    export interface MemberOffboardingResource {
+      /** Opaque identifier used to update this resource during offboarding. */
+      id: string;
+      /** Identifier accepted by the resource’s own API. */
+      resource_id: string;
+      /** The kind of public object or automated delivery.
+       *
+       * * `dashboard` - Dashboard
+       * * `insight` - Insight
+       * * `notebook` - Notebook
+       * * `recording` - Session recording
+       * * `subscription` - Subscription
+       * * `alert` - Alert */
+      kind: MemberOffboardingResourceKindEnum;
+      /** The resource's display name. */
+      name: string;
+      /** Project containing the resource. */
+      team_id: number;
+      /** Name of the project containing the resource. */
+      project_name: string;
+      /**
+         * When the subscription was created, if applicable.
+         * @nullable
+         */
+      created_at: string | null;
+      /**
+         * Subscription delivery channel: email, slack, or teams.
+         * @nullable
+         */
+      destination_type?: string | null;
+      /**
+         * Subscription recipients, Slack channels, or safe webhook host.
+         * @nullable
+         */
+      destination?: string | null;
+      /** Whether all active public links require a password. */
+      password_protected: boolean;
+      /**
+         * Project-scoped path to open the resource in PostHog.
+         * @nullable
+         */
+      url: string | null;
+    }
+
+    /**
      * A resolved access level with the rule that supplied it — the wire form of `ResolvedAccess`.
      */
     export interface ProjectAccessSource {
@@ -73194,6 +65481,7 @@ export namespace Schemas {
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
        * * `mcp_registry` - mcp_registry
+       * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -73227,6 +65515,7 @@ export namespace Schemas {
        * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
+       * * `transactional_email` - transactional_email
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -73241,7 +65530,8 @@ export namespace Schemas {
        * * `web_analytics` - web_analytics
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
-       * * `wizard_run` - wizard_run */
+       * * `wizard_run` - wizard_run
+       * * `workload_trust_policy` - workload_trust_policy */
       source_resource: ScopeObjectEnum;
       /**
          * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -74587,7 +66877,7 @@ export namespace Schemas {
     } as const;
 
     export interface MonitoringCheckTiming {
-      /** Whether this check has an interim measurement due, is paused, or has finished its observation window. No state implies a final verdict.
+      /** Monitoring timing state. Final verification phases use paused for compatibility; read final_verification_state for their phase.
        *
        * * `scheduled` - Scheduled
        * * `due` - Due
@@ -74599,6 +66889,13 @@ export namespace Schemas {
        * * `unavailable` - Timing unavailable
        * * `expiry_reached` - Expiry reached */
       state: MonitoringCheckTimingStateEnum;
+      /** Final verification phase when state is paused. Null for other timing states. Read the check outcome for its verdict.
+       *
+       * * `monitoring` - Monitoring
+       * * `verifying` - Verifying
+       * * `assessment_required` - Assessment required
+       * * `verification_complete` - Verification complete */
+      readonly final_verification_state?: FinalVerificationStateEnum | null;
       /**
          * Original Monitoring start for this check's report.
          * @nullable
@@ -74614,6 +66911,13 @@ export namespace Schemas {
          * @nullable
          */
       next_measurement_at: string | null;
+    }
+
+    export interface MonitoringUnresolvedSignalExtra {
+      /** Original Closed report whose implementation remains unverified. */
+      report_id: string;
+      /** Monitoring attempt that durably requested this investigation. */
+      attempt_id: string;
     }
 
     export interface MonteCarloAlertSignalExtra {
@@ -74649,6 +66953,62 @@ export namespace Schemas {
       rejected_signal_ids: string[];
       /** PR-specificity gate result that caused a rejection, when present. */
       specificity_rejection?: SpecificityMetadata | null;
+    }
+
+    export interface NodePinDelay {
+      /** Node id of the downstream view or endpoint. */
+      id: string;
+      /** Name of the downstream view or endpoint. */
+      name: string;
+    }
+
+    export interface NodePinBlocker {
+      /**
+         * Node id of the downstream view that stops the pin, or null when the caller may not read it.
+         * @nullable
+         */
+      id: string | null;
+      /**
+         * Name of the downstream view that stops the pin, or null when the caller may not read it.
+         * @nullable
+         */
+      name: string | null;
+    }
+
+    export interface NodeFrequencyOption {
+      /** A cadence the view could refresh at.
+       *
+       * * `15min` - 15min
+       * * `30min` - 30min
+       * * `1hour` - 1hour
+       * * `6hour` - 6hour
+       * * `12hour` - 12hour
+       * * `24hour` - 24hour
+       * * `7day` - 7day
+       * * `30day` - 30day */
+      cadence: MaterializeSyncFrequencyEnum;
+      /** Downstream views and endpoints that refresh more often than this cadence. If this view were pinned to it, they would read data older than their own cadence. */
+      delays_if_pinned: NodePinDelay[];
+      /** The downstream view that stops a pin at this cadence. It reads fresh data only through this view, so a pin this slow would leave it unable to refresh as often as its own cadence. Null when this cadence can be pinned. */
+      pin_blocked_by: NodePinBlocker | null;
+      /** The cadence the view would run at if it held this cadence without a pin. Finer than this cadence when a downstream view needs fresher data than the pin allows.
+       *
+       * * `15min` - 15min
+       * * `30min` - 30min
+       * * `1hour` - 1hour
+       * * `6hour` - 6hour
+       * * `12hour` - 12hour
+       * * `24hour` - 24hour
+       * * `7day` - 7day
+       * * `30day` - 30day */
+      unpinned_cadence: MaterializeSyncFrequencyEnum;
+    }
+
+    export interface NodeFrequencyBounds {
+      /** True when the view refreshes at its own cadence instead of as often as its downstream views and endpoints need. */
+      pinned: boolean;
+      /** Every cadence a picker may show, finest first. Empty when the node has no view. */
+      options: NodeFrequencyOption[];
     }
 
     export interface NodeResume {
@@ -77503,6 +69863,20 @@ export namespace Schemas {
       NeedsAttention: 'needs_attention',
     } as const;
 
+    /**
+     * * `found` - Found
+     * * `missing` - Missing
+     * * `unavailable` - Unavailable
+     */
+    export type OwnersFileStatusEnum = typeof OwnersFileStatusEnum[keyof typeof OwnersFileStatusEnum];
+
+
+    export const OwnersFileStatusEnum = {
+      Found: 'found',
+      Missing: 'missing',
+      Unavailable: 'unavailable',
+    } as const;
+
     export interface WorkflowCost {
       /** GitHub Actions workflow name this cost is for. */
       workflow_name: string;
@@ -80161,6 +72535,12 @@ export namespace Schemas {
        * * `template` - Template
        * * `scratch` - From scratch */
       creation_method?: ScannerCreationMethodEnum | null;
+      /**
+         * The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Only the app's value is kept: any other caller is reported as its own source, such as `mcp`. Ignored on update.
+         * @nullable
+         * @pattern ^[a-z0-9_]{1,64}$
+         */
+      entry_point?: string | null;
       /** Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`. */
       take_over_as_creator?: boolean;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
@@ -82164,7 +74544,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint.
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key.
      */
     export type SignalSourceConfigConfig = { [key: string]: unknown };
 
@@ -82178,7 +74558,7 @@ export namespace Schemas {
       source_product: SignalSourceProductEnum;
       source_type: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key. */
       config?: SignalSourceConfigConfig;
       /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
       config_set?: SignalSourceConfigConfigSet;
@@ -82365,6 +74745,20 @@ export namespace Schemas {
       Label: 'label',
     } as const;
 
+    /**
+     * * `off` - Off
+     * * `always` - Always
+     * * `fallback` - When stamphog does not approve
+     */
+    export type RoutingModeEnum = typeof RoutingModeEnum[keyof typeof RoutingModeEnum];
+
+
+    export const RoutingModeEnum = {
+      Off: 'off',
+      Always: 'always',
+      Fallback: 'fallback',
+    } as const;
+
     export interface StamphogRepoConfig {
       readonly id: string;
       /** SCM provider this config talks to. Defaults to 'github'. */
@@ -82384,8 +74778,14 @@ export namespace Schemas {
       readonly review_mode: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
+      /** When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      readonly routing_mode: RoutingModeEnum;
       /**
-         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode or trigger_label.
+         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label or routing_mode.
          * @nullable
          */
       readonly user_access_level: string | null;
@@ -82998,7 +75398,8 @@ export namespace Schemas {
       /** @nullable */
       readonly created_by: number | null;
       readonly status: string;
-      readonly source_type: ExternalDataSourceTypeEnum;
+      /** The source type (e.g. 'Postgres', 'Stripe'). */
+      readonly source_type: string;
     }
 
     export type TableColumnsItem = { [key: string]: unknown };
@@ -85198,6 +77599,20 @@ export namespace Schemas {
       Savings: 'savings',
     } as const;
 
+    /**
+     * * `waiting` - Waiting
+     * * `background` - Background
+     * * `scanned` - Scanned
+     */
+    export type WarehouseSuggestionMainSavingEnum = typeof WarehouseSuggestionMainSavingEnum[keyof typeof WarehouseSuggestionMainSavingEnum];
+
+
+    export const WarehouseSuggestionMainSavingEnum = {
+      Waiting: 'waiting',
+      Background: 'background',
+      Scanned: 'scanned',
+    } as const;
+
     export interface WarehouseSuggestionMaterializePayload {
       /** Sources that are always current, such as PostHog tables and direct connections. */
       live_sources: WarehouseSuggestionVisibleSources;
@@ -85216,6 +77631,12 @@ export namespace Schemas {
        * * `consumer_refresh` - Consumer refresh
        * * `savings` - Savings */
       refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasisEnum | null;
+      /** The saving that earned the suggestion. waiting: people, agents and API callers wait less on reads. background: refreshes do less work. scanned: reads scan fewer bytes. Null on suggestions made before this was recorded.
+       *
+       * * `waiting` - Waiting
+       * * `background` - Background
+       * * `scanned` - Scanned */
+      main_saving: WarehouseSuggestionMainSavingEnum | null;
       /** Name of the view to materialize. */
       subject_name: string;
       /** Proposed refresh interval, in seconds. */
@@ -85242,6 +77663,21 @@ export namespace Schemas {
       lookback_seconds?: number;
       /** How many materialized views compute this view again on every refresh, because it is not stored. 0 when the saving comes only from people's reads. */
       recomputed_by_views?: number;
+      /**
+         * Part of saves_seconds_per_month that people, agents and API callers spend waiting on reads of this view, in seconds. Null on suggestions made before this was recorded.
+         * @nullable
+         */
+      waiting_seconds_saved_per_month?: number | null;
+      /**
+         * Part of saves_seconds_per_month that background refreshes spend, in seconds. Negative when refreshing the stored copy costs more background time than it saves. Null on suggestions made before this was recorded.
+         * @nullable
+         */
+      background_seconds_saved_per_month?: number | null;
+      /**
+         * How long one read of the view takes today, in seconds. Null when no read was measured on its own.
+         * @nullable
+         */
+      read_seconds?: number | null;
     }
 
     export interface WarehouseSuggestionUnmaterializePayload {
@@ -86001,6 +78437,77 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: WorkflowProposal[];
+    }
+
+    /**
+     * The label of each condition claim the provider allows, keyed by claim name.
+     */
+    export type WorkloadClaimLabelsConditions = {[key: string]: string};
+
+    export interface WorkloadClaimLabels {
+      /** What the provider calls the subject, for example Repository ID. */
+      subject: string;
+      /** What the provider calls the subject name, for example Repository. */
+      subject_name: string;
+      /** The label of each condition claim the provider allows, keyed by claim name. */
+      conditions: WorkloadClaimLabelsConditions;
+    }
+
+    /**
+     * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+     */
+    export type WorkloadTrustPolicyConditions = {[key: string]: string};
+
+    export interface WorkloadTrustPolicy {
+      readonly id: string;
+      /**
+         * A name that says what the policy is for.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * The OIDC issuer of the workload provider, from the list of supported providers.
+         * @maxLength 255
+         */
+      issuer: string;
+      /**
+         * The key of the workload provider the issuer belongs to.
+         * @nullable
+         */
+      readonly provider: string | null;
+      /**
+         * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
+         * @maxLength 255
+         */
+      subject_name: string;
+      /**
+         * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
+         * @maxLength 255
+         */
+      subject: string;
+      /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+      conditions?: WorkloadTrustPolicyConditions;
+      /** How the provider names the subject, the subject name and each condition claim, for display. */
+      readonly claim_labels: WorkloadClaimLabels;
+      /**
+         * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
+         * @items.maxLength 100
+         */
+      scopes: string[];
+      /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
+      enabled?: boolean;
+      readonly created_by: UserBasic | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedWorkloadTrustPolicyList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WorkloadTrustPolicy[];
     }
 
     /**
@@ -87899,6 +80406,8 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
       /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
       readonly suspended?: PatchedDataWarehouseSavedQuerySuspended;
+      /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+      readonly is_raw_managed_trino?: boolean;
     }
 
     /**
@@ -88394,6 +80903,8 @@ export namespace Schemas {
     }
 
     export interface PatchedErrorTrackingSettings {
+      /** Project preference for adaptive ingestion. Turning this on does not currently change ingestion. */
+      adaptive_ingestion_enabled?: boolean;
       /**
          * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
          * @minimum 1
@@ -89244,11 +81755,18 @@ export namespace Schemas {
        * * `missing_primary_key` - Missing primary key
        * * `duplicate_primary_key` - Duplicate primary key */
       readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnum | null;
+      /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
+      readonly webhook_not_registered?: boolean;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again.
+         * @nullable
+         */
+      masked_columns?: string[] | null;
       /**
          * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
          * @nullable
@@ -89309,7 +81827,8 @@ export namespace Schemas {
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
-      readonly source_type?: ExternalDataSourceTypeEnum;
+      /** The source type (e.g. 'Postgres', 'Stripe'). */
+      readonly source_type?: string;
       /** @nullable */
       readonly latest_error?: string | null;
       /**
@@ -89356,6 +81875,8 @@ export namespace Schemas {
          */
       readonly user_access_level?: string | null;
       readonly supports_webhooks?: boolean;
+      /** Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables. */
+      readonly webhook_not_registered?: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection?: boolean;
       /**
@@ -89923,7 +82444,8 @@ export namespace Schemas {
        *
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
-       * * `transactional_emails` - Transactional emails */
+       * * `transactional_emails` - Transactional emails
+       * * `transactional_email_keys` - Transactional email keys */
       readonly origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -90471,6 +82993,11 @@ export namespace Schemas {
       readonly installation_shared?: boolean | null;
       /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
       readonly installation_status?: InstallationStatusEnum | null;
+      /**
+         * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+         * @nullable
+         */
+      readonly needs_webhook_reconnect?: boolean | null;
     }
 
     export interface PatchedJsSnippetVersion {
@@ -91225,6 +83752,25 @@ export namespace Schemas {
       readonly user_tag?: string | null;
       /** @nullable */
       readonly sync_interval?: string | null;
+      /**
+         * How often this node actually refreshes. A downstream view can make an unpinned view refresh more often than `sync_interval`, and a slow source can make it refresh less often. Null when the node is not scheduled.
+         * @nullable
+         */
+      readonly effective_sync_interval?: string | null;
+      /** How often this view refreshes. 'never' clears the cadence, and with it the pin. Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.
+       *
+       * * `never` - never
+       * * `15min` - 15min
+       * * `30min` - 30min
+       * * `1hour` - 1hour
+       * * `6hour` - 6hour
+       * * `12hour` - 12hour
+       * * `24hour` - 24hour
+       * * `7day` - 7day
+       * * `30day` - 30day */
+      sync_frequency?: SavedQuerySyncFrequencyEnum;
+      /** Pin this view to its own cadence. A pinned view does not refresh more often when downstream views or endpoints need fresher data, so they read data up to one pinned interval old. Requires a cadence. Set false to refresh as often as downstream views need again. */
+      pinned?: boolean;
       /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
       readonly suspended?: PatchedNodeSuspended;
       /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
@@ -92046,6 +84592,11 @@ export namespace Schemas {
     export interface PatchedProjectBackwardCompat {
       readonly id?: number;
       readonly organization?: string;
+      /**
+         * Whether the project's organization approved AI data processing. AI features need this approval.
+         * @nullable
+         */
+      readonly is_ai_data_processing_approved?: boolean | null;
       /**
          * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
          * @minLength 1
@@ -93089,6 +85640,12 @@ export namespace Schemas {
        * * `template` - Template
        * * `scratch` - From scratch */
       creation_method?: ScannerCreationMethodEnum | null;
+      /**
+         * The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Only the app's value is kept: any other caller is reported as its own source, such as `mcp`. Ignored on update.
+         * @nullable
+         * @pattern ^[a-z0-9_]{1,64}$
+         */
+      entry_point?: string | null;
       /** Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`. */
       take_over_as_creator?: boolean;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
@@ -94023,7 +86580,7 @@ export namespace Schemas {
     }
 
     /**
-     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint.
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key.
      */
     export type PatchedSignalSourceConfigConfig = { [key: string]: unknown };
 
@@ -94037,7 +86594,7 @@ export namespace Schemas {
       source_product?: SignalSourceProductEnum;
       source_type?: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key. */
       config?: PatchedSignalSourceConfigConfig;
       /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
       config_set?: PatchedSignalSourceConfigConfigSet;
@@ -94077,6 +86634,12 @@ export namespace Schemas {
       review_mode?: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
+      /** When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      routing_mode?: RoutingModeEnum;
     }
 
     export type PatchedSubscriptionWriteContextsItem = {
@@ -95277,7 +87840,8 @@ export namespace Schemas {
        * * `turn_ended_without_response` - turn_ended_without_response
        * * `subscription_usage_limit` - subscription_usage_limit
        * * `task_spend_limit` - task_spend_limit
-       * * `agent_error` - agent_error */
+       * * `agent_error` - agent_error
+       * * `ActiveSessionCapError` - ActiveSessionCapError */
       error_type?: ErrorTypeEnum | null;
     }
 
@@ -96410,6 +88974,54 @@ export namespace Schemas {
       email_tracking_consent_mode?: EmailTrackingConsentModeEnum;
       /** Capture email sends, opens, clicks and bounces as PostHog events, so they can be used in insights and funnels. These events count toward the project's event usage. */
       capture_workflows_engagement_events?: boolean;
+    }
+
+    /**
+     * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+     */
+    export type PatchedWorkloadTrustPolicyConditions = {[key: string]: string};
+
+    export interface PatchedWorkloadTrustPolicy {
+      readonly id?: string;
+      /**
+         * A name that says what the policy is for.
+         * @maxLength 200
+         */
+      name?: string;
+      /**
+         * The OIDC issuer of the workload provider, from the list of supported providers.
+         * @maxLength 255
+         */
+      issuer?: string;
+      /**
+         * The key of the workload provider the issuer belongs to.
+         * @nullable
+         */
+      readonly provider?: string | null;
+      /**
+         * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
+         * @maxLength 255
+         */
+      subject_name?: string;
+      /**
+         * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
+         * @maxLength 255
+         */
+      subject?: string;
+      /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+      conditions?: PatchedWorkloadTrustPolicyConditions;
+      /** How the provider names the subject, the subject name and each condition claim, for display. */
+      readonly claim_labels?: WorkloadClaimLabels;
+      /**
+         * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
+         * @items.maxLength 100
+         */
+      scopes?: string[];
+      /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
+      enabled?: boolean;
+      readonly created_by?: UserBasic | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export interface PathCleaningPreviewExample {
@@ -98054,6 +90666,11 @@ export namespace Schemas {
     export interface ProjectBackwardCompat {
       readonly id: number;
       readonly organization: string;
+      /**
+         * Whether the project's organization approved AI data processing. AI features need this approval.
+         * @nullable
+         */
+      readonly is_ai_data_processing_approved: boolean | null;
       /**
          * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
          * @minLength 1
@@ -101137,14 +93754,48 @@ export namespace Schemas {
       pins: PulsePin[];
     }
 
+    /**
+     * * `unknown_person` - No person has this distinct ID
+     * * `token_mismatch` - The token does not fit this channel
+     * * `not_stored` - The device was not stored
+     * * `person_processing_disabled` - Person processing is off for this person
+     */
+    export type PushTokenImportFailureReasonEnum = typeof PushTokenImportFailureReasonEnum[keyof typeof PushTokenImportFailureReasonEnum];
+
+
+    export const PushTokenImportFailureReasonEnum = {
+      UnknownPerson: 'unknown_person',
+      TokenMismatch: 'token_mismatch',
+      NotStored: 'not_stored',
+      PersonProcessingDisabled: 'person_processing_disabled',
+    } as const;
+
+    export interface PushTokenImportFailure {
+      /** Position of the row in the request's `subscriptions`, from 0. */
+      index: number;
+      /** The distinct ID of the row. */
+      distinct_id: string;
+      /** The last 6 characters of the row's device token, to find the row. */
+      device_token_suffix: string;
+      /** Why the device was not stored. `unknown_person`: no person has this distinct ID, so check the ID or set `create_missing_persons`. `token_mismatch`: the token is the wrong kind for this channel, for example an Expo token, or an APNs token on a Firebase channel. `not_stored` and `person_processing_disabled`: ingestion did not store the device.
+       *
+       * * `unknown_person` - No person has this distinct ID
+       * * `token_mismatch` - The token does not fit this channel
+       * * `not_stored` - The device was not stored
+       * * `person_processing_disabled` - Person processing is off for this person */
+      reason: PushTokenImportFailureReasonEnum;
+      /** A sentence a person can act on. */
+      detail: string;
+    }
+
     export interface PushTokenSubscription {
       /**
-         * The person's distinct ID in this project.
+         * The person's distinct ID in this project: the ID your app passes to `identify`.
          * @maxLength 200
          */
       distinct_id: string;
       /**
-         * The APNs device token or FCM registration token of one device.
+         * The token of one device. An APNs channel takes the hex APNs device token. A Firebase channel takes the FCM registration token. Expo push tokens are not accepted.
          * @maxLength 4096
          */
       device_token: string;
@@ -101153,12 +93804,25 @@ export namespace Schemas {
     export interface PushTokenImportRequest {
       /** Up to 1000 devices to register on this push channel. List a person once per device. */
       subscriptions: PushTokenSubscription[];
+      /** Check every row and report what would fail, without storing anything. Run this first and fix the failed rows before importing. */
+      dry_run?: boolean;
+      /**
+         * A new UUID for each batch. Send the same value when you retry that batch, so a retried batch can be recognized as a repeat.
+         * @nullable
+         */
+      import_id?: string | null;
+      /** Create a person for a distinct ID that has none. Off by default, because a distinct ID that does not match your app's identify call creates a person that never gets a push. */
+      create_missing_persons?: boolean;
     }
 
     export interface PushTokenImportResponse {
-      /** Number of devices stored on their person. */
+      /** Number of devices stored on their person. On a dry run, the number that would be stored. */
       imported: number;
-      /** Distinct IDs with at least one device that was not stored. Send those rows again. */
+      /** True when nothing was stored. */
+      dry_run: boolean;
+      /** One entry per device that was not stored. */
+      failed: PushTokenImportFailure[];
+      /** Distinct IDs with at least one device that was not stored. Prefer `failed`, which says why. */
       failed_distinct_ids: string[];
     }
 
@@ -104847,8 +97511,6 @@ export namespace Schemas {
      */
     export type SerializedGroupActorProperties = { [key: string]: unknown };
 
-    export type SerializedGroupActorMatchedRecordingsItem = { [key: string]: unknown };
-
     export interface SerializedGroupActor {
       /** The person's UUID, or the group's key. */
       id: string;
@@ -104860,7 +97522,7 @@ export namespace Schemas {
          */
       created_at: string | null;
       /** Recordings that matched the query. Empty unless the endpoint asks for them. */
-      matched_recordings: SerializedGroupActorMatchedRecordingsItem[];
+      matched_recordings: SerializedMatchedRecording[];
       /**
          * The actor's value at the data point it was queried for. Null unless the query computes one.
          * @nullable
@@ -105569,6 +98231,7 @@ export namespace Schemas {
      * * `pganalyze` - pganalyze
      * * `signals_scout` - signals_scout
      * * `signals_check` - signals_check
+     * * `user_authored` - user_authored
      * * `logs` - logs
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
@@ -105686,6 +98349,7 @@ export namespace Schemas {
       Pganalyze: 'pganalyze',
       SignalsScout: 'signals_scout',
       SignalsCheck: 'signals_check',
+      UserAuthored: 'user_authored',
       Logs: 'logs',
       HealthChecks: 'health_checks',
       ReplayVision: 'replay_vision',
@@ -105805,6 +98469,7 @@ export namespace Schemas {
      * * `health_issue` - health_issue
      * * `scanner_finding` - scanner_finding
      * * `anomaly_investigation` - anomaly_investigation
+     * * `alert_firing` - alert_firing
      * * `feedback` - feedback
      * * `review` - review
      * * `ci_flaky_check` - ci_flaky_check
@@ -105812,6 +98477,7 @@ export namespace Schemas {
      * * `ci_duration_regression` - ci_duration_regression
      * * `search_opportunity` - search_opportunity
      * * `check_failed` - check_failed
+     * * `monitoring_unresolved` - monitoring_unresolved
      * * `incident` - incident
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
@@ -105834,6 +98500,7 @@ export namespace Schemas {
       HealthIssue: 'health_issue',
       ScannerFinding: 'scanner_finding',
       AnomalyInvestigation: 'anomaly_investigation',
+      AlertFiring: 'alert_firing',
       Feedback: 'feedback',
       Review: 'review',
       CiFlakyCheck: 'ci_flaky_check',
@@ -105841,6 +98508,7 @@ export namespace Schemas {
       CiDurationRegression: 'ci_duration_regression',
       SearchOpportunity: 'search_opportunity',
       CheckFailed: 'check_failed',
+      MonitoringUnresolved: 'monitoring_unresolved',
       Incident: 'incident',
     } as const;
 
@@ -106112,7 +98780,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -106142,6 +98810,7 @@ export namespace Schemas {
        * * `pganalyze` - pganalyze
        * * `signals_scout` - signals_scout
        * * `signals_check` - signals_check
+       * * `user_authored` - user_authored
        * * `logs` - logs
        * * `health_checks` - health_checks
        * * `replay_vision` - replay_vision
@@ -106261,6 +98930,7 @@ export namespace Schemas {
        * * `health_issue` - health_issue
        * * `scanner_finding` - scanner_finding
        * * `anomaly_investigation` - anomaly_investigation
+       * * `alert_firing` - alert_firing
        * * `feedback` - feedback
        * * `review` - review
        * * `ci_flaky_check` - ci_flaky_check
@@ -106268,6 +98938,7 @@ export namespace Schemas {
        * * `ci_duration_regression` - ci_duration_regression
        * * `search_opportunity` - search_opportunity
        * * `check_failed` - check_failed
+       * * `monitoring_unresolved` - monitoring_unresolved
        * * `incident` - incident */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
@@ -110146,6 +102817,37 @@ export namespace Schemas {
       is_maintainer: boolean;
     }
 
+    export interface ScoutMemberActivityObject {
+      /** The object type in snake case, such as `dashboard` or `feature_flag`. */
+      type: string;
+      /** The latest name of the object. */
+      name: string;
+    }
+
+    /**
+     * What one member worked on recently, from their activity summary.
+     */
+    export interface ScoutMemberActivity {
+      /**
+         * One line about the member's recent work.
+         * @nullable
+         */
+      headline: string | null;
+      /** The labels of the main threads of the member's recent work. */
+      themes: string[];
+      /** Up to 5 objects the member created or changed, the most edited first. */
+      owned: ScoutMemberActivityObject[];
+      /** Up to 5 objects the member opened on several days, the most opened first. A member who only reads the work shows up here. A specific object here can support a reviewer pick when the pick's `reason` names it. */
+      watched: ScoutMemberActivityObject[];
+      /**
+         * When the summary was written.
+         * @nullable
+         */
+      generated_at: string | null;
+      /** True when the summary waits for a rebuild in a newer format. Give a stale summary less weight. */
+      stale: boolean;
+    }
+
     /**
      * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
      */
@@ -110165,6 +102867,8 @@ export namespace Schemas {
       github_login: string | null;
       /** The teams this member is on, from the project's synced team roster. Empty when no roster is synced, or when the member has no linked GitHub account, since the roster is keyed on that login. The roster is a periodic snapshot, so it can lag the live team. */
       teams: ScoutMemberTeam[];
+      /** What the member worked on recently. Use it as context to check against the report, not as proof: general activity is not evidence that the member owns the affected work. Filled only when the call passes `search` or `team` and returns at most 10 members. Null when the member has no ready summary, or when activity summaries are not available for this project. */
+      activity?: ScoutMemberActivity | null;
     }
 
     /**
@@ -110209,7 +102913,7 @@ export namespace Schemas {
          * @nullable
          */
       created_by_name: string | null;
-      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects, rather than a directive. */
+      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report, or for a report a person or their agent claimed: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects or supports, rather than a directive. */
       origin: string;
     }
 
@@ -111439,6 +104143,7 @@ export namespace Schemas {
        * * `posthog-node` - posthog-node
        * * `posthog-python` - posthog-python
        * * `posthog-php` - posthog-php
+       * * `posthog-laravel` - posthog-laravel
        * * `posthog-ruby` - posthog-ruby
        * * `posthog-go` - posthog-go
        * * `posthog-flutter` - posthog-flutter
@@ -111459,6 +104164,7 @@ export namespace Schemas {
        * * `posthog-unreal` - posthog-unreal
        * * `posthog-go-mcp` - posthog-go-mcp
        * * `posthog-ruby-mcp` - posthog-ruby-mcp
+       * * `posthog-roblox` - posthog-roblox
        * * `js` - js */
       lib: LibEnum;
       /** Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
@@ -111605,12 +104311,13 @@ export namespace Schemas {
     export interface SendCalendarBatchJob {
       /** ID of the batch run. */
       readonly id: string;
-      /** Status of the batch run.
+      /** Status of the batch run. waiting: the audience's cohort is still calculating. queued and active: the run is enrolling its audience. completed: the whole audience was enrolled. When every enrolled person's run has ended, or a day after the run completed, PostHog checks for errored sends. A completed run stays completed when no send errored, becomes partially_failed when some sends errored, and becomes failed when every send errored. failed also means the run could not enroll its audience. cancelled: someone stopped the run. A send errors when its step throws, for example on a template that does not render. Provider failures such as bounces are not errored sends; read them from the run's metrics.
        *
        * * `waiting` - Waiting
        * * `queued` - Queued
        * * `active` - Active
        * * `completed` - Completed
+       * * `partially_failed` - Partially failed
        * * `cancelled` - Cancelled
        * * `failed` - Failed */
       readonly status: HogFlowBatchJobStateEnum;
@@ -111632,7 +104339,8 @@ export namespace Schemas {
        *
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
-       * * `transactional_emails` - Transactional emails */
+       * * `transactional_emails` - Transactional emails
+       * * `transactional_email_keys` - Transactional email keys */
       readonly origin_product: HogFlowOriginProductEnum | null;
       /** User who created the workflow. */
       readonly created_by: UserBasic | null;
@@ -111686,14 +104394,38 @@ export namespace Schemas {
       to: string;
       /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
       message_data?: SendEmailMessageData;
-      /** ID of the email template to send. The template must be made transactional first. */
-      template_id: string;
+      /** ID of the email template to send. The template must be made transactional first. Send either `template_id` or `template_key`. */
+      template_id?: string;
+      /**
+         * Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.
+         * @maxLength 400
+         * @pattern ^[a-zA-Z0-9_-]+$
+         */
+      template_key?: string;
       /**
          * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
          * @maxLength 400
          * @nullable
          */
       distinct_id?: string | null;
+      /** Subject of the email your code rendered. */
+      subject?: string;
+      /** HTML body of the email your code rendered, at most 5 MiB as UTF-8. */
+      html?: string;
+      /** Plain text body of the email your code rendered, at most 5 MiB as UTF-8. Without it, PostHog derives the text from `html`. */
+      text?: string;
+      /**
+         * Addresses replies to the email your code rendered go to.
+         * @maxItems 10
+         */
+      reply_to?: string[];
+      /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
+      capture_engagement?: boolean;
+      /**
+         * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default.
+         * @maxLength 1024
+         */
+      from?: string;
     }
 
     /**
@@ -113826,6 +106558,95 @@ export namespace Schemas {
       readonly previous_secret_valid_until: string | null;
     }
 
+    export interface SlackAppChannelJoinResult {
+      /** Slack channel ID. */
+      channel_id: string;
+      /**
+         * Slack's error code when PostHog could not join, or null when it joined.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    export interface SlackAppChannelOption {
+      /** Slack channel ID. */
+      id: string;
+      /** Channel name, without the leading #. */
+      name: string;
+      /** Whether PostHog is already in the channel. */
+      is_member: boolean;
+    }
+
+    export interface SlackAppChannelOptions {
+      /** Public channels that PostHog can join. Shared channels are left out. */
+      channels: SlackAppChannelOption[];
+    }
+
+    export interface SlackAppDefaultProject {
+      /** ID of the Slack integration of the project that becomes the workspace default. */
+      integration_id: number;
+    }
+
+    export interface SlackAppJoinChannels {
+      /**
+         * IDs of the public channels that PostHog joins.
+         * @minItems 1
+         * @maxItems 20
+         */
+      channel_ids: string[];
+      /** Whether PostHog posts its welcome message in each channel it joins. When false, it joins quietly. */
+      post_welcome?: boolean;
+    }
+
+    export interface SlackAppJoinChannelsResult {
+      /** The result for each channel, in request order. */
+      results: SlackAppChannelJoinResult[];
+    }
+
+    export interface SlackAppProjectOption {
+      /** ID of the Slack integration that connects this project. */
+      integration_id: number;
+      /** Name of the PostHog project. */
+      project_name: string;
+      /** Name of the organization that owns the project. */
+      organization_name: string;
+    }
+
+    /**
+     * * `ai_consent` - AI data processing
+     * * `default_project` - Default project
+     * * `channels` - Channels
+     */
+    export type SlackSetupStepKeyEnum = typeof SlackSetupStepKeyEnum[keyof typeof SlackSetupStepKeyEnum];
+
+
+    export const SlackSetupStepKeyEnum = {
+      AiConsent: 'ai_consent',
+      DefaultProject: 'default_project',
+      Channels: 'channels',
+    } as const;
+
+    export interface SlackAppWorkspaceSetup {
+      /** ID of the Slack integration that this setup is for. */
+      integration_id: number;
+      /**
+         * Name of the Slack workspace, as Slack sent it at install time.
+         * @nullable
+         */
+      slack_workspace_name: string | null;
+      /**
+         * Link that opens the PostHog app's direct message in this Slack workspace. Null when the install has no app ID.
+         * @nullable
+         */
+      open_slack_url: string | null;
+      /** Setup steps that apply to this install and are not done yet, in display order. ai_consent: the organization must allow AI data processing. default_project: the Slack workspace connects to 2 or more projects and has no default. channels: the install can join channels, and the setup started on the Slack page. */
+      steps: SlackSetupStepKeyEnum[];
+      /** Projects connected to this Slack workspace that the person can open. Empty unless default_project is a step. */
+      project_options: SlackAppProjectOption[];
+      /** Whether a channel join from this setup can post the welcome message in the channel. False when channels is not a step, or when the workspace sends the welcome only to the inviter or turns it off. */
+      can_post_channel_welcome: boolean;
+    }
+
     export interface SlackChannel {
       /** Slack channel ID (e.g. C0123ABC) — pass to cdp-functions inputs.channel. */
       id: string;
@@ -114250,7 +107071,7 @@ export namespace Schemas {
       /** Extra search terms (alternate spellings, acronyms) for the catalog search, e.g. GoogleAnalytics → ["ga4", "ga"]. Matched alongside name/label/category. */
       keywords?: string[] | null;
       label?: string | null;
-      name: ExternalDataSourceTypeEnum;
+      name: string;
       permissionsCaption?: string | null;
       releaseStatus?: ReleaseStatus | null;
       /** Tables to suggest enabling, with optional tooltip explaining why */
@@ -114311,1424 +107132,8 @@ export namespace Schemas {
     export type SourceCredentialCreatePayload = { [key: string]: unknown };
 
     export interface SourceCredentialCreate {
-      /** The source type these credentials are for (e.g. 'Stripe', 'Postgres').
-       *
-       * * `Ashby` - Ashby
-       * * `Supabase` - Supabase
-       * * `CustomerIO` - CustomerIO
-       * * `Github` - Github
-       * * `Stripe` - Stripe
-       * * `Hubspot` - Hubspot
-       * * `Postgres` - Postgres
-       * * `Zendesk` - Zendesk
-       * * `Snowflake` - Snowflake
-       * * `Salesforce` - Salesforce
-       * * `MySQL` - MySQL
-       * * `MongoDB` - MongoDB
-       * * `MSSQL` - MSSQL
-       * * `Vitally` - Vitally
-       * * `BigQuery` - BigQuery
-       * * `Chargebee` - Chargebee
-       * * `Clerk` - Clerk
-       * * `GoogleAds` - GoogleAds
-       * * `GoogleSearchConsole` - GoogleSearchConsole
-       * * `TemporalIO` - TemporalIO
-       * * `DoIt` - DoIt
-       * * `GoogleSheets` - GoogleSheets
-       * * `MetaAds` - MetaAds
-       * * `Klaviyo` - Klaviyo
-       * * `Mailchimp` - Mailchimp
-       * * `Braze` - Braze
-       * * `Mailjet` - Mailjet
-       * * `Redshift` - Redshift
-       * * `Polar` - Polar
-       * * `RevenueCat` - RevenueCat
-       * * `LinkedinAds` - LinkedinAds
-       * * `RedditAds` - RedditAds
-       * * `TikTokAds` - TikTokAds
-       * * `BingAds` - BingAds
-       * * `Shopify` - Shopify
-       * * `Attio` - Attio
-       * * `SnapchatAds` - SnapchatAds
-       * * `Linear` - Linear
-       * * `LiteLLM` - LiteLLM
-       * * `Intercom` - Intercom
-       * * `Amplitude` - Amplitude
-       * * `Mixpanel` - Mixpanel
-       * * `Jira` - Jira
-       * * `ActiveCampaign` - ActiveCampaign
-       * * `Marketo` - Marketo
-       * * `Adjust` - Adjust
-       * * `AppsFlyer` - AppsFlyer
-       * * `Freshdesk` - Freshdesk
-       * * `GoogleAnalytics` - GoogleAnalytics
-       * * `Pipedrive` - Pipedrive
-       * * `SendGrid` - SendGrid
-       * * `Slack` - Slack
-       * * `PagerDuty` - PagerDuty
-       * * `Asana` - Asana
-       * * `Notion` - Notion
-       * * `Airtable` - Airtable
-       * * `Greenhouse` - Greenhouse
-       * * `BambooHR` - BambooHR
-       * * `Lever` - Lever
-       * * `GitLab` - GitLab
-       * * `Datadog` - Datadog
-       * * `Sentry` - Sentry
-       * * `Pendo` - Pendo
-       * * `FullStory` - FullStory
-       * * `AmazonAds` - AmazonAds
-       * * `PinterestAds` - PinterestAds
-       * * `AppleSearchAds` - AppleSearchAds
-       * * `QuickBooks` - QuickBooks
-       * * `Xero` - Xero
-       * * `NetSuite` - NetSuite
-       * * `WooCommerce` - WooCommerce
-       * * `BigCommerce` - BigCommerce
-       * * `PayPal` - PayPal
-       * * `Square` - Square
-       * * `Zoom` - Zoom
-       * * `Trello` - Trello
-       * * `TrafficStars` - TrafficStars
-       * * `Monday` - Monday
-       * * `ClickUp` - ClickUp
-       * * `Confluence` - Confluence
-       * * `Recurly` - Recurly
-       * * `SalesLoft` - SalesLoft
-       * * `Outreach` - Outreach
-       * * `Gong` - Gong
-       * * `Calendly` - Calendly
-       * * `Typeform` - Typeform
-       * * `UnityAds` - UnityAds
-       * * `Iterable` - Iterable
-       * * `ZohoCRM` - ZohoCRM
-       * * `Close` - Close
-       * * `Oracle` - Oracle
-       * * `DynamoDB` - DynamoDB
-       * * `Elasticsearch` - Elasticsearch
-       * * `Kafka` - Kafka
-       * * `LaunchDarkly` - LaunchDarkly
-       * * `Braintree` - Braintree
-       * * `Recharge` - Recharge
-       * * `HelpScout` - HelpScout
-       * * `Gorgias` - Gorgias
-       * * `Instagram` - Instagram
-       * * `YouTubeAnalytics` - YouTubeAnalytics
-       * * `FacebookPages` - FacebookPages
-       * * `TwitterAds` - TwitterAds
-       * * `Workday` - Workday
-       * * `ServiceNow` - ServiceNow
-       * * `Pardot` - Pardot
-       * * `Copper` - Copper
-       * * `Front` - Front
-       * * `ChartMogul` - ChartMogul
-       * * `Zuora` - Zuora
-       * * `Paddle` - Paddle
-       * * `CircleCI` - CircleCI
-       * * `CockroachDB` - CockroachDB
-       * * `Firebase` - Firebase
-       * * `AzureBlob` - AzureBlob
-       * * `GoogleDrive` - GoogleDrive
-       * * `OneDrive` - OneDrive
-       * * `SharePoint` - SharePoint
-       * * `Box` - Box
-       * * `SFTP` - SFTP
-       * * `MicrosoftTeams` - MicrosoftTeams
-       * * `Aircall` - Aircall
-       * * `Webflow` - Webflow
-       * * `Okta` - Okta
-       * * `Auth0` - Auth0
-       * * `Productboard` - Productboard
-       * * `Smartsheet` - Smartsheet
-       * * `Wrike` - Wrike
-       * * `Plaid` - Plaid
-       * * `SurveyMonkey` - SurveyMonkey
-       * * `Eventbrite` - Eventbrite
-       * * `Everflow` - Everflow
-       * * `RingCentral` - RingCentral
-       * * `Twilio` - Twilio
-       * * `Freshsales` - Freshsales
-       * * `Shortcut` - Shortcut
-       * * `ConvertKit` - ConvertKit
-       * * `Drip` - Drip
-       * * `CampaignMonitor` - CampaignMonitor
-       * * `MailerLite` - MailerLite
-       * * `Omnisend` - Omnisend
-       * * `Brevo` - Brevo
-       * * `Postmark` - Postmark
-       * * `Granola` - Granola
-       * * `BuildBetter` - BuildBetter
-       * * `Convex` - Convex
-       * * `ClickHouse` - ClickHouse
-       * * `Plain` - Plain
-       * * `Resend` - Resend
-       * * `PgAnalyze` - PgAnalyze
-       * * `WorkOS` - WorkOS
-       * * `AmazonS3` - AmazonS3
-       * * `GoogleCloudStorage` - GoogleCloudStorage
-       * * `Databricks` - Databricks
-       * * `Dynamics365` - Dynamics365
-       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
-       * * `Db2` - Db2
-       * * `Heap` - Heap
-       * * `AdobeAnalytics` - AdobeAnalytics
-       * * `Matomo` - Matomo
-       * * `Optimizely` - Optimizely
-       * * `Adyen` - Adyen
-       * * `GoCardless` - GoCardless
-       * * `Mollie` - Mollie
-       * * `CheckoutCom` - CheckoutCom
-       * * `Branch` - Branch
-       * * `Criteo` - Criteo
-       * * `Outbrain` - Outbrain
-       * * `Taboola` - Taboola
-       * * `AdRoll` - AdRoll
-       * * `DisplayVideo360` - DisplayVideo360
-       * * `GoogleAdManager` - GoogleAdManager
-       * * `CampaignManager360` - CampaignManager360
-       * * `SearchAds360` - SearchAds360
-       * * `AdobeCommerce` - AdobeCommerce
-       * * `AmazonSellingPartner` - AmazonSellingPartner
-       * * `Ebay` - Ebay
-       * * `Commercetools` - Commercetools
-       * * `LightspeedRetail` - LightspeedRetail
-       * * `Shipmail` - Shipmail
-       * * `ShipStation` - ShipStation
-       * * `ConstantContact` - ConstantContact
-       * * `Mailgun` - Mailgun
-       * * `Eloqua` - Eloqua
-       * * `Sailthru` - Sailthru
-       * * `Ortto` - Ortto
-       * * `Attentive` - Attentive
-       * * `Kustomer` - Kustomer
-       * * `Dixa` - Dixa
-       * * `Gladly` - Gladly
-       * * `Qualtrics` - Qualtrics
-       * * `AzureDevOps` - AzureDevOps
-       * * `RoktAds` - RoktAds
-       * * `Rollbar` - Rollbar
-       * * `Opsgenie` - Opsgenie
-       * * `IncidentIo` - IncidentIo
-       * * `Pingdom` - Pingdom
-       * * `Cloudflare` - Cloudflare
-       * * `CloudflareD1` - CloudflareD1
-       * * `CosmosDB` - CosmosDB
-       * * `PlanetScaleMySQL` - PlanetScaleMySQL
-       * * `PlanetScalePostgres` - PlanetScalePostgres
-       * * `Plane` - Plane
-       * * `Scarf` - Scarf
-       * * `SapHana` - SapHana
-       * * `Rippling` - Rippling
-       * * `HiBob` - HiBob
-       * * `Personio` - Personio
-       * * `Deel` - Deel
-       * * `AdpWorkforceNow` - AdpWorkforceNow
-       * * `Paylocity` - Paylocity
-       * * `Gusto` - Gusto
-       * * `CultureAmp` - CultureAmp
-       * * `Lattice` - Lattice
-       * * `SageIntacct` - SageIntacct
-       * * `FreshBooks` - FreshBooks
-       * * `Expensify` - Expensify
-       * * `Ramp` - Ramp
-       * * `Brex` - Brex
-       * * `Coupa` - Coupa
-       * * `SapConcur` - SapConcur
-       * * `Apollo` - Apollo
-       * * `Crunchbase` - Crunchbase
-       * * `ZoomInfo` - ZoomInfo
-       * * `Clari` - Clari
-       * * `Chorus` - Chorus
-       * * `Coda` - Coda
-       * * `Guru` - Guru
-       * * `Dropbox` - Dropbox
-       * * `Docusign` - Docusign
-       * * `PandaDoc` - PandaDoc
-       * * `SapErp` - SapErp
-       * * `SapSuccessFactors` - SapSuccessFactors
-       * * `OracleEbs` - OracleEbs
-       * * `OracleFusion` - OracleFusion
-       * * `AmazonSNS` - AmazonSNS
-       * * `AmazonEventBridge` - AmazonEventBridge
-       * * `AmazonSQS` - AmazonSQS
-       * * `AmazonKinesis` - AmazonKinesis
-       * * `AmazonCloudWatch` - AmazonCloudWatch
-       * * `OpenAIAds` - OpenAIAds
-       * * `OneHundredMs` - OneHundredMs
-       * * `SevenShifts` - SevenShifts
-       * * `AcuityScheduling` - AcuityScheduling
-       * * `AgileCRM` - AgileCRM
-       * * `Aha` - Aha
-       * * `Airbyte` - Airbyte
-       * * `Akeneo` - Akeneo
-       * * `Algolia` - Algolia
-       * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
-       * * `ApifyDataset` - ApifyDataset
-       * * `Appcues` - Appcues
-       * * `Appfigures` - Appfigures
-       * * `Appfollow` - Appfollow
-       * * `Apptivo` - Apptivo
-       * * `AssemblyAI` - AssemblyAI
-       * * `Awin` - Awin
-       * * `AwsCloudTrail` - AwsCloudTrail
-       * * `AzureTableStorage` - AzureTableStorage
-       * * `Babelforce` - Babelforce
-       * * `Basecamp` - Basecamp
-       * * `Beamer` - Beamer
-       * * `BigMailer` - BigMailer
-       * * `Bluetally` - Bluetally
-       * * `BoldSign` - BoldSign
-       * * `BreezyHR` - BreezyHR
-       * * `Bugsnag` - Bugsnag
-       * * `Buildkite` - Buildkite
-       * * `Bunny` - Bunny
-       * * `Buzzsprout` - Buzzsprout
-       * * `CalCom` - CalCom
-       * * `CallRail` - CallRail
-       * * `Campayn` - Campayn
-       * * `Canny` - Canny
-       * * `CapsuleCRM` - CapsuleCRM
-       * * `CaptainData` - CaptainData
-       * * `CartCom` - CartCom
-       * * `CastorEDC` - CastorEDC
-       * * `Chameleon` - Chameleon
-       * * `Chargedesk` - Chargedesk
-       * * `Chargify` - Chargify
-       * * `Chift` - Chift
-       * * `Churnkey` - Churnkey
-       * * `Cin7` - Cin7
-       * * `CiscoMeraki` - CiscoMeraki
-       * * `Clazar` - Clazar
-       * * `Clockify` - Clockify
-       * * `Clockodo` - Clockodo
-       * * `Cloudbeds` - Cloudbeds
-       * * `Coassemble` - Coassemble
-       * * `Codefresh` - Codefresh
-       * * `Concord` - Concord
-       * * `ConfigCat` - ConfigCat
-       * * `Couchbase` - Couchbase
-       * * `Curve` - Curve
-       * * `Customerly` - Customerly
-       * * `Datascope` - Datascope
-       * * `Dbt` - Dbt
-       * * `Demodesk` - Demodesk
-       * * `Deputy` - Deputy
-       * * `DevinAI` - DevinAI
-       * * `Docuseal` - Docuseal
-       * * `Dolibarr` - Dolibarr
-       * * `Dremio` - Dremio
-       * * `DropboxSign` - DropboxSign
-       * * `Dwolla` - Dwolla
-       * * `EConomic` - EConomic
-       * * `Easypost` - Easypost
-       * * `Easypromos` - Easypromos
-       * * `Elasticemail` - Elasticemail
-       * * `EmailOctopus` - EmailOctopus
-       * * `EmploymentHero` - EmploymentHero
-       * * `Encharge` - Encharge
-       * * `Eventee` - Eventee
-       * * `Eventzilla` - Eventzilla
-       * * `Everhour` - Everhour
-       * * `EZOfficeInventory` - EZOfficeInventory
-       * * `Factorial` - Factorial
-       * * `Fastbill` - Fastbill
-       * * `Fastly` - Fastly
-       * * `Fauna` - Fauna
-       * * `Feishu` - Feishu
-       * * `Fillout` - Fillout
-       * * `Finage` - Finage
-       * * `Firebolt` - Firebolt
-       * * `FireHydrant` - FireHydrant
-       * * `Fleetio` - Fleetio
-       * * `Flexmail` - Flexmail
-       * * `Flexport` - Flexport
-       * * `FloatApp` - FloatApp
-       * * `Flowlu` - Flowlu
-       * * `Formbricks` - Formbricks
-       * * `Framer` - Framer
-       * * `FreeAgent` - FreeAgent
-       * * `Freightview` - Freightview
-       * * `Freshcaller` - Freshcaller
-       * * `Freshchat` - Freshchat
-       * * `Freshservice` - Freshservice
-       * * `Fulcrum` - Fulcrum
-       * * `GainsightCs` - GainsightCs
-       * * `GainsightPx` - GainsightPx
-       * * `GitBook` - GitBook
-       * * `Glassfrog` - Glassfrog
-       * * `Goldcast` - Goldcast
-       * * `GoLogin` - GoLogin
-       * * `Grafana` - Grafana
-       * * `GreytHr` - GreytHr
-       * * `Gridly` - Gridly
-       * * `Harness` - Harness
-       * * `Height` - Height
-       * * `Hellobaton` - Hellobaton
-       * * `HighLevel` - HighLevel
-       * * `HoorayHR` - HoorayHR
-       * * `Hubplanner` - Hubplanner
-       * * `Humanitix` - Humanitix
-       * * `Huntr` - Huntr
-       * * `Inflowinventory` - Inflowinventory
-       * * `InforNexus` - InforNexus
-       * * `Insightful` - Insightful
-       * * `Insightly` - Insightly
-       * * `Instantly` - Instantly
-       * * `Instatus` - Instatus
-       * * `Intruder` - Intruder
-       * * `Invoiced` - Invoiced
-       * * `Invoiceninja` - Invoiceninja
-       * * `JamfPro` - JamfPro
-       * * `JobNimbus` - JobNimbus
-       * * `Jotform` - Jotform
-       * * `JudgeMeReviews` - JudgeMeReviews
-       * * `JustCall` - JustCall
-       * * `JustSift` - JustSift
-       * * `K6Cloud` - K6Cloud
-       * * `Katana` - Katana
-       * * `Keka` - Keka
-       * * `Kisi` - Kisi
-       * * `Kissmetrics` - Kissmetrics
-       * * `Klarna` - Klarna
-       * * `Klaus` - Klaus
-       * * `Lago` - Lago
-       * * `Leadfeeder` - Leadfeeder
-       * * `Lemlist` - Lemlist
-       * * `LessAnnoyingCRM` - LessAnnoyingCRM
-       * * `LinkedinPages` - LinkedinPages
-       * * `Linkrunner` - Linkrunner
-       * * `Linnworks` - Linnworks
-       * * `Lob` - Lob
-       * * `Lokalise` - Lokalise
-       * * `Looker` - Looker
-       * * `Luma` - Luma
-       * * `MailerSend` - MailerSend
-       * * `Mailosaur` - Mailosaur
-       * * `Mailtrap` - Mailtrap
-       * * `Mantle` - Mantle
-       * * `Mention` - Mention
-       * * `MercadoAds` - MercadoAds
-       * * `Merge` - Merge
-       * * `Metabase` - Metabase
-       * * `Metricool` - Metricool
-       * * `MicrosoftDataverse` - MicrosoftDataverse
-       * * `MicrosoftEntraId` - MicrosoftEntraId
-       * * `MicrosoftLists` - MicrosoftLists
-       * * `Miro` - Miro
-       * * `Missive` - Missive
-       * * `MixMax` - MixMax
-       * * `Mode` - Mode
-       * * `Mux` - Mux
-       * * `MyHours` - MyHours
-       * * `N8n` - N8n
-       * * `Navan` - Navan
-       * * `NebiusAI` - NebiusAI
-       * * `Nexiopay` - Nexiopay
-       * * `NinjaOneRMM` - NinjaOneRMM
-       * * `NoCRM` - NoCRM
-       * * `NorthpassLMS` - NorthpassLMS
-       * * `Nutshell` - Nutshell
-       * * `Nylas` - Nylas
-       * * `Oncehub` - Oncehub
-       * * `Onepagecrm` - Onepagecrm
-       * * `OneSignal` - OneSignal
-       * * `Onfleet` - Onfleet
-       * * `OpinionStage` - OpinionStage
-       * * `OPUSWatch` - OPUSWatch
-       * * `Orb` - Orb
-       * * `Orbit` - Orbit
-       * * `Oura` - Oura
-       * * `Oveit` - Oveit
-       * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
-       * * `Paperform` - Paperform
-       * * `Papersign` - Papersign
-       * * `Partnerize` - Partnerize
-       * * `PartnerStack` - PartnerStack
-       * * `PayFit` - PayFit
-       * * `Paystack` - Paystack
-       * * `Pennylane` - Pennylane
-       * * `Perk` - Perk
-       * * `PersistIq` - PersistIq
-       * * `Persona` - Persona
-       * * `Phyllo` - Phyllo
-       * * `Picqer` - Picqer
-       * * `Pipeliner` - Pipeliner
-       * * `PivotalTracker` - PivotalTracker
-       * * `Piwik` - Piwik
-       * * `Planhat` - Planhat
-       * * `Plausible` - Plausible
-       * * `Poplar` - Poplar
-       * * `PrestaShop` - PrestaShop
-       * * `Pretix` - Pretix
-       * * `Primetric` - Primetric
-       * * `Printavo` - Printavo
-       * * `Printify` - Printify
-       * * `Productive` - Productive
-       * * `Pylon` - Pylon
-       * * `Qonto` - Qonto
-       * * `Qualaroo` - Qualaroo
-       * * `Railz` - Railz
-       * * `RDStationMarketing` - RDStationMarketing
-       * * `Recruitee` - Recruitee
-       * * `Reddit` - Reddit
-       * * `ReferralHero` - ReferralHero
-       * * `RentCast` - RentCast
-       * * `Repairshopr` - Repairshopr
-       * * `ReplyIo` - ReplyIo
-       * * `RetailExpress` - RetailExpress
-       * * `Retently` - Retently
-       * * `Retreaver` - Retreaver
-       * * `RevolutMerchant` - RevolutMerchant
-       * * `RocketChat` - RocketChat
-       * * `Rocketlane` - Rocketlane
-       * * `Rootly` - Rootly
-       * * `Ruddr` - Ruddr
-       * * `SafetyCulture` - SafetyCulture
-       * * `SageHR` - SageHR
-       * * `Salesflare` - Salesflare
-       * * `SAPFieldglass` - SAPFieldglass
-       * * `SavvyCal` - SavvyCal
-       * * `Secoda` - Secoda
-       * * `Segment` - Segment
-       * * `Sendowl` - Sendowl
-       * * `SendPulse` - SendPulse
-       * * `Senseforce` - Senseforce
-       * * `Serpstat` - Serpstat
-       * * `Sharetribe` - Sharetribe
-       * * `Shippo` - Shippo
-       * * `ShopWired` - ShopWired
-       * * `Shortio` - Shortio
-       * * `Shutterstock` - Shutterstock
-       * * `SigmaComputing` - SigmaComputing
-       * * `SignNow` - SignNow
-       * * `SimpleCast` - SimpleCast
-       * * `Simplesat` - Simplesat
-       * * `Smaily` - Smaily
-       * * `SmartEngage` - SmartEngage
-       * * `Smartreach` - Smartreach
-       * * `Smartwaiver` - Smartwaiver
-       * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
-       * * `SonarCloud` - SonarCloud
-       * * `SparkPost` - SparkPost
-       * * `SplitIo` - SplitIo
-       * * `SpotifyAds` - SpotifyAds
-       * * `SpotlerCRM` - SpotlerCRM
-       * * `Squarespace` - Squarespace
-       * * `Statsig` - Statsig
-       * * `Statuspage` - Statuspage
-       * * `Steam` - Steam
-       * * `Stigg` - Stigg
-       * * `Strava` - Strava
-       * * `SurveySparrow` - SurveySparrow
-       * * `Survicate` - Survicate
-       * * `Svix` - Svix
-       * * `Systeme` - Systeme
-       * * `Tavus` - Tavus
-       * * `Teamtailor` - Teamtailor
-       * * `Teamwork` - Teamwork
-       * * `Tempo` - Tempo
-       * * `Testrail` - Testrail
-       * * `Thinkific` - Thinkific
-       * * `ThinkificCourses` - ThinkificCourses
-       * * `ThriveLearning` - ThriveLearning
-       * * `Ticketmaster` - Ticketmaster
-       * * `TicketTailor` - TicketTailor
-       * * `TickTick` - TickTick
-       * * `Timely` - Timely
-       * * `Tinyemail` - Tinyemail
-       * * `Todoist` - Todoist
-       * * `Toggl` - Toggl
-       * * `TrackPMS` - TrackPMS
-       * * `Tremendous` - Tremendous
-       * * `TrustPilot` - TrustPilot
-       * * `Twitter` - Twitter
-       * * `TyntecSMS` - TyntecSMS
-       * * `Unleash` - Unleash
-       * * `UpPromote` - UpPromote
-       * * `Uptick` - Uptick
-       * * `Uservoice` - Uservoice
-       * * `Vantage` - Vantage
-       * * `Veeqo` - Veeqo
-       * * `Vercel` - Vercel
-       * * `VismaEconomic` - VismaEconomic
-       * * `VWO` - VWO
-       * * `Waiteraid` - Waiteraid
-       * * `Wasabi` - Wasabi
-       * * `WhenIWork` - WhenIWork
-       * * `Wordpress` - Wordpress
-       * * `Workable` - Workable
-       * * `Workflowmax` - Workflowmax
-       * * `Workramp` - Workramp
-       * * `Wufoo` - Wufoo
-       * * `Xsolla` - Xsolla
-       * * `YandexMetrica` - YandexMetrica
-       * * `Yotpo` - Yotpo
-       * * `Ynab` - Ynab
-       * * `Younium` - Younium
-       * * `YouSign` - YouSign
-       * * `YoutubeData` - YoutubeData
-       * * `ZapierSupportedStorage` - ZapierSupportedStorage
-       * * `ZapSign` - ZapSign
-       * * `ZendeskSell` - ZendeskSell
-       * * `ZendeskSunshine` - ZendeskSunshine
-       * * `Zenefits` - Zenefits
-       * * `Zenloop` - Zenloop
-       * * `ZohoAnalytics` - ZohoAnalytics
-       * * `ZohoBigin` - ZohoBigin
-       * * `ZohoBilling` - ZohoBilling
-       * * `ZohoBooks` - ZohoBooks
-       * * `ZohoCampaign` - ZohoCampaign
-       * * `ZohoDesk` - ZohoDesk
-       * * `ZohoExpense` - ZohoExpense
-       * * `ZohoInventory` - ZohoInventory
-       * * `ZohoInvoice` - ZohoInvoice
-       * * `ZonkaFeedback` - ZonkaFeedback
-       * * `AlphaVantage` - AlphaVantage
-       * * `Aviationstack` - Aviationstack
-       * * `Bitly` - Bitly
-       * * `Blogger` - Blogger
-       * * `Breezometer` - Breezometer
-       * * `CareQualityCommission` - CareQualityCommission
-       * * `Cimis` - Cimis
-       * * `CoinApi` - CoinApi
-       * * `CoinGecko` - CoinGecko
-       * * `CoinMarketCap` - CoinMarketCap
-       * * `DingConnect` - DingConnect
-       * * `Dockerhub` - Dockerhub
-       * * `ExchangeRatesApi` - ExchangeRatesApi
-       * * `FinancialModelling` - FinancialModelling
-       * * `Finnhub` - Finnhub
-       * * `Finnworlds` - Finnworlds
-       * * `Giphy` - Giphy
-       * * `Gmail` - Gmail
-       * * `GNews` - GNews
-       * * `GoogleCalendar` - GoogleCalendar
-       * * `GoogleClassroom` - GoogleClassroom
-       * * `GoogleDirectory` - GoogleDirectory
-       * * `GoogleForms` - GoogleForms
-       * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
-       * * `GoogleTasks` - GoogleTasks
-       * * `GoogleWebfonts` - GoogleWebfonts
-       * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
-       * * `HuggingFace` - HuggingFace
-       * * `IlluminaBasespace` - IlluminaBasespace
-       * * `Imagga` - Imagga
-       * * `Interzoid` - Interzoid
-       * * `IP2Whois` - IP2Whois
-       * * `KYVE` - KYVE
-       * * `Marketstack` - Marketstack
-       * * `Mendeley` - Mendeley
-       * * `Nasa` - Nasa
-       * * `NewYorkTimes` - NewYorkTimes
-       * * `NewsApi` - NewsApi
-       * * `NewsData` - NewsData
-       * * `OpenDataDc` - OpenDataDc
-       * * `OpenExchangeRates` - OpenExchangeRates
-       * * `OpenAQ` - OpenAQ
-       * * `OpenFDA` - OpenFDA
-       * * `OpenWeather` - OpenWeather
-       * * `Outlook` - Outlook
-       * * `Perigon` - Perigon
-       * * `Pexels` - Pexels
-       * * `Pocket` - Pocket
-       * * `Polygon` - Polygon
-       * * `PyPI` - PyPI
-       * * `Recreation` - Recreation
-       * * `RKICovid` - RKICovid
-       * * `Rss` - Rss
-       * * `SimFin` - SimFin
-       * * `StockData` - StockData
-       * * `Guardian` - Guardian
-       * * `TMDb` - TMDb
-       * * `TVMaze` - TVMaze
-       * * `TwelveData` - TwelveData
-       * * `Ubidots` - Ubidots
-       * * `USCensus` - USCensus
-       * * `Watchmode` - Watchmode
-       * * `WikipediaPageviews` - WikipediaPageviews
-       * * `YahooFinance` - YahooFinance
-       * * `Clarifai` - Clarifai
-       * * `Adapty` - Adapty
-       * * `Braintrust` - Braintrust
-       * * `StreamElements` - StreamElements
-       * * `Streamlabs` - Streamlabs
-       * * `Datorama` - Datorama
-       * * `Ahrefs` - Ahrefs
-       * * `Lightfield` - Lightfield
-       * * `Appstack` - Appstack
-       * * `Razorpay` - Razorpay
-       * * `Neon` - Neon
-       * * `NewRelic` - NewRelic
-       * * `Custom` - Custom
-       * * `Tile38` - Tile38
-       * * `Chatwoot` - Chatwoot
-       * * `Sanity` - Sanity
-       * * `Metronome` - Metronome
-       * * `Jobber` - Jobber
-       * * `Knock` - Knock
-       * * `Leexi` - Leexi
-       * * `RB2B` - RB2B
-       * * `Superwall` - Superwall
-       * * `Liana` - Liana
-       * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch
-       * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas
-       * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds
-       * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow
-       * * `Plunk` - Plunk
-       * * `Dub` - Dub
-       * * `AirOps` - AirOps
-       * * `Podium` - Podium
-       * * `Loops` - Loops
-       * * `Redis` - Redis
-       * * `Mercury` - Mercury
-       * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable
-       * * `PeecAI` - PeecAI
-       * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact
-       * * `AikidoSecurity` - AikidoSecurity
-       * * `Alguna` - Alguna
-       * * `Anthropic` - Anthropic
-       * * `Appwrite` - Appwrite
-       * * `BlandAI` - BlandAI
-       * * `BrowseAI` - BrowseAI
-       * * `BrowserUse` - BrowserUse
-       * * `ChartHop` - ChartHop
-       * * `Cody` - Cody
-       * * `Cursor` - Cursor
-       * * `Decagon` - Decagon
-       * * `Deepgram` - Deepgram
-       * * `ElevenLabs` - ElevenLabs
-       * * `Harvey` - Harvey
-       * * `Hyperspell` - Hyperspell
-       * * `Langfuse` - Langfuse
-       * * `LingoDev` - LingoDev
-       * * `M3ter` - M3ter
-       * * `Maxio` - Maxio
-       * * `Metorial` - Metorial
-       * * `OpenRouter` - OpenRouter
-       * * `TogetherAI` - TogetherAI
-       * * `Vapi` - Vapi
-       * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic
-       * * `Aiven` - Aiven
-       * * `Aviator` - Aviator
-       * * `Backblaze` - Backblaze
-       * * `Baseten` - Baseten
-       * * `Browserbase` - Browserbase
-       * * `Cohere` - Cohere
-       * * `DenoDeploy` - DenoDeploy
-       * * `DigitalOcean` - DigitalOcean
-       * * `E2B` - E2B
-       * * `Fintoc` - Fintoc
-       * * `Firecrawl` - Firecrawl
-       * * `FireworksAI` - FireworksAI
-       * * `FlyIo` - FlyIo
-       * * `Groq` - Groq
-       * * `GrowthBook` - GrowthBook
-       * * `Gumloop` - Gumloop
-       * * `Hatchet` - Hatchet
-       * * `Helicone` - Helicone
-       * * `Heroku` - Heroku
-       * * `Hetzner` - Hetzner
-       * * `HeyGen` - HeyGen
-       * * `Infisical` - Infisical
-       * * `Inngest` - Inngest
-       * * `KapaAI` - KapaAI
-       * * `Kernel` - Kernel
-       * * `Koyeb` - Koyeb
-       * * `LambdaLabs` - LambdaLabs
-       * * `LangSmith` - LangSmith
-       * * `Linode` - Linode
-       * * `Listmonk` - Listmonk
-       * * `LlamaCloud` - LlamaCloud
-       * * `Mem0` - Mem0
-       * * `Metriport` - Metriport
-       * * `Mintlify` - Mintlify
-       * * `MistralAI` - MistralAI
-       * * `Mono` - Mono
-       * * `Netlify` - Netlify
-       * * `Northflank` - Northflank
-       * * `OpenAI` - OpenAI
-       * * `Pinecone` - Pinecone
-       * * `PlatformSh` - PlatformSh
-       * * `PromptingCompany` - PromptingCompany
-       * * `Qdrant` - Qdrant
-       * * `Render` - Render
-       * * `Replicate` - Replicate
-       * * `RetellAI` - RetellAI
-       * * `Roark` - Roark
-       * * `RunPod` - RunPod
-       * * `ScaleAI` - ScaleAI
-       * * `Scaleway` - Scaleway
-       * * `SigNoz` - SigNoz
-       * * `Sim` - Sim
-       * * `Skyvern` - Skyvern
-       * * `Slash` - Slash
-       * * `Synthesia` - Synthesia
-       * * `Telli` - Telli
-       * * `TerraApi` - TerraApi
-       * * `TriggerDev` - TriggerDev
-       * * `Turso` - Turso
-       * * `Singular` - Singular
-       * * `Swonkie` - Swonkie
-       * * `TwelveLabs` - TwelveLabs
-       * * `Twenty` - Twenty
-       * * `Unstructured` - Unstructured
-       * * `Upstash` - Upstash
-       * * `Vellum` - Vellum
-       * * `Vultr` - Vultr
-       * * `Windmill` - Windmill
-       * * `Zep` - Zep
-       * * `Hex` - Hex
-       * * `Sumsub` - Sumsub
-       * * `GoogleChat` - GoogleChat
-       * * `Kickscale` - Kickscale
-       * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack
-       * * `DodoPayments` - DodoPayments
-       * * `Salestrics` - Salestrics
-       * * `Doppler` - Doppler
-       * * `Usersnap` - Usersnap
-       * * `Asknicely` - Asknicely
-       * * `Featurebase` - Featurebase
-       * * `Frill` - Frill
-       * * `Bettermode` - Bettermode
-       * * `Dynatrace` - Dynatrace
-       * * `Honeycomb` - Honeycomb
-       * * `SumoLogic` - SumoLogic
-       * * `LogzIO` - LogzIO
-       * * `Coralogix` - Coralogix
-       * * `BetterStack` - BetterStack
-       * * `Raygun` - Raygun
-       * * `Honeybadger` - Honeybadger
-       * * `Airbrake` - Airbrake
-       * * `Appsignal` - Appsignal
-       * * `Appdynamics` - Appdynamics
-       * * `Instana` - Instana
-       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
-       * * `Uptimerobot` - Uptimerobot
-       * * `Statuscake` - Statuscake
-       * * `Tailscale` - Tailscale
-       * * `Flagsmith` - Flagsmith
-       * * `Xmatters` - Xmatters
-       * * `Squadcast` - Squadcast
-       * * `Zenduty` - Zenduty
-       * * `Cronitor` - Cronitor
-       * * `Jenkins` - Jenkins
-       * * `Bitbucket` - Bitbucket
-       * * `Gitea` - Gitea
-       * * `Teamcity` - Teamcity
-       * * `TravisCI` - TravisCI
-       * * `Semaphore` - Semaphore
-       * * `CircleciInsights` - CircleciInsights
-       * * `OctopusDeploy` - OctopusDeploy
-       * * `Sourcegraph` - Sourcegraph
-       * * `Bitrise` - Bitrise
-       * * `Gerrit` - Gerrit
-       * * `TerraformCloud` - TerraformCloud
-       * * `PulumiCloud` - PulumiCloud
-       * * `Spacelift` - Spacelift
-       * * `Railway` - Railway
-       * * `Argocd` - Argocd
-       * * `PrefectCloud` - PrefectCloud
-       * * `DagsterCloud` - DagsterCloud
-       * * `Env0` - Env0
-       * * `Kubecost` - Kubecost
-       * * `Snyk` - Snyk
-       * * `Semgrep` - Semgrep
-       * * `Veracode` - Veracode
-       * * `Checkmarx` - Checkmarx
-       * * `Gitguardian` - Gitguardian
-       * * `QualysVmdr` - QualysVmdr
-       * * `Rapid7Insightvm` - Rapid7Insightvm
-       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
-       * * `Sentinelone` - Sentinelone
-       * * `Lacework` - Lacework
-       * * `OrcaSecurity` - OrcaSecurity
-       * * `Drata` - Drata
-       * * `Secureframe` - Secureframe
-       * * `CiscoDuo` - CiscoDuo
-       * * `Jumpcloud` - Jumpcloud
-       * * `OnePassword` - OnePassword
-       * * `Stytch` - Stytch
-       * * `Sonarqube` - Sonarqube
-       * * `Codecov` - Codecov
-       * * `Coveralls` - Coveralls
-       * * `Codacy` - Codacy
-       * * `Deepsource` - Deepsource
-       * * `Linearb` - Linearb
-       * * `Jellyfish` - Jellyfish
-       * * `Swarmia` - Swarmia
-       * * `Packagist` - Packagist
-       * * `Nuget` - Nuget
-       * * `CratesIO` - CratesIO
-       * * `SonatypeNexus` - SonatypeNexus
-       * * `JfrogArtifactory` - JfrogArtifactory
-       * * `Snowplow` - Snowplow
-       * * `WeightsAndBiases` - WeightsAndBiases
-       * * `MonteCarlo` - MonteCarlo
-       * * `Metaplane` - Metaplane
-       * * `Datahub` - Datahub
-       * * `ClickhouseCloud` - ClickhouseCloud
-       * * `ConfluentCloud` - ConfluentCloud
-       * * `KongKonnect` - KongKonnect
-       * * `Kandji` - Kandji
-       * * `Automox` - Automox
-       * * `Autumn` - Autumn
-       * * `GetStream` - GetStream
-       * * `Octolens` - Octolens
-       * * `Kajabi` - Kajabi
-       * * `Shopware` - Shopware
-       * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch
-       * * `Crisp` - Crisp
-       * * `Kommo` - Kommo
-       * * `Axiom` - Axiom
-       * * `Plivo` - Plivo
-       * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan
-       * * `AbTasty` - AbTasty
-       * * `Ably` - Ably
-       * * `AbnormalSecurity` - AbnormalSecurity
-       * * `Acast` - Acast
-       * * `Acculynx` - Acculynx
-       * * `Actionstep` - Actionstep
-       * * `Aftership` - Aftership
-       * * `AhaIdeas` - AhaIdeas
-       * * `AkamaiReporting` - AkamaiReporting
-       * * `Alation` - Alation
-       * * `Alegra` - Alegra
-       * * `Allegro` - Allegro
-       * * `AnodotCost` - AnodotCost
-       * * `Anomalo` - Anomalo
-       * * `Apaleo` - Apaleo
-       * * `Apitally` - Apitally
-       * * `AppStoreConnect` - AppStoreConnect
-       * * `Appdirect` - Appdirect
-       * * `Appfolio` - Appfolio
-       * * `Arxiv` - Arxiv
-       * * `Asaas` - Asaas
-       * * `Astronomer` - Astronomer
-       * * `Athenahealth` - Athenahealth
-       * * `Atlan` - Atlan
-       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
-       * * `Avalara` - Avalara
-       * * `AwsAthena` - AwsAthena
-       * * `AwsBatch` - AwsBatch
-       * * `AwsBudgets` - AwsBudgets
-       * * `AwsCloudformation` - AwsCloudformation
-       * * `AwsComputeOptimizer` - AwsComputeOptimizer
-       * * `AwsConfig` - AwsConfig
-       * * `AwsConnect` - AwsConnect
-       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
-       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
-       * * `AwsCostExplorer` - AwsCostExplorer
-       * * `AwsDocumentDB` - AwsDocumentDB
-       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
-       * * `AwsGuardduty` - AwsGuardduty
-       * * `AwsHealth` - AwsHealth
-       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
-       * * `AwsInspector` - AwsInspector
-       * * `AwsMacie` - AwsMacie
-       * * `AwsOrganizations` - AwsOrganizations
-       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
-       * * `AwsSagemaker` - AwsSagemaker
-       * * `AwsSavingsPlans` - AwsSavingsPlans
-       * * `AwsSecurityHub` - AwsSecurityHub
-       * * `AwsSes` - AwsSes
-       * * `AwsStepFunctions` - AwsStepFunctions
-       * * `AwsSupport` - AwsSupport
-       * * `AwsSystemsManager` - AwsSystemsManager
-       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
-       * * `AwsWaf` - AwsWaf
-       * * `AwsXray` - AwsXray
-       * * `AzureActivityLog` - AzureActivityLog
-       * * `AzureAdvisor` - AzureAdvisor
-       * * `AzureApiManagement` - AzureApiManagement
-       * * `AzureApplicationInsights` - AzureApplicationInsights
-       * * `AzureCostManagement` - AzureCostManagement
-       * * `AzureDataExplorer` - AzureDataExplorer
-       * * `AzureDataFactory` - AzureDataFactory
-       * * `AzureLogAnalytics` - AzureLogAnalytics
-       * * `AzureMonitorAlerts` - AzureMonitorAlerts
-       * * `AzureMonitorMetrics` - AzureMonitorMetrics
-       * * `AzureOpenaiUsage` - AzureOpenaiUsage
-       * * `AzurePolicyInsights` - AzurePolicyInsights
-       * * `AzureReservations` - AzureReservations
-       * * `AzureResourceGraph` - AzureResourceGraph
-       * * `AzureResourceHealth` - AzureResourceHealth
-       * * `AzureServiceHealth` - AzureServiceHealth
-       * * `AzureSynapse` - AzureSynapse
-       * * `BackMarket` - BackMarket
-       * * `Beehiiv` - Beehiiv
-       * * `Bigeye` - Bigeye
-       * * `BillCom` - BillCom
-       * * `Billomat` - Billomat
-       * * `BingWebmasterTools` - BingWebmasterTools
-       * * `Bitwarden` - Bitwarden
-       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
-       * * `BlackboardLearn` - BlackboardLearn
-       * * `Bling` - Bling
-       * * `Bloomerang` - Bloomerang
-       * * `Blueshift` - Blueshift
-       * * `Bluesky` - Bluesky
-       * * `BolRetailer` - BolRetailer
-       * * `Boulevard` - Boulevard
-       * * `Buffer` - Buffer
-       * * `Bugherd` - Bugherd
-       * * `Buildium` - Buildium
-       * * `Buttondown` - Buttondown
-       * * `BuyMeACoffee` - BuyMeACoffee
-       * * `Calendarific` - Calendarific
-       * * `Calibre` - Calibre
-       * * `CanvasLms` - CanvasLms
-       * * `Captivate` - Captivate
-       * * `Cashfree` - Cashfree
-       * * `CastAi` - CastAi
-       * * `Catchpoint` - Catchpoint
-       * * `CdcOpenData` - CdcOpenData
-       * * `Census` - Census
-       * * `Checkly` - Checkly
-       * * `CircleSo` - CircleSo
-       * * `Classy` - Classy
-       * * `Cleartax` - Cleartax
-       * * `Clever` - Clever
-       * * `Clevertap` - Clevertap
-       * * `Cliniko` - Cliniko
-       * * `Clio` - Clio
-       * * `Clip` - Clip
-       * * `Cloudability` - Cloudability
-       * * `Cloudsmith` - Cloudsmith
-       * * `Cloudzero` - Cloudzero
-       * * `Clover` - Clover
-       * * `Codemagic` - Codemagic
-       * * `Codescene` - Codescene
-       * * `Collibra` - Collibra
-       * * `Companycam` - Companycam
-       * * `Conekta` - Conekta
-       * * `ContaAzul` - ContaAzul
-       * * `Contentsquare` - Contentsquare
-       * * `Cortex` - Cortex
-       * * `Courier` - Courier
-       * * `Crossref` - Crossref
-       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
-       * * `CubeCloud` - CubeCloud
-       * * `D2lBrightspace` - D2lBrightspace
-       * * `Dayforce` - Dayforce
-       * * `Debugbear` - Debugbear
-       * * `Descope` - Descope
-       * * `Develocity` - Develocity
-       * * `Dialpad` - Dialpad
-       * * `Discord` - Discord
-       * * `Discourse` - Discourse
-       * * `Donorbox` - Donorbox
-       * * `Doorloop` - Doorloop
-       * * `Dovetail` - Dovetail
-       * * `Dragonboat` - Dragonboat
-       * * `Drchrono` - Drchrono
-       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
-       * * `EcbDataPortal` - EcbDataPortal
-       * * `Emarsys` - Emarsys
-       * * `Embrace` - Embrace
-       * * `Entsoe` - Entsoe
-       * * `Eppo` - Eppo
-       * * `Etsy` - Etsy
-       * * `Eurostat` - Eurostat
-       * * `Faire` - Faire
-       * * `FarosAi` - FarosAi
-       * * `Fieldpulse` - Fieldpulse
-       * * `Fieldwire` - Fieldwire
-       * * `Filevine` - Filevine
-       * * `Finout` - Finout
-       * * `Five9` - Five9
-       * * `FlexeraCloudCost` - FlexeraCloudCost
-       * * `Flutterwave` - Flutterwave
-       * * `Fortnox` - Fortnox
-       * * `Fourthwall` - Fourthwall
-       * * `Fred` - Fred
-       * * `Frontegg` - Frontegg
-       * * `FusionAuth` - FusionAuth
-       * * `G2` - G2
-       * * `Gcore` - Gcore
-       * * `GcpApigee` - GcpApigee
-       * * `GcpArtifactRegistry` - GcpArtifactRegistry
-       * * `GcpBigtable` - GcpBigtable
-       * * `GcpChronicle` - GcpChronicle
-       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
-       * * `GcpCloudBilling` - GcpCloudBilling
-       * * `GcpCloudBuild` - GcpCloudBuild
-       * * `GcpCloudDeploy` - GcpCloudDeploy
-       * * `GcpCloudDns` - GcpCloudDns
-       * * `GcpCloudFunctions` - GcpCloudFunctions
-       * * `GcpCloudLogging` - GcpCloudLogging
-       * * `GcpCloudMonitoring` - GcpCloudMonitoring
-       * * `GcpCloudRun` - GcpCloudRun
-       * * `GcpCloudSpanner` - GcpCloudSpanner
-       * * `GcpCloudSql` - GcpCloudSql
-       * * `GcpCloudTrace` - GcpCloudTrace
-       * * `GcpCloudWorkflows` - GcpCloudWorkflows
-       * * `GcpComputeEngine` - GcpComputeEngine
-       * * `GcpContainerAnalysis` - GcpContainerAnalysis
-       * * `GcpDataflow` - GcpDataflow
-       * * `GcpDataplex` - GcpDataplex
-       * * `GcpDataproc` - GcpDataproc
-       * * `GcpErrorReporting` - GcpErrorReporting
-       * * `GcpGke` - GcpGke
-       * * `GcpPubsub` - GcpPubsub
-       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
-       * * `GcpRecommender` - GcpRecommender
-       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
-       * * `Gdelt` - Gdelt
-       * * `GenesysCloud` - GenesysCloud
-       * * `Getdx` - Getdx
-       * * `Ghost` - Ghost
-       * * `Givebutter` - Givebutter
-       * * `Gleif` - Gleif
-       * * `GooglePlayConsole` - GooglePlayConsole
-       * * `Guesty` - Guesty
-       * * `Gumroad` - Gumroad
-       * * `HarnessCcm` - HarnessCcm
-       * * `HarnessSei` - HarnessSei
-       * * `Harvest` - Harvest
-       * * `Healthie` - Healthie
-       * * `Hitpay` - Hitpay
-       * * `Hivebrite` - Hivebrite
-       * * `Holded` - Holded
-       * * `Hostaway` - Hostaway
-       * * `HousecallPro` - HousecallPro
-       * * `Humanitec` - Humanitec
-       * * `ImfData` - ImfData
-       * * `Imperva` - Imperva
-       * * `InfluxdbCloud` - InfluxdbCloud
-       * * `Iyzico` - Iyzico
-       * * `Jobtread` - Jobtread
-       * * `Kameleoon` - Kameleoon
-       * * `KauflandMarketplace` - KauflandMarketplace
-       * * `Kestra` - Kestra
-       * * `Kick` - Kick
-       * * `Kinde` - Kinde
-       * * `Kion` - Kion
-       * * `Knowbe4` - Knowbe4
-       * * `Komodor` - Komodor
-       * * `Labelbox` - Labelbox
-       * * `Lawmatics` - Lawmatics
-       * * `Learnworlds` - Learnworlds
-       * * `LexwareOffice` - LexwareOffice
-       * * `Lightdash` - Lightdash
-       * * `Lodgify` - Lodgify
-       * * `Logicmonitor` - Logicmonitor
-       * * `Logrocket` - Logrocket
-       * * `LoopReturns` - LoopReturns
-       * * `Mastodon` - Mastodon
-       * * `Meetup` - Meetup
-       * * `Megaphone` - Megaphone
-       * * `Memberful` - Memberful
-       * * `MercadoPago` - MercadoPago
-       * * `Meteostat` - Meteostat
-       * * `Mews` - Mews
-       * * `Mezmo` - Mezmo
-       * * `Microsoft365UsageReports` - Microsoft365UsageReports
-       * * `MicrosoftAdvertising` - MicrosoftAdvertising
-       * * `MicrosoftClarity` - MicrosoftClarity
-       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
-       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
-       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
-       * * `MicrosoftIntune` - MicrosoftIntune
-       * * `MicrosoftPurview` - MicrosoftPurview
-       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
-       * * `MicrosoftSentinel` - MicrosoftSentinel
-       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
-       * * `Midtrans` - Midtrans
-       * * `MightyNetworks` - MightyNetworks
-       * * `Mindbody` - Mindbody
-       * * `Mirakl` - Mirakl
-       * * `Moesif` - Moesif
-       * * `Moneybird` - Moneybird
-       * * `Moodle` - Moodle
-       * * `Motherduck` - Motherduck
-       * * `Mycase` - Mycase
-       * * `NagerDate` - NagerDate
-       * * `NeonCrm` - NeonCrm
-       * * `Nexhealth` - Nexhealth
-       * * `NoaaCdo` - NoaaCdo
-       * * `Nobl9` - Nobl9
-       * * `Nolt` - Nolt
-       * * `Nops` - Nops
-       * * `NpmRegistry` - NpmRegistry
-       * * `Oecd` - Oecd
-       * * `Okendo` - Okendo
-       * * `Omni` - Omni
-       * * `Onelogin` - Onelogin
-       * * `OpenDental` - OpenDental
-       * * `OpenMeteo` - OpenMeteo
-       * * `Openalex` - Openalex
-       * * `Opencorporates` - Opencorporates
-       * * `Openfec` - Openfec
-       * * `OpnPayments` - OpnPayments
-       * * `Opslevel` - Opslevel
-       * * `OttoMarket` - OttoMarket
-       * * `Ownerrez` - Ownerrez
-       * * `Pagbank` - Pagbank
-       * * `Patreon` - Patreon
-       * * `Pax8` - Pax8
-       * * `Paychex` - Paychex
-       * * `Paymob` - Paymob
-       * * `Paymongo` - Paymongo
-       * * `Phonepe` - Phonepe
-       * * `Pike13` - Pike13
-       * * `Pingone` - Pingone
-       * * `PinterestOrganic` - PinterestOrganic
-       * * `PlanningCenter` - PlanningCenter
-       * * `PluralsightFlow` - PluralsightFlow
-       * * `Podbean` - Podbean
-       * * `Postscript` - Postscript
-       * * `PowerBiAdmin` - PowerBiAdmin
-       * * `Practicepanther` - Practicepanther
-       * * `Preset` - Preset
-       * * `Procore` - Procore
-       * * `Productiv` - Productiv
-       * * `ProofpointTap` - ProofpointTap
-       * * `Propertyware` - Propertyware
-       * * `Pubnub` - Pubnub
-       * * `Quay` - Quay
-       * * `Raken` - Raken
-       * * `RedpandaCloud` - RedpandaCloud
-       * * `RentManager` - RentManager
-       * * `Reverb` - Reverb
-       * * `RocketMatter` - RocketMatter
-       * * `Rubygems` - Rubygems
-       * * `Scalr` - Scalr
-       * * `SecEdgar` - SecEdgar
-       * * `SelectStar` - SelectStar
-       * * `SemanticScholar` - SemanticScholar
-       * * `Semrush` - Semrush
-       * * `ServiceFusion` - ServiceFusion
-       * * `Servicem8` - Servicem8
-       * * `Servicetitan` - Servicetitan
-       * * `Servicetrade` - Servicetrade
-       * * `Sevdesk` - Sevdesk
-       * * `Similarweb` - Similarweb
-       * * `Simpro` - Simpro
-       * * `Sinch` - Sinch
-       * * `Singlestore` - Singlestore
-       * * `Site24x7` - Site24x7
-       * * `Sleuth` - Sleuth
-       * * `Smartlook` - Smartlook
-       * * `Smartrecruiters` - Smartrecruiters
-       * * `Smokeball` - Smokeball
-       * * `SodaCloud` - SodaCloud
-       * * `Speedcurve` - Speedcurve
-       * * `SpotIo` - SpotIo
-       * * `Sprig` - Sprig
-       * * `Sprinklr` - Sprinklr
-       * * `SproutSocial` - SproutSocial
-       * * `StackOverflowForTeams` - StackOverflowForTeams
-       * * `Stockx` - Stockx
-       * * `TackleIo` - TackleIo
-       * * `Talkdesk` - Talkdesk
-       * * `TeamupFitness` - TeamupFitness
-       * * `Tebra` - Tebra
-       * * `Telnyx` - Telnyx
-       * * `Ternary` - Ternary
-       * * `Thoughtspot` - Thoughtspot
-       * * `Thousandeyes` - Thousandeyes
-       * * `Threads` - Threads
-       * * `TiktokShop` - TiktokShop
-       * * `TinyErp` - TinyErp
-       * * `Tinybird` - Tinybird
-       * * `Tipalti` - Tipalti
-       * * `Toast` - Toast
-       * * `Torii` - Torii
-       * * `Transistor` - Transistor
-       * * `TrunkIo` - TrunkIo
-       * * `Trustradius` - Trustradius
-       * * `Twitch` - Twitch
-       * * `TwoC2p` - TwoC2p
-       * * `UkCompaniesHouse` - UkCompaniesHouse
-       * * `UkOns` - UkOns
-       * * `UnComtrade` - UnComtrade
-       * * `UsBea` - UsBea
-       * * `UsBls` - UsBls
-       * * `UsEia` - UsEia
-       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
-       * * `Vanta` - Vanta
-       * * `Vendr` - Vendr
-       * * `Virtuous` - Virtuous
-       * * `Vonage` - Vonage
-       * * `WalmartMarketplace` - WalmartMarketplace
-       * * `Waydev` - Waydev
-       * * `Wayfair` - Wayfair
-       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
-       * * `WhoGho` - WhoGho
-       * * `Whop` - Whop
-       * * `Wistia` - Wistia
-       * * `Wiz` - Wiz
-       * * `Wompi` - Wompi
-       * * `Workiz` - Workiz
-       * * `WorldBank` - WorldBank
-       * * `Xendit` - Xendit
-       * * `Yoco` - Yoco
-       * * `ZalandoZdirect` - ZalandoZdirect
-       * * `Zluri` - Zluri
-       * * `Zylo` - Zylo
-       * * `Tally` - Tally
-       * * `Nuntly` - Nuntly
-       * * `Vturb` - Vturb
-       * * `Meltwater` - Meltwater
-       * * `UserCom` - UserCom
-       * * `Latitude` - Latitude
-       * * `Workato` - Workato
-       * * `SideShift` - SideShift
-       * * `DuckLake` - DuckLake
-       * * `Starburst` - Starburst
-       * * `Trino` - Trino
-       * * `Easybill` - Easybill
-       * * `Bexio` - Bexio
-       * * `Umami` - Umami
-       * * `Manychat` - Manychat
-       * * `Kickstarter` - Kickstarter
-       * * `Typesense` - Typesense
-       * * `FirstPromoter` - FirstPromoter
-       * * `Zero` - Zero
-       * * `Inth` - Inth
-       * * `BCMS` - BCMS
-       * * `Convonite` - Convonite
-       * * `Hookdeck` - Hookdeck
-       * * `Billit` - Billit
-       * * `Moxie` - Moxie
-       * * `TripleWhale` - TripleWhale
-       * * `Directus` - Directus
-       * * `Clay` - Clay
-       * * `TradableBits` - TradableBits
-       * * `Swan` - Swan
-       * * `Hyros` - Hyros
-       * * `Odoo` - Odoo
-       * * `Airbridge` - Airbridge
-       * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter
-       * * `Raisely` - Raisely
-       * * `RakutenAdvertising` - RakutenAdvertising
-       * * `Zitadel` - Zitadel
-       * * `DeelFlows` - DeelFlows
-       * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix
-       * * `Sevalla` - Sevalla
-       * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner
-       * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare
-       * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91
-       * * `Depot` - Depot
-       * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy
-       * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart
-       * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound
-       * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi
-       * * `Capterra` - Capterra
-       * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi
-       * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS
-       * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox
-       * * `SimonData` - SimonData
-       * * `CommissionJunction` - CommissionJunction
-       * * `Liveblocks` - Liveblocks
-       * * `Livestorm` - Livestorm
-       * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana
-       * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable
-       * * `Anvil` - Anvil
-       * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato
-       * * `Medusa` - Medusa
-       * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin
-       * * `Folk` - Folk
-       * * `Cybersource` - Cybersource
-       * * `GoogleAdSense` - GoogleAdSense
-       * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio
-       * * `Smartlead` - Smartlead
-       * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket
-       * * `Quo` - Quo
-       * * `HeyReach` - HeyReach
-       * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet
-       * * `Expo` - Expo
-       * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer
-       * * `Sprinto` - Sprinto
-       * * `Gem` - Gem
-       * * `AudioGO` - AudioGO
-       * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs
-       * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura
-       * * `ChargebackStop` - ChargebackStop
-       * * `Chargeflow` - Chargeflow
-       * * `Dreamdata` - Dreamdata
-       * * `GoogleBusinessProfile` - GoogleBusinessProfile
-       * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite
-       * * `Modal` - Modal
-       * * `Vimeo` - Vimeo
-       * * `Scrunch` - Scrunch
-       * * `Loom` - Loom
-       * * `Arcade` - Arcade
-       * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom
-       * * `Userback` - Userback
-       * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution
-       * * `StackAdapt` - StackAdapt
-       * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay
-       * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud
-       * * `Northbeam` - Northbeam
-       * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO
-       * * `Airship` - Airship
-       * * `Creem` - Creem
-       * * `Leantime` - Leantime
-       * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob
-       * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2
-       * * `Particle` - Particle
-       * * `FileUpload` - FileUpload
-       * * `Dripify` - Dripify
-       * * `AwsS3Tables` - AwsS3Tables
-       * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments
-       * * `Soniox` - Soniox
-       * * `Nango` - Nango
-       * * `Fathom` - Fathom
-       * * `Stamped` - Stamped */
-      source_type: ExternalDataSourceTypeEnum;
+      /** The source type these credentials are for (e.g. 'Stripe', 'Postgres'). */
+      source_type: string;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
     }
@@ -115796,1424 +107201,8 @@ export namespace Schemas {
     export type SourcePreviewRequestPayload = { [key: string]: unknown };
 
     export interface SourcePreviewRequest {
-      /** The source type to preview. Only 'Custom' (a user-defined REST API) is supported today.
-       *
-       * * `Ashby` - Ashby
-       * * `Supabase` - Supabase
-       * * `CustomerIO` - CustomerIO
-       * * `Github` - Github
-       * * `Stripe` - Stripe
-       * * `Hubspot` - Hubspot
-       * * `Postgres` - Postgres
-       * * `Zendesk` - Zendesk
-       * * `Snowflake` - Snowflake
-       * * `Salesforce` - Salesforce
-       * * `MySQL` - MySQL
-       * * `MongoDB` - MongoDB
-       * * `MSSQL` - MSSQL
-       * * `Vitally` - Vitally
-       * * `BigQuery` - BigQuery
-       * * `Chargebee` - Chargebee
-       * * `Clerk` - Clerk
-       * * `GoogleAds` - GoogleAds
-       * * `GoogleSearchConsole` - GoogleSearchConsole
-       * * `TemporalIO` - TemporalIO
-       * * `DoIt` - DoIt
-       * * `GoogleSheets` - GoogleSheets
-       * * `MetaAds` - MetaAds
-       * * `Klaviyo` - Klaviyo
-       * * `Mailchimp` - Mailchimp
-       * * `Braze` - Braze
-       * * `Mailjet` - Mailjet
-       * * `Redshift` - Redshift
-       * * `Polar` - Polar
-       * * `RevenueCat` - RevenueCat
-       * * `LinkedinAds` - LinkedinAds
-       * * `RedditAds` - RedditAds
-       * * `TikTokAds` - TikTokAds
-       * * `BingAds` - BingAds
-       * * `Shopify` - Shopify
-       * * `Attio` - Attio
-       * * `SnapchatAds` - SnapchatAds
-       * * `Linear` - Linear
-       * * `LiteLLM` - LiteLLM
-       * * `Intercom` - Intercom
-       * * `Amplitude` - Amplitude
-       * * `Mixpanel` - Mixpanel
-       * * `Jira` - Jira
-       * * `ActiveCampaign` - ActiveCampaign
-       * * `Marketo` - Marketo
-       * * `Adjust` - Adjust
-       * * `AppsFlyer` - AppsFlyer
-       * * `Freshdesk` - Freshdesk
-       * * `GoogleAnalytics` - GoogleAnalytics
-       * * `Pipedrive` - Pipedrive
-       * * `SendGrid` - SendGrid
-       * * `Slack` - Slack
-       * * `PagerDuty` - PagerDuty
-       * * `Asana` - Asana
-       * * `Notion` - Notion
-       * * `Airtable` - Airtable
-       * * `Greenhouse` - Greenhouse
-       * * `BambooHR` - BambooHR
-       * * `Lever` - Lever
-       * * `GitLab` - GitLab
-       * * `Datadog` - Datadog
-       * * `Sentry` - Sentry
-       * * `Pendo` - Pendo
-       * * `FullStory` - FullStory
-       * * `AmazonAds` - AmazonAds
-       * * `PinterestAds` - PinterestAds
-       * * `AppleSearchAds` - AppleSearchAds
-       * * `QuickBooks` - QuickBooks
-       * * `Xero` - Xero
-       * * `NetSuite` - NetSuite
-       * * `WooCommerce` - WooCommerce
-       * * `BigCommerce` - BigCommerce
-       * * `PayPal` - PayPal
-       * * `Square` - Square
-       * * `Zoom` - Zoom
-       * * `Trello` - Trello
-       * * `TrafficStars` - TrafficStars
-       * * `Monday` - Monday
-       * * `ClickUp` - ClickUp
-       * * `Confluence` - Confluence
-       * * `Recurly` - Recurly
-       * * `SalesLoft` - SalesLoft
-       * * `Outreach` - Outreach
-       * * `Gong` - Gong
-       * * `Calendly` - Calendly
-       * * `Typeform` - Typeform
-       * * `UnityAds` - UnityAds
-       * * `Iterable` - Iterable
-       * * `ZohoCRM` - ZohoCRM
-       * * `Close` - Close
-       * * `Oracle` - Oracle
-       * * `DynamoDB` - DynamoDB
-       * * `Elasticsearch` - Elasticsearch
-       * * `Kafka` - Kafka
-       * * `LaunchDarkly` - LaunchDarkly
-       * * `Braintree` - Braintree
-       * * `Recharge` - Recharge
-       * * `HelpScout` - HelpScout
-       * * `Gorgias` - Gorgias
-       * * `Instagram` - Instagram
-       * * `YouTubeAnalytics` - YouTubeAnalytics
-       * * `FacebookPages` - FacebookPages
-       * * `TwitterAds` - TwitterAds
-       * * `Workday` - Workday
-       * * `ServiceNow` - ServiceNow
-       * * `Pardot` - Pardot
-       * * `Copper` - Copper
-       * * `Front` - Front
-       * * `ChartMogul` - ChartMogul
-       * * `Zuora` - Zuora
-       * * `Paddle` - Paddle
-       * * `CircleCI` - CircleCI
-       * * `CockroachDB` - CockroachDB
-       * * `Firebase` - Firebase
-       * * `AzureBlob` - AzureBlob
-       * * `GoogleDrive` - GoogleDrive
-       * * `OneDrive` - OneDrive
-       * * `SharePoint` - SharePoint
-       * * `Box` - Box
-       * * `SFTP` - SFTP
-       * * `MicrosoftTeams` - MicrosoftTeams
-       * * `Aircall` - Aircall
-       * * `Webflow` - Webflow
-       * * `Okta` - Okta
-       * * `Auth0` - Auth0
-       * * `Productboard` - Productboard
-       * * `Smartsheet` - Smartsheet
-       * * `Wrike` - Wrike
-       * * `Plaid` - Plaid
-       * * `SurveyMonkey` - SurveyMonkey
-       * * `Eventbrite` - Eventbrite
-       * * `Everflow` - Everflow
-       * * `RingCentral` - RingCentral
-       * * `Twilio` - Twilio
-       * * `Freshsales` - Freshsales
-       * * `Shortcut` - Shortcut
-       * * `ConvertKit` - ConvertKit
-       * * `Drip` - Drip
-       * * `CampaignMonitor` - CampaignMonitor
-       * * `MailerLite` - MailerLite
-       * * `Omnisend` - Omnisend
-       * * `Brevo` - Brevo
-       * * `Postmark` - Postmark
-       * * `Granola` - Granola
-       * * `BuildBetter` - BuildBetter
-       * * `Convex` - Convex
-       * * `ClickHouse` - ClickHouse
-       * * `Plain` - Plain
-       * * `Resend` - Resend
-       * * `PgAnalyze` - PgAnalyze
-       * * `WorkOS` - WorkOS
-       * * `AmazonS3` - AmazonS3
-       * * `GoogleCloudStorage` - GoogleCloudStorage
-       * * `Databricks` - Databricks
-       * * `Dynamics365` - Dynamics365
-       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
-       * * `Db2` - Db2
-       * * `Heap` - Heap
-       * * `AdobeAnalytics` - AdobeAnalytics
-       * * `Matomo` - Matomo
-       * * `Optimizely` - Optimizely
-       * * `Adyen` - Adyen
-       * * `GoCardless` - GoCardless
-       * * `Mollie` - Mollie
-       * * `CheckoutCom` - CheckoutCom
-       * * `Branch` - Branch
-       * * `Criteo` - Criteo
-       * * `Outbrain` - Outbrain
-       * * `Taboola` - Taboola
-       * * `AdRoll` - AdRoll
-       * * `DisplayVideo360` - DisplayVideo360
-       * * `GoogleAdManager` - GoogleAdManager
-       * * `CampaignManager360` - CampaignManager360
-       * * `SearchAds360` - SearchAds360
-       * * `AdobeCommerce` - AdobeCommerce
-       * * `AmazonSellingPartner` - AmazonSellingPartner
-       * * `Ebay` - Ebay
-       * * `Commercetools` - Commercetools
-       * * `LightspeedRetail` - LightspeedRetail
-       * * `Shipmail` - Shipmail
-       * * `ShipStation` - ShipStation
-       * * `ConstantContact` - ConstantContact
-       * * `Mailgun` - Mailgun
-       * * `Eloqua` - Eloqua
-       * * `Sailthru` - Sailthru
-       * * `Ortto` - Ortto
-       * * `Attentive` - Attentive
-       * * `Kustomer` - Kustomer
-       * * `Dixa` - Dixa
-       * * `Gladly` - Gladly
-       * * `Qualtrics` - Qualtrics
-       * * `AzureDevOps` - AzureDevOps
-       * * `RoktAds` - RoktAds
-       * * `Rollbar` - Rollbar
-       * * `Opsgenie` - Opsgenie
-       * * `IncidentIo` - IncidentIo
-       * * `Pingdom` - Pingdom
-       * * `Cloudflare` - Cloudflare
-       * * `CloudflareD1` - CloudflareD1
-       * * `CosmosDB` - CosmosDB
-       * * `PlanetScaleMySQL` - PlanetScaleMySQL
-       * * `PlanetScalePostgres` - PlanetScalePostgres
-       * * `Plane` - Plane
-       * * `Scarf` - Scarf
-       * * `SapHana` - SapHana
-       * * `Rippling` - Rippling
-       * * `HiBob` - HiBob
-       * * `Personio` - Personio
-       * * `Deel` - Deel
-       * * `AdpWorkforceNow` - AdpWorkforceNow
-       * * `Paylocity` - Paylocity
-       * * `Gusto` - Gusto
-       * * `CultureAmp` - CultureAmp
-       * * `Lattice` - Lattice
-       * * `SageIntacct` - SageIntacct
-       * * `FreshBooks` - FreshBooks
-       * * `Expensify` - Expensify
-       * * `Ramp` - Ramp
-       * * `Brex` - Brex
-       * * `Coupa` - Coupa
-       * * `SapConcur` - SapConcur
-       * * `Apollo` - Apollo
-       * * `Crunchbase` - Crunchbase
-       * * `ZoomInfo` - ZoomInfo
-       * * `Clari` - Clari
-       * * `Chorus` - Chorus
-       * * `Coda` - Coda
-       * * `Guru` - Guru
-       * * `Dropbox` - Dropbox
-       * * `Docusign` - Docusign
-       * * `PandaDoc` - PandaDoc
-       * * `SapErp` - SapErp
-       * * `SapSuccessFactors` - SapSuccessFactors
-       * * `OracleEbs` - OracleEbs
-       * * `OracleFusion` - OracleFusion
-       * * `AmazonSNS` - AmazonSNS
-       * * `AmazonEventBridge` - AmazonEventBridge
-       * * `AmazonSQS` - AmazonSQS
-       * * `AmazonKinesis` - AmazonKinesis
-       * * `AmazonCloudWatch` - AmazonCloudWatch
-       * * `OpenAIAds` - OpenAIAds
-       * * `OneHundredMs` - OneHundredMs
-       * * `SevenShifts` - SevenShifts
-       * * `AcuityScheduling` - AcuityScheduling
-       * * `AgileCRM` - AgileCRM
-       * * `Aha` - Aha
-       * * `Airbyte` - Airbyte
-       * * `Akeneo` - Akeneo
-       * * `Algolia` - Algolia
-       * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
-       * * `ApifyDataset` - ApifyDataset
-       * * `Appcues` - Appcues
-       * * `Appfigures` - Appfigures
-       * * `Appfollow` - Appfollow
-       * * `Apptivo` - Apptivo
-       * * `AssemblyAI` - AssemblyAI
-       * * `Awin` - Awin
-       * * `AwsCloudTrail` - AwsCloudTrail
-       * * `AzureTableStorage` - AzureTableStorage
-       * * `Babelforce` - Babelforce
-       * * `Basecamp` - Basecamp
-       * * `Beamer` - Beamer
-       * * `BigMailer` - BigMailer
-       * * `Bluetally` - Bluetally
-       * * `BoldSign` - BoldSign
-       * * `BreezyHR` - BreezyHR
-       * * `Bugsnag` - Bugsnag
-       * * `Buildkite` - Buildkite
-       * * `Bunny` - Bunny
-       * * `Buzzsprout` - Buzzsprout
-       * * `CalCom` - CalCom
-       * * `CallRail` - CallRail
-       * * `Campayn` - Campayn
-       * * `Canny` - Canny
-       * * `CapsuleCRM` - CapsuleCRM
-       * * `CaptainData` - CaptainData
-       * * `CartCom` - CartCom
-       * * `CastorEDC` - CastorEDC
-       * * `Chameleon` - Chameleon
-       * * `Chargedesk` - Chargedesk
-       * * `Chargify` - Chargify
-       * * `Chift` - Chift
-       * * `Churnkey` - Churnkey
-       * * `Cin7` - Cin7
-       * * `CiscoMeraki` - CiscoMeraki
-       * * `Clazar` - Clazar
-       * * `Clockify` - Clockify
-       * * `Clockodo` - Clockodo
-       * * `Cloudbeds` - Cloudbeds
-       * * `Coassemble` - Coassemble
-       * * `Codefresh` - Codefresh
-       * * `Concord` - Concord
-       * * `ConfigCat` - ConfigCat
-       * * `Couchbase` - Couchbase
-       * * `Curve` - Curve
-       * * `Customerly` - Customerly
-       * * `Datascope` - Datascope
-       * * `Dbt` - Dbt
-       * * `Demodesk` - Demodesk
-       * * `Deputy` - Deputy
-       * * `DevinAI` - DevinAI
-       * * `Docuseal` - Docuseal
-       * * `Dolibarr` - Dolibarr
-       * * `Dremio` - Dremio
-       * * `DropboxSign` - DropboxSign
-       * * `Dwolla` - Dwolla
-       * * `EConomic` - EConomic
-       * * `Easypost` - Easypost
-       * * `Easypromos` - Easypromos
-       * * `Elasticemail` - Elasticemail
-       * * `EmailOctopus` - EmailOctopus
-       * * `EmploymentHero` - EmploymentHero
-       * * `Encharge` - Encharge
-       * * `Eventee` - Eventee
-       * * `Eventzilla` - Eventzilla
-       * * `Everhour` - Everhour
-       * * `EZOfficeInventory` - EZOfficeInventory
-       * * `Factorial` - Factorial
-       * * `Fastbill` - Fastbill
-       * * `Fastly` - Fastly
-       * * `Fauna` - Fauna
-       * * `Feishu` - Feishu
-       * * `Fillout` - Fillout
-       * * `Finage` - Finage
-       * * `Firebolt` - Firebolt
-       * * `FireHydrant` - FireHydrant
-       * * `Fleetio` - Fleetio
-       * * `Flexmail` - Flexmail
-       * * `Flexport` - Flexport
-       * * `FloatApp` - FloatApp
-       * * `Flowlu` - Flowlu
-       * * `Formbricks` - Formbricks
-       * * `Framer` - Framer
-       * * `FreeAgent` - FreeAgent
-       * * `Freightview` - Freightview
-       * * `Freshcaller` - Freshcaller
-       * * `Freshchat` - Freshchat
-       * * `Freshservice` - Freshservice
-       * * `Fulcrum` - Fulcrum
-       * * `GainsightCs` - GainsightCs
-       * * `GainsightPx` - GainsightPx
-       * * `GitBook` - GitBook
-       * * `Glassfrog` - Glassfrog
-       * * `Goldcast` - Goldcast
-       * * `GoLogin` - GoLogin
-       * * `Grafana` - Grafana
-       * * `GreytHr` - GreytHr
-       * * `Gridly` - Gridly
-       * * `Harness` - Harness
-       * * `Height` - Height
-       * * `Hellobaton` - Hellobaton
-       * * `HighLevel` - HighLevel
-       * * `HoorayHR` - HoorayHR
-       * * `Hubplanner` - Hubplanner
-       * * `Humanitix` - Humanitix
-       * * `Huntr` - Huntr
-       * * `Inflowinventory` - Inflowinventory
-       * * `InforNexus` - InforNexus
-       * * `Insightful` - Insightful
-       * * `Insightly` - Insightly
-       * * `Instantly` - Instantly
-       * * `Instatus` - Instatus
-       * * `Intruder` - Intruder
-       * * `Invoiced` - Invoiced
-       * * `Invoiceninja` - Invoiceninja
-       * * `JamfPro` - JamfPro
-       * * `JobNimbus` - JobNimbus
-       * * `Jotform` - Jotform
-       * * `JudgeMeReviews` - JudgeMeReviews
-       * * `JustCall` - JustCall
-       * * `JustSift` - JustSift
-       * * `K6Cloud` - K6Cloud
-       * * `Katana` - Katana
-       * * `Keka` - Keka
-       * * `Kisi` - Kisi
-       * * `Kissmetrics` - Kissmetrics
-       * * `Klarna` - Klarna
-       * * `Klaus` - Klaus
-       * * `Lago` - Lago
-       * * `Leadfeeder` - Leadfeeder
-       * * `Lemlist` - Lemlist
-       * * `LessAnnoyingCRM` - LessAnnoyingCRM
-       * * `LinkedinPages` - LinkedinPages
-       * * `Linkrunner` - Linkrunner
-       * * `Linnworks` - Linnworks
-       * * `Lob` - Lob
-       * * `Lokalise` - Lokalise
-       * * `Looker` - Looker
-       * * `Luma` - Luma
-       * * `MailerSend` - MailerSend
-       * * `Mailosaur` - Mailosaur
-       * * `Mailtrap` - Mailtrap
-       * * `Mantle` - Mantle
-       * * `Mention` - Mention
-       * * `MercadoAds` - MercadoAds
-       * * `Merge` - Merge
-       * * `Metabase` - Metabase
-       * * `Metricool` - Metricool
-       * * `MicrosoftDataverse` - MicrosoftDataverse
-       * * `MicrosoftEntraId` - MicrosoftEntraId
-       * * `MicrosoftLists` - MicrosoftLists
-       * * `Miro` - Miro
-       * * `Missive` - Missive
-       * * `MixMax` - MixMax
-       * * `Mode` - Mode
-       * * `Mux` - Mux
-       * * `MyHours` - MyHours
-       * * `N8n` - N8n
-       * * `Navan` - Navan
-       * * `NebiusAI` - NebiusAI
-       * * `Nexiopay` - Nexiopay
-       * * `NinjaOneRMM` - NinjaOneRMM
-       * * `NoCRM` - NoCRM
-       * * `NorthpassLMS` - NorthpassLMS
-       * * `Nutshell` - Nutshell
-       * * `Nylas` - Nylas
-       * * `Oncehub` - Oncehub
-       * * `Onepagecrm` - Onepagecrm
-       * * `OneSignal` - OneSignal
-       * * `Onfleet` - Onfleet
-       * * `OpinionStage` - OpinionStage
-       * * `OPUSWatch` - OPUSWatch
-       * * `Orb` - Orb
-       * * `Orbit` - Orbit
-       * * `Oura` - Oura
-       * * `Oveit` - Oveit
-       * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
-       * * `Paperform` - Paperform
-       * * `Papersign` - Papersign
-       * * `Partnerize` - Partnerize
-       * * `PartnerStack` - PartnerStack
-       * * `PayFit` - PayFit
-       * * `Paystack` - Paystack
-       * * `Pennylane` - Pennylane
-       * * `Perk` - Perk
-       * * `PersistIq` - PersistIq
-       * * `Persona` - Persona
-       * * `Phyllo` - Phyllo
-       * * `Picqer` - Picqer
-       * * `Pipeliner` - Pipeliner
-       * * `PivotalTracker` - PivotalTracker
-       * * `Piwik` - Piwik
-       * * `Planhat` - Planhat
-       * * `Plausible` - Plausible
-       * * `Poplar` - Poplar
-       * * `PrestaShop` - PrestaShop
-       * * `Pretix` - Pretix
-       * * `Primetric` - Primetric
-       * * `Printavo` - Printavo
-       * * `Printify` - Printify
-       * * `Productive` - Productive
-       * * `Pylon` - Pylon
-       * * `Qonto` - Qonto
-       * * `Qualaroo` - Qualaroo
-       * * `Railz` - Railz
-       * * `RDStationMarketing` - RDStationMarketing
-       * * `Recruitee` - Recruitee
-       * * `Reddit` - Reddit
-       * * `ReferralHero` - ReferralHero
-       * * `RentCast` - RentCast
-       * * `Repairshopr` - Repairshopr
-       * * `ReplyIo` - ReplyIo
-       * * `RetailExpress` - RetailExpress
-       * * `Retently` - Retently
-       * * `Retreaver` - Retreaver
-       * * `RevolutMerchant` - RevolutMerchant
-       * * `RocketChat` - RocketChat
-       * * `Rocketlane` - Rocketlane
-       * * `Rootly` - Rootly
-       * * `Ruddr` - Ruddr
-       * * `SafetyCulture` - SafetyCulture
-       * * `SageHR` - SageHR
-       * * `Salesflare` - Salesflare
-       * * `SAPFieldglass` - SAPFieldglass
-       * * `SavvyCal` - SavvyCal
-       * * `Secoda` - Secoda
-       * * `Segment` - Segment
-       * * `Sendowl` - Sendowl
-       * * `SendPulse` - SendPulse
-       * * `Senseforce` - Senseforce
-       * * `Serpstat` - Serpstat
-       * * `Sharetribe` - Sharetribe
-       * * `Shippo` - Shippo
-       * * `ShopWired` - ShopWired
-       * * `Shortio` - Shortio
-       * * `Shutterstock` - Shutterstock
-       * * `SigmaComputing` - SigmaComputing
-       * * `SignNow` - SignNow
-       * * `SimpleCast` - SimpleCast
-       * * `Simplesat` - Simplesat
-       * * `Smaily` - Smaily
-       * * `SmartEngage` - SmartEngage
-       * * `Smartreach` - Smartreach
-       * * `Smartwaiver` - Smartwaiver
-       * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
-       * * `SonarCloud` - SonarCloud
-       * * `SparkPost` - SparkPost
-       * * `SplitIo` - SplitIo
-       * * `SpotifyAds` - SpotifyAds
-       * * `SpotlerCRM` - SpotlerCRM
-       * * `Squarespace` - Squarespace
-       * * `Statsig` - Statsig
-       * * `Statuspage` - Statuspage
-       * * `Steam` - Steam
-       * * `Stigg` - Stigg
-       * * `Strava` - Strava
-       * * `SurveySparrow` - SurveySparrow
-       * * `Survicate` - Survicate
-       * * `Svix` - Svix
-       * * `Systeme` - Systeme
-       * * `Tavus` - Tavus
-       * * `Teamtailor` - Teamtailor
-       * * `Teamwork` - Teamwork
-       * * `Tempo` - Tempo
-       * * `Testrail` - Testrail
-       * * `Thinkific` - Thinkific
-       * * `ThinkificCourses` - ThinkificCourses
-       * * `ThriveLearning` - ThriveLearning
-       * * `Ticketmaster` - Ticketmaster
-       * * `TicketTailor` - TicketTailor
-       * * `TickTick` - TickTick
-       * * `Timely` - Timely
-       * * `Tinyemail` - Tinyemail
-       * * `Todoist` - Todoist
-       * * `Toggl` - Toggl
-       * * `TrackPMS` - TrackPMS
-       * * `Tremendous` - Tremendous
-       * * `TrustPilot` - TrustPilot
-       * * `Twitter` - Twitter
-       * * `TyntecSMS` - TyntecSMS
-       * * `Unleash` - Unleash
-       * * `UpPromote` - UpPromote
-       * * `Uptick` - Uptick
-       * * `Uservoice` - Uservoice
-       * * `Vantage` - Vantage
-       * * `Veeqo` - Veeqo
-       * * `Vercel` - Vercel
-       * * `VismaEconomic` - VismaEconomic
-       * * `VWO` - VWO
-       * * `Waiteraid` - Waiteraid
-       * * `Wasabi` - Wasabi
-       * * `WhenIWork` - WhenIWork
-       * * `Wordpress` - Wordpress
-       * * `Workable` - Workable
-       * * `Workflowmax` - Workflowmax
-       * * `Workramp` - Workramp
-       * * `Wufoo` - Wufoo
-       * * `Xsolla` - Xsolla
-       * * `YandexMetrica` - YandexMetrica
-       * * `Yotpo` - Yotpo
-       * * `Ynab` - Ynab
-       * * `Younium` - Younium
-       * * `YouSign` - YouSign
-       * * `YoutubeData` - YoutubeData
-       * * `ZapierSupportedStorage` - ZapierSupportedStorage
-       * * `ZapSign` - ZapSign
-       * * `ZendeskSell` - ZendeskSell
-       * * `ZendeskSunshine` - ZendeskSunshine
-       * * `Zenefits` - Zenefits
-       * * `Zenloop` - Zenloop
-       * * `ZohoAnalytics` - ZohoAnalytics
-       * * `ZohoBigin` - ZohoBigin
-       * * `ZohoBilling` - ZohoBilling
-       * * `ZohoBooks` - ZohoBooks
-       * * `ZohoCampaign` - ZohoCampaign
-       * * `ZohoDesk` - ZohoDesk
-       * * `ZohoExpense` - ZohoExpense
-       * * `ZohoInventory` - ZohoInventory
-       * * `ZohoInvoice` - ZohoInvoice
-       * * `ZonkaFeedback` - ZonkaFeedback
-       * * `AlphaVantage` - AlphaVantage
-       * * `Aviationstack` - Aviationstack
-       * * `Bitly` - Bitly
-       * * `Blogger` - Blogger
-       * * `Breezometer` - Breezometer
-       * * `CareQualityCommission` - CareQualityCommission
-       * * `Cimis` - Cimis
-       * * `CoinApi` - CoinApi
-       * * `CoinGecko` - CoinGecko
-       * * `CoinMarketCap` - CoinMarketCap
-       * * `DingConnect` - DingConnect
-       * * `Dockerhub` - Dockerhub
-       * * `ExchangeRatesApi` - ExchangeRatesApi
-       * * `FinancialModelling` - FinancialModelling
-       * * `Finnhub` - Finnhub
-       * * `Finnworlds` - Finnworlds
-       * * `Giphy` - Giphy
-       * * `Gmail` - Gmail
-       * * `GNews` - GNews
-       * * `GoogleCalendar` - GoogleCalendar
-       * * `GoogleClassroom` - GoogleClassroom
-       * * `GoogleDirectory` - GoogleDirectory
-       * * `GoogleForms` - GoogleForms
-       * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
-       * * `GoogleTasks` - GoogleTasks
-       * * `GoogleWebfonts` - GoogleWebfonts
-       * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
-       * * `HuggingFace` - HuggingFace
-       * * `IlluminaBasespace` - IlluminaBasespace
-       * * `Imagga` - Imagga
-       * * `Interzoid` - Interzoid
-       * * `IP2Whois` - IP2Whois
-       * * `KYVE` - KYVE
-       * * `Marketstack` - Marketstack
-       * * `Mendeley` - Mendeley
-       * * `Nasa` - Nasa
-       * * `NewYorkTimes` - NewYorkTimes
-       * * `NewsApi` - NewsApi
-       * * `NewsData` - NewsData
-       * * `OpenDataDc` - OpenDataDc
-       * * `OpenExchangeRates` - OpenExchangeRates
-       * * `OpenAQ` - OpenAQ
-       * * `OpenFDA` - OpenFDA
-       * * `OpenWeather` - OpenWeather
-       * * `Outlook` - Outlook
-       * * `Perigon` - Perigon
-       * * `Pexels` - Pexels
-       * * `Pocket` - Pocket
-       * * `Polygon` - Polygon
-       * * `PyPI` - PyPI
-       * * `Recreation` - Recreation
-       * * `RKICovid` - RKICovid
-       * * `Rss` - Rss
-       * * `SimFin` - SimFin
-       * * `StockData` - StockData
-       * * `Guardian` - Guardian
-       * * `TMDb` - TMDb
-       * * `TVMaze` - TVMaze
-       * * `TwelveData` - TwelveData
-       * * `Ubidots` - Ubidots
-       * * `USCensus` - USCensus
-       * * `Watchmode` - Watchmode
-       * * `WikipediaPageviews` - WikipediaPageviews
-       * * `YahooFinance` - YahooFinance
-       * * `Clarifai` - Clarifai
-       * * `Adapty` - Adapty
-       * * `Braintrust` - Braintrust
-       * * `StreamElements` - StreamElements
-       * * `Streamlabs` - Streamlabs
-       * * `Datorama` - Datorama
-       * * `Ahrefs` - Ahrefs
-       * * `Lightfield` - Lightfield
-       * * `Appstack` - Appstack
-       * * `Razorpay` - Razorpay
-       * * `Neon` - Neon
-       * * `NewRelic` - NewRelic
-       * * `Custom` - Custom
-       * * `Tile38` - Tile38
-       * * `Chatwoot` - Chatwoot
-       * * `Sanity` - Sanity
-       * * `Metronome` - Metronome
-       * * `Jobber` - Jobber
-       * * `Knock` - Knock
-       * * `Leexi` - Leexi
-       * * `RB2B` - RB2B
-       * * `Superwall` - Superwall
-       * * `Liana` - Liana
-       * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch
-       * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas
-       * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds
-       * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow
-       * * `Plunk` - Plunk
-       * * `Dub` - Dub
-       * * `AirOps` - AirOps
-       * * `Podium` - Podium
-       * * `Loops` - Loops
-       * * `Redis` - Redis
-       * * `Mercury` - Mercury
-       * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable
-       * * `PeecAI` - PeecAI
-       * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact
-       * * `AikidoSecurity` - AikidoSecurity
-       * * `Alguna` - Alguna
-       * * `Anthropic` - Anthropic
-       * * `Appwrite` - Appwrite
-       * * `BlandAI` - BlandAI
-       * * `BrowseAI` - BrowseAI
-       * * `BrowserUse` - BrowserUse
-       * * `ChartHop` - ChartHop
-       * * `Cody` - Cody
-       * * `Cursor` - Cursor
-       * * `Decagon` - Decagon
-       * * `Deepgram` - Deepgram
-       * * `ElevenLabs` - ElevenLabs
-       * * `Harvey` - Harvey
-       * * `Hyperspell` - Hyperspell
-       * * `Langfuse` - Langfuse
-       * * `LingoDev` - LingoDev
-       * * `M3ter` - M3ter
-       * * `Maxio` - Maxio
-       * * `Metorial` - Metorial
-       * * `OpenRouter` - OpenRouter
-       * * `TogetherAI` - TogetherAI
-       * * `Vapi` - Vapi
-       * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic
-       * * `Aiven` - Aiven
-       * * `Aviator` - Aviator
-       * * `Backblaze` - Backblaze
-       * * `Baseten` - Baseten
-       * * `Browserbase` - Browserbase
-       * * `Cohere` - Cohere
-       * * `DenoDeploy` - DenoDeploy
-       * * `DigitalOcean` - DigitalOcean
-       * * `E2B` - E2B
-       * * `Fintoc` - Fintoc
-       * * `Firecrawl` - Firecrawl
-       * * `FireworksAI` - FireworksAI
-       * * `FlyIo` - FlyIo
-       * * `Groq` - Groq
-       * * `GrowthBook` - GrowthBook
-       * * `Gumloop` - Gumloop
-       * * `Hatchet` - Hatchet
-       * * `Helicone` - Helicone
-       * * `Heroku` - Heroku
-       * * `Hetzner` - Hetzner
-       * * `HeyGen` - HeyGen
-       * * `Infisical` - Infisical
-       * * `Inngest` - Inngest
-       * * `KapaAI` - KapaAI
-       * * `Kernel` - Kernel
-       * * `Koyeb` - Koyeb
-       * * `LambdaLabs` - LambdaLabs
-       * * `LangSmith` - LangSmith
-       * * `Linode` - Linode
-       * * `Listmonk` - Listmonk
-       * * `LlamaCloud` - LlamaCloud
-       * * `Mem0` - Mem0
-       * * `Metriport` - Metriport
-       * * `Mintlify` - Mintlify
-       * * `MistralAI` - MistralAI
-       * * `Mono` - Mono
-       * * `Netlify` - Netlify
-       * * `Northflank` - Northflank
-       * * `OpenAI` - OpenAI
-       * * `Pinecone` - Pinecone
-       * * `PlatformSh` - PlatformSh
-       * * `PromptingCompany` - PromptingCompany
-       * * `Qdrant` - Qdrant
-       * * `Render` - Render
-       * * `Replicate` - Replicate
-       * * `RetellAI` - RetellAI
-       * * `Roark` - Roark
-       * * `RunPod` - RunPod
-       * * `ScaleAI` - ScaleAI
-       * * `Scaleway` - Scaleway
-       * * `SigNoz` - SigNoz
-       * * `Sim` - Sim
-       * * `Skyvern` - Skyvern
-       * * `Slash` - Slash
-       * * `Synthesia` - Synthesia
-       * * `Telli` - Telli
-       * * `TerraApi` - TerraApi
-       * * `TriggerDev` - TriggerDev
-       * * `Turso` - Turso
-       * * `Singular` - Singular
-       * * `Swonkie` - Swonkie
-       * * `TwelveLabs` - TwelveLabs
-       * * `Twenty` - Twenty
-       * * `Unstructured` - Unstructured
-       * * `Upstash` - Upstash
-       * * `Vellum` - Vellum
-       * * `Vultr` - Vultr
-       * * `Windmill` - Windmill
-       * * `Zep` - Zep
-       * * `Hex` - Hex
-       * * `Sumsub` - Sumsub
-       * * `GoogleChat` - GoogleChat
-       * * `Kickscale` - Kickscale
-       * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack
-       * * `DodoPayments` - DodoPayments
-       * * `Salestrics` - Salestrics
-       * * `Doppler` - Doppler
-       * * `Usersnap` - Usersnap
-       * * `Asknicely` - Asknicely
-       * * `Featurebase` - Featurebase
-       * * `Frill` - Frill
-       * * `Bettermode` - Bettermode
-       * * `Dynatrace` - Dynatrace
-       * * `Honeycomb` - Honeycomb
-       * * `SumoLogic` - SumoLogic
-       * * `LogzIO` - LogzIO
-       * * `Coralogix` - Coralogix
-       * * `BetterStack` - BetterStack
-       * * `Raygun` - Raygun
-       * * `Honeybadger` - Honeybadger
-       * * `Airbrake` - Airbrake
-       * * `Appsignal` - Appsignal
-       * * `Appdynamics` - Appdynamics
-       * * `Instana` - Instana
-       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
-       * * `Uptimerobot` - Uptimerobot
-       * * `Statuscake` - Statuscake
-       * * `Tailscale` - Tailscale
-       * * `Flagsmith` - Flagsmith
-       * * `Xmatters` - Xmatters
-       * * `Squadcast` - Squadcast
-       * * `Zenduty` - Zenduty
-       * * `Cronitor` - Cronitor
-       * * `Jenkins` - Jenkins
-       * * `Bitbucket` - Bitbucket
-       * * `Gitea` - Gitea
-       * * `Teamcity` - Teamcity
-       * * `TravisCI` - TravisCI
-       * * `Semaphore` - Semaphore
-       * * `CircleciInsights` - CircleciInsights
-       * * `OctopusDeploy` - OctopusDeploy
-       * * `Sourcegraph` - Sourcegraph
-       * * `Bitrise` - Bitrise
-       * * `Gerrit` - Gerrit
-       * * `TerraformCloud` - TerraformCloud
-       * * `PulumiCloud` - PulumiCloud
-       * * `Spacelift` - Spacelift
-       * * `Railway` - Railway
-       * * `Argocd` - Argocd
-       * * `PrefectCloud` - PrefectCloud
-       * * `DagsterCloud` - DagsterCloud
-       * * `Env0` - Env0
-       * * `Kubecost` - Kubecost
-       * * `Snyk` - Snyk
-       * * `Semgrep` - Semgrep
-       * * `Veracode` - Veracode
-       * * `Checkmarx` - Checkmarx
-       * * `Gitguardian` - Gitguardian
-       * * `QualysVmdr` - QualysVmdr
-       * * `Rapid7Insightvm` - Rapid7Insightvm
-       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
-       * * `Sentinelone` - Sentinelone
-       * * `Lacework` - Lacework
-       * * `OrcaSecurity` - OrcaSecurity
-       * * `Drata` - Drata
-       * * `Secureframe` - Secureframe
-       * * `CiscoDuo` - CiscoDuo
-       * * `Jumpcloud` - Jumpcloud
-       * * `OnePassword` - OnePassword
-       * * `Stytch` - Stytch
-       * * `Sonarqube` - Sonarqube
-       * * `Codecov` - Codecov
-       * * `Coveralls` - Coveralls
-       * * `Codacy` - Codacy
-       * * `Deepsource` - Deepsource
-       * * `Linearb` - Linearb
-       * * `Jellyfish` - Jellyfish
-       * * `Swarmia` - Swarmia
-       * * `Packagist` - Packagist
-       * * `Nuget` - Nuget
-       * * `CratesIO` - CratesIO
-       * * `SonatypeNexus` - SonatypeNexus
-       * * `JfrogArtifactory` - JfrogArtifactory
-       * * `Snowplow` - Snowplow
-       * * `WeightsAndBiases` - WeightsAndBiases
-       * * `MonteCarlo` - MonteCarlo
-       * * `Metaplane` - Metaplane
-       * * `Datahub` - Datahub
-       * * `ClickhouseCloud` - ClickhouseCloud
-       * * `ConfluentCloud` - ConfluentCloud
-       * * `KongKonnect` - KongKonnect
-       * * `Kandji` - Kandji
-       * * `Automox` - Automox
-       * * `Autumn` - Autumn
-       * * `GetStream` - GetStream
-       * * `Octolens` - Octolens
-       * * `Kajabi` - Kajabi
-       * * `Shopware` - Shopware
-       * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch
-       * * `Crisp` - Crisp
-       * * `Kommo` - Kommo
-       * * `Axiom` - Axiom
-       * * `Plivo` - Plivo
-       * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan
-       * * `AbTasty` - AbTasty
-       * * `Ably` - Ably
-       * * `AbnormalSecurity` - AbnormalSecurity
-       * * `Acast` - Acast
-       * * `Acculynx` - Acculynx
-       * * `Actionstep` - Actionstep
-       * * `Aftership` - Aftership
-       * * `AhaIdeas` - AhaIdeas
-       * * `AkamaiReporting` - AkamaiReporting
-       * * `Alation` - Alation
-       * * `Alegra` - Alegra
-       * * `Allegro` - Allegro
-       * * `AnodotCost` - AnodotCost
-       * * `Anomalo` - Anomalo
-       * * `Apaleo` - Apaleo
-       * * `Apitally` - Apitally
-       * * `AppStoreConnect` - AppStoreConnect
-       * * `Appdirect` - Appdirect
-       * * `Appfolio` - Appfolio
-       * * `Arxiv` - Arxiv
-       * * `Asaas` - Asaas
-       * * `Astronomer` - Astronomer
-       * * `Athenahealth` - Athenahealth
-       * * `Atlan` - Atlan
-       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
-       * * `Avalara` - Avalara
-       * * `AwsAthena` - AwsAthena
-       * * `AwsBatch` - AwsBatch
-       * * `AwsBudgets` - AwsBudgets
-       * * `AwsCloudformation` - AwsCloudformation
-       * * `AwsComputeOptimizer` - AwsComputeOptimizer
-       * * `AwsConfig` - AwsConfig
-       * * `AwsConnect` - AwsConnect
-       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
-       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
-       * * `AwsCostExplorer` - AwsCostExplorer
-       * * `AwsDocumentDB` - AwsDocumentDB
-       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
-       * * `AwsGuardduty` - AwsGuardduty
-       * * `AwsHealth` - AwsHealth
-       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
-       * * `AwsInspector` - AwsInspector
-       * * `AwsMacie` - AwsMacie
-       * * `AwsOrganizations` - AwsOrganizations
-       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
-       * * `AwsSagemaker` - AwsSagemaker
-       * * `AwsSavingsPlans` - AwsSavingsPlans
-       * * `AwsSecurityHub` - AwsSecurityHub
-       * * `AwsSes` - AwsSes
-       * * `AwsStepFunctions` - AwsStepFunctions
-       * * `AwsSupport` - AwsSupport
-       * * `AwsSystemsManager` - AwsSystemsManager
-       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
-       * * `AwsWaf` - AwsWaf
-       * * `AwsXray` - AwsXray
-       * * `AzureActivityLog` - AzureActivityLog
-       * * `AzureAdvisor` - AzureAdvisor
-       * * `AzureApiManagement` - AzureApiManagement
-       * * `AzureApplicationInsights` - AzureApplicationInsights
-       * * `AzureCostManagement` - AzureCostManagement
-       * * `AzureDataExplorer` - AzureDataExplorer
-       * * `AzureDataFactory` - AzureDataFactory
-       * * `AzureLogAnalytics` - AzureLogAnalytics
-       * * `AzureMonitorAlerts` - AzureMonitorAlerts
-       * * `AzureMonitorMetrics` - AzureMonitorMetrics
-       * * `AzureOpenaiUsage` - AzureOpenaiUsage
-       * * `AzurePolicyInsights` - AzurePolicyInsights
-       * * `AzureReservations` - AzureReservations
-       * * `AzureResourceGraph` - AzureResourceGraph
-       * * `AzureResourceHealth` - AzureResourceHealth
-       * * `AzureServiceHealth` - AzureServiceHealth
-       * * `AzureSynapse` - AzureSynapse
-       * * `BackMarket` - BackMarket
-       * * `Beehiiv` - Beehiiv
-       * * `Bigeye` - Bigeye
-       * * `BillCom` - BillCom
-       * * `Billomat` - Billomat
-       * * `BingWebmasterTools` - BingWebmasterTools
-       * * `Bitwarden` - Bitwarden
-       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
-       * * `BlackboardLearn` - BlackboardLearn
-       * * `Bling` - Bling
-       * * `Bloomerang` - Bloomerang
-       * * `Blueshift` - Blueshift
-       * * `Bluesky` - Bluesky
-       * * `BolRetailer` - BolRetailer
-       * * `Boulevard` - Boulevard
-       * * `Buffer` - Buffer
-       * * `Bugherd` - Bugherd
-       * * `Buildium` - Buildium
-       * * `Buttondown` - Buttondown
-       * * `BuyMeACoffee` - BuyMeACoffee
-       * * `Calendarific` - Calendarific
-       * * `Calibre` - Calibre
-       * * `CanvasLms` - CanvasLms
-       * * `Captivate` - Captivate
-       * * `Cashfree` - Cashfree
-       * * `CastAi` - CastAi
-       * * `Catchpoint` - Catchpoint
-       * * `CdcOpenData` - CdcOpenData
-       * * `Census` - Census
-       * * `Checkly` - Checkly
-       * * `CircleSo` - CircleSo
-       * * `Classy` - Classy
-       * * `Cleartax` - Cleartax
-       * * `Clever` - Clever
-       * * `Clevertap` - Clevertap
-       * * `Cliniko` - Cliniko
-       * * `Clio` - Clio
-       * * `Clip` - Clip
-       * * `Cloudability` - Cloudability
-       * * `Cloudsmith` - Cloudsmith
-       * * `Cloudzero` - Cloudzero
-       * * `Clover` - Clover
-       * * `Codemagic` - Codemagic
-       * * `Codescene` - Codescene
-       * * `Collibra` - Collibra
-       * * `Companycam` - Companycam
-       * * `Conekta` - Conekta
-       * * `ContaAzul` - ContaAzul
-       * * `Contentsquare` - Contentsquare
-       * * `Cortex` - Cortex
-       * * `Courier` - Courier
-       * * `Crossref` - Crossref
-       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
-       * * `CubeCloud` - CubeCloud
-       * * `D2lBrightspace` - D2lBrightspace
-       * * `Dayforce` - Dayforce
-       * * `Debugbear` - Debugbear
-       * * `Descope` - Descope
-       * * `Develocity` - Develocity
-       * * `Dialpad` - Dialpad
-       * * `Discord` - Discord
-       * * `Discourse` - Discourse
-       * * `Donorbox` - Donorbox
-       * * `Doorloop` - Doorloop
-       * * `Dovetail` - Dovetail
-       * * `Dragonboat` - Dragonboat
-       * * `Drchrono` - Drchrono
-       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
-       * * `EcbDataPortal` - EcbDataPortal
-       * * `Emarsys` - Emarsys
-       * * `Embrace` - Embrace
-       * * `Entsoe` - Entsoe
-       * * `Eppo` - Eppo
-       * * `Etsy` - Etsy
-       * * `Eurostat` - Eurostat
-       * * `Faire` - Faire
-       * * `FarosAi` - FarosAi
-       * * `Fieldpulse` - Fieldpulse
-       * * `Fieldwire` - Fieldwire
-       * * `Filevine` - Filevine
-       * * `Finout` - Finout
-       * * `Five9` - Five9
-       * * `FlexeraCloudCost` - FlexeraCloudCost
-       * * `Flutterwave` - Flutterwave
-       * * `Fortnox` - Fortnox
-       * * `Fourthwall` - Fourthwall
-       * * `Fred` - Fred
-       * * `Frontegg` - Frontegg
-       * * `FusionAuth` - FusionAuth
-       * * `G2` - G2
-       * * `Gcore` - Gcore
-       * * `GcpApigee` - GcpApigee
-       * * `GcpArtifactRegistry` - GcpArtifactRegistry
-       * * `GcpBigtable` - GcpBigtable
-       * * `GcpChronicle` - GcpChronicle
-       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
-       * * `GcpCloudBilling` - GcpCloudBilling
-       * * `GcpCloudBuild` - GcpCloudBuild
-       * * `GcpCloudDeploy` - GcpCloudDeploy
-       * * `GcpCloudDns` - GcpCloudDns
-       * * `GcpCloudFunctions` - GcpCloudFunctions
-       * * `GcpCloudLogging` - GcpCloudLogging
-       * * `GcpCloudMonitoring` - GcpCloudMonitoring
-       * * `GcpCloudRun` - GcpCloudRun
-       * * `GcpCloudSpanner` - GcpCloudSpanner
-       * * `GcpCloudSql` - GcpCloudSql
-       * * `GcpCloudTrace` - GcpCloudTrace
-       * * `GcpCloudWorkflows` - GcpCloudWorkflows
-       * * `GcpComputeEngine` - GcpComputeEngine
-       * * `GcpContainerAnalysis` - GcpContainerAnalysis
-       * * `GcpDataflow` - GcpDataflow
-       * * `GcpDataplex` - GcpDataplex
-       * * `GcpDataproc` - GcpDataproc
-       * * `GcpErrorReporting` - GcpErrorReporting
-       * * `GcpGke` - GcpGke
-       * * `GcpPubsub` - GcpPubsub
-       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
-       * * `GcpRecommender` - GcpRecommender
-       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
-       * * `Gdelt` - Gdelt
-       * * `GenesysCloud` - GenesysCloud
-       * * `Getdx` - Getdx
-       * * `Ghost` - Ghost
-       * * `Givebutter` - Givebutter
-       * * `Gleif` - Gleif
-       * * `GooglePlayConsole` - GooglePlayConsole
-       * * `Guesty` - Guesty
-       * * `Gumroad` - Gumroad
-       * * `HarnessCcm` - HarnessCcm
-       * * `HarnessSei` - HarnessSei
-       * * `Harvest` - Harvest
-       * * `Healthie` - Healthie
-       * * `Hitpay` - Hitpay
-       * * `Hivebrite` - Hivebrite
-       * * `Holded` - Holded
-       * * `Hostaway` - Hostaway
-       * * `HousecallPro` - HousecallPro
-       * * `Humanitec` - Humanitec
-       * * `ImfData` - ImfData
-       * * `Imperva` - Imperva
-       * * `InfluxdbCloud` - InfluxdbCloud
-       * * `Iyzico` - Iyzico
-       * * `Jobtread` - Jobtread
-       * * `Kameleoon` - Kameleoon
-       * * `KauflandMarketplace` - KauflandMarketplace
-       * * `Kestra` - Kestra
-       * * `Kick` - Kick
-       * * `Kinde` - Kinde
-       * * `Kion` - Kion
-       * * `Knowbe4` - Knowbe4
-       * * `Komodor` - Komodor
-       * * `Labelbox` - Labelbox
-       * * `Lawmatics` - Lawmatics
-       * * `Learnworlds` - Learnworlds
-       * * `LexwareOffice` - LexwareOffice
-       * * `Lightdash` - Lightdash
-       * * `Lodgify` - Lodgify
-       * * `Logicmonitor` - Logicmonitor
-       * * `Logrocket` - Logrocket
-       * * `LoopReturns` - LoopReturns
-       * * `Mastodon` - Mastodon
-       * * `Meetup` - Meetup
-       * * `Megaphone` - Megaphone
-       * * `Memberful` - Memberful
-       * * `MercadoPago` - MercadoPago
-       * * `Meteostat` - Meteostat
-       * * `Mews` - Mews
-       * * `Mezmo` - Mezmo
-       * * `Microsoft365UsageReports` - Microsoft365UsageReports
-       * * `MicrosoftAdvertising` - MicrosoftAdvertising
-       * * `MicrosoftClarity` - MicrosoftClarity
-       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
-       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
-       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
-       * * `MicrosoftIntune` - MicrosoftIntune
-       * * `MicrosoftPurview` - MicrosoftPurview
-       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
-       * * `MicrosoftSentinel` - MicrosoftSentinel
-       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
-       * * `Midtrans` - Midtrans
-       * * `MightyNetworks` - MightyNetworks
-       * * `Mindbody` - Mindbody
-       * * `Mirakl` - Mirakl
-       * * `Moesif` - Moesif
-       * * `Moneybird` - Moneybird
-       * * `Moodle` - Moodle
-       * * `Motherduck` - Motherduck
-       * * `Mycase` - Mycase
-       * * `NagerDate` - NagerDate
-       * * `NeonCrm` - NeonCrm
-       * * `Nexhealth` - Nexhealth
-       * * `NoaaCdo` - NoaaCdo
-       * * `Nobl9` - Nobl9
-       * * `Nolt` - Nolt
-       * * `Nops` - Nops
-       * * `NpmRegistry` - NpmRegistry
-       * * `Oecd` - Oecd
-       * * `Okendo` - Okendo
-       * * `Omni` - Omni
-       * * `Onelogin` - Onelogin
-       * * `OpenDental` - OpenDental
-       * * `OpenMeteo` - OpenMeteo
-       * * `Openalex` - Openalex
-       * * `Opencorporates` - Opencorporates
-       * * `Openfec` - Openfec
-       * * `OpnPayments` - OpnPayments
-       * * `Opslevel` - Opslevel
-       * * `OttoMarket` - OttoMarket
-       * * `Ownerrez` - Ownerrez
-       * * `Pagbank` - Pagbank
-       * * `Patreon` - Patreon
-       * * `Pax8` - Pax8
-       * * `Paychex` - Paychex
-       * * `Paymob` - Paymob
-       * * `Paymongo` - Paymongo
-       * * `Phonepe` - Phonepe
-       * * `Pike13` - Pike13
-       * * `Pingone` - Pingone
-       * * `PinterestOrganic` - PinterestOrganic
-       * * `PlanningCenter` - PlanningCenter
-       * * `PluralsightFlow` - PluralsightFlow
-       * * `Podbean` - Podbean
-       * * `Postscript` - Postscript
-       * * `PowerBiAdmin` - PowerBiAdmin
-       * * `Practicepanther` - Practicepanther
-       * * `Preset` - Preset
-       * * `Procore` - Procore
-       * * `Productiv` - Productiv
-       * * `ProofpointTap` - ProofpointTap
-       * * `Propertyware` - Propertyware
-       * * `Pubnub` - Pubnub
-       * * `Quay` - Quay
-       * * `Raken` - Raken
-       * * `RedpandaCloud` - RedpandaCloud
-       * * `RentManager` - RentManager
-       * * `Reverb` - Reverb
-       * * `RocketMatter` - RocketMatter
-       * * `Rubygems` - Rubygems
-       * * `Scalr` - Scalr
-       * * `SecEdgar` - SecEdgar
-       * * `SelectStar` - SelectStar
-       * * `SemanticScholar` - SemanticScholar
-       * * `Semrush` - Semrush
-       * * `ServiceFusion` - ServiceFusion
-       * * `Servicem8` - Servicem8
-       * * `Servicetitan` - Servicetitan
-       * * `Servicetrade` - Servicetrade
-       * * `Sevdesk` - Sevdesk
-       * * `Similarweb` - Similarweb
-       * * `Simpro` - Simpro
-       * * `Sinch` - Sinch
-       * * `Singlestore` - Singlestore
-       * * `Site24x7` - Site24x7
-       * * `Sleuth` - Sleuth
-       * * `Smartlook` - Smartlook
-       * * `Smartrecruiters` - Smartrecruiters
-       * * `Smokeball` - Smokeball
-       * * `SodaCloud` - SodaCloud
-       * * `Speedcurve` - Speedcurve
-       * * `SpotIo` - SpotIo
-       * * `Sprig` - Sprig
-       * * `Sprinklr` - Sprinklr
-       * * `SproutSocial` - SproutSocial
-       * * `StackOverflowForTeams` - StackOverflowForTeams
-       * * `Stockx` - Stockx
-       * * `TackleIo` - TackleIo
-       * * `Talkdesk` - Talkdesk
-       * * `TeamupFitness` - TeamupFitness
-       * * `Tebra` - Tebra
-       * * `Telnyx` - Telnyx
-       * * `Ternary` - Ternary
-       * * `Thoughtspot` - Thoughtspot
-       * * `Thousandeyes` - Thousandeyes
-       * * `Threads` - Threads
-       * * `TiktokShop` - TiktokShop
-       * * `TinyErp` - TinyErp
-       * * `Tinybird` - Tinybird
-       * * `Tipalti` - Tipalti
-       * * `Toast` - Toast
-       * * `Torii` - Torii
-       * * `Transistor` - Transistor
-       * * `TrunkIo` - TrunkIo
-       * * `Trustradius` - Trustradius
-       * * `Twitch` - Twitch
-       * * `TwoC2p` - TwoC2p
-       * * `UkCompaniesHouse` - UkCompaniesHouse
-       * * `UkOns` - UkOns
-       * * `UnComtrade` - UnComtrade
-       * * `UsBea` - UsBea
-       * * `UsBls` - UsBls
-       * * `UsEia` - UsEia
-       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
-       * * `Vanta` - Vanta
-       * * `Vendr` - Vendr
-       * * `Virtuous` - Virtuous
-       * * `Vonage` - Vonage
-       * * `WalmartMarketplace` - WalmartMarketplace
-       * * `Waydev` - Waydev
-       * * `Wayfair` - Wayfair
-       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
-       * * `WhoGho` - WhoGho
-       * * `Whop` - Whop
-       * * `Wistia` - Wistia
-       * * `Wiz` - Wiz
-       * * `Wompi` - Wompi
-       * * `Workiz` - Workiz
-       * * `WorldBank` - WorldBank
-       * * `Xendit` - Xendit
-       * * `Yoco` - Yoco
-       * * `ZalandoZdirect` - ZalandoZdirect
-       * * `Zluri` - Zluri
-       * * `Zylo` - Zylo
-       * * `Tally` - Tally
-       * * `Nuntly` - Nuntly
-       * * `Vturb` - Vturb
-       * * `Meltwater` - Meltwater
-       * * `UserCom` - UserCom
-       * * `Latitude` - Latitude
-       * * `Workato` - Workato
-       * * `SideShift` - SideShift
-       * * `DuckLake` - DuckLake
-       * * `Starburst` - Starburst
-       * * `Trino` - Trino
-       * * `Easybill` - Easybill
-       * * `Bexio` - Bexio
-       * * `Umami` - Umami
-       * * `Manychat` - Manychat
-       * * `Kickstarter` - Kickstarter
-       * * `Typesense` - Typesense
-       * * `FirstPromoter` - FirstPromoter
-       * * `Zero` - Zero
-       * * `Inth` - Inth
-       * * `BCMS` - BCMS
-       * * `Convonite` - Convonite
-       * * `Hookdeck` - Hookdeck
-       * * `Billit` - Billit
-       * * `Moxie` - Moxie
-       * * `TripleWhale` - TripleWhale
-       * * `Directus` - Directus
-       * * `Clay` - Clay
-       * * `TradableBits` - TradableBits
-       * * `Swan` - Swan
-       * * `Hyros` - Hyros
-       * * `Odoo` - Odoo
-       * * `Airbridge` - Airbridge
-       * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter
-       * * `Raisely` - Raisely
-       * * `RakutenAdvertising` - RakutenAdvertising
-       * * `Zitadel` - Zitadel
-       * * `DeelFlows` - DeelFlows
-       * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix
-       * * `Sevalla` - Sevalla
-       * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner
-       * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare
-       * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91
-       * * `Depot` - Depot
-       * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy
-       * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart
-       * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound
-       * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi
-       * * `Capterra` - Capterra
-       * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi
-       * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS
-       * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox
-       * * `SimonData` - SimonData
-       * * `CommissionJunction` - CommissionJunction
-       * * `Liveblocks` - Liveblocks
-       * * `Livestorm` - Livestorm
-       * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana
-       * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable
-       * * `Anvil` - Anvil
-       * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato
-       * * `Medusa` - Medusa
-       * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin
-       * * `Folk` - Folk
-       * * `Cybersource` - Cybersource
-       * * `GoogleAdSense` - GoogleAdSense
-       * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio
-       * * `Smartlead` - Smartlead
-       * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket
-       * * `Quo` - Quo
-       * * `HeyReach` - HeyReach
-       * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet
-       * * `Expo` - Expo
-       * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer
-       * * `Sprinto` - Sprinto
-       * * `Gem` - Gem
-       * * `AudioGO` - AudioGO
-       * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs
-       * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura
-       * * `ChargebackStop` - ChargebackStop
-       * * `Chargeflow` - Chargeflow
-       * * `Dreamdata` - Dreamdata
-       * * `GoogleBusinessProfile` - GoogleBusinessProfile
-       * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite
-       * * `Modal` - Modal
-       * * `Vimeo` - Vimeo
-       * * `Scrunch` - Scrunch
-       * * `Loom` - Loom
-       * * `Arcade` - Arcade
-       * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom
-       * * `Userback` - Userback
-       * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution
-       * * `StackAdapt` - StackAdapt
-       * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay
-       * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud
-       * * `Northbeam` - Northbeam
-       * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO
-       * * `Airship` - Airship
-       * * `Creem` - Creem
-       * * `Leantime` - Leantime
-       * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob
-       * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2
-       * * `Particle` - Particle
-       * * `FileUpload` - FileUpload
-       * * `Dripify` - Dripify
-       * * `AwsS3Tables` - AwsS3Tables
-       * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments
-       * * `Soniox` - Soniox
-       * * `Nango` - Nango
-       * * `Fathom` - Fathom
-       * * `Stamped` - Stamped */
-      source_type: ExternalDataSourceTypeEnum;
+      /** The source type to preview. Only 'Custom' (a user-defined REST API) is supported today. */
+      source_type: string;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
       /** Which manifest resource (table) to read a sample from — one of the resource names in manifest_json. */
@@ -117248,1424 +107237,8 @@ export namespace Schemas {
     export type SourceSetupPayload = { [key: string]: unknown };
 
     export interface SourceSetup {
-      /** The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot').
-       *
-       * * `Ashby` - Ashby
-       * * `Supabase` - Supabase
-       * * `CustomerIO` - CustomerIO
-       * * `Github` - Github
-       * * `Stripe` - Stripe
-       * * `Hubspot` - Hubspot
-       * * `Postgres` - Postgres
-       * * `Zendesk` - Zendesk
-       * * `Snowflake` - Snowflake
-       * * `Salesforce` - Salesforce
-       * * `MySQL` - MySQL
-       * * `MongoDB` - MongoDB
-       * * `MSSQL` - MSSQL
-       * * `Vitally` - Vitally
-       * * `BigQuery` - BigQuery
-       * * `Chargebee` - Chargebee
-       * * `Clerk` - Clerk
-       * * `GoogleAds` - GoogleAds
-       * * `GoogleSearchConsole` - GoogleSearchConsole
-       * * `TemporalIO` - TemporalIO
-       * * `DoIt` - DoIt
-       * * `GoogleSheets` - GoogleSheets
-       * * `MetaAds` - MetaAds
-       * * `Klaviyo` - Klaviyo
-       * * `Mailchimp` - Mailchimp
-       * * `Braze` - Braze
-       * * `Mailjet` - Mailjet
-       * * `Redshift` - Redshift
-       * * `Polar` - Polar
-       * * `RevenueCat` - RevenueCat
-       * * `LinkedinAds` - LinkedinAds
-       * * `RedditAds` - RedditAds
-       * * `TikTokAds` - TikTokAds
-       * * `BingAds` - BingAds
-       * * `Shopify` - Shopify
-       * * `Attio` - Attio
-       * * `SnapchatAds` - SnapchatAds
-       * * `Linear` - Linear
-       * * `LiteLLM` - LiteLLM
-       * * `Intercom` - Intercom
-       * * `Amplitude` - Amplitude
-       * * `Mixpanel` - Mixpanel
-       * * `Jira` - Jira
-       * * `ActiveCampaign` - ActiveCampaign
-       * * `Marketo` - Marketo
-       * * `Adjust` - Adjust
-       * * `AppsFlyer` - AppsFlyer
-       * * `Freshdesk` - Freshdesk
-       * * `GoogleAnalytics` - GoogleAnalytics
-       * * `Pipedrive` - Pipedrive
-       * * `SendGrid` - SendGrid
-       * * `Slack` - Slack
-       * * `PagerDuty` - PagerDuty
-       * * `Asana` - Asana
-       * * `Notion` - Notion
-       * * `Airtable` - Airtable
-       * * `Greenhouse` - Greenhouse
-       * * `BambooHR` - BambooHR
-       * * `Lever` - Lever
-       * * `GitLab` - GitLab
-       * * `Datadog` - Datadog
-       * * `Sentry` - Sentry
-       * * `Pendo` - Pendo
-       * * `FullStory` - FullStory
-       * * `AmazonAds` - AmazonAds
-       * * `PinterestAds` - PinterestAds
-       * * `AppleSearchAds` - AppleSearchAds
-       * * `QuickBooks` - QuickBooks
-       * * `Xero` - Xero
-       * * `NetSuite` - NetSuite
-       * * `WooCommerce` - WooCommerce
-       * * `BigCommerce` - BigCommerce
-       * * `PayPal` - PayPal
-       * * `Square` - Square
-       * * `Zoom` - Zoom
-       * * `Trello` - Trello
-       * * `TrafficStars` - TrafficStars
-       * * `Monday` - Monday
-       * * `ClickUp` - ClickUp
-       * * `Confluence` - Confluence
-       * * `Recurly` - Recurly
-       * * `SalesLoft` - SalesLoft
-       * * `Outreach` - Outreach
-       * * `Gong` - Gong
-       * * `Calendly` - Calendly
-       * * `Typeform` - Typeform
-       * * `UnityAds` - UnityAds
-       * * `Iterable` - Iterable
-       * * `ZohoCRM` - ZohoCRM
-       * * `Close` - Close
-       * * `Oracle` - Oracle
-       * * `DynamoDB` - DynamoDB
-       * * `Elasticsearch` - Elasticsearch
-       * * `Kafka` - Kafka
-       * * `LaunchDarkly` - LaunchDarkly
-       * * `Braintree` - Braintree
-       * * `Recharge` - Recharge
-       * * `HelpScout` - HelpScout
-       * * `Gorgias` - Gorgias
-       * * `Instagram` - Instagram
-       * * `YouTubeAnalytics` - YouTubeAnalytics
-       * * `FacebookPages` - FacebookPages
-       * * `TwitterAds` - TwitterAds
-       * * `Workday` - Workday
-       * * `ServiceNow` - ServiceNow
-       * * `Pardot` - Pardot
-       * * `Copper` - Copper
-       * * `Front` - Front
-       * * `ChartMogul` - ChartMogul
-       * * `Zuora` - Zuora
-       * * `Paddle` - Paddle
-       * * `CircleCI` - CircleCI
-       * * `CockroachDB` - CockroachDB
-       * * `Firebase` - Firebase
-       * * `AzureBlob` - AzureBlob
-       * * `GoogleDrive` - GoogleDrive
-       * * `OneDrive` - OneDrive
-       * * `SharePoint` - SharePoint
-       * * `Box` - Box
-       * * `SFTP` - SFTP
-       * * `MicrosoftTeams` - MicrosoftTeams
-       * * `Aircall` - Aircall
-       * * `Webflow` - Webflow
-       * * `Okta` - Okta
-       * * `Auth0` - Auth0
-       * * `Productboard` - Productboard
-       * * `Smartsheet` - Smartsheet
-       * * `Wrike` - Wrike
-       * * `Plaid` - Plaid
-       * * `SurveyMonkey` - SurveyMonkey
-       * * `Eventbrite` - Eventbrite
-       * * `Everflow` - Everflow
-       * * `RingCentral` - RingCentral
-       * * `Twilio` - Twilio
-       * * `Freshsales` - Freshsales
-       * * `Shortcut` - Shortcut
-       * * `ConvertKit` - ConvertKit
-       * * `Drip` - Drip
-       * * `CampaignMonitor` - CampaignMonitor
-       * * `MailerLite` - MailerLite
-       * * `Omnisend` - Omnisend
-       * * `Brevo` - Brevo
-       * * `Postmark` - Postmark
-       * * `Granola` - Granola
-       * * `BuildBetter` - BuildBetter
-       * * `Convex` - Convex
-       * * `ClickHouse` - ClickHouse
-       * * `Plain` - Plain
-       * * `Resend` - Resend
-       * * `PgAnalyze` - PgAnalyze
-       * * `WorkOS` - WorkOS
-       * * `AmazonS3` - AmazonS3
-       * * `GoogleCloudStorage` - GoogleCloudStorage
-       * * `Databricks` - Databricks
-       * * `Dynamics365` - Dynamics365
-       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
-       * * `Db2` - Db2
-       * * `Heap` - Heap
-       * * `AdobeAnalytics` - AdobeAnalytics
-       * * `Matomo` - Matomo
-       * * `Optimizely` - Optimizely
-       * * `Adyen` - Adyen
-       * * `GoCardless` - GoCardless
-       * * `Mollie` - Mollie
-       * * `CheckoutCom` - CheckoutCom
-       * * `Branch` - Branch
-       * * `Criteo` - Criteo
-       * * `Outbrain` - Outbrain
-       * * `Taboola` - Taboola
-       * * `AdRoll` - AdRoll
-       * * `DisplayVideo360` - DisplayVideo360
-       * * `GoogleAdManager` - GoogleAdManager
-       * * `CampaignManager360` - CampaignManager360
-       * * `SearchAds360` - SearchAds360
-       * * `AdobeCommerce` - AdobeCommerce
-       * * `AmazonSellingPartner` - AmazonSellingPartner
-       * * `Ebay` - Ebay
-       * * `Commercetools` - Commercetools
-       * * `LightspeedRetail` - LightspeedRetail
-       * * `Shipmail` - Shipmail
-       * * `ShipStation` - ShipStation
-       * * `ConstantContact` - ConstantContact
-       * * `Mailgun` - Mailgun
-       * * `Eloqua` - Eloqua
-       * * `Sailthru` - Sailthru
-       * * `Ortto` - Ortto
-       * * `Attentive` - Attentive
-       * * `Kustomer` - Kustomer
-       * * `Dixa` - Dixa
-       * * `Gladly` - Gladly
-       * * `Qualtrics` - Qualtrics
-       * * `AzureDevOps` - AzureDevOps
-       * * `RoktAds` - RoktAds
-       * * `Rollbar` - Rollbar
-       * * `Opsgenie` - Opsgenie
-       * * `IncidentIo` - IncidentIo
-       * * `Pingdom` - Pingdom
-       * * `Cloudflare` - Cloudflare
-       * * `CloudflareD1` - CloudflareD1
-       * * `CosmosDB` - CosmosDB
-       * * `PlanetScaleMySQL` - PlanetScaleMySQL
-       * * `PlanetScalePostgres` - PlanetScalePostgres
-       * * `Plane` - Plane
-       * * `Scarf` - Scarf
-       * * `SapHana` - SapHana
-       * * `Rippling` - Rippling
-       * * `HiBob` - HiBob
-       * * `Personio` - Personio
-       * * `Deel` - Deel
-       * * `AdpWorkforceNow` - AdpWorkforceNow
-       * * `Paylocity` - Paylocity
-       * * `Gusto` - Gusto
-       * * `CultureAmp` - CultureAmp
-       * * `Lattice` - Lattice
-       * * `SageIntacct` - SageIntacct
-       * * `FreshBooks` - FreshBooks
-       * * `Expensify` - Expensify
-       * * `Ramp` - Ramp
-       * * `Brex` - Brex
-       * * `Coupa` - Coupa
-       * * `SapConcur` - SapConcur
-       * * `Apollo` - Apollo
-       * * `Crunchbase` - Crunchbase
-       * * `ZoomInfo` - ZoomInfo
-       * * `Clari` - Clari
-       * * `Chorus` - Chorus
-       * * `Coda` - Coda
-       * * `Guru` - Guru
-       * * `Dropbox` - Dropbox
-       * * `Docusign` - Docusign
-       * * `PandaDoc` - PandaDoc
-       * * `SapErp` - SapErp
-       * * `SapSuccessFactors` - SapSuccessFactors
-       * * `OracleEbs` - OracleEbs
-       * * `OracleFusion` - OracleFusion
-       * * `AmazonSNS` - AmazonSNS
-       * * `AmazonEventBridge` - AmazonEventBridge
-       * * `AmazonSQS` - AmazonSQS
-       * * `AmazonKinesis` - AmazonKinesis
-       * * `AmazonCloudWatch` - AmazonCloudWatch
-       * * `OpenAIAds` - OpenAIAds
-       * * `OneHundredMs` - OneHundredMs
-       * * `SevenShifts` - SevenShifts
-       * * `AcuityScheduling` - AcuityScheduling
-       * * `AgileCRM` - AgileCRM
-       * * `Aha` - Aha
-       * * `Airbyte` - Airbyte
-       * * `Akeneo` - Akeneo
-       * * `Algolia` - Algolia
-       * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
-       * * `ApifyDataset` - ApifyDataset
-       * * `Appcues` - Appcues
-       * * `Appfigures` - Appfigures
-       * * `Appfollow` - Appfollow
-       * * `Apptivo` - Apptivo
-       * * `AssemblyAI` - AssemblyAI
-       * * `Awin` - Awin
-       * * `AwsCloudTrail` - AwsCloudTrail
-       * * `AzureTableStorage` - AzureTableStorage
-       * * `Babelforce` - Babelforce
-       * * `Basecamp` - Basecamp
-       * * `Beamer` - Beamer
-       * * `BigMailer` - BigMailer
-       * * `Bluetally` - Bluetally
-       * * `BoldSign` - BoldSign
-       * * `BreezyHR` - BreezyHR
-       * * `Bugsnag` - Bugsnag
-       * * `Buildkite` - Buildkite
-       * * `Bunny` - Bunny
-       * * `Buzzsprout` - Buzzsprout
-       * * `CalCom` - CalCom
-       * * `CallRail` - CallRail
-       * * `Campayn` - Campayn
-       * * `Canny` - Canny
-       * * `CapsuleCRM` - CapsuleCRM
-       * * `CaptainData` - CaptainData
-       * * `CartCom` - CartCom
-       * * `CastorEDC` - CastorEDC
-       * * `Chameleon` - Chameleon
-       * * `Chargedesk` - Chargedesk
-       * * `Chargify` - Chargify
-       * * `Chift` - Chift
-       * * `Churnkey` - Churnkey
-       * * `Cin7` - Cin7
-       * * `CiscoMeraki` - CiscoMeraki
-       * * `Clazar` - Clazar
-       * * `Clockify` - Clockify
-       * * `Clockodo` - Clockodo
-       * * `Cloudbeds` - Cloudbeds
-       * * `Coassemble` - Coassemble
-       * * `Codefresh` - Codefresh
-       * * `Concord` - Concord
-       * * `ConfigCat` - ConfigCat
-       * * `Couchbase` - Couchbase
-       * * `Curve` - Curve
-       * * `Customerly` - Customerly
-       * * `Datascope` - Datascope
-       * * `Dbt` - Dbt
-       * * `Demodesk` - Demodesk
-       * * `Deputy` - Deputy
-       * * `DevinAI` - DevinAI
-       * * `Docuseal` - Docuseal
-       * * `Dolibarr` - Dolibarr
-       * * `Dremio` - Dremio
-       * * `DropboxSign` - DropboxSign
-       * * `Dwolla` - Dwolla
-       * * `EConomic` - EConomic
-       * * `Easypost` - Easypost
-       * * `Easypromos` - Easypromos
-       * * `Elasticemail` - Elasticemail
-       * * `EmailOctopus` - EmailOctopus
-       * * `EmploymentHero` - EmploymentHero
-       * * `Encharge` - Encharge
-       * * `Eventee` - Eventee
-       * * `Eventzilla` - Eventzilla
-       * * `Everhour` - Everhour
-       * * `EZOfficeInventory` - EZOfficeInventory
-       * * `Factorial` - Factorial
-       * * `Fastbill` - Fastbill
-       * * `Fastly` - Fastly
-       * * `Fauna` - Fauna
-       * * `Feishu` - Feishu
-       * * `Fillout` - Fillout
-       * * `Finage` - Finage
-       * * `Firebolt` - Firebolt
-       * * `FireHydrant` - FireHydrant
-       * * `Fleetio` - Fleetio
-       * * `Flexmail` - Flexmail
-       * * `Flexport` - Flexport
-       * * `FloatApp` - FloatApp
-       * * `Flowlu` - Flowlu
-       * * `Formbricks` - Formbricks
-       * * `Framer` - Framer
-       * * `FreeAgent` - FreeAgent
-       * * `Freightview` - Freightview
-       * * `Freshcaller` - Freshcaller
-       * * `Freshchat` - Freshchat
-       * * `Freshservice` - Freshservice
-       * * `Fulcrum` - Fulcrum
-       * * `GainsightCs` - GainsightCs
-       * * `GainsightPx` - GainsightPx
-       * * `GitBook` - GitBook
-       * * `Glassfrog` - Glassfrog
-       * * `Goldcast` - Goldcast
-       * * `GoLogin` - GoLogin
-       * * `Grafana` - Grafana
-       * * `GreytHr` - GreytHr
-       * * `Gridly` - Gridly
-       * * `Harness` - Harness
-       * * `Height` - Height
-       * * `Hellobaton` - Hellobaton
-       * * `HighLevel` - HighLevel
-       * * `HoorayHR` - HoorayHR
-       * * `Hubplanner` - Hubplanner
-       * * `Humanitix` - Humanitix
-       * * `Huntr` - Huntr
-       * * `Inflowinventory` - Inflowinventory
-       * * `InforNexus` - InforNexus
-       * * `Insightful` - Insightful
-       * * `Insightly` - Insightly
-       * * `Instantly` - Instantly
-       * * `Instatus` - Instatus
-       * * `Intruder` - Intruder
-       * * `Invoiced` - Invoiced
-       * * `Invoiceninja` - Invoiceninja
-       * * `JamfPro` - JamfPro
-       * * `JobNimbus` - JobNimbus
-       * * `Jotform` - Jotform
-       * * `JudgeMeReviews` - JudgeMeReviews
-       * * `JustCall` - JustCall
-       * * `JustSift` - JustSift
-       * * `K6Cloud` - K6Cloud
-       * * `Katana` - Katana
-       * * `Keka` - Keka
-       * * `Kisi` - Kisi
-       * * `Kissmetrics` - Kissmetrics
-       * * `Klarna` - Klarna
-       * * `Klaus` - Klaus
-       * * `Lago` - Lago
-       * * `Leadfeeder` - Leadfeeder
-       * * `Lemlist` - Lemlist
-       * * `LessAnnoyingCRM` - LessAnnoyingCRM
-       * * `LinkedinPages` - LinkedinPages
-       * * `Linkrunner` - Linkrunner
-       * * `Linnworks` - Linnworks
-       * * `Lob` - Lob
-       * * `Lokalise` - Lokalise
-       * * `Looker` - Looker
-       * * `Luma` - Luma
-       * * `MailerSend` - MailerSend
-       * * `Mailosaur` - Mailosaur
-       * * `Mailtrap` - Mailtrap
-       * * `Mantle` - Mantle
-       * * `Mention` - Mention
-       * * `MercadoAds` - MercadoAds
-       * * `Merge` - Merge
-       * * `Metabase` - Metabase
-       * * `Metricool` - Metricool
-       * * `MicrosoftDataverse` - MicrosoftDataverse
-       * * `MicrosoftEntraId` - MicrosoftEntraId
-       * * `MicrosoftLists` - MicrosoftLists
-       * * `Miro` - Miro
-       * * `Missive` - Missive
-       * * `MixMax` - MixMax
-       * * `Mode` - Mode
-       * * `Mux` - Mux
-       * * `MyHours` - MyHours
-       * * `N8n` - N8n
-       * * `Navan` - Navan
-       * * `NebiusAI` - NebiusAI
-       * * `Nexiopay` - Nexiopay
-       * * `NinjaOneRMM` - NinjaOneRMM
-       * * `NoCRM` - NoCRM
-       * * `NorthpassLMS` - NorthpassLMS
-       * * `Nutshell` - Nutshell
-       * * `Nylas` - Nylas
-       * * `Oncehub` - Oncehub
-       * * `Onepagecrm` - Onepagecrm
-       * * `OneSignal` - OneSignal
-       * * `Onfleet` - Onfleet
-       * * `OpinionStage` - OpinionStage
-       * * `OPUSWatch` - OPUSWatch
-       * * `Orb` - Orb
-       * * `Orbit` - Orbit
-       * * `Oura` - Oura
-       * * `Oveit` - Oveit
-       * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
-       * * `Paperform` - Paperform
-       * * `Papersign` - Papersign
-       * * `Partnerize` - Partnerize
-       * * `PartnerStack` - PartnerStack
-       * * `PayFit` - PayFit
-       * * `Paystack` - Paystack
-       * * `Pennylane` - Pennylane
-       * * `Perk` - Perk
-       * * `PersistIq` - PersistIq
-       * * `Persona` - Persona
-       * * `Phyllo` - Phyllo
-       * * `Picqer` - Picqer
-       * * `Pipeliner` - Pipeliner
-       * * `PivotalTracker` - PivotalTracker
-       * * `Piwik` - Piwik
-       * * `Planhat` - Planhat
-       * * `Plausible` - Plausible
-       * * `Poplar` - Poplar
-       * * `PrestaShop` - PrestaShop
-       * * `Pretix` - Pretix
-       * * `Primetric` - Primetric
-       * * `Printavo` - Printavo
-       * * `Printify` - Printify
-       * * `Productive` - Productive
-       * * `Pylon` - Pylon
-       * * `Qonto` - Qonto
-       * * `Qualaroo` - Qualaroo
-       * * `Railz` - Railz
-       * * `RDStationMarketing` - RDStationMarketing
-       * * `Recruitee` - Recruitee
-       * * `Reddit` - Reddit
-       * * `ReferralHero` - ReferralHero
-       * * `RentCast` - RentCast
-       * * `Repairshopr` - Repairshopr
-       * * `ReplyIo` - ReplyIo
-       * * `RetailExpress` - RetailExpress
-       * * `Retently` - Retently
-       * * `Retreaver` - Retreaver
-       * * `RevolutMerchant` - RevolutMerchant
-       * * `RocketChat` - RocketChat
-       * * `Rocketlane` - Rocketlane
-       * * `Rootly` - Rootly
-       * * `Ruddr` - Ruddr
-       * * `SafetyCulture` - SafetyCulture
-       * * `SageHR` - SageHR
-       * * `Salesflare` - Salesflare
-       * * `SAPFieldglass` - SAPFieldglass
-       * * `SavvyCal` - SavvyCal
-       * * `Secoda` - Secoda
-       * * `Segment` - Segment
-       * * `Sendowl` - Sendowl
-       * * `SendPulse` - SendPulse
-       * * `Senseforce` - Senseforce
-       * * `Serpstat` - Serpstat
-       * * `Sharetribe` - Sharetribe
-       * * `Shippo` - Shippo
-       * * `ShopWired` - ShopWired
-       * * `Shortio` - Shortio
-       * * `Shutterstock` - Shutterstock
-       * * `SigmaComputing` - SigmaComputing
-       * * `SignNow` - SignNow
-       * * `SimpleCast` - SimpleCast
-       * * `Simplesat` - Simplesat
-       * * `Smaily` - Smaily
-       * * `SmartEngage` - SmartEngage
-       * * `Smartreach` - Smartreach
-       * * `Smartwaiver` - Smartwaiver
-       * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
-       * * `SonarCloud` - SonarCloud
-       * * `SparkPost` - SparkPost
-       * * `SplitIo` - SplitIo
-       * * `SpotifyAds` - SpotifyAds
-       * * `SpotlerCRM` - SpotlerCRM
-       * * `Squarespace` - Squarespace
-       * * `Statsig` - Statsig
-       * * `Statuspage` - Statuspage
-       * * `Steam` - Steam
-       * * `Stigg` - Stigg
-       * * `Strava` - Strava
-       * * `SurveySparrow` - SurveySparrow
-       * * `Survicate` - Survicate
-       * * `Svix` - Svix
-       * * `Systeme` - Systeme
-       * * `Tavus` - Tavus
-       * * `Teamtailor` - Teamtailor
-       * * `Teamwork` - Teamwork
-       * * `Tempo` - Tempo
-       * * `Testrail` - Testrail
-       * * `Thinkific` - Thinkific
-       * * `ThinkificCourses` - ThinkificCourses
-       * * `ThriveLearning` - ThriveLearning
-       * * `Ticketmaster` - Ticketmaster
-       * * `TicketTailor` - TicketTailor
-       * * `TickTick` - TickTick
-       * * `Timely` - Timely
-       * * `Tinyemail` - Tinyemail
-       * * `Todoist` - Todoist
-       * * `Toggl` - Toggl
-       * * `TrackPMS` - TrackPMS
-       * * `Tremendous` - Tremendous
-       * * `TrustPilot` - TrustPilot
-       * * `Twitter` - Twitter
-       * * `TyntecSMS` - TyntecSMS
-       * * `Unleash` - Unleash
-       * * `UpPromote` - UpPromote
-       * * `Uptick` - Uptick
-       * * `Uservoice` - Uservoice
-       * * `Vantage` - Vantage
-       * * `Veeqo` - Veeqo
-       * * `Vercel` - Vercel
-       * * `VismaEconomic` - VismaEconomic
-       * * `VWO` - VWO
-       * * `Waiteraid` - Waiteraid
-       * * `Wasabi` - Wasabi
-       * * `WhenIWork` - WhenIWork
-       * * `Wordpress` - Wordpress
-       * * `Workable` - Workable
-       * * `Workflowmax` - Workflowmax
-       * * `Workramp` - Workramp
-       * * `Wufoo` - Wufoo
-       * * `Xsolla` - Xsolla
-       * * `YandexMetrica` - YandexMetrica
-       * * `Yotpo` - Yotpo
-       * * `Ynab` - Ynab
-       * * `Younium` - Younium
-       * * `YouSign` - YouSign
-       * * `YoutubeData` - YoutubeData
-       * * `ZapierSupportedStorage` - ZapierSupportedStorage
-       * * `ZapSign` - ZapSign
-       * * `ZendeskSell` - ZendeskSell
-       * * `ZendeskSunshine` - ZendeskSunshine
-       * * `Zenefits` - Zenefits
-       * * `Zenloop` - Zenloop
-       * * `ZohoAnalytics` - ZohoAnalytics
-       * * `ZohoBigin` - ZohoBigin
-       * * `ZohoBilling` - ZohoBilling
-       * * `ZohoBooks` - ZohoBooks
-       * * `ZohoCampaign` - ZohoCampaign
-       * * `ZohoDesk` - ZohoDesk
-       * * `ZohoExpense` - ZohoExpense
-       * * `ZohoInventory` - ZohoInventory
-       * * `ZohoInvoice` - ZohoInvoice
-       * * `ZonkaFeedback` - ZonkaFeedback
-       * * `AlphaVantage` - AlphaVantage
-       * * `Aviationstack` - Aviationstack
-       * * `Bitly` - Bitly
-       * * `Blogger` - Blogger
-       * * `Breezometer` - Breezometer
-       * * `CareQualityCommission` - CareQualityCommission
-       * * `Cimis` - Cimis
-       * * `CoinApi` - CoinApi
-       * * `CoinGecko` - CoinGecko
-       * * `CoinMarketCap` - CoinMarketCap
-       * * `DingConnect` - DingConnect
-       * * `Dockerhub` - Dockerhub
-       * * `ExchangeRatesApi` - ExchangeRatesApi
-       * * `FinancialModelling` - FinancialModelling
-       * * `Finnhub` - Finnhub
-       * * `Finnworlds` - Finnworlds
-       * * `Giphy` - Giphy
-       * * `Gmail` - Gmail
-       * * `GNews` - GNews
-       * * `GoogleCalendar` - GoogleCalendar
-       * * `GoogleClassroom` - GoogleClassroom
-       * * `GoogleDirectory` - GoogleDirectory
-       * * `GoogleForms` - GoogleForms
-       * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
-       * * `GoogleTasks` - GoogleTasks
-       * * `GoogleWebfonts` - GoogleWebfonts
-       * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
-       * * `HuggingFace` - HuggingFace
-       * * `IlluminaBasespace` - IlluminaBasespace
-       * * `Imagga` - Imagga
-       * * `Interzoid` - Interzoid
-       * * `IP2Whois` - IP2Whois
-       * * `KYVE` - KYVE
-       * * `Marketstack` - Marketstack
-       * * `Mendeley` - Mendeley
-       * * `Nasa` - Nasa
-       * * `NewYorkTimes` - NewYorkTimes
-       * * `NewsApi` - NewsApi
-       * * `NewsData` - NewsData
-       * * `OpenDataDc` - OpenDataDc
-       * * `OpenExchangeRates` - OpenExchangeRates
-       * * `OpenAQ` - OpenAQ
-       * * `OpenFDA` - OpenFDA
-       * * `OpenWeather` - OpenWeather
-       * * `Outlook` - Outlook
-       * * `Perigon` - Perigon
-       * * `Pexels` - Pexels
-       * * `Pocket` - Pocket
-       * * `Polygon` - Polygon
-       * * `PyPI` - PyPI
-       * * `Recreation` - Recreation
-       * * `RKICovid` - RKICovid
-       * * `Rss` - Rss
-       * * `SimFin` - SimFin
-       * * `StockData` - StockData
-       * * `Guardian` - Guardian
-       * * `TMDb` - TMDb
-       * * `TVMaze` - TVMaze
-       * * `TwelveData` - TwelveData
-       * * `Ubidots` - Ubidots
-       * * `USCensus` - USCensus
-       * * `Watchmode` - Watchmode
-       * * `WikipediaPageviews` - WikipediaPageviews
-       * * `YahooFinance` - YahooFinance
-       * * `Clarifai` - Clarifai
-       * * `Adapty` - Adapty
-       * * `Braintrust` - Braintrust
-       * * `StreamElements` - StreamElements
-       * * `Streamlabs` - Streamlabs
-       * * `Datorama` - Datorama
-       * * `Ahrefs` - Ahrefs
-       * * `Lightfield` - Lightfield
-       * * `Appstack` - Appstack
-       * * `Razorpay` - Razorpay
-       * * `Neon` - Neon
-       * * `NewRelic` - NewRelic
-       * * `Custom` - Custom
-       * * `Tile38` - Tile38
-       * * `Chatwoot` - Chatwoot
-       * * `Sanity` - Sanity
-       * * `Metronome` - Metronome
-       * * `Jobber` - Jobber
-       * * `Knock` - Knock
-       * * `Leexi` - Leexi
-       * * `RB2B` - RB2B
-       * * `Superwall` - Superwall
-       * * `Liana` - Liana
-       * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch
-       * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas
-       * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds
-       * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow
-       * * `Plunk` - Plunk
-       * * `Dub` - Dub
-       * * `AirOps` - AirOps
-       * * `Podium` - Podium
-       * * `Loops` - Loops
-       * * `Redis` - Redis
-       * * `Mercury` - Mercury
-       * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable
-       * * `PeecAI` - PeecAI
-       * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact
-       * * `AikidoSecurity` - AikidoSecurity
-       * * `Alguna` - Alguna
-       * * `Anthropic` - Anthropic
-       * * `Appwrite` - Appwrite
-       * * `BlandAI` - BlandAI
-       * * `BrowseAI` - BrowseAI
-       * * `BrowserUse` - BrowserUse
-       * * `ChartHop` - ChartHop
-       * * `Cody` - Cody
-       * * `Cursor` - Cursor
-       * * `Decagon` - Decagon
-       * * `Deepgram` - Deepgram
-       * * `ElevenLabs` - ElevenLabs
-       * * `Harvey` - Harvey
-       * * `Hyperspell` - Hyperspell
-       * * `Langfuse` - Langfuse
-       * * `LingoDev` - LingoDev
-       * * `M3ter` - M3ter
-       * * `Maxio` - Maxio
-       * * `Metorial` - Metorial
-       * * `OpenRouter` - OpenRouter
-       * * `TogetherAI` - TogetherAI
-       * * `Vapi` - Vapi
-       * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic
-       * * `Aiven` - Aiven
-       * * `Aviator` - Aviator
-       * * `Backblaze` - Backblaze
-       * * `Baseten` - Baseten
-       * * `Browserbase` - Browserbase
-       * * `Cohere` - Cohere
-       * * `DenoDeploy` - DenoDeploy
-       * * `DigitalOcean` - DigitalOcean
-       * * `E2B` - E2B
-       * * `Fintoc` - Fintoc
-       * * `Firecrawl` - Firecrawl
-       * * `FireworksAI` - FireworksAI
-       * * `FlyIo` - FlyIo
-       * * `Groq` - Groq
-       * * `GrowthBook` - GrowthBook
-       * * `Gumloop` - Gumloop
-       * * `Hatchet` - Hatchet
-       * * `Helicone` - Helicone
-       * * `Heroku` - Heroku
-       * * `Hetzner` - Hetzner
-       * * `HeyGen` - HeyGen
-       * * `Infisical` - Infisical
-       * * `Inngest` - Inngest
-       * * `KapaAI` - KapaAI
-       * * `Kernel` - Kernel
-       * * `Koyeb` - Koyeb
-       * * `LambdaLabs` - LambdaLabs
-       * * `LangSmith` - LangSmith
-       * * `Linode` - Linode
-       * * `Listmonk` - Listmonk
-       * * `LlamaCloud` - LlamaCloud
-       * * `Mem0` - Mem0
-       * * `Metriport` - Metriport
-       * * `Mintlify` - Mintlify
-       * * `MistralAI` - MistralAI
-       * * `Mono` - Mono
-       * * `Netlify` - Netlify
-       * * `Northflank` - Northflank
-       * * `OpenAI` - OpenAI
-       * * `Pinecone` - Pinecone
-       * * `PlatformSh` - PlatformSh
-       * * `PromptingCompany` - PromptingCompany
-       * * `Qdrant` - Qdrant
-       * * `Render` - Render
-       * * `Replicate` - Replicate
-       * * `RetellAI` - RetellAI
-       * * `Roark` - Roark
-       * * `RunPod` - RunPod
-       * * `ScaleAI` - ScaleAI
-       * * `Scaleway` - Scaleway
-       * * `SigNoz` - SigNoz
-       * * `Sim` - Sim
-       * * `Skyvern` - Skyvern
-       * * `Slash` - Slash
-       * * `Synthesia` - Synthesia
-       * * `Telli` - Telli
-       * * `TerraApi` - TerraApi
-       * * `TriggerDev` - TriggerDev
-       * * `Turso` - Turso
-       * * `Singular` - Singular
-       * * `Swonkie` - Swonkie
-       * * `TwelveLabs` - TwelveLabs
-       * * `Twenty` - Twenty
-       * * `Unstructured` - Unstructured
-       * * `Upstash` - Upstash
-       * * `Vellum` - Vellum
-       * * `Vultr` - Vultr
-       * * `Windmill` - Windmill
-       * * `Zep` - Zep
-       * * `Hex` - Hex
-       * * `Sumsub` - Sumsub
-       * * `GoogleChat` - GoogleChat
-       * * `Kickscale` - Kickscale
-       * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack
-       * * `DodoPayments` - DodoPayments
-       * * `Salestrics` - Salestrics
-       * * `Doppler` - Doppler
-       * * `Usersnap` - Usersnap
-       * * `Asknicely` - Asknicely
-       * * `Featurebase` - Featurebase
-       * * `Frill` - Frill
-       * * `Bettermode` - Bettermode
-       * * `Dynatrace` - Dynatrace
-       * * `Honeycomb` - Honeycomb
-       * * `SumoLogic` - SumoLogic
-       * * `LogzIO` - LogzIO
-       * * `Coralogix` - Coralogix
-       * * `BetterStack` - BetterStack
-       * * `Raygun` - Raygun
-       * * `Honeybadger` - Honeybadger
-       * * `Airbrake` - Airbrake
-       * * `Appsignal` - Appsignal
-       * * `Appdynamics` - Appdynamics
-       * * `Instana` - Instana
-       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
-       * * `Uptimerobot` - Uptimerobot
-       * * `Statuscake` - Statuscake
-       * * `Tailscale` - Tailscale
-       * * `Flagsmith` - Flagsmith
-       * * `Xmatters` - Xmatters
-       * * `Squadcast` - Squadcast
-       * * `Zenduty` - Zenduty
-       * * `Cronitor` - Cronitor
-       * * `Jenkins` - Jenkins
-       * * `Bitbucket` - Bitbucket
-       * * `Gitea` - Gitea
-       * * `Teamcity` - Teamcity
-       * * `TravisCI` - TravisCI
-       * * `Semaphore` - Semaphore
-       * * `CircleciInsights` - CircleciInsights
-       * * `OctopusDeploy` - OctopusDeploy
-       * * `Sourcegraph` - Sourcegraph
-       * * `Bitrise` - Bitrise
-       * * `Gerrit` - Gerrit
-       * * `TerraformCloud` - TerraformCloud
-       * * `PulumiCloud` - PulumiCloud
-       * * `Spacelift` - Spacelift
-       * * `Railway` - Railway
-       * * `Argocd` - Argocd
-       * * `PrefectCloud` - PrefectCloud
-       * * `DagsterCloud` - DagsterCloud
-       * * `Env0` - Env0
-       * * `Kubecost` - Kubecost
-       * * `Snyk` - Snyk
-       * * `Semgrep` - Semgrep
-       * * `Veracode` - Veracode
-       * * `Checkmarx` - Checkmarx
-       * * `Gitguardian` - Gitguardian
-       * * `QualysVmdr` - QualysVmdr
-       * * `Rapid7Insightvm` - Rapid7Insightvm
-       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
-       * * `Sentinelone` - Sentinelone
-       * * `Lacework` - Lacework
-       * * `OrcaSecurity` - OrcaSecurity
-       * * `Drata` - Drata
-       * * `Secureframe` - Secureframe
-       * * `CiscoDuo` - CiscoDuo
-       * * `Jumpcloud` - Jumpcloud
-       * * `OnePassword` - OnePassword
-       * * `Stytch` - Stytch
-       * * `Sonarqube` - Sonarqube
-       * * `Codecov` - Codecov
-       * * `Coveralls` - Coveralls
-       * * `Codacy` - Codacy
-       * * `Deepsource` - Deepsource
-       * * `Linearb` - Linearb
-       * * `Jellyfish` - Jellyfish
-       * * `Swarmia` - Swarmia
-       * * `Packagist` - Packagist
-       * * `Nuget` - Nuget
-       * * `CratesIO` - CratesIO
-       * * `SonatypeNexus` - SonatypeNexus
-       * * `JfrogArtifactory` - JfrogArtifactory
-       * * `Snowplow` - Snowplow
-       * * `WeightsAndBiases` - WeightsAndBiases
-       * * `MonteCarlo` - MonteCarlo
-       * * `Metaplane` - Metaplane
-       * * `Datahub` - Datahub
-       * * `ClickhouseCloud` - ClickhouseCloud
-       * * `ConfluentCloud` - ConfluentCloud
-       * * `KongKonnect` - KongKonnect
-       * * `Kandji` - Kandji
-       * * `Automox` - Automox
-       * * `Autumn` - Autumn
-       * * `GetStream` - GetStream
-       * * `Octolens` - Octolens
-       * * `Kajabi` - Kajabi
-       * * `Shopware` - Shopware
-       * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch
-       * * `Crisp` - Crisp
-       * * `Kommo` - Kommo
-       * * `Axiom` - Axiom
-       * * `Plivo` - Plivo
-       * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan
-       * * `AbTasty` - AbTasty
-       * * `Ably` - Ably
-       * * `AbnormalSecurity` - AbnormalSecurity
-       * * `Acast` - Acast
-       * * `Acculynx` - Acculynx
-       * * `Actionstep` - Actionstep
-       * * `Aftership` - Aftership
-       * * `AhaIdeas` - AhaIdeas
-       * * `AkamaiReporting` - AkamaiReporting
-       * * `Alation` - Alation
-       * * `Alegra` - Alegra
-       * * `Allegro` - Allegro
-       * * `AnodotCost` - AnodotCost
-       * * `Anomalo` - Anomalo
-       * * `Apaleo` - Apaleo
-       * * `Apitally` - Apitally
-       * * `AppStoreConnect` - AppStoreConnect
-       * * `Appdirect` - Appdirect
-       * * `Appfolio` - Appfolio
-       * * `Arxiv` - Arxiv
-       * * `Asaas` - Asaas
-       * * `Astronomer` - Astronomer
-       * * `Athenahealth` - Athenahealth
-       * * `Atlan` - Atlan
-       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
-       * * `Avalara` - Avalara
-       * * `AwsAthena` - AwsAthena
-       * * `AwsBatch` - AwsBatch
-       * * `AwsBudgets` - AwsBudgets
-       * * `AwsCloudformation` - AwsCloudformation
-       * * `AwsComputeOptimizer` - AwsComputeOptimizer
-       * * `AwsConfig` - AwsConfig
-       * * `AwsConnect` - AwsConnect
-       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
-       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
-       * * `AwsCostExplorer` - AwsCostExplorer
-       * * `AwsDocumentDB` - AwsDocumentDB
-       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
-       * * `AwsGuardduty` - AwsGuardduty
-       * * `AwsHealth` - AwsHealth
-       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
-       * * `AwsInspector` - AwsInspector
-       * * `AwsMacie` - AwsMacie
-       * * `AwsOrganizations` - AwsOrganizations
-       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
-       * * `AwsSagemaker` - AwsSagemaker
-       * * `AwsSavingsPlans` - AwsSavingsPlans
-       * * `AwsSecurityHub` - AwsSecurityHub
-       * * `AwsSes` - AwsSes
-       * * `AwsStepFunctions` - AwsStepFunctions
-       * * `AwsSupport` - AwsSupport
-       * * `AwsSystemsManager` - AwsSystemsManager
-       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
-       * * `AwsWaf` - AwsWaf
-       * * `AwsXray` - AwsXray
-       * * `AzureActivityLog` - AzureActivityLog
-       * * `AzureAdvisor` - AzureAdvisor
-       * * `AzureApiManagement` - AzureApiManagement
-       * * `AzureApplicationInsights` - AzureApplicationInsights
-       * * `AzureCostManagement` - AzureCostManagement
-       * * `AzureDataExplorer` - AzureDataExplorer
-       * * `AzureDataFactory` - AzureDataFactory
-       * * `AzureLogAnalytics` - AzureLogAnalytics
-       * * `AzureMonitorAlerts` - AzureMonitorAlerts
-       * * `AzureMonitorMetrics` - AzureMonitorMetrics
-       * * `AzureOpenaiUsage` - AzureOpenaiUsage
-       * * `AzurePolicyInsights` - AzurePolicyInsights
-       * * `AzureReservations` - AzureReservations
-       * * `AzureResourceGraph` - AzureResourceGraph
-       * * `AzureResourceHealth` - AzureResourceHealth
-       * * `AzureServiceHealth` - AzureServiceHealth
-       * * `AzureSynapse` - AzureSynapse
-       * * `BackMarket` - BackMarket
-       * * `Beehiiv` - Beehiiv
-       * * `Bigeye` - Bigeye
-       * * `BillCom` - BillCom
-       * * `Billomat` - Billomat
-       * * `BingWebmasterTools` - BingWebmasterTools
-       * * `Bitwarden` - Bitwarden
-       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
-       * * `BlackboardLearn` - BlackboardLearn
-       * * `Bling` - Bling
-       * * `Bloomerang` - Bloomerang
-       * * `Blueshift` - Blueshift
-       * * `Bluesky` - Bluesky
-       * * `BolRetailer` - BolRetailer
-       * * `Boulevard` - Boulevard
-       * * `Buffer` - Buffer
-       * * `Bugherd` - Bugherd
-       * * `Buildium` - Buildium
-       * * `Buttondown` - Buttondown
-       * * `BuyMeACoffee` - BuyMeACoffee
-       * * `Calendarific` - Calendarific
-       * * `Calibre` - Calibre
-       * * `CanvasLms` - CanvasLms
-       * * `Captivate` - Captivate
-       * * `Cashfree` - Cashfree
-       * * `CastAi` - CastAi
-       * * `Catchpoint` - Catchpoint
-       * * `CdcOpenData` - CdcOpenData
-       * * `Census` - Census
-       * * `Checkly` - Checkly
-       * * `CircleSo` - CircleSo
-       * * `Classy` - Classy
-       * * `Cleartax` - Cleartax
-       * * `Clever` - Clever
-       * * `Clevertap` - Clevertap
-       * * `Cliniko` - Cliniko
-       * * `Clio` - Clio
-       * * `Clip` - Clip
-       * * `Cloudability` - Cloudability
-       * * `Cloudsmith` - Cloudsmith
-       * * `Cloudzero` - Cloudzero
-       * * `Clover` - Clover
-       * * `Codemagic` - Codemagic
-       * * `Codescene` - Codescene
-       * * `Collibra` - Collibra
-       * * `Companycam` - Companycam
-       * * `Conekta` - Conekta
-       * * `ContaAzul` - ContaAzul
-       * * `Contentsquare` - Contentsquare
-       * * `Cortex` - Cortex
-       * * `Courier` - Courier
-       * * `Crossref` - Crossref
-       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
-       * * `CubeCloud` - CubeCloud
-       * * `D2lBrightspace` - D2lBrightspace
-       * * `Dayforce` - Dayforce
-       * * `Debugbear` - Debugbear
-       * * `Descope` - Descope
-       * * `Develocity` - Develocity
-       * * `Dialpad` - Dialpad
-       * * `Discord` - Discord
-       * * `Discourse` - Discourse
-       * * `Donorbox` - Donorbox
-       * * `Doorloop` - Doorloop
-       * * `Dovetail` - Dovetail
-       * * `Dragonboat` - Dragonboat
-       * * `Drchrono` - Drchrono
-       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
-       * * `EcbDataPortal` - EcbDataPortal
-       * * `Emarsys` - Emarsys
-       * * `Embrace` - Embrace
-       * * `Entsoe` - Entsoe
-       * * `Eppo` - Eppo
-       * * `Etsy` - Etsy
-       * * `Eurostat` - Eurostat
-       * * `Faire` - Faire
-       * * `FarosAi` - FarosAi
-       * * `Fieldpulse` - Fieldpulse
-       * * `Fieldwire` - Fieldwire
-       * * `Filevine` - Filevine
-       * * `Finout` - Finout
-       * * `Five9` - Five9
-       * * `FlexeraCloudCost` - FlexeraCloudCost
-       * * `Flutterwave` - Flutterwave
-       * * `Fortnox` - Fortnox
-       * * `Fourthwall` - Fourthwall
-       * * `Fred` - Fred
-       * * `Frontegg` - Frontegg
-       * * `FusionAuth` - FusionAuth
-       * * `G2` - G2
-       * * `Gcore` - Gcore
-       * * `GcpApigee` - GcpApigee
-       * * `GcpArtifactRegistry` - GcpArtifactRegistry
-       * * `GcpBigtable` - GcpBigtable
-       * * `GcpChronicle` - GcpChronicle
-       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
-       * * `GcpCloudBilling` - GcpCloudBilling
-       * * `GcpCloudBuild` - GcpCloudBuild
-       * * `GcpCloudDeploy` - GcpCloudDeploy
-       * * `GcpCloudDns` - GcpCloudDns
-       * * `GcpCloudFunctions` - GcpCloudFunctions
-       * * `GcpCloudLogging` - GcpCloudLogging
-       * * `GcpCloudMonitoring` - GcpCloudMonitoring
-       * * `GcpCloudRun` - GcpCloudRun
-       * * `GcpCloudSpanner` - GcpCloudSpanner
-       * * `GcpCloudSql` - GcpCloudSql
-       * * `GcpCloudTrace` - GcpCloudTrace
-       * * `GcpCloudWorkflows` - GcpCloudWorkflows
-       * * `GcpComputeEngine` - GcpComputeEngine
-       * * `GcpContainerAnalysis` - GcpContainerAnalysis
-       * * `GcpDataflow` - GcpDataflow
-       * * `GcpDataplex` - GcpDataplex
-       * * `GcpDataproc` - GcpDataproc
-       * * `GcpErrorReporting` - GcpErrorReporting
-       * * `GcpGke` - GcpGke
-       * * `GcpPubsub` - GcpPubsub
-       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
-       * * `GcpRecommender` - GcpRecommender
-       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
-       * * `Gdelt` - Gdelt
-       * * `GenesysCloud` - GenesysCloud
-       * * `Getdx` - Getdx
-       * * `Ghost` - Ghost
-       * * `Givebutter` - Givebutter
-       * * `Gleif` - Gleif
-       * * `GooglePlayConsole` - GooglePlayConsole
-       * * `Guesty` - Guesty
-       * * `Gumroad` - Gumroad
-       * * `HarnessCcm` - HarnessCcm
-       * * `HarnessSei` - HarnessSei
-       * * `Harvest` - Harvest
-       * * `Healthie` - Healthie
-       * * `Hitpay` - Hitpay
-       * * `Hivebrite` - Hivebrite
-       * * `Holded` - Holded
-       * * `Hostaway` - Hostaway
-       * * `HousecallPro` - HousecallPro
-       * * `Humanitec` - Humanitec
-       * * `ImfData` - ImfData
-       * * `Imperva` - Imperva
-       * * `InfluxdbCloud` - InfluxdbCloud
-       * * `Iyzico` - Iyzico
-       * * `Jobtread` - Jobtread
-       * * `Kameleoon` - Kameleoon
-       * * `KauflandMarketplace` - KauflandMarketplace
-       * * `Kestra` - Kestra
-       * * `Kick` - Kick
-       * * `Kinde` - Kinde
-       * * `Kion` - Kion
-       * * `Knowbe4` - Knowbe4
-       * * `Komodor` - Komodor
-       * * `Labelbox` - Labelbox
-       * * `Lawmatics` - Lawmatics
-       * * `Learnworlds` - Learnworlds
-       * * `LexwareOffice` - LexwareOffice
-       * * `Lightdash` - Lightdash
-       * * `Lodgify` - Lodgify
-       * * `Logicmonitor` - Logicmonitor
-       * * `Logrocket` - Logrocket
-       * * `LoopReturns` - LoopReturns
-       * * `Mastodon` - Mastodon
-       * * `Meetup` - Meetup
-       * * `Megaphone` - Megaphone
-       * * `Memberful` - Memberful
-       * * `MercadoPago` - MercadoPago
-       * * `Meteostat` - Meteostat
-       * * `Mews` - Mews
-       * * `Mezmo` - Mezmo
-       * * `Microsoft365UsageReports` - Microsoft365UsageReports
-       * * `MicrosoftAdvertising` - MicrosoftAdvertising
-       * * `MicrosoftClarity` - MicrosoftClarity
-       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
-       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
-       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
-       * * `MicrosoftIntune` - MicrosoftIntune
-       * * `MicrosoftPurview` - MicrosoftPurview
-       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
-       * * `MicrosoftSentinel` - MicrosoftSentinel
-       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
-       * * `Midtrans` - Midtrans
-       * * `MightyNetworks` - MightyNetworks
-       * * `Mindbody` - Mindbody
-       * * `Mirakl` - Mirakl
-       * * `Moesif` - Moesif
-       * * `Moneybird` - Moneybird
-       * * `Moodle` - Moodle
-       * * `Motherduck` - Motherduck
-       * * `Mycase` - Mycase
-       * * `NagerDate` - NagerDate
-       * * `NeonCrm` - NeonCrm
-       * * `Nexhealth` - Nexhealth
-       * * `NoaaCdo` - NoaaCdo
-       * * `Nobl9` - Nobl9
-       * * `Nolt` - Nolt
-       * * `Nops` - Nops
-       * * `NpmRegistry` - NpmRegistry
-       * * `Oecd` - Oecd
-       * * `Okendo` - Okendo
-       * * `Omni` - Omni
-       * * `Onelogin` - Onelogin
-       * * `OpenDental` - OpenDental
-       * * `OpenMeteo` - OpenMeteo
-       * * `Openalex` - Openalex
-       * * `Opencorporates` - Opencorporates
-       * * `Openfec` - Openfec
-       * * `OpnPayments` - OpnPayments
-       * * `Opslevel` - Opslevel
-       * * `OttoMarket` - OttoMarket
-       * * `Ownerrez` - Ownerrez
-       * * `Pagbank` - Pagbank
-       * * `Patreon` - Patreon
-       * * `Pax8` - Pax8
-       * * `Paychex` - Paychex
-       * * `Paymob` - Paymob
-       * * `Paymongo` - Paymongo
-       * * `Phonepe` - Phonepe
-       * * `Pike13` - Pike13
-       * * `Pingone` - Pingone
-       * * `PinterestOrganic` - PinterestOrganic
-       * * `PlanningCenter` - PlanningCenter
-       * * `PluralsightFlow` - PluralsightFlow
-       * * `Podbean` - Podbean
-       * * `Postscript` - Postscript
-       * * `PowerBiAdmin` - PowerBiAdmin
-       * * `Practicepanther` - Practicepanther
-       * * `Preset` - Preset
-       * * `Procore` - Procore
-       * * `Productiv` - Productiv
-       * * `ProofpointTap` - ProofpointTap
-       * * `Propertyware` - Propertyware
-       * * `Pubnub` - Pubnub
-       * * `Quay` - Quay
-       * * `Raken` - Raken
-       * * `RedpandaCloud` - RedpandaCloud
-       * * `RentManager` - RentManager
-       * * `Reverb` - Reverb
-       * * `RocketMatter` - RocketMatter
-       * * `Rubygems` - Rubygems
-       * * `Scalr` - Scalr
-       * * `SecEdgar` - SecEdgar
-       * * `SelectStar` - SelectStar
-       * * `SemanticScholar` - SemanticScholar
-       * * `Semrush` - Semrush
-       * * `ServiceFusion` - ServiceFusion
-       * * `Servicem8` - Servicem8
-       * * `Servicetitan` - Servicetitan
-       * * `Servicetrade` - Servicetrade
-       * * `Sevdesk` - Sevdesk
-       * * `Similarweb` - Similarweb
-       * * `Simpro` - Simpro
-       * * `Sinch` - Sinch
-       * * `Singlestore` - Singlestore
-       * * `Site24x7` - Site24x7
-       * * `Sleuth` - Sleuth
-       * * `Smartlook` - Smartlook
-       * * `Smartrecruiters` - Smartrecruiters
-       * * `Smokeball` - Smokeball
-       * * `SodaCloud` - SodaCloud
-       * * `Speedcurve` - Speedcurve
-       * * `SpotIo` - SpotIo
-       * * `Sprig` - Sprig
-       * * `Sprinklr` - Sprinklr
-       * * `SproutSocial` - SproutSocial
-       * * `StackOverflowForTeams` - StackOverflowForTeams
-       * * `Stockx` - Stockx
-       * * `TackleIo` - TackleIo
-       * * `Talkdesk` - Talkdesk
-       * * `TeamupFitness` - TeamupFitness
-       * * `Tebra` - Tebra
-       * * `Telnyx` - Telnyx
-       * * `Ternary` - Ternary
-       * * `Thoughtspot` - Thoughtspot
-       * * `Thousandeyes` - Thousandeyes
-       * * `Threads` - Threads
-       * * `TiktokShop` - TiktokShop
-       * * `TinyErp` - TinyErp
-       * * `Tinybird` - Tinybird
-       * * `Tipalti` - Tipalti
-       * * `Toast` - Toast
-       * * `Torii` - Torii
-       * * `Transistor` - Transistor
-       * * `TrunkIo` - TrunkIo
-       * * `Trustradius` - Trustradius
-       * * `Twitch` - Twitch
-       * * `TwoC2p` - TwoC2p
-       * * `UkCompaniesHouse` - UkCompaniesHouse
-       * * `UkOns` - UkOns
-       * * `UnComtrade` - UnComtrade
-       * * `UsBea` - UsBea
-       * * `UsBls` - UsBls
-       * * `UsEia` - UsEia
-       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
-       * * `Vanta` - Vanta
-       * * `Vendr` - Vendr
-       * * `Virtuous` - Virtuous
-       * * `Vonage` - Vonage
-       * * `WalmartMarketplace` - WalmartMarketplace
-       * * `Waydev` - Waydev
-       * * `Wayfair` - Wayfair
-       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
-       * * `WhoGho` - WhoGho
-       * * `Whop` - Whop
-       * * `Wistia` - Wistia
-       * * `Wiz` - Wiz
-       * * `Wompi` - Wompi
-       * * `Workiz` - Workiz
-       * * `WorldBank` - WorldBank
-       * * `Xendit` - Xendit
-       * * `Yoco` - Yoco
-       * * `ZalandoZdirect` - ZalandoZdirect
-       * * `Zluri` - Zluri
-       * * `Zylo` - Zylo
-       * * `Tally` - Tally
-       * * `Nuntly` - Nuntly
-       * * `Vturb` - Vturb
-       * * `Meltwater` - Meltwater
-       * * `UserCom` - UserCom
-       * * `Latitude` - Latitude
-       * * `Workato` - Workato
-       * * `SideShift` - SideShift
-       * * `DuckLake` - DuckLake
-       * * `Starburst` - Starburst
-       * * `Trino` - Trino
-       * * `Easybill` - Easybill
-       * * `Bexio` - Bexio
-       * * `Umami` - Umami
-       * * `Manychat` - Manychat
-       * * `Kickstarter` - Kickstarter
-       * * `Typesense` - Typesense
-       * * `FirstPromoter` - FirstPromoter
-       * * `Zero` - Zero
-       * * `Inth` - Inth
-       * * `BCMS` - BCMS
-       * * `Convonite` - Convonite
-       * * `Hookdeck` - Hookdeck
-       * * `Billit` - Billit
-       * * `Moxie` - Moxie
-       * * `TripleWhale` - TripleWhale
-       * * `Directus` - Directus
-       * * `Clay` - Clay
-       * * `TradableBits` - TradableBits
-       * * `Swan` - Swan
-       * * `Hyros` - Hyros
-       * * `Odoo` - Odoo
-       * * `Airbridge` - Airbridge
-       * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter
-       * * `Raisely` - Raisely
-       * * `RakutenAdvertising` - RakutenAdvertising
-       * * `Zitadel` - Zitadel
-       * * `DeelFlows` - DeelFlows
-       * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix
-       * * `Sevalla` - Sevalla
-       * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner
-       * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare
-       * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91
-       * * `Depot` - Depot
-       * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy
-       * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart
-       * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound
-       * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi
-       * * `Capterra` - Capterra
-       * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi
-       * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS
-       * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox
-       * * `SimonData` - SimonData
-       * * `CommissionJunction` - CommissionJunction
-       * * `Liveblocks` - Liveblocks
-       * * `Livestorm` - Livestorm
-       * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana
-       * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable
-       * * `Anvil` - Anvil
-       * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato
-       * * `Medusa` - Medusa
-       * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin
-       * * `Folk` - Folk
-       * * `Cybersource` - Cybersource
-       * * `GoogleAdSense` - GoogleAdSense
-       * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio
-       * * `Smartlead` - Smartlead
-       * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket
-       * * `Quo` - Quo
-       * * `HeyReach` - HeyReach
-       * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet
-       * * `Expo` - Expo
-       * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer
-       * * `Sprinto` - Sprinto
-       * * `Gem` - Gem
-       * * `AudioGO` - AudioGO
-       * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs
-       * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura
-       * * `ChargebackStop` - ChargebackStop
-       * * `Chargeflow` - Chargeflow
-       * * `Dreamdata` - Dreamdata
-       * * `GoogleBusinessProfile` - GoogleBusinessProfile
-       * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite
-       * * `Modal` - Modal
-       * * `Vimeo` - Vimeo
-       * * `Scrunch` - Scrunch
-       * * `Loom` - Loom
-       * * `Arcade` - Arcade
-       * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom
-       * * `Userback` - Userback
-       * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution
-       * * `StackAdapt` - StackAdapt
-       * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay
-       * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud
-       * * `Northbeam` - Northbeam
-       * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO
-       * * `Airship` - Airship
-       * * `Creem` - Creem
-       * * `Leantime` - Leantime
-       * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob
-       * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2
-       * * `Particle` - Particle
-       * * `FileUpload` - FileUpload
-       * * `Dripify` - Dripify
-       * * `AwsS3Tables` - AwsS3Tables
-       * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments
-       * * `Soniox` - Soniox
-       * * `Nango` - Nango
-       * * `Fathom` - Fathom
-       * * `Stamped` - Stamped */
-      source_type: ExternalDataSourceTypeEnum;
+      /** The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot'). */
+      source_type: string;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
       /**
@@ -119215,6 +107788,18 @@ export namespace Schemas {
     }
 
     /**
+     * Whether a repository can use reviewer requests, which read ownership from its owners.yaml.
+     */
+    export interface StamphogOwnersFile {
+      /** Whether the default branch has a root owners.yaml: 'found', 'missing', or 'unavailable' when the check could not ask GitHub (no installation, or GitHub answered with an error).
+       *
+       * * `found` - Found
+       * * `missing` - Missing
+       * * `unavailable` - Unavailable */
+      owners_file: OwnersFileStatusEnum;
+    }
+
+    /**
      * Input shape for creating/updating a repo config.
      *
      * Separate from the read serializer because the contract is an output shape: it carries a
@@ -119242,6 +107827,12 @@ export namespace Schemas {
       review_mode?: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
+      /** When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      routing_mode?: RoutingModeEnum;
     }
 
     /**
@@ -123470,6 +112061,17 @@ export namespace Schemas {
       metadata: TextReprMetadata;
     }
 
+    export interface TicketAttachment {
+      /** ID of the stored file. */
+      id: string;
+      /** Public download URL of the stored file. */
+      url: string;
+      /** Sanitized file name. */
+      name: string;
+      /** Stored content type. Inline-safe images come back as their decoded image type. */
+      content_type: string;
+    }
+
     export interface TicketError {
       /** Human-readable error message. */
       detail: string;
@@ -123974,6 +112576,26 @@ export namespace Schemas {
       summary: TraceFeedbackSummary;
     }
 
+    export interface TraceHumanReviewScore {
+      /** The scorer's name. */
+      name: string;
+      /** The saved score as a reviewer reads it: option labels joined by commas, a number, or the scorer's yes or no label. */
+      value: string;
+      /** The scorer's name and the score together, such as `Tone: 4.5`. */
+      label: string;
+    }
+
+    export interface TraceHumanReview {
+      /** The display name of whoever last saved the review, or null when that user was removed. */
+      reviewedBy: string | null;
+      /** When the review was last saved. */
+      reviewedAt: string;
+      /** The reviewer's reasoning, if any. */
+      comment: string | null;
+      /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
+      scores: TraceHumanReviewScore[];
+    }
+
     export interface TracePullRequest {
       /** The owner of the pull request's repository. */
       repoOwner: string;
@@ -124008,6 +112630,22 @@ export namespace Schemas {
          * @nullable
          */
       queue_id?: string | null;
+    }
+
+    export interface TraceReviewQueueAssignment {
+      /** The review queue's id. */
+      id: string;
+      /** The review queue's name. */
+      name: string;
+      /** The queue item that holds the trace, for moving or removing it. */
+      itemId: string;
+    }
+
+    export interface TraceReviewStatus {
+      /** The trace's human review, or null when it has none or the user may not see it. */
+      review: TraceHumanReview | null;
+      /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
+      queue: TraceReviewQueueAssignment | null;
     }
 
     export interface TraceSearchMatch {
@@ -125721,20 +114359,6 @@ export namespace Schemas {
       is_error: boolean;
     }
 
-    /**
-     * JSON Schema of the tool input, as the MCP server advertises it.
-     */
-    export type WebMCPExecToolInputSchema = { [key: string]: unknown };
-
-    export interface WebMCPExecTool {
-      /** Tool name to register with WebMCP. */
-      name: string;
-      /** Tool description from the PostHog MCP server, which tells the agent how to write commands. */
-      description: string;
-      /** JSON Schema of the tool input, as the MCP server advertises it. */
-      input_schema: WebMCPExecToolInputSchema;
-    }
-
     export interface WebhookExternalStatus {
       /** Whether the webhook exists on the external service. */
       exists: boolean;
@@ -127438,6 +116062,46 @@ export namespace Schemas {
       failed: number;
     }
 
+    export interface WorkloadClaim {
+      /** The claim's name in the provider's OIDC token. */
+      name: string;
+      /** What to call the claim in the UI. */
+      label: string;
+      /** A hint that says where to find the claim's value. */
+      help_text: string;
+    }
+
+    export interface WorkloadProvider {
+      /** Stable identifier of the provider. */
+      key: string;
+      /** Display name of the provider. */
+      name: string;
+      /** OIDC issuer a policy for this provider uses. */
+      issuer: string;
+      /** Where to read how to set the provider up. */
+      docs_url: string;
+      /** The claim that carries the workload's immutable ID. */
+      subject_claim: WorkloadClaim;
+      /** The claim that carries the workload's readable name. */
+      subject_name_claim: WorkloadClaim;
+      /** The claims a policy can require an exact value for, in display order. */
+      condition_claims: WorkloadClaim[];
+    }
+
+    /**
+     * What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care.
+     */
+    export type WorkloadProvidersResponseRiskyScopes = {[key: string]: string};
+
+    export interface WorkloadProvidersResponse {
+      /** Providers a policy can trust. */
+      supported: WorkloadProvider[];
+      /** Every scope a policy's ceiling may hold. */
+      grantable_scopes: string[];
+      /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */
+      risky_scopes: WorkloadProvidersResponseRiskyScopes;
+    }
+
     export interface ZendeskImportError {
       /** Human-readable error message. */
       detail: string;
@@ -128921,7 +117585,7 @@ export namespace Schemas {
        * * `exponential_histogram` - exponential_histogram
        * * `summary` - summary */
       metricType?: OtelMetricTypeEnum | null;
-      /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
+      /** Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
        *
        * * `none` - none
        * * `sum` - sum
@@ -128971,6 +117635,12 @@ export namespace Schemas {
          * @nullable
          */
       formula?: string | null;
+      /**
+         * PromQL expression, run as a range query over the request's time grid, e.g. 'sum by (job) (rate(http_requests_total[5m]))'. Use it to run an alert or runbook expression as written. Mutually exclusive with 'metricName' and 'clauses'; put label selectors and grouping in the expression instead of 'filters' and 'groupBy'. In PromQL, service.name is service_name and other label names with dots need quotes. A bucket that a series did not report is null, not zero.
+         * @maxLength 8192
+         * @nullable
+         */
+      promql?: string | null;
       /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo. */
       dateFrom?: string;
       /** Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted. */
@@ -130376,26 +119046,6 @@ export namespace Schemas {
       Ndjson: 'ndjson',
     } as const;
 
-    export type InternalFeedbackCreateBody = {
-      /**
-         * What the person wants to tell the developers.
-         * @maxLength 4000
-         */
-      comment: string;
-      /**
-         * URL of the page the feedback is about.
-         * @maxLength 2000
-         */
-      page_url: string;
-      /**
-         * CSS selector of the element the person selected. Empty for feedback about the whole page.
-         * @maxLength 1000
-         */
-      element_identifier?: string;
-      /** JPEG screenshot of the page, with the selected element outlined when there is one. */
-      screenshot?: Blob;
-    };
-
     export type LlmAnalyticsPersonalSpendListParams = {
     /**
      * When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 50 hours at 5-minute buckets).
@@ -131415,6 +120065,55 @@ export namespace Schemas {
     include_history?: boolean;
     };
 
+    export type AccountsPersonsRetrieveParams = {
+    /**
+     * JSON array of person property filters with key, operator, value, and type="person". Filters use AND.
+     */
+    filters?: string;
+    /**
+     * Maximum persons per page.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of matching persons to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * JSON array of selected person property keys. Example: ["email", "name"].
+     */
+    properties?: string;
+    /**
+     * Search name, email, person ID, or distinct ID.
+     * @maxLength 1000
+     */
+    search?: string;
+    /**
+     * Sort by id, display_name, account_first_seen, account_last_seen, or a selected property key.
+     * @minLength 1
+     * @maxLength 1000
+     */
+    sort_column?: string;
+    /**
+     * Sort direction. Person ID breaks ties.
+     *
+     * * `asc` - Ascending
+     * * `desc` - Descending
+     * @minLength 1
+     */
+    sort_direction?: AccountsPersonsRetrieveSortDirection;
+    };
+
+    export type AccountsPersonsRetrieveSortDirection = typeof AccountsPersonsRetrieveSortDirection[keyof typeof AccountsPersonsRetrieveSortDirection];
+
+
+    export const AccountsPersonsRetrieveSortDirection = {
+      Asc: 'asc',
+      Desc: 'desc',
+    } as const;
+
     export type AccountsEmailThreadsListParams = {
     /**
      * Number of results to return per page.
@@ -131710,6 +120409,7 @@ export namespace Schemas {
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
+     * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -131829,6 +120529,7 @@ export namespace Schemas {
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       OAuthApplication: 'OAuthApplication',
+      WorkloadTrustPolicy: 'WorkloadTrustPolicy',
       User: 'User',
       Action: 'Action',
       AccountView: 'AccountView',
@@ -131934,6 +120635,7 @@ export namespace Schemas {
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
+     * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -132041,6 +120743,7 @@ export namespace Schemas {
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       OAuthApplication: 'OAuthApplication',
+      WorkloadTrustPolicy: 'WorkloadTrustPolicy',
       User: 'User',
       Action: 'Action',
       AccountView: 'AccountView',
@@ -132244,6 +120947,15 @@ export namespace Schemas {
      * @minimum 1
      */
     version?: number;
+    };
+
+    export type AeoPromptsOverviewParams = {
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
     };
 
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {
@@ -132614,6 +121326,25 @@ export namespace Schemas {
      */
     created_at: string;
     };
+
+    export type AiObservabilityTracesExportsContentRetrieveParams = {
+    /**
+     * What the file is read for. Only a download is recorded as one.
+     *
+     * * `download` - Download
+     * * `copy` - Copy
+     * @minLength 1
+     */
+    purpose?: AiObservabilityTracesExportsContentRetrievePurpose;
+    };
+
+    export type AiObservabilityTracesExportsContentRetrievePurpose = typeof AiObservabilityTracesExportsContentRetrievePurpose[keyof typeof AiObservabilityTracesExportsContentRetrievePurpose];
+
+
+    export const AiObservabilityTracesExportsContentRetrievePurpose = {
+      Download: 'download',
+      Copy: 'copy',
+    } as const;
 
     export type AiObservabilityTracesFeedbackRetrieveParams = {
     /**
@@ -133981,6 +122712,11 @@ export namespace Schemas {
       Breached: 'breached',
       OnTrack: 'on-track',
     } as const;
+
+    export type ConversationsTicketsAttachmentsCreateBody = {
+      /** File to attach. Must be under 20 MiB. */
+      file: Blob;
+    };
 
     export type ConversationsTicketsMessagesListParams = {
     /**
@@ -136023,6 +124759,17 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsDepotCiUsageParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    };
+
     export type EngineeringAnalyticsDoraParams = {
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
@@ -137561,9 +126308,9 @@ export namespace Schemas {
 
     export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**
-     * Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.
+     * Ignored. The server derives the metric's calculation key from the experiment's current settings. Accepted so that existing clients keep working.
      */
-    fingerprint: string;
+    fingerprint?: string;
     /**
      * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
      */
@@ -137694,6 +126441,15 @@ export namespace Schemas {
       AzureBlob: 'AzureBlob',
       S3: 'S3',
     } as const;
+
+    export type ExternalDataDestinationsConnectLinkStatusRetrieveParams = {
+    /**
+     * The connect_token that the connect link returned.
+     * @minLength 1
+     * @maxLength 128
+     */
+    connect_token: string;
+    };
 
     export type ExternalDataSchemasListParams = {
     /**
@@ -138701,7 +127457,7 @@ export namespace Schemas {
      */
     broadcast_eligible?: boolean;
     /**
-     * Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.
+     * Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, partially_sent, failed, archived. Scheduled, sending, sent, partially_sent and failed come from the latest run and whether a schedule still has sends to come. A latest run that is completed reads as sent, partially_failed as partially_sent, and failed or cancelled as failed. With a schedule still to come, a completed or partially_failed latest run reads as scheduled.
      */
     broadcast_status?: string;
     created_at?: string;
@@ -138711,7 +127467,7 @@ export namespace Schemas {
     created_by?: string;
     id?: string;
     /**
-     * Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last.
+     * Pass `true` to order by when each workflow's newest completed or partially_failed run finished, newest first. Workflows that never finished such a run come last.
      */
     latest_send_first?: boolean;
     /**
@@ -138719,6 +127475,10 @@ export namespace Schemas {
      * @maximum 500
      */
     limit?: number;
+    /**
+     * Only workflows whose name contains this text, ignoring case. Unlike `search`, it never reads descriptions, tags or step content.
+     */
+    name?: string;
     /**
      * The initial index from which to return the results.
      */
@@ -138973,12 +127733,12 @@ export namespace Schemas {
      */
     interval?: HogFlowsMetricsRetrieveInterval;
     /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.
      * @minLength 1
      */
     kind?: string;
     /**
-     * Comma-separated metric names to filter by.
+     * Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.
      * @minLength 1
      */
     name?: string;
@@ -139035,12 +127795,12 @@ export namespace Schemas {
      */
     interval?: HogFlowsMetricsTotalsRetrieveInterval;
     /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.
      * @minLength 1
      */
     kind?: string;
     /**
-     * Comma-separated metric names to filter by.
+     * Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.
      * @minLength 1
      */
     name?: string;
@@ -139097,12 +127857,12 @@ export namespace Schemas {
      */
     interval?: HogFlowsMetricsVersionRetrieveInterval;
     /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.
      * @minLength 1
      */
     kind?: string;
     /**
-     * Comma-separated metric names to filter by.
+     * Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.
      * @minLength 1
      */
     name?: string;
@@ -139312,12 +128072,12 @@ export namespace Schemas {
      */
     interval?: HogFunctionsMetricsRetrieveInterval;
     /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.
      * @minLength 1
      */
     kind?: string;
     /**
-     * Comma-separated metric names to filter by.
+     * Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.
      * @minLength 1
      */
     name?: string;
@@ -139374,12 +128134,12 @@ export namespace Schemas {
      */
     interval?: HogFunctionsMetricsTotalsRetrieveInterval;
     /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.
      * @minLength 1
      */
     kind?: string;
     /**
-     * Comma-separated metric names to filter by.
+     * Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.
      * @minLength 1
      */
     name?: string;
@@ -143564,7 +132324,7 @@ export namespace Schemas {
      */
     refresh?: boolean;
     /**
-     * When the request starts a build or one is running, wait up to this many seconds for its list. Defaults to 0, which returns at once. A build usually takes 10 to 60 seconds.
+     * When the request starts a build or one is running, wait for its list until this many seconds after the request started. Defaults to 0, which does not wait. A build usually takes 10 to 60 seconds.
      * @minimum 0
      * @maximum 30
      */
@@ -143981,7 +132741,7 @@ export namespace Schemas {
      */
     skill_name?: string;
     /**
-     * ILIKE substring match against `content`. Omit to return the most recent entries.
+     * ILIKE substring match against `content` and `key`. Must contain 3 letters or digits in a row, or 2 next to a symbol such as `ai_` or `pr:`. Omit to return the most recent entries.
      */
     text?: string;
     };
@@ -143996,6 +132756,25 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type SlackAppWorkspaceSetupRetrieveParams = {
+    /**
+     * Where the Slack install started. slack_page adds the steps for a person who sets up Slack on purpose.
+     *
+     * * `slack_page` - The Slack page in PostHog
+     * * `other` - Another place, such as a channel picker
+     * @minLength 1
+     */
+    entry?: SlackAppWorkspaceSetupRetrieveEntry;
+    };
+
+    export type SlackAppWorkspaceSetupRetrieveEntry = typeof SlackAppWorkspaceSetupRetrieveEntry[keyof typeof SlackAppWorkspaceSetupRetrieveEntry];
+
+
+    export const SlackAppWorkspaceSetupRetrieveEntry = {
+      SlackPage: 'slack_page',
+      Other: 'other',
+    } as const;
 
     export type StamphogDigestRunsListParams = {
     /**
@@ -146843,6 +135622,17 @@ export namespace Schemas {
      * The workflow to read the import of.
      */
     hog_flow_id: string;
+    };
+
+    export type WorkloadTrustPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type PublicHogFunctionTemplatesListParams = {

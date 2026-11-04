@@ -1,6 +1,6 @@
 import { deepEqual as equal } from 'fast-equals'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconFilter, IconRefresh } from '@posthog/icons'
 import { Badge, Button, Toggle, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
@@ -20,6 +20,11 @@ import { SavedFilterEditedBar } from './SavedFilterEditedBar'
 import { SavedFilterSelect } from './SavedFilterSelect'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
+function withoutSort(filters: RecordingUniversalFilters): Partial<RecordingUniversalFilters> {
+    const { order: _order, order_direction: _direction, ...rest } = filters
+    return comparableRecordingFilters(rest)
+}
+
 export function ReplayFilterBar({
     filters,
     setFilters,
@@ -35,10 +40,11 @@ export function ReplayFilterBar({
     onReload: () => void
     savedFilterChips?: boolean
 }): JSX.Element {
-    const { sessionRecordingsResponseLoading } = useValues(sessionRecordingsPlaylistLogic)
+    const { sessionRecordingsResponseLoading, defaultFilters } = useValues(sessionRecordingsPlaylistLogic)
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
     const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
     const { appliedSavedFilter, appliedSavedFilterFilters } = useValues(sessionRecordingSavedFiltersLogic)
+    const { setAppliedSavedFilter } = useActions(sessionRecordingSavedFiltersLogic)
     const { applyFilters } = useRecordingFiltersAssist({ filters, setFilters, currentSessionRecordingId })
     useMaxTool({
         identifier: 'filter_session_recordings',
@@ -55,6 +61,12 @@ export function ReplayFilterBar({
     const [saveModalOpen, setSaveModalOpen] = useState(false)
 
     const edited = !!appliedSavedFilter && !equal(appliedSavedFilterFilters, comparableRecordingFilters(filters))
+    const filtersAreDefault = equal(withoutSort(filters), withoutSort(defaultFilters))
+    useEffect(() => {
+        if (appliedSavedFilter && filtersAreDefault) {
+            setAppliedSavedFilter(null)
+        }
+    }, [appliedSavedFilter, filtersAreDefault, setAppliedSavedFilter])
 
     return (
         <div data-quill className="flex flex-col gap-1 text-foreground">

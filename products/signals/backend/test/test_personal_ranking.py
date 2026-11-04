@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.core.management import call_command
+from django.db.models import F
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -43,7 +44,14 @@ from products.signals.backend.personal_ranking.config import (
     ReasonLimits,
     parse_config,
 )
-from products.signals.backend.personal_ranking.logic import BUILT_EVENT, build_personal_ranking
+from products.signals.backend.personal_ranking.logic import (
+    BUILT_EVENT,
+    InputChanges,
+    build_personal_ranking,
+    compare_inputs,
+    input_hash,
+    input_parts,
+)
 from products.signals.backend.personal_ranking.prompt import render_person, system_prompt, user_message
 from products.signals.backend.personal_ranking.validation import MalformedRankingError, validate_ranking
 from products.signals.backend.personal_ranking_tasks import build_lock_key, build_personal_inbox_ranking
@@ -260,6 +268,103 @@ def _candidate(index: int, report_id: str, **overrides: Any) -> Candidate:
         "pools": ("for_you_recommended",),
     }
     return Candidate(**{**fields, **overrides})
+
+
+_IDS = ["018f3d0e-0000-7000-8000-000000000001", "018f3d0e-0000-7000-8000-000000000002"]
+
+
+def _scored(probability: float) -> ReportPredictions:
+    return ReportPredictions(
+        status="scored",
+        model="m@1",
+        predictions=(OutcomePrediction(outcome="action", probability=probability, lift=None, readable=True),),
+    )
+
+
+class TestInputParts(SimpleTestCase):
+    def test_input_hash_keeps_its_value(self) -> None:
+        candidates = [_candidate(1, _IDS[0]), _candidate(2, _IDS[1], predictions=None, needs_you=())]
+
+        assert (
+            input_hash(candidates, activity_summary_version=7, focus="checkout")
+            == "8b3bc5b28875163b6769d657f08d4351f846fbd0293ca46563bd930743ed5958"
+        )
+
+    @parameterized.expand(
+        [
+            ("nothing", {}, 7, InputChanges(changed_parts=(), changed_report_count=0, max_score_move=0.0)),
+            (
+                "score_jitter_under_the_rounding",
+                {"predictions": _scored(0.421)},
+                7,
+                InputChanges(changed_parts=(), changed_report_count=0, max_score_move=0.001),
+            ),
+            (
+                "score",
+                {"predictions": _scored(0.5)},
+                7,
+                InputChanges(changed_parts=("scores",), changed_report_count=1, max_score_move=0.08),
+            ),
+            (
+                "summary_version",
+                {},
+                8,
+                InputChanges(changed_parts=("activity_summary_version",), changed_report_count=0, max_score_move=0.0),
+            ),
+            (
+                "text_and_needs_you",
+                {"title": "Renamed", "needs_you": ("claimed",)},
+                7,
+                InputChanges(changed_parts=("text", "needs_you"), changed_report_count=1, max_score_move=0.0),
+            ),
+        ]
+    )
+    def test_names_the_changed_parts(
+        self, _name: str, overrides: dict[str, Any], summary_version: int, expected: InputChanges
+    ) -> None:
+        stored = PersonalInboxRanking(
+            input_parts=input_parts([_candidate(1, _IDS[0])], activity_summary_version=7, focus=None)
+        )
+        current = input_parts(
+            [_candidate(1, _IDS[0], **overrides)], activity_summary_version=summary_version, focus=None
+        )
+
+        assert compare_inputs(stored, current, rank_top=10) == dataclasses.replace(
+            expected, joined_count=0, left_count=0, left_top_count=0
+        )
+
+    def test_counts_the_reports_that_joined_and_left_the_stored_top(self) -> None:
+        ids = [f"018f3d0e-0000-7000-8000-00000000000{index}" for index in range(1, 5)]
+        stored = PersonalInboxRanking(
+            input_parts=input_parts(
+                [_candidate(index, ids[index - 1]) for index in (1, 2, 3)], activity_summary_version=7, focus=None
+            ),
+            result={"ranked": [{"report_id": ids[1]}, {"report_id": ids[0]}, {"report_id": ids[2]}]},
+        )
+        current = input_parts([_candidate(1, ids[0]), _candidate(4, ids[3])], activity_summary_version=7, focus=None)
+
+        changes = compare_inputs(stored, current, rank_top=2)
+
+        assert (changes.changed_parts, changes.joined_count, changes.left_count, changes.left_top_count) == (
+            ("candidate_set",),
+            1,
+            2,
+            1,
+        )
+
+    @parameterized.expand(
+        [
+            ("no_previous_list", None, ("no_previous_list",)),
+            ("row_from_before_the_parts", PersonalInboxRanking(input_parts=None), ("unknown",)),
+            ("unreadable_parts", PersonalInboxRanking(input_parts={"parts": []}), ("unknown",)),
+        ]
+    )
+    def test_a_previous_list_without_parts_reports_why(
+        self, _name: str, previous: PersonalInboxRanking | None, expected: tuple[str, ...]
+    ) -> None:
+        current = input_parts([_candidate(1, _IDS[0])], activity_summary_version=7, focus=None)
+
+        assert compare_inputs(previous, current, rank_top=10) == InputChanges(changed_parts=expected)
 
 
 class TestPrompt(SimpleTestCase):
@@ -811,6 +916,12 @@ class TestForMeEndpoint(APIBaseTest):
         assert (self._state(self._get()), self._rows()) == ((True, False, False), 3)
 
         second = self._claimed_report("Second")
+        body = self._get()
+        assert (self._state(body), self.queued) == ((True, False, False), [])
+        assert [entry["report"]["id"] for entry in body["results"]] == [str(first.id)]
+        PersonalInboxRanking.objects.for_team(self.team.id).update(
+            created_at=F("created_at") - datetime.timedelta(days=2)
+        )
         assert self._state(self._get()) == (True, True, True)
         self._run_builds()
         body = self._get()
@@ -872,6 +983,8 @@ class TestForMeEndpoint(APIBaseTest):
 
         assert (self._state(self._get(refresh="true")), self.queued) == ((True, False, False), [])
         self._claimed_report("Second")
+        first.title = "First, edited"
+        first.save()
         body = self._get()
         assert (self._state(body), self._rows()) == ((True, True, False), 1)
         assert [entry["report"]["id"] for entry in body["results"]] == [str(first.id)]

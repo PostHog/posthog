@@ -94,7 +94,7 @@ The input is always in exactly one mode, decided from the token under the cursor
 - A search with words goes to the ranked search endpoint (`file_system/search/`). A search made only of filters goes to the list endpoint, because there are no words to rank.
 - Sections, in this fixed order, covering everything the current palette finds:
   1. **Results**: file system objects (insights, dashboards, feature flags, experiments, surveys, notebooks, cohorts, actions, early access features, replay playlists, data pipelines), and products. For a search with words, see [Ranked results](#ranked-results).
-  2. In-memory lists, filtered on every keystroke: **Data management**, **People**, **Health**, **Misc**, **Shortcuts** (with their key bindings), **Settings** (with a Dark mode / Light mode row for "dark", "light", "theme", "appearance"), **Create new**. For a search with words they keep only items that match every word with no typo. Products rank with the results instead. In the test group of the `command-k-settings-in-results` experiment, settings that match every word with no typo also rank with the results, unless a product has the same name, and the **Settings** section lists only the ones that did not.
+  2. In-memory lists, filtered on every keystroke: **Data management**, **People**, **Health**, **Actions** (Log out, and Toggle terminal when the terminal is on), **Shortcuts** (with their key bindings), **Settings** (with a Dark mode / Light mode row for "dark", "light", "theme", "appearance"), **Create new**. For a search with words they keep only items that match every word with no typo. Products rank with the results instead. Settings that match every word with no typo also rank with the results, unless a product has the same name, and the **Settings** section lists only the ones that did not.
   3. Remote lists that the file system does not hold: **Events**, **Properties**, **Workflows** (one unified search request), **Accounts** (behind the customer analytics flag, excluding accounts already shown in ranked results), **Support tickets** (3+ characters or a ticket number).
   4. **Ask PostHog AI**.
   5. **Persons**, **Groups**. Person and group searches can take seconds, so they usually come last. The person search starts with the file system search, after 50 ms. A search that contains "@" waits for the person search and ranks the persons it finds with **Results** / **Best matches**. A person who matches every word comes first. Persons that do not rank stay in **Persons** below, with no duplicates. Other searches do not wait for persons or groups.
@@ -126,6 +126,13 @@ Results for a search with words follow ordered tie-breaking rules: words matched
 - Results with the same name show as one row with a "+N with this name" badge.
 - A short list (8 or fewer) or a list of one type shows flat, under one **Results** header.
 - With an `is:` chip, results show as one flat list. The creator shows on rows that share a name.
+- Some `is:` types are not file system objects, so the file system search cannot find them. `is:alert`, `is:ticket`, `is:workflow`, `is:endpoint`, and `is:product_tour` search their own API instead (`TYPE_SEARCHES` in `commandKSources.ts`): alerts, support tickets, and product tours through their list endpoint's `search=`, workflows and endpoints through the unified search API. Results keep the order the API returns, and the ranking keeps a result the API matched outside its name.
+  - `is:ticket` lists the most recently updated tickets with no search text. With text, it follows the **Support tickets** rule: 3+ characters or a ticket number (`42`, `#42`), because the ticket search also scans message text. The ticket API reads a numeric search as a ticket number, so a numeric `name:` value (`name:42`) is not sent. Command K sends the other words, or none, and keeps the tickets whose subject contains the value. With no other words it checks only the 20 most recently updated tickets. A ticket row shows its subject, then the number, the customer's name or email, and the status.
+  - These APIs cannot apply `createdBy:`, `in:`, or excluded words, so a query with any of them finds nothing for these types. A search that ignored the filter would show objects the filter excludes. Quoted exclusions (`"-legacy"`) count too.
+  - Some of these APIs also match descriptions, customers, or message text, so Command K keeps only the results whose name contains the `name:` value.
+  - `is:workflow name:venue` finds "Revenue". With no other words, the `name:` value goes to the workflows list `name=` filter, which matches inside workflow names on the server and never reads step content. With other words, only those words go to the unified search, and the `name:` value filters its results.
+  - `is:endpoint name:` still goes to the unified full-text search, which matches the start of words, so `name:venue` does not find "revenue". The endpoints list has no search to use instead.
+  - These searches wait 150 ms after the last keystroke, like the other remote lists, instead of the 50 ms of the file system search. Alerts load 5 at a time, because the alerts list also loads each alert's fired checks.
 - Rows show the folder (when not Unfiled) and "viewed 3 days ago" when the person opened the item, otherwise "created 2 mos ago". Type labels show only in Best matches, where types mix.
 
 ## Smart filters
@@ -146,6 +153,9 @@ Quote values with spaces: `createdBy:"Ada Lovelace"`, `in:"Team Growth"`.
 
 The backend tokenizes these in `FileSystemViewSet._apply_search_to_queryset` (`posthog/api/file_system/file_system.py`), including `-` negation and quotes.
 The frontend maps friendly keys to backend keys (`is:` → `type:`, `createdBy:` → `user:`) and sends one `search` string.
+`is:` also offers insight alert, ticket, destination, and transformation, which no manifest lists (`EXTRA_TYPES` in `commandKFilterOptions.tsx`). Types that the file system does not hold search their own API (see [Ranked results](#ranked-results)).
+`is:alert` covers insight alerts only, because the log alerts list has no search, and its **View all** row opens the insight alerts tab.
+`is:destination` covers server and browser destinations (`hog_function/destination` and `hog_function/site_destination`), like the Destinations page. The file system search takes one `type:` value, so Command K sends one search per type with the other filters kept, and merges the results. `-is:destination` excludes both types in one search.
 
 ### Suggested next filters
 

@@ -18,6 +18,7 @@ import { TodayChange } from './TodayChange'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { todayNumber } from './todayNumbers'
 import { TodayPulseCard } from './TodayPulseCard'
+import { pulseChange } from './todayPulseFacts'
 import { TodayPulseHoverCard } from './TodayPulseHoverCard'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
 import type { TodayTone } from './todayTone'
@@ -65,6 +66,10 @@ function metricFormatter(metric: HighlightMetricApi, currency: CurrencyCode): (v
     return (value) => formatAggregationAxisValue(trendsFilter, value, currency)
 }
 
+function cardNumber(value: number): string {
+    return humanFriendlyNumber(value, Math.abs(value) >= 100 ? 0 : 2)
+}
+
 const REORDER_MS = 220
 
 function useSettleOnReorder(listRef: RefObject<HTMLUListElement>, order: string): void {
@@ -109,8 +114,7 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
     const listRef = useRef<HTMLUListElement>(null)
     useSettleOnReorder(listRef, cards.map((tile) => tile.key).join('|'))
     const { baseCurrency } = useValues(teamLogic)
-    const { pulseMetricOpened, pulseMetricPreviewed, hidePulseMetric, holdPulseOrder, releasePulseOrder, retryPulse } =
-        useActions(todayHighlightsLogic)
+    const { pulseMetricOpened, pulseMetricPreviewed, hidePulseMetric, retryPulse } = useActions(todayHighlightsLogic)
     return (
         <ul ref={listRef} className="TodayPulse" aria-label="Key numbers, against the period before">
             {cards.map((slot, position) => {
@@ -166,6 +170,7 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                 const isInsight = metric.key.startsWith('insight:')
                 const tone = isInsight ? 'neutral' : metricTone(metric.change_pct, metric.value)
                 const formatValue = metric.value_format ? metricFormatter(metric, baseCurrency) : todayNumber
+                const change = pulseChange(metric)
                 const content = (
                     <>
                         <span className="TodayPulse__name">{metric.name}</span>
@@ -173,7 +178,7 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                             <span className="TodayPulse__value" translate="no">
                                 {formatValue(metric.value)}
                             </span>
-                            <TodayChange change={metric.change_pct} tone={tone} />
+                            <TodayChange change={change.value} unit={change.unit} tone={tone} />
                         </span>
                         <span className="TodayPulse__spark">
                             <Suspense fallback={null}>
@@ -190,22 +195,17 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                 return (
                     <li key={metric.key} data-pulse-key={metric.key} className="TodayPulse__metric">
                         <TodayPulseHoverCard
+                            focusable={!metric.url}
                             onOpenChange={(open) => {
                                 if (open) {
                                     pulseMetricPreviewed(metric, position)
-                                    holdPulseOrder(
-                                        metric.key,
-                                        cards.map((tile) => tile.key)
-                                    )
-                                } else {
-                                    releasePulseOrder(metric.key)
                                 }
                             }}
                             card={
                                 <TodayPulseCard
                                     metric={metric}
                                     tone={tone}
-                                    formatValue={metric.value_format ? formatValue : humanFriendlyNumber}
+                                    formatValue={metric.value_format ? formatValue : cardNumber}
                                     onOpen={() => pulseMetricOpened(metric, position)}
                                     onHide={() => hidePulseMetric(metric, position)}
                                 />

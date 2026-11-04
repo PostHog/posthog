@@ -33,7 +33,7 @@ const emptyLocal = (): LocalLists => ({
     'data-management': [],
     people: [],
     health: [],
-    misc: [],
+    actions: [],
     shortcuts: [],
     settings: [],
     create: [],
@@ -54,7 +54,6 @@ const input = (mode: CommandKMode, overrides: Partial<SectionsInput>): SectionsI
     viewAll: null,
     stale: false,
     personsFirst: false,
-    settingsInResults: false,
     unifiedRanking: false,
     searchCorrection: null,
     ...overrides,
@@ -120,25 +119,50 @@ describe('buildSections', () => {
         expect(rowKeys(loaded)).toEqual(onceLoaded)
     })
 
-    it('keeps the View all row on ranked results of one type', () => {
+    const alerts: SearchItem[] = [
+        { id: 'alert-2', name: 'Revenue drop', category: 'results', record: { type: 'alert', id: '2' } },
+        { id: 'alert-1', name: 'Weekly revenue', category: 'results', record: { type: 'alert', id: '1' } },
+    ]
+    const ticketMatchedInMessage: SearchItem = {
+        id: 'ticket-1',
+        name: 'Card declined',
+        category: 'results',
+        record: { type: 'ticket', id: '1' },
+    }
+    test.each<[string, string, SearchItem[], string[], boolean]>([
+        [
+            'file system results with a server rank',
+            'type:dashboard revenue',
+            [{ ...dashboard('a', '1'), rankKey: [-1, 0, 0, 0, -1, 0, 2, 0, 0] }],
+            ['results/a'],
+            false,
+        ],
+        [
+            'results from a type API that sends no rank, in the order it sent them',
+            'type:alert revenue',
+            alerts,
+            ['results/alert-2', 'results/alert-1'],
+            false,
+        ],
+        [
+            'a type API result that matched outside its name, with unified ranking',
+            'type:ticket revenue',
+            [ticketMatchedInMessage],
+            ['results/ticket-1'],
+            true,
+        ],
+    ])('keeps the View all row after ranked %s', (_, results, items, rowKeys, unifiedRanking) => {
         const viewAll: ViewAll = {
-            item: { id: 'view-all', name: 'View all dashboards', category: 'results', href: '/dashboard' },
+            item: { id: 'view-all', name: 'View all', category: 'results', href: '/list' },
             placement: 'trail',
         }
         const remote = emptyRemoteSlots()
-        remote.results = {
-            cache: { 'type:dashboard revenue': [{ ...dashboard('a', '1'), rankKey: [-1, 0, 0, 0, -1, 0, 2, 0, 0] }] },
-        }
+        remote.results = { cache: { [results]: items } }
         const sections = buildSections(
-            input('search', {
-                remote,
-                remoteQueries: { results: 'type:dashboard revenue' },
-                localQuery: 'revenue',
-                viewAll,
-            })
+            input('search', { remote, remoteQueries: { results }, localQuery: 'revenue', viewAll, unifiedRanking })
         )
         expect(sections.find((section) => section.key === 'results')?.rows.map((row) => row.key)).toEqual([
-            'results/a',
+            ...rowKeys,
             'results/view-all',
         ])
     })
@@ -396,10 +420,9 @@ describe('buildSections', () => {
     })
 
     test.each([
-        ['off', false, 'Personal API keys', ['best-matches', 'settings'], 'Ada board'],
-        ['on', true, 'Personal API keys', ['best-matches'], 'Personal API keys'],
-        ['on, but a product has its name', true, 'API keys', ['best-matches', 'settings'], 'API keys'],
-    ])('ranks an exact-match setting with the results: flag %s', (_, settingsInResults, settingName, keys, first) => {
+        ['no product shares its name', 'Personal API keys', ['best-matches'], 'Personal API keys'],
+        ['a product has its name', 'API keys', ['best-matches', 'settings'], 'API keys'],
+    ])('ranks an exact-match setting with the results when %s', (_, settingName, keys, first) => {
         const setting: SearchItem = {
             id: 'settings-api-keys',
             name: `User: ${settingName} (api keys)`,
@@ -420,7 +443,6 @@ describe('buildSections', () => {
                 remote,
                 remoteQueries: { results: 'api keys' },
                 localQuery: 'api keys',
-                settingsInResults,
             })
         )
 
@@ -447,7 +469,6 @@ describe('buildSections', () => {
                 remote,
                 remoteQueries: { results: 'personal_api_keys' },
                 localQuery: 'personal_api_keys',
-                settingsInResults: true,
                 unifiedRanking: true,
             })
         )

@@ -214,6 +214,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'toolbar:write',
     'tracing:read',
     'tracing:write',
+    'transactional_email:read',
+    'transactional_email:write',
     'field_note:read',
     'field_note:write',
     'uploaded_media:read',
@@ -240,6 +242,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'web_analytics:write',
     'webhook:read',
     'webhook:write',
+    'workload_trust_policy:read',
+    'workload_trust_policy:write',
 ] as const
 
 export type OAuthScope = (typeof OAUTH_SCOPES_SUPPORTED)[number]
@@ -252,6 +256,8 @@ export type OAuthScope = (typeof OAUTH_SCOPES_SUPPORTED)[number]
 export const OAUTH_SCOPES_HIDDEN = [
     'batch_import_support:read',
     'batch_import_support:write',
+    'messaging_preference:read',
+    'messaging_preference:write',
     'query_performance:read',
     'query_performance:write',
     'wizard_run:read',
@@ -263,4 +269,8 @@ export const OAUTH_SCOPES_HIDDEN = [
 // A new scope object mapped to the legacy one it split off (mirrors LEGACY_SCOPE_FALLBACKS
 // in posthog/scopes.py). While old tokens carry only the legacy scope, a held
 // `<legacy>:<action>` satisfies a required `<new>:<action>`.
-export const LEGACY_SCOPE_FALLBACKS: ReadonlyMap<string, string> = new Map([['inbox', 'task']])
+export const LEGACY_SCOPE_FALLBACKS: ReadonlyMap<string, string> = new Map([
+    ['inbox', 'task'],
+    ['messaging_preference', 'hog_flow'],
+    ['transactional_email', 'hog_flow'],
+])

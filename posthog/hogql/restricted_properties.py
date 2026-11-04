@@ -8,6 +8,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AI_SUBCOLUMN_TO_SOURCE, AiEventsTable
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
+from posthog.hogql.database.schema.events_with_flag_calls import EVENT_ROW_TABLES
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
@@ -149,11 +150,12 @@ def restricted_property_keys_for_table_type(
         group_type_index = table.group_index
     elif isinstance(
         table,
-        EventsTable
-        | FlagEvaluationsTable
-        | AiEventsTable
-        | WebStatsDimensionalPreAggregatedTable
-        | WebBouncesDimensionalPreAggregatedTable,
+        (
+            *EVENT_ROW_TABLES,
+            AiEventsTable,
+            WebStatsDimensionalPreAggregatedTable,
+            WebBouncesDimensionalPreAggregatedTable,
+        ),
     ):
         prop_def_type = PropertyDefinition.Type.EVENT
     elif isinstance(table, (PersonsTable, RawPersonsTable)):

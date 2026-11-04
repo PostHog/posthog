@@ -904,6 +904,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'bug',
                     'exception',
                     'stack trace',
+                    'adaptive',
+                    'sampling',
                 ],
             },
             {
@@ -1704,7 +1706,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'When on, PostHog learns reusable answers from public human replies on resolved support tickets.',
                 component: <LearnFromSupportSetting />,
                 docsUrl: 'https://posthog.com/docs/business-knowledge/learn-from-support',
-                keywords: ['business', 'knowledge', 'support', 'learn', 'ticket', 'resolved'],
+                keywords: ['business', 'knowledge', 'support', 'learn', 'ticket', 'resolved', 'past', 'backfill'],
             },
             {
                 id: 'business-knowledge-github-repos',
@@ -2129,7 +2131,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Integrate with Slack to subscribe to insights or dashboards for regular reports to channels of your choice.',
                 docsUrl: Slack.docsUrl,
-                component: <Slack.SettingsSection />,
+                component: <Slack.SettingsSection connectSurface="settings" />,
                 keywords: ['slack', 'channel', 'notification', 'subscribe', 'report'],
             },
             {

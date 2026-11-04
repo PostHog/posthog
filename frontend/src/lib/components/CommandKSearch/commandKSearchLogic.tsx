@@ -77,16 +77,17 @@ import {
     emptyRemoteSlots,
     isSelectable,
     pickDisplayedQuery,
-    rankableSettings,
-    settingsQuery,
     resultsSettled,
     themeSearchItem,
 } from './commandKSections'
-import { REMOTE_REQUESTS, RemoteContext, RemoteResults, RemoteSource, settleRequest } from './commandKSources'
-
-const REMOTE_DEBOUNCE_MS = 150
-const OBJECTS_DEBOUNCE_MS = 50
-const FAST_REQUESTS = ['objects', 'persons']
+import {
+    REMOTE_REQUESTS,
+    RemoteContext,
+    RemoteResults,
+    RemoteSource,
+    requestDebounceMs,
+    settleRequest,
+} from './commandKSources'
 
 const INPUT_HIGHLIGHT_KEY = 'input'
 
@@ -102,9 +103,9 @@ export interface commandKSearchLogicValues {
     meFirstMembers: OrganizationMemberType[] // membersLogic
     members: OrganizationMemberType[] | null // membersLogic
     recents: FileSystemEntry[] // recentItemsModel
+    actionItems: SearchItem[] // searchListsLogic
     dataManagementItems: SearchItem[] // searchListsLogic
     healthItems: SearchItem[] // searchListsLogic
-    miscItems: SearchItem[] // searchListsLogic
     newItems: SearchItem[] // searchListsLogic
     peopleItems: SearchItem[] // searchListsLogic
     productsItems: SearchItem[] // searchListsLogic
@@ -335,7 +336,7 @@ export interface commandKSearchLogicMeta {
             dataManagementItems: SearchItem[],
             peopleItems: SearchItem[],
             healthItems: SearchItem[],
-            miscItems: SearchItem[]
+            actionItems: SearchItem[]
         ) => LocalLists
         themeItem: (localQuery: string, isDarkModeOn: boolean) => SearchItem | null
         viewAll: (resolvedQuery: ResolvedQuery) => ViewAll | null
@@ -409,7 +410,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 'dataManagementItems',
                 'peopleItems',
                 'healthItems',
-                'miscItems',
+                'actionItems',
             ],
             recentItemsModel,
             ['recents'],
@@ -690,7 +691,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 s.dataManagementItems,
                 s.peopleItems,
                 s.healthItems,
-                s.miscItems,
+                s.actionItems,
             ],
             (
                 recents: SearchItem[],
@@ -702,7 +703,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 dataManagement: SearchItem[],
                 people: SearchItem[],
                 health: SearchItem[],
-                misc: SearchItem[]
+                actions: SearchItem[]
             ): LocalLists => ({
                 recents,
                 starred,
@@ -713,7 +714,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 'data-management': dataManagement,
                 people,
                 health,
-                misc,
+                actions,
             }),
         ],
         themeItem: [
@@ -776,9 +777,6 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     ...displayed.query,
                     stale: displayed.stale,
                     personsFirst: !!displayed.query.remoteQueries.persons?.includes('@'),
-                    settingsInResults:
-                        rankableSettings(local, settingsQuery(displayed.query.localQuery, unifiedRanking)).length > 0 &&
-                        featureFlags[FEATURE_FLAGS.COMMAND_K_SETTINGS_IN_RESULTS] === 'test',
                     unifiedRanking,
                     searchCorrection:
                         searchCorrection &&
@@ -941,7 +939,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     )
                     continue
                 }
-                const debounceMs = FAST_REQUESTS.includes(request.id) ? OBJECTS_DEBOUNCE_MS : REMOTE_DEBOUNCE_MS
+                const debounceMs = requestDebounceMs(request, query)
                 // One disposable per request covers the debounce and the fetch, so a newer query
                 // cancels both, and unmounting cancels everything.
                 cache.disposables.add(

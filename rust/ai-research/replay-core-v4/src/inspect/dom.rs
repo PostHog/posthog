@@ -3,16 +3,17 @@
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use url::Url;
 
 use crate::bytescan::{self as scan, Span};
 use crate::fonts::{bundled_font, is_fetched_font_url};
-use crate::url_policy::{is_fetched_image_type, is_remote, MAX_URL_LEN};
+use crate::url_policy::{is_fetched_image_type, is_remote, needs_redaction, MAX_URL_LEN};
 
-use super::css::{self, CssRewrite, CssUrl, Resolver};
+use super::css::{self, CssEditBuilder, CssUrl, Resolver};
+use super::edits::{Buffers, Edit, LinkForm, Slot};
 use super::events::{field, fields, number, text};
 use super::rrweb::{
     ADOPTED_STYLE_SHEET, FULL_SNAPSHOT, INCREMENTAL_SNAPSHOT, MUTATION, STYLE_DECLARATION,
@@ -32,13 +33,6 @@ pub const MAX_FONT_URLS: usize = 512;
 /// Attribute changes read per mutation, as many as the nodes tracked. A mutation with more drops its block, because
 /// the inspector does not name the URLs in the rest.
 pub const MAX_ATTRIBUTE_ITEMS: usize = MAX_TRACKED_NODES;
-/// The distinct remote URLs in a block's image slots, and their bytes. The writer builds one matcher over them, and
-/// the build takes memory in proportion to their bytes.
-pub const MAX_BLOCK_REMOTE_URLS: usize = 10_000;
-pub const MAX_BLOCK_REMOTE_URL_BYTES: usize = 2 * 1024 * 1024;
-/// Font URLs have a budget of their own, so that many font faces never stop the naming of image URLs. Past it the writer scrubs the block's unnamed remote URLs, as past an image limit.
-pub const MAX_BLOCK_FONT_URLS: usize = 4096;
-pub const MAX_BLOCK_FONT_URL_BYTES: usize = 256 * 1024;
 /// Windows tracked per session. A new window past this evicts the window used least recently.
 pub const MAX_WINDOWS: usize = 16;
 /// Evicted windows remembered, so that one that comes back is known to have lost its DOM.
@@ -196,247 +190,41 @@ struct WindowDom {
     page_base: Option<Arc<Url>>,
 }
 
-/// Why the inspector stopped naming a block's remote image or font URLs. The writer replaces only the URLs it is given, so it scrubs every other remote URL token in the block.
+/// Why the inspector could not read a block in full. A URL in the part it did not read went unchecked, so the writer drops the block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UrlLimit {
-    UrlCount,
-    UrlBytes,
     AttributeItems,
-    FontUrlCount,
-    FontUrlBytes,
-    /// A font rewrite can hold an escaped remote URL, which no other rewrite replaces.
-    FontRewrites,
     NestedBlocks,
+    NestedJson,
+    Edits,
 }
 
 impl UrlLimit {
     /// The outcome of the dropped block in the recorder's metrics.
     pub fn label(self) -> &'static str {
         match self {
-            UrlLimit::UrlCount => "too_many_urls",
-            UrlLimit::UrlBytes => "too_many_url_bytes",
             UrlLimit::AttributeItems => "too_many_attribute_items",
-            UrlLimit::FontUrlCount => "too_many_font_urls",
-            UrlLimit::FontUrlBytes => "too_many_font_url_bytes",
-            UrlLimit::FontRewrites => "too_many_font_rewrites",
             UrlLimit::NestedBlocks => "too_many_nested_blocks",
+            UrlLimit::NestedJson => "too_deep_json",
+            UrlLimit::Edits => "too_many_edits",
         }
-    }
-
-    /// The scrub replaces only the URL tokens it finds in the text, so it cannot vouch for CSS that the inspector could not read.
-    pub fn drops_block(self) -> bool {
-        matches!(self, UrlLimit::NestedBlocks)
-    }
-
-    pub fn is_font_budget(self) -> bool {
-        matches!(
-            self,
-            UrlLimit::FontUrlCount | UrlLimit::FontUrlBytes | UrlLimit::FontRewrites
-        )
     }
 }
 
-/// One URL gets one reference, so a URL used as several kinds takes the greatest. A fetched font beats a bundled one because it is the page's own file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RemoteKind {
     BundledFont(&'static str),
     Font,
     Image,
+    /// A URL that no fetch takes, such as a relative one or one in a CSS property that shows no image. The writer keeps
+    /// it without its credentials.
+    Link,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteUrl {
     pub url: String,
     pub kind: RemoteKind,
-}
-
-/// Distinct remote URLs, within a count and a byte budget per kind. Past a budget it keeps no more of that kind, and [`RemoteUrls::url_limit`] says why.
-#[derive(Debug, Default)]
-pub struct RemoteUrls {
-    urls: HashMap<String, RemoteKind>,
-    bytes: usize,
-    font_urls: u16,
-    font_bytes: u32,
-    pub limit: Option<UrlLimit>,
-    font_limit: Option<UrlLimit>,
-    /// Each image-slot srcset value, and the slot that holds it. The writer rebuilds each from the candidates it keeps,
-    /// and it builds one matcher over them as over `urls`, so they share the byte budget of `urls`. Past it this keeps no
-    /// more, which is safe: the writer still replaces each URL in `urls` on its own.
-    /// Boxed, because the session state counts this struct's size and most blocks hold no srcset.
-    srcsets: Option<Box<SrcsetValues>>,
-    /// Past its count and byte budget this keeps no more, which is safe: each URL a rewrite drops is in `urls` too, and a
-    /// relative URL stays as the page wrote it.
-    css_rewrites: Option<Box<CssRewrites>>,
-}
-
-#[derive(Debug, Default)]
-struct CssRewrites {
-    values: HashMap<String, Option<CssRewrite>>,
-    bytes: usize,
-}
-
-#[derive(Debug, Default)]
-struct SrcsetValues {
-    values: HashMap<Vec<u8>, (String, Vec<SrcsetSlot>)>,
-    bytes: usize,
-}
-
-/// An image-slot srcset value as the event holds it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Srcset {
-    pub text: String,
-    /// The value as a JSON string with its quotes and escapes, as the event holds it.
-    pub raw: Vec<u8>,
-    pub slot: SrcsetSlot,
-}
-
-impl RemoteUrls {
-    fn insert(&mut self, url: &str, kind: RemoteKind) {
-        if let Some(known) = self.urls.get_mut(url) {
-            *known = (*known).max(kind);
-            return;
-        }
-        if kind != RemoteKind::Image {
-            let font_bytes = self.font_bytes as usize + url.len();
-            if usize::from(self.font_urls) >= MAX_BLOCK_FONT_URLS {
-                self.font_limit = self.font_limit.or(Some(UrlLimit::FontUrlCount));
-            } else if font_bytes > MAX_BLOCK_FONT_URL_BYTES {
-                self.font_limit = self.font_limit.or(Some(UrlLimit::FontUrlBytes));
-            } else {
-                self.font_urls += 1;
-                self.font_bytes = font_bytes as u32;
-                self.urls.insert(url.to_owned(), kind);
-            }
-            return;
-        }
-        if self.limit.is_some() {
-            return;
-        }
-        // A URL of any length is named: the policy declines one too long to fetch, and its bytes count toward the
-        // block's budget.
-        self.limit = if self.urls.len() - usize::from(self.font_urls) >= MAX_BLOCK_REMOTE_URLS {
-            Some(UrlLimit::UrlCount)
-        } else if self.bytes + url.len() > MAX_BLOCK_REMOTE_URL_BYTES {
-            Some(UrlLimit::UrlBytes)
-        } else {
-            self.bytes += url.len();
-            self.urls.insert(url.to_owned(), kind);
-            None
-        };
-    }
-
-    /// A value in several kinds of slot keeps each kind, so that the writer keeps the candidates that some slot shows
-    /// and no other. Keyed by the value as the event holds it, so the writer finds that value again after it stores the
-    /// event.
-    fn insert_srcset(&mut self, raw: &[u8], text: &str, slot: SrcsetSlot) {
-        let srcsets = self.srcsets.get_or_insert_with(Box::default);
-        if let Some((_, slots)) = srcsets.values.get_mut(raw) {
-            if !slots.contains(&slot) {
-                slots.push(slot);
-            }
-        } else if srcsets.values.len() < MAX_BLOCK_REMOTE_URLS
-            && srcsets.bytes + raw.len() + text.len() <= MAX_BLOCK_REMOTE_URL_BYTES
-        {
-            srcsets.bytes += raw.len() + text.len();
-            srcsets
-                .values
-                .insert(raw.to_vec(), (text.to_owned(), vec![slot]));
-        }
-    }
-
-    /// A text that resolves two ways, as a root-relative URL in windows on two origins, keeps no rewrite, so that no
-    /// window shows another's image. Its URL then stays relative, as the page wrote it.
-    fn insert_css_rewrite(&mut self, text: String, rewrite: Option<CssRewrite>) {
-        let rewrites = self.css_rewrites.get_or_insert_with(Box::default);
-        if let Some(known) = rewrites.values.get_mut(&text) {
-            if known.as_ref().map(|known| &known.replacement)
-                != rewrite.as_ref().map(|rewrite| &rewrite.replacement)
-            {
-                *known = None;
-            } else if let (Some(known), Some(resolved)) = (
-                known.as_mut().and_then(|known| known.resolved.as_mut()),
-                rewrite.and_then(|rewrite| rewrite.resolved),
-            ) {
-                known.kind = known.kind.max(resolved.kind);
-            }
-            return;
-        }
-        let bytes = text.len()
-            + rewrite.as_ref().map_or(0, |rewrite| {
-                rewrite.replacement.len()
-                    + rewrite.dropped.iter().map(String::len).sum::<usize>()
-                    + rewrite
-                        .resolved
-                        .as_ref()
-                        .map_or(0, |resolved| resolved.url.len())
-            });
-        if rewrites.values.len() < MAX_BLOCK_REMOTE_URLS
-            && rewrites.bytes + bytes <= MAX_BLOCK_REMOTE_URL_BYTES
-        {
-            rewrites.bytes += bytes;
-            rewrites.values.insert(text, rewrite);
-        } else if rewrite
-            .and_then(|rewrite| rewrite.resolved)
-            .is_some_and(|resolved| resolved.kind != RemoteKind::Image)
-        {
-            self.font_limit = self.font_limit.or(Some(UrlLimit::FontRewrites));
-        }
-    }
-
-    pub fn extend(&mut self, other: RemoteUrls) {
-        // The URLs go in before the other's limit, so that a part that hit a limit still names what it holds.
-        for (url, &kind) in &other.urls {
-            self.insert(url, kind);
-        }
-        self.limit = self.limit.or(other.limit);
-        self.font_limit = self.font_limit.or(other.font_limit);
-        for (raw, (text, slots)) in other.srcsets.iter().flat_map(|s| &s.values) {
-            for &slot in slots {
-                self.insert_srcset(raw, text, slot);
-            }
-        }
-        for (text, rewrite) in other.css_rewrites.into_iter().flat_map(|r| r.values) {
-            self.insert_css_rewrite(text, rewrite);
-        }
-    }
-
-    /// Why the writer scrubs the block. Past a font limit, unlike past `limit`, the inspector still names image URLs.
-    pub fn url_limit(&self) -> Option<UrlLimit> {
-        self.limit.or(self.font_limit)
-    }
-
-    pub fn take_css_rewrites(&mut self) -> Vec<CssRewrite> {
-        self.css_rewrites
-            .take()
-            .map(|rewrites| rewrites.values)
-            .unwrap_or_default()
-            .into_values()
-            .flatten()
-            .collect()
-    }
-
-    pub fn take_srcsets(&mut self) -> Vec<Srcset> {
-        self.srcsets
-            .take()
-            .map(|srcsets| srcsets.values)
-            .unwrap_or_default()
-            .into_iter()
-            .flat_map(|(raw, (text, slots))| {
-                slots.into_iter().map(move |slot| Srcset {
-                    text: text.clone(),
-                    raw: raw.clone(),
-                    slot,
-                })
-            })
-            .collect()
-    }
-
-    pub fn into_urls(self) -> Vec<RemoteUrl> {
-        self.urls
-            .into_iter()
-            .map(|(url, kind)| RemoteUrl { url, kind })
-            .collect()
-    }
 }
 
 /// Distinct remote image URLs, at most [`MAX_IMAGE_URLS`] per message.
@@ -446,9 +234,21 @@ struct Urls {
     in_message: HashSet<String>,
     /// Boxed, because the session state counts this struct's size and most messages queue no font file.
     fonts: Option<Box<FontQueue>>,
-    /// Every remote URL in an image slot, past the fetch cap and in a hidden img too. The writer replaces each one in
-    /// the stored block, and the fetch cap limits only the fetch jobs.
-    remote: RemoteUrls,
+    limit: Option<UrlLimit>,
+    /// Every slot with a remote URL, past the fetch cap and in a hidden img too, because the fetch cap limits only the fetch jobs.
+    edits: Vec<Edit>,
+    edit_bytes_taken: usize,
+    /// A slot the writer could not find again, so that the block must not be stored.
+    unplaced: bool,
+}
+
+#[derive(Clone, Copy)]
+enum CssRead<'p> {
+    Sheet,
+    /// The value of the property it names.
+    Declaration(&'p str),
+    /// A text that may not be CSS. See [`css::text_link_urls`].
+    Links,
 }
 
 #[derive(Default)]
@@ -465,11 +265,6 @@ fn fetchable(url: &str) -> Option<&str> {
 }
 
 impl Urls {
-    fn push(&mut self, url: &str) {
-        self.push_remote(url);
-        self.push_fetch(url);
-    }
-
     fn push_fetch(&mut self, url: &str) {
         let Some(url) = fetchable(url) else { return };
         if self.in_message.len() < MAX_IMAGE_URLS && !self.in_message.contains(url) {
@@ -478,25 +273,13 @@ impl Urls {
         }
     }
 
-    /// Records a URL that the block holds but the fetcher does not take now, such as one of a hidden img.
-    fn push_remote(&mut self, url: &str) {
-        let url = url.trim();
-        if is_remote(url) {
-            self.remote.insert(url, RemoteKind::Image);
-        }
-    }
-
     fn push_font(&mut self, url: &str, family: Option<&str>) {
         let url = url.trim();
         if !is_remote(url) {
             return;
         }
-        match family.and_then(bundled_font) {
-            Some(slug) => self.remote.insert(url, RemoteKind::BundledFont(slug)),
-            None => {
-                self.remote.insert(url, RemoteKind::Font);
-                self.queue_font(url);
-            }
+        if family.and_then(bundled_font).is_none() {
+            self.queue_font(url);
         }
     }
 
@@ -513,18 +296,90 @@ impl Urls {
 
     fn push_css(&mut self, found: CssUrl<'_>) {
         match found {
-            CssUrl::Image(url) => self.push(url),
-            CssUrl::Unshown(url) => self.push_remote(url),
-            CssUrl::Resolved(url) => self.push_fetch(url),
-            CssUrl::Unresolved(text) => self.remote.insert_css_rewrite(text.to_owned(), None),
-            CssUrl::Rewrite(rewrite) => self
-                .remote
-                .insert_css_rewrite(rewrite.text.clone(), Some(rewrite)),
+            CssUrl::Image(url) | CssUrl::Resolved(url) => self.push_fetch(url),
+            CssUrl::Unshown(_)
+            | CssUrl::Rewrite { .. }
+            | CssUrl::Unresolved(_)
+            | CssUrl::Link(_) => {}
             CssUrl::Font { url, family } => self.push_font(url, family),
             CssUrl::ResolvedFont(url) => self.queue_font(url),
-            CssUrl::NestedTooDeep => {
-                self.remote.limit = self.remote.limit.or(Some(UrlLimit::NestedBlocks))
+            CssUrl::NestedTooDeep => self.limit = self.limit.or(Some(UrlLimit::NestedBlocks)),
+            CssUrl::Unplaced => self.unplaced = true,
+        }
+    }
+
+    /// A block past any limit is dropped, so it takes no more of the budget and builds no more edits.
+    fn take_edit_bytes(&mut self, budget: Option<&AtomicUsize>, bytes: usize) -> bool {
+        if self.limit.is_some() {
+            return false;
+        }
+        let within_budget = budget.is_none_or(|budget| {
+            budget
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |left| {
+                    left.checked_sub(bytes)
+                })
+                .is_ok()
+        });
+        if within_budget {
+            self.edit_bytes_taken += bytes;
+        } else {
+            self.limit = Some(UrlLimit::Edits);
+        }
+        within_budget
+    }
+
+    fn record(
+        &mut self,
+        buffers: &Buffers,
+        (bytes, value): (&[u8], Span),
+        slot: Slot,
+        edit_budget: Option<&AtomicUsize>,
+    ) {
+        let Some(source) = buffers.source_of(bytes) else {
+            self.unplaced = true;
+            return;
+        };
+        if self.take_edit_bytes(edit_budget, std::mem::size_of::<Edit>()) {
+            self.edits.push(Edit {
+                source,
+                value,
+                slot,
+            });
+        }
+    }
+
+    fn read_css(
+        &mut self,
+        buffers: &Buffers,
+        (bytes, value): (&[u8], Span),
+        css: &str,
+        read: CssRead<'_>,
+        resolver: &mut Resolver<'_>,
+    ) {
+        let edit_budget = resolver.edit_budget();
+        let mut edit = Some(CssEditBuilder::new(css));
+        let mut found = |found: CssUrl<'_>| {
+            if edit.is_some() && !self.take_edit_bytes(edit_budget, found.edit_bytes()) {
+                edit = None;
             }
+            if let Some(edit) = &mut edit {
+                edit.observe(&found);
+            }
+            self.push_css(found);
+        };
+        match read {
+            CssRead::Sheet => css::urls(css, resolver, &mut found),
+            CssRead::Declaration(property) => {
+                css::declaration_image_urls(property, css, resolver, &mut found)
+            }
+            CssRead::Links => css::text_link_urls(css, &mut found),
+        }
+        match edit.map(CssEditBuilder::finish) {
+            Some(Ok(Some(edit))) => {
+                self.record(buffers, (bytes, value), Slot::Css(edit), edit_budget)
+            }
+            Some(Ok(None)) | None => {}
+            Some(Err(_)) => self.unplaced = true,
         }
     }
 
@@ -536,8 +391,18 @@ impl Urls {
         for url in walk.fonts.iter().flat_map(|fonts| &fonts.urls) {
             self.queue_font(url);
         }
-        self.remote.extend(walk.remote);
+        self.limit = self.limit.or(walk.limit);
+        self.edits.extend(walk.edits);
+        self.edit_bytes_taken += walk.edit_bytes_taken;
+        self.unplaced |= walk.unplaced;
     }
+}
+
+/// The budgets that the blocks of one flush share, so that together they hold no more than the flush may.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FlushBudgets<'b> {
+    pub resolved_bytes: Option<&'b AtomicUsize>,
+    pub edit_bytes: Option<&'b AtomicUsize>,
 }
 
 /// The DOM state of a session's windows in this process.
@@ -565,6 +430,7 @@ pub struct Observed {
 #[derive(Default)]
 struct Walk<'p> {
     resolver: Resolver<'p>,
+    buffers: Buffers,
     /// Each node and its parent. A root's parent is `None`.
     ids: Vec<(i64, Option<i64>)>,
     /// The walk met more nodes than the node cap, so `ids` stops short.
@@ -596,26 +462,52 @@ impl Walk<'_> {
     }
 
     fn push_url(&mut self, bytes: &[u8], value: Option<Span>) {
-        if let Some(url) = value
+        if let Some((span, url)) = value
             .filter(|&v| scan::is_string(bytes, v))
-            .and_then(|v| scan::unescape(bytes, v).ok())
+            .and_then(|v| Some((v, scan::unescape(bytes, v).ok()?)))
         {
+            self.record_url(bytes, span, &url);
             self.push_url_text(&url);
         }
     }
 
-    fn push_url_text(&mut self, url: &str) {
-        self.image_urls.push(url);
+    fn record_url(&mut self, bytes: &[u8], value: Span, url: &str) {
+        if is_remote(url.trim()) || needs_redaction(url) {
+            let edit_budget = self.resolver.edit_budget();
+            self.image_urls
+                .record(&self.buffers, (bytes, value), Slot::Url, edit_budget);
+        }
     }
 
-    /// The URLs of a slot the fetcher does not take now. The block still holds them, so the writer replaces them.
-    fn push_remote(&mut self, bytes: &[u8], value: Option<Span>, srcset: bool) {
-        if let Some(text) = text(bytes, value) {
-            if srcset {
-                srcset_urls(&text, &mut |url| self.image_urls.push_remote(url));
-            } else {
-                self.image_urls.push_remote(&text);
+    fn push_url_text(&mut self, url: &str) {
+        self.image_urls.push_fetch(url);
+    }
+
+    /// A URL that shows no image is a slot only when it holds a credential, so that the writer leaves the rest alone.
+    fn push_link(&mut self, bytes: &[u8], value: Option<Span>, form: LinkForm) {
+        let (Some(span), Some(text)) = (value, text(bytes, value)) else {
+            return;
+        };
+        let holds_credential = match form {
+            LinkForm::Url => needs_redaction(&text),
+            LinkForm::Srcset => {
+                let mut holds = false;
+                for_each_srcset_candidate(&text, |url, _| holds |= needs_redaction(url));
+                holds
             }
+            LinkForm::Urls => text.split_ascii_whitespace().any(needs_redaction),
+        };
+        if holds_credential {
+            let edit_budget = self.resolver.edit_budget();
+            self.image_urls
+                .record(&self.buffers, (bytes, span), Slot::Link(form), edit_budget);
+        }
+    }
+
+    /// The URL of a slot the fetcher does not take now. The block still holds it, so the writer replaces it.
+    fn push_remote(&mut self, bytes: &[u8], value: Option<Span>) {
+        if let (Some(span), Some(text)) = (value, text(bytes, value)) {
+            self.record_url(bytes, span, &text);
         }
     }
 
@@ -625,7 +517,6 @@ impl Walk<'_> {
         let Some(srcset) = text(bytes, value) else {
             return false;
         };
-        srcset_urls(&srcset, &mut |url| self.image_urls.push_remote(url));
         let shown = srcset::shown_candidate(&srcset, slot);
         if let Some(kept) = shown {
             self.push_url_text(kept.url);
@@ -634,10 +525,14 @@ impl Walk<'_> {
     }
 
     fn push_srcset_value(&mut self, bytes: &[u8], value: Option<Span>, slot: SrcsetSlot) {
-        if let (Some(span), Some(srcset)) = (value, text(bytes, value)) {
-            self.image_urls
-                .remote
-                .insert_srcset(&bytes[span.0..span.1], &srcset, slot);
+        if let (Some(span), Some(_)) = (value, text(bytes, value)) {
+            let edit_budget = self.resolver.edit_budget();
+            self.image_urls.record(
+                &self.buffers,
+                (bytes, span),
+                Slot::Srcset(slot),
+                edit_budget,
+            );
         }
     }
 
@@ -653,25 +548,44 @@ impl Walk<'_> {
         self.push_srcset_value(bytes, srcset, slot);
     }
 
+    fn push_css_links(&mut self, bytes: &[u8], value: Option<Span>) {
+        if let (Some(value), Some(text)) = (value, text(bytes, value)) {
+            self.image_urls.read_css(
+                &self.buffers,
+                (bytes, value),
+                &text,
+                CssRead::Links,
+                &mut self.resolver,
+            );
+        }
+    }
+
     fn push_css(&mut self, bytes: &[u8], value: Option<Span>) {
         let Some(value) = value else { return };
         if let Some(text) = text(bytes, Some(value)) {
-            css::urls(&text, &mut self.resolver, &mut |found| {
-                self.image_urls.push_css(found)
-            });
+            self.image_urls.read_css(
+                &self.buffers,
+                (bytes, value),
+                &text,
+                CssRead::Sheet,
+                &mut self.resolver,
+            );
         } else if scan::is_object(bytes, value) {
             let Ok(entries) = scan::object_entries(bytes, value) else {
                 return;
             };
             for entry in entries.filter_map(Result::ok).filter(|e| !e.key_escaped) {
                 let property = std::str::from_utf8(&bytes[entry.key.0..entry.key.1]);
-                let declared = text(bytes, style_property_value(bytes, entry.value));
-                if let (Ok(property), Some(declared)) = (property, declared) {
-                    css::declaration_image_urls(
-                        property,
+                let declared_at = style_property_value(bytes, entry.value);
+                let declared = text(bytes, declared_at);
+                if let (Ok(property), Some(at), Some(declared)) = (property, declared_at, declared)
+                {
+                    self.image_urls.read_css(
+                        &self.buffers,
+                        (bytes, at),
                         &declared,
+                        CssRead::Declaration(property),
                         &mut self.resolver,
-                        &mut |found| self.image_urls.push_css(found),
                     );
                 }
             }
@@ -734,10 +648,6 @@ pub fn for_each_srcset_candidate<'s>(srcset: &'s str, mut found: impl FnMut(&'s 
     }
 }
 
-fn srcset_urls(srcset: &str, found: &mut impl FnMut(&str)) {
-    for_each_srcset_candidate(srcset, |url, _| found(url));
-}
-
 fn style_property_value(bytes: &[u8], span: Span) -> Option<Span> {
     if scan::is_array(bytes, span) {
         scan::array_items(bytes, span).ok()?.next()?.ok()
@@ -762,6 +672,66 @@ struct Attributes {
     width: Option<Span>,
     height: Option<Span>,
     source_type: Option<Span>,
+    links: Vec<(Span, LinkForm)>,
+    css_links: Vec<Span>,
+}
+
+/// SVG presentation attributes take a CSS value, and a `url()` in one loads a resource.
+fn is_svg_css_attribute(name: &[u8]) -> bool {
+    const NAMES: &[&[u8]] = &[
+        b"clip-path",
+        b"cursor",
+        b"fill",
+        b"filter",
+        b"marker",
+        b"marker-end",
+        b"marker-mid",
+        b"marker-start",
+        b"mask",
+        b"stroke",
+    ];
+    NAMES.iter().any(|known| known.eq_ignore_ascii_case(name))
+}
+
+/// URL attributes that never hold an image slot, and the `data-` attributes that lazy loaders keep a URL in.
+fn link_attribute(name: &[u8]) -> Option<LinkForm> {
+    const URLS: &[&[u8]] = &[
+        b"action",
+        b"formaction",
+        b"data",
+        b"background",
+        b"cite",
+        b"longdesc",
+        b"manifest",
+        b"codebase",
+        b"icon",
+    ];
+    const DATA_URL_SUFFIXES: &[&[u8]] = &[
+        b"src",
+        b"href",
+        b"url",
+        b"original",
+        b"bg",
+        b"background",
+        b"poster",
+    ];
+    if name == b"imagesrcset" {
+        return Some(LinkForm::Srcset);
+    }
+    if name == b"ping" || name == b"attributionsrc" {
+        return Some(LinkForm::Urls);
+    }
+    if URLS.contains(&name) {
+        return Some(LinkForm::Url);
+    }
+    let data = name.strip_prefix(b"data-")?;
+    if data.ends_with(b"srcset") {
+        return Some(LinkForm::Srcset);
+    }
+    DATA_URL_SUFFIXES
+        .iter()
+        .any(|suffix| data.ends_with(suffix))
+        .then_some(LinkForm::Url)
 }
 
 impl Attributes {
@@ -784,13 +754,21 @@ impl Attributes {
         })
     }
 
+    fn set(&mut self, name: &[u8], value: Span) {
+        if let Some(slot) = self.slot(name) {
+            *slot = Some(value);
+        } else if let Some(form) = link_attribute(name) {
+            self.links.push((value, form));
+        } else if is_svg_css_attribute(name) {
+            self.css_links.push(value);
+        }
+    }
+
     fn read(bytes: &[u8], object: Span) -> Self {
         let mut attributes = Self::default();
         if let Ok(entries) = scan::object_entries(bytes, object) {
             for entry in entries.filter_map(Result::ok).filter(|e| !e.key_escaped) {
-                if let Some(slot) = attributes.slot(&bytes[entry.key.0..entry.key.1]) {
-                    *slot = Some(entry.value);
-                }
+                attributes.set(&bytes[entry.key.0..entry.key.1], entry.value);
             }
         }
         attributes
@@ -799,13 +777,12 @@ impl Attributes {
     /// The sources of a node the window does not know, after a restart, an eviction or the node cap. What the node
     /// shows is not known, so they are not fetched. The block holds them, so the writer replaces them.
     fn push_unknown_sources(&self, bytes: &[u8], walk: &mut Walk) {
-        walk.push_remote(bytes, self.src, false);
-        walk.push_remote(bytes, self.rr_src, false);
-        walk.push_remote(bytes, self.srcset, true);
+        walk.push_remote(bytes, self.src);
+        walk.push_remote(bytes, self.rr_src);
         walk.push_srcset_value(bytes, self.srcset, SrcsetSlot::Alone);
-        walk.push_remote(bytes, self.href, false);
-        walk.push_remote(bytes, self.xlink_href, false);
-        walk.push_remote(bytes, self.poster, false);
+        walk.push_remote(bytes, self.href);
+        walk.push_remote(bytes, self.xlink_href);
+        walk.push_remote(bytes, self.poster);
     }
 
     /// A mutation that does not set `src` leaves it unknown, so the img's srcset counts as alone.
@@ -826,8 +803,8 @@ impl Attributes {
             Some(Media::Img { visibility }) if !visibility.hides() => {
                 let slot = self.img_srcset_slot(bytes);
                 if walk.push_srcset(bytes, self.srcset, slot) {
-                    walk.push_remote(bytes, self.src, false);
-                    walk.push_remote(bytes, self.rr_src, false);
+                    walk.push_remote(bytes, self.src);
+                    walk.push_remote(bytes, self.rr_src);
                 } else {
                     walk.push_url(bytes, self.src);
                     walk.push_url(bytes, self.rr_src);
@@ -835,20 +812,40 @@ impl Attributes {
                 walk.push_srcset_value(bytes, self.srcset, slot);
             }
             Some(Media::Img { .. }) => {
-                walk.push_remote(bytes, self.src, false);
-                walk.push_remote(bytes, self.rr_src, false);
-                walk.push_remote(bytes, self.srcset, true);
+                walk.push_remote(bytes, self.src);
+                walk.push_remote(bytes, self.rr_src);
                 walk.push_srcset_value(bytes, self.srcset, self.img_srcset_slot(bytes));
             }
             Some(Media::SvgImage) => {
                 walk.push_url(bytes, self.href);
                 walk.push_url(bytes, self.xlink_href);
             }
-            Some(Media::Video) => walk.push_url(bytes, self.poster),
-            Some(Media::PictureSource { unfetched_type }) => {
-                walk.push_source(bytes, self.srcset, unfetched_type)
+            Some(Media::Video) => {
+                walk.push_url(bytes, self.poster);
+                walk.push_link(bytes, self.src, LinkForm::Url);
             }
-            _ => {}
+            Some(Media::PictureSource { unfetched_type }) => {
+                walk.push_source(bytes, self.srcset, unfetched_type);
+                walk.push_link(bytes, self.src, LinkForm::Url);
+            }
+            Some(Media::Picture) | None => {
+                for value in [
+                    self.href,
+                    self.xlink_href,
+                    self.src,
+                    self.rr_src,
+                    self.poster,
+                ] {
+                    walk.push_link(bytes, value, LinkForm::Url);
+                }
+                walk.push_link(bytes, self.srcset, LinkForm::Srcset);
+            }
+        }
+        for &(value, form) in &self.links {
+            walk.push_link(bytes, Some(value), form);
+        }
+        for &value in &self.css_links {
+            walk.push_css_links(bytes, Some(value));
         }
         walk.push_css(bytes, self.style);
         walk.push_css(bytes, self.css_text);
@@ -1047,8 +1044,8 @@ fn walk_nodes(bytes: &[u8], span: Span, walk: &mut Walk) -> bool {
                     }
                 }
                 (Some(FrameKind::Attributes), Some(name)) => {
-                    if let Some(slot) = nodes.last_mut().and_then(|n| n.attributes.slot(name)) {
-                        *slot = Some(value);
+                    if let Some(node) = nodes.last_mut() {
+                        node.attributes.set(name, value);
                     }
                 }
                 _ => {}
@@ -1172,8 +1169,9 @@ fn finish_node(bytes: &[u8], node: NodeFrame, parent: Option<&mut NodeFrame>, wa
 enum Snapshot<'p> {
     /// The player drops it, because its data or its node is not an object.
     Dropped,
-    /// It does not decode or is too deep to walk, and the player may still build a DOM from a payload this deep.
     Unreadable,
+    /// It nests too deep to walk, and the player may still build a DOM from a payload this deep.
+    Unwalked,
     Walked(Box<Walk<'p>>),
 }
 
@@ -1188,7 +1186,7 @@ fn walk_snapshot<'p>(
         match expansion.json(data) {
             Some(Some(json)) => match scan::locate_value(json, 0) {
                 Ok(root) => (json, root),
-                Err(_) => return Snapshot::Unreadable,
+                Err(_) => return Snapshot::Unwalked,
             },
             Some(None) => return Snapshot::Dropped,
             None => return Snapshot::Unreadable,
@@ -1202,12 +1200,13 @@ fn walk_snapshot<'p>(
     };
     let mut walk = Walk {
         resolver,
+        buffers: Buffers::new(inner, expansion),
         ..Walk::default()
     };
     if walk_nodes(bytes, node, &mut walk) {
         Snapshot::Walked(Box::new(walk))
     } else {
-        Snapshot::Unreadable
+        Snapshot::Unwalked
     }
 }
 
@@ -1435,7 +1434,7 @@ impl DomInspector {
         event: &Event,
         window: &str,
         event_page_url: Option<&str>,
-        resolve_budget: Option<&AtomicUsize>,
+        budgets: FlushBudgets<'_>,
         stats: &mut BlockStats,
     ) -> Observed {
         self.clock += 1;
@@ -1450,7 +1449,8 @@ impl DomInspector {
             dom.page_base = css::page_base(page_url).map(Arc::new);
         }
         let page_base = dom.page_base.clone();
-        let resolver = Resolver::new(page_base.as_deref(), resolve_budget);
+        let resolver = Resolver::new(page_base.as_deref(), budgets.resolved_bytes)
+            .with_edit_budget(budgets.edit_bytes);
         let mut observed = Observed::default();
         match (event.kind, event.source) {
             (Some(FULL_SNAPSHOT), _) => {
@@ -1487,7 +1487,10 @@ impl DomInspector {
                         self.seen_snapshot = true;
                         observed.full_snapshot = true;
                     }
-                    Snapshot::Unreadable => {
+                    unread @ (Snapshot::Unreadable | Snapshot::Unwalked) => {
+                        if matches!(unread, Snapshot::Unwalked) {
+                            self.urls.limit = self.urls.limit.or(Some(UrlLimit::NestedJson));
+                        }
                         stats.decode_failures += 1;
                         *dom = WindowDom {
                             unverifiable: true,
@@ -1551,9 +1554,17 @@ impl DomInspector {
             .unwrap_or_default()
     }
 
-    /// Every remote image URL the events since the last call hold, for the writer to replace.
-    pub fn take_remote_urls(&mut self) -> RemoteUrls {
-        std::mem::take(&mut self.urls.remote)
+    /// The edits the last event needs, whether it held a slot the writer could not find again, and the bytes its edits took from the flush's edit budget.
+    pub fn take_edits(&mut self) -> (Vec<Edit>, bool, usize) {
+        (
+            std::mem::take(&mut self.urls.edits),
+            std::mem::take(&mut self.urls.unplaced),
+            std::mem::take(&mut self.urls.edit_bytes_taken),
+        )
+    }
+
+    pub fn take_url_limit(&mut self) -> Option<UrlLimit> {
+        self.urls.limit.take()
     }
 
     /// Whether a full snapshot of any window of the session decoded in this process.
@@ -1577,6 +1588,8 @@ struct Lists<'b> {
     attributes: Option<List<'b>>,
     /// A list is a string that did not decode, so the player drops the whole mutation.
     failed: bool,
+    /// A list decoded to JSON that nests too deep to read, which the player still reads.
+    too_deep: bool,
 }
 
 fn mutation_lists<'b>(inner: &'b [u8], data: Span, expansion: &'b Expansion) -> Lists<'b> {
@@ -1589,7 +1602,7 @@ fn mutation_lists<'b>(inner: &'b [u8], data: Span, expansion: &'b Expansion) -> 
         &mut lists.texts,
         &mut lists.attributes,
     ];
-    let mut failed = false;
+    let (mut failed, mut too_deep) = (false, false);
     for (slot, span) in slots.into_iter().zip(found) {
         let Some(span) = span else { continue };
         if !scan::is_string(inner, span) {
@@ -1600,13 +1613,14 @@ fn mutation_lists<'b>(inner: &'b [u8], data: Span, expansion: &'b Expansion) -> 
         match expansion.json(span) {
             Some(Some(json)) => match scan::locate_value(json, 0) {
                 Ok(span) => *slot = Some(List { bytes: json, span }),
-                Err(_) => failed = true,
+                Err(_) => too_deep = true,
             },
             Some(None) => {}
             None => failed = true,
         }
     }
-    lists.failed = failed;
+    lists.failed = failed || too_deep;
+    lists.too_deep = too_deep;
     lists
 }
 
@@ -1671,15 +1685,22 @@ fn observe_mutation(
         return (0, 0, true);
     }
     let lists = mutation_lists(inner, data, expansion);
+    if lists.too_deep {
+        dom.unverifiable = true;
+        urls.limit = urls.limit.or(Some(UrlLimit::NestedJson));
+    }
     if lists.failed {
         return (0, 0, true);
     }
     let mut undecoded = false;
     let mut walk = Walk {
         resolver,
+        buffers: Buffers::new(inner, expansion),
         ..Walk::default()
     };
     let mut adds = Vec::new();
+    // The node cap allows a mutation to add 200,000 nodes, so the set of their ids is built once.
+    let mut walked: Option<HashSet<i64>> = None;
     if let Some(list) = lists.adds {
         let mut sources = Vec::new();
         for item in items(list) {
@@ -1691,6 +1712,7 @@ fn observe_mutation(
                 if !walk_nodes(list.bytes, node, &mut walk) {
                     dom.unverifiable = true;
                     undecoded = true;
+                    walk.image_urls.limit = walk.image_urls.limit.or(Some(UrlLimit::NestedJson));
                 }
                 for entry in &mut walk.ids[first..] {
                     entry.1 = entry.1.or(parent);
@@ -1709,9 +1731,14 @@ fn observe_mutation(
                 .filter(|(_, media)| *media == Media::Picture)
                 .map(|&(id, _)| id)
                 .collect();
+            let walked = walked.get_or_insert_with(|| walk.ids.iter().map(|&(id, _)| id).collect());
             for (parent, (id, srcset, source_type)) in sources {
                 let Some(parent) = parent else { continue };
-                if pictures.contains(&parent) || dom.media.get(&parent) == Some(&Media::Picture) {
+                // A parent the window does not know can be a picture, as after a restart.
+                if pictures.contains(&parent)
+                    || dom.media.get(&parent) == Some(&Media::Picture)
+                    || !dom.knows(parent, walked)
+                {
                     let unfetched_type = is_unfetched_type(list.bytes, source_type);
                     walk.media
                         .extend(id.map(|id| (id, Media::PictureSource { unfetched_type })));
@@ -1723,20 +1750,26 @@ fn observe_mutation(
     dom.add_media(&walk.media);
     dom.add_hidden_sources(&walk.hidden);
     dom.add_style_texts(&walk.style_texts);
+    let walked = walked.unwrap_or_else(|| walk.ids.iter().map(|&(id, _)| id).collect());
     if let Some(texts) = lists.texts {
         for item in items(texts) {
             let [id, value] = fields(texts.bytes, item, [b"id", b"value"]);
-            if number(texts.bytes, id).is_some_and(|id| dom.style_texts.contains(&(id as i64))) {
+            let Some(id) = number(texts.bytes, id).map(|id| id as i64) else {
+                continue;
+            };
+            if dom.style_texts.contains(&id) {
                 walk.push_css(texts.bytes, value);
+            } else if !dom.knows(id, &walked) {
+                // A node the window does not know can be the text of a style element, as after a restart.
+                walk.push_css_links(texts.bytes, value);
             }
         }
     }
     let mut attribute_ids = Vec::new();
     if let Some(attributes) = lists.attributes {
-        let walked: HashSet<i64> = walk.ids.iter().map(|&(id, _)| id).collect();
         for (index, item) in items(attributes).enumerate() {
             if index == MAX_ATTRIBUTE_ITEMS {
-                walk.image_urls.remote.limit = Some(UrlLimit::AttributeItems);
+                walk.image_urls.limit = Some(UrlLimit::AttributeItems);
                 break;
             }
             let [id, values] = fields(attributes.bytes, item, [b"id", b"attributes"]);
@@ -1856,31 +1889,44 @@ fn style_sheet_urls(
     mut resolver: Resolver<'_>,
     urls: &mut Urls,
 ) {
-    let mut push = |found: CssUrl<'_>| urls.push_css(found);
+    let buffers = Buffers::new(inner, expansion);
     let resolver = &mut resolver;
+    let mut read_rule = |bytes: &[u8], span: Option<Span>, urls: &mut Urls| {
+        if let (Some(span), Some(rule)) = (span, text(bytes, span)) {
+            urls.read_css(&buffers, (bytes, span), &rule, CssRead::Sheet, resolver);
+        }
+    };
     match source {
         Some(STYLE_SHEET_RULE) => {
             let [adds, replace, replace_sync] =
                 fields(inner, data, [b"adds", b"replace", b"replaceSync"]);
-            if let Some(adds) = adds.and_then(|adds| decoded_list(inner, adds, expansion)) {
-                for item in items(adds) {
-                    if let Some(rule) = text(adds.bytes, field(adds.bytes, item, b"rule")) {
-                        css::urls(&rule, resolver, &mut push);
+            match adds.map(|adds| decoded_list(inner, adds, expansion)) {
+                Some(Ok(Some(adds))) => {
+                    for item in items(adds) {
+                        read_rule(adds.bytes, field(adds.bytes, item, b"rule"), urls);
                     }
                 }
+                Some(Err(limit)) => urls.limit = urls.limit.or(Some(limit)),
+                Some(Ok(None)) | None => {}
             }
             for sheet in [replace, replace_sync] {
-                if let Some(sheet) = text(inner, sheet) {
-                    css::urls(&sheet, resolver, &mut push);
-                }
+                read_rule(inner, sheet, urls);
             }
         }
         Some(STYLE_DECLARATION) => {
             let set = field(inner, data, b"set");
             let [property, value] =
                 set.map_or([None; 2], |set| fields(inner, set, [b"property", b"value"]));
-            if let (Some(property), Some(value)) = (text(inner, property), text(inner, value)) {
-                css::declaration_image_urls(&property, &value, resolver, &mut push);
+            if let (Some(property), Some(at), Some(value)) =
+                (text(inner, property), value, text(inner, value))
+            {
+                urls.read_css(
+                    &buffers,
+                    (inner, at),
+                    &value,
+                    CssRead::Declaration(&property),
+                    resolver,
+                );
             }
         }
         Some(ADOPTED_STYLE_SHEET) => {
@@ -1898,9 +1944,7 @@ fn style_sheet_urls(
                     bytes: inner,
                     span: rules,
                 }) {
-                    if let Some(rule) = text(inner, field(inner, rule, b"rule")) {
-                        css::urls(&rule, resolver, &mut push);
-                    }
+                    read_rule(inner, field(inner, rule, b"rule"), urls);
                 }
             }
         }
@@ -1909,15 +1953,19 @@ fn style_sheet_urls(
 }
 
 /// A list as the player reads it, decoded when the event compressed it. `None` when it is empty or does not decode.
-fn decoded_list<'b>(inner: &'b [u8], span: Span, expansion: &'b Expansion) -> Option<List<'b>> {
+fn decoded_list<'b>(
+    inner: &'b [u8],
+    span: Span,
+    expansion: &'b Expansion,
+) -> Result<Option<List<'b>>, UrlLimit> {
     if !scan::is_string(inner, span) {
-        return Some(List { bytes: inner, span });
+        return Ok(Some(List { bytes: inner, span }));
     }
-    let json = expansion.json(span)??;
-    Some(List {
-        bytes: json,
-        span: scan::locate_value(json, 0).ok()?,
-    })
+    let Some(Some(json)) = expansion.json(span) else {
+        return Ok(None);
+    };
+    let span = scan::locate_value(json, 0).map_err(|_| UrlLimit::NestedJson)?;
+    Ok(Some(List { bytes: json, span }))
 }
 
 fn items(list: List<'_>) -> impl Iterator<Item = Span> + '_ {
@@ -1991,7 +2039,7 @@ mod tests {
                 &message.events[0],
                 "w",
                 None,
-                None,
+                FlushBudgets::default(),
                 &mut stats,
             );
             // The srcset has no 1x candidate, so the img shows its `src`, which HTML adds as one.
@@ -2038,7 +2086,14 @@ mod tests {
         let mut dom = DomInspector::default();
         let mut stats = BlockStats::default();
         for event in &message.events {
-            dom.observe(&message.inner, event, "w", None, None, &mut stats);
+            dom.observe(
+                &message.inner,
+                event,
+                "w",
+                None,
+                FlushBudgets::default(),
+                &mut stats,
+            );
         }
         assert_eq!(stats.events_before_first_full_snapshot, 1);
         assert_eq!(stats.orphan_mutations, 2);
@@ -2063,11 +2118,64 @@ mod tests {
                 event,
                 window,
                 Some(PAGE_URL),
-                None,
+                FlushBudgets::default(),
                 &mut stats,
             );
         }
         (dom, stats)
+    }
+
+    /// What the writer replaces, read back from the edits: each URL with its kind, and each function a rewrite replaces whole.
+    #[derive(Default)]
+    struct Named {
+        urls: Vec<(String, RemoteKind)>,
+        rewrites: Vec<(String, Vec<RemoteUrl>)>,
+    }
+
+    fn named(dom: &mut DomInspector, message: &crate::scan::message::Message) -> Named {
+        let (edits, unplaced, _) = dom.take_edits();
+        assert!(!unplaced);
+        let mut named = Named::default();
+        for edit in edits {
+            let bytes = match edit.source {
+                super::super::edits::EditSource::Payload => message.inner.clone(),
+                super::super::edits::EditSource::Field(span) => message
+                    .events
+                    .iter()
+                    .find_map(|event| {
+                        cv::expansion(&message.inner, event)
+                            .json(span)
+                            .flatten()
+                            .map(<[u8]>::to_vec)
+                    })
+                    .unwrap(),
+            };
+            let text = scan::unescape(&bytes, edit.value).unwrap();
+            match edit.slot {
+                Slot::Url => named.urls.push((text.trim().to_owned(), RemoteKind::Image)),
+                Slot::Srcset(_) => for_each_srcset_candidate(&text, |url, _| {
+                    if is_remote(url) {
+                        named.urls.push((url.to_owned(), RemoteKind::Image));
+                    }
+                }),
+                Slot::Link(_) => {}
+                Slot::Css(edit) => {
+                    for piece in edit.pieces {
+                        let urls = piece.parts.iter().filter_map(|part| match part {
+                            css::CssPart::Url(url) => Some(url.clone()),
+                            css::CssPart::Text(_) => None,
+                        });
+                        if piece.parts.len() == 1 {
+                            named.urls.extend(urls.map(|url| (url.url, url.kind)));
+                        } else {
+                            let urls = urls.collect();
+                            named.rewrites.push((text[piece.range].to_owned(), urls));
+                        }
+                    }
+                }
+            }
+        }
+        named
     }
 
     #[test]
@@ -2240,24 +2348,15 @@ mod tests {
         ]));
         let (mut dom, _) = observe_all(&message, "w");
         // A hidden or one-pixel img is not fetched, but the block holds its URL, so the writer replaces it too.
-        let mut remote = dom.take_remote_urls();
-        let mut rewrites: Vec<String> = remote
-            .take_css_rewrites()
-            .into_iter()
-            .map(|rewrite| rewrite.text)
-            .collect();
-        let remote: Vec<String> = remote
-            .into_urls()
-            .into_iter()
-            .map(|remote| remote.url)
-            .collect();
+        let named = named(&mut dom, &message);
+        let mut rewrites: Vec<String> = named.rewrites.into_iter().map(|(text, _)| text).collect();
+        let remote: Vec<String> = named.urls.into_iter().map(|(url, _)| url).collect();
         for name in [
             "hidden",
             "display-none",
             "pixel",
             "shown-later",
             "lazy",
-            "set-1x",
             "w_640,q_auto/srcset-comma",
             "srcset-second",
         ] {
@@ -2364,11 +2463,11 @@ mod tests {
             .to_vec();
         expected.insert(0, "https://app.example.com/fonts/serif.woff2".to_owned());
         assert_eq!(fetched, expected);
-        let mut named = dom.take_remote_urls();
+        let named = named(&mut dom, &message);
         let mut resolved: Vec<RemoteUrl> = named
-            .take_css_rewrites()
+            .rewrites
             .into_iter()
-            .filter_map(|rewrite| rewrite.resolved)
+            .flat_map(|(_, urls)| urls)
             .collect();
         resolved.sort_by(|a, b| a.url.cmp(&b.url));
         assert_eq!(
@@ -2384,11 +2483,8 @@ mod tests {
                 },
             ]
         );
-        let mut remote: Vec<(String, RemoteKind)> = named
-            .into_urls()
-            .into_iter()
-            .map(|remote| (remote.url, remote.kind))
-            .collect();
+        // Each slot names its URL by its own kind, so a URL in two slots has two references.
+        let mut remote = named.urls;
         remote.sort();
         assert_eq!(
             remote,
@@ -2396,11 +2492,13 @@ mod tests {
                 (font("brand.eot?#iefix"), RemoteKind::Font),
                 (font("brand.woff2"), RemoteKind::Font),
                 (font("icons.woff"), RemoteKind::Font),
+                (font("logo.png"), RemoteKind::Font),
                 (font("logo.png"), RemoteKind::Image),
                 (
                     font("open-sans.woff2"),
                     RemoteKind::BundledFont("open-sans")
                 ),
+                (font("shared.woff2"), RemoteKind::BundledFont("inter")),
                 (font("shared.woff2"), RemoteKind::Font),
             ]
         );
@@ -2426,66 +2524,14 @@ mod tests {
     }
 
     #[test]
-    fn stops_naming_remote_urls_past_a_block_limit() {
-        let url = |i: usize, len: usize| {
-            let mut url = format!("https://cdn.example.com/{i}/");
-            url.extend(std::iter::repeat_n('a', len - url.len()));
-            url
-        };
-        let limit = |urls: &mut dyn Iterator<Item = String>| {
-            let mut remote = RemoteUrls::default();
-            urls.for_each(|u| remote.insert(&u, RemoteKind::Image));
-            remote.limit
-        };
-        let longest = 8 * 1024;
-        let most_long = MAX_BLOCK_REMOTE_URL_BYTES / longest;
-        for (urls, expected) in [
-            (vec![url(0, longest)], None),
-            // A URL of any length is named, and the policy declines it.
-            (vec![url(0, longest + 1)], None),
-            (
-                (0..MAX_BLOCK_REMOTE_URLS).map(|i| url(i, 40)).collect(),
-                None,
-            ),
-            (
-                (0..=MAX_BLOCK_REMOTE_URLS).map(|i| url(i, 40)).collect(),
-                Some(UrlLimit::UrlCount),
-            ),
-            ((0..most_long).map(|i| url(i, longest)).collect(), None),
-            (
-                (0..=most_long).map(|i| url(i, longest)).collect(),
-                Some(UrlLimit::UrlBytes),
-            ),
-        ] {
-            assert_eq!(limit(&mut urls.into_iter()), expected);
-        }
-        let mut remote = RemoteUrls::default();
-        (0..=MAX_BLOCK_FONT_URLS).for_each(|i| remote.insert(&url(i, 40), RemoteKind::Font));
-        remote.insert(&url(MAX_BLOCK_FONT_URLS + 1, 40), RemoteKind::Image);
-        assert_eq!(remote.limit, None);
-        assert_eq!(remote.url_limit(), Some(UrlLimit::FontUrlCount));
-        assert_eq!(remote.into_urls().len(), MAX_BLOCK_FONT_URLS + 1);
-        let mut remote = RemoteUrls::default();
-        remote.insert(&url(0, MAX_BLOCK_FONT_URL_BYTES + 1), RemoteKind::Font);
-        assert_eq!(remote.url_limit(), Some(UrlLimit::FontUrlBytes));
-
-        // Srcset values share the byte budget, past which the writer falls back to replacing each URL.
-        let mut remote = RemoteUrls::default();
-        // A value counts its raw and its unescaped form.
-        (0..=most_long).for_each(|i| {
-            let value = url(i, longest);
-            remote.insert_srcset(value.as_bytes(), &value, SrcsetSlot::Alone)
-        });
-        assert_eq!(remote.take_srcsets().len(), most_long / 2);
-
-        // A mutation past the attribute cap is not read to its end.
+    fn stops_reading_a_mutation_past_the_attribute_cap() {
         let attributes = |count: usize| {
             let items = vec![r#"{"id":1,"attributes":{}}"#; count].join(",");
             let inner = format!(
                 r#"{{"properties":{{"$session_id":"s","$snapshot_items":[{{"type":3,"timestamp":2,"data":{{"source":0,"attributes":[{items}]}}}}]}}}}"#
             );
             let message = read_message(json!({ "data": inner }).to_string().into_bytes()).unwrap();
-            observe_all(&message, "w").0.take_remote_urls().limit
+            observe_all(&message, "w").0.take_url_limit()
         };
         assert_eq!(attributes(MAX_ATTRIBUTE_ITEMS), None);
         assert_eq!(
@@ -2510,8 +2556,8 @@ mod tests {
         let (mut dom, _) = observe_all(&message, "w");
         let found = dom.take_image_urls();
         assert_eq!(found.len(), MAX_IMAGE_URLS);
-        // The cap limits the fetch jobs only. The writer replaces every remote URL in the block.
-        assert_eq!(dom.take_remote_urls().into_urls().len(), 601);
+        // The cap limits the fetch jobs only. The writer replaces the URL of every remote slot in the block.
+        assert_eq!(named(&mut dom, &message).urls.len(), 1200);
         assert_eq!(
             found[..2],
             [
@@ -2552,7 +2598,7 @@ mod tests {
                 &message.events[0],
                 &window.to_string(),
                 None,
-                None,
+                FlushBudgets::default(),
                 &mut stats,
             );
         }
@@ -2562,7 +2608,7 @@ mod tests {
             &message.events[1],
             "0",
             None,
-            None,
+            FlushBudgets::default(),
             &mut stats,
         );
         assert!(stats.node_cap_reached);
@@ -2574,7 +2620,7 @@ mod tests {
                 &message.events[1],
                 &other,
                 None,
-                None,
+                FlushBudgets::default(),
                 &mut stats,
             );
         }
@@ -2584,7 +2630,7 @@ mod tests {
             &message.events[1],
             "0",
             None,
-            None,
+            FlushBudgets::default(),
             &mut stats,
         );
         assert!(stats.node_cap_reached);
