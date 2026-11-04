@@ -97,7 +97,9 @@ def advance_rollout_plan(
 ) -> FeatureFlagRolloutPlan:
     now = timezone.now()
     with transaction.atomic():
-        plan = FeatureFlagRolloutPlan.objects.select_for_update().get(pk=plan_id)
+        plan = FeatureFlagRolloutPlan.objects.select_for_update(of=("self",)).get(
+            pk=plan_id, team__project_id=team.project_id
+        )
         if plan.status != FeatureFlagRolloutPlan.Status.ACTIVE:
             raise Conflict(f"This rollout plan is {plan.status}, so it cannot advance.")
         if plan.next_check_at is not None and now < plan.next_check_at:

@@ -224,6 +224,7 @@ rules:
                               |ExternalDataSource
                               |ExternalDataSourceDestination
                               |FeatureFlag
+                              |FeatureFlagRolloutPlan
                               |FeatureRequest
                               |FeatureRequestAccountLink
                               |FeatureRequestEvidence
@@ -730,6 +731,7 @@ rules:
                         |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
                         |FeatureFlag
+                        |FeatureFlagRolloutPlan
                         |FeatureRequest
                         |FeatureRequestAccountLink
                         |FeatureRequestEvidence
