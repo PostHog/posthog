@@ -1055,7 +1055,8 @@ def restore_masked_dictionary_entries(value: Any, stored: Any) -> tuple[Any, lis
 
 SECRET_BINDING_CHANGED_ERROR = "The code or address that receives this secret changed. Enter the secret again."
 
-_INPUT_REFERENCE_PATTERN = re.compile(r"""inputs(?:\.|\[\s*['"])([A-Za-z_$][\w$]*)""")
+# Matched against JSON-encoded input values, so a double quote arrives as \" and needs the escape.
+_INPUT_REFERENCE_PATTERN = re.compile(r"""inputs(?:\.|\[\s*\\?['"])([A-Za-z_$][\w$]*)""")
 
 
 @frozen

@@ -650,7 +650,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
         # A stored secret stays bound to the code and inputs it was saved with. `publish` adds the
         # draft's own bindings for the secrets the draft staged.
-        self.context["secret_binding_code"] = data.get("hog", instance.hog if instance else None)
+        # `data` is the unvalidated request body, so `hog` is whatever the caller sent. The tracer
+        # is cached on the code, and an unhashable value would raise before it can be rejected.
+        submitted_code = data.get("hog", instance.hog if instance else None)
+        self.context["secret_binding_code"] = submitted_code if isinstance(submitted_code, str) else None
         self.context["secret_binding_mappings"] = data.get("mappings", instance.mappings if instance else None)
         self.context["secret_bindings"] = {
             **(stored_secret_bindings(instance) if instance else {}),

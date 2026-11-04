@@ -1533,6 +1533,28 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert res.json()["code"] == "sensitive_action_required_reauth"
 
     @SECRET_BINDING_ENFORCED
+    def test_non_string_hog_is_rejected_rather_than_traced(self) -> None:
+        payload = {
+            "type": "destination",
+            "name": "Fetch URL",
+            "hog": "fetch(inputs.url, {'headers': {'Authorization': inputs.api_key}});",
+            "inputs_schema": [
+                {"key": "url", "type": "string", "label": "URL", "required": True},
+                {"key": "api_key", "type": "string", "label": "API key", "secret": True, "required": True},
+            ],
+            "inputs": {"url": {"value": "https://example.com"}, "api_key": {"value": "SUPER SECRET"}},
+        }
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        assert create.status_code == 201, create.json()
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{create.json()['id']}",
+            data={"hog": ["not", "code"], "inputs": {**payload["inputs"], "api_key": {"secret": True}}},
+        )
+
+        assert res.status_code == 400, res.json()
+
+    @SECRET_BINDING_ENFORCED
     def test_integration_link_window_is_shorter_than_other_sensitive_actions(self) -> None:
         integration = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
         self._age_session(settings.SESSION_INTEGRATION_LINK_AGE + 60)

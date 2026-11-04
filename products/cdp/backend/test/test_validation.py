@@ -1660,6 +1660,13 @@ class TestSecretBinding(SimpleTestCase):
         )
         assert secret_binding_changed(self.STORED, current, {"api_key"}) is expected
 
+    @parameterized.expand([("dotted", "{inputs.region}.example.com"), ("subscript", '{inputs["region"]}.example.com')])
+    def test_secret_binding_follows_an_input_templated_into_the_host(self, _name: str, host: str) -> None:
+        stored = SecretBinding(code=self.CODE, inputs={"host": {"value": host}, "region": {"value": "us"}})
+        current = SecretBinding(code=self.CODE, inputs={"host": {"value": host}, "region": {"value": "eu"}})
+
+        assert secret_binding_changed(stored, current, {"api_key"}) is True
+
     INTEGRATION_SCHEMA = [
         {"key": "host", "type": "string"},
         {"key": "body", "type": "string"},
