@@ -337,7 +337,6 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
         self.user.current_organization = other
         self.user.current_team = other_team
         self.user.save()
-        headers = {}
         if credential == "personal_api_key":
             self.client.logout()
             token = generate_random_token_personal()
@@ -347,7 +346,7 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
                 secure_value=hash_key_value(token),
                 scopes=["organization:read", "organization_member:read", "project:read", "feature_flag:read"],
             )
-            headers["Authorization"] = f"Bearer {token}"
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         response = self.client.get(
             path.format(
                 restricted_org=self.organization.id,
@@ -357,7 +356,6 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
                 other_team=other_team.id,
             ),
             REMOTE_ADDR="198.51.100.7",
-            headers=headers,
         )
         self.assertEqual(response.status_code, expected, response.content)
 

@@ -230,9 +230,7 @@ def _invalidate_cache_keys(cache_keys: list[str]) -> None:
     except Exception:
         logger.warning("ip_restrictions_cache_invalidation_failed", exc_info=True)
         try:
-            from posthog.tasks.ip_restrictions import (  # noqa: PLC0415 -- keeps Celery task imports off the auth startup path
-                retry_ip_restrictions_invalidation,
-            )
+            from posthog.tasks.ip_restrictions import retry_ip_restrictions_invalidation  # noqa: PLC0415 -- lazy Celery
 
             retry_ip_restrictions_invalidation.delay(cache_keys)
         except Exception:
