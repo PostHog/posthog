@@ -1,4 +1,5 @@
 from typing import Any
+from urllib.parse import urlparse
 
 import structlog
 from celery import Task, shared_task
@@ -93,7 +94,7 @@ def capture_tools_sync_outcome(installation: MCPServerInstallation, event: str, 
             properties={
                 "server_name": template.name if template else installation.display_name,
                 "template_id": str(template.id) if template else None,
-                "server_url": installation.url,
+                "server_host": urlparse(installation.url).hostname,
                 "auth_type": installation.auth_type,
                 "installation_id": str(installation.id),
                 **properties,

@@ -8,6 +8,7 @@ through `resync_installation_tools` when a caller names a tool that has no row.
 
 import json
 from typing import Any
+from urllib.parse import urlparse
 
 from django.utils import timezone
 
@@ -309,7 +310,7 @@ def _mcp_initialize_with_version(
         # A server that answers with an unknown version can still work, so the sync continues without the header.
         logger.warning(
             "initialize answered with an unsupported protocol version",
-            url=upstream_url,
+            host=urlparse(upstream_url).hostname,
             offered_protocol_version=offered_version,
             answered_protocol_version=str(answered_version)[:50],
         )

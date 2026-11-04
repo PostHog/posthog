@@ -865,5 +865,5 @@ class TestSyncInstallationToolsTask(ClickhouseTestMixin, APIBaseTest):
         event = capture.call_args.kwargs
         assert event["event"] == expected_event
         assert event["distinct_id"] == self.user.distinct_id
-        assert event["properties"]["server_url"] == "https://mcp.example.com/mcp"
+        assert event["properties"]["server_host"] == "mcp.example.com"
         assert expected_properties.items() <= event["properties"].items()
