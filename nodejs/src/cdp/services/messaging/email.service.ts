@@ -162,6 +162,17 @@ export class SESThrottleError extends Error {
     }
 }
 
+class EmailAttachmentsUnavailableError extends Error {
+    constructor(cause: unknown) {
+        super('Could not load the attachment files of this email', { cause })
+        this.name = 'EmailAttachmentsUnavailableError'
+    }
+}
+
+function pickAttachmentLoadRetryDelayMs(tries: number): number {
+    return Math.min(1_000 * tries + Math.floor(Math.random() * 1_000), 60_000)
+}
+
 class UnverifiedEmailDomainError extends Error {
     constructor() {
         super('The selected email integration domain is not verified')
@@ -502,7 +513,7 @@ export class EmailService {
         const integration = await this.integrationManager.get(integrationId)
 
         let success: boolean = false
-        let throttled: boolean = false
+        let rescheduled: boolean = false
         let assetRow: MessageAssetRow | null = null
         let trackingEnabled = true
         let failureReason: EmailStatusReason = 'provider_error'
@@ -813,12 +824,26 @@ export class EmailService {
                 // Treat as a transient delivery delay — reschedule rather than fail
                 // the job. Our local bucket is the primary throttle; this path
                 // catches the cases where SES disagrees with our estimate.
-                throttled = true
+                rescheduled = true
                 result.finished = false
                 result.invocation.queueParameters = params
                 result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
+            } else if (error instanceof EmailAttachmentsUnavailableError) {
+                const tries = (invocation.queueMetadata?.attachmentLoadTries ?? 0) + 1
+                const retryDelayMs = pickAttachmentLoadRetryDelayMs(tries)
+                rescheduled = true
+                result.finished = false
+                result.invocation.queueParameters = params
+                result.invocation.queueMetadata = { ...invocation.queueMetadata, attachmentLoadTries: tries }
+                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
+                addLog('warn', `${error.message}; rescheduling email in ${retryDelayMs}ms`)
+                logger.warn('⚠️', 'Failed to load email attachment rows', {
+                    job_id: invocation.id,
+                    tries,
+                    error: error.cause instanceof Error ? error.cause.message : String(error.cause),
+                })
             } else {
                 if (error instanceof EmailAttachmentsMissingError) {
                     failureReason = EMAIL_ATTACHMENTS_MISSING
@@ -837,7 +862,7 @@ export class EmailService {
             }
         }
 
-        if (throttled) {
+        if (rescheduled) {
             // On throttle, skip both the VM-state push and the business-metric
             // emit. The eventual successful retry will produce `email_sent` and
             // push the success bit to the VM stack — pushing them now would
@@ -1192,7 +1217,14 @@ export class EmailService {
         if (!this.emailAttachmentsService) {
             throw new EmailAttachmentsMissingError()
         }
-        return await this.emailAttachmentsService.load(jobId, expected)
+        try {
+            return await this.emailAttachmentsService.load(jobId, expected)
+        } catch (error) {
+            if (error instanceof EmailAttachmentsMissingError) {
+                throw error
+            }
+            throw new EmailAttachmentsUnavailableError(error)
+        }
     }
 
     // Send email to local maildev instance for testing (DEBUG=1 only)

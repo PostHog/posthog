@@ -1327,24 +1327,34 @@ describe('EmailService', () => {
             })
 
             it.each([
-                ['on the first try', 0],
-                ['on the retry after an SES throttle', 1],
-            ])('delivers the files to SES as Base64 attachments %s', async (_name, throttles) => {
-                for (let i = 0; i < throttles; i++) {
-                    sendEmailSpy.mockRejectedValueOnce(new ThrottlingException('Rate exceeded'))
-                }
+                ['on the first try', null],
+                [
+                    'on the retry after an SES throttle',
+                    () => sendEmailSpy.mockRejectedValueOnce(new ThrottlingException('Rate exceeded')),
+                ],
+                [
+                    'on the retry after the attachment store fails to answer',
+                    () =>
+                        jest
+                            .spyOn(attachments, 'load')
+                            .mockRejectedValueOnce(new Error('timeout exceeded when trying to connect')),
+                ],
+            ])('delivers the files to SES as Base64 attachments %s', async (_name, failFirstTry) => {
+                failFirstTry?.()
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 await attachments.store(invocation.id, team.id, files)
 
                 let result = await service.executeSendEmail(invocation)
-                for (let i = 0; i < throttles; i++) {
+                if (failFirstTry) {
                     expect(result.finished).toBe(false)
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
                     result = await service.executeSendEmail(result.invocation)
                 }
 
                 expect(result.finished).toBe(true)
                 expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[throttles][0] as { input: any }
+                const sentCommand = sendEmailSpy.mock.calls.at(-1)![0] as { input: any }
                 expect(sentCommand.input.Content.Simple.Attachments).toEqual([
                     {
                         RawContent: pdfBytes,
