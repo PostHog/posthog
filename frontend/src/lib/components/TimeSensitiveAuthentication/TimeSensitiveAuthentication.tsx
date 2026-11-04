@@ -8,6 +8,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { SSOEnforcedLoginButton, SocialLoginButtons } from '../SocialLoginButton/SocialLoginButton'
+import { SetPasswordLinkPrompt } from './SetPasswordLinkPrompt'
 import { timeSensitiveAuthenticationLogic } from './timeSensitiveAuthenticationLogic'
 
 export function TimeSensitiveAuthenticationModal(): JSX.Element {
@@ -21,16 +22,9 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
         passkey2FALoading,
         passkeysAvailable,
         totpAvailable,
-        setPasswordLinkSentTo,
-        setPasswordLinkSentToLoading,
     } = useValues(timeSensitiveAuthenticationLogic)
-    const {
-        submitReauthentication,
-        setDismissedReauthentication,
-        beginPasskey2FA,
-        beginSsoReauthentication,
-        sendSetPasswordLink,
-    } = useActions(timeSensitiveAuthenticationLogic)
+    const { submitReauthentication, setDismissedReauthentication, beginPasskey2FA, beginSsoReauthentication } =
+        useActions(timeSensitiveAuthenticationLogic)
 
     const ssoEnforcement = precheckResponse?.sso_enforcement
     const showPassword = !ssoEnforcement && user?.has_password
@@ -182,27 +176,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                     ) : null}
                 </div>
             ) : null}
-            {showSetPasswordLink ? (
-                <div className="mt-4 flex justify-center text-center text-secondary">
-                    {setPasswordLinkSentTo ? (
-                        <p className="m-0">
-                            We sent a link to <b>{setPasswordLinkSentTo}</b>. Open it to set a password, then sign in
-                            with your new password.
-                        </p>
-                    ) : (
-                        <LemonButton
-                            type="tertiary"
-                            size="small"
-                            htmlType="button"
-                            loading={setPasswordLinkSentToLoading}
-                            onClick={sendSetPasswordLink}
-                            data-attr="reauth-set-password-link"
-                        >
-                            Can't use your passkey? Email me a link to set a password
-                        </LemonButton>
-                    )}
-                </div>
-            ) : null}
+            {showSetPasswordLink ? <SetPasswordLinkPrompt /> : null}
             {precheckResponseLoading && <SpinnerOverlay />}
         </LemonModal>
     )
