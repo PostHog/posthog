@@ -126,7 +126,8 @@ def prepare_executable_query(saved_query: DataWarehouseSavedQuery) -> None:
             raise e
         # The version can never materialize again, so turn it off once instead of failing every run.
         saved_query_id, saved_query_name = str(saved_query.id), saved_query.name
-        version.disable_materialization()
+        with transaction.atomic():
+            version.disable_materialization()
         clear_endpoint_materialization_cache(saved_query.team_id, version.endpoint.name, versions=[version.version])
         reason = str(e).rstrip(".")
         log_materialization_activity(

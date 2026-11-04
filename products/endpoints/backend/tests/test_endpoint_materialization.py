@@ -2262,6 +2262,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk, scope="EndpointVersion", activity="materialization_disabled"
         )
         self.assertIsNone(log.user)
+        assert log.detail is not None
         self.assertIn("compared directly", log.detail["context"]["reason"])
 
     def test_prepare_executable_query_keeps_version_another_endpoint_reads(self):
