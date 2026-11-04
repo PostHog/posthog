@@ -28,6 +28,7 @@ export interface featureFlagCodeAnalysisLogicValues {
     analysisLoaded: boolean
     analysisLoading: boolean
     isRunning: boolean
+    pollingStopped: boolean
     repository: string | null
     selectedRepository: string | null
     startError: string | null
@@ -67,6 +68,9 @@ export interface featureFlagCodeAnalysisLogicActions {
     ) => {
         target: FeatureFlagCodeAnalysisTargetApi
         payload?: any
+    }
+    pollingFailed: () => {
+        value: true
     }
     reportGitHubLinkClicked: () => {
         value: true
@@ -121,6 +125,7 @@ export const featureFlagCodeAnalysisLogic = kea<featureFlagCodeAnalysisLogicType
         startAnalysisConflict: true,
         selectRepository: (repository: string) => ({ repository }),
         reportGitHubLinkClicked: true,
+        pollingFailed: true,
     }),
 
     loaders(({ props, values }) => ({
@@ -191,6 +196,15 @@ export const featureFlagCodeAnalysisLogic = kea<featureFlagCodeAnalysisLogicType
                 selectRepository: (_, { repository }) => repository,
             },
         ],
+        // Polling gave up while the run may still be going, so the page offers a manual check.
+        pollingStopped: [
+            false,
+            {
+                pollingFailed: () => true,
+                loadAnalysisSuccess: () => false,
+                startAnalysisSuccess: () => false,
+            },
+        ],
     }),
 
     selectors({
@@ -253,8 +267,9 @@ export const featureFlagCodeAnalysisLogic = kea<featureFlagCodeAnalysisLogicType
             loadAnalysisFailure: () => {
                 // Tolerate transient errors, the run may still finish. Stop only when the endpoint keeps failing.
                 cache.pollFailures = (cache.pollFailures ?? 0) + 1
-                if (cache.pollFailures >= MAX_POLL_FAILURES) {
+                if (cache.polling && cache.pollFailures >= MAX_POLL_FAILURES) {
                     stopPolling()
+                    actions.pollingFailed()
                 }
             },
             startAnalysis: async () => {

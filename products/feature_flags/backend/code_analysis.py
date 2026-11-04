@@ -7,14 +7,16 @@ without opening a pull request.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Literal
 
-from django.db import models
+from django.db import connection, models, transaction
 
 from pydantic import BaseModel, Field, ValidationError
 
 from posthog.dataclasses import frozen
 
+from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.models import FeatureFlag, FeatureFlagCodeAnalysis
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskRunDTO
@@ -29,6 +31,9 @@ FLAG_SDK_CALLS = (
     "getFlag, isEnabled, feature_enabled, get_feature_flag, get_feature_flag_payload, evaluate_flags, "
     "get_flag, is_enabled, GetFeatureFlag, IsFeatureEnabled"
 )
+
+# The pattern the flag API enforces on flag keys.
+SAFE_KEY = re.compile(r"[a-zA-Z0-9_-]+")
 
 
 class CodeAnalysisRepositorySource(models.TextChoices):
@@ -49,7 +54,7 @@ class FlagCodeBranch(BaseModel):
     )
     start_line: int = Field(description="First line of the branch body, 1-based.")
     end_line: int = Field(description="Last line of the branch body, 1-based, inclusive.")
-    snippet: str = Field(description="The branch body exactly as it appears in the file.")
+    snippet: str = Field(description="The branch body exactly as it appears in the file, with its leading whitespace.")
 
 
 class FlagCodeReference(BaseModel):
@@ -124,11 +129,12 @@ def get_code_analysis_target(flag: FeatureFlag, requested_repository: str | None
     github = tasks_repo_selection.resolve_team_github_integration(flag.team_id, team=flag.team, team_only=True)
     if github is None:
         return CodeAnalysisTarget(repository=None, source=CodeAnalysisRepositorySource.NO_INTEGRATION, candidates=())
-    cached = {
-        full_name.lower(): full_name
-        for repo in github.list_all_cached_repositories(max_repos=1000)
-        if (full_name := repo.get("full_name"))
-    }
+    # A stale snapshot is good enough to pick a repository, and refreshing it lists every GitHub
+    # page inside the request. Refresh here only when no snapshot exists yet.
+    repositories = github.list_all_cached_repositories(
+        max_repos=1000, allow_refresh=False
+    ) or github.list_all_cached_repositories(max_repos=1000)
+    cached = {full_name.lower(): full_name for repo in repositories if (full_name := repo.get("full_name"))}
     if not cached:
         return CodeAnalysisTarget(repository=None, source=CodeAnalysisRepositorySource.NO_INTEGRATION, candidates=())
     candidates = tuple(sorted(cached.values(), key=str.lower))
@@ -170,18 +176,29 @@ def get_code_analysis_target(flag: FeatureFlag, requested_repository: str | None
     return CodeAnalysisTarget(repository=None, source=CodeAnalysisRepositorySource.AMBIGUOUS, candidates=candidates)
 
 
-def _variant_keys(flag: FeatureFlag) -> list[str]:
-    return [key for variant in flag.variants if isinstance(variant, dict) and (key := variant.get("key"))]
+def _outcomes(flag: FeatureFlag) -> str:
+    try:
+        variants = flag.variants
+    except ConfigFormatError:
+        # Only a v1 document carries variants in a shape we read, so let the agent find them in the code.
+        return "every outcome the code checks"
+    keys = [variant.get("key") for variant in variants if isinstance(variant, dict)]
+    if not keys:
+        return '"enabled" and "disabled"'
+    # Variant keys are free text in the flag API. Interpolate them only when they are as safe as a flag key.
+    if not all(isinstance(key, str) and SAFE_KEY.fullmatch(key) for key in keys):
+        return "every variant the code checks"
+    return ", ".join(f'"{key}"' for key in keys)
 
 
 def build_code_analysis_prompt(flag: FeatureFlag, repository: str) -> tuple[str, str]:
     """Return (title, description): the task title and the agent's instructions.
 
-    Only the flag key is interpolated. Keys are restricted to letters, digits, `-` and `_`, while the
-    flag's name and description are free text a project member wrote, so they stay out of the prompt.
+    Only keys are interpolated: the flag key, which the API restricts to letters, digits, `-` and `_`,
+    and variant keys that match the same pattern. The flag's name and description are free text a
+    project member wrote, so they stay out of the prompt.
     """
-    variants = _variant_keys(flag)
-    outcomes = ", ".join(f'"{key}"' for key in variants) if variants else '"enabled" and "disabled"'
+    outcomes = _outcomes(flag)
     title = f"Analyze the code paths of feature flag {flag.key}"
     description = "\n".join(
         [
@@ -205,7 +222,7 @@ def build_code_analysis_prompt(flag: FeatureFlag, repository: str) -> tuple[str,
             "- A branch is the code that runs for that outcome: the body of the if/else, the ternary arm, the switch case, or the rendered element.",
             "- When an outcome has no code of its own (an if with no else), list it with an empty snippet.",
             '- When the same code runs for every outcome and only the flag value passed to it differs (for example `classList.toggle(name, isOn)`), report one branch with variant "all" instead of repeating the code per outcome.',
-            "- Copy snippets exactly from the file. Use 1-based, inclusive line numbers.",
+            "- Copy snippets exactly from the file, one line per file line, keeping each line's leading whitespace. Use 1-based, inclusive line numbers.",
             "- Write the summary as one plain sentence about what changes for users or callers when the flag turns on.",
             "- If the key is built at runtime or a check is ambiguous, say so in notes rather than guessing.",
             "- Keep notes to at most three sentences. Leave out what the references already show.",
@@ -233,14 +250,6 @@ def start_code_analysis(
             "Your organization used all of its AI credits. Check your billing settings, then try again.",
         )
 
-    previous = latest_code_analysis(flag)
-    if previous is not None:
-        run = _latest_run(previous)
-        if run is not None and not run.is_terminal:
-            raise CodeAnalysisError(
-                "already_running", "This flag is already being analyzed. Wait for it to finish, then try again."
-            )
-
     target = get_code_analysis_target(flag, requested_repository=requested_repository)
     if target.repository is None:
         raise CodeAnalysisError(
@@ -249,25 +258,40 @@ def start_code_analysis(
         )
 
     title, description = build_code_analysis_prompt(flag, target.repository)
-    created = tasks_facade.create_and_run_task(
-        team=flag.team,
-        title=title,
-        description=description,
-        origin_product=tasks_facade.TaskOriginProduct.FEATURE_FLAGS,
-        user_id=user.id,
-        repository=target.repository,
-        create_pr=False,
-        github_read_access=True,
-        output_schema=FlagCodeAnalysisResult,
-        interaction_origin="feature_flags",
-    )
-    return FeatureFlagCodeAnalysis.objects.create(
-        team_id=flag.team_id,
-        feature_flag=flag,
-        task_id=created.task_id,
-        repository=target.repository,
-        created_by=user,
-    )
+    # The lock makes the running check and the new row one step, so two concurrent requests cannot both
+    # start a billable run. The task's workflow starts on commit, so a rollback starts nothing.
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"feature_flag_code_analysis:{flag.id}"]
+            )
+        previous = latest_code_analysis(flag)
+        if previous is not None:
+            run = _latest_run(previous)
+            if run is not None and not run.is_terminal:
+                raise CodeAnalysisError(
+                    "already_running", "This flag is already being analyzed. Wait for it to finish, then try again."
+                )
+        created = tasks_facade.create_and_run_task(
+            team=flag.team,
+            title=title,
+            description=description,
+            origin_product=tasks_facade.TaskOriginProduct.FEATURE_FLAGS,
+            user_id=user.id,
+            repository=target.repository,
+            create_pr=False,
+            github_read_access=True,
+            posthog_mcp_scopes="read_only",
+            output_schema=FlagCodeAnalysisResult,
+            interaction_origin="feature_flags",
+        )
+        return FeatureFlagCodeAnalysis.objects.create(
+            team_id=flag.team_id,
+            feature_flag=flag,
+            task_id=created.task_id,
+            repository=target.repository,
+            created_by=user,
+        )
 
 
 def _ai_credits_exhausted(flag: FeatureFlag) -> bool:

@@ -22,6 +22,8 @@ export function FeatureFlagCodeTab({ id }: { id: number }): JSX.Element {
         analysis,
         analysisLoaded,
         analysisLoadError,
+        analysisLoading,
+        pollingStopped,
         target,
         targetLoading,
         repository,
@@ -131,6 +133,18 @@ export function FeatureFlagCodeTab({ id }: { id: number }): JSX.Element {
                     </p>
                     {startButton('Analyze code')}
                 </div>
+            ) : isRunning && pollingStopped ? (
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        children: 'Check again',
+                        onClick: () => loadAnalysis(),
+                        loading: analysisLoading,
+                        'data-attr': 'feature-flag-code-analysis-resume',
+                    }}
+                >
+                    Couldn't get the latest status of this analysis. It may still be running.
+                </LemonBanner>
             ) : isRunning ? (
                 <div className="flex flex-wrap items-center gap-2">
                     <Spinner />

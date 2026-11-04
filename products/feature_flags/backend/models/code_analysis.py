@@ -18,8 +18,9 @@ class FeatureFlagCodeAnalysis(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey(
         "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
     )
+    # Keeps its own index because a flag delete cascades here by feature_flag_id alone.
     feature_flag = models.ForeignKey(
-        "feature_flags.FeatureFlag", on_delete=models.CASCADE, db_index=False, related_name="code_analyses"
+        "feature_flags.FeatureFlag", on_delete=models.CASCADE, related_name="code_analyses"
     )
     # A bare UUID, not a FK: tasks is an isolated product, so its rows are read through its facade.
     task_id = models.UUIDField()

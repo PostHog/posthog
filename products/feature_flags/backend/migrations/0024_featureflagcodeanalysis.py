@@ -44,7 +44,6 @@ class Migration(migrations.Migration):
                 (
                     "feature_flag",
                     models.ForeignKey(
-                        db_index=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="code_analyses",
                         to="feature_flags.featureflag",
