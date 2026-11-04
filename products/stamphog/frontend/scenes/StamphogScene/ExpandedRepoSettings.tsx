@@ -1,14 +1,28 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { toAccessControlLevel } from 'lib/utils/accessControlUtils'
 
-import { ReviewModeEnumApi, type StamphogRepoConfigApi } from '../../generated/api.schemas'
+import {
+    OwnersFileStatusEnumApi,
+    ReviewModeEnumApi,
+    RoutingModeEnumApi,
+    type StamphogRepoConfigApi,
+} from '../../generated/api.schemas'
 import { REVIEW_MODE_LABELS } from '../../reviewModeLabels'
 import { editorDisabledReason, managerDisabledReason } from './repoAccess'
+import { ReviewerRequestSettings } from './ReviewerRequestSettings'
 import { stamphogSceneLogic } from './stamphogSceneLogic'
+
+const REVIEWER_REQUESTS_DESCRIPTION =
+    'Asks the code owners in owners.yaml to review. Owners with a trivial part of the change are left out, and a comment on the pull request says why.'
+
+const REVIEWER_REQUESTS_MODE_DESCRIPTION: Partial<Record<RoutingModeEnumApi, string>> = {
+    [RoutingModeEnumApi.Fallback]: 'After a Stamphog approval, only the owners of sensitive and new paths are asked.',
+    [RoutingModeEnumApi.Always]: 'Owners are asked as soon as a pull request is ready for review.',
+}
 
 function Section({
     title,
@@ -100,10 +114,15 @@ function TriggerSettings({
 }
 
 export function ExpandedRepoSettings({ repo }: { repo: StamphogRepoConfigApi }): JSX.Element {
-    const { updatingRepoIds } = useValues(stamphogSceneLogic)
+    const { updatingRepoIds, ownersFileChecks } = useValues(stamphogSceneLogic)
     const { updateRepoConfig } = useActions(stamphogSceneLogic)
     const level = toAccessControlLevel(repo.user_access_level)
     const updatingReason = updatingRepoIds.includes(repo.id) ? 'Updating' : undefined
+    const ownersFile = ownersFileChecks[repo.id]
+    const routingMode = repo.routing_mode ?? RoutingModeEnumApi.Off
+    // Requests read every owner from owners.yaml, so a repository without one is not offered them. A repository
+    // that has them on keeps the setting in view, so it can be turned off.
+    const showReviewerRequests = routingMode !== RoutingModeEnumApi.Off || ownersFile === OwnersFileStatusEnumApi.Found
 
     return (
         <div className="@container pl-2 pr-4 py-4">
@@ -151,6 +170,30 @@ export function ExpandedRepoSettings({ repo }: { repo: StamphogRepoConfigApi }):
                     />
                 </Section>
             </div>
+            {showReviewerRequests && (
+                <>
+                    <LemonDivider className="my-4" />
+                    <div className="grid grid-cols-1 @2xl:grid-cols-3 gap-x-8">
+                        <div className="@2xl:col-span-2">
+                            <Section
+                                title="Reviewer requests"
+                                description={[
+                                    REVIEWER_REQUESTS_DESCRIPTION,
+                                    REVIEWER_REQUESTS_MODE_DESCRIPTION[routingMode],
+                                ]
+                                    .filter(Boolean)
+                                    .join(' ')}
+                            >
+                                <ReviewerRequestSettings
+                                    repo={repo}
+                                    ownersFile={ownersFile}
+                                    updatingReason={updatingReason}
+                                />
+                            </Section>
+                        </div>
+                    </div>
+                </>
+            )}
         </div>
     )
 }
