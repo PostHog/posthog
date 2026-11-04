@@ -1,5 +1,7 @@
 import tracemalloc
 
+import pytest
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -80,3 +82,9 @@ class TestTextFromHtml(SimpleTestCase):
             tracemalloc.stop()
         assert text == expected
         assert peak < 24 * 1024 * 1024
+
+    @pytest.mark.timeout(30, func_only=True)
+    def test_closing_tags_without_an_open_match_convert_in_linear_time(self):
+        html = "<div>" * 43690 + "Hi" + "</span>" * 43690
+
+        assert text_from_html(html) == "Hi"
