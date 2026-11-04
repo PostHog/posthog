@@ -1,10 +1,13 @@
-from temporalio import workflow
+from datetime import timedelta
+
+from temporalio import common, workflow
 from temporalio.exceptions import ActivityError
 
-from products.error_tracking.backend.temporal.lifecycle.policies import (
-    ACTIVITY_RETRY_POLICY,
-    ACTIVITY_START_TO_CLOSE_TIMEOUT,
-)
+# One write, so a short deadline is plenty. It runs beside the issue's own alerts and events, and a
+# stalled registry must not hold the workflow open for long.
+OCCURRENCE_START_TO_CLOSE_TIMEOUT = timedelta(seconds=30)
+OCCURRENCE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(minutes=2)
+OCCURRENCE_RETRY_POLICY = common.RetryPolicy(maximum_attempts=3)
 
 
 async def record_occurrence_fail_open(activity: str, inputs: object) -> None:
@@ -16,8 +19,9 @@ async def record_occurrence_fail_open(activity: str, inputs: object) -> None:
         await workflow.execute_activity(
             activity,
             inputs,
-            start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
-            retry_policy=ACTIVITY_RETRY_POLICY,
+            start_to_close_timeout=OCCURRENCE_START_TO_CLOSE_TIMEOUT,
+            schedule_to_close_timeout=OCCURRENCE_SCHEDULE_TO_CLOSE_TIMEOUT,
+            retry_policy=OCCURRENCE_RETRY_POLICY,
         )
     except ActivityError:
         workflow.logger.warning("Issue occurrence activity %s failed; appearance alerts miss it", activity)
