@@ -26033,6 +26033,22 @@ export namespace Schemas {
       count?: number | null;
     }
 
+    export interface SerializedMatchedRecordingEvent {
+      /** UUID of the matched event. */
+      uuid: string;
+      /** When the matched event happened. */
+      timestamp: string;
+      /** ID of the browser window the event was captured in. */
+      window_id: string;
+    }
+
+    export interface SerializedMatchedRecording {
+      /** ID of the session recording. */
+      session_id: string;
+      /** Events of the recording that matched the query. */
+      events: SerializedMatchedRecordingEvent[];
+    }
+
     /**
      * Marks this actor as a person.
      */
@@ -26048,8 +26064,6 @@ export namespace Schemas {
      */
     export type SerializedPersonActorProperties = { [key: string]: unknown };
 
-    export type SerializedPersonActorMatchedRecordingsItem = { [key: string]: unknown };
-
     export interface SerializedPersonActor {
       /** The person's UUID, or the group's key. */
       id: string;
@@ -26061,7 +26075,7 @@ export namespace Schemas {
          */
       created_at: string | null;
       /** Recordings that matched the query. Empty unless the endpoint asks for them. */
-      matched_recordings: SerializedPersonActorMatchedRecordingsItem[];
+      matched_recordings: SerializedMatchedRecording[];
       /**
          * The actor's value at the data point it was queried for. Null unless the query computes one.
          * @nullable
@@ -26080,11 +26094,8 @@ export namespace Schemas {
          * @nullable
          */
       last_seen_at: string | null;
-      /**
-         * Whether the person has been identified.
-         * @nullable
-         */
-      is_identified: boolean | null;
+      /** Whether the person has been identified. */
+      is_identified: boolean;
     }
 
     export interface CohortPersonsResponse {
@@ -97126,8 +97137,6 @@ export namespace Schemas {
      */
     export type SerializedGroupActorProperties = { [key: string]: unknown };
 
-    export type SerializedGroupActorMatchedRecordingsItem = { [key: string]: unknown };
-
     export interface SerializedGroupActor {
       /** The person's UUID, or the group's key. */
       id: string;
@@ -97139,7 +97148,7 @@ export namespace Schemas {
          */
       created_at: string | null;
       /** Recordings that matched the query. Empty unless the endpoint asks for them. */
-      matched_recordings: SerializedGroupActorMatchedRecordingsItem[];
+      matched_recordings: SerializedMatchedRecording[];
       /**
          * The actor's value at the data point it was queried for. Null unless the query computes one.
          * @nullable
