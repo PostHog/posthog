@@ -56,6 +56,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 # password-only user in a 2FA-enforced org read scout runs/scratchpad without
 # completing 2FA.
 from posthog.dataclasses import frozen
+from posthog.exceptions import InsufficientScope
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -3085,8 +3086,9 @@ def assert_can_grant_scout_write_scopes(
     if token_scopes is not None and "*" not in token_scopes:
         missing = scopes_missing_after_legacy_fallback(request, None, token_scopes, sorted(added_scopes))
         if missing:
-            raise exceptions.PermissionDenied(
-                f"This API key does not carry {', '.join(missing)}, so it cannot grant that access to a scout."
+            raise InsufficientScope(
+                missing,
+                detail=f"This API key does not carry {', '.join(missing)}, so it cannot grant that access to a scout.",
             )
     level = UserPermissions(user=user, team=team).current_team.effective_membership_level
     if level is not None and level >= OrganizationMembership.Level.ADMIN:
