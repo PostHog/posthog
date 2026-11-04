@@ -615,6 +615,7 @@ describe('RateLimiterService', () => {
                 const teamManager = {
                     getTeam: () => Promise.resolve({ organization_id: randomUUID() }),
                 } as unknown as TeamManager
+                const { sandboxEmailCapValkey } = { ...workerValkeys, ...override }
                 const sender = new SandboxEmailSender(
                     {
                         enabled: true,
@@ -626,7 +627,7 @@ describe('RateLimiterService', () => {
                     },
                     teamManager,
                     redis,
-                    createSandboxDailyCapLimiter({ ...workerValkeys, ...override })
+                    createSandboxDailyCapLimiter({ sandboxEmailCapValkey })
                 )
                 const bucket = { key: `${KEY}/stalled`, requested: 1, capacity: 1, refillPerSecond: 0 }
                 try {
@@ -643,7 +644,10 @@ describe('RateLimiterService', () => {
                         })
                     ).resolves.toBeUndefined()
                 } finally {
-                    stalledValkey.close()
+                    await sandboxEmailCapValkey?.useClient({ name: 'test:close-stalled-valkey' }, (client) =>
+                        client.disconnect()
+                    )
+                    await new Promise<void>((resolve) => stalledValkey.close(() => resolve()))
                 }
             },
             10_000
