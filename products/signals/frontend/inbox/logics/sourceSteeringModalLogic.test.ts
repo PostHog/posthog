@@ -83,6 +83,23 @@ describe('sourceSteeringModalLogic', () => {
         expect(onClose).toHaveBeenCalled()
     })
 
+    it.each([
+        [SignalSourceProduct.Conversations, 'Applies from the next sync.', 'Skip chores'],
+        [SignalSourceProduct.ErrorTracking, 'Applies to new signals from now on.', 'Skip noise'],
+        [SignalSourceProduct.Analytics, 'Applies to new signals from now on.', 'Skip small changes'],
+    ])('fits the timing and starting points to %s', (sourceProduct, helpStart, firstExample) => {
+        // Sources that emit as things happen have no sync, and their records carry no labels.
+        logic.unmount()
+        logic = sourceSteeringModalLogic({
+            sourceConfigs: [{ ...sourceConfig, source_product: sourceProduct }],
+            onClose,
+        })
+        logic.mount()
+
+        expect(logic.values.steeringHelp.startsWith(helpStart)).toBe(true)
+        expect(logic.values.steeringExamples[0].label).toEqual(firstExample)
+    })
+
     it('saves one card of guidance to every row behind it', async () => {
         // Error tracking is one card over three config rows. Writing only the first would leave
         // reopened and spiking issues unfiltered, so the rules would look ignored half the time.
