@@ -217,10 +217,7 @@ export interface onboardingLogicMeta {
             currentStepProductKey: ProductKey | null,
             secondaryProductKeys: ProductKey[]
         ) => string
-        onCompleteOnboardingRedirectUrl: (
-            productKey: ProductKey | null,
-            onCompleteOnboardingRedirectUrlOverride: string | null
-        ) => string
+        onCompleteOnboardingRedirectUrl: (onCompleteOnboardingRedirectUrlOverride: string | null) => string
     }
 }
 
