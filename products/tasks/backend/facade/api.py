@@ -1184,11 +1184,15 @@ def get_resume_snapshot_carry_state(run_state: dict[str, Any] | None) -> dict[st
     return parse_run_state(run_state).resume_snapshot_carry_state()
 
 
-def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.TaskRunDTO | None:
+def get_task_run(
+    run_id: str | UUID, team_id: int | None = None, *, include_child_environments: bool = False
+) -> contracts.TaskRunDTO | None:
     """Fetch a single task run as a DTO, optionally scoped to a team."""
     qs = TaskRun.objects.select_related("task", "task__created_by")
     if team_id is not None:
-        qs = qs.filter(team_id=team_id)
+        qs = qs.filter(
+            Q(team_id=team_id) | Q(team__parent_team_id=team_id) if include_child_environments else Q(team_id=team_id)
+        )
     run = qs.filter(id=run_id).first()
     if run is None:
         return None
@@ -1217,6 +1221,14 @@ def latest_agent_startup_success(*, team_id: int, repository: str, provider: str
     if started_at is None or django_timezone.is_naive(started_at):
         return None
     return started_at
+
+
+def has_active_task_runs(*, team_id: int, run_ids: list[UUID]) -> bool:
+    return TaskRun.objects.filter(
+        Q(team_id=team_id) | Q(team__parent_team_id=team_id),
+        id__in=run_ids,
+        status__in=[TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
+    ).exists()
 
 
 def find_signal_implementation_run(
@@ -1386,6 +1398,10 @@ def task_exists(task_id: str | UUID, team_id: int) -> bool:
 def task_channel_id(task_id: str | UUID, team_id: int) -> UUID | None:
     """The channel a (non-deleted) task is filed in, or None."""
     return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).values_list("channel_id", flat=True).first()
+
+
+def get_task_report_id(*, task_id: UUID, team_id: int) -> UUID | None:
+    return Task.objects.filter(team_id=team_id, id=task_id).values_list("signal_report_id", flat=True).first()
 
 
 def signal_report_pipeline_stage(task_id: str | UUID, team_id: int) -> str | None:
