@@ -848,33 +848,37 @@ class TestIssueTagValuesResumable:
                 issue_id="100",
                 tag_key="browser",
                 values_next_url="https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:2",
+                completed_tag_keys=[],
+                issue_position=1,
             ),
-            SentryResumeConfig(completed_issue_id="100"),
+            SentryResumeConfig(issue_id="100", completed_tag_keys=["browser"], issue_position=1),
+            SentryResumeConfig(completed_issue_id="100", issue_position=1),
         ]
 
-    def test_failed_run_resumes_after_the_last_completed_issue(self) -> None:
-        failing_issue = "101"
+    def test_failed_run_resumes_after_the_last_finished_tag(self) -> None:
+        failing_values = "/organizations/acme/issues/101/tags/browser/values/"
 
         def script(request: RecordedRequest) -> ScriptedResponse:
             if request.path.endswith("/organizations/acme/issues/"):
                 return _json([{"id": "100"}, {"id": "101"}])
-            if request.path.endswith(f"/organizations/acme/issues/{failing_issue}/tags/"):
+            if request.path.endswith(failing_values):
                 return _json({"detail": "Invalid token"}, status=401)
             if request.path.endswith("/tags/"):
-                return _json([{"key": "browser"}])
-            return _json([{"value": "Chrome"}])
+                return _json([{"key": "os"}, {"key": "browser"}])
+            return _json([{"value": "x"}])
 
         failed = _driver().run("issue_tag_values", script)
 
         assert failed.raised is not None
-        assert failed.final_state == SentryResumeConfig(completed_issue_id="100")
+        assert failed.final_state == SentryResumeConfig(issue_id="101", completed_tag_keys=["os"], issue_position=2)
 
-        failing_issue = "none"
+        failing_values = "none"
         resumed = _driver().run("issue_tag_values", script, resume_state=failed.final_state)
 
         assert resumed.raised is None
-        assert resumed.rows == [{"value": "Chrome", "issue_id": "101", "tag_key": "browser"}]
+        assert resumed.rows == [{"value": "x", "issue_id": "101", "tag_key": "browser"}]
         assert "/api/0/organizations/acme/issues/100/tags/" not in resumed.paths
+        assert "/api/0/organizations/acme/issues/101/tags/os/values/" not in resumed.paths
 
     @parameterized.expand(
         [
@@ -999,34 +1003,34 @@ class TestIssueTagValuesResumable:
         values_requests = [request for request in result.requests if request.path == values_path]
         assert [request.param("cursor") for request in values_requests] == ["0:100:2"]
 
-    @patch("products.warehouse_sources.sources.sentry.sentry._RESUME_ISSUE_SKIP_LIMIT", 2)
-    def test_stale_checkpoint_falls_through_after_skip_limit(self) -> None:
-        """If the checkpoint issue was deleted between runs, bounded skipping
-        falls through so subsequent issues still get processed."""
-
+    @parameterized.expand(
+        [
+            (
+                "deleted_checkpoint_issue",
+                SentryResumeConfig(
+                    issue_id="999",
+                    tag_key="browser",
+                    values_next_url="https://sentry.io/api/0/organizations/acme/issues/999/tags/browser/values/?cursor=0:100:2",
+                ),
+                ["101", "102", "103"],
+            ),
+            ("checkpoint_past_the_limit", SentryResumeConfig(completed_issue_id="102", issue_position=3), ["103"]),
+        ]
+    )
+    @patch("products.warehouse_sources.sources.sentry.sentry._RESUME_ISSUE_SKIP_LIMIT", 1)
+    def test_checkpoint_issue_search_is_bounded(
+        self, _name: str, resume_state: SentryResumeConfig, expected_issue_ids: list[str]
+    ) -> None:
         def script(request: RecordedRequest) -> ScriptedResponse:
             if request.path.endswith("/organizations/acme/issues/"):
-                # None of these match the checkpoint issue_id=999.
-                return _json([{"id": "100"}, {"id": "101"}, {"id": "102"}])
-            if request.path.endswith("/organizations/acme/issues/102/tags/"):
+                return _json([{"id": "100"}, {"id": "101"}, {"id": "102"}, {"id": "103"}])
+            if request.path.endswith("/tags/"):
                 return _json([{"key": "browser"}])
-            if request.path.endswith("/organizations/acme/issues/102/tags/browser/values/"):
-                return _json([{"value": "Chrome"}])
-            return _json([])
+            return _json([{"value": "Chrome"}])
 
-        result = _driver().run(
-            "issue_tag_values",
-            script,
-            resume_state=SentryResumeConfig(
-                issue_id="999",
-                tag_key="browser",
-                values_next_url="https://sentry.io/api/0/organizations/acme/issues/999/tags/browser/values/?cursor=0:100:2",
-            ),
-        )
+        result = _driver().run("issue_tag_values", script, resume_state=resume_state)
 
-        # With skip limit 2, issues 100 and 101 are skipped; on 102 we exceed
-        # the limit, clear the markers, and process it fresh.
-        assert result.rows == [{"value": "Chrome", "issue_id": "102", "tag_key": "browser"}]
+        assert [row["issue_id"] for row in result.rows] == expected_issue_ids
 
     def test_partial_resume_state_falls_through_to_fresh_run(self) -> None:
         """Only activate resume when the full (issue_id, tag_key, values_next_url)
