@@ -209,12 +209,11 @@ class TestHealthIssueAPI(APIBaseTest):
     )
     def test_resolve_action(self, _name, scopes):
         issue = self._create_issue()
-        headers = {}
         if scopes is not None:
-            headers["HTTP_AUTHORIZATION"] = f"Bearer {self.create_personal_api_key_with_scopes(scopes)}"
             self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(scopes)}")
 
-        response = self.client.post(self._url(f"/{issue.id}/resolve"), **headers)
+        response = self.client.post(self._url(f"/{issue.id}/resolve"))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["status"], "resolved")
 
