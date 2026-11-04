@@ -137,6 +137,7 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 request.validated_data["retention_months"],
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
+                request=request,
             )
         except DjangoValidationError as error:
             raise exceptions.ValidationError(error.messages) from error
@@ -197,6 +198,7 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
                 request.validated_data["retention_months"],
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
+                request=request,
             )
         except DjangoValidationError as error:
             raise exceptions.ValidationError(error.messages) from error
