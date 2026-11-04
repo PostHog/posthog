@@ -100,7 +100,7 @@ describe('InstructionsFormatter prompt snapshots', () => {
 
     it('matches the exec command reference with skills enabled', async () => {
         const formatter = new InstructionsFormatter()
-        const rendered = formatter.buildExecCommandReference(STATIC_CTX, { learnEnabled: true })
+        const rendered = formatter.buildCompactExecCommandReference(STATIC_CTX, { skillsEnabled: true })
         await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-full-skills.txt'))
     })
 
@@ -131,6 +131,18 @@ describe('InstructionsFormatter prompt snapshots', () => {
         await expect(rendered).toMatchFileSnapshot(
             path.join(SNAPSHOT_DIR, 'exec-command-reference-claude-chat-skills.txt')
         )
+    })
+
+    // Claude Code and Codex with the skills flag on, which is the rollout every cli client has.
+    it('matches the exec command reference for cli clients with learn', async () => {
+        const state = {
+            ...claudeChatState({ [MCP_EXEC_SKILLS_FEATURE_FLAG]: true }),
+            clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeCode' }),
+            renderUiEnabled: false,
+        } as ResolvedState
+        const rendered = new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)
+
+        await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-cli.txt'))
     })
 
     // claude.ai never surfaces server `instructions`, so the exec command reference is the
