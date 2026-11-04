@@ -3354,9 +3354,11 @@ class TrinoPrinter(PostgresPrinter):
         value_type = self._resolve_type(node.args[0])
         if isinstance(value_type, ast.StringType):
             return f"ch_cityhash64({value})"
-        if isinstance(value_type, ast.IntegerType):
+        if isinstance(value_type, (ast.IntegerType, ast.BooleanType)):
             return f"ch_cityhash64(CAST({value} AS BIGINT))"
-        self._invalid_function_arguments(node, "cityHash64 in Trino mode supports only one String or integer argument.")
+        self._invalid_function_arguments(
+            node, "cityHash64 in Trino mode supports only one String, integer or boolean argument."
+        )
 
     def _visit_to_timestamp(self, node: ast.Call) -> str:
         if len(node.args) != 1 or not isinstance(self._resolve_type(node.args[0]), ast.IntegerType):

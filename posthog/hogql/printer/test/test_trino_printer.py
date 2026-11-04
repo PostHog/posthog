@@ -2454,6 +2454,7 @@ def test_prints_all_median_aggregate_combinators(name: str, window: str) -> None
         ("md5(user_id)", 'to_hex(md5(to_utf8(CAST("users"."user_id" AS VARCHAR))))'),
         ("cityHash64(user_id) % 10", 'ch_cityhash64("users"."user_id")'),
         ("cityHash64(id)", 'ch_cityhash64(CAST("users"."id" AS BIGINT))'),
+        ("cityHash64(id = 1)", 'ch_cityhash64(CAST(("users"."id" = 1) AS BIGINT))'),
         ("power(2, 3)", "power(2, 3)"),
         ("ln(2)", "ln(2)"),
         ("log2(2)", "log2(2)"),
