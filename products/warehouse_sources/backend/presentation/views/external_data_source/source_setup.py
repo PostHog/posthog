@@ -39,7 +39,12 @@ from products.data_warehouse.backend.facade.api import (
     is_any_external_data_schema_paused,
     is_custom_source_ai_builder_enabled_for_team,
 )
-from products.warehouse_sources.backend.facade.api import effective_source_status, validate_source_prefix
+from products.warehouse_sources.backend.facade.api import (
+    effective_source_status,
+    schema_needs_webhook,
+    sources_missing_webhook,
+    validate_source_prefix,
+)
 from products.warehouse_sources.backend.facade.contracts import (
     CREDENTIALS_REFERENCE_INPUT_KEY,
     SharedCredentialsEdit,
@@ -98,6 +103,7 @@ from products.warehouse_sources.backend.presentation.views.destination_links imp
 )
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     PINNED_TABLE_IDS_CONTEXT_KEY,
+    WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY,
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
     pinned_table_ids,
@@ -129,11 +135,27 @@ class ExternalDataSourceListSerializer(serializers.ListSerializer):
         child = self.child
         assert isinstance(child, ExternalDataSourceSerializers)
         child.preloaded_source_inputs = SourceInputsStore.load_many(sources)
+        child.preloaded_webhook_missing_by_source = self._webhook_missing_by_source(child, sources)
         return super().to_representation(sources)
+
+    def _webhook_missing_by_source(
+        self, child: ExternalDataSourceSerializers, sources: list[ExternalDataSource]
+    ) -> dict[UUID, bool] | None:
+        """One webhook lookup for every listed source, or None to look each source up on its own."""
+        schemas: list[ExternalDataSchema] = []
+        for source in sources:
+            prefetched = child._prefetched_schemas(source)
+            if prefetched is None:
+                return None
+            schemas.extend(prefetched)
+        if not sources:
+            return {}
+        return sources_missing_webhook(sources[0].team_id, schemas)
 
 
 class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     preloaded_source_inputs: dict[UUID, dict[str, Any]] = {}
+    preloaded_webhook_missing_by_source: dict[UUID, bool] | None = None
 
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
@@ -155,6 +177,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     )
     access_method = serializers.ChoiceField(choices=ExternalDataSource.AccessMethod.choices, read_only=True)
     supports_webhooks = serializers.SerializerMethodField(read_only=True)
+    webhook_not_registered = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Whether at least one table of this source uses webhook sync, but the source has no enabled "
+            "webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, "
+            "which is slower and can read the whole table. Set up the webhook, or change the sync method "
+            "of those tables."
+        ),
+    )
     supports_column_selection = serializers.SerializerMethodField(
         read_only=True,
         help_text="Whether this source supports per-column sync selection via `enabled_columns`.",
@@ -262,6 +293,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "revenue_analytics_config",
             "user_access_level",
             "supports_webhooks",
+            "webhook_not_registered",
             "supports_column_selection",
             "file_name",
             "api_version",
@@ -282,6 +314,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "user_access_level",
             "access_method",
             "supports_webhooks",
+            "webhook_not_registered",
             "supports_column_selection",
             "file_name",
             "api_version",
@@ -351,6 +384,22 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         except Exception as e:
             capture_exception(e)
             return False
+
+    def _webhook_missing_by_source(self, instance: ExternalDataSource) -> dict[UUID, bool]:
+        if self.preloaded_webhook_missing_by_source is not None:
+            return self.preloaded_webhook_missing_by_source
+        cached: dict[UUID, bool] | None = getattr(instance, "_webhook_missing_by_source", None)
+        if cached is None:
+            schemas = self._prefetched_schemas(instance)
+            if schemas is None:
+                schemas = [schema for schema in instance.schemas.exclude(deleted=True) if schema_needs_webhook(schema)]
+            cached = sources_missing_webhook(instance.team_id, schemas)
+            instance._webhook_missing_by_source = cached  # type: ignore[attr-defined]
+        return cached
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_webhook_not_registered(self, instance: ExternalDataSource) -> bool:
+        return self._webhook_missing_by_source(instance).get(instance.pk, False)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_file_name(self, instance: ExternalDataSource) -> str | None:
@@ -423,6 +472,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             **self.context,
             "error_redaction_values": self._error_redaction_values(instance),
             PINNED_TABLE_IDS_CONTEXT_KEY: pinned_table_ids(schemas, instance.team_id),
+            WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY: {
+                source_id: missing
+                for source_id, missing in self._webhook_missing_by_source(instance).items()
+                if source_id == instance.pk
+            },
         }
         if self.context.get("schemas_list_only"):
             return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=context).data
