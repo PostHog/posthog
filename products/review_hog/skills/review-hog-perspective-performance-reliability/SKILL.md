@@ -1,5 +1,6 @@
 ---
 name: review-hog-perspective-performance-reliability
+disable-model-invocation: true
 description: >
   Checks resource use, error recovery, and scaling. Reports performance and reliability issues only.
 metadata:

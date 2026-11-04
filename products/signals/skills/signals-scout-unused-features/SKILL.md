@@ -1,5 +1,6 @@
 ---
 name: signals-scout-unused-features
+disable-model-invocation: true
 scout-display-name: Unused features
 description: >
   Signals scout for the parts of a product people barely use. Measures each clickable element and

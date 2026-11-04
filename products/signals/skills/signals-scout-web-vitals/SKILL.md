@@ -1,5 +1,6 @@
 ---
 name: signals-scout-web-vitals
+disable-model-invocation: true
 scout-display-name: Web vitals
 description: >
   Signals scout for Core Web Vitals (`$web_vitals`). Watches each page's p75 LCP / INP / CLS /

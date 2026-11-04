@@ -1,5 +1,6 @@
 ---
 name: signals-scout-ai-observability
+disable-model-invocation: true
 scout-display-name: AI observability
 description: >
   Signals scout for PostHog AI observability. Watches LLM traces for cost, latency, error,

@@ -1,5 +1,6 @@
 ---
 name: signals-scout-anomaly-detection
+disable-model-invocation: true
 scout-display-name: Anomaly detection
 description: >
   Signals scout that watches the project's most-viewed dashboards and insights for anomalies —

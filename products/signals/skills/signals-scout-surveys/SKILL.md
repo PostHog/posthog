@@ -1,5 +1,6 @@
 ---
 name: signals-scout-surveys
+disable-model-invocation: true
 scout-display-name: Surveys
 description: >
   Signals scout for PostHog surveys. Watches active surveys for score regressions, response-

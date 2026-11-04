@@ -1,5 +1,6 @@
 ---
 name: review-hog-blind-spots-general
+disable-model-invocation: true
 description: >
   Checks each chunk for issues the other reviewers missed. Uses their findings to avoid repeating them.
 metadata:

@@ -59,8 +59,13 @@ def test_validate_frontmatter_valid() -> None:
         ("No frontmatter\n", "Missing YAML frontmatter"),
         ("---\nname: only-name\n---\nBody\n", "description"),
         ("---\ndescription: only-desc\n---\nBody\n", "name"),
+        ("---\nname: signals-scout-foo\ndescription: A scout\n---\nBody\n", "disable-model-invocation"),
+        (
+            "---\nname: review-hog-perspective-foo\ndescription: A lens\ndisable-model-invocation: false\n---\nBody\n",
+            "disable-model-invocation",
+        ),
     ],
-    ids=["no-frontmatter", "missing-description", "missing-name"],
+    ids=["no-frontmatter", "missing-description", "missing-name", "scout-listed", "review-perspective-listed"],
 )
 def test_validate_frontmatter_invalid(text: str, error_fragment: str) -> None:
     with pytest.raises(ValueError, match=error_fragment):

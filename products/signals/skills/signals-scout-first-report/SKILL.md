@@ -1,5 +1,6 @@
 ---
 name: signals-scout-first-report
+disable-model-invocation: true
 scout-display-name: First report
 description: >
   Runs once after Self-Driving activation to find one valuable, actionable finding

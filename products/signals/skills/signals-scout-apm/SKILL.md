@@ -1,5 +1,6 @@
 ---
 name: signals-scout-apm
+disable-model-invocation: true
 scout-display-name: APM
 description: >
   Signals scout for PostHog distributed tracing (APM / OpenTelemetry spans). Watches per-service

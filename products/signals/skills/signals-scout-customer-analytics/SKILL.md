@@ -1,5 +1,6 @@
 ---
 name: signals-scout-customer-analytics
+disable-model-invocation: true
 scout-display-name: Customer analytics
 description: >
   Signals scout for PostHog Customer analytics (Accounts). Watches per-account engagement for

@@ -1,5 +1,6 @@
 ---
 name: signals-scout-replay-vision
+disable-model-invocation: true
 scout-display-name: Replay vision
 description: >
   Signals scout for PostHog Replay Vision scanners. Watches that enabled scanners keep observing

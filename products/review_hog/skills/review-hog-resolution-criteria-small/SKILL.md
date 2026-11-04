@@ -1,5 +1,6 @@
 ---
 name: review-hog-resolution-criteria-small
+disable-model-invocation: true
 description: >
   Fixes small bugs, typos, wording, and outdated documentation. Leaves changes that need a design
   decision to the author.
