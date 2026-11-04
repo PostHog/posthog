@@ -1041,9 +1041,9 @@ describe('EmailService', () => {
                     }
                 )
 
-                it('charges a repeated address once for the address and once for the project', async () => {
+                it('charges a repeated address once for the address and once per spelling for the project', async () => {
                     service = createSandboxService(true, {
-                        senderSettings: { dailyTeamCap: '2', dailyRecipientCap: '1' },
+                        senderSettings: { dailyTeamCap: '3', dailyRecipientCap: '1' },
                     })
 
                     expectSent(await send(false, { cc: memberEmail().toUpperCase(), bcc: ` ${memberEmail()} ` }))
