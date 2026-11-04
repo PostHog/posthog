@@ -118,6 +118,10 @@ export function pulseSlotsOf(highlights: HighlightsApi | null): PulseSlotApi[] {
     )
 }
 
+function needsStandIn(place: PulsePlace, present: boolean, isHidden: (key: string) => boolean): boolean {
+    return present ? isHidden(place.key) : place.standIn !== null
+}
+
 export function placePulseSlots(
     slots: PulseSlotApi[],
     places: PulsePlace[],
@@ -147,8 +151,7 @@ export function placePulseSlots(
     const shown: PulseSlotApi[] = []
     const nextPlaces: PulsePlace[] = []
     for (const place of kept) {
-        const original = byKey.has(place.key)
-        if ((original && isHidden(place.key)) || (!original && place.standIn !== null)) {
+        if (needsStandIn(place, byKey.has(place.key), isHidden)) {
             const standIn = take(place.standIn)
             if (standIn) {
                 shown.push(standIn)
