@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.auth import OAuthAccessTokenAuthentication
+from posthog.dataclasses import frozen
 from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -67,8 +68,15 @@ class StreamlitBridgeIPThrottle(PersonalApiKeyRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
 
 
-def _authenticate_bearer(auth_header: str, request: Request) -> tuple[int | None, User | None, str | None]:
-    """Validate a bridge bearer token; returns (team_id, minting_user, error).
+@frozen
+class _BridgeAuthentication:
+    team_id: int | None = None
+    user: User | None = None
+    error: str | None = None
+
+
+def _authenticate_bearer(auth_header: str, request: Request) -> _BridgeAuthentication:
+    """Validate a bridge bearer token and retain its user for query authorization.
 
     Kept as an in-view helper rather than a DRF BaseAuthentication class on purpose:
     this is a single first-party endpoint with bespoke checks (single-team scope,
@@ -82,20 +90,20 @@ def _authenticate_bearer(auth_header: str, request: Request) -> tuple[int | None
 
     access_token = find_oauth_access_token(token)
     if access_token is None:
-        return None, None, "Invalid token."
+        return _BridgeAuthentication(error="Invalid token.")
     if access_token.expires and access_token.expires < timezone.now():
-        return None, None, "Token expired."
+        return _BridgeAuthentication(error="Token expired.")
     if not access_token.scoped_teams:
-        return None, None, "Token has no team scope."
+        return _BridgeAuthentication(error="Token has no team scope.")
     scopes = (access_token.scope or "").split()
     if "query:read" not in scopes:
-        return None, None, "Insufficient scope."
+        return _BridgeAuthentication(error="Insufficient scope.")
     if "streamlit:bridge" not in scopes:
-        return None, None, "Token is not a bridge token."
+        return _BridgeAuthentication(error="Token is not a bridge token.")
     if access_token.application_id != get_streamlit_oauth_app().id:
-        return None, None, "Invalid token application."
+        return _BridgeAuthentication(error="Invalid token application.")
     if len(access_token.scoped_teams) != 1:
-        return None, None, "Token must be scoped to exactly one team."
+        return _BridgeAuthentication(error="Token must be scoped to exactly one team.")
 
     team_id = access_token.scoped_teams[0]
 
@@ -104,18 +112,18 @@ def _authenticate_bearer(auth_header: str, request: Request) -> tuple[int | None
     # deactivated user, or one removed from the org, must lose bridge access.
     user = access_token.user
     if user is None or not user.is_active:
-        return None, None, "Token user is inactive."
+        return _BridgeAuthentication(error="Token user is inactive.")
 
     team = Team.objects.filter(id=team_id).only("organization_id").first()
     if team is None:
-        return None, None, "Token team not found."
+        return _BridgeAuthentication(error="Token team not found.")
     if not OrganizationMembership.objects.filter(user=user, organization_id=team.organization_id).exists():
-        return None, None, "Token user is not a member of the team's organization."
+        return _BridgeAuthentication(error="Token user is not a member of the team's organization.")
 
     authenticator = OAuthAccessTokenAuthentication()
     authenticator.access_token = access_token
     enforce_ip_restrictions(request, user, authenticator)
-    return team_id, user, None
+    return _BridgeAuthentication(team_id=team_id, user=user)
 
 
 def _streamlit_apps_enabled_for_team(team_id: int, user_distinct_id: str | None) -> bool:
@@ -138,11 +146,13 @@ class StreamlitBridgeView(APIView):
             return Response({"error": "Missing or invalid Authorization header."}, status=401)
 
         try:
-            team_id, token_user, error = _authenticate_bearer(auth_header, request)
+            authentication = _authenticate_bearer(auth_header, request)
         except PermissionDenied as denial:
             return Response({"error": str(denial.detail)}, status=403)
-        if team_id is None:
-            return Response({"error": error}, status=401)
+        if authentication.team_id is None:
+            return Response({"error": authentication.error}, status=401)
+        team_id = authentication.team_id
+        token_user = authentication.user
 
         # Same gate as the viewset: a bridge token outlives a flag rollback,
         # so the flag must be re-checked here, not just at token mint time.
