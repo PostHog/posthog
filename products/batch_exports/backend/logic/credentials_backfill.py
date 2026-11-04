@@ -303,7 +303,14 @@ def _export_for_destination(destination: BatchExportDestination, team_ids: Seque
 
 def _sync_schedule(export: BatchExport, counts: Counter[CredentialBackfillOutcome]) -> None:
     try:
-        export.refresh_from_db()
+        # Keep the in-memory destination: a reload would stringify the integration ids in copy_inputs.
+        export.refresh_from_db(
+            fields=[
+                field.name
+                for field in BatchExport._meta.concrete_fields
+                if not field.primary_key and field.name != "destination"
+            ]
+        )
         sync_batch_export(export, created=False)
     except Exception as error:
         counts[CredentialBackfillOutcome(destination_type=export.destination.type, outcome="schedule_sync_failed")] += 1
