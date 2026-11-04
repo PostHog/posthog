@@ -647,7 +647,7 @@ describe('RateLimiterService', () => {
                     ).resolves.toBeUndefined()
                 } finally {
                     await sandboxEmailCapValkey?.useClient({ name: 'test:close-stalled-valkey' }, (client) =>
-                        client.disconnect()
+                        Promise.resolve(client.disconnect())
                     )
                     await new Promise<void>((resolve) => stalledValkey.close(() => resolve()))
                 }
