@@ -273,12 +273,12 @@ class TestTickPair(_TickTest):
         self._rows().update(created_at=timezone.now() - datetime.timedelta(hours=2))
         assert len(select_pairs(self._config(), timezone.now(), 10, [self.team.id]).pairs) == 1
 
-        # The retried build has the inputs of the failed one, so it reads the stored parts and finds no change.
         assert self._run() == PersonalRankingPairResult(
             status=second,  # type: ignore[arg-type]
             model_called=second == "built",
         )
         if second == "built":
+            # The retried build has the inputs of the failed one, so it reads the stored parts and finds no change.
             assert self.capture.call_args.kwargs["properties"]["changed_parts"] == []
 
         assert self.create.call_count == model_calls
