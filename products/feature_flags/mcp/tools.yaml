@@ -486,6 +486,33 @@ tools:
                 - status
                 - version
                 - filters
+    feature-flag-rollout-plan-advance:
+        operation: feature_flag_rollout_plans_advance_create
+        enabled: true
+        scopes:
+            - feature_flag_rollout_plan:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Advance a feature flag rollout plan
+        description: >
+            Report that the health checks of a rollout plan passed, so PostHog sets the flag to the next approved
+            percentage and schedules the next check. Only the run that belongs to the plan can call this. PostHog
+            refuses the call before the time between steps has passed.
+    feature-flag-rollout-plan-fail:
+        operation: feature_flag_rollout_plans_fail_create
+        enabled: true
+        scopes:
+            - feature_flag_rollout_plan:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Report a failed feature flag rollout check
+        description: >
+            Stop a rollout plan because a health check failed or you cannot tell whether it passed. PostHog leaves the
+            flag at its current percentage and notifies the person who approved the plan.
     feature-flag-rules-update:
         operation: feature_flags_partial_update
         enabled: true
@@ -535,33 +562,6 @@ tools:
                 - active
                 - version
                 - filters
-    feature-flag-rollout-plan-advance:
-        operation: feature_flag_rollout_plans_advance_create
-        enabled: true
-        scopes:
-            - feature_flag_rollout_plan:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Advance a feature flag rollout plan
-        description: >
-            Report that the health checks of a rollout plan passed, so PostHog sets the flag to the next approved
-            percentage and schedules the next check. Only the run that belongs to the plan can call this. PostHog
-            refuses the call before the time between steps has passed.
-    feature-flag-rollout-plan-fail:
-        operation: feature_flag_rollout_plans_fail_create
-        enabled: true
-        scopes:
-            - feature_flag_rollout_plan:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Report a failed feature flag rollout check
-        description: >
-            Stop a rollout plan because a health check failed or you cannot tell whether it passed. PostHog leaves the
-            flag at its current percentage and notifies the person who approved the plan.
     feature-flag-set-release-condition-rollout:
         operation: feature_flags_set_release_condition_rollout_create
         enabled: true
