@@ -31,7 +31,7 @@ from posthog.models.user_home_settings import UserHomeSettings
 from posthog.resource_limits import LimitKey, check_count_limit
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.dashboards.backend.facade.contracts import (
     CannotAddToDashboard,
     CannotRemoveFromDashboard,
@@ -237,9 +237,29 @@ def recently_accessed_dashboards(
 
 
 def dashboard_access_ref(*, team_id: int, dashboard_id: int) -> ObjectAccessRef | None:
-    """What object-level access control reads from a live dashboard of this team, or None when there is none."""
+    """What object-level access control reads from a live dashboard stored on this team, or None.
+
+    None too when the id finds a dashboard of the environment's project: a ref is checked against
+    one team's rules, and those rules belong to the project's team. Use `can_access_dashboard` there.
+    """
     summary = get_dashboard(team_id=team_id, dashboard_id=dashboard_id)
-    return summary.access_ref if summary is not None else None
+    return summary.access_ref if summary is not None and summary.team_id == team_id else None
+
+
+def can_access_dashboard(
+    dashboard: DashboardSummary,
+    *,
+    user_access_control: UserAccessControl,
+    required_level: AccessControlLevel = "viewer",
+) -> bool:
+    """Whether the user has `required_level` on this dashboard, judged by the rules of the dashboard's own team.
+
+    The dashboard may live on the project's team while `user_access_control` is bound to one of its
+    environments; the check reads the dashboard's team either way.
+    """
+    return not user_access_control.denied_object_ids(
+        "dashboard", [(str(dashboard.id), dashboard.team_id, dashboard.created_by_id)], required_level
+    )
 
 
 def insight_tiles(*, dashboard_id: int) -> list[DashboardInsightTileSummary]:
@@ -759,6 +779,7 @@ __all__ = [
     "MembershipChange",
     "PlacedInsightTile",
     "active_tile_count",
+    "can_access_dashboard",
     "add_insight_to_dashboard",
     "check_insight_tile_limit",
     "create_dashboard_from_tiles",

@@ -123,19 +123,33 @@ class TestDashboardReadsUnderAccessControl(APIBaseTest):
         recent = api.recently_accessed_dashboards(team_id=self.team.id, limit=1, user_access_control=self.access)
         assert [d.id for d in recent] == [self.visible]
 
-    def test_access_ref_resolves_like_the_dashboard_row(self) -> None:
+    def test_access_checks_resolve_like_the_dashboard_row(self) -> None:
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team)
+        environment_access = UserAccessControl(user=self.user, team=environment)
         for dashboard_id in (self.visible, self.hidden):
+            row = Dashboard.objects.get(id=dashboard_id)
+            expected = self.access.check_access_level_for_object(row, "viewer")
             ref = api.dashboard_access_ref(team_id=self.team.id, dashboard_id=dashboard_id)
             assert ref is not None
-            row = Dashboard.objects.get(id=dashboard_id)
-            assert self.access.check_access_level_for_ref(ref, "viewer") == self.access.check_access_level_for_object(
-                row, "viewer"
-            )
+            assert self.access.check_access_level_for_ref(ref, "viewer") == expected
+            # Bound to an environment, the check still reads the rules of the project's team.
+            summary = api.get_dashboard(team_id=environment.id, dashboard_id=dashboard_id)
+            assert summary is not None
+            assert api.can_access_dashboard(summary, user_access_control=environment_access) == expected
+            assert environment_access.check_access_level_for_object(row, "viewer") == expected
 
-    def test_access_ref_is_none_for_a_soft_deleted_dashboard(self) -> None:
-        gone = create_dashboard(team_id=self.team.id, deleted=True)
+    @parameterized.expand([("soft_deleted", True, False), ("found_through_an_environment", False, True)])
+    def test_access_ref_is_none_unless_the_dashboard_is_live_on_that_team(
+        self, _name: str, deleted: bool, via_environment: bool
+    ) -> None:
+        dashboard_id = create_dashboard(team_id=self.team.id, deleted=deleted)
+        team_id = (
+            Team.objects.create(organization=self.organization, parent_team=self.team).id
+            if via_environment
+            else self.team.id
+        )
 
-        assert api.dashboard_access_ref(team_id=self.team.id, dashboard_id=gone) is None
+        assert api.dashboard_access_ref(team_id=team_id, dashboard_id=dashboard_id) is None
 
 
 class TestInsightTileReads(APIBaseTest):
