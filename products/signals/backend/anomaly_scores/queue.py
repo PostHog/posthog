@@ -73,6 +73,7 @@ from products.signals.backend.anomaly_scores.selection import (
 )
 from products.signals.backend.anomaly_scores.spend import CpuSpendReport, cpu_gate
 from products.signals.backend.anomaly_scores.state import RunPlan, load_states, plan_run, score_ready_by_insight
+from products.signals.backend.facade.source_configs import team_ids_with_analytics_source
 from products.signals.backend.models import AnomalyScoringDueInsight, SignalTeamConfig
 from products.subscriptions.backend.facade.api import insight_ids_with_active_subscriptions
 
@@ -261,7 +262,8 @@ def eligible_teams(config: AnomalyScoringConfig) -> list[Team]:
     if not config.enabled:
         return []
     teams = (
-        Team.objects.exclude(id__in=config.skip_team_ids)
+        Team.objects.filter(id__in=team_ids_with_analytics_source())
+        .exclude(id__in=config.skip_team_ids)
         .exclude(organization_id__in=config.deny_organization_ids)
         .exclude(id__in=SignalTeamConfig.objects.filter(anomaly_scoring_enabled=False).values("team_id"))
     )
@@ -272,12 +274,11 @@ def eligible_teams(config: AnomalyScoringConfig) -> list[Team]:
             listed = listed.filter(id__in=config.allow_team_ids)
         enrolled.update(listed.values_list("id", flat=True))
     if config.self_driving_organization_percentage > 0:
-        from products.signals.backend.facade.api import (
-            team_ids_with_enabled_source,  # noqa: PLC0415 — the facade imports this module through `search`
+        enrolled.update(
+            team_id
+            for team_id, organization_id in teams.values_list("id", "organization_id")
+            if in_rollout(config, organization_id)
         )
-
-        with_source = teams.filter(id__in=team_ids_with_enabled_source()).values_list("id", "organization_id")
-        enrolled.update(team_id for team_id, organization_id in with_source if in_rollout(config, organization_id))
     if not enrolled:
         return []
     # Capture drops every event of a project over its event quota, so scoring it wastes the query.

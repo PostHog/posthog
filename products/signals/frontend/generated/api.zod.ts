@@ -140,7 +140,7 @@ export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            "Whether anomaly scoring scores this project's active trends insights every hour and writes the results as $anomaly_score events, which are not billed. True by default. Set false to stop new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
+            "Legacy off switch for anomaly scoring. The Product analytics source (analytics \/ anomaly_investigation) now controls scoring: when that source is on, anomaly scoring scores this project's active trends insights and writes the results as $anomaly_score events, which are not billed. True by default. False still stops new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
         ),
 })
 

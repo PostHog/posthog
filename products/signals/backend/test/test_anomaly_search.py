@@ -19,9 +19,11 @@ from products.signals.backend.anomaly_scores.read import SeriesSummary, prior_ra
 from products.signals.backend.anomaly_scores.search import (
     MAX_INSIGHT_SERIES,
     SCORING_DISABLED_MESSAGE,
+    SCORING_SOURCE_OFF_MESSAGE,
     SCORING_TURNED_OFF_MESSAGE,
 )
-from products.signals.backend.models import SignalTeamConfig
+from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
+from products.signals.backend.models import SignalSourceConfig, SignalTeamConfig
 
 NOW = datetime.datetime(2026, 10, 23, 12, tzinfo=datetime.UTC)
 
@@ -99,6 +101,9 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.insight = Insight.objects.create(team=self.team, name="Signups", saved=True)
+        self.source = SignalSourceConfig.objects.create(
+            team=self.team, source_product=ALERT_SCOPE_SOURCE[0], source_type=ALERT_SCOPE_SOURCE[1], enabled=True
+        )
         flag = patch("products.signals.backend.presentation.anomalies.feature_enabled_or_false", return_value=True)
         self.flag = flag.start()
         self.addCleanup(flag.stop)
@@ -181,19 +186,24 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("search_outside_the_payload", "search", False, SCORING_DISABLED_MESSAGE),
-            ("insight_outside_the_payload", "insight", False, SCORING_DISABLED_MESSAGE),
-            ("search_turned_off_in_settings", "search", True, SCORING_TURNED_OFF_MESSAGE),
-            ("insight_turned_off_in_settings", "insight", True, SCORING_TURNED_OFF_MESSAGE),
+            ("search_outside_the_payload", "search", "payload", SCORING_DISABLED_MESSAGE),
+            ("insight_outside_the_payload", "insight", "payload", SCORING_DISABLED_MESSAGE),
+            ("search_with_the_source_off", "search", "source", SCORING_SOURCE_OFF_MESSAGE),
+            ("insight_with_the_source_off", "insight", "source", SCORING_SOURCE_OFF_MESSAGE),
+            ("search_turned_off_in_settings", "search", "settings", SCORING_TURNED_OFF_MESSAGE),
+            ("insight_turned_off_in_settings", "insight", "settings", SCORING_TURNED_OFF_MESSAGE),
         ]
     )
     def test_explains_an_empty_result_for_a_team_that_is_not_scored(
-        self, _name: str, endpoint: str, turned_off: bool, message: str
+        self, _name: str, endpoint: str, off_by: str, message: str
     ) -> None:
-        if turned_off:
-            SignalTeamConfig.objects.create(team=self.team, anomaly_scoring_enabled=False)
-        else:
+        if off_by == "payload":
             self.payload.return_value = {"enabled": True, "organization_ids": []}
+        elif off_by == "source":
+            self.source.enabled = False
+            self.source.save()
+        else:
+            SignalTeamConfig.objects.create(team=self.team, anomaly_scoring_enabled=False)
 
         body = self._get(endpoint, insight_id=self.insight.id).json()
 

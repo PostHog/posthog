@@ -27,7 +27,7 @@ from posthog.models.integration import SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
 
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
-from products.signals.backend.anomaly_scores.config import covers_team, parse_config, read_payload
+from products.signals.backend.anomaly_scores.config import enrolls_team, parse_config, read_payload
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import (
     ALERT_SCOPE_KEY,
@@ -554,16 +554,17 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
     anomaly_scoring_enabled = serializers.BooleanField(
         required=False,
         help_text=(
-            "Whether anomaly scoring scores this project's active trends insights every hour and writes "
-            "the results as $anomaly_score events, which are not billed. True by default. Set false to "
-            "stop new scores; events written before stay. Turning it on does not enroll a project that "
-            "anomaly_scoring_available reports as not covered."
+            "Legacy off switch for anomaly scoring. The Product analytics source (analytics / "
+            "anomaly_investigation) now controls scoring: when that source is on, anomaly scoring scores "
+            "this project's active trends insights and writes the results as $anomaly_score events, which "
+            "are not billed. True by default. False still stops new scores; events written before stay. "
+            "Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
         ),
     )
     anomaly_scoring_available = serializers.SerializerMethodField(
         help_text=(
-            "Whether anomaly scoring covers this project, so anomaly_scoring_enabled has an effect. "
-            "PostHog decides which projects anomaly scoring covers."
+            "Whether the anomaly scoring rollout covers this project. PostHog decides which projects it "
+            "covers. A covered project is scored only while its Product analytics source is on."
         )
     )
     reports_generated_today = serializers.SerializerMethodField(
@@ -627,7 +628,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_anomaly_scoring_available(self, obj: SignalTeamConfig) -> bool:
-        return covers_team(parse_config(read_payload()), obj.team)
+        return enrolls_team(parse_config(read_payload()), obj.team)
 
     @extend_schema_field(serializers.BooleanField())
     def get_daily_report_limit_reached(self, obj: SignalTeamConfig) -> bool:
