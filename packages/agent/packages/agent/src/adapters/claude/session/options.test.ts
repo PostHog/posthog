@@ -612,6 +612,16 @@ describe("buildSessionOptions", () => {
       expect(env?.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS).toBe("1");
     });
 
+    it("turns off the Claude sandbox for a cloud subscription run", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        cloudMode: true,
+        machineAuth: { oauthToken: "sk-ant-oat01-fake-test-token" },
+      });
+
+      expect(options.settings).toMatchObject({ sandbox: { enabled: false } });
+    });
+
     it("skips the pinned gateway-era fallback model", () => {
       const options = buildSessionOptions({
         ...makeParams(),
@@ -1018,6 +1028,41 @@ describe("buildSessionOptions", () => {
         env: { FOO: "1", ANTHROPIC_BASE_URL: "https://gateway.example" },
       });
     });
+
+    it.each([
+      [true, { enabled: false }],
+      [false, undefined],
+    ])(
+      "pins the Claude sandbox off only in cloud runs (cloudMode %s)",
+      (cloudMode, sandbox) => {
+        const options = buildSessionOptions({
+          ...makeParams(),
+          gatewayEnv,
+          cloudMode,
+        });
+
+        expect(flagSettings(options).sandbox).toEqual(sandbox);
+      },
+    );
+
+    it.each([
+      ["the SDK settings option", { settings: "/tmp/caller-settings.json" }],
+      [
+        "the settings flag",
+        { extraArgs: { settings: "/tmp/caller-settings.json" } },
+      ],
+    ])(
+      "drops repo settings in a cloud run when %s holds a file path",
+      (_name, provided) => {
+        const options = buildSessionOptions({
+          ...makeParams(),
+          cloudMode: true,
+          userProvidedOptions: provided as Options,
+        });
+
+        expect(options.settingSources).toEqual(["user"]);
+      },
+    );
 
     it("removes the pinned settings file and nothing outside its directory", () => {
       const options = buildSessionOptions({ ...makeParams(), gatewayEnv });

@@ -7,8 +7,9 @@ import { handleCreateParserRecipeCall, sampleForContext } from '@posthog/llm-nor
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { teamLogic } from 'scenes/teamLogic'
 
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
-import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { llmAnalyticsParserRecipesCreate } from '../generated/api'
 import { parserRecipesLogic } from '../settings/parserRecipesLogic'

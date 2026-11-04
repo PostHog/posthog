@@ -23,6 +23,8 @@ export const tracingSpansAggregateCreateBodyQueryOneLimitMax = 5000
 export const tracingSpansAggregateCreateBodyQueryOneOffsetMin = 0
 
 export const tracingSpansAggregateCreateBodyQueryOneIncludeImpactDefault = false
+export const tracingSpansAggregateCreateBodyQueryOneGroupByEndpointDefault = false
+export const tracingSpansAggregateCreateBodyQueryOneIncludeHealthDefault = false
 
 export const TracingSpansAggregateCreateBody = () => zod.object({
     query: zod
@@ -131,6 +133,18 @@ export const TracingSpansAggregateCreateBody = () => zod.object({
                 .default(tracingSpansAggregateCreateBodyQueryOneIncludeImpactDefault)
                 .describe(
                     'Also return the sessions and people behind each operation. Off by default because it reads the span and resource attribute maps, which the rest of the aggregation never touches.'
+                ),
+            groupByEndpoint: zod
+                .boolean()
+                .default(tracingSpansAggregateCreateBodyQueryOneGroupByEndpointDefault)
+                .describe(
+                    'Group HTTP server spans by `METHOD route` (from `http.route`) in place of the span name, so raw paths like `\/users\/1` and `\/users\/2` fold into one row. Spans without a route keep their span name. Spans that are not HTTP server spans are left out.'
+                ),
+            includeHealth: zod
+                .boolean()
+                .default(tracingSpansAggregateCreateBodyQueryOneIncludeHealthDefault)
+                .describe(
+                    'Also return `health_status` and `health_reason` per row, comparing each row with the same row in the comparison window, or in the previous period when `compareFilter` is off. Uses the same statuses and thresholds as the service health check. Costs a second window query.'
                 ),
         })
         .describe('The span aggregation query to execute.'),
@@ -279,8 +293,10 @@ export const TracingSpansAttributesRetrieveParams = () => zod.object({
         ),
 })
 
+export const tracingSpansAttributesRetrieveQueryLimitDefault = 100
 export const tracingSpansAttributesRetrieveQueryLimitMax = 100
 
+export const tracingSpansAttributesRetrieveQueryOffsetDefault = 0
 export const tracingSpansAttributesRetrieveQueryOffsetMin = 0
 
 export const tracingSpansAttributesRetrieveQuerySearchValuesDefault = false
@@ -305,14 +321,14 @@ export const TracingSpansAttributesRetrieveQueryParams = () => zod.object({
         .number()
         .min(1)
         .max(tracingSpansAttributesRetrieveQueryLimitMax)
-        .optional()
+        .default(tracingSpansAttributesRetrieveQueryLimitDefault)
         .describe('Max results (default: 100).'),
     offset: zod
         .number()
         .min(tracingSpansAttributesRetrieveQueryOffsetMin)
-        .optional()
+        .default(tracingSpansAttributesRetrieveQueryOffsetDefault)
         .describe('Pagination offset (default: 0).'),
-    search: zod.string().min(1).optional().describe('Search filter for attribute names.'),
+    search: zod.string().optional().describe('Search filter for attribute names.'),
     search_values: zod
         .boolean()
         .default(tracingSpansAttributesRetrieveQuerySearchValuesDefault)
@@ -1162,8 +1178,10 @@ export const TracingSpansValuesRetrieveParams = () => zod.object({
         ),
 })
 
+export const tracingSpansValuesRetrieveQueryLimitDefault = 100
 export const tracingSpansValuesRetrieveQueryLimitMax = 100
 
+export const tracingSpansValuesRetrieveQueryOffsetDefault = 0
 export const tracingSpansValuesRetrieveQueryOffsetMin = 0
 
 export const TracingSpansValuesRetrieveQueryParams = () => zod.object({
@@ -1187,12 +1205,12 @@ export const TracingSpansValuesRetrieveQueryParams = () => zod.object({
         .number()
         .min(1)
         .max(tracingSpansValuesRetrieveQueryLimitMax)
-        .optional()
+        .default(tracingSpansValuesRetrieveQueryLimitDefault)
         .describe('Max results (default: 100).'),
     offset: zod
         .number()
         .min(tracingSpansValuesRetrieveQueryOffsetMin)
-        .optional()
+        .default(tracingSpansValuesRetrieveQueryOffsetDefault)
         .describe('Pagination offset (default: 0).'),
-    value: zod.string().min(1).optional().describe('Search filter for attribute values.'),
+    value: zod.string().optional().describe('Search filter for attribute values.'),
 })

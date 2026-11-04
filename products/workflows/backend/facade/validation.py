@@ -4,7 +4,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.facade.contracts import RealtimeAudienceCohort
 from products.workflows.backend.services import batch_audience_cohorts
 from products.workflows.backend.services.batch_audience_cohorts import find_behavioral_cohort_name
-from products.workflows.backend.services.wait_clock_conditions import find_clock_function
+from products.workflows.backend.services.wait_clock_conditions import find_clock_function, find_group_field
 from products.workflows.backend.utils.durations import (
     DURATION_PATTERN,
     duration_cap_error,
@@ -52,6 +52,7 @@ __all__ = [
     "exceeds_unit_cap",
     "find_behavioral_cohort_name",
     "find_clock_function",
+    "find_group_field",
     "find_realtime_behavioral_cohort",
     "is_duration",
     "is_signed_duration",

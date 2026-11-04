@@ -17,6 +17,7 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Integration, User
 from posthog.models.user_integration import UserIntegration
 
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as facade,
@@ -27,11 +28,12 @@ from products.tasks.backend.logic.services.staged_artifacts import (
     build_task_artifact_entry,
     build_task_staged_artifact_cache_key,
 )
-from products.tasks.backend.logic.services.warm import WarmResult
+from products.tasks.backend.logic.services.warm import ActiveSessionCaps, SandboxWarmer, WarmResult
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     SandboxCustomImage,
     SandboxEnvironment,
+    SandboxSession,
     Task,
     TaskRun,
 )
@@ -72,12 +74,23 @@ def _allow_desktop_access(test_case: APIBaseTest) -> None:
     test_case.addCleanup(access_patcher.stop)
 
 
+def _allow_posthog_ai_access(test_case: APIBaseTest) -> None:
+    for module in ("logic.services.code_usage_gate", "logic.services.warm", "facade.access"):
+        access_patcher = patch(
+            f"products.tasks.backend.{module}.get_posthog_ai_access_decision",
+            return_value=tasks_access.PostHogAIAccessDecision.GRANDFATHERED,
+        )
+        access_patcher.start()
+        test_case.addCleanup(access_patcher.stop)
+
+
 class TestWarmTaskSandbox(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.integration = Integration.objects.create(team=self.team, kind="github", config={})
-        # The warm endpoint gates on Desktop access; these tests cover warm forwarding, not the gate.
+        # The warm endpoint gates on Desktop and PostHog AI access; these tests cover warm forwarding, not the gates.
         _allow_desktop_access(self)
+        _allow_posthog_ai_access(self)
 
     def _warm(self, **overrides):
         kwargs: dict[str, Any] = {
@@ -126,7 +139,7 @@ class TestWarmTaskSandbox(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("posthog_ai_warms_with_every_flag_off", facade.TaskOriginProduct.POSTHOG_AI, False, True),
+            ("posthog_ai_warms_without_a_warm_flag", facade.TaskOriginProduct.POSTHOG_AI, False, True),
             ("code_app_stays_gated_when_off", facade.TaskOriginProduct.USER_CREATED, False, False),
             ("code_app_warms_when_on", facade.TaskOriginProduct.USER_CREATED, True, True),
         ]
@@ -835,19 +848,22 @@ class TestCreateTaskWarmReuse(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("credential_does_not_match_the_gate", "discussion", True, False),
-            ("implementation_never_takes_a_discussion_warm", "implementation", False, False),
+            ("credential_does_not_match_the_gate", "discussion", True, False, False),
+            ("implementation_never_takes_a_discussion_warm", "implementation", False, False, False),
+            ("old_warm_has_signals_credentials", "discussion", False, False, True),
         ]
     )
     def test_report_create_cold_starts_when_the_warm_does_not_fit(
-        self, _name, relationship, warm_has_credential, code_access_allowed
+        self, _name, relationship, warm_has_credential, code_access_allowed, legacy_billing
     ):
         from products.signals.backend.models import SignalReport
 
         report = SignalReport.objects.create(team=self.team)
-        warm_task, _run = self._report_warm_run(
+        warm_task, run = self._report_warm_run(
             report, github_integration=self.integration if warm_has_credential else None
         )
+        if legacy_billing:
+            TaskRun.update_state_atomic(run.id, remove_keys=["billing_product"])
 
         with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as mock_signal:
             dto = self._create_report_task(report, relationship=relationship, code_access_allowed=code_access_allowed)
@@ -1535,6 +1551,61 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         run.refresh_from_db()
         assert run.state.get("await_user_message") is True
 
+    def test_create_endpoint_refuses_a_warm_reuse_at_the_active_session_cap(self):
+        _warm_task, run = self._warm_run()
+        busy_task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+        )
+        busy_run = TaskRun.objects.create(task=busy_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        now = django_timezone.now()
+        SandboxSession.objects.unscoped().create(
+            team=self.team,
+            task_run=busy_run,
+            sandbox_id="sb-busy",
+            cpu_cores=4.0,
+            memory_gb=16.0,
+            ttl_seconds=3600,
+            ttl_expires_at=now + timedelta(hours=1),
+            user_attributed_at=now,
+            origin_product=busy_task.origin_product,
+        )
+
+        with (
+            patch.dict(
+                SandboxWarmer.ORIGIN_ACTIVE_SESSION_CAPS,
+                {Task.OriginProduct.USER_CREATED: ActiveSessionCaps(per_user=1, per_org=10)},
+            ),
+            patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as m_signal,
+        ):
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {
+                    "description": "fix the bug",
+                    "repository": "posthog/posthog",
+                    "github_integration": self.integration.id,
+                    "branch": "main",
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        self.assertEqual(
+            response.json(),
+            {
+                "detail": "You already have 1 cloud sandboxes running. "
+                "Wait for one to finish or stop one, then try again.",
+                "code": "active_session_cap",
+            },
+        )
+        m_signal.assert_not_called()
+        run.refresh_from_db()
+        assert run.state.get("await_user_message") is True
+        assert Task.objects.filter(team=self.team).count() == 2
+
     def test_create_endpoint_without_warm_hints_is_not_regated(self):
         # Only a create that can activate a sandbox takes the run-start gates; a plain create still
         # goes through, and the run endpoint gates it when execution is actually requested.
@@ -1662,6 +1733,10 @@ class TestWarmRunRelease(APIBaseTest):
 
 
 class TestWarmTaskResumeSandbox(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        _allow_posthog_ai_access(self)
+
     def test_warm_resume_from_an_import_run_marks_the_warm_run(self):
         task = Task.objects.create(
             team=self.team,
@@ -1703,6 +1778,7 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
             branch="release",
             extra_state={
                 "snapshot_external_id": "snapshot-1",
+                "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
                 "pr_base_branch": base_branch,
                 "stack_base_branch": "release",
                 "auto_publish": True,

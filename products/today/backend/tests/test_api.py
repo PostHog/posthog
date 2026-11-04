@@ -1,4 +1,5 @@
 import json
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -26,10 +27,11 @@ from posthog.models.personal_api_key import hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.facade import api as signals
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportArtefact
 from products.today.backend.facade.contracts import HighlightFindings, HighlightSource
 from products.today.backend.logic import highlights, pinned
 from products.today.backend.logic.jev import JevPick
+from products.today.backend.models import TodayHighlights
 from products.today.backend.temporal.inputs import (
     ComputeHighlightsInputs,
     FinalizeHighlightsInputs,
@@ -119,6 +121,7 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         [
             ("a signal states the number", True, "signal", None, status.HTTP_200_OK),
             ("the agent's research states the number", True, "research", None, status.HTTP_200_OK),
+            ("a protected assessment states the number", True, "protected_note", None, status.HTTP_200_OK),
             ("flag off", False, "signal", None, status.HTTP_404_NOT_FOUND),
             ("no gateway", True, "signal", SystemOneNotConfigured("no gateway"), status.HTTP_503_SERVICE_UNAVAILABLE),
         ]
@@ -131,6 +134,17 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         gateway_error: Exception | None,
         expected: int,
     ) -> None:
+        if source_kind == "protected_note":
+            report = SignalReport.objects.create(id=REPORT_ID, team=self.team, title="Synthetic export finding")
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.NOTE,
+                actor_kind=SignalActorKind.TASK,
+                content=json.dumps(
+                    {"note": FIGURE_SOURCE, "analytics_query_context": [], "restricted_to_user_id": self.user.id}
+                ),
+            )
         signal = signals.ReportSignal(
             signal_id="signal-1",
             content=FIGURE_SOURCE,
@@ -157,7 +171,9 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             patch(
                 "products.today.backend.facade.api.signals.report_agent_texts",
                 return_value=[finding] if source_kind == "research" else [],
-            ),
+            )
+            if source_kind != "protected_note"
+            else nullcontext(),
             patch(
                 "products.today.backend.facade.api.GatewayJev",
                 return_value=SameAnswerJev(AGREEING),
@@ -167,6 +183,9 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/today/reports/{REPORT_ID}/figure_marks/")
 
         assert response.status_code == expected
+        if source_kind == "protected_note":
+            assert response.json()["marks"] == []
+            return
         if expected == status.HTTP_200_OK:
             marks = response.json()["marks"]
             quote_signal = marks[0]["quote"].pop("signal")
@@ -253,7 +272,14 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         [
             ("the page with only today", "get", f"reports/{REPORT_ID}/page", ["today:read"], status.HTTP_403_FORBIDDEN),
             (
-                "the page with today and signals",
+                "the page with today and inbox",
+                "get",
+                f"reports/{REPORT_ID}/page",
+                ["today:read", "inbox:read"],
+                status.HTTP_200_OK,
+            ),
+            (
+                "the page with today and the legacy task scope",
                 "get",
                 f"reports/{REPORT_ID}/page",
                 ["today:read", "task:read"],
@@ -441,42 +467,25 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
             ),
         )
 
-    def test_pinned_numbers_lead_the_pulse_and_a_new_pin_starts_a_new_computation(self) -> None:
+    def test_a_result_computed_with_pins_is_computed_again_with_suggestions_only(self) -> None:
         cache.clear()
         with time_machine.travel(datetime(2026, 10, 13, 12, 0, tzinfo=UTC), tick=False) as clock:
             self._get(_temporal(), pulse=("k1", "k2"))
-            pins = [{"key": key, "name": key} for key in ("k2", "k2", "a", "b", "c", "d")]
-            clock.shift(timedelta(seconds=1))
+            TodayHighlights.objects.for_team(self.team.id).update(pins_key="pinned")
             with patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=True):
-                saved = self.client.put(
-                    f"/api/projects/{self.team.id}/today/pulse_pins/", {"pins": pins}, format="json"
+                self.client.put(
+                    f"/api/projects/{self.team.id}/today/pulse_pins/",
+                    {"pins": [{"key": "k2", "name": "k2"}]},
+                    format="json",
                 )
-                read = self.client.get(f"/api/projects/{self.team.id}/today/pulse_pins/")
+            clock.shift(timedelta(seconds=1))
             connect = _temporal()
-            during = self._get(connect, pulse=("k1", "k2")).json()
+            self._get(connect, pulse=("k1", "k2"))
             after = self._get(_temporal(), pulse=("k1", "k2")).json()
-            with patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=True):
-                self.client.put(f"/api/projects/{self.team.id}/today/pulse_pins/", {"pins": []}, format="json")
-            back = _temporal()
-            self._get(back, pulse=("k1", "k2"))
 
         self.assertEqual(
-            (
-                [pin["key"] for pin in saved.json()["pins"]],
-                read.json() == saved.json(),
-                (connect.return_value.start_workflow.called, back.return_value.start_workflow.called),
-                (during["status"], [m["key"] for m in during["pulse"]]),
-                [m["key"] for m in after["pulse"]],
-                [(pin["key"], pin["status"]) for pin in after["pins"]],
-            ),
-            (
-                ["k2", "a", "b", "c"],
-                True,
-                (True, True),
-                ("computing", ["k1", "k2"]),
-                ["k2", "k1"],
-                [("k2", "ready"), ("a", "unavailable"), ("b", "unavailable"), ("c", "unavailable")],
-            ),
+            (connect.return_value.start_workflow.called, [m["key"] for m in after["pulse"]], after["pins"]),
+            (True, ["k1", "k2"], []),
         )
 
     def test_saving_too_many_pins_is_rejected(self) -> None:

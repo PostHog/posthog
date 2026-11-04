@@ -1,7 +1,7 @@
 import api from 'lib/api'
+import { escapeHogQLString, hogql } from 'lib/utils/hogql'
 
 import { ProductKey, type RefreshType } from '~/queries/schema/schema-general'
-import { escapeHogQLString, hogql } from '~/queries/utils'
 
 import { normalizeSentimentResult, type GenerationSentiment } from './sentimentResults'
 

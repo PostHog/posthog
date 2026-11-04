@@ -271,7 +271,10 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
     })),
     afterMount(({ actions, cache, values }) => {
         posthog.capture('models tab viewed', { tab: values.activeTab })
-        actions.loadDataWarehouseSavedQueries()
+        // Mounting dataWarehouseViewsLogic already starts this load, so only refresh when it was mounted earlier
+        if (!values.dataWarehouseSavedQueriesLoading) {
+            actions.loadDataWarehouseSavedQueries()
+        }
         actions.setNow(Date.now())
         cache.disposables.add(() => {
             const intervalId = window.setInterval(() => actions.setNow(Date.now()), 60_000)

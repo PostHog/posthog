@@ -644,6 +644,23 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 51)
         self.assertFalse(response["hasMore"])
 
+    @parameterized.expand(
+        [
+            ("query_string", "query", "abc"),
+            ("query_negative", "query", -1),
+            ("group_by_string", "group-by", "abc"),
+            ("group_by_zero", "group-by", 0),
+        ]
+    )
+    def test_logs_rejects_a_bad_limit(self, _name: str, action: str, limit: str | int) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/{action}",
+            data={"query": {"dateRange": {"date_from": "-1h"}, "limit": limit}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["attr"], "limit")
+
     @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_logs_slicing(self):
         # should slice the query, only return 100 results first time, then get the rest

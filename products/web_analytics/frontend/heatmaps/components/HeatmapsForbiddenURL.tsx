@@ -8,9 +8,9 @@ import {
     AuthorizedUrlListType,
     authorizedUrlListLogic,
     defaultAuthorizedUrlProperties,
-    sanitizePossibleWildCardedURL,
     validateProposedUrl,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { sanitizePossibleWildCardedURL } from 'lib/components/AuthorizedUrlList/authorizedUrlMatching'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'

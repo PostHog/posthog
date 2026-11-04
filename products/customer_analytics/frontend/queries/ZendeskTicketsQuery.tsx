@@ -1,8 +1,9 @@
 import { Link } from '@posthog/lemon-ui'
 
+import { hogql } from 'lib/utils/hogql'
+
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
-import { hogql } from '~/queries/utils'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../constants'
 

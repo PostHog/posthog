@@ -156,6 +156,8 @@ async function main(): Promise<void> {
         // parent workflow on short recordings. 2s matches the summary polling cadence.
         defaultHeartbeatThrottleInterval: '2s',
         maxHeartbeatThrottleInterval: '5s',
+        // Let in-flight renders finish after shutdown() instead of cancelling them right away (SDK default 0).
+        shutdownGraceTime: config.shutdownGraceTimeMs,
     })
 
     metricsServer.setReady(true)

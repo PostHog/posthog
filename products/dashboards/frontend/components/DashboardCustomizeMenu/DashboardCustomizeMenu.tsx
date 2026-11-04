@@ -10,19 +10,12 @@ import type { DashboardTileSpacing, TileGroupDisplay } from '~/types'
 import {
     DASHBOARD_GRID_COMPACTION_LABELS,
     DASHBOARD_TILE_SPACING_LABELS,
+    getTileSpacingChoices,
     DashboardGridCompaction,
     type DashboardGridCompaction as DashboardGridCompactionType,
     TILE_GROUP_DISPLAY_LABELS,
 } from '../../dashboardCustomization'
 import { DashboardTileMovementPreview } from './DashboardTileMovementPreview'
-
-const TILE_SPACING_OPTIONS: { value: DashboardTileSpacing; label: string }[] = [
-    { value: 'tight', label: DASHBOARD_TILE_SPACING_LABELS.tight },
-    { value: 'condensed', label: DASHBOARD_TILE_SPACING_LABELS.condensed },
-    { value: 'standard', label: DASHBOARD_TILE_SPACING_LABELS.standard },
-    { value: 'relaxed', label: DASHBOARD_TILE_SPACING_LABELS.relaxed },
-    { value: 'wide', label: DASHBOARD_TILE_SPACING_LABELS.wide },
-]
 
 const TILE_GROUP_DISPLAY_OPTIONS: { value: TileGroupDisplay; label: string }[] = [
     { value: 'sections', label: TILE_GROUP_DISPLAY_LABELS.sections },
@@ -40,7 +33,10 @@ const GRID_COMPACTION_OPTIONS: {
                 <span className="text-xs font-medium">
                     {DASHBOARD_GRID_COMPACTION_LABELS[DashboardGridCompaction.Vertical]}
                 </span>
-                <LemonTag type="success">Recommended</LemonTag>
+                {/* Lemon tags read --success, which quill redefines as a pale fill inside its popovers */}
+                <span data-not-quill className="contents">
+                    <LemonTag type="success">Recommended</LemonTag>
+                </span>
                 <DashboardTileMovementPreview mode={DashboardGridCompaction.Vertical} />
             </span>
         ),
@@ -59,8 +55,14 @@ const GRID_COMPACTION_OPTIONS: {
 ]
 
 export function DashboardCustomizeMenu(): JSX.Element | null {
-    const { dashboard, canEditDashboard, currentLayoutSize, tileGroupSections, tileGroupDisplay } =
-        useValues(dashboardLogic)
+    const {
+        dashboard,
+        canEditDashboard,
+        currentLayoutSize,
+        tileGroupSections,
+        tileGroupDisplay,
+        dashboardGridCompactionSaving,
+    } = useValues(dashboardLogic)
     const layoutAvailable = currentLayoutSize !== 'xs'
     const { changeDashboardGridCompaction, changeDashboardTileSpacing, changeTileGroupDisplay } =
         useActions(dashboardLogic)
@@ -77,7 +79,10 @@ export function DashboardCustomizeMenu(): JSX.Element | null {
                 <LemonRadio<DashboardTileSpacing>
                     value={tileSpacing}
                     onChange={changeDashboardTileSpacing}
-                    options={TILE_SPACING_OPTIONS}
+                    options={getTileSpacingChoices(tileSpacing).map((value) => ({
+                        value,
+                        label: DASHBOARD_TILE_SPACING_LABELS[value],
+                    }))}
                     orientation="horizontal"
                     className={layoutAvailable ? 'flex-1 flex-wrap gap-x-3 gap-y-1' : 'flex-wrap gap-x-3 gap-y-1'}
                     aria-label="Tile density"
@@ -89,7 +94,10 @@ export function DashboardCustomizeMenu(): JSX.Element | null {
                     <LemonRadio<DashboardGridCompactionType>
                         value={layoutCompaction}
                         onChange={changeDashboardGridCompaction}
-                        options={GRID_COMPACTION_OPTIONS}
+                        options={GRID_COMPACTION_OPTIONS.map((option) => ({
+                            ...option,
+                            disabledReason: dashboardGridCompactionSaving ? 'Saving your last change' : undefined,
+                        }))}
                         radioPosition="top"
                         className="flex-1"
                         aria-label="How moving a tile rearranges other tiles"

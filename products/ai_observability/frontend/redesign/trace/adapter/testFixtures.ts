@@ -2,12 +2,18 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import type {
     TraceApi,
+    TraceClusterApi,
     TraceEvaluationResultApi,
+    TraceEvaluationResultsApi,
+    TraceFeedbackApi,
+    TraceFeedbackScoreApi,
+    TraceFeedbackTextApi,
     TraceNodeApi,
     TraceNodeDetailApi,
     TraceNodeIOKeysApi,
     TraceNodeMetadataApi,
     TraceNodeStatsApi,
+    TraceSurveyResponseApi,
 } from '../../../generated/api.schemas'
 
 export function makeEvent(overrides: Partial<LLMTraceEvent> & { id: string }): LLMTraceEvent {
@@ -121,6 +127,7 @@ export function makeTraceResource(overrides: Partial<TraceApi> = {}): TraceApi {
         threadNodeIds: ['gen-2'],
         defaultNodeId: 'trace-1',
         nodeIdsByAlias: {},
+        git: null,
         ...overrides,
     }
 }
@@ -133,9 +140,77 @@ export function makeEvaluationResult(overrides: Partial<TraceEvaluationResultApi
         targetNodeId: 'trace-1',
         outcome: 'pass',
         label: 'True',
+        score: null,
         reasoning: 'Direct answer.',
         timestamp: '2026-09-01T10:16:00Z',
         isBackfill: false,
         ...overrides,
     }
+}
+
+export function makeTraceCluster(overrides: Partial<TraceClusterApi> = {}): TraceClusterApi {
+    return {
+        runId: '1_trace_20260902_030000',
+        runAt: '2026-09-02T03:40:00Z',
+        jobId: '0192f2a4-5c1e-7000-8000-0000000c1a01',
+        jobName: 'Support conversations',
+        clusterId: 3,
+        title: 'Billing questions',
+        description: 'Users ask why an invoice changed.',
+        isOutlier: false,
+        ...overrides,
+    }
+}
+
+export function makeFeedbackScore(overrides: Partial<TraceFeedbackScoreApi> = {}): TraceFeedbackScoreApi {
+    return {
+        id: 'score-1',
+        name: 'helpfulness',
+        value: '0',
+        nodeId: 'gen-1',
+        timestamp: '2026-09-01T10:16:00Z',
+        ...overrides,
+    }
+}
+
+export function makeFeedbackText(overrides: Partial<TraceFeedbackTextApi> = {}): TraceFeedbackTextApi {
+    return {
+        kind: 'text',
+        id: 'text-1',
+        text: 'Too long, but correct.',
+        nodeId: 'trace-1',
+        timestamp: '2026-09-01T10:17:00Z',
+        ...overrides,
+    }
+}
+
+export function makeSurveyResponse(overrides: Partial<TraceSurveyResponseApi> = {}): TraceSurveyResponseApi {
+    return {
+        kind: 'survey',
+        id: 'submission-1',
+        nodeId: 'trace-1',
+        timestamp: '2026-09-01T10:18:00Z',
+        survey: { id: 'survey-1', name: 'Answer quality' },
+        answers: [{ kind: 'thumbs', question: 'Was this answer useful?', up: true }],
+        complete: true,
+        unavailable: null,
+        ...overrides,
+    }
+}
+
+export function makeFeedback(overrides: Partial<TraceFeedbackApi> = {}): TraceFeedbackApi {
+    const scores = overrides.scores ?? [makeFeedbackScore()]
+    const responses = overrides.responses ?? [makeFeedbackText()]
+    return {
+        scores,
+        responses,
+        unanswered: [],
+        surveyResponsesStatus: 'ok',
+        summary: { total: scores.length + responses.length, thumbsUp: 0, thumbsDown: 0 },
+        ...overrides,
+    }
+}
+
+export function makeEvaluationResults(overrides: Partial<TraceEvaluationResultsApi> = {}): TraceEvaluationResultsApi {
+    return { results: [], summary: { passed: 0, failed: 0, unrated: 0, nodes: [] }, ...overrides }
 }

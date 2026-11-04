@@ -19,6 +19,7 @@ Do NOT:
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Collection, Sequence
 from copy import copy
 from typing import cast
 from uuid import UUID
@@ -418,6 +419,100 @@ def resource_has_rules(*, team_id: int, resource: APIScopeObject) -> bool:
     return AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id__isnull=True).exists()
 
 
+def access_rules(*, team_id: int, resources: Collection[str]) -> list[contracts.AccessRule]:
+    """Every rule of the team on these resources, object-level and resource-level, whatever its level.
+
+    For a caller that must predict what resolution decides after it changes which rules reach an
+    object. Like `object_ids_with_rules`, it ignores whether the organization enforces rules today,
+    because the rules apply again when it does.
+    """
+    team = Team.objects.only("id", "organization_id").get(id=team_id)
+    rows = AccessControl.objects.filter(team_id=team_id, resource__in=list(resources)).values_list(
+        "resource",
+        "resource_id",
+        "access_level",
+        "organization_member_id",
+        "role_id",
+        "organization_member__organization_id",
+        "role__organization_id",
+    )
+    return [
+        contracts.AccessRule(
+            resource=resource,
+            resource_id=resource_id,
+            access_level=access_level,
+            organization_member_id=member_id,
+            role_id=role_id,
+            # Resolution reads a member's rules only in the member's own organization, and a role's
+            # rules only for a role of that organization (see UserAccessControl._filter_options).
+            applies=(member_id is None or role_id is None)
+            and (member_id is None or member_organization_id == team.organization_id)
+            and (role_id is None or role_organization_id == team.organization_id),
+        )
+        for (
+            resource,
+            resource_id,
+            access_level,
+            member_id,
+            role_id,
+            member_organization_id,
+            role_organization_id,
+        ) in rows
+    ]
+
+
+def replace_object_access_rules(
+    *, team_id: int, resource: str, resource_id: str, rules: Sequence[contracts.ObjectAccessRuleInput]
+) -> None:
+    """Make the rules on one object exactly `rules`, the object's default rule included.
+
+    A rule that is already there stays. The others are created or deleted one at a time, so each
+    change goes into the activity log. An empty `rules` removes every rule on the object. The
+    caller decides whether the change is allowed.
+    """
+    team = Team.objects.only("id", "organization_id").get(id=team_id)
+    wanted: dict[tuple[UUID | None, UUID | None], str] = {}
+    for rule in rules:
+        _validate_resource_access_level(resource, rule.access_level)
+        key = (rule.organization_member_id, rule.role_id)
+        if key in wanted:
+            raise InvalidObjectAccessControlError("Provide each subject only once.")
+        wanted[key] = rule.access_level
+    member_ids = {member_id for member_id, _ in wanted if member_id is not None}
+    role_ids = {role_id for _, role_id in wanted if role_id is not None}
+    if member_ids != set(
+        OrganizationMembership.objects.filter(organization_id=team.organization_id, id__in=member_ids).values_list(
+            "id", flat=True
+        )
+    ):
+        raise InvalidObjectAccessControlError("organization_member does not belong to this team's organization.")
+    if role_ids != set(
+        Role.objects.filter(organization_id=team.organization_id, id__in=role_ids).values_list("id", flat=True)
+    ):
+        raise InvalidObjectAccessControlError("role does not belong to this team's organization.")
+
+    with transaction.atomic():
+        kept: set[tuple[UUID | None, UUID | None]] = set()
+        for existing in AccessControl.objects.select_for_update().filter(
+            team_id=team_id, resource=resource, resource_id=resource_id
+        ):
+            key = (existing.organization_member_id, existing.role_id)
+            if key not in kept and wanted.get(key) == existing.access_level:
+                kept.add(key)
+            else:
+                existing.delete()
+        for (member_id, role_id), access_level in wanted.items():
+            if (member_id, role_id) not in kept:
+                AccessControl.objects.create(
+                    team_id=team_id,
+                    resource=resource,
+                    resource_id=resource_id,
+                    access_level=access_level,
+                    organization_member_id=member_id,
+                    role_id=role_id,
+                )
+
+
 def role_belongs_to_organization(*, role_id: str | UUID, organization_id: UUID) -> bool:
     """Whether the role is a role of that organization.
 
@@ -520,7 +615,7 @@ def upsert_property_access_control(
             team_id=team_id,
             property_definition=prop_def,
             organization_member_id=input.organization_member_id,
-            role_id=input.role_id,
+            role_id=input.role_id,  # type: ignore[misc]  # nullable FK; django-stubs drops None from *_id lookups
             defaults={
                 "access_level": input.access_level.value,
             },
@@ -571,20 +666,23 @@ def _to_object_rule(rule: AccessControl) -> contracts.ObjectAccessControlRule:
 
 
 def _validate_object_access_control_level(input: contracts.SetObjectAccessControlInput) -> APIScopeObject:
-    resource = input.resource
+    return _validate_resource_access_level(input.resource, input.access_level)
+
+
+def _validate_resource_access_level(resource: str, access_level: str | None) -> APIScopeObject:
     if resource not in API_SCOPE_OBJECTS or resource in INTERNAL_API_SCOPE_OBJECTS:
         raise InvalidObjectAccessControlError(f"{resource} is not an access controlled resource.")
     scoped_resource = cast(APIScopeObject, resource)
 
-    if input.access_level is not None:
+    if access_level is not None:
         levels = ordered_access_levels(scoped_resource)
-        if input.access_level not in levels:
+        if access_level not in levels:
             raise InvalidObjectAccessControlError(
                 f"Invalid access level for {resource}. Must be one of: {', '.join(levels)}."
             )
         # `ordered_access_levels` can include levels the settings UI never offers for a resource
         # (for example "none" on a project), so the bounds apply here as well as in the API.
-        level_index = levels.index(input.access_level)
+        level_index = levels.index(cast(AccessControlLevel, access_level))
         if level_index < levels.index(minimum_access_level(scoped_resource)):
             raise InvalidObjectAccessControlError(f"Access level is below the minimum for {resource}.")
         if level_index > levels.index(highest_access_level(scoped_resource)):

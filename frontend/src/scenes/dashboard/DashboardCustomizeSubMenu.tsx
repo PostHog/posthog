@@ -16,6 +16,7 @@ import { DashboardTileSpacing, TileGroupDisplay } from '~/types'
 import {
     DASHBOARD_GRID_COMPACTION_LABELS,
     DASHBOARD_TILE_SPACING_LABELS,
+    getTileSpacingChoices,
     DashboardGridCompaction,
     TILE_GROUP_DISPLAY_LABELS,
 } from 'products/dashboards/frontend/dashboardCustomization'
@@ -23,8 +24,14 @@ import {
 import { dashboardLogic } from './dashboardLogic'
 
 export function DashboardCustomizeSubMenu(): JSX.Element | null {
-    const { dashboard, currentLayoutSize, layoutEditMode, tileGroupSections, tileGroupDisplay } =
-        useValues(dashboardLogic)
+    const {
+        dashboard,
+        currentLayoutSize,
+        layoutEditMode,
+        tileGroupSections,
+        tileGroupDisplay,
+        dashboardGridCompactionSaving,
+    } = useValues(dashboardLogic)
     const { setDashboardEditing, changeDashboardTileSpacing, changeDashboardGridCompaction, changeTileGroupDisplay } =
         useActions(dashboardLogic)
 
@@ -58,7 +65,7 @@ export function DashboardCustomizeSubMenu(): JSX.Element | null {
                     value={dashboard.customization?.tile_spacing ?? 'standard'}
                     onValueChange={(value: unknown) => changeDashboardTileSpacing(value as DashboardTileSpacing)}
                 >
-                    {(Object.keys(DASHBOARD_TILE_SPACING_LABELS) as DashboardTileSpacing[]).map((spacing) => (
+                    {getTileSpacingChoices(dashboard.customization?.tile_spacing ?? 'standard').map((spacing) => (
                         <SceneMenuBarRadioItem
                             key={spacing}
                             value={spacing}
@@ -81,6 +88,7 @@ export function DashboardCustomizeSubMenu(): JSX.Element | null {
                             <SceneMenuBarRadioItem
                                 key={mode}
                                 value={mode}
+                                disabled={dashboardGridCompactionSaving}
                                 data-attr={`dashboard-menubar-tile-movement-${mode}`}
                             >
                                 {DASHBOARD_GRID_COMPACTION_LABELS[mode]}

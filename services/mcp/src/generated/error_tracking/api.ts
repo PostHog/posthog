@@ -8791,6 +8791,10 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateParams = () => zod.
 })
 
 export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = () => zod.object({
+    adaptive_ingestion_enabled: zod
+        .boolean()
+        .optional()
+        .describe('Project preference for adaptive ingestion. Turning this on does not currently change ingestion.'),
     project_rate_limit_value: zod
         .number()
         .min(1)
@@ -15328,10 +15332,16 @@ export const ErrorTrackingSymbolSetsListParams = () => zod.object({
         ),
 })
 
+export const errorTrackingSymbolSetsListQueryLimitMax = 100
+
 export const errorTrackingSymbolSetsListQueryStatusDefault = `all`
 
 export const ErrorTrackingSymbolSetsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(errorTrackingSymbolSetsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .string()

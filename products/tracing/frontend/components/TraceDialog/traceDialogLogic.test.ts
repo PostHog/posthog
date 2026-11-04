@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { traceDialogOpenLogic } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -96,16 +97,30 @@ describe('traceDialogLogic', () => {
     })
 
     it.each([
-        ['an id in the API case', 'B1'],
+        ['an id in the API case', 'B1', false],
         // Logs carry lowercase hex, and the trace API returns uppercase.
-        ['a lowercase hex id from a log', 'b1'],
-    ])('selects the span the dialog was opened from, given %s', async (_name, openedSpanId) => {
+        ['a lowercase hex id from a log', 'b1', false],
+        // The lazy dialog mounts this logic only after a caller has opened it.
+        ['a dialog that mounts after the open', 'b1', true],
+    ])('selects the span the dialog was opened from, given %s', async (_name, openedSpanId, mountsAfterOpen) => {
         getTraceSpy.mockResolvedValueOnce({ results: [span('A1'), span('B1')], hasMore: false, nextOffset: null })
+        if (mountsAfterOpen) {
+            traceDialogOpenLogic.mount()
+            logic.unmount()
+            logic = traceDialogLogic()
+        }
 
         await expectLogic(logic, () => {
-            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: openedSpanId }, { entryPoint: 'log_details' })
+            traceDialogOpenLogic.actions.openTraceDialog(
+                { traceId: 'abc123', spanId: openedSpanId },
+                { entryPoint: 'log_details' }
+            )
+            if (mountsAfterOpen) {
+                logic.mount()
+            }
         }).toDispatchActions(['loadTraceSpansSuccess'])
 
+        expect(getTraceSpy).toHaveBeenCalledWith('abc123', expect.anything())
         expect(view.values.selectedSpan?.span_id).toBe('B1')
     })
 
@@ -239,9 +254,18 @@ describe('traceDialogLogic', () => {
     })
 
     it.each([
-        ['a recording opens', () => sessionPlayerModalLogic.actions.openSessionPlayer({ id: 'session-1' })],
-        ['the full-screen logs viewer opens', () => logsViewerModalLogic.actions.openLogsViewerModal()],
-    ])('closes when %s, since that modal sits behind the dialog', async (_name, open) => {
+        [
+            'a recording opens',
+            sessionPlayerModalLogic,
+            () => sessionPlayerModalLogic.actions.openSessionPlayer({ id: 'session-1' }),
+        ],
+        [
+            'the full-screen logs viewer opens',
+            logsViewerModalLogic,
+            () => logsViewerModalLogic.actions.openLogsViewerModal(),
+        ],
+    ])('closes when %s, since that modal sits behind the dialog', async (_name, modalLogic, open) => {
+        modalLogic.mount()
         logic.actions.openTraceDialog({ traceId: 'abc123' }, { entryPoint: 'log_details' })
 
         await expectLogic(logic, open).toMatchValues({ isOpen: false })

@@ -30,10 +30,8 @@ from products.tasks.backend.temporal.execute_sandbox.workflow import (
     SandboxEvent,
 )
 from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
-from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository import (
-    GetSandboxForRepositoryOutput,
-)
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
+from products.tasks.backend.temporal.process_task.activities.provision_sandbox import GetSandboxForRepositoryOutput
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import STEER_DECLINED_OUTCOME
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import StartAgentServerOutput
 from products.tasks.backend.temporal.process_task.credential_refresh import (

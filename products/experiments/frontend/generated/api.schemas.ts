@@ -1860,6 +1860,40 @@ export interface ExperimentDataWarehouseNodeApi {
     version?: number | null
 }
 
+export type ExperimentWarehouseNativeMathTypeApi =
+    (typeof ExperimentWarehouseNativeMathTypeApi)[keyof typeof ExperimentWarehouseNativeMathTypeApi]
+
+export const ExperimentWarehouseNativeMathTypeApi = {
+    Total: 'total',
+    Sum: 'sum',
+} as const
+
+export interface ExperimentWarehouseNativeUnitBindingApi {
+    /** Which ids represent that unit, such as `billing_customer_id`. */
+    id_namespace: string
+    /** What was randomized, as a stable project-scoped label such as `customer` or `account`. */
+    unit_type: string
+}
+
+export type ExperimentWarehouseNativeNodeApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentWarehouseNativeNodeApi {
+    /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+    connection_id: string
+    custom_name?: string | null
+    kind?: 'ExperimentWarehouseNativeNode'
+    /** How to aggregate the rows per entity. Defaults to `total` (row count). */
+    math?: ExperimentWarehouseNativeMathTypeApi | null
+    /** The numeric column `math` reads. Required when `math` is `sum`. One SQL relation can serve several metrics, each reading a different column. */
+    math_property?: string | null
+    /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure. */
+    query: string
+    response?: ExperimentWarehouseNativeNodeApiResponse
+    unit: ExperimentWarehouseNativeUnitBindingApi
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type ExperimentMeanMetricApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentMeanMetricApi {
@@ -1877,7 +1911,7 @@ export interface ExperimentMeanMetricApi {
     name?: string | null
     response?: ExperimentMeanMetricApiResponse
     sharedMetricId?: number | null
-    source: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    source: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi | ExperimentWarehouseNativeNodeApi
     /** When set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
     threshold?: number | null
     /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
@@ -1957,7 +1991,7 @@ export interface ExperimentRatioMetricApi {
     breakdownFilter?: BreakdownFilterApi | null
     conversion_window?: number | null
     conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
-    denominator: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    denominator: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi | ExperimentWarehouseNativeNodeApi
     denominator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
     fingerprint?: string | null
     goal?: ExperimentMetricGoalApi | null
@@ -1965,7 +1999,7 @@ export interface ExperimentRatioMetricApi {
     kind?: 'ExperimentMetric'
     metric_type: ExperimentRatioMetricApiMetricType
     name?: string | null
-    numerator: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    numerator: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi | ExperimentWarehouseNativeNodeApi
     numerator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
     response?: ExperimentRatioMetricApiResponse
     sharedMetricId?: number | null
@@ -2279,9 +2313,13 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `no_metric` - No Metric
  * * `metric_event_not_ingested` - Metric Event Not Ingested
  * * `metric_cannot_compile` - Metric Cannot Compile
+ * * `metric_calculation_failed` - Metric Calculation Failed
+ * * `metric_all_zero` - Metric All Zero
  * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+ * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
  * * `srm` - Sample Ratio Mismatch
  * * `zero_exposures` - Zero Exposures
+ * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
  * * `forced_variant_release_condition` - Forced Variant Release Condition
  * * `flag_variants_mismatch` - Flag Variants Mismatch
  * * `split_changed_mid_run` - Split Changed Mid Run
@@ -2289,6 +2327,8 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
  * * `new_flag_no_traffic` - New Flag No Traffic
  * * `early_significance` - Early Significance
+ * * `metrics_not_matured` - Metrics Not Matured
+ * * `flag_shared` - Flag Shared
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2303,9 +2343,13 @@ export const ExperimentHealthFindingCodeEnumApi = {
     NoMetric: 'no_metric',
     MetricEventNotIngested: 'metric_event_not_ingested',
     MetricCannotCompile: 'metric_cannot_compile',
+    MetricCalculationFailed: 'metric_calculation_failed',
+    MetricAllZero: 'metric_all_zero',
     ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+    ExposureFilterOnDynamicCohort: 'exposure_filter_on_dynamic_cohort',
     Srm: 'srm',
     ZeroExposures: 'zero_exposures',
+    TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     ForcedVariantReleaseCondition: 'forced_variant_release_condition',
     FlagVariantsMismatch: 'flag_variants_mismatch',
     SplitChangedMidRun: 'split_changed_mid_run',
@@ -2313,6 +2357,8 @@ export const ExperimentHealthFindingCodeEnumApi = {
     ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
     NewFlagNoTraffic: 'new_flag_no_traffic',
     EarlySignificance: 'early_significance',
+    MetricsNotMatured: 'metrics_not_matured',
+    FlagShared: 'flag_shared',
 } as const
 
 /**
@@ -2370,22 +2416,33 @@ export interface ExperimentHealthFindingApi {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
-     * * `early_significance` - Early Significance */
+     * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
+     * * `flag_shared` - Flag Shared */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
      * @nullable
      */
     subcode: string | null
+    /**
+     * A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), what leaves nobody exposed ('test_account_filter'), what made a metric reach a query limit ('metric', 'exposure_criteria'), or why a check could not read what it needs ('no_history_access'). Null when the finding names none.
+     * @nullable
+     */
+    reason: string | null
     /** How much the problem affects the results: critical, warning, or info.
      *
      * * `critical` - Critical severity
@@ -2409,6 +2466,7 @@ export interface ExperimentHealthFindingApi {
 
 /**
  * * `flag_state` - Flag State
+ * * `flag_shared` - Flag Shared
  * * `flag_history` - Flag History
  * * `split_changed_mid_run` - Split Changed Mid Run
  * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
@@ -2419,9 +2477,14 @@ export interface ExperimentHealthFindingApi {
  * * `no_metric` - No Metric
  * * `metric_event_not_ingested` - Metric Event Not Ingested
  * * `metric_cannot_compile` - Metric Cannot Compile
+ * * `metric_calculation_failed` - Metric Calculation Failed
+ * * `metric_all_zero` - Metric All Zero
  * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+ * * `exposure_filters` - Exposure Filters
  * * `early_significance` - Early Significance
+ * * `metrics_not_matured` - Metrics Not Matured
  * * `zero_exposures` - Zero Exposures
+ * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
  * * `srm` - Srm
  * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
  * * `multiple_variants_share` - Multiple Variants Share
@@ -2431,6 +2494,7 @@ export type ExperimentHealthCheckKeyEnumApi =
 
 export const ExperimentHealthCheckKeyEnumApi = {
     FlagState: 'flag_state',
+    FlagShared: 'flag_shared',
     FlagHistory: 'flag_history',
     SplitChangedMidRun: 'split_changed_mid_run',
     BucketingChangedMidRun: 'bucketing_changed_mid_run',
@@ -2441,9 +2505,14 @@ export const ExperimentHealthCheckKeyEnumApi = {
     NoMetric: 'no_metric',
     MetricEventNotIngested: 'metric_event_not_ingested',
     MetricCannotCompile: 'metric_cannot_compile',
+    MetricCalculationFailed: 'metric_calculation_failed',
+    MetricAllZero: 'metric_all_zero',
     ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+    ExposureFilters: 'exposure_filters',
     EarlySignificance: 'early_significance',
+    MetricsNotMatured: 'metrics_not_matured',
     ZeroExposures: 'zero_exposures',
+    TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     Srm: 'srm',
     BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
     MultipleVariantsShare: 'multiple_variants_share',
@@ -2465,10 +2534,52 @@ export const ExperimentHealthCheckStatusEnumApi = {
     NotChecked: 'not_checked',
 } as const
 
+/**
+ * * `percentage` - Percentage of exposed units
+ * * `p_value` - P-value of a statistical test
+ */
+export type ExperimentHealthMeasurementUnitEnumApi =
+    (typeof ExperimentHealthMeasurementUnitEnumApi)[keyof typeof ExperimentHealthMeasurementUnitEnumApi]
+
+export const ExperimentHealthMeasurementUnitEnumApi = {
+    Percentage: 'percentage',
+    PValue: 'p_value',
+} as const
+
+/**
+ * * `above` - Finding above the threshold
+ * * `below` - Finding below the threshold
+ */
+export type ExperimentHealthMeasurementSideEnumApi =
+    (typeof ExperimentHealthMeasurementSideEnumApi)[keyof typeof ExperimentHealthMeasurementSideEnumApi]
+
+export const ExperimentHealthMeasurementSideEnumApi = {
+    Above: 'above',
+    Below: 'below',
+} as const
+
+export interface ExperimentHealthMeasurementApi {
+    /** The value that the check measured on the experiment. */
+    value: number
+    /** The value at which the check reports a finding. */
+    threshold: number
+    /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test.
+     *
+     * * `percentage` - Percentage of exposed units
+     * * `p_value` - P-value of a statistical test */
+    unit: ExperimentHealthMeasurementUnitEnumApi
+    /** The side of the threshold that reports a finding: above or below.
+     *
+     * * `above` - Finding above the threshold
+     * * `below` - Finding below the threshold */
+    warns: ExperimentHealthMeasurementSideEnumApi
+}
+
 export interface ExperimentHealthCheckResultApi {
     /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
      *
      * * `flag_state` - Flag State
+     * * `flag_shared` - Flag Shared
      * * `flag_history` - Flag History
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
@@ -2479,15 +2590,22 @@ export interface ExperimentHealthCheckResultApi {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
      * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share */
     key: ExperimentHealthCheckKeyEnumApi
-    /** What the check looks at, for example 'Feature flag variants'. */
+    /** The problem the check looks for, for example 'Metrics not set up'. */
     name: string
+    /** What the check looks for and why it matters. The same for every experiment and every status. */
+    description: string
     /** passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
      *
      * * `passed` - Passed
@@ -2500,6 +2618,8 @@ export interface ExperimentHealthCheckResultApi {
      * @nullable
      */
     reason: string | null
+    /** The value that decided a passed check, against its threshold. Null for the other statuses, and for a pass without a value. A finding carries its values in `evidence`. */
+    measurement: ExperimentHealthMeasurementApi | null
 }
 
 export interface ExperimentHealthApi {
@@ -3261,6 +3381,63 @@ export interface ExperimentHealthInputsMetricCompilesApi {
     failures: ExperimentHealthInputsMetricCompileFailureApi[]
 }
 
+export interface ExperimentHealthInputsMetricCalculationFailureApi {
+    /** The metric's name as the experiment shows it. */
+    name: string
+    /** 'primary' or 'secondary'. */
+    role: string
+    /**
+     * The class that the calculation stored for the error, such as 'timeout' or 'rate_limited'. Null for a failure stored without a class.
+     * @nullable
+     */
+    error_type: string | null
+    /**
+     * The step of the calculation that failed, such as 'calculation'. Null when the failure names none.
+     * @nullable
+     */
+    step: string | null
+    /** Whether the results page shows a button to try the metric again, which it does for a retriable error. */
+    retriable: boolean
+    /**
+     * The stored message as the results page shows it, without the names that HogQL suggests and the list of a scope's fields. Null when it can hold evaluation rules that the AI evaluation markers keep out of the browser.
+     * @nullable
+     */
+    message: string | null
+}
+
+export interface ExperimentHealthInputsZeroMetricApi {
+    /** The name of the metric, as the results page shows it. */
+    name: string
+    /** Whether the metric is a primary or a secondary metric of the experiment. */
+    role: string
+    /** The persons or groups of the result, across the variants. */
+    exposures: number
+    /**
+     * The side of a ratio that reads zero. Each side that reads zero has its own entry. Null for the other metric types.
+     * @nullable
+     */
+    ratio_side: string | null
+    /** The events of the metric that the project last received before launch. */
+    stopped_events: string[]
+}
+
+export interface ExperimentHealthInputsLatestCalculationApi {
+    /**
+     * When the latest calculation that the results page shows finished. Null when none has finished.
+     * @nullable
+     */
+    finished_at: string | null
+    /** The metrics whose latest calculation failed, with the error that the results page shows. */
+    failures: ExperimentHealthInputsMetricCalculationFailureApi[]
+    /**
+     * The hours from launch to the end of the data of this calculation. Null when none has finished.
+     * @nullable
+     */
+    hours_of_data: number | null
+    /** The metrics that read zero in every variant in this calculation. */
+    zero_metrics: ExperimentHealthInputsZeroMetricApi[]
+}
+
 /**
  * * `split` - Split
  * * `bucketing` - Bucketing
@@ -3668,7 +3845,7 @@ export interface ExperimentHealthInputsApi {
      */
     flag_called_during_run: boolean | null
     /**
-     * Whether PostHog has recorded a call of the flag after the end. The flag state check reads it on an ended experiment whose flag is still active with multiple variants. False only after 3 days without a recorded call. Null before the end, before those 3 days are over, or when the organization's flag calls can't be read.
+     * Whether PostHog has recorded a call of the flag after the end and within the last 3 days. The flag state check reads it on an ended experiment whose flag is still active with multiple variants. False only once 3 days have passed since the end. Null before the end, before those 3 days are over without a call, or when the organization's flag calls can't be read.
      * @nullable
      */
     flag_called_after_end: boolean | null
@@ -3676,8 +3853,10 @@ export interface ExperimentHealthInputsApi {
     exposure_events: ExperimentHealthInputsExposureEventsApi | null
     /** Whether the project has received each event that the metrics and the exposure criteria name, by event name. A name that ingestion keeps no record of is absent. */
     events_received: ExperimentHealthInputsApiEventsReceived
-    /** The compile of each metric's query without running it, as the reader, which the metric queries check reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on every request. Null when the compile itself failed. */
+    /** The compile of each metric's query without running it, as the reader, which the 'Invalid metric definitions' check reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on every request. Null when the compile itself failed. */
     metric_compiles: ExperimentHealthInputsMetricCompilesApi | null
+    /** The latest finished calculation of the metrics, which the metric results check reads. Null before launch, on an archived experiment, or when the read failed. */
+    latest_calculation: ExperimentHealthInputsLatestCalculationApi | null
     /** The changes of the flag since launch that can move exposed people. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
     flag_history: ExperimentHealthInputsFlagHistoryApi | null
     /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis. The release-condition check needs it when such an override was removed after launch.
@@ -3789,7 +3968,7 @@ export interface ExperimentMetricsRecalculationJobApi {
     readonly completed_metrics: number
     /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
     readonly failed_metrics: number
-    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
+    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
     readonly metric_errors: unknown
     /** When the job was created */
     readonly created_at: string
@@ -3868,7 +4047,7 @@ export interface ExperimentMetricsRecalculationRunApi {
     readonly completed_metrics: number
     /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
     readonly failed_metrics: number
-    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
+    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
     readonly metric_errors: unknown
     /** When the job was created */
     readonly created_at: string
@@ -3950,7 +4129,7 @@ export interface ExperimentMetricsRecalculationLatestApi {
     readonly completed_metrics: number
     /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
     readonly failed_metrics: number
-    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
+    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
     readonly metric_errors: unknown
     /** When the job was created */
     readonly created_at: string
@@ -5313,9 +5492,9 @@ export const ExperimentsRunningTimeTargetRetrieveMode = {
 
 export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**
-     * Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.
+     * Ignored. The server derives the metric's calculation key from the experiment's current settings. Accepted so that existing clients keep working.
      */
-    fingerprint: string
+    fingerprint?: string
     /**
      * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
      */

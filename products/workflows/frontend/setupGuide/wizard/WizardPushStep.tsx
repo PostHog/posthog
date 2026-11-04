@@ -1,68 +1,71 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 
-import { IconBell } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { IconAndroid, IconApple, IconCheckCircle } from '@posthog/icons'
+import { LemonSegmentedButton, Link, Spinner } from '@posthog/lemon-ui'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { apiHostOrigin } from 'lib/utils/apiHost'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ChannelCatalogCard } from '../../Channels/ChannelCatalogCard'
 import { ChannelSetupModal } from '../../Channels/ChannelSetupModal'
 import { summarizeChannel } from '../../Channels/channelSummary'
-import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
+import { PushPlatform, pushDeviceCheckLogic } from './pushDeviceCheckLogic'
 
-const SDK_REQUIREMENTS = [
-    { platform: 'iOS', version: '3.69.0' },
-    { platform: 'Android', version: '3.58.0' },
-    { platform: 'React Native', version: '4.62.0, with @posthog/react-native-plugin' },
-    { platform: 'Flutter', version: '5.35.0' },
-]
+const PLATFORMS: Record<PushPlatform, { label: string; provider: 'apns' | 'firebase'; minVersion: string }> = {
+    ios: { label: 'iOS', provider: 'apns', minVersion: '3.69.0' },
+    android: { label: 'Android', provider: 'firebase', minVersion: '3.58.0' },
+}
+
+function sdkSnippet(platform: PushPlatform, token: string, host: string, appId: string | undefined): string {
+    if (platform === 'ios') {
+        return `let config = PostHogConfig(apiKey: "${token}", host: "${host}")
+config.capturePushNotificationSubscriptions = true // on by default
+PostHogSDK.shared.setup(config)
+
+// Ask for permission. The SDK registers the device token for you.
+UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
+    if granted {
+        DispatchQueue.main.async { UIApplication.shared.registerForRemoteNotifications() }
+    }
+}`
+    }
+    return `val config = PostHogAndroidConfig(apiKey = "${token}", host = "${host}").apply {
+    capturePushNotificationSubscriptions = true // on by default, needs firebase-messaging
+}
+PostHogAndroid.setup(this, config)
+
+// In your FirebaseMessagingService, so a refreshed token registers right away
+override fun onNewToken(token: String) {
+    PostHog.registerPushNotificationToken(token, "${appId ?? '<firebase project id>'}")
+}`
+}
+
+function StepTitle({ index, done, children }: { index: number; done: boolean; children: string }): JSX.Element {
+    return (
+        <div className="flex items-center gap-2">
+            {done ? (
+                <IconCheckCircle className="text-success text-lg shrink-0" />
+            ) : (
+                <span className="flex items-center justify-center size-5 rounded-full border text-xs font-semibold shrink-0">
+                    {index}
+                </span>
+            )}
+            <span className="font-semibold">{children}</span>
+        </div>
+    )
+}
 
 export function WizardPushStep(): JSX.Element {
     const { integrations, setupModalOpen, setupModalType, selectedIntegration } = useValues(integrationsLogic)
     const { closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
-    const { stepDone, pushSetupStarted } = useValues(workflowsOnboardingWizardLogic)
-    const { next, startPushSetup } = useActions(workflowsOnboardingWizardLogic)
-
-    const answer = (wantsPush: boolean): void => {
-        // pinned: analytics event name - renaming breaks dashboards
-        posthog.capture('workflows onboarding wizard push answered', { wants_push: wantsPush })
-        if (wantsPush) {
-            startPushSetup()
-        } else {
-            next()
-        }
-    }
-
-    if (!pushSetupStarted && !stepDone?.push) {
-        return (
-            <div className="flex flex-col items-center gap-3 py-6 text-center">
-                <div className="flex items-center justify-center size-12 rounded-full bg-surface-secondary">
-                    <IconBell className="size-6" />
-                </div>
-                <p className="mb-0 max-w-md text-secondary">
-                    If you have a mobile app, workflows can send push notifications to Android and iOS devices.
-                </p>
-                <div className="flex flex-wrap justify-center gap-2">
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => answer(false)}
-                        data-attr="workflows-onboarding-wizard-push-no"
-                    >
-                        No, just email
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={() => answer(true)}
-                        data-attr="workflows-onboarding-wizard-push-yes"
-                    >
-                        Yes, set up push
-                    </LemonButton>
-                </div>
-            </div>
-        )
-    }
+    const { platform, providerConnected, appId, appIds, registeredDeviceCount, deviceRegistered } =
+        useValues(pushDeviceCheckLogic)
+    const { setPlatform } = useActions(pushDeviceCheckLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { label, provider, minVersion } = PLATFORMS[platform]
 
     return (
         <>
@@ -76,38 +79,91 @@ export function WizardPushStep(): JSX.Element {
                     closeSetupModal()
                 }}
             />
-            <div className="@container flex flex-col gap-4">
-                <p className="mb-0 text-secondary">
-                    Connect the platforms your app runs on. You can connect one now and the other later.
-                </p>
-                <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2">
-                    <ChannelCatalogCard
-                        channel={summarizeChannel('firebase', integrations ?? [])}
-                        disabledReason={null}
+            <div className="flex flex-col gap-6" data-attr="workflows-onboarding-wizard-push">
+                <div className="flex flex-wrap items-center gap-3">
+                    <span className="font-semibold">Your app runs on</span>
+                    <LemonSegmentedButton
+                        value={platform}
+                        onChange={(value) => setPlatform(value)}
+                        options={[
+                            { value: 'ios', label: 'iOS', icon: <IconApple />, 'data-attr': 'push-platform-ios' },
+                            {
+                                value: 'android',
+                                label: 'Android',
+                                icon: <IconAndroid />,
+                                'data-attr': 'push-platform-android',
+                            },
+                        ]}
+                        size="small"
                     />
-                    <ChannelCatalogCard channel={summarizeChannel('apns', integrations ?? [])} disabledReason={null} />
+                    <span className="text-secondary text-sm">On both? Set up one now and the other after.</span>
                 </div>
-                <div className="flex flex-col gap-2 rounded border p-4">
-                    <span className="font-semibold">Add PostHog to your app</span>
-                    <span className="text-secondary text-sm">
-                        The PostHog SDK registers each device for push on its own. Your app still needs push set up, and
-                        it must ask people for permission to send notifications. Use at least these SDK versions:
-                    </span>
-                    <ul className="mb-0 list-disc ps-5 text-sm">
-                        {SDK_REQUIREMENTS.map(({ platform, version }) => (
-                            <li key={platform}>
-                                {platform}: {version}
-                            </li>
-                        ))}
-                    </ul>
-                    <Link
-                        to="https://posthog.com/docs/workflows/push-notifications"
-                        target="_blank"
-                        className="text-sm"
-                        data-attr="workflows-onboarding-wizard-push-docs"
-                    >
-                        Read the push setup guide
-                    </Link>
+
+                <div className="flex flex-col gap-2">
+                    <StepTitle index={1} done={providerConnected}>
+                        {`Connect ${provider === 'apns' ? 'Apple Push Notifications' : 'Firebase Cloud Messaging'}`}
+                    </StepTitle>
+                    <div className="ps-7">
+                        <ChannelCatalogCard
+                            channel={summarizeChannel(provider, integrations ?? [])}
+                            disabledReason={null}
+                        />
+                    </div>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                    <StepTitle index={2} done={deviceRegistered}>
+                        Turn on push in the PostHog SDK
+                    </StepTitle>
+                    <div className="ps-7 flex flex-col gap-2">
+                        <span className="text-secondary text-sm">
+                            {`Use the ${label} SDK ${minVersion} or later. Your app still needs push set up, and it must ask people for permission.`}
+                        </span>
+                        <CodeSnippet language={platform === 'ios' ? Language.Swift : Language.Kotlin} wrap>
+                            {sdkSnippet(
+                                platform,
+                                currentTeam?.api_token ?? '<project token>',
+                                apiHostOrigin(),
+                                appId ?? undefined
+                            )}
+                        </CodeSnippet>
+                        <span className="text-secondary text-sm">
+                            Using React Native or Flutter?{' '}
+                            <Link
+                                to="https://posthog.com/docs/workflows/push-notifications"
+                                target="_blank"
+                                data-attr="workflows-onboarding-wizard-push-docs"
+                            >
+                                Read the push setup guide
+                            </Link>
+                            .
+                        </span>
+                    </div>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                    <StepTitle index={3} done={deviceRegistered}>
+                        Open your app on a device
+                    </StepTitle>
+                    <div className="ps-7 text-sm" data-attr="workflows-onboarding-wizard-push-device-status">
+                        {!providerConnected ? (
+                            <span className="text-secondary">
+                                {`Devices can register once ${provider === 'apns' ? 'Apple Push Notifications is' : 'Firebase is'} connected.`}
+                            </span>
+                        ) : deviceRegistered ? (
+                            <span>
+                                <strong>
+                                    {registeredDeviceCount === 1 ? '1 person' : `${registeredDeviceCount} people`}
+                                </strong>{' '}
+                                can get push notifications from this app. You're ready to send.
+                            </span>
+                        ) : (
+                            <span className="flex items-center gap-2 text-secondary">
+                                <Spinner textColored />
+                                {`Waiting for a device${appIds.length > 1 ? ` on ${appId}` : ''}. Open your app and allow notifications. You can also continue and come back later.`}
+                            </span>
+                        )}
+                    </div>
                 </div>
             </div>
         </>

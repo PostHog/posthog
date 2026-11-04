@@ -1139,18 +1139,19 @@ def _trunk_quarantined_rows() -> list[dict[str, Any]]:
         module = file[:-3].replace("/", ".") if file.endswith(".py") else ""
         rows.append(
             {
+                "id": f"engseed-trunk-{index:03d}",
+                "test_collection_id": "engseed",
                 "file": file,
                 "name": name,
                 "labels": "[]",
-                "parent": parent,
-                "status": "FLAKY",
+                "parent_name": parent,
+                "class_name": f"{module}.{test_class}" if test_class else "",
                 "variant": "",
-                "classname": f"{module}.{test_class}" if test_class else "",
+                "status": "flaky",
                 "codeowners": "[]",
-                "test_case_id": f"engseed-trunk-{index:03d}",
-                "quarantined_at": quarantined_at,
-                "quarantine_setting": "AUTO_QUARANTINE",
-                "status_last_updated_at": quarantined_at,
+                "quarantine_state": "quarantined",
+                "quarantined_since": quarantined_at,
+                "url": "",
             }
         )
     return rows
@@ -1537,7 +1538,7 @@ class Command(BaseCommand):
         inputs = SourceInputsStore.load(source)
         if any(inputs.get(key) != value for key, value in job_inputs.items()):
             SourceInputsStore.assign(source, {**inputs, **job_inputs})
-            update_fields.append("job_inputs")
+            update_fields.extend(SourceInputsStore.update_fields)
         if update_fields:
             source.save(update_fields=[*update_fields, "updated_at"])
         return source

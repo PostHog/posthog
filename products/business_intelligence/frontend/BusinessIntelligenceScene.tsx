@@ -15,7 +15,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { isDataVisualizationNode } from '~/queries/utils'
+import { isDataVisualizationNode } from '~/queries/schema/node-guards'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'

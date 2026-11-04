@@ -3,7 +3,6 @@
   extends: [
     'config:best-practices',
     ':dependencyDashboardApproval',
-    ':separateMultipleMajorReleases',
   ],
   enabledManagers: [
     'pep621',
@@ -63,7 +62,20 @@
       depNameTemplate: 'nodejs',
       datasourceTemplate: 'deb',
       versioningTemplate: 'deb',
-      registryUrlTemplate: 'https://deb.nodesource.com/node_24.x?suite=nodistro&components=main&binaryArch=amd64',
+      registryUrlTemplate: 'https://deb.nodesource.com/node_26.x?suite=nodistro&components=main&binaryArch=amd64',
+    },
+    {
+      customType: 'regex',
+      description: 'Update the standalone corepack pinned wherever an image or workflow runs corepack enable',
+      managerFilePatterns: [
+        '/(^|/)Dockerfile[^/]*$/',
+        '/^products/tasks/backend/logic/services/modal_sandbox\\.py$/',
+        '/^\\.github/workflows/ci-ml-mirror-image-scrub-container\\.yml$/',
+        '/^docs/published/handbook/engineering/manual-dev-setup\\.md$/',
+      ],
+      matchStrings: ['corepack@(?<currentValue>\\d+\\.\\d+\\.\\d+)'],
+      depNameTemplate: 'corepack',
+      datasourceTemplate: 'npm',
     },
   ],
   customDatasources: {
@@ -176,6 +188,13 @@
     {
       matchManagers: ['github-actions'],
       groupName: 'github-actions',
+    },
+    // Renovate cannot regenerate `.github/workflows/actions.lock`, so an action bump in a locked workflow fails Lint workflows.
+    // Action bumps are manual. Image digests in `container:` and `services:` still update
+    {
+      matchManagers: ['github-actions'],
+      matchDepTypes: ['action'],
+      enabled: false,
     },
     // The sandbox images and the Modal slim image rebuild only when this pin changes,
     // so skip the dashboard approval and open the PR as soon as nodesource ships a release

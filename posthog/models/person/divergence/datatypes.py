@@ -26,6 +26,7 @@ RepairOutcome = Literal[
     "skipped_owner_changed",
     "skipped_mapping_gone",
     "skipped_reread_lagging",
+    "skipped_raise_refused",
     "skipped_stale",
     "skipped_stale_merge_failed",
     "skipped_stale_merge_too_large",

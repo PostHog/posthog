@@ -7,6 +7,7 @@ contract check watches this file to decide whether they must retest.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, field
 from datetime import UTC, datetime
@@ -32,6 +33,7 @@ class SourceKind(StrEnum):
     BILLING = "billing"
     WAREHOUSE_SOURCE = "warehouse_source"
     WAREHOUSE_DESTINATION = "warehouse_destination"
+    METRICS = "metrics"
 
 
 @frozen
@@ -476,6 +478,8 @@ class PlatformCheckPage:
 
     total: int
     checks: tuple[PlatformCheckEntry, ...]
+    # The platform configuration the checks belong to, so a source can join its own rows on it.
+    configuration_id: UUID
 
 
 @frozen
@@ -543,6 +547,48 @@ class AlertEventKind(StrEnum):
     RESOLVED = "resolved"
     ERRORED = "errored"
     BROKEN = "broken"
+    # A follow-up about a firing that already went out. History readers leave it out of the checks.
+    VERDICT_CHANGED = "verdict_changed"
+
+    @property
+    def delivered_as(self) -> AlertEventKind:
+        """The kind a destination hears this as. No destination can list a follow-up, so a follow-up
+        reaches the destinations of the firing it follows, the way that firing did."""
+        return AlertEventKind.FIRING if self is AlertEventKind.VERDICT_CHANGED else self
+
+
+@frozen
+class VerdictChange:
+    """A source's request to send one follow-up about a firing that already went out.
+
+    `firing_event_id` is the event the firing's destinations listen on, so a destination that heard
+    the firing hears the follow-up. `source_detail` is what the source's describer words the
+    follow-up from. The platform stores it unread, as on a check.
+    """
+
+    team_id: int
+    configuration_id: UUID
+    firing_evaluation_key: str
+    episode_started_at: datetime | None
+    firing_event_id: str
+    source_alert_url: str | None = None
+    grouping_key: str = ""
+    source_detail: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def evaluation_key(self) -> str:
+        # A key of its own gives the follow-up its own delivery, and gets it past the thread store,
+        # which skips a key a thread already carried. Per group, because two groups' follow-ups
+        # under one key share a delivery, which would miss a row written after it read the history.
+        # The group goes in as a digest, because a grouping key alone can fill a thread's key column.
+        key = f"{self.firing_evaluation_key}#verdict"
+        if not self.grouping_key:
+            return key
+        return f"{key}:{hashlib.sha256(self.grouping_key.encode()).hexdigest()[:16]}"
+
+
+class VerdictChangeNotRecorded(Exception):
+    """ClickHouse refused a follow-up's history row, so no delivery could read it back. Retryable."""
 
 
 @frozen
@@ -772,6 +818,8 @@ class AnnouncedTransition:
     # The evaluation this transition came from, so a source can read back what it put in the key.
     evaluation_key: str = ""
     source_detail: dict[str, Any] = field(default_factory=dict)
+    # With `evaluation_key`, names the evaluation, so a source can find what it recorded about it later.
+    configuration_id: str = ""
 
 
 @frozen
@@ -1081,7 +1129,13 @@ class NativeAlertLifecycle:
     """
 
     check_interval_minutes: int
-    remove_destinations: NativeAlertRemoveDestinations
+    # Removes the source's HogFunction destinations of a deleted alert. None for a kind whose
+    # destinations are `AlertDestination` rows from the start, which go with the configuration.
+    remove_destinations: NativeAlertRemoveDestinations | None = None
+
+    @property
+    def platform_destinations(self) -> bool:
+        return self.remove_destinations is None
 
 
 @frozen
@@ -1106,6 +1160,10 @@ class SourceConfigSpec:
     incident_event_ids: Mapping[str, str] | None = None
     alert_url: Callable[[int, UUID], str] | None = None
     native: NativeAlertLifecycle | None = None
+    # A PostHog feature flag a project needs, beside `platform-alerts`, to create alerts of this kind.
+    # A new kind names its own flag, so it opens on its own schedule while the others stay generally
+    # available.
+    rollout_flag: str | None = None
 
     def __post_init__(self) -> None:
         # The source-row hooks write a row a native kind does not have.
@@ -1396,10 +1454,52 @@ class SourceDescriber(Protocol):
     """How a source describes its transitions. A source registers one for native delivery.
 
     It runs once per destination on the send path, inside a delivery that a held thread or a
-    failure repeats. So it builds its answer from the transition alone and does no I/O.
+    failure repeats. So it builds its answer from the transition, plus at most a point read of
+    what the source recorded about this evaluation since, such as an investigation's verdict.
     """
 
     def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
+
+
+class SourceRecipients(Protocol):
+    """Who a source's own settings say to email about an alert, beside the destinations a person added.
+
+    It runs once per delivery of an alert whose destinations the platform owns.
+    """
+
+    def __call__(self, *, team_id: int, configuration_id: UUID) -> list[str]: ...
+
+
+@frozen
+class SlackMessageContent:
+    text: str
+    blocks: list[dict[str, Any]]
+    attachments: list[dict[str, Any]] = field(default_factory=list)
+
+
+class SourceSlackRenderer(Protocol):
+    """A source's own Slack layout for a transition, or None to use the platform's.
+
+    Runs on the send path, so it reads only the transition it is given. The platform catches a
+    renderer that raises and sends its own layout instead, so a broken renderer costs the card
+    rather than the notification.
+
+    `text` is what a push notification and a screen reader read, so it is never empty, whether or
+    not the card itself lives in `attachments`. The platform adds the group-limit warning to the
+    content wherever it finds room, and adds the state line to it on a later edit; neither assumes
+    a particular block order.
+    """
+
+    def __call__(
+        self,
+        *,
+        team_id: int,
+        transition: AnnouncedTransition,
+        alert_name: str,
+        alert_url: str,
+        project: MessageLink | None,
+        image: MessageImage | None,
+    ) -> SlackMessageContent | None: ...
 
 
 class SourceImageResolver(Protocol):
