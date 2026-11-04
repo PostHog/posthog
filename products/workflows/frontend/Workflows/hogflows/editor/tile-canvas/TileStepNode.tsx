@@ -1,12 +1,13 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { StepImportNotesBadge } from '../../../import/StepImportNotesBadge'
+import { canMoveStep } from '../../hogFlowEditorLogic'
 import type { HogFlow, HogFlowAction } from '../../types'
-import { emailContent } from './stepValues'
 import { tileCanvasLogic } from './tileCanvasLogic'
-import { hasStepMenu } from './tileCanvasModel'
+import { hasStepMenu, STEP_DRAG_DATA_TYPE } from './tileCanvasModel'
 import { TileCaption } from './TileCaption'
 import { TileFace } from './TileFace'
 import { HOVER_CARD_CLOSE_MS, TileHoverCard } from './TileHoverCard'
@@ -34,9 +35,14 @@ export function TileStepNode({
 }): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
     const tile = useTileStep(action, workflow)
-    const showEmail = !!emailContent(action)?.html
-    const hover = useHoverIntent(interactive && !selected && !menuOpen, HOVER_OPEN_DELAY_MS, HOVER_CARD_CLOSE_MS)
-    const { openStepMenu } = useActions(tileCanvasLogic)
+    const { movingNodeId } = useValues(tileCanvasLogic)
+    const hover = useHoverIntent(
+        interactive && !selected && !menuOpen && !movingNodeId,
+        HOVER_OPEN_DELAY_MS,
+        HOVER_CARD_CLOSE_MS
+    )
+    const { openStepMenu, startDraggingStep, endDraggingStep } = useActions(tileCanvasLogic)
+    const draggable = interactive && canMoveStep(workflow, action.id)
     useRaisedNode(ref, hover.mounted)
     const face = (
         <div
@@ -45,9 +51,10 @@ export function TileStepNode({
                 (selected || menuOpen) && 'ring-2 ring-[var(--color-accent)] ring-offset-4'
             )}
         >
-            <TileFace action={action} tile={tile} count={count} showEmail={showEmail} emailPlaceholder={!interactive} />
+            <TileFace tile={tile} count={count} />
+            {interactive && workflow.id ? <StepImportNotesBadge workflowId={workflow.id} stepId={action.id} /> : null}
             {hover.mounted && (
-                <TileHoverCard open={hover.open} action={action} tile={tile} count={count} showEmail={showEmail} />
+                <TileHoverCard open={hover.open} action={action} tile={tile} count={count} workflowId={workflow.id} />
             )}
         </div>
     )
@@ -55,11 +62,26 @@ export function TileStepNode({
     return (
         <div
             ref={ref}
-            className="flex cursor-pointer items-start gap-3 text-primary"
+            className={cn(
+                'flex cursor-pointer items-start gap-3 text-primary transition-opacity',
+                draggable && 'nopan',
+                movingNodeId === action.id && 'opacity-40'
+            )}
             title={hover.mounted ? undefined : action.name}
             onMouseMove={hover.onMouseMove}
             onMouseLeave={hover.onMouseLeave}
             data-attr={interactive ? 'workflow-tile-step' : undefined}
+            draggable={draggable}
+            onDragStart={
+                draggable
+                    ? (event) => {
+                          event.dataTransfer.effectAllowed = 'move'
+                          event.dataTransfer.setData(STEP_DRAG_DATA_TYPE, action.id)
+                          startDraggingStep(action.id)
+                      }
+                    : undefined
+            }
+            onDragEnd={draggable ? (event) => endDraggingStep(event.dataTransfer.dropEffect) : undefined}
             onContextMenu={
                 interactive && hasStepMenu(action)
                     ? (event) => {
@@ -70,7 +92,7 @@ export function TileStepNode({
             }
         >
             {interactive ? <TileStepMenu action={action}>{face}</TileStepMenu> : face}
-            <TileCaption facts={tile.facts} />
+            <TileCaption facts={tile.facts} name={tile.customName} />
         </div>
     )
 }

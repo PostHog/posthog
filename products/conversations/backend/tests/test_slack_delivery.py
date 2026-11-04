@@ -99,6 +99,108 @@ class TestSlackDelivery(BaseTest):
     def _part(self) -> ConversationDeliveryPart:
         return ConversationDeliveryPart.objects.unscoped().select_related("delivery").get()
 
+    @parameterized.expand(
+        [
+            ("shared", {"is_channel": True, "is_ext_shared": True}, True, False, "channel_not_internal"),
+            ("internal", {"is_channel": True}, True, True, ""),
+            ("approval_removed", {"is_channel": True}, False, False, "channel_not_allowlisted"),
+        ]
+    )
+    @patch("products.conversations.backend.tasks.slack.get_slack_client")
+    def test_automated_update_checks_channel_before_delivery(
+        self,
+        _name: str,
+        channel_info: dict,
+        approved: bool,
+        expected_sent: bool,
+        expected_error: str,
+        mock_get_client: MagicMock,
+    ) -> None:
+        self.team.conversations_settings = {
+            **self.team.conversations_settings,
+            "automated_update_slack_channel_ids": ["C123"] if approved else [],
+        }
+        self.team.save(update_fields=["conversations_settings"])
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="[PostHog bot] Pull request opened",
+            item_context={
+                "author_type": "AI",
+                "is_private": False,
+                "automated_update_key": "signals_pr:report:pr",
+                "internal_channel_only": True,
+            },
+        )
+        part = self._part()
+        payload = part.payload
+        assert isinstance(payload, dict)
+        assert payload["internal_channel_only"] is True
+        client = MagicMock()
+        client.conversations_info.return_value = {"channel": channel_info}
+        client.chat_postMessage.return_value = {"ts": "1700.1"}
+        mock_get_client.return_value = client
+
+        process_slack_delivery_part(str(part.id))
+
+        part.refresh_from_db()
+        if expected_sent:
+            assert part.status == ConversationDeliveryPart.Status.ACCEPTED
+            kwargs = client.chat_postMessage.call_args.kwargs
+            assert kwargs["unfurl_links"] is False
+            assert kwargs["unfurl_media"] is False
+        else:
+            assert part.status == ConversationDeliveryPart.Status.FAILED
+            assert part.last_error_code == expected_error
+            client.chat_postMessage.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("timeout", TimeoutError("Slack unavailable"), None),
+            ("rate_limited", _slack_api_error("ratelimited", retry_after="17", status_code=429), 17),
+        ]
+    )
+    @patch("products.conversations.backend.tasks.slack.get_slack_client")
+    def test_automated_update_retries_failed_channel_lookup(
+        self, _name: str, error: Exception, retry_after: int | None, mock_get_client: MagicMock
+    ) -> None:
+        self.team.conversations_settings = {
+            **self.team.conversations_settings,
+            "automated_update_slack_channel_ids": ["C123"],
+        }
+        self.team.save(update_fields=["conversations_settings"])
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="[PostHog bot] Pull request opened",
+            item_context={"author_type": "AI", "is_private": False, "internal_channel_only": True},
+        )
+        part = self._part()
+        client = MagicMock()
+        client.conversations_info.side_effect = [error, {"channel": {"is_channel": True}}]
+        client.chat_postMessage.return_value = {"ts": "1700.1"}
+        mock_get_client.return_value = client
+
+        with time_machine.travel("2026-09-21 12:00:00", tick=False):
+            ConversationDeliveryPart.objects.unscoped().filter(id=part.id).update(due_at=timezone.now())
+            process_slack_delivery_part(str(part.id))
+            part.refresh_from_db()
+            assert part.status == ConversationDeliveryPart.Status.PENDING
+            assert part.last_error_code == "channel_lookup_failed"
+            assert part.due_at > timezone.now()
+            if retry_after is not None:
+                assert part.due_at == timezone.now() + timedelta(seconds=retry_after)
+            client.chat_postMessage.assert_not_called()
+
+            ConversationDeliveryPart.objects.unscoped().filter(id=part.id).update(due_at=timezone.now())
+            process_slack_delivery_part(str(part.id))
+
+        part.refresh_from_db()
+        assert part.status == ConversationDeliveryPart.Status.ACCEPTED
+        client.chat_postMessage.assert_called_once()
+
     def test_enqueue_failure_rolls_back_the_comment(self) -> None:
         with (
             self.assertRaises(RuntimeError),

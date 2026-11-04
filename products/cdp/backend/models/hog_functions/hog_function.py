@@ -1,13 +1,15 @@
 import enum
 from collections.abc import Iterable
+from datetime import timedelta
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
+from django.utils import timezone
 
 import structlog
 from prometheus_client import Counter
@@ -171,6 +173,17 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
     # draft's secrets are promoted to `encrypted_inputs` on publish and dropped on discard, without
     # ever touching the live values.
     draft_encrypted_inputs: EncryptedJSONStringField = EncryptedJSONStringField(null=True, blank=True)
+
+    # Not serialized. A recent value means a Terraform state still manages this function.
+    last_terraform_read_at = models.DateTimeField(null=True, blank=True)
+
+    def record_terraform_read(self) -> None:
+        # Every `terraform plan` reads every managed function, so write at most once a day. A queryset
+        # update skips the save signals and leaves updated_at, which base_updated_at compares, alone.
+        now = timezone.now()
+        HogFunction.objects.filter(pk=self.pk).filter(
+            Q(last_terraform_read_at__isnull=True) | Q(last_terraform_read_at__lt=now - timedelta(days=1))
+        ).update(last_terraform_read_at=now)
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["HogFunction"]:

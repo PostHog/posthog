@@ -65,8 +65,16 @@ export const optOutCategoriesLogic = kea<optOutCategoriesLogicType>([
         categories: {
             __default: [] as MessageCategory[],
             loadCategories: async (): Promise<MessageCategory[]> => {
-                const response = await messagingCategoriesList(String(ApiConfig.getCurrentTeamId()))
-                return response.results
+                const projectId = String(ApiConfig.getCurrentTeamId())
+                const categories: MessageCategory[] = []
+                // The endpoint pages at 100, so a project with more categories needs every page.
+                for (let page = await messagingCategoriesList(projectId); ; ) {
+                    categories.push(...page.results)
+                    if (!page.next || page.results.length === 0) {
+                        return categories
+                    }
+                    page = await messagingCategoriesList(projectId, { offset: categories.length })
+                }
             },
         },
     }),

@@ -251,3 +251,10 @@ export function resolveGatewayTarget({
     aiStage: effectiveStage,
   };
 }
+
+export function modelIdForGatewayRoute<T extends string | undefined>(
+  model: T,
+  isAiGateway: boolean,
+): T {
+  return (isAiGateway ? model?.replace(/^@cf\//, "") : model) as T;
+}

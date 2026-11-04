@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 
+import { StepImportNotesList } from '../../../import/StepImportNotesList'
 import type { HogFlowAction } from '../../types'
 import { StepPreview } from './step-preview/StepPreview'
 import { StepCountLine } from './StepCountLine'
@@ -16,7 +17,6 @@ const PADDING = 14
 const MIN_WIDTH = 440
 const KIND_LABEL_ROOM = 72
 const NAME_ROW_HEIGHT = 26
-const EMAIL_FACE = { width: 164, height: 116 }
 export const HOVER_CARD_CLOSE_MS = 200
 // The border snaps to whole device pixels but the card's edge can fall between them, so a clip on the
 // edge itself can shave the bottom border off. Clipping just outside the card keeps the whole border.
@@ -40,21 +40,21 @@ export function TileHoverCard({
     action,
     tile,
     count,
-    showEmail,
+    workflowId,
 }: {
     open: boolean
     action: HogFlowAction
     tile: TileStep
     count: number | undefined
-    showEmail: boolean
+    workflowId: string
 }): JSX.Element {
-    const face = showEmail ? EMAIL_FACE : { width: TILE_SIZE, height: TILE_SIZE }
+    const face = { width: TILE_SIZE, height: TILE_SIZE }
     const width = Math.max(MIN_WIDTH, face.width + 12 + CAPTION_WIDTH + PADDING * 2 + KIND_LABEL_ROOM)
     const nameRow = tile.customName ? NAME_ROW_HEIGHT : 0
     const faceTop = PADDING + nameRow
     const closedClip = `inset(${faceTop}px ${width - PADDING - face.width}px calc(100% - ${faceTop + face.height}px) ${PADDING}px round 12px)`
     const kind = tile.presentation.kind
-    const showPreview = kind !== 'fields' && !(showEmail && kind === 'email')
+    const showPreview = kind !== 'fields'
     const ref = useRef<HTMLDivElement>(null)
     const shift = useKeepInView(ref, open, FIT_MARGIN.bottom)
     return (
@@ -78,7 +78,7 @@ export function TileHoverCard({
                 </div>
             )}
             <div className="relative flex items-start gap-3">
-                <TileFace action={action} tile={tile} count={count} showEmail={showEmail} />
+                <TileFace tile={tile} count={count} />
                 <TileCaption facts={tile.facts} size="card" />
                 <div
                     className="absolute right-0 top-0 text-[10px] font-semibold uppercase tracking-wider"
@@ -101,6 +101,11 @@ export function TileHoverCard({
                     {(!showPreview || !PREVIEWS_THAT_SHOW_SETTINGS.has(kind)) && <StepFieldList facts={tile.facts} />}
                     <StepCountLine count={count} />
                 </div>
+                {workflowId && (
+                    <div className="border-t py-3 empty:hidden">
+                        <StepImportNotesList workflowId={workflowId} stepId={action.id} />
+                    </div>
+                )}
                 <div className="border-t pt-2 text-[11px] text-secondary">Click to open the step</div>
             </div>
         </div>

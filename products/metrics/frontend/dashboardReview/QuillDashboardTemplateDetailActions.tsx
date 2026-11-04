@@ -20,8 +20,8 @@ export function QuillDashboardTemplateDetailActions({
     template,
     onEditWithAI,
 }: QuillDashboardTemplateDetailActionsProps): JSX.Element {
-    const { templateLoading, previewDashboardId, reviewable } = useValues(metricsDashboardReviewSceneLogic)
-    const { approveTemplate, rejectTemplate } = useActions(metricsDashboardReviewSceneLogic)
+    const { templateLoading, previewDashboardId, reviewable, regenerable } = useValues(metricsDashboardReviewSceneLogic)
+    const { approveTemplate, rejectTemplate, confirmRegenerate } = useActions(metricsDashboardReviewSceneLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
 
     return (
@@ -50,6 +50,16 @@ export function QuillDashboardTemplateDetailActions({
                     Edit with PostHog AI
                 </span>
             </Button>
+            {regenerable && (
+                <Button
+                    variant="outline"
+                    onClick={confirmRegenerate}
+                    loading={templateLoading}
+                    data-attr="metrics-dashboard-review-regenerate"
+                >
+                    Regenerate
+                </Button>
+            )}
             {reviewable && template.status !== 'rejected' && (
                 <Button
                     variant="destructive-outline"

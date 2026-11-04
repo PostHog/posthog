@@ -14,12 +14,13 @@ GenerationResultRow = tuple[object, object, object, object, object, object]
 def _load_trace_sentiment_from_generation_results(generation_results: list[GenerationResultRow]) -> dict[str, object]:
     result = SimpleNamespace(results=[["trace-1", generation_results]])
 
-    with patch("posthog.hogql_queries.ai.sentiment_evaluations.query_ai_events", return_value=result):
+    with patch("posthog.hogql_queries.ai.sentiment_evaluations.query_ai_events", return_value=result) as query:
         sentiment_by_trace_id = load_trace_sentiment_evaluations(
             team=cast(Team, SimpleNamespace(id=1)),
             trace_ids=["trace-1"],
         )
 
+    assert query.call_args.kwargs["posthog_tables_only"] is True
     return cast(dict[str, object], sentiment_by_trace_id["trace-1"])
 
 

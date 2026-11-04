@@ -7,7 +7,27 @@ import { logger } from './logger'
 import { captureTeamEvent } from './posthog'
 
 type RawTeam = Omit<Team, 'available_features'> & {
-    available_product_features: { key: string; name: string }[]
+    available_product_feature_keys: unknown
+}
+
+// One team's row must not throw, because a throw fails the batched lookup for every team in it.
+function availableFeatures(raw: unknown): OrganizationAvailableFeature[] {
+    if (!Array.isArray(raw)) {
+        return []
+    }
+    return raw.flatMap((key) => (typeof key === 'string' ? [key as OrganizationAvailableFeature] : []))
+}
+
+// Postgres stores team ids in int4 columns. A query that compares one of those columns to a
+// non-integer, or to a number above 2_147_483_647, fails. Team ids start at 1. The check therefore
+// also rejects 0 and negative numbers.
+export function isValidTeamId(value: unknown): value is number {
+    return Number.isInteger(value) && (value as number) > 0 && (value as number) <= 2_147_483_647
+}
+
+export function validTeamIds(keys: string[]): number[] {
+    // parseInt would read "1.5" as team 1. Number keeps it 1.5, which isValidTeamId rejects.
+    return keys.map(Number).filter(isValidTeamId)
 }
 
 export interface TeamManagerOptions {
@@ -135,7 +155,7 @@ export class TeamManager {
                 if (/^\d{1,10}$/.test(idOrToken)) {
                     const parsed = parseInt(idOrToken)
                     // TODO: stat if this happens
-                    if (!isNaN(parsed) && parsed > 0 && parsed <= 2147483647) {
+                    if (isValidTeamId(parsed)) {
                         teamIds.push(parsed)
                     }
                 } else {
@@ -169,7 +189,15 @@ export class TeamManager {
                 extract('epoch' from t.drop_events_older_than) as drop_events_older_than_seconds,
                 COALESCE(cfg.minimal_flag_called_events, false) AS minimal_flag_called_events,
                 COALESCE(ocfg.flag_evaluations_mode, 0) AS flag_evaluations_mode,
-                o.available_product_features
+                -- The keys are the only part of available_product_features a caller reads. Picking
+                -- them out here returns a text[], which the pg driver reads with its plain array
+                -- parser. Selecting the jsonb[] column makes the driver JSON-parse every feature
+                -- object of every row, and an organization holds about a hundred of them.
+                ARRAY(
+                    SELECT feature->>'key'
+                    FROM unnest(o.available_product_features) AS feature
+                    WHERE feature->>'key' IS NOT NULL
+                ) AS available_product_feature_keys
             FROM posthog_team t
             JOIN posthog_organization o ON o.id = t.organization_id
             LEFT JOIN feature_flags_teamfeatureflagsconfig cfg ON cfg.team_id = t.id
@@ -188,7 +216,7 @@ export class TeamManager {
 
         // Fill in actual teams where they exist
         result.rows.forEach((row) => {
-            const { available_product_features, ...teamPartial } = row
+            const { available_product_feature_keys, ...teamPartial } = row
             const team: Team = {
                 ...teamPartial,
                 // NOTE: The postgres lib loads the bigint as a string, so we need to cast it to a ProjectId
@@ -198,7 +226,7 @@ export class TeamManager {
                     teamPartial.drop_events_older_than_seconds !== null
                         ? Number(teamPartial.drop_events_older_than_seconds)
                         : null,
-                available_features: available_product_features?.map((f) => f.key as OrganizationAvailableFeature) || [],
+                available_features: availableFeatures(available_product_feature_keys),
             }
             resultRecord[row.id] = team
             resultRecord[row.api_token] = team

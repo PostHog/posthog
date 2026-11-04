@@ -26,10 +26,18 @@ class BaseAction(ABC):
 
     intent_fields: Optional[list[str]] = None
 
-    # TODO(experiment-approval-policies): temporary. Action keys whose policy gates this action
-    # when it has no policy of its own, so a move to a new key leaves no window without approval.
-    # The fallback policy's conditions name the old action's fields, so they are not evaluated.
+    # Action keys whose policy gates this action when it has no policy of its own.
+    # The fallback policy's conditions name the other action's fields, so they are not evaluated.
     fallback_policy_action_keys: tuple[str, ...] = ()
+
+    @classmethod
+    def fallback_policy_action_keys_for(cls, organization) -> tuple[str, ...]:
+        """The fallback keys to try for this organization, in order.
+
+        A hook rather than the attribute, because which policy stands in for this action can
+        depend on how far the organization has moved between families.
+        """
+        return cls.fallback_policy_action_keys
 
     @classmethod
     def _get_instance(cls, view, *args, **kwargs):

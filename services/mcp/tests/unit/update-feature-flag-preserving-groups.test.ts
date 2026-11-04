@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { PostHogValidationError } from '@/lib/errors'
+import { withConditionIds } from '@/tools/featureFlags/conditionIds'
 import { GENERATED_TOOLS } from '@/tools/generated/feature_flags'
 import type { Context } from '@/tools/types'
 
@@ -101,6 +103,44 @@ describe('update-feature-flag preserving groups', () => {
         expect(result).toMatchObject({ id: 9 })
     })
 
+    it.each([
+        { name: 'no flag-level aggregation', flagLevel: {} },
+        { name: 'a flag-level aggregation', flagLevel: { aggregation_group_type_index: 0 } },
+    ])(
+        'matches conditions by condition_id and keeps the IDs out of the PATCH on a flag with $name',
+        async ({ flagLevel }) => {
+            const storedGroups = [0, 1].map((group_type_index) => ({
+                properties: [{ key: 'plan', type: 'group', group_type_index, operator: 'exact', value: 'pro' }],
+                rollout_percentage: 100,
+            }))
+            const existing = { id: 9, key: 'plan-rollout', filters: { ...flagLevel, groups: storedGroups } }
+            const request = vi.fn().mockResolvedValueOnce(existing).mockResolvedValueOnce(existing)
+
+            const readIds = (withConditionIds(existing).filters.groups as unknown as { condition_id: string }[]).map(
+                (group) => group.condition_id
+            )
+
+            const params = tool.schema.parse({
+                id: 9,
+                filters: {
+                    groups: [...readIds].reverse().map((condition_id) => ({
+                        condition_id,
+                        properties: [{ key: 'plan', operator: 'exact', value: 'pro' }],
+                        rollout_percentage: 100,
+                    })),
+                },
+            })
+            const result = (await tool.handler(createMockContext(request), params)) as typeof existing
+
+            const patchGroups = (requestArgs(request, 1).body as typeof existing).filters.groups
+            expect(patchGroups.map((group) => group.properties[0]?.group_type_index)).toEqual([1, 0])
+            expect(patchGroups.some((group) => 'condition_id' in group)).toBe(false)
+            expect(result.filters.groups.map((group) => (group as { condition_id?: string }).condition_id)).toEqual(
+                readIds
+            )
+        }
+    )
+
     it('surfaces GET failures instead of PATCHing unmerged filters', async () => {
         const request = vi.fn().mockRejectedValueOnce(new Error('HTTP 429: rate limited'))
 
@@ -130,5 +170,112 @@ describe('update-feature-flag preserving groups', () => {
         expect(request).toHaveBeenCalledTimes(1)
         expect(requestArgs(request, 0).method).toBe('PATCH')
         expect(requestArgs(request, 0).body).toMatchObject({ active: false })
+    })
+
+    describe('rejected property error', () => {
+        const existing = {
+            id: 9,
+            key: 'pricing-banner',
+            filters: {
+                groups: [
+                    {
+                        properties: [{ key: 'country', type: 'person', operator: 'exact', value: 'US' }],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+        }
+
+        // groups[0].properties[1] holds `email`, so a hook that swaps the group and property indices names the wrong key.
+        const params = tool.schema.parse({
+            id: 9,
+            filters: {
+                groups: [
+                    {
+                        properties: [
+                            { key: 'country', type: 'person', operator: 'exact', value: 'US' },
+                            { key: 'email', type: 'person', operator: 'exact', value: 'someone@example.com' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        properties: [{ key: 'plan', operator: 'exact', value: 'pro' }],
+                        rollout_percentage: 50,
+                    },
+                ],
+            },
+        })
+
+        function rejectPatchWith(
+            detail: string,
+            code: string
+        ): { request: ReturnType<typeof vi.fn>; error: PostHogValidationError } {
+            const error = new PostHogValidationError({
+                detail,
+                attr: 'filters',
+                code,
+                extra: undefined,
+                url: 'https://us.posthog.com/api/projects/42/feature_flags/9/',
+                method: 'PATCH',
+            })
+            const request = vi.fn().mockResolvedValueOnce(existing).mockRejectedValueOnce(error)
+            return { request, error }
+        }
+
+        it.each([
+            {
+                shape: 'serde guard',
+                detail: 'groups[1].properties[0].type: invalid property type',
+                code: 'invalid',
+                fix: "Don't guess `person`",
+            },
+            {
+                shape: 'structural',
+                detail: 'groups[1].properties[0].type: This field is required.',
+                code: 'structural.groups[].properties[].type.required',
+                fix: "Don't guess `person`",
+            },
+            {
+                shape: 'group type mismatch',
+                detail: "groups[1].properties[0]: Group properties must match the condition set's group type.",
+                code: 'cross_field.group_property_type_index_mismatch',
+                fix: 'Ask the user which group type the condition should target',
+            },
+        ])('names the rejected property and its fix for the $shape rejection', async ({ detail, code, fix }) => {
+            const { request } = rejectPatchWith(detail, code)
+
+            const rejection: unknown = await tool.handler(createMockContext(request), params).catch((e: unknown) => e)
+
+            expect(rejection).toBeInstanceOf(PostHogValidationError)
+            expect(rejection).toMatchObject({ attr: 'filters', code, method: 'PATCH' })
+            const { message } = rejection as PostHogValidationError
+            expect(message).toContain(detail)
+            expect(message).toContain('filters.groups[1].properties[0]')
+            expect(message).toContain('"plan"')
+            expect(message).toContain(fix)
+            expect(message).not.toContain('"email"')
+        })
+
+        it.each([
+            {
+                scenario: 'a different field under filters',
+                detail: 'groups[0].properties[0].operator: "foo" is not a valid choice.',
+                code: 'structural.groups[].properties[].operator.invalid_choice',
+            },
+            {
+                scenario: 'a type path the sent filters do not contain',
+                detail: 'groups[5].properties[0].type: invalid property type',
+                code: 'invalid',
+            },
+            {
+                scenario: 'another rule on a property path',
+                detail: 'groups[1].properties[0]: Group-aggregated conditions can only use group properties.',
+                code: 'cross_field.group_aggregation_property_type',
+            },
+        ])('rethrows the API error unchanged for $scenario', async ({ detail, code }) => {
+            const { request, error } = rejectPatchWith(detail, code)
+
+            await expect(tool.handler(createMockContext(request), params)).rejects.toBe(error)
+        })
     })
 })

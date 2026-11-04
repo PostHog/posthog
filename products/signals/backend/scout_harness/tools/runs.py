@@ -26,7 +26,6 @@ from uuid import UUID
 
 from django.db import connection
 from django.db.models import Q
-from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 import structlog
@@ -536,26 +535,39 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
     touched_a_report = (~Q(emitted_report_ids=[]) & ~Q(emitted_report_ids__isnull=True)) | (
         ~Q(edited_report_ids=[]) & ~Q(edited_report_ids__isnull=True)
     )
-    # Load the ids first. As an `id__in` subquery, the planner can start from `posthog_task_run`,
-    # which holds every product's task runs, instead of from these few scout runs.
-    candidate_ids = list(
+    # No index can serve a sort on `Coalesce(task_run.completed_at, created_at)`, so read the
+    # candidates without a task run join and sort them below on completion times read by primary key.
+    candidates = list(
         SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start)
         .exclude(metadata__has_key="scout_trial")
         .filter(Q(emitted_count__gt=0) | touched_a_report)
         .order_by("-created_at", "-id")
-        .values_list("id", flat=True)[:FLEET_FINDINGS_SUMMARY_CANDIDATE_RUNS]
+        .values_list(
+            "id",
+            "task_run_id",
+            "created_at",
+            "emitted_count",
+            "skill_name",
+            "emitted_report_ids",
+            "edited_report_ids",
+        )[:FLEET_FINDINGS_SUMMARY_CANDIDATE_RUNS]
     )
+    completed_at_by_task_run = tasks_facade.get_task_run_completed_at(
+        [candidate[1] for candidate in candidates], team_id=team_id
+    )
+
+    def run_emitted_at(task_run_id: UUID, created_at: datetime) -> datetime:
+        return completed_at_by_task_run.get(task_run_id) or created_at
+
     # Order by completion (fall back to creation) so the cap keeps the *most recently emitted* runs,
     # matching the frontend's `completed_at ?? created_at` sort; `-id` tie-breaks on the time-ordered PK.
-    rows = (
-        SignalScoutRun.objects.filter(team_id=team_id, id__in=candidate_ids)
-        .annotate(_emitted_at=Coalesce("task_run__completed_at", "created_at"))
-        .order_by("-_emitted_at", "-id")
-        .values_list("emitted_count", "skill_name", "_emitted_at", "emitted_report_ids", "edited_report_ids")[
+    ranked = sorted(candidates, key=lambda c: (run_emitted_at(c[1], c[2]), c[0]), reverse=True)
+    materialized = [
+        (emitted_count, skill_name, run_emitted_at(task_run_id, created_at), emitted_report_ids, edited_report_ids)
+        for _, task_run_id, created_at, emitted_count, skill_name, emitted_report_ids, edited_report_ids in ranked[
             :FLEET_FINDINGS_SUMMARY_RUN_CAP
         ]
-    )
-    materialized = list(rows)
+    ]
     count = 0
     scouts: set[str] = set()
     latest_at: datetime | None = None

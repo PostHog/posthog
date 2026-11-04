@@ -19,6 +19,7 @@ chrono = { workspace = true }
 chrono-tz = { workspace = true }
 cohort-core = { path = "../cohort-core" }
 common-alloc = { path = "../common/alloc" }
+common-cohort-team-access = { path = "../common/cohort-team-access" }
 common-database = { path = "../common/database" }
 common-types = { path = "../common/types" }
 # Shadow-topic output producer: `create_kafka_producer` + `send_keyed_iter_to_kafka_*`
@@ -31,6 +32,9 @@ common-liveness = { path = "../common/liveness" }
 # hold their per-partition maps behind sharded locks (no global mutex on the hot path).
 dashmap = { workspace = true }
 envconfig = { workspace = true }
+# Opt-in profiling. Every hotpath macro and wrapper is a no-op unless the `hotpath` feature is on.
+# Profile an optimized build: `cargo run --release -p cohort-stream-processor --features hotpath`.
+hotpath = { version = "0.28", features = ["tokio", "sqlx"] }
 # `join_all` for routing each poll's per-partition sub-batches concurrently, so a full channel on
 # one partition can't head-of-line-block the sends to the others. Same version dedup uses.
 futures = { workspace = true }
@@ -66,10 +70,17 @@ uuid = { workspace = true }
 # `statvfs` for the store-filesystem utilization sample (`observability::disk`).
 nix = { version = "0.31", features = ["fs"] }
 
+[features]
+default = []
+hotpath = ["hotpath/hotpath"]
+hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
+hotpath-prometheus = ["hotpath", "hotpath/hotpath-prometheus"]
+
 [dev-dependencies]
 # Integration tests in `tests/` build `TeamFilters` via `freeze(UTC)`, so they name `chrono_tz::UTC`
 # directly (a normal dependency is not in scope for the separate integration-test crates).
 chrono-tz = { workspace = true }
+common-cohort-team-access = { path = "../common/cohort-team-access", features = ["test-util"] }
 # Convergence/idempotency property tests for the seed-tile apply core (`workers::seed_path`).
 proptest = "1"
 serde_json = { workspace = true }

@@ -79,7 +79,9 @@ It takes the same `series` as `PieChart` and sizes each part the same way as a p
 ## BarList
 
 Ranked rows: a label, a bar on a neutral track, and a value, one row per series.
-It is a preset over a one-series stacked `BarChart` with `axisOrientation: 'horizontal'` and `bars.track: 'solid'`.
+It is a preset over `StackedBarList` with one series and a color per bar.
+`StackedBarList` is a stacked `BarChart` with `axisOrientation: 'horizontal'` and `bars.track: 'solid'`, laid out in label, bar and value columns.
+Use `StackedBarList` directly when a row stacks several segments, such as a funnel step split by breakdown: it takes `labels` and `series` like `BarChart`, plus `renderLabel(rowIndex)` and `renderValue(rowIndex)` for the cells, `onPointClick`, and `config.valueDomain`.
 
 - It takes the same `series` as `PieChart` and values a row the same way, as the sum of its data floored at 0. Rows keep the order of `series`, so sort them first.
 - `config.scale: 'max'` (default) fills the track with the largest row. `'total'` makes the track the whole, so a bar shows its share.
@@ -98,7 +100,10 @@ It is a preset over a one-series stacked `BarChart` with `axisOrientation: 'hori
 Distribution summaries: `{ min, p25, median, mean, p75, max }` per label.
 Supports `config.legend` for grouped series and `onBoxClick`.
 `axisOrientation: 'horizontal'` lists the labels down the y-axis and draws values along x; `yScaleType: 'log'` then applies to that x value axis, and `yTickFormatter` formats its ticks.
+Whiskers are drawn at `min` and `max`. Set `whiskerMin` and `whiskerMax` on a datum to clip them (for example to 1.5 × IQR) while `min` and `max` stay the true extremes; the y-axis then spans the whiskers, and the default tooltip lists both.
 The tooltip receives a `BoxPlotTooltipContext`; `BoxPlotTooltip` is the default.
+`config.tooltip.valueFormatter` formats each statistic in the default tooltip, so it can match `yTickFormatter`.
+Boxes have a light tint of the series color, a thick median line, and whiskers in the axis color. Set `config.boxCornerRadius: 0` for square corners.
 
 ## Heatmap
 
@@ -109,6 +114,9 @@ A single-cell tooltip resolves from the cursor, `onCellClick` reports `{ xIndex,
 `config.cellLabel` prints a number in each cell, for a grid read as values rather than only as density (a retention table).
 It runs for every cell, empty ones included; return null to leave one blank.
 Each label takes light or dark text from the cell fill behind it, and is dropped when the cell is too small for the text, so a dense grid falls back to a plain density map.
+`config.cellStyle` overrides single cells: `color` ramps that cell from a second accent (a summary row), `outlined` draws a dashed outline and no fill (a period still in progress), `filled` fills a 0 cell at the lightest step (a real zero, not missing data).
+`config.highlightedColumns` draws a band behind the named columns, for a column the consumer selected or is hovering.
+The consumer owns the column header, so it owns the click and hover that set those indices.
 
 ## SankeyChart
 
@@ -146,6 +154,35 @@ There is no `series` or `labels`.
   It does not validate its input: the checks above run in `computeSankeyLayout`, so a host that calls the engine directly validates its own graph.
   Links resolve their endpoints by array index by default; for links that name string node ids, call `sankeyLayout().nodeId((node) => node.id)` first.
 
+## Gauge
+
+One value between a min and a max, as an arc on a track: Apdex, error budget, CPU.
+Takes `value`, `min`, `max`, and `thresholds`, not `series`, and fills its container at a fixed aspect ratio.
+
+```tsx
+<Gauge
+  value={0.91}
+  min={0}
+  max={1}
+  thresholds={[
+    { value: 0, color: 'var(--danger)', label: 'Poor' },
+    { value: 0.85, color: 'var(--success)', label: 'Good' },
+  ]}
+  target={{ value: 0.94, label: 'SLO' }}
+  label="Apdex"
+  theme={theme}
+/>
+```
+
+- `null` draws an empty track and a dash. It never reads as 0.
+- A threshold colors values from its `value` upward, and the lowest one also colors everything below it. Order does not matter. The arc and the value text take the color of the band the value is in, and with two or more thresholds the bands draw as a thin ring outside the track (`showThresholdBands`). Threshold colors may be `var(--…)`; the gauge resolves them, and an unresolvable one falls back to `color`.
+- A missing `min` is the lowest threshold, else 0. A value or target below it widens the range to 0, or to the value when it is negative, so a healthy value under an alert ladder does not read empty. A missing `max` is the highest threshold, else the larger of `min + 1` and 0, and grows to contain the value and the target, so the max label always agrees with where the arc ends. `resolveGaugeBounds` exports the same rule for a host that formats the bounds itself. An explicit range clamps the arc but the number still prints as-is. Inverted bounds swap, and `min === max` reads empty below the value and full at or above it.
+- `config.valueFormatter` formats the value, the min and max labels, and the tooltip. `buildYTickFormatter` builds one from the axis format options (`duration`, `duration_ms`, `percentage`, `currency`, prefix, suffix, decimals).
+- `config.sweepAngle` runs from 180 (a half circle) to 360 (a ring that starts at 12 o'clock); default 240. `config.thickness` is a fraction of the radius, so the look holds from 80px to 400px wide.
+- Text sizes with the radius. The value shrinks to fit the inner circle and truncates only below 9px. The label drops out when it no longer fits under the value, and the min and max labels hide when they would overlap or the sweep passes 300°. The full text stays in the tooltip and the canvas `aria-label`.
+- A value change eases over `config.animationMs` (default 500), and the arc color follows the bands as it passes them. The first render, `animationMs: 0`, and reduced motion snap.
+- The tooltip shows the value, the range, the threshold band (its `label`, else its range), and the target. A `tooltip` render prop receives `GaugeTooltipContext`: the `TooltipContext` plus the value, the range, the band, and the target. `formatGaugeBand` formats a band the way the default tooltip does.
+
 ## Sparkline
 
 An axis-less preset over `LineChart` (default, gradient-filled line) or stacked bars via `type: 'bar'`.
@@ -167,6 +204,7 @@ A left-aligned tile: headline number, change pill, sparkline.
 - `formatLabel` formats the point label in the default subtitle, for example an ISO time as a short date. The sparkline keeps the raw `labels`, so they stay unique.
 - `hoverChangeFromPreviousPoint` keeps the resting `change` pill at rest but, while hovering, swaps it for the hovered point's change versus the previous point (hidden at the first point).
 - `changeTooltip` shows a styled hover tooltip on the change pill, using the host's tooltip surface tokens with chart-surface fallbacks.
+- `change.value` is a percent, so `8` reads as +8%. Its sign sets the pill's direction, and `goodDirection` decides whether that direction is good. `change.label` replaces the formatted text, for example `+1.1 pts` for a change in percentage points.
 
 The composable form is `Metric` in `@posthog/quill-components` (it needs `Card` and `Badge` from primitives, which charts cannot depend on).
 It is built on `Sparkline` plus the headless helpers this package exports: `resolveDelta` and `computeFallbackChangePercent` (delta math), `useAnimatedNumber` (count-up headline), `useHoverIntent` (hover dwell), and the `MetricChange` and `ResolvedDelta` types.

@@ -272,7 +272,7 @@ got:      new Question 2 titled " (copy)" - empty title with stray space
 
 ## Evidence URLs
 
-Use the `![alt](url)` markdown lines printed by `hogli pr:upload-image` verbatim - they point at SHA-pinned `raw.githubusercontent.com/PostHog/pr-assets` URLs. Do not reconstruct, shorten, or edit them.
+Use the `![alt](url)` markdown lines printed by `hogli pr:upload-image --print-markdown` verbatim - they point at SHA-pinned `raw.githubusercontent.com/PostHog/pr-assets` URLs. Do not reconstruct, shorten, or edit them.
 
 Embed images and animated WebP reels with markdown image syntax (`![alt](url)`) so they render inline. Use one or two key visuals per finding. Prefer the reel for the flow only when it has been inspected and remains readable. Otherwise use annotated still screenshots. Do not paste the full local screenshot inventory.
 

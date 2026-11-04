@@ -16,6 +16,16 @@
 
 locals {
   mentions = join(" ", [for id in var.billing_alert_mention_slack_user_ids : "<@${id}>"])
+
+  # Anyone holding project 2's public key can send an event that passes the filter below.
+  # Escaping every event value stops such an event from adding links or mentions to the post.
+  escape = "replaceAll(replaceAll(replaceAll(toString(%s ?? ''), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')"
+
+  # Slack rejects a section over 3,000 characters, so the exception text is cut short.
+  exception_type = "substring(${format(local.escape, "event.properties.$exception_types[1]")}, 1, 200)"
+  message        = "substring(${format(local.escape, "event.properties.$exception_values[1]")}, 1, 2700)"
+  details        = "substring(${format(local.escape, "f'Coupon: {event.properties.coupon_id} | Credit: {event.properties.credit_id} | Customer: {event.properties.customer_id} | Organization: {event.properties.organization_id}'")}, 1, 3000)"
+  issue_url      = "{project.url}/error_tracking/{encodeURLComponent(toString(event.properties.$exception_issue_id ?? ''))}"
 }
 
 resource "posthog_hog_function" "community_credit_claim_failure" {
@@ -26,8 +36,9 @@ resource "posthog_hog_function" "community_credit_claim_failure" {
   hog         = "let res := fetch('https://slack.com/api/chat.postMessage', {\n  'body': {\n    'channel': inputs.channel,\n    'icon_emoji': inputs.icon_emoji,\n    'username': inputs.username,\n    'blocks': inputs.blocks,\n    'text': inputs.text\n  },\n  'method': 'POST',\n  'headers': {\n    'Authorization': f'Bearer {inputs.slack_workspace.access_token}',\n    'Content-Type': 'application/json'\n  }\n});\n\nif (res.status != 200 or res.body.ok == false) {\n  throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');\n}"
 
   inputs_json = jsonencode({
+    # Slack shows this fallback text in notifications and can't set verbatim on it, so it carries no event values.
     "text" = {
-      "value"      = "${local.mentions} Community credit claim failed: {substring(event.properties.$exception_values[1], 1, 2700)} | Coupon: {event.properties.coupon_id} | Credit: {event.properties.credit_id} | Customer: {event.properties.customer_id} | Organization: {event.properties.organization_id} | Issue: {project.url}/error_tracking/{event.properties.$exception_issue_id}"
+      "value"      = "${local.mentions} Community credit claim failed"
       "templating" = "hog"
     }
     "blocks" = {
@@ -38,24 +49,25 @@ resource "posthog_hog_function" "community_credit_claim_failure" {
         },
         {
           "text" = {
-            # Slack rejects a section over 3,000 characters, so the exception text is cut short.
-            "text" = "${local.mentions} *{substring(event.properties.$exception_types[1], 1, 200)}*: {substring(event.properties.$exception_values[1], 1, 2700)}"
-            "type" = "mrkdwn"
+            "text"     = "${local.mentions} *{${local.exception_type}}*: {${local.message}}"
+            "type"     = "mrkdwn"
+            "verbatim" = true
           }
           "type" = "section"
         },
         {
           "type" = "context"
           "elements" = [{
-            "text" = "Coupon: {event.properties.coupon_id} | Credit: {event.properties.credit_id} | Customer: {event.properties.customer_id} | Organization: {event.properties.organization_id}"
-            "type" = "mrkdwn"
+            "text"     = "{${local.details}}"
+            "type"     = "mrkdwn"
+            "verbatim" = true
           }]
         },
         { "type" = "divider" },
         {
           "type" = "actions"
           "elements" = [{
-            "url"  = "{project.url}/error_tracking/{event.properties.$exception_issue_id}"
+            "url"  = local.issue_url
             "text" = { "text" = "View issue", "type" = "plain_text" }
             "type" = "button"
           }]

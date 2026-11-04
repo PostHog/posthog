@@ -1,17 +1,17 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
 import { Composer } from 'products/posthog_ai/frontend/api/composer'
+import { useThreadSkin } from 'products/posthog_ai/frontend/api/logics'
 import {
     DEFAULT_SUGGESTIONS_DATA,
     type SuggestionItem,
     Suggestions,
-    useThreadSkin,
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
@@ -23,15 +23,19 @@ import {
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import {
     cycleMode,
+    getDefaultModeForRuntimeAdapter,
     getModesForRuntimeAdapter,
     type PermissionMode,
     resolveModeForRuntimeAdapter,
 } from 'products/posthog_ai/frontend/utils/composerModes'
+import { RuntimeAdapterEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { AttachedContextChips } from '../../../components/composer/AttachedContextChips'
 import { AttachedContextPicker } from '../../../components/composer/AttachedContextPicker'
 import { ComposerAttachmentChips } from '../../../components/composer/ComposerAttachmentChips'
 import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
+import { ComposerBillingIndicator } from '../../../components/composer/ComposerBillingIndicator'
+import { ComposerCodexBillingIndicator } from '../../../components/composer/ComposerCodexBillingIndicator'
 import { ComposerCodexBillingPickers } from '../../../components/composer/ComposerCodexBillingPickers'
 import {
     ComposerModelEffortPickers,
@@ -42,12 +46,14 @@ import { ComposerModeShortcut } from '../../../components/composer/ComposerModeS
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { OnboardingReplayButton } from '../../../components/onboarding/OnboardingReplayButton'
 import { QuillAttachedContextPicker } from '../../../components/quill/QuillAttachedContextPicker'
-import { QuillComposerAttachButton } from '../../../components/quill/QuillComposerAttachButton'
 import { QuillComposerLayout } from '../../../components/quill/QuillComposerLayout'
 import { QuillComposerSendButton } from '../../../components/quill/QuillComposerSendButton'
 import { QuillOnboardingReplayButton } from '../../../components/quill/QuillOnboardingReplayButton'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
+import { QuillRepositoryChip } from './QuillRepositoryChip'
 import { RepositorySelector } from './RepositorySelector'
+import { TaskComposerAddMenu } from './TaskComposerAddMenu'
+import { TaskComposerEnvironmentSelect } from './TaskComposerEnvironmentSelect'
 
 export interface TaskComposerProps {
     /** `inline` drops the welcome header and the full-height centering, for a composer placed inside a host page. */
@@ -79,6 +85,9 @@ export function TaskComposer({
         applySuggestion,
         applyPrefill,
         clearConsentBlock,
+        requestRepository,
+        removeRepository,
+        toggleDefaultRepository,
     } = useActions(taskTrackerSceneLogic)
     const {
         newTaskData,
@@ -91,6 +100,7 @@ export function TaskComposer({
         defaultModel,
         displayEffort,
         isDefaultSelection,
+        isDefaultRepository,
         // Permission modes belong to the harness, so they follow the model actually shown — the
         // server-resolved default's own runtime when nothing is picked, the pick's otherwise.
         composerAdapter,
@@ -118,6 +128,15 @@ export function TaskComposer({
     const groupRef = useRef<HTMLDivElement>(null)
     const skin = useThreadSkin()
     const showSuggestions = skin === 'lemon' && !composerOverride?.hideSuggestions
+    const repositoryEnabled = !composerOverride?.hideRepositorySelector
+    const [repositoryRequested, setRepositoryRequested] = useState(false)
+    const showRepositoryChip = repositoryEnabled && (repositoryRequested || !!newTaskData.repositoryConfig.repository)
+    const showModePicker =
+        skin === 'lemon' ||
+        !!newTaskData.repositoryConfig.repository ||
+        resolveModeForRuntimeAdapter(composerAdapter, newTaskData.permissionMode) !==
+            getDefaultModeForRuntimeAdapter(composerAdapter)
+    const [contextPickerOpen, setContextPickerOpen] = useState(false)
 
     useEffect(() => {
         if (focusRequest > 0) {
@@ -145,7 +164,8 @@ export function TaskComposer({
     const field = (
         <Composer.Field>
             <Composer.Placeholder>
-                {composerOverride?.placeholder ?? 'Describe the task in detail…'}
+                {composerOverride?.placeholder ??
+                    (skin === 'quill' ? 'What do you want to work on?' : 'Describe the task in detail…')}
             </Composer.Placeholder>
             <Composer.Textarea autoFocus={autoFocus} onPaste={onPaste} data-attr="task-composer-input" />
         </Composer.Field>
@@ -228,15 +248,19 @@ export function TaskComposer({
                 >
                     {/* Repo/branch picker sits 8px above the input it configures. */}
                     <div className="w-full flex flex-col gap-2">
-                        {!composerOverride?.hideRepositorySelector && (
+                        {skin === 'lemon' && repositoryEnabled && (
                             <RepositorySelector
                                 value={newTaskData.repositoryConfig}
                                 onChange={(config) => setNewTaskData({ repositoryConfig: config })}
                             />
                         )}
-                        <ComposerModeShortcut
-                            onCycle={() => pickPermissionMode(cycleMode(composerAdapter, newTaskData.permissionMode))}
-                        />
+                        {showModePicker && (
+                            <ComposerModeShortcut
+                                onCycle={() =>
+                                    pickPermissionMode(cycleMode(composerAdapter, newTaskData.permissionMode))
+                                }
+                            />
+                        )}
                         <Composer.Root
                             value={draft.value}
                             onChange={draft.onChange}
@@ -250,6 +274,29 @@ export function TaskComposer({
                                     textAreaRef={textAreaRef}
                                     chips={
                                         <>
+                                            {showRepositoryChip && (
+                                                <QuillRepositoryChip
+                                                    value={newTaskData.repositoryConfig}
+                                                    autoOpen={repositoryRequested}
+                                                    onChange={(config) => {
+                                                        if (
+                                                            config.integrationId !==
+                                                            newTaskData.repositoryConfig.integrationId
+                                                        ) {
+                                                            setRepositoryRequested(true)
+                                                        } else if (!config.repository) {
+                                                            setRepositoryRequested(false)
+                                                        }
+                                                        setNewTaskData({ repositoryConfig: config })
+                                                    }}
+                                                    onRemove={() => {
+                                                        setRepositoryRequested(false)
+                                                        removeRepository()
+                                                    }}
+                                                    isDefault={isDefaultRepository}
+                                                    onToggleDefault={toggleDefaultRepository}
+                                                />
+                                            )}
                                             <AttachedContextChips />
                                             <ComposerAttachmentChips attachmentsKey={attachmentsKey} />
                                         </>
@@ -258,23 +305,43 @@ export function TaskComposer({
                                     send={withConsent(<QuillComposerSendButton data-attr="task-composer-send" />)}
                                     controls={
                                         <>
-                                            <QuillComposerAttachButton
+                                            <TaskComposerAddMenu
                                                 attachmentsKey={attachmentsKey}
                                                 dropTargetRef={groupRef}
+                                                onAddContext={() => setContextPickerOpen(true)}
+                                                onAddRepository={
+                                                    repositoryEnabled && !showRepositoryChip
+                                                        ? () => {
+                                                              setRepositoryRequested(true)
+                                                              requestRepository()
+                                                          }
+                                                        : undefined
+                                                }
                                             />
-                                            <QuillAttachedContextPicker />
+                                            <QuillAttachedContextPicker
+                                                open={contextPickerOpen}
+                                                onOpenChange={setContextPickerOpen}
+                                                anchor={groupRef}
+                                            />
+                                            {repositoryEnabled && <TaskComposerEnvironmentSelect />}
                                             {modelPicker}
-                                            {modePicker}
+                                            {showModePicker && modePicker}
                                         </>
                                     }
                                     meta={
-                                        !inline &&
-                                        !composerOverride?.hideOnboardingReplay && (
-                                            <QuillOnboardingReplayButton
-                                                panelId={panelId}
-                                                className="hidden @4xl/task-composer:inline-flex"
-                                            />
-                                        )
+                                        <>
+                                            {!inline && !composerOverride?.hideOnboardingReplay && (
+                                                <QuillOnboardingReplayButton
+                                                    panelId={panelId}
+                                                    className="hidden @4xl/task-composer:inline-flex"
+                                                />
+                                            )}
+                                            {codexBillingEnabled && composerAdapter === RuntimeAdapterEnumApi.Codex ? (
+                                                <ComposerCodexBillingIndicator />
+                                            ) : (
+                                                <ComposerBillingIndicator ownPlan={false} />
+                                            )}
+                                        </>
                                     }
                                 />
                             ) : (

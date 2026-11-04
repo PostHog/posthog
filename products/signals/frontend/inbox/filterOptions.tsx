@@ -12,6 +12,7 @@ import {
     IconGithub,
     IconGraph,
     IconList,
+    IconPerson,
     IconReceipt,
     IconRefresh,
     IconStack,
@@ -99,17 +100,22 @@ export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
  */
 export interface InboxRankingScore {
     field: InboxRankingSortField
+    outcome: string
+    /** The model head in raw `ranking_score` artefacts. It differs from the outcome for `fix`, which reads `fixed`. */
     head: string
     name: string
     sortLabel: string
     /** The short word the card tag uses after a probability with no lift ("12% fix"). Staff only. */
     tagLabel: string
     description: string
+    /** Replaces `description` in the score hover card only. The sort menu and the artefact log keep `description`. */
+    hoverCardDescription?: string
 }
 
 export const INBOX_RANKING_SCORES: InboxRankingScore[] = [
     {
         field: 'ranking_open',
+        outcome: 'open',
         head: 'open',
         name: 'Open',
         sortLabel: 'Most likely to be opened',
@@ -118,19 +124,22 @@ export const INBOX_RANKING_SCORES: InboxRankingScore[] = [
     },
     {
         field: 'ranking_action',
+        outcome: 'action',
         head: 'action',
-        name: 'Engage',
+        name: 'Action',
         sortLabel: 'Most likely to be acted on',
-        tagLabel: 'engage',
-        description: 'A person acts on the report within 14 days.',
+        tagLabel: 'action',
+        description: 'A person or their agent acts on the report within 14 days.',
     },
     {
-        field: 'ranking_fixed',
+        field: 'ranking_fix',
+        outcome: 'fix',
         head: 'fixed',
         name: 'Fix',
         sortLabel: 'Most likely to be fixed',
         tagLabel: 'fix',
         description: 'Someone fixes the problem within 30 days.',
+        hoverCardDescription: 'Someone fixes the problem within 30 days (as best we can tell).',
     },
 ]
 
@@ -189,6 +198,7 @@ export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Ele
         icon: <IconGear />,
     },
     { value: 'signals_scout', label: 'Scout', icon: <IconCompass /> },
+    { value: 'user_authored', label: 'Team member', icon: <IconPerson /> },
 ]
 
 /** Priority codes in rank order (P0 highest → P4 lowest), driving the Priority filter popover. */

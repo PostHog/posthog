@@ -3,7 +3,8 @@ name: signals-scout-apm
 scout-display-name: APM
 description: >
   Signals scout for PostHog distributed tracing (APM / OpenTelemetry spans). Watches per-service
-  RED metrics for error-rate and latency regressions, new error signatures, and traffic cliffs.
+  RED metrics for error-rate and latency regressions, new error signatures, and traffic cliffs,
+  and audits for standing performance issues: N+1 calls, expensive query shapes, and caching candidates.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the apm-* tool family
@@ -33,6 +34,10 @@ You author reports directly via the report channel (`scout-emit-report` / `scout
 **This is APM / distributed tracing, not AI observability and not logs.** Ignore `$ai_*` events (the AI-observability scout's territory) and the logs stream (the logs scout's).
 
 **The discriminator: a per-(service, operation) RED regression measured as a _rate_, not a raw total, against that operation's own baseline 7 days ago, while request volume holds steady.** Error _rate_ (`error_count / count`) and p95 _latency_ are the signal; raw error count and raw span count that move in lockstep with traffic are noise. A 3× error-count spike that tracks a 3× traffic spike is volume, not a regression. Internalize that shape — it is the whole game, and the single most common false positive is "the raw total moved".
+
+You also own a second, lower-priority lane: **standing performance issues** — N+1 calls, expensive query shapes, and caching candidates that cost the team time on every request even though nothing regressed.
+Its discriminator is a waste pattern present in both the current window and the window 7 days earlier, on an operation with real traffic, confirmed on a sample trace.
+Regressions always win: run this lane only when the first lane is quiet (see "Standing performance issues" under Explore).
 
 ## Quick close-out: is APM even in use?
 
@@ -118,6 +123,17 @@ An operation (or a downstream `Client`-kind span calling another service) newly 
 
 A `silent` row in `apm-service-health` is a service that had a steady span volume and stopped: an instrumentation break or an outage (the trace-side analog of a capture cliff — spans are not retroactive). Its `reason` names the last span. The server calls a service silent only when its spans stopped for at least 10 minutes (two 5-minute buckets) where its own rate predicted more, so one quiet partial bucket does not count. Date the drop with `apm-spans-sparkline` on that service. Also check baseline memory for services absent from both windows.
 
+#### Standing performance issues (the second lane)
+
+Run this audit only when both of these hold:
+
+- No P1/P2 regression is live: none filed or edited this run, and none still open in the inbox from a prior APM run.
+- The `pattern:apm:last-perf-audit` scratchpad entry is missing, or its date is 7 or more days old.
+
+The first run on a project that sends spans has no entry, so it audits.
+Read [`references/performance-issues.md`](references/performance-issues.md) for the candidate selection, the detection recipe for each pattern, the report rules, and the redaction rule for statements and URLs.
+Refresh `pattern:apm:last-perf-audit` at the end of every audit, also when it finds nothing.
+
 ### Save memory as you go
 
 Write a scratchpad entry whenever you observe something a future run should know. Encode the category in the key prefix — `pattern:` / `noise:` / `addressed:` / `dedupe:`. Domain label `apm`.
@@ -126,6 +142,8 @@ Write a scratchpad entry whenever you observe something a future run should know
 - key `dedupe:apm:{service}:{operation}` — "Surfaced p95 regression on payments/charge (320ms→1.4s, count steady ~800/h) starting 2026-06-21 14:00 UTC. If still elevated next run, edit the report; if back under ~400ms, treat as recovered."
 - key `noise:apm:{service}` — "frontend/GET /healthz: high-volume readiness probe, ignore; deploy-window p95 blips recover within one bucket, don't report unless sustained ≥2 buckets."
 - key `report:apm:{service}:{operation}` — the `report_id` of a report you filed for a regression on this operation (error rate, p95, traffic cliff), so the next run edits it (`append_evidence` with the fresh window) instead of duplicating.
+- key `pattern:apm:last-perf-audit` — the date and outcome of the last standing-performance audit, which gates the next one.
+- key `report:apm:perf-{service}-{operation}-{pattern}` — the `report_id` of a standing-performance report (`pattern` is `n-plus-one`, `query`, or `cache`).
 - key `reviewer:apm:{service}` — a resolved owner (bare lowercase GitHub login) for a service, so reports route to a human faster.
 
 ### Decide
@@ -135,12 +153,13 @@ The generic report mechanics — search the inbox first (via the `report:apm:{se
 - **Edit** when a still-live report already tracks the operation — an error rate still stepped up, a p95 still elevated, a service still dark. A persistent regression is one report across runs: a new complete bucket confirming it is ongoing is a re-escalation (`append_evidence` with the fresh before/after numbers), not a fresh report per tick.
 - **Author** when nothing live covers the regression. A report-worthy finding names the concrete `(service, operation)`, gives before/after numbers (rate or p95, with the steady denominator), dates the onset bucket, and explains the shape that rules out a volume explanation, with the query results in the `evidence`. Attach the regressing series via `charts` — the rate or p95 with the steady request volume alongside — so the rate-step-on-steady-denominator shape is visible. A cause you have not named yet is not human input: a regression that names the `(service, operation)` and the shape of its error or latency move gives an agent somewhere to start, so set `actionability=immediately_actionable` and name the `repository` that serves the operation (omit the field when you can't tell which repo that is, so selection can find it). Keep `actionability=requires_human_input` for a regression whose next step is a call only a person can make — a dependency you don't control, a capacity or cost trade-off — and say which call in the summary. Priority: an active error-rate regression hitting many requests is **P1**; a contained latency regression **P2**; a single-dependency or low-traffic operation **P3**.
 - **Bundle correlated operations into one report.** When a cluster of operations in one service / subsystem regressed together, file one report for the shared cause, not one per operation — an inbox full of six reports for the same slow deploy is noise.
+- **Standing performance issues are P3 by default, capped, and evergreen-deduped.** The rules are in `references/performance-issues.md`; at most 1–2 new reports from that lane per run, and never in place of a regression report.
 - **Remember** if real but below the bar, or worth carrying forward (a fresh baseline, a blip to watch), or to record what you ruled out and why.
 - **Skip** with a one-line note if a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report, already covers it with no material change.
 
 ### Close out
 
-One paragraph: which services/operations you scored, which reports you authored or edited, what you remembered (baselines, blips), what you ruled out (volume-tracking spikes, deploy blips, dev services). "Looked but found nothing meaningful" is a real outcome. Don't write a separate "run metadata" scratchpad entry — this summary already serves that role.
+One paragraph: which services/operations you scored, which reports you authored or edited, what you remembered (baselines, blips), what you ruled out (volume-tracking spikes, deploy blips, dev services), and whether the standing-performance audit ran and what it found. "Looked but found nothing meaningful" is a real outcome. Don't write a separate "run metadata" scratchpad entry — this summary already serves that role.
 
 ## Disqualifiers (skip these)
 

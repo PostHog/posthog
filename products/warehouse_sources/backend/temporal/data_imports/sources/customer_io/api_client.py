@@ -10,14 +10,17 @@ from typing import Any
 
 import requests
 import structlog
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
     WebhookDeletionResult,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.constants import (
     CIO_AUTO_WEBHOOK_NAME,
     CIO_EU_BASE_URL,
@@ -88,13 +91,13 @@ def _format_http_error(error: requests.HTTPError) -> str:
     status_code = response.status_code
     if status_code == 401:
         return (
-            "Customer.io rejected the App API Key (401). Generate an App API Key from "
-            "Settings > API Credentials > App API Keys and check the region."
+            "Customer.io rejected your App API key. Create a new key under Settings > API "
+            "Credentials > App API Keys, then reconnect."
         )
     if status_code == 403:
-        return "Customer.io denied the request (403). Make sure the App API Key has access to reporting webhooks."
+        return "Customer.io denied the request. Make sure your App API key has access to reporting webhooks."
     if status_code == 429:
-        return "Customer.io rate-limited the request (429). Try again in a few seconds."
+        return "Customer.io rate-limited the request. Wait a few seconds, then try again."
     return f"Customer.io API error ({status_code})."
 
 
@@ -109,13 +112,33 @@ def validate_credentials(api_key: str, region: str | None) -> tuple[bool, str | 
         response = _session(api_key).get(url, timeout=REQUEST_TIMEOUT_SECONDS)
         response.raise_for_status()
     except requests.HTTPError as e:
+        other_region = _other_region(region)
+        if e.response.status_code == 401 and _key_works_in_region(api_key, other_region):
+            label = other_region.upper()
+            return False, (
+                f"Your App API key belongs to Customer.io's {label} region. Set Region to {label}, then try again."
+            )
         return False, _format_http_error(e)
     except requests.RequestException as e:
         return False, f"Could not reach Customer.io: {e}"
     return True, None
 
 
-@retry(
+def _other_region(region: str | None) -> str:
+    return "us" if (region or "").lower() == "eu" else "eu"
+
+
+def _key_works_in_region(api_key: str, region: str) -> bool:
+    # Customer.io keys only work in the region that issued them, and the wrong region answers with
+    # the same 401 as a revoked key.
+    try:
+        response = _session(api_key).get(f"{_base_url(region)}{WORKSPACES_PATH}", timeout=REQUEST_TIMEOUT_SECONDS)
+    except requests.RequestException:
+        return False
+    return response.ok
+
+
+@retry_with_deadline(
     retry=retry_if_exception_type((ListEndpointRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),

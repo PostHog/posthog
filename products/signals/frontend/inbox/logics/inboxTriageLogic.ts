@@ -4,13 +4,15 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 
 import { openDismissReportDialog } from '../components/shell/DismissReportDialog'
+import { openRemoveYourselfDialog } from '../components/shell/RemoveYourselfDialog'
 import { openResolveReportDialog } from '../components/shell/ResolveReportDialog'
 import { captureInboxReportAction } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
-import { INBOX_PRIMARY_REPORT_SECTION_KEY, InboxReportSectionKey, SignalReport } from '../types'
+import { INBOX_PRIMARY_REPORT_SECTION_KEY, InboxReportSectionKey, SignalReport, SignalReportStatus } from '../types'
 import { canCreateImplementationPr, canUnassignMe, hasOpenImplementationPr } from '../utils/reportActions'
 import { displayConventionalCommitTitle } from '../utils/reportPresentation'
+import { reportGithubAccessLogic } from './reportGithubAccessLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './reportListLogic'
 
 /**
@@ -108,9 +110,9 @@ export interface inboxTriageLogicActions {
     } // reportListLogic
     loadReportsSuccess: (
         reportsResponse: import('./reportListLogic').ReportListResponse,
-        payload?: any
+        payload?: void | undefined
     ) => {
-        payload?: any
+        payload?: void | undefined
         reportsResponse: import('./reportListLogic').ReportListResponse
     } // reportListLogic
     removeReport: (reportId: string) => {
@@ -118,17 +120,19 @@ export interface inboxTriageLogicActions {
     } // reportListLogic
     resolveReport: (
         reportId: string,
-        reason: 'already_fixed' | 'fixed_outside_posthog' | 'other' | 'pr_merged',
+        reason: import('../utils/dismissalReasons').ResolveReasonValue,
         note: string
     ) => {
         note: string
-        reason: 'already_fixed' | 'fixed_outside_posthog' | 'other' | 'pr_merged'
+        reason: import('../utils/dismissalReasons').ResolveReasonValue
         reportId: string
     } // reportListLogic
     unassignMe: (
         reportId: string,
-        surface: import('../inboxAnalytics').InboxReportActionSurface
+        surface: import('../inboxAnalytics').InboxReportActionSurface,
+        reason?: import('../../generated/api.schemas').ReviewerRemovalReasonEnumApi | undefined
     ) => {
+        reason: import('../../generated/api.schemas').ReviewerRemovalReasonEnumApi | undefined
         reportId: string
         surface: import('../inboxAnalytics').InboxReportActionSurface
     } // reportListLogic
@@ -450,6 +454,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 }
                 openResolveReportDialog({
                     reportTitle: displayConventionalCommitTitle(report.title, 'Untitled report'),
+                    isMonitoring: report.status === SignalReportStatus.MONITORING,
                     hasOpenPr: hasOpenImplementationPr(report),
                     hotkeys: true,
                     onConfirm: ({ reason, note }) => {
@@ -470,18 +475,28 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 if (!report || values.unassignDisabledReason) {
                     return
                 }
-                // Only a list scoped to you drops the report, and only once the request succeeds. Pin
-                // the next report by id, so triage lands on it whether or not this one leaves the queue.
-                const next = values.nextReport
-                actions.unassignMe(report.id, 'triage_mode')
-                if (next) {
-                    actions.goToReport(next.id, values.currentIndex + 1)
-                }
-                prefetchNearEnd()
+                openRemoveYourselfDialog({
+                    reportTitle: displayConventionalCommitTitle(report.title, 'Untitled report'),
+                    onConfirm: (reason) => {
+                        // Only a list scoped to you drops the report, and only once the request succeeds. Pin
+                        // the next report by id, so triage lands on it whether or not this one leaves the queue.
+                        const next = values.nextReport
+                        actions.unassignMe(report.id, 'triage_mode', reason)
+                        if (next) {
+                            actions.goToReport(next.id, values.currentIndex + 1)
+                        }
+                        prefetchNearEnd()
+                    },
+                })
             },
             createPrForCurrent: () => {
                 const report = values.currentReport
                 if (!report || !values.canCreatePr || values.isCreatingPr || values.createPrDisabledReason) {
+                    return
+                }
+                const access = reportGithubAccessLogic.findMounted({ report, surface: 'triage_mode' })
+                if (access?.values.repairNeeded) {
+                    access.actions.setConnectionOpen(true)
                     return
                 }
                 // Triage is a fast keyboard flow with no note box, so it never steers the agent.

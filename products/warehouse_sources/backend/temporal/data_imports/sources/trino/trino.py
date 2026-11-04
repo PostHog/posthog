@@ -26,6 +26,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     ValidateDatabaseHostMixin,
     log_connection_open,
@@ -68,6 +71,10 @@ TRINO_CATALOG_NOT_FOUND_ERROR = "Trino could not find that catalog. Check the ca
 TRINO_ACCESS_DENIED_ERROR = (
     "Trino did not allow this user to read the requested data. "
     "Ask your Trino administrator for read access, then try again."
+)
+TRINO_CLUSTER_ACCESS_DENIED_ERROR = (
+    "Your Trino user's role isn't allowed to use this cluster. "
+    "Ask your Trino administrator to grant that role access to the cluster, then try again."
 )
 TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR = (
     "Trino's access control service did not answer, so Trino could not authorize the request. "
@@ -130,6 +137,9 @@ TRINO_WORKER_NODE_ERROR = "too many errors talking to a worker node"
 # `OperationalError`. A fresh query on the next sync attempt gets a new query ID, so this clears on
 # its own — not a PostHog or customer problem.
 TRINO_QUERY_NOT_FOUND_ERROR = "Query not found"
+# Trino's error name when no worker has free or healthy spill disk left. The customer's cluster ran out
+# of a resource it controls, so only the cluster owner can fix it, and a later query can succeed.
+TRINO_OUT_OF_SPILL_SPACE_ERROR = "name=OUT_OF_SPILL_SPACE"
 
 # Every message `trino_error_to_message` produces for a recognized failure. The source lists them as
 # its own error patterns, so the API shows the message instead of a generic one.
@@ -138,6 +148,7 @@ TRINO_KNOWN_ERROR_MESSAGES = (
     TRINO_AUTHENTICATION_ERROR,
     TRINO_CATALOG_NOT_FOUND_ERROR,
     TRINO_ACCESS_DENIED_ERROR,
+    TRINO_CLUSTER_ACCESS_DENIED_ERROR,
     TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR,
     TRINO_TLS_CERTIFICATE_ERROR,
     TRINO_CONNECTION_ERROR,
@@ -153,8 +164,16 @@ TRINO_PERMANENT_SYNC_ERROR_MESSAGES = frozenset(
         TRINO_AUTHENTICATION_ERROR,
         TRINO_CATALOG_NOT_FOUND_ERROR,
         TRINO_ACCESS_DENIED_ERROR,
+        TRINO_CLUSTER_ACCESS_DENIED_ERROR,
     }
 )
+MANAGED_WAREHOUSE_TRINO_SOURCE_TYPE = "trino"
+# The managed-Trino control plane's own wording when it mints a tenant's compute-pool grant before
+# the pool coordinator has finished admitting that tenant. The request was never dispatched, so a
+# retry is safe, and the race clears within a few seconds once admission catches up.
+TRINO_TENANT_NOT_ADMITTED_ERROR = "is not admitted to the pool yet"
+_TENANT_ADMISSION_RETRY_ATTEMPTS = 4
+_TENANT_ADMISSION_RETRY_BACKOFF_SECONDS = 1.0
 POSTHOG_MANAGED_TRINO_HOST_PATTERN = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.dw\.(?:dev|eu|us)\.postwh\.com")
 # Trino's OPA access control can issue one column-filter request per table, so keep
 # discovery batches comfortably below the HTTP client's outstanding-request limit.
@@ -282,11 +301,19 @@ def trino_error_to_message(error: Exception) -> str:
     # text carries a query ID whose time part can hold "401" and would derail this classification.
     if "authentication" in lowered or "unauthorized" in lowered or "error 401" in lowered:
         return TRINO_AUTHENTICATION_ERROR
+    # Starburst Galaxy checks a role's privilege to use the cluster before any catalog access check.
+    if "privilege to use cluster" in lowered:
+        return TRINO_CLUSTER_ACCESS_DENIED_ERROR
     # Trino gives permission checks to an access control plugin. That plugin can fail on its own, for
     # example when it cannot reach its policy service, which nobody can fix from PostHog.
     if "opa backend" in lowered or "access control" in lowered:
         return TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR
-    if "access denied" in lowered or "permission denied" in lowered or "not authorized" in lowered:
+    if (
+        "access denied" in lowered
+        or "permission denied" in lowered
+        or "not authorized" in lowered
+        or "name=permission_denied" in lowered
+    ):
         return TRINO_ACCESS_DENIED_ERROR
     if "catalog" in lowered and ("not found" in lowered or "does not exist" in lowered):
         return TRINO_CATALOG_NOT_FOUND_ERROR
@@ -367,8 +394,26 @@ def discover_trino_schemas(
     return discover_trino_catalog(cursor, catalog=config.catalog, schema=config.schema, names=names)
 
 
+def _execute_with_tenant_admission_retry(cursor: Cursor, query: str, parameters: list[object]) -> None:
+    from trino.exceptions import HttpError  # noqa: PLC0415 — keeps the optional driver off startup paths
+
+    for attempt in range(1, _TENANT_ADMISSION_RETRY_ATTEMPTS + 1):
+        try:
+            cursor.execute(query, parameters)
+            return
+        except HttpError as exc:
+            if attempt == _TENANT_ADMISSION_RETRY_ATTEMPTS or TRINO_TENANT_NOT_ADMITTED_ERROR not in str(exc).lower():
+                raise
+            interruptible_wait(_TENANT_ADMISSION_RETRY_BACKOFF_SECONDS * attempt)
+
+
 def discover_trino_catalog(
-    cursor: Cursor, *, catalog: str, schema: str | None = None, names: list[str] | None = None
+    cursor: Cursor,
+    *,
+    catalog: str,
+    schema: str | None = None,
+    names: list[str] | None = None,
+    include_columns: bool = True,
 ) -> list[DiscoveredTrinoTable]:
     escaped_catalog = catalog.replace(chr(34), chr(34) * 2)
     table_query = (
@@ -381,7 +426,7 @@ def discover_trino_catalog(
         table_query += " AND table_schema = ?"
         parameters.append(schema)
     table_query += " ORDER BY table_schema, table_name"
-    cursor.execute(table_query, parameters)
+    _execute_with_tenant_admission_retry(cursor, table_query, parameters)
 
     requested = set(names) if names is not None else None
     table_names_by_schema: dict[str, list[str]] = {}
@@ -395,6 +440,10 @@ def discover_trino_catalog(
 
     tables: dict[tuple[str, str], list[TrinoColumn]] = {}
     for schema_name, table_names in table_names_by_schema.items():
+        for table_name in table_names:
+            tables[(schema_name, table_name)] = []
+        if not include_columns:
+            continue
         for table_name_batch in batched(table_names, TRINO_COLUMN_DISCOVERY_TABLE_BATCH_SIZE, strict=False):
             placeholders = ", ".join("?" for _ in table_name_batch)
             column_query = (
@@ -403,7 +452,7 @@ def discover_trino_catalog(
                 f"WHERE table_schema = ? AND table_name IN ({placeholders}) "
                 "ORDER BY table_schema, table_name, ordinal_position"
             )
-            cursor.execute(column_query, [schema_name, *table_name_batch])
+            _execute_with_tenant_admission_retry(cursor, column_query, [schema_name, *table_name_batch])
             for row_schema, table_name, column_name, data_type, is_nullable in cursor.fetchall():
                 tables.setdefault((str(row_schema), str(table_name)), []).append(
                     TrinoColumn(
@@ -684,7 +733,12 @@ class TrinoImplementation(SQLSourceImplementation[TrinoSourceConfig, Any, Any], 
     @contextmanager
     def connect(self, config: TrinoSourceConfig, *, team_id: int | None = None) -> Iterator[Any]:
         if team_id is not None:
-            is_valid, error = self.is_database_host_valid(config.host, team_id)
+            # The managed-warehouse exemption is keyed on the source type and the port, so the
+            # connect path asks for it the same way validation does. Without both, a managed
+            # Trino source validates and then refuses every sync.
+            is_valid, error = self.is_database_host_valid(
+                config.host, team_id, port=config.port, source_type=MANAGED_WAREHOUSE_TRINO_SOURCE_TYPE
+            )
             if not is_valid:
                 raise ValueError(error or "Invalid Trino host.")
         # A UTC session makes any time zone conversion Trino still does in a filter deterministic.

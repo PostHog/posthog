@@ -138,24 +138,66 @@ Use `print_clusters.py` from [scripts/](./scripts/) to get a readable summary.
 
 ### Step 3 — Compute metrics for clusters
 
-For trace-level clusters, compute cost/latency/token metrics:
+For trace-level clusters, compute cost/latency/token metrics.
+The latency rule is the same as in `query-llm-trace` and `query-llm-traces-list`, so the numbers match the trace view:
 
 ```sql
 posthog:execute-sql
 SELECT
-    properties.$ai_trace_id as trace_id,
-    sum(toFloat(properties.$ai_total_cost_usd)) as total_cost,
-    max(toFloat(properties.$ai_latency)) as latency,
-    sum(toInt(properties.$ai_input_tokens)) as input_tokens,
-    sum(toInt(properties.$ai_output_tokens)) as output_tokens,
-    countIf(properties.$ai_is_error = 'true') as error_count
+    properties.$ai_trace_id AS trace_id,
+    round(sumIf(toFloat(properties.$ai_total_cost_usd),
+                event IN ('$ai_generation', '$ai_embedding')), 10) AS total_cost,
+    round(
+        coalesce(
+            -- The root $ai_trace event reports the wall-clock latency of the whole trace.
+            nullIf(maxIf(toFloat(properties.$ai_latency),
+                         event = '$ai_trace' AND toFloat(properties.$ai_latency) > 0), 0),
+            CASE
+                WHEN countIf(toFloat(properties.$ai_latency) > 0 AND event != '$ai_generation') = 0
+                     AND countIf(toFloat(properties.$ai_latency) > 0 AND event = '$ai_generation') > 0
+                THEN sumIf(toFloat(properties.$ai_latency),
+                           event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0)
+                ELSE sumIf(toFloat(properties.$ai_latency),
+                           properties.$ai_parent_id IS NULL
+                           OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id))
+            END
+        ), 2
+    ) AS latency,
+    countIf(event = '$ai_trace' AND toFloat(properties.$ai_latency) > 0) > 0 AS has_root_latency,
+    sumIf(toInt(properties.$ai_input_tokens),
+          event IN ('$ai_generation', '$ai_embedding')) AS input_tokens,
+    sumIf(toInt(properties.$ai_output_tokens),
+          event IN ('$ai_generation', '$ai_embedding')) AS output_tokens,
+    countIf(isNotNull(properties.$ai_error) OR properties.$ai_is_error = 'true') AS error_count
 FROM events
-WHERE event IN ('$ai_generation', '$ai_embedding', '$ai_span')
+WHERE event IN ('$ai_trace', '$ai_generation', '$ai_embedding', '$ai_span')
     AND timestamp >= parseDateTimeBestEffort('<window_start>')
     AND timestamp <= parseDateTimeBestEffort('<window_end>')
     AND properties.$ai_trace_id IN ('<trace_id_1>', '<trace_id_2>', ...)
 GROUP BY trace_id
 ```
+
+How `latency` is resolved, in order:
+
+1. A positive `$ai_latency` on the root `$ai_trace` event. This is the measured wall-clock duration of the trace.
+2. If no root latency exists and only generations carry latency, the sum of the generation latencies.
+3. Otherwise, the sum of the latencies on the trace's direct children (events with no `$ai_parent_id`, or a parent equal to the trace ID).
+
+Steps 2 and 3 are approximations.
+They overstate the duration when children ran in parallel, and they count a nested event that has no `$ai_parent_id` as a direct child.
+Use `has_root_latency` to tell measured durations from approximations, and mention approximations when you compare clusters.
+
+Do not use `max($ai_latency)` across child events as the trace latency.
+It returns the longest single step, not the trace duration.
+For example, a trace runs three root-level spans one after another: 12 s, 9 s, and 6 s, with some time between them.
+Its `$ai_trace` event reports 30 s.
+`max` returns 12 s and the recipe above returns 30 s.
+Cluster averages built from `max` understate latency and can put the clusters in the wrong order.
+
+Cost and tokens only sum `$ai_generation` and `$ai_embedding` events, the same as the trace view.
+The query reads `$ai_trace` and `$ai_span` events for latency only, so their properties cannot count the same spend twice.
+The trace window bounds can cut off the root `$ai_trace` event, because it is usually the last event of the trace.
+If `has_root_latency` is false for traces that should have one, widen `<window_end>` a little.
 
 For generation-level clusters, match by event UUID:
 
@@ -232,7 +274,7 @@ ORDER BY trace_id, timestamp
 ```
 
 `posthog.ai_events` has a shorter retention window than `events`; older clusters may still have metadata and metrics but no message content.
-For more detail, use the exploring LLM traces skill's [event reference](../exploring-llm-traces/references/events-and-properties.md).
+For the full `$ai_*` event schema, load the `exploring-llm-traces` skill.
 
 ## Investigation patterns
 
@@ -264,6 +306,7 @@ For more detail, use the exploring LLM traces skill's [event reference](../explo
 2. Calculate error rate per cluster: `items_with_errors / total_items`
 3. Focus on clusters with high error rates
 4. Drill into errored traces to find root causes
+5. If a cluster shows a failure that keeps recurring, offer to catch it with an online evaluation scoped to that cluster (`creating-online-evaluations`)
 
 ### "How do clusters compare across runs?"
 

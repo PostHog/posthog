@@ -80,11 +80,14 @@ export type IntegrationConnectSurface =
     | 'warehouse_source_reconnect'
     | 'onboarding_wizard'
     | 'inbox_welcome'
+    | 'inbox_report'
+    | 'inbox_triage'
     | 'signals_agent_setup'
     | 'task_composer'
     | 'visual_review_settings'
     | 'install_approved_banner'
     | 'unavailable_banner_reconnect'
+    | 'webhook_banner_reconnect'
 
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,

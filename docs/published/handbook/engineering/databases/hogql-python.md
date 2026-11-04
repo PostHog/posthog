@@ -53,6 +53,19 @@ This accounting is not a limit on Python process memory.
 The `range()` builtin checks its result size against the remaining VM allowance before allocating the list.
 Queries that exceed these limits fail during expansion; reduce the number or size of the placeholder expressions to stay within them.
 
+Saved views allow at most 100 nested views and 1,000 expansions per compilation, including repeated references to the same view.
+Their cumulative expanded SQL source is limited to 4 MiB (UTF-8), charged before each parse; this is not a Python memory limit.
+Circular dependencies fail with a query error. Soft saves skip column inference but still validate view dependencies.
+Query preparation shares a 60-second cooperative deadline across parsing, resolution, transformations, and printing.
+AST visitors check the deadline while walking; native parser calls are checked when they return, rather than interrupted mid-call.
+
+## Disabling projection optimization
+
+Set `HOGQL_PROJECTION_OPTIMIZATION_ENABLED` to `false` in Django admin's instance settings to disable unused-column pruning and exported event-property narrowing for every project.
+The setting defaults to `true` and overrides the `optimizeProjections` query modifier when disabled.
+Workers pick up the change within about a minute; it affects newly compiled queries, not running queries or cached results.
+Disabling these optimizations can increase query time and memory use. Set the instance setting back to `true` to restore the normal per-query behavior.
+
 ## Pattern matching during query preparation
 
 Expressions inside HogQL placeholders execute in the Python HogVM.
@@ -105,6 +118,20 @@ query_result.columns == ['event', 'timestamp']  # might be useful if you select 
 
 You can mix and match `parse_expr` and `ast` nodes as you please. The example above _still_ took a shortcut for the where clause because it was easier to write.
 
+Pass compiled ClickHouse SQL and `HogQLContext.values` together to the database client. The printer reserves `%(name)s` placeholders for values and rejects percent signs in identifiers. Do not apply brace formatting to compiled SQL: braces are valid identifier characters and must remain literal after authorization.
+
+For trusted SQL templates passed to the Temporal `ClickHouseClient`, distinguish the layer that consumes each placeholder:
+
+| Purpose              | Plain Python string | Python f-string source | Consumed by                                             |
+| -------------------- | ------------------- | ---------------------- | ------------------------------------------------------- |
+| Client-bound value   | `%(name)s`          | `%(name)s`             | `prepare_query`, after SQL value escaping               |
+| Server-bound value   | `{name:Type}`       | `{{name:Type}}`        | ClickHouse, using the HTTP `param_name` parameter       |
+| S3 partition marker  | `{_partition_id}`   | `{{_partition_id}}`    | ClickHouse                                              |
+| Empty JSON object    | `'{}'`              | `'{{}}'`               | Neither; SQL string data                                |
+| Literal percent sign | `%%`                | `%%`                   | `prepare_query`, when the parameter mapping is nonempty |
+
+An f-string consumes one brace-escaping layer in its source. It does not reinterpret braces inside an interpolated string. `string.Template` substitutes `$name` and leaves braces unchanged. If a trusted template uses `.format()`, that call also needs its own brace escaping. Count these construction steps separately from database binding; do not halve braces across a query indiscriminately.
+
 ## Snowflake date formatting
 
 For direct Snowflake queries, `formatDateTime` requires a literal format string and translates supported strftime specifiers into Snowflake format elements.
@@ -112,6 +139,12 @@ The printer binds the translated format as a query parameter, preserving literal
 Pass the printed SQL and `HogQLContext.values` together to the database driver.
 
 ## Database schema and features
+
+Built-in tables also accept the `posthog` namespace, such as `SELECT id FROM posthog.persons` and `SELECT count() FROM posthog.groups`.
+Explicit aliases work with these names, for example `SELECT p.id FROM posthog.persons AS p`.
+
+Trusted internal ASTs can set `JoinExpr.table_schema` to bind a table without adding it to the public catalog.
+User SQL still resolves tables through the catalog. Never bind table names taken from user expressions.
 
 The HogQL database schema is in flux. You will soon be able to explore it in the [PostHog app itself](https://github.com/PostHog/posthog/pull/14591).
 
@@ -162,10 +195,26 @@ In practice, you should avoid both and access `person.properties.$browser`, whic
 
 On the native JSON events table, HogQL compares non-empty string constants directly with declared String paths and casts Dynamic paths to Nullable(String) for properties with String or unknown definition types.
 This keeps equality and membership predicates visible to the JSON skip index without failing on mixed scalar types.
-Numeric, Boolean and DateTime property definitions keep their conversions when compared with strings, for both event and person properties.
+Numeric and Boolean properties on the native table compare as text when a string literal cannot be converted to the property's definition type.
+Boolean literals keep ClickHouse's case-insensitive spellings, including yes/no, on/off and enable/disable.
+DateTime property definitions keep their conversions when compared with strings, for both event and person properties.
 Boolean conversion reads the native path directly because object and array text cannot match `true` or `false`; numeric conversions already read native paths directly.
 Constants starting with `[` or `{` keep the full property read because arrays and objects serialize differently from scalars.
 Single-property reads serialize sub-objects with ClickHouse's JSON formatter; whole-document reads still remove declared defaults.
+A JSON function on the native `properties` column needs JSON text, and rebuilding the whole document as text from every path is the slowest way to get it.
+A call with a constant first key, such as `JSONLength(properties, 'details')`, serializes only that key's value and runs the function on it. This includes calls through `toString(properties)` and keys stored among the temporary properties.
+String, floating-point and Boolean extraction skip the serialization as well: they read the native value and apply the function's conversion and missing-value rules, independently of property-definition types. A stored floating-point value keeps the parser for string extraction, because JSON number formatting decides the result. It reads as false for Boolean extraction and as `Double` for `JSONType`, because the serialized form of an integral value is an integer token.
+Integer extraction keeps ClickHouse's JSON parser on the serialized value, because its coercion rules cost more SQL than the parse saves.
+`JSONHas`, a key computed per row and a call with no key still rebuild the whole document.
+Grouping keys and expressions evaluated after grouping use the general property reader so conversions reference the same expression as GROUP BY.
+This includes window inputs, HAVING, ORDER BY and LIMIT BY; ordinary aggregate inputs and row-level predicates retain direct-path optimizations.
+When a join constraint needs a lazy join of the joined events table, HogQL wraps that table in a subquery and the outer query reads the subquery's columns.
+The subquery exports the columns, lazy-join fields and property keys the outer query reads, found by their resolved table binding rather than by alias text.
+A property key is exported as its stored value and the outer read keeps its own conversion, so a Numeric definition and an explicit string parser read the same export.
+A key that a JSON function parses, as in `JSONExtractRaw(t.properties, 'key')`, is exported as its JSON text instead, so an object or an array is not quoted a second time.
+A user-written `toJSONString(t.properties.key)` exports the JSON text for a key without a property definition and the stored value for a key with one, so the definition's conversion applies before the serialization as in a direct read.
+In the clauses of a grouped query that run after grouping, the select list, `GROUP BY`, `HAVING` and `ORDER BY`, every key is exported as its stored value, because a direct read there serializes the value too, and a `GROUP BY` key then shares its column with the serialized read of the same key.
+The whole `properties` document is exported only where the outer query reads it whole, and each wrapped table decides this on its own.
 Raw SQL property readers preserve backslashes before forward slashes whether ClickHouse's `output_format_json_escape_forward_slashes` setting is enabled or disabled.
 Native queries disable forward-slash escaping so object and array text retains `/`.
 

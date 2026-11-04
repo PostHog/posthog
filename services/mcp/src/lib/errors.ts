@@ -3,7 +3,6 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { Schemas } from '@/api/generated'
 import { getPostHogClient } from '@/lib/posthog'
 import { getToolRecoveryHint } from '@/lib/tool-error-hints'
-import { sanitizeHeaderValue } from '@/lib/utils'
 
 export enum ErrorCode {
     INVALID_API_KEY = 'INVALID_API_KEY',
@@ -205,6 +204,7 @@ export type ExecCommandErrorReason =
     | 'deprecated_tool'
     | 'gated_tool'
     | 'missing_scope'
+    | 'tool_not_granted'
     | 'invalid_json'
     | 'usage'
     | 'invalid_regex'
@@ -381,6 +381,7 @@ export function parseRetryAfterSeconds(header: string | null): number | null {
 export interface PostHogPermissionErrorOptions {
     detail: string
     missingScope?: string | undefined
+    challengeScopes?: string[] | undefined
     url: string
     method: string
 }
@@ -393,6 +394,8 @@ export interface PostHogPermissionErrorOptions {
 export class PostHogPermissionError extends Error {
     public readonly detail: string
     public readonly missingScope: string | undefined
+    /** From the API's `insufficient_scope` challenge, which it sends only for a step-up token. */
+    public readonly challengeScopes: string[] | undefined
     public readonly url: string
     public readonly method: string
 
@@ -404,8 +407,16 @@ export class PostHogPermissionError extends Error {
         this.name = 'PostHogPermissionError'
         this.detail = options.detail
         this.missingScope = options.missingScope
+        this.challengeScopes = options.challengeScopes
         this.url = options.url
         this.method = options.method
+    }
+
+    get requiredScopes(): string[] | undefined {
+        if (this.challengeScopes?.length) {
+            return this.challengeScopes
+        }
+        return this.missingScope ? [this.missingScope] : undefined
     }
 }
 
@@ -456,25 +467,6 @@ export function formatPermissionErrorMessage(error: PostHogPermissionError): str
         '',
         `The request to ${callTarget} was rejected with HTTP 403. Verify that your API key, OAuth token, and user account have access to this project.`,
     ].join('\n')
-}
-
-/**
- * RFC 6750 §3.1: OAuth 2.0 Bearer challenge for 403 insufficient_scope. When
- * a missing scope is known, advertise it so OAuth-aware clients can prompt
- * for re-consent with the correct scope instead of reporting a generic error.
- */
-export function buildInsufficientScopeChallenge(error: PostHogPermissionError): string {
-    const parts = ['Bearer error="insufficient_scope"']
-    const scope = sanitizeHeaderValue(error.missingScope)
-    if (scope) {
-        parts.push(`scope="${scope}"`)
-    }
-    // Replace double quotes to keep the challenge syntactically valid.
-    const description = sanitizeHeaderValue(error.detail)?.replace(/"/g, "'")
-    if (description) {
-        parts.push(`error_description="${description}"`)
-    }
-    return parts.join(', ')
 }
 
 // Literal message shape produced by `new PostHogPermissionError({...})`. We

@@ -56,6 +56,7 @@ export interface SignalFindingContent {
 }
 
 export interface DismissalContent {
+    state?: 'resolved' | 'suppressed' | 'potential' | null
     reason?: string
     note?: string
 }
@@ -159,7 +160,13 @@ export interface CheckExpiredContent extends CheckLifecycleContent {
 }
 
 export interface CheckCancelledContent extends CheckLifecycleContent {
-    reason?: 'stopped_by_person' | 'stopped_by_scout' | 'replaced_by_research' | 'replaced_by_request' | 'no_check_lane'
+    reason?:
+        | 'stopped_by_person'
+        | 'stopped_by_scout'
+        | 'replaced_by_research'
+        | 'replaced_by_request'
+        | 'no_check_lane'
+        | 'monitoring_completed'
 }
 
 export interface TitleChangeContent {
@@ -351,7 +358,7 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     signal_finding: 'Signal investigated',
     suggested_reviewers: 'Reviewers suggested',
     repo_selection: 'Repo selected',
-    dismissal: 'Report dismissed',
+    dismissal: 'Report feedback added',
     video_segment: 'Video segment',
     title_change: 'Title edited',
     summary_change: 'Summary edited',
@@ -413,9 +420,6 @@ export function artefactAttributionLabel(artefact: SignalReportArtefact): string
 
 /** A task↔report association's derived purpose. `other` covers custom-agent runs. */
 export type ReportTaskPurpose = 'research' | 'implementation' | 'other'
-
-/** Sort order for linked-task rows: implementation first, then research, then everything else. */
-export const PURPOSE_ORDER: ReportTaskPurpose[] = ['implementation', 'research', 'other']
 
 export interface DerivedPurpose {
     purpose: ReportTaskPurpose

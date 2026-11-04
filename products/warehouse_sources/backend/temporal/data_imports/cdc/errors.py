@@ -25,6 +25,7 @@ MAX_FRIENDLY_MESSAGE_LENGTH = 500
 class CDCErrorCategory(enum.StrEnum):
     AUTH_FAILED = "auth_failed"
     SSL_REQUIRED = "ssl_required"
+    CERTIFICATE_REJECTED = "certificate_rejected"
     CONNECTION_FAILED = "connection_failed"
     HOST_UNREACHABLE = "host_unreachable"
     QUOTA_EXCEEDED = "quota_exceeded"
@@ -38,6 +39,8 @@ class CDCErrorCategory(enum.StrEnum):
     WAL_DECODE_ERROR = "wal_decode_error"
     TRANSACTION_TOO_LARGE = "transaction_too_large"
     RESERVED_COLUMN_CONFLICT = "reserved_column_conflict"
+    MASKED_KEY_CONFLICT = "masked_key_conflict"
+    MASKING_KEY_UNAVAILABLE = "masking_key_unavailable"
     UNKNOWN = "unknown"
 
 
@@ -73,15 +76,34 @@ class CDCReservedColumnError(Exception):
 
     Non-retryable: the collision is a property of the customer's table, so replaying re-fails.
 
-    For the engine position column it is raised when capture writes the buffer — buffer files
-    derive their name, ordering, and retry cleanup from it, and a same-named source column means
-    the batcher could not append it. Writing anyway would order and clean up by customer data,
-    which can silently delete unconsumed buffer files.
+    Names are compared the way the load writes them, after snake_case normalization, so
+    `_PH_CDC_SEQ` collides with `_ph_cdc_seq`. Capture raises it before it writes the buffer: buffer
+    files derive their name, ordering, and retry cleanup from the engine position, and ordering or
+    cleaning up by customer data can silently delete unconsumed buffer files.
 
-    For the history table's validity columns it is raised on every path, from the SCD2 stamp
-    itself: Delta refuses the duplicate name at write time anyway, and failing before the writer
-    names the column instead of a qualified field in a schema error.
+    The SCD2 stamp raises it too, because Delta refuses the duplicate name at write time anyway, and
+    failing before the writer names the column instead of a qualified field in a schema error.
     """
+
+
+class CDCMaskingKeyError(Exception):
+    """A table masks columns, but the instance has no secret key to hash them with.
+
+    Non-retryable: the key is deployment configuration, so replaying re-fails until it is set.
+    """
+
+
+class CDCMaskedKeyError(Exception):
+    """A table masks a column that capture resolved as its primary key.
+
+    Non-retryable: the conflict is in the table's configuration, so replaying re-fails. Capture
+    cannot hash a merge key, and it must not write the masked column to the buffer in plaintext.
+    """
+
+    def __init__(self, table_name: str, columns: list[str]) -> None:
+        super().__init__(f"Table {table_name} masks its primary-key columns {columns}")
+        self.table_name = table_name
+        self.columns = columns
 
 
 # (friendly_message, retryable) per category. Messages are STATIC templates — they never
@@ -95,6 +117,12 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
     CDCErrorCategory.SSL_REQUIRED: (
         "Could not establish a required encrypted (SSL) connection to the source database. Check "
         "that the database accepts SSL connections, then re-enable change data capture.",
+        False,
+    ),
+    CDCErrorCategory.CERTIFICATE_REJECTED: (
+        "The TLS certificate check failed. Either the source database's certificate did not pass "
+        "verification, or the database rejected the client certificate. Check the TLS settings of the "
+        "source, then re-enable change data capture.",
         False,
     ),
     CDCErrorCategory.CONNECTION_FAILED: (
@@ -167,8 +195,20 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         False,
     ),
     CDCErrorCategory.RESERVED_COLUMN_CONFLICT: (
-        "A source table has a column named _ph_cdc_seq, which PostHog uses for change data capture. "
-        "Rename the column on your database, or choose another sync method for that table.",
+        "A source table has a column that loads under a name PostHog writes for change data capture, "
+        "such as _ph_cdc_seq or _ph_valid_from, or valid_from on an older history table that ends in _cdc. "
+        "Rename the column on your database, leave it out of the synced columns, or choose another sync "
+        "method for that table.",
+        False,
+    ),
+    CDCErrorCategory.MASKED_KEY_CONFLICT: (
+        "A table masks a column that is its primary key, and a primary key can't be masked. "
+        "Remove the column from the table's masked columns, then re-enable change data capture.",
+        False,
+    ),
+    CDCErrorCategory.MASKING_KEY_UNAVAILABLE: (
+        "A table masks columns, but this PostHog instance has no secret key to hash them with. "
+        "Set WAREHOUSE_COLUMN_MASKING_KEY to a secret value, then re-enable change data capture.",
         False,
     ),
     CDCErrorCategory.UNKNOWN: (
@@ -209,6 +249,18 @@ def classify_cdc_error(exc: BaseException, adapter: CDCSourceAdapter | None) -> 
             return cdc_error_info(CDCErrorCategory.TRANSACTION_TOO_LARGE)
         if isinstance(err, CDCReservedColumnError):
             return cdc_error_info(CDCErrorCategory.RESERVED_COLUMN_CONFLICT)
+        if isinstance(err, CDCMaskingKeyError):
+            return cdc_error_info(CDCErrorCategory.MASKING_KEY_UNAVAILABLE)
+        if isinstance(err, CDCMaskedKeyError):
+            # Every table on the source shows this error, so it names the one to fix. Names are not secrets.
+            return dataclasses.replace(
+                cdc_error_info(CDCErrorCategory.MASKED_KEY_CONFLICT),
+                friendly_message=(
+                    f"Table {err.table_name} masks its primary-key columns {', '.join(err.columns)}, and a primary "
+                    "key can't be masked. Remove them from the table's masked columns, then re-enable change "
+                    "data capture."
+                ),
+            )
         if adapter is not None:
             info = adapter.classify_error(err)
             if info is not None:

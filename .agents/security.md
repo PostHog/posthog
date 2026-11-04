@@ -10,8 +10,8 @@ Most security fixes do not justify that cost.
 Before you create a branch or PR, choose the route:
 
 - **The weakness exists only in an open, unmerged public PR:** fix it in that same PR before merge, including its tests. Do not open a private PR for it.
-- **Severe vulnerability that needs an embargo:** use `PostHog/posthog-private` on a `security/` branch only when team-security agrees an embargo is necessary. Severe means an attacker can exploit live code today, without special access, to do serious harm. Examples are cross-tenant data access, authentication bypass, remote code execution, or exposure of credentials or secrets. Keep the finding, reproduction, and vulnerable paths in private channels until disclosure is approved.
-- **Every other security fix:** open a normal PR in `PostHog/posthog`. This includes hardening, defense in depth, input validation, consistency fixes between code paths, access checks with low impact, issues that need privileged or same-team access, and missing rate limits.
+- **Severe vulnerability that needs an embargo:** use `PostHog/posthog-private` on a `security/` branch only when team-security agrees an embargo is necessary. Severe means an attacker can exploit PostHog Cloud remotely today, without special access, to do serious harm. Examples are cross-tenant data access, authentication bypass, remote code execution on our infrastructure, or exposure of credentials or secrets. The severity label does not necessarily decide the route: a high finding that does not meet this bar can go public. Keep the finding, reproduction, and vulnerable paths in private channels until disclosure is approved.
+- **Every other security fix:** open a normal PR in `PostHog/posthog`. This includes hardening, defense in depth, input validation, consistency fixes between code paths, access checks with low impact, issues that need privileged or same-team access, issues in local tools such as a CLI or SDK that need a non-default setup like a custom host, and missing rate limits.
 
 A public security fix is a normal fix with a neutral description.
 Describe what the change does, not how to exploit the old behavior.
@@ -192,6 +192,28 @@ semgrep --test .semgrep/rules/security/
 docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/rules/security/
 ```
 
+## Outbound requests and SSRF
+
+PostHog Cloud sends production egress through a Smokescreen proxy. On a code path that goes
+through the proxy, treat raw SSRF, such as a request to an internal IP or to cloud metadata, as
+mitigated. A code path that bypasses the proxy, and a self-hosted deployment, do not have this
+control. A request that probes or trusts an attacker-controlled server is always in scope. The
+SSRF rule in `.agents/skills/security-audit/SKILL.md` says which control is load-bearing.
+
+## Deployment config
+
+PostHog/charts holds the deployment config for PostHog Cloud. A review of PostHog/posthog-private
+gets a read-only copy of it at `$CONTEXT_DIR/related/PostHog/charts`; a review of this public
+repository does not. When the copy is there, start with these paths:
+
+- `argocd/posthog-django/` and `apps/posthog-*-django/`: the Django web, worker, query and report
+  deployments.
+- `shared/posthog-django/`: values that every Django deployment shares.
+- `shared/cdp/`, `shared/ingestion/` and `argocd/ingestion/`: the Node CDP and ingestion services.
+- `argocd/contour-ingress/values/`: public routing.
+- `shared/smokescreen/`, `apps/smokescreen/` and `shared/infrastructure/`: the egress proxy and its
+  URL.
+
 ## Out-of-band interaction domains
 
 `posthog/security/crosslang/oob_domains.json` lists the services that capture out-of-band
@@ -205,8 +227,21 @@ adapter emits `security.oob_domain_seen` and takes its team from the activity's 
 `posthog/security/url_validation.py` emits the same event with no team at all, because no team is
 in scope there, so those lines are attributable to a host and not to a project.
 
-The check runs on cloud only, and it runs before each guard's own DNS resolution, because the
-lookup alone confirms the path to whoever runs the collaborator.
+In Node, `validateHostnameIPLiteral` (`nodejs/src/common/utils/request.ts`) and `EmailValidationService.getSkipReason` emit `security.oob_domain_seen` too, under the guard `node_request` or `node_email_validation`.
+Both read the hand-written mirror in `nodejs/src/common/utils/oob-domains.ts`, which a parity test holds against the JSON.
+Both log `team_id`, the field the Python guards bind.
+The email guard always has a team.
+The request guard has one only when the fetch runs under `fetchAttribution`, as a CDP destination fetch and a recording export's stylesheet fetch do, and logs `team_id: null` for any other caller.
+`noteOobDomain` logs one line per host, team and guard every 15 minutes, because a retrying destination would otherwise log per attempt.
+
+The Rust guards call `common_dns::oob_domains::note_oob_domain` and emit `security.oob_domain_seen` under three guard names.
+They read the hand-written mirror in `rust/common/dns/src/oob_domains.rs`, which a parity test holds against the JSON.
+`note_oob_domain` takes the team as an `Option`, logs one line per host, team and guard every 15 minutes, and omits the `team_id` field rather than printing an empty one.
+`cymbal_sourcemap` names the team on the source and sourcemap fetches, and omits it on a redirect hop, because one HTTP client serves every team.
+`batch_import_s3_endpoint` always names the team, which the job model carries.
+`common_dns_resolver` never names one: it fires inside the shared reqwest and Smithy resolvers, which no caller passes a team to.
+
+Every check runs on cloud only, and each runs before its guard's own DNS resolution, because the lookup alone confirms the path to whoever runs the collaborator.
 
 It stops the default scanner configuration. It does not stop a determined attacker, who points a
 CNAME at the collaborator or runs their own server. The IP checks and the address pinning remain

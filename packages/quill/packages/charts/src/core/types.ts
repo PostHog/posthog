@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 
 import type { LegendItem } from '../components/Legend/Legend'
 import type { LegendItemControls } from '../components/Legend/useChartLegend'
+import type { DefaultTooltipProps } from '../overlays/DefaultTooltip'
 
 /** Visual theme colours consumed by chart rendering. */
 export interface ChartTheme {
@@ -62,8 +63,9 @@ export interface Series<Meta = unknown> {
     /** Bar charts only: per-bar ceiling (in value-axis units) of the bar's interactive extent. The
      *  region beyond the ceiling is a blank, fully inert gap — no hover, tooltip, highlight, or
      *  click (`onPointClick` passes through). On grouped charts with `bars.track`, the hatched
-     *  "share of a whole" track also fills only up to `trackData[i]` instead of the whole axis; on
-     *  stacked charts no track is drawn — the ceiling only bounds interactivity. Used by funnel
+     *  "share of a whole" track also fills only up to `trackData[i]` instead of the whole axis. With
+     *  `bars.track: 'solid'`, the band's track stops at its largest ceiling. On stacked charts
+     *  without a solid track, the ceiling only bounds interactivity. Used by funnel
      *  compare to show a shorter period's volume gap as empty space rather than drop-off. Omit (or
      *  leave an entry undefined) for the default full-axis extent. */
     trackData?: number[]
@@ -79,13 +81,17 @@ export interface Series<Meta = unknown> {
      *  Defaults to `unknown` so the library is meta-agnostic internally; adapters narrow it
      *  via `Series<MyMeta>` to get typed reads in their tooltip/click handlers. */
     meta?: Meta
-    /** Point markers configuration. Omit for no dots. */
+    /** Point markers configuration. Omit to dot only the points with no line through them. A radius of 0 hides every dot. */
     points?: {
         /** Radius in CSS pixels. */
         radius: number
     }
     /** Line stroke configuration. */
     stroke?: {
+        /** Line width in CSS pixels. Defaults to 2. `0` draws no line, for an area fill or points
+         *  without a stroke. Lines have round caps, which close a dash gap narrower than the width,
+         *  so a wide line with a custom `pattern` needs wider gaps. */
+        width?: number
         /** Canvas line dash pattern, e.g. [10, 10] for evenly dashed. Omit for solid. */
         pattern?: number[]
         /** A range of indices that should be drawn with a different (typically dashed) pattern. */
@@ -98,7 +104,8 @@ export interface Series<Meta = unknown> {
              *  beyond it — everything before stays solid. Lets a two-point line dash just its second
              *  half without a phantom interior point. Takes precedence over `fromIndex`/`toIndex`. */
             fromFraction?: number
-            /** Dash pattern for the partial range. Defaults to [10, 10]. */
+            /** Dash pattern for the partial range. Defaults to 10px dashes with an 8px visible gap,
+             *  `[10, 10]` at the default width. */
             pattern?: number[]
         }
     }
@@ -250,11 +257,13 @@ export interface ChartConfig {
     yScaleType?: 'linear' | 'log'
     // — Axis formatting —
 
-    /** Custom x-axis tick label formatter. Return null to skip a tick. Called with (label, index). */
+    /** Custom x-axis tick label formatter. Return null to skip a tick. Called with (label, index).
+     *  On a horizontal bar chart it formats the category labels on the left axis. */
     xTickFormatter?: (value: string, index: number) => string | null
     /** Fixed x-axis tick-label rotation in degrees, clamped to -90..90. Defaults to 0. */
     xTickLabelRotation?: number
-    /** Custom y-axis tick label formatter. Overrides the built-in auto-precision formatter. */
+    /** Custom y-axis tick label formatter. Overrides the built-in auto-precision formatter.
+     *  On a horizontal bar chart it formats the value axis along the bottom. */
     yTickFormatter?: (value: number) => string
     /** Hide the x-axis labels and reduce bottom margin. */
     hideXAxis?: boolean
@@ -276,7 +285,8 @@ export interface ChartConfig {
     /** Line/area interpolation. `linear` (default) draws straight segments; `monotone` smooths the
      *  line with monotone-cubic curves that pass through every point without overshooting. */
     curve?: 'linear' | 'monotone'
-    /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement. */
+    /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement on the base
+     *  `Chart`. Charts that apply `DEFAULT_CHART_CONFIG` use `cursor` placement. */
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
@@ -288,8 +298,7 @@ export interface ChartConfig {
     /** Fade-in the hover overlay when the hovered point changes. `true` = ~150ms. */
     animateHover?: boolean | number
     /** Per-side overrides applied on top of the computed chart margins. Useful for sparklines
-     *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`).
-     *  Should be referentially stable — pass a module-level constant rather than an inline object. */
+     *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`). */
     margins?: Partial<ChartMargins>
     /** Max pixel width for category (band) tick labels before they're truncated with an ellipsis,
      *  with the full value revealed on hover. Also clamps the axis margin to this width so a long
@@ -374,7 +383,7 @@ export interface ChartLegendConfig {
     renderItem?: (defaultNode: ReactNode, item: LegendItem, controls: LegendItemControls) => ReactNode
 }
 
-export interface TooltipConfig {
+export interface TooltipConfig extends Pick<DefaultTooltipProps, 'labelRenderer' | 'showHeader' | 'hideZeroRows'> {
     /** Show a tooltip on hover. Defaults to true. */
     enabled?: boolean
     /** When true, clicking a data point with multiple series pins the tooltip in place. */
@@ -441,7 +450,8 @@ export interface BarsConfig {
      *  highlights the track region on hover; pass `{ hover: false }` to draw the track
      *  but leave it inert (no highlight when the cursor is over the empty remainder).
      *  `'solid'` draws one neutral track per band instead, in `theme.gridColor`, behind every bar
-     *  in the band. It works on every layout, ignores `trackData`, and has no hover highlight. */
+     *  in the band. It works on every layout, stops at the largest `trackData` ceiling in the band,
+     *  and has no hover highlight. */
     track?: boolean | 'solid' | { hover?: boolean }
     /** Drop shadow under each bar so it reads as layered over a `track`. */
     shadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
@@ -509,8 +519,17 @@ export interface BarChartConfig extends ChartConfig {
     legend?: ChartLegendConfig
 }
 
+export interface TimeScale {
+    parse: (label: string) => number
+    domain: readonly [number, number]
+}
+
 export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
+    /** Place each label at its time instead of evenly by index. Labels must be ascending. Memoize it. */
+    timeScale?: TimeScale
+    /** Draw lines and areas across missing (non-finite) values instead of breaking them. */
+    connectNulls?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
     /** Float the value axis to its data range instead of clamping the baseline to 0 (a y-axis "start
@@ -539,6 +558,13 @@ export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
     /** Value-axis domain control for the primary axis — omit for data-derived auto-scaling. Used
      *  to keep off-scale goal lines on-plot (`{ include }`). See {@link ValueDomain}. */
     valueDomain?: ValueDomain
+    /** Primary-axis `min` / `max`, honored only while that axis carries no bar series: a bar encodes
+     *  magnitude as length from zero, so a raised floor would misread it. Use `valueDomain` to rescale
+     *  an axis with bars. `valueDomain` wins a bound both set. */
+    valueBounds?: Pick<ValueDomain, 'min' | 'max'>
+    /** Float the primary axis to its data range instead of clamping the baseline to 0. Ignored while
+     *  the axis carries bar series, and on a log scale. Defaults to false. */
+    floatBaseline?: boolean
 }
 
 /** Arguments passed to a chart type's canvas draw function. */

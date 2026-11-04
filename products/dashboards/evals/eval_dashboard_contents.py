@@ -6,8 +6,9 @@ from posthog.utils import generate_short_id
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.evals.offline_config import offline_suite
 from products.dashboards.evals.scorers import SavedDashboardContents
-from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.product_analytics.backend.facade.api import get_or_create_saved_insight
@@ -66,8 +67,13 @@ def seed_existing_dashboard(context: CustomPromptSandboxContext) -> dict[str, An
 
 
 async def eval_dashboard_contents(ctx: EvalContext) -> None:
-    await SandboxedPrivateEval(
+    await SandboxedEval(
         experiment_name="sandboxed-dashboards-saved-contents-cli",
+        offline_suite=offline_suite(
+            "dashboards/eval_dashboard_contents::eval_dashboard_contents",
+            metrics=["saved_dashboard_contents"],
+        ),
+        send_to_posthog=True,
         cases=[
             SandboxedEvalCase(
                 name="create_from_saved_insights",

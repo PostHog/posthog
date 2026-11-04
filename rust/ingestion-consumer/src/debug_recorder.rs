@@ -78,6 +78,13 @@ pub fn partition_offsets(messages: &[SerializedKafkaMessage]) -> Vec<PartitionOf
     spans
 }
 
+#[derive(Clone, Serialize)]
+pub struct CommitOffset {
+    pub topic: String,
+    pub partition: i32,
+    pub offset: i64,
+}
+
 /// The distinct event kinds recorded across the consumer's lifecycle. Serialized
 /// with an internal `type` tag so the UI can switch on it.
 #[derive(Clone, Serialize)]
@@ -127,13 +134,14 @@ pub enum DebugEventKind {
         cause: &'static str,
         messages: usize,
     },
-    /// A batch's offsets were committed to Kafka.
-    BatchCommitted {
+    PollCompleted {
         batch_id: String,
         accepted: u32,
         duration_ms: u64,
         partitions: Vec<PartitionOffset>,
     },
+    /// An async offset commit was handed to the Kafka client.
+    CommitSubmitted { offsets: Vec<CommitOffset> },
     /// Batch processing failed; the process will exit and restart.
     BatchFailed {
         batch_id: Option<String>,
@@ -193,6 +201,18 @@ pub struct BatcherLoad {
     pub waiting_keys: usize,
     /// Keys with a request in flight.
     pub claimed_keys: usize,
+    pub governor: GovernorLoad,
+}
+
+#[derive(Serialize)]
+pub struct GovernorLoad {
+    pub adaptation: &'static str,
+    pub permits: usize,
+    pub ceiling: usize,
+    pub free_permits: usize,
+    pub starved_messages: usize,
+    /// The round-trip average; `None` before the first sample.
+    pub rtt_seconds: Option<f64>,
 }
 
 /// The consumer's routing configuration and, under aperture, its current

@@ -21,6 +21,18 @@ describe('ArtefactLogList', () => {
     })
 
     it.each([
+        ['resolved', 'already_fixed', 'Report resolved', 'Already fixed'],
+        ['resolved', 'no_action_needed', 'Report resolved', 'No action needed'],
+        ['suppressed', 'already_fixed', 'Report dismissed', 'Already fixed'],
+        ['potential', 'other', 'Report snoozed', 'Something else…'],
+        [undefined, 'already_fixed', 'Report feedback added', 'Already fixed'],
+    ])('labels feedback by its recorded verdict %s and reason %s', (state, reason, title, reasonLabel) => {
+        render(<ArtefactLogList reportId="report-1" artefacts={[makeArtefact({ state, reason }, 'dismissal')]} />)
+        expect(screen.getByText(title)).toBeInTheDocument()
+        expect(screen.getByText(reasonLabel)).toBeInTheDocument()
+    })
+
+    it.each([
         ['a replacement recommendation', true, undefined, 'Replacement recommended'],
         ['a kept PR', false, undefined, 'Still the right fix'],
         ['a capped request', false, 'revision_limit', 'Replacement limit reached'],
@@ -295,7 +307,7 @@ describe('ArtefactLogList', () => {
 
         expect(screen.getByText('Ranking scored')).toBeInTheDocument()
         expect(screen.getByText('Open')).toBeInTheDocument()
-        expect(screen.getByText('Engage')).toBeInTheDocument()
+        expect(screen.getByText('Action')).toBeInTheDocument()
         expect(screen.getByText('Fix')).toBeInTheDocument()
         // The scores keep their display order. The other heads sort highest lift first, and stored lifts win over the metadata threshold.
         expect(screen.getAllByText(/^[\d.]+x$/).map((node) => node.textContent)).toEqual([

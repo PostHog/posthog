@@ -1,6 +1,7 @@
 import os
 import time
 import uuid
+from collections.abc import Iterable
 from typing import Any, Optional, cast
 
 from django.conf import settings
@@ -31,7 +32,7 @@ from posthog.auth import (
 )
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
-from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
+from posthog.exceptions import Conflict, EnterpriseFeatureException, InsufficientScope, PaidFeatureException
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
@@ -753,6 +754,24 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     return None
 
 
+def legacy_scope_object_used(request: Request, required_scope: str) -> str | None:
+    """The legacy scope object that satisfied `required_scope` through LEGACY_SCOPE_FALLBACKS, or
+    None when the request's token holds `required_scope` itself."""
+    held = get_authenticator_scopes(getattr(request, "successful_authenticator", None)) or []
+    covered = scopes_covered_by_legacy_fallback(held, scopes_not_covered(held, [required_scope]))
+    legacy_scope = covered.get(required_scope)
+    return legacy_scope.split(":", 1)[0] if legacy_scope else None
+
+
+def scopes_caller_lacks(request: Request | None, scopes: Iterable[str]) -> list[str]:
+    """The given scopes that the request's token does not cover, sorted. Empty for session auth and
+    `*` keys, which carry the user's full authority."""
+    caller_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if caller_scopes is None or "*" in caller_scopes:
+        return []
+    return sorted(scopes_not_covered(caller_scopes, scopes))
+
+
 CLIENT_ID_POSTHOG = "posthog"
 
 
@@ -835,12 +854,14 @@ def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
 LEGACY_SCOPE_FALLBACK_EVENT_INTERVAL_SECONDS = 60 * 60
 
 
-def _capture_legacy_scope_fallback(request: Request, view: APIView, required_scope: str, legacy_scope: str) -> None:
+def _capture_legacy_scope_fallback(
+    request: Request, view: APIView | None, required_scope: str, legacy_scope: str
+) -> None:
     """Record that a legacy scope satisfied a required scope. The events show which credentials and
     OAuth apps still depend on the legacy scope, so the entry in LEGACY_SCOPE_FALLBACKS can go."""
     client = get_authenticator_client(request.successful_authenticator)
     distinct_id = str(getattr(request.user, "distinct_id", None) or client["client_id"])
-    view_name = type(view).__name__
+    view_name = type(view).__name__ if view is not None else "unknown"
     # At most one event per caller, client, scope and view each interval, because this runs on every request.
     throttle_key = f"legacy_scope_fallback:{distinct_id}:{client['client_id']}:{required_scope}:{view_name}"
     if not cache.add(throttle_key, True, timeout=LEGACY_SCOPE_FALLBACK_EVENT_INTERVAL_SECONDS):
@@ -856,6 +877,21 @@ def _capture_legacy_scope_fallback(request: Request, view: APIView, required_sco
             "view": view_name,
         },
     )
+
+
+def scopes_missing_after_legacy_fallback(
+    request: Request, view: APIView | None, held_scopes: list[str], required_scopes: list[str]
+) -> list[str]:
+    """The required scopes that the held scopes do not cover, after LEGACY_SCOPE_FALLBACKS. When none
+    are missing, records each fallback use, so a hand-written scope check feeds the same migration
+    telemetry as APIScopePermission."""
+    missing_scopes = scopes_not_covered(held_scopes, required_scopes)
+    legacy_covered = scopes_covered_by_legacy_fallback(held_scopes, missing_scopes)
+    missing_scopes = [scope for scope in missing_scopes if scope not in legacy_covered]
+    if not missing_scopes:
+        for required_scope, legacy_scope in legacy_covered.items():
+            _capture_legacy_scope_fallback(request, view, required_scope, legacy_scope)
+    return missing_scopes
 
 
 class APIScopePermission(ScopeBasePermission):
@@ -921,6 +957,11 @@ class APIScopePermission(ScopeBasePermission):
         else:
             self.check_team_and_org_permissions(request, view)
 
+        if isinstance(authenticator, OAuthAccessTokenAuthentication) and not self._sandbox_tool_policy_allows(
+            request, view, authenticator.access_token, required_scopes
+        ):
+            return False
+
         # `*` is the "Full access to all scopes" consent option; INTERNAL viewsets
         # are programmatic-only and must not be reachable via user-consented tokens.
         # Also fall through when *any* required_scope on this action targets an
@@ -934,17 +975,41 @@ class APIScopePermission(ScopeBasePermission):
         if "*" in key_scopes and scope_object != "INTERNAL" and not action_targets_internal:
             return True
 
-        missing_scopes = scopes_not_covered(key_scopes, required_scopes)
-        legacy_covered = scopes_covered_by_legacy_fallback(key_scopes, missing_scopes)
-        missing_scopes = [scope for scope in missing_scopes if scope not in legacy_covered]
+        missing_scopes = scopes_missing_after_legacy_fallback(request, view, key_scopes, required_scopes)
         if missing_scopes:
-            self.message = f"API key missing required scope '{missing_scopes[0]}'"
-            return False
-
-        for required_scope, legacy_scope in legacy_covered.items():
-            _capture_legacy_scope_fallback(request, view, required_scope, legacy_scope)
+            raise InsufficientScope(required_scopes, detail=f"API key missing required scope '{missing_scopes[0]}'")
 
         return True
+
+    def _sandbox_tool_policy_allows(
+        self, request, view, access_token: OAuthAccessToken, required_scopes: list[str]
+    ) -> bool:
+        """A sandbox run narrowed to a tool list may only change state through the tools it holds.
+
+        Scopes alone cannot say this: `ticket:write` covers a private note and a reply to the
+        customer alike. The run is read from the token's server-written task binding.
+        """
+        if access_token.sandbox_task_id is None:
+            return True
+        # Deferred to break a cycle: the policy reads the tasks facade, which imports this module.
+        from products.signals.backend.facade.tool_policy import (  # noqa: PLC0415
+            TOOL_NOT_GRANTED_CODE,
+            scout_tool_denial,
+        )
+
+        denial = scout_tool_denial(
+            sandbox_task_id=access_token.sandbox_task_id,
+            view=view,
+            method=request.method,
+            path=request.path_info,
+            required_scopes=required_scopes,
+            data=request.data,
+        )
+        if denial is None:
+            return True
+        self.message = denial
+        self.code = TOOL_NOT_GRANTED_CODE
+        return False
 
     def _check_project_secret_api_key_team(self, request, view) -> None:
         psak = request.successful_authenticator.project_secret_api_key

@@ -136,6 +136,7 @@ function toWorkflowRun(run: WorkflowRunDetailApi): WorkflowRun {
         conclusion: run.conclusion,
         startedAt: run.run_started_at,
         finishedAt: run.status === 'completed' ? run.updated_at : null,
+        updatedAt: run.updated_at,
         durationSeconds: run.duration_seconds,
         runId: run.id,
         ciEngine: run.ci_engine,

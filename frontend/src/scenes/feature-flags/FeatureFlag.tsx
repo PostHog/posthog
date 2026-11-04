@@ -81,6 +81,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { deletedCohortDisabledReason, restoreChecksCohorts } from 'products/feature_flags/frontend/deletedCohortFilters'
 import {
     ARCHIVE_UNAVAILABLE_DISABLED_REASON,
     RESTORE_UNAVAILABLE_DISABLED_REASON,
@@ -89,6 +90,8 @@ import {
     featureFlagConfigFormatLabel,
     isRulesV2EditableConfig,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { FeatureFlagDeletedBanner } from 'products/feature_flags/frontend/FeatureFlagDeletedBanner'
+import { FeatureFlagDeletedCohortBanner } from 'products/feature_flags/frontend/FeatureFlagDeletedCohortBanner'
 import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -159,11 +162,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         dependentFlags,
         configFormat,
         editorKind,
+        deletedCohortFilters,
         broadcastCohortLoading,
     } = useValues(featureFlagLogic)
     const isV1Config = configFormat === 'v1'
     const canRestore = canRestoreFeatureFlag(featureFlag.filters)
     const restoreUnavailable = !!featureFlag.deleted && !canRestore
+    const deletedCohortReason = deletedCohortDisabledReason(deletedCohortFilters)
+    const restoreBlockedReason = restoreChecksCohorts(featureFlag) ? deletedCohortReason : undefined
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
         deleteFeatureFlag,
@@ -392,14 +398,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                 content: <ExperimentsTab featureFlag={featureFlag} />,
             },
             {
-                label: (
-                    <div className="flex flex-row">
-                        <div>Testing</div>
-                        <LemonTag className="ml-2 float-right uppercase" type="primary">
-                            New
-                        </LemonTag>
-                    </div>
-                ),
+                label: 'Testing',
                 key: FeatureFlagsTab.TESTING,
                 content: <FeatureFlagTestingTab featureFlag={featureFlag} />,
             },
@@ -511,6 +510,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             [ARCHIVE_UNAVAILABLE_DISABLED_REASON]: !canArchiveFeatureFlag(
                                                 featureFlag.filters
                                             ),
+                                            ...(featureFlag.archived && deletedCohortReason
+                                                ? { [deletedCohortReason]: true }
+                                                : {}),
                                             'Updating…': featureFlagActiveUpdateLoading,
                                         }}
                                     >
@@ -546,6 +548,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
                                                 !featureFlag.can_edit,
                                             [RESTORE_UNAVAILABLE_DISABLED_REASON]: restoreUnavailable,
+                                            ...(restoreBlockedReason ? { [restoreBlockedReason]: true } : {}),
                                             'Restoring…': featureFlagRestoreLoading,
                                         }}
                                     >
@@ -562,28 +565,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         <PendingChangeRequestBanner resourceType="feature_flag" resourceId={featureFlag.id} />
                     )}
 
-                    {featureFlag.deleted && (
-                        <LemonBanner
-                            type="error"
-                            action={
-                                featureFlag.can_edit && canRestore
-                                    ? {
-                                          children: 'Restore',
-                                          onClick: () => restoreFeatureFlag(featureFlag),
-                                          loading: featureFlagRestoreLoading,
-                                          'data-attr': 'restore-feature-flag-banner',
-                                      }
-                                    : undefined
-                            }
-                        >
-                            This feature flag is deleted. It's hidden from the flag list and can't be evaluated.{' '}
-                            {!canRestore
-                                ? RESTORE_UNAVAILABLE_DISABLED_REASON
-                                : featureFlag.can_edit
-                                  ? 'Restore it to use it again.'
-                                  : 'Ask someone with edit access to restore it.'}
-                        </LemonBanner>
-                    )}
+                    <FeatureFlagDeletedBanner
+                        flag={featureFlag}
+                        onRestore={() => restoreFeatureFlag(featureFlag)}
+                        restoreLoading={featureFlagRestoreLoading}
+                    />
                     {featureFlag.archived && (
                         <LemonBanner
                             type="warning"
@@ -592,7 +578,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     ? {
                                           children: 'Unarchive',
                                           onClick: () => updateFeatureFlagArchived({ archived: false }),
-                                          disabledReason: featureFlagActiveUpdateLoading ? 'Updating…' : undefined,
+                                          disabledReason: featureFlagActiveUpdateLoading
+                                              ? 'Updating…'
+                                              : deletedCohortReason,
                                       }
                                     : undefined
                             }
@@ -601,6 +589,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             experiments and surveys keep their data.
                         </LemonBanner>
                     )}
+                    {isV1Config && <FeatureFlagDeletedCohortBanner />}
                     {isV1Config && <FeatureFlagStaleBanner />}
                     {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
                         <LemonBanner type="info">
@@ -673,12 +662,13 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     disabled={
                                                         !!disabledReason ||
                                                         featureFlagRestoreLoading ||
-                                                        restoreUnavailable
+                                                        restoreUnavailable ||
+                                                        !!restoreBlockedReason
                                                     }
                                                     tooltip={
                                                         restoreUnavailable
                                                             ? RESTORE_UNAVAILABLE_DISABLED_REASON
-                                                            : undefined
+                                                            : restoreBlockedReason
                                                     }
                                                     data-attr={
                                                         featureFlag.deleted

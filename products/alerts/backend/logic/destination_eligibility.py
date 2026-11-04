@@ -8,9 +8,9 @@ HogFunction API writes on the first change it records. A template's stock text c
 so comparing with what the code builds today would read an old, unedited function as edited.
 
 The first snapshot is the stock content only when the function was created with stock inputs. The
-logs alert API creates every logs destination that way. The HogFunction editor that insight alerts
-use lets a person change the message before the first save. So for insight the first inputs are also
-compared with every default an insight alert path has shipped.
+HogFunction editor and API let a person write their own message before the first save, for insight
+and logs destinations alike. So the first inputs are also compared with every default that the alert
+paths of the source have shipped.
 """
 
 from __future__ import annotations
@@ -63,9 +63,20 @@ _INPUT_HOLD_BACKS: Final[dict[str, dict[str, DestinationHoldBack]]] = {
 # Every value an insight alert path has shipped as a default, by template and input key. Built from
 # git history: the insight alert sub-template, the template defaults, the alert wizard, the backend
 # Slack blocks, the agent recipes and the chart-block backfill. Add the default of any new path here.
-STOCK_INPUT_VALUES: Final[dict[str, dict[str, list[Any]]]] = json.loads(
-    (Path(__file__).parent / "destination_stock_inputs.json").read_text()
-)
+StockInputValues = dict[str, dict[str, list[Any]]]
+
+
+def _load_stock_input_values(file_name: str) -> StockInputValues:
+    return json.loads((Path(__file__).parent / file_name).read_text())
+
+
+STOCK_INPUT_VALUES: Final = _load_stock_input_values("destination_stock_inputs.json")
+# Every value a logs alert path has written as a default, by template and input key: what the logs
+# alert API builds, and the retired Slack messages that functions built in April 2026 still hold. When
+# a logs message changes, add the new value and keep the old one, because functions built with it still exist.
+LOGS_STOCK_INPUT_VALUES: Final = _load_stock_input_values("logs_destination_stock_inputs.json")
+# Matches the logs events that `GENERIC_API_EDITABLE_ALERT_EVENT_SCOPES` in cdp names.
+_LOGS_ALERT_EVENT_PREFIX: Final = "$logs_alert_"
 _NOT_SENT_INPUTS: Final = frozenset({"debug"})
 
 _DERIVED_FILTER_KEYS: Final = ("bytecode", "bytecode_error", "bytecode_contract", "transpiled")
@@ -146,8 +157,7 @@ def _classify(
 ) -> tuple[DestinationEligibility, ...]:
     if not functions:
         return ()
-    # Insight destinations are built in an editor, so the first revision can already hold an edit.
-    stock = STOCK_INPUT_VALUES if not set(allowed_event_ids).isdisjoint(INSIGHT_ALERT_EVENT_IDS) else {}
+    source_stock = _source_stock_input_values(allowed_event_ids)
     first_revisions: dict[UUID, HogFunctionRevision] = {
         revision.hog_function_id: revision
         for revision in HogFunctionRevision.objects.for_team(team_id)
@@ -160,11 +170,39 @@ def _classify(
         DestinationEligibility(
             hog_function_id=function.id,
             template_id=function.template_id,
-            hold_backs=_hold_backs(function, first_revisions.get(function.id), stock.get(function.template_id or "")),
+            hold_backs=_hold_backs(
+                function, first_revisions.get(function.id), _template_stock(source_stock, function.template_id)
+            ),
             code_hash=hashlib.md5((function.hog or "").encode(), usedforsecurity=False).hexdigest(),
+            event_ids=_filter_event_ids(function.filters),
         )
         for function in functions
     )
+
+
+def _source_stock_input_values(allowed_event_ids: Collection[str]) -> StockInputValues | None:
+    # The first revision of an insight or logs destination can already hold an edit.
+    if not set(allowed_event_ids).isdisjoint(INSIGHT_ALERT_EVENT_IDS):
+        return STOCK_INPUT_VALUES
+    if any(event_id.startswith(_LOGS_ALERT_EVENT_PREFIX) for event_id in allowed_event_ids):
+        return LOGS_STOCK_INPUT_VALUES
+    return None
+
+
+def _template_stock(source_stock: StockInputValues | None, template_id: str | None) -> dict[str, list[Any]] | None:
+    if source_stock is None:
+        return None
+    # A template missing from the list was never a default of the source, so every message it holds is an edit.
+    return source_stock.get(template_id or "", {})
+
+
+def unrevised_hold_backs(
+    template_id: str, inputs: dict[str, Any], allowed_event_ids: Collection[str]
+) -> tuple[DestinationHoldBack, ...]:
+    stock = _template_stock(_source_stock_input_values(allowed_event_ids), template_id)
+    if stock is None:
+        return ()
+    return tuple(dict.fromkeys(_stock_hold_backs(template_id, inputs, stock)))
 
 
 def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
@@ -195,6 +233,13 @@ def unbound_alert_destinations(
         .values_list("id", "filters")
     )
     return tuple(function_id for function_id, filters in candidates if not _bound_to_one_alert(filters))
+
+
+def _filter_event_ids(filters: Any) -> frozenset[str]:
+    events = filters.get("events") if isinstance(filters, dict) else None
+    return frozenset(
+        event["id"] for event in events or () if isinstance(event, dict) and isinstance(event.get("id"), str)
+    )
 
 
 def _named_alert_ids(filters: Any) -> set[str]:
@@ -265,19 +310,23 @@ def _hold_backs(
             found.append(DestinationHoldBack.CUSTOM_INPUTS)
         if _without_derived(function.filters) != _without_derived(first_snapshot.get("filters")):
             found.append(DestinationHoldBack.FILTERS)
-        found.extend(_input_hold_backs(template_id, function.inputs or {}, first_snapshot.get("inputs") or {}))
+        found.extend(
+            _input_hold_backs(template_id, function.inputs or {}, first_snapshot.get("inputs") or {}, stock or {})
+        )
     # Ordered and unique, so a report reads the same for the same function.
     return tuple(dict.fromkeys(found))
 
 
 def _input_hold_backs(
-    template_id: str, inputs: dict[str, Any], first_inputs: dict[str, Any]
+    template_id: str, inputs: dict[str, Any], first_inputs: dict[str, Any], stock: dict[str, list[Any]]
 ) -> list[DestinationHoldBack]:
     found: list[DestinationHoldBack] = []
     for key in _compared_keys(template_id, set(inputs) | set(first_inputs)):
         value, first_value = input_value(inputs, key), input_value(first_inputs, key)
         same_mode = _is_webhook_headers(template_id, key) or _templating(inputs, key) == _templating(first_inputs, key)
-        if value == first_value and same_mode:
+        # A move from one shipped default to another, such as a bulk update to a newer stock
+        # message, is not an edit a person made.
+        if (value == first_value and same_mode) or _is_stock_value(inputs, key, stock):
             continue
         found.extend(_key_hold_backs(template_id, key, value))
     return found
@@ -290,10 +339,17 @@ def _stock_hold_backs(
     for key in _compared_keys(template_id, set(inputs)):
         value = input_value(inputs, key)
         # The templates skip an empty input, so it sends what a missing one sends.
-        if value in (None, "") or (value in stock.get(key, ()) and _templating(inputs, key) == "hog"):
+        if value in (None, "") or _is_stock_value(inputs, key, stock):
             continue
         found.extend(_key_hold_backs(template_id, key, value))
+    # Without a body the webhook template sends none, but native delivery always sends one.
+    if template_id == WebhookDestination.template_id and input_value(inputs, "body") in (None, ""):
+        found.append(DestinationHoldBack.WEBHOOK_BODY)
     return found
+
+
+def _is_stock_value(inputs: dict[str, Any], key: str, stock: dict[str, list[Any]]) -> bool:
+    return input_value(inputs, key) in stock.get(key, ()) and _templating(inputs, key) == "hog"
 
 
 def _compared_keys(template_id: str, keys: set[str]) -> list[str]:

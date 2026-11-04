@@ -59,7 +59,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     invalid_batch: 'Rejected a batch with invalid metadata',
     missing_event_uuid: 'Rejected a batch containing an event with no UUID',
     invalid_event_uuid: 'Rejected a batch containing an event with an invalid UUID',
-    duplicate_event_uuid: 'Rejected a batch containing duplicate event UUIDs',
+    duplicate_event_uuid: "Discarded events that reused another event's UUID in the same request",
     high_volume_distinct_id: 'Skipped person profile processing for a high-volume distinct ID',
     // Emitted by the capture service for its AI endpoints
     invalid_ai_event: 'Discarded an AI event with an unsupported event name or no $ai_model',

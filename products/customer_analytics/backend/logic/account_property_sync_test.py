@@ -1,6 +1,6 @@
 import io
 import hashlib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractContextManager, ExitStack
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
@@ -32,6 +32,7 @@ from products.customer_analytics.backend.logic.account_property_sync import (
     AccountPropertySyncPhase,
     AccountPropertySyncSegment,
     AppliedSourceValues,
+    SourceSyncCheckpoint,
     _iter_parquet_row_batches,
     _list_snapshot_files,
     _mark_completed_and_maybe_cleanup,
@@ -61,8 +62,15 @@ if TYPE_CHECKING:
 
 _MODULE = "products.customer_analytics.backend.logic.account_property_sync"
 DataWarehouseSavedQuery = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
-_ACCOUNT_IDS = {"acct-1": UUID("00000000-0000-4000-8000-0000000000a1")}
+_ACCOUNT_IDS = {
+    "acct-1": UUID("00000000-0000-4000-8000-0000000000a1"),
+    "acct-2": UUID("00000000-0000-4000-8000-0000000000a2"),
+}
 _EMPTY_COUNTS = {"rows_read": 0, "changed": 0, "matched": 0, "written": 0, "source_errors": 0, "source_count": 0}
+
+
+class _WorkerStopped(Exception):
+    pass
 
 
 @frozen
@@ -178,6 +186,8 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
         *,
         segment: AccountPropertySyncSegment = AccountPropertySyncSegment.TRACKED,
         final_attempt: bool = False,
+        resume_from: SourceSyncCheckpoint | None = None,
+        save_checkpoint: Callable[[SourceSyncCheckpoint], None] | None = None,
     ) -> dict[str, int]:
         with self._fanout_boundaries(fake):
             return async_to_sync(run_account_property_source_sync)(
@@ -187,6 +197,8 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
                 segment=segment,
                 source_id=source_id,
                 final_attempt=final_attempt,
+                resume_from=resume_from,
+                save_checkpoint=save_checkpoint,
             )
 
     def _complete_segment(
@@ -260,6 +272,59 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
         assert retry_counts == _EMPTY_COUNTS
         assert self._run_states(view.plan_source)["tracked"] == _COMPLETED_ONE_ROW
         assert self._snapshot(fake, view.binding, view.plan_source) == {"acct-1": _value_hash("enterprise")}
+
+    @parameterized.expand(
+        [
+            ("same_mapping", "plan", {"acct-1": "enterprise", "acct-2": "starter"}),
+            ("mapping_changed", "tier", {"acct-1": "gold", "acct-2": "silver"}),
+        ]
+    )
+    def test_cancelled_source_sync_resumes_after_its_last_checkpoint(
+        self, _case: str, resumed_column: str, expected_values: dict[str, str]
+    ) -> None:
+        fake = _FakeS3()
+        view = self._create_view_with_two_sources(fake)
+        self._stage_rows(
+            fake,
+            view.binding,
+            [
+                {"external_id": "acct-1", "plan": "enterprise", "tier": "gold"},
+                {"external_id": "acct-2", "plan": "starter", "tier": "silver"},
+            ],
+        )
+        checkpoints: list[SourceSyncCheckpoint] = []
+
+        def cancel_after_first_checkpoint(checkpoint: SourceSyncCheckpoint) -> None:
+            checkpoints.append(checkpoint)
+            raise _WorkerStopped
+
+        with (
+            patch(f"{_MODULE}._PARQUET_BATCH_SIZE", 1),
+            patch(f"{_MODULE}._CHECKPOINT_INTERVAL_SECONDS", 0.0),
+        ):
+            with pytest.raises(_WorkerStopped):
+                self._run_source(
+                    fake, view.binding, str(view.plan_source.id), save_checkpoint=cancel_after_first_checkpoint
+                )
+            view.plan_source.source_column = resumed_column
+            view.plan_source.save(update_fields=["source_column"])
+            heartbeat_details = [checkpoints[0].to_heartbeat_details(), {"host": "worker-1", "ts": 1.0}]
+            counts = self._run_source(
+                fake,
+                view.binding,
+                str(view.plan_source.id),
+                resume_from=SourceSyncCheckpoint.from_heartbeat_details(heartbeat_details),
+            )
+
+        assert checkpoints[0].next_batch == 1
+        assert counts == {**_EMPTY_COUNTS, "rows_read": 2, "changed": 2, "matched": 2, "written": 2, "source_count": 1}
+        assert self._run_states(view.plan_source)["tracked"] == _RunState(
+            status="completed", phase="completed", rows_read=2, produced=2
+        )
+        assert self._snapshot(fake, view.binding, view.plan_source) == {
+            external_id: _value_hash(value) for external_id, value in expected_values.items()
+        }
+        assert [key for key in fake.store if "-checkpoint-" in key] == []
 
     @parameterized.expand(
         [
@@ -625,6 +690,31 @@ def test_source_values_preserve_explicit_nulls_but_skip_missing_columns(rows, ex
     assert _source_values(rows, "external_id", "plan") == expected
 
 
+_CHECKPOINT_DETAILS = {
+    "next_batch": 3,
+    "rows_read": 3,
+    "changed": 1,
+    "matched": 1,
+    "written": 1,
+    "failed": False,
+    "key_column": "external_id",
+    "source_column": "plan",
+}
+
+
+@pytest.mark.parametrize(
+    "details",
+    [
+        [],
+        [{"host": "worker-1", "ts": 1.0}],
+        [{**_CHECKPOINT_DETAILS, "next_batch": -1}],
+        [{**_CHECKPOINT_DETAILS, "failed": "no"}],
+    ],
+)
+def test_unusable_heartbeat_details_restart_the_source_sync(details: list[object]) -> None:
+    assert SourceSyncCheckpoint.from_heartbeat_details(details) is None
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("source_columns", [("value_0", "value_1"), ("value_0", None), ()])
 async def test_each_staged_batch_is_shared_across_sources(source_columns: tuple[str | None, ...]) -> None:
@@ -876,13 +966,16 @@ async def test_snapshot_files_without_timestamps_merge_before_dated_files() -> N
 
 
 @pytest.mark.asyncio
-async def test_snapshot_write_compacts_prior_files_newest_hash_winning() -> None:
+@pytest.mark.parametrize("final_hashes", [{"b": "h2", "c": "h2"}, {}])
+async def test_snapshot_write_compacts_prior_files_newest_hash_winning(final_hashes: dict[str, str]) -> None:
     fake = _FakeS3()
     await _write(fake, "job-1", {"a": "h1", "b": "h1"})
-    await _write(fake, "job-2", {"b": "h2", "c": "h2"})
+    with _fake_s3_patch(fake):
+        await aps._write_snapshot_delta(7, _SNAPSHOT_BINDING, "src", _SEGMENT, "job-2-checkpoint-1", {"b": "h2"})
+    await _write(fake, "job-2", final_hashes)
 
     assert len(fake.store) == 1
-    assert await _read(fake) == {"a": "h1", "b": "h2", "c": "h2"}
+    assert await _read(fake) == {"a": "h1", "b": "h2", **final_hashes}
 
 
 @pytest.mark.asyncio

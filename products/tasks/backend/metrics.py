@@ -57,6 +57,20 @@ TASK_RUN_CREATED_TOTAL = Counter(
     ],
 )
 
+TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL = Counter(
+    "posthog_tasks_task_run_started_beside_live_run_total",
+    "Cloud TaskRuns started while another cloud run of the same task was still live",
+    labelnames=[
+        "origin_product",
+        "run_environment",
+        "mode",
+        "run_source",
+        "task_runtime",
+        "runtime_adapter",
+        "prewarmed",
+    ],
+)
+
 TASK_RUN_WORKFLOW_START_TOTAL = Counter(
     "posthog_tasks_task_run_workflow_start_total",
     "TaskRun workflow start lifecycle events",
@@ -138,13 +152,6 @@ SCHEDULED_TASK_RUN_DUE = Gauge(
 SCHEDULED_TASK_RUN_OLDEST_DUE_AGE_SECONDS = Gauge(
     "posthog_tasks_scheduled_task_run_oldest_due_age_seconds",
     "Age of the oldest due scheduled task run",
-)
-
-AGENT_OTEL_TELEMETRY_STAMPED_TOTAL = Counter(
-    "posthog_tasks_agent_otel_telemetry_stamped_total",
-    "Agent-run OTel telemetry rollout decisions stamped into run state at dispatch "
-    "(tasks-agent-run-otel-telemetry flag). First-time stamps only; resumes reuse the stamp.",
-    labelnames=["enabled"],
 )
 
 RUN_LOG_MIRROR_ENTRIES_TOTAL = Counter(
@@ -358,6 +365,18 @@ TASK_RUN_FOLLOWUP_DELIVERY_FAILED_TOTAL = Counter(
     labelnames=["origin_product", "retryable"],
 )
 
+ACTIVE_SESSION_CAP_HITS_TOTAL = Counter(
+    "posthog_tasks_active_session_cap_hits_total",
+    "Run starts and warm claims refused because the user or organization already holds the max open cloud sandbox sessions",
+    labelnames=["origin_product", "scope"],
+)
+
+WARM_CHURN_THROTTLED_TOTAL = Counter(
+    "posthog_tasks_warm_churn_throttled_total",
+    "Warm requests refused because the user ended too many unclaimed warm sandboxes in the last hour",
+    labelnames=["origin_product"],
+)
+
 SANDBOX_DEADLINE_BUCKETS = [5.0, 15.0, 30.0, 60.0, 120.0, 180.0, 300.0, 600.0]
 
 SANDBOX_DEADLINE_TOTAL = Counter(
@@ -456,9 +475,48 @@ DESKTOP_ACCESS_DECISIONS_TOTAL = Counter(
     labelnames=["outcome"],
 )
 
+DESKTOP_ACCESS_FLAG_UNRESOLVED_TOTAL = Counter(
+    "posthog_tasks_desktop_access_flag_unresolved_total",
+    "PostHog Desktop access flag evaluations that returned no boolean value",
+    labelnames=["flag"],
+)
+
 
 def observe_compute_quota_check(outcome: ComputeQuotaOutcome) -> None:
     COMPUTE_QUOTA_CHECK_TOTAL.labels(outcome=outcome).inc()
+
+
+ComputeSettlementOutcome = Literal[
+    "settled",
+    "duplicate",
+    "settled_locally",
+    "conflict",
+    "retry",
+    "attempts_exhausted",
+    "contract_error",
+    "deployment_error",
+    "skipped",
+]
+
+COMPUTE_SETTLEMENTS_TOTAL = Counter(
+    "posthog_tasks_compute_settlements_total",
+    "Sandbox compute settlement attempts against the gateway ledger, by outcome",
+    labelnames=["outcome"],
+)
+
+HOGLAND_SANDBOX_SESSIONS_OPEN_OVER_DAY = Gauge(
+    "posthog_tasks_hogland_sandbox_sessions_open_over_day",
+    "Hogland sandbox sessions with no end stamp that opened more than a day ago",
+    multiprocess_mode="mostrecent",
+)
+
+
+def observe_compute_settlement(outcome: ComputeSettlementOutcome) -> None:
+    COMPUTE_SETTLEMENTS_TOTAL.labels(outcome=outcome).inc()
+
+
+def set_hogland_sandbox_sessions_open_over_day(count: int) -> None:
+    HOGLAND_SANDBOX_SESSIONS_OPEN_OVER_DAY.set(count)
 
 
 # scoped: "true" when the delivery's installation resolved to at least one team, so the
@@ -544,6 +602,10 @@ def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
 
 def observe_task_run_created(task_run: "TaskRun") -> None:
     TASK_RUN_CREATED_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_task_run_started_beside_live_run(task_run: "TaskRun") -> None:
+    TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL.labels(**_task_run_labels(task_run)).inc()
 
 
 def observe_sandbox_run_start(*, endpoint: str, outcome: str) -> None:
@@ -758,6 +820,14 @@ def observe_followup_delivery_failed(task_run: "TaskRun", *, retryable: bool) ->
     ).inc()
 
 
+def observe_active_session_cap_hit(origin_product: str, scope: str) -> None:
+    ACTIVE_SESSION_CAP_HITS_TOTAL.labels(origin_product=_metric_label(origin_product), scope=scope).inc()
+
+
+def observe_warm_churn_throttled(origin_product: str) -> None:
+    WARM_CHURN_THROTTLED_TOTAL.labels(origin_product=_metric_label(origin_product)).inc()
+
+
 _SANDBOX_DEADLINE_OUTCOMES = {"rotated", "snapshot_only", "snapshot_failed", "routing_lost"}
 _SANDBOX_DEADLINE_REASONS = {
     "none",
@@ -809,3 +879,7 @@ def observe_code_usage_gate_check(*, outcome: CodeUsageGateOutcome) -> None:
 
 def observe_desktop_access_decision(*, outcome: DesktopAccessOutcome) -> None:
     DESKTOP_ACCESS_DECISIONS_TOTAL.labels(outcome=outcome).inc()
+
+
+def observe_desktop_access_flag_unresolved(*, flag: str) -> None:
+    DESKTOP_ACCESS_FLAG_UNRESOLVED_TOTAL.labels(flag=flag).inc()

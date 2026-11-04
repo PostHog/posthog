@@ -18,6 +18,11 @@ from products.wizard.backend.logic.runs.mappers import record_to_workspace, work
             {"repository": "posthog/posthog"},
             GitRepositoryWorkspace(repository="posthog/posthog"),
         ),
+        (
+            WizardWorkspaceType.GIT_REPOSITORY,
+            {"repository": "posthog/posthog", "branch": "release/next"},
+            GitRepositoryWorkspace(repository="posthog/posthog", branch="release/next"),
+        ),
     ],
 )
 def test_workspace_serialization_round_trip(

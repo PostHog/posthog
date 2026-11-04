@@ -2,8 +2,13 @@
 
 Redshift speaks the Postgres wire protocol, so this builds on the Postgres writer and on batch
 exports' `RedshiftClient`, which is itself a `PostgreSQLClient`. A Redshift destination is
-backed by an `aws-redshift` integration, which is a `PostgreSQLServerIntegration` and so
-carries the cluster's host, user and password.
+backed by an `aws-redshift` integration in one of three shapes:
+
+- Username and password. The integration carries the cluster's host, user and password.
+- An IAM role, or an AWS access key pair. The integration carries only the AWS identity and the
+  database user, so the destination's `config` carries the cluster's `host` and `port`. Each
+  connection asks AWS for temporary database credentials, through the same
+  `resolve_redshift_client_inputs` batch exports connects with.
 
 Three things genuinely differ and are overridden here:
 
@@ -27,13 +32,16 @@ from contextlib import contextmanager
 from typing import Any, ClassVar, cast
 
 import pyarrow as pa
+import botocore.exceptions
 from psycopg import sql
 from psycopg.errors import InsufficientPrivilege
 
-from posthog.models.integration import Integration, RedshiftIntegration
+from posthog.integrations import IntegrationRecord
+from posthog.models.integration import IntegrationError, RedshiftIntegration, redshift_integration_from_record
 
 from products.batch_exports.backend.facade.destinations.postgres import Fields, PostgreSQLClient
-from products.batch_exports.backend.facade.destinations.redshift import RedshiftClient
+from products.batch_exports.backend.facade.destinations.redshift import RedshiftClient, resolve_redshift_client_inputs
+from products.batch_exports.backend.facade.destinations.s3 import InvalidCredentialsError
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,
@@ -54,15 +62,49 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 # reports the same overflow as `StringLimitExceededError` and never retries it.
 VARCHAR_MAX = "VARCHAR(MAX)"
 
+DEFAULT_PORT = 5439
+
 PERMISSIONS_DETAIL = (
     "The Redshift user lacks permissions. Grant the user USAGE and CREATE on the schema. "
     "Grant rights on the tables it syncs, then run the sync again."
+)
+ROLE_DETAIL = (
+    "PostHog cannot assume the role. Check the role ARN and the trust policy with the external ID, "
+    "then run the sync again."
+)
+AWS_CREDENTIALS_DETAIL = "AWS rejected the access key. Check the access key ID and secret, then run the sync again."
+AWS_PERMISSIONS_DETAIL = (
+    "AWS denied temporary database credentials. Allow redshift:GetClusterCredentials for the database user, "
+    "or redshift-serverless:GetCredentials for the workgroup, then run the sync again."
+)
+CLUSTER_NOT_FOUND_DETAIL = (
+    "AWS cannot find the Redshift cluster or workgroup. Check the host on the destination, then run the sync again."
 )
 
 
 def _configuration_error_detail(err: Exception) -> str | None:
     if isinstance(err, InsufficientPrivilege):
         return PERMISSIONS_DETAIL
+    if isinstance(err, IntegrationError):
+        # Written by us for a host or workgroup ARN that cannot work, and holds no secret.
+        return str(err)
+    if isinstance(err, InvalidCredentialsError):
+        return ROLE_DETAIL
+    if isinstance(err, botocore.exceptions.ClientError):
+        return _aws_error_detail(err)
+    return None
+
+
+def _aws_error_detail(err: botocore.exceptions.ClientError) -> str | None:
+    if err.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0) >= 500:
+        return None
+    code = err.response.get("Error", {}).get("Code")
+    if code in ("InvalidClientTokenId", "SignatureDoesNotMatch", "UnrecognizedClientException"):
+        return AWS_CREDENTIALS_DETAIL
+    if code in ("AccessDenied", "AccessDeniedException"):
+        return ROLE_DETAIL if err.operation_name == "AssumeRole" else AWS_PERMISSIONS_DETAIL
+    if code in ("ClusterNotFound", "ClusterNotFoundFault", "ResourceNotFoundException"):
+        return CLUSTER_NOT_FOUND_DETAIL
     return None
 
 
@@ -135,8 +177,18 @@ class RedshiftDestinationWriter(PostgresDestinationWriter):
         with self._configuration_errors():
             await super().abort_run(ctx)
 
-    def _client_from_integration(self, integration: Integration) -> PostgreSQLClient:
-        return RedshiftClient.from_inputs(RedshiftIntegration(integration), database=self._database)
+    async def _client_from_integration(self, integration: IntegrationRecord) -> PostgreSQLClient:
+        config = self._ctx.config or {}
+        inputs = await resolve_redshift_client_inputs(
+            redshift_integration_from_record(integration),
+            host=config.get("host") or None,
+            port=int(config.get("port") or DEFAULT_PORT),
+            database=self._database,
+            team_id=self._ctx.team_id,
+            # The same session name the S3 writer uses, so one role's CloudTrail shows one sync.
+            session_name=f"PostHog-warehouse-sync-{self._ctx.schema_id}",
+        )
+        return RedshiftClient.from_inputs(inputs, database=self._database)
 
     def _column_type(self, arrow_type: pa.DataType) -> str:
         return redshift_type_for(arrow_type)

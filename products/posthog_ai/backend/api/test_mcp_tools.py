@@ -112,6 +112,7 @@ class TestMCPToolsAPI(APIBaseTest):
                 "success": False,
                 "content": "Tool failed: MaxToolRetryableError: Invalid connectionId: no direct-query-capable data source with this id in this team, or you don't have access to it.. You may retry with adjusted inputs.",
                 "error_type": "internal",
+                "error_code": "hogql_error",
             },
         )
 
@@ -189,17 +190,19 @@ class TestMCPToolsAPI(APIBaseTest):
                 "rate_limited",
                 "Tool failed: MaxToolTransientError: We're under heavy load right now and couldn't finish this query. Please try again in a few minutes. You may retry this operation once without changes.",
             ),
-            (
+            param(
                 "cancelled",
                 CHQueryErrorQueryWasCancelled("private backend detail", code=394),
-                None,
+                "internal",
                 "The tool raised an internal error. Do not immediately retry the tool call.",
+                error_code="query_was_cancelled",
             ),
-            (
+            param(
                 "unknown",
                 RuntimeError("private backend detail"),
-                None,
+                "internal",
                 "The tool raised an internal error. Do not immediately retry the tool call.",
+                error_code="unhandled_runtime_error",
             ),
         ]
     )
@@ -209,10 +212,12 @@ class TestMCPToolsAPI(APIBaseTest):
         self,
         _name: str,
         error: Exception | None,
-        error_type: str | None,
+        error_type: str,
         content: str,
         mock_runner_cls: Mock,
         mock_capture: Mock,
+        *,
+        error_code: str | None = None,
     ) -> None:
         if error is None:
             error = OperationalError("canceling statement due to statement timeout")
@@ -226,13 +231,12 @@ class TestMCPToolsAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
-        expected = {"success": False, "content": content}
-        if error_type is not None:
-            expected["error_type"] = error_type
-        else:
+        expected = {"success": False, "content": content, "error_type": error_type}
+        if error_code is not None:
             self.assertEqual(mock_capture.call_args.args, (error,))
             error_id = mock_capture.call_args.kwargs["properties"]["error_id"]
             expected["content"] = f"{content} Error id: {error_id}"
+            expected["error_code"] = error_code
         self.assertEqual(response.json(), expected)
         mock_runner_cls.return_value.run.assert_called_once()
 
@@ -348,10 +352,11 @@ class TestMCPToolsAPI(APIBaseTest):
                 "Tool failed: MaxToolRetryableError: Unknown field: missing_column. You may retry with adjusted inputs.",
                 error_code="hogql_query_error",
             ),
-            (
+            param(
                 HogQLNotImplementedError("QueryVisitor has no method visit_select_query"),
                 "internal",
                 "Tool failed: MaxToolRetryableError: QueryVisitor has no method visit_select_query. You may retry with adjusted inputs.",
+                error_code="hogql_not_implemented",
             ),
             param(
                 CHQueryErrorIllegalTypeOfArgument("Illegal argument type", code=43),
@@ -359,10 +364,11 @@ class TestMCPToolsAPI(APIBaseTest):
                 "Tool failed: MaxToolRetryableError: Illegal argument type. You may retry with adjusted inputs.",
                 error_code="illegal_type_of_argument",
             ),
-            (
+            param(
                 CHQueryErrorCorruptedParquetMetadata("Warehouse file metadata is corrupt", code=1001),
                 "internal",
                 "Tool failed: MaxToolRetryableError: Warehouse file metadata is corrupt. You may retry with adjusted inputs.",
+                error_code="std_exception",
             ),
             param(
                 CHQueryErrorS3FileChangedDuringRead("Warehouse file changed while reading", code=499),
@@ -382,10 +388,11 @@ class TestMCPToolsAPI(APIBaseTest):
                 "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Code: 252.\nToo many parts. You may retry with adjusted inputs.",
                 error_code="too_many_parts",
             ),
-            (
+            param(
                 InternalCHQueryError("Unknown failure", code=99999, code_name="s3_error"),
                 "internal",
                 "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Code: 99999.\nUnknown failure. You may retry with adjusted inputs.",
+                error_code="unknown_exception",
             ),
             (
                 _wrapped_hogql_error(TableAccessDeniedError("restricted_table"), "Warehouse table access denied"),
@@ -401,20 +408,23 @@ class TestMCPToolsAPI(APIBaseTest):
                 "Tool failed: MaxToolRetryableError: Warehouse SQL is invalid. You may retry with adjusted inputs.",
                 error_code="hogql_query_error",
             ),
-            (
+            param(
                 _wrapped_hogql_error(ConnectionError("connection refused"), "Warehouse connection failed"),
                 "internal",
                 "Tool failed: MaxToolRetryableError: Warehouse connection failed. You may retry with adjusted inputs.",
+                error_code="unhandled_connection_error",
             ),
-            (
+            param(
                 ExposedHogQLError("Managed warehouse is not available"),
                 "internal",
                 "Tool failed: MaxToolRetryableError: Managed warehouse is not available. You may retry with adjusted inputs.",
+                error_code="hogql_error",
             ),
-            (
+            param(
                 ValueError("Invalid query result encoding"),
                 "internal",
                 "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Invalid query result encoding. You may retry with adjusted inputs.",
+                error_code="unhandled_value_error",
             ),
         ]
     )
@@ -450,14 +460,41 @@ class TestMCPToolsAPI(APIBaseTest):
                 None,
                 None,
                 None,
-                "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Query failed. You may retry with adjusted inputs.",
+                "Tool failed: MaxToolRetryableError: The query failed because of an internal error. You may retry with adjusted inputs.",
             ),
-            (
+            param(
                 "query_was_cancelled",
                 None,
                 None,
                 "query_was_cancelled",
-                "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Query failed. You may retry with adjusted inputs.",
+                "Tool failed: MaxToolRetryableError: The query failed because of an internal error. You may retry with adjusted inputs.",
+                expected_error_code="query_was_cancelled",
+            ),
+            param(
+                "trino_unsupported",
+                None,
+                "[T001] PIVOT is not supported by the Trino backend",
+                "hogql_trino_unsupported",
+                "Tool failed: MaxToolRetryableError: [T001] PIVOT is not supported by the Trino backend. You may retry with adjusted inputs.",
+                expected_error_code="hogql_trino_unsupported",
+                expected_error_type="validation",
+            ),
+            param(
+                "table_access_denied",
+                None,
+                "Access to the table is denied",
+                "table_access_denied",
+                "Tool failed: MaxToolFatalError: Access to the table is denied.",
+                expected_error_type="permission",
+            ),
+            param(
+                "hogql_query_error",
+                None,
+                "Unable to resolve field: plan",
+                "hogql_query_error",
+                "Tool failed: MaxToolRetryableError: Unable to resolve field: plan. You may retry with adjusted inputs.",
+                expected_error_code="hogql_unresolved_field",
+                expected_error_type="validation",
             ),
             param(
                 "storage_error",
@@ -488,6 +525,7 @@ class TestMCPToolsAPI(APIBaseTest):
                 "clickhouse_memory_limit_exceeded",
                 "Tool failed: MaxToolRetryableError: Query memory limit exceeded. You may retry with adjusted inputs.",
                 expected_error_type="memory_limit",
+                expected_error_code="clickhouse_memory_limit_exceeded",
             ),
             param(
                 "legacy_memory_message",
@@ -496,12 +534,13 @@ class TestMCPToolsAPI(APIBaseTest):
                 None,
                 "Tool failed: MaxToolRetryableError: Query memory limit exceeded. You may retry with adjusted inputs.",
             ),
-            (
+            param(
                 "polling_error",
                 ConnectionError("Query status unavailable"),
                 None,
                 None,
                 "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Query status unavailable. You may retry with adjusted inputs.",
+                expected_error_code="unhandled_connection_error",
             ),
         ]
     )
@@ -563,6 +602,8 @@ class TestMCPToolsAPI(APIBaseTest):
             {
                 "success": False,
                 "content": f"The tool raised an internal error. Do not immediately retry the tool call. Error id: {error_id}",
+                "error_type": "internal",
+                "error_code": "unhandled_runtime_error",
             },
         )
 

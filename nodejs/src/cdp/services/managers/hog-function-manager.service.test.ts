@@ -5,6 +5,7 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
+import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub } from '~/types'
 
 import { insertHogFunction } from '../../_tests/fixtures'
@@ -57,6 +58,7 @@ describe('HogFunctionManager', () => {
             await insertHogFunction(hub.postgres, teamId1, {
                 name: 'Test Hog Function team 1 - transformation',
                 type: 'transformation',
+                hog: 'return event',
                 inputs_schema: [],
                 inputs: {},
             })
@@ -113,6 +115,7 @@ describe('HogFunctionManager', () => {
                 },
                 "execution_order": null,
                 "filters": null,
+                "hog": null,
                 "id": "<REPLACED-UUID-0>",
                 "inputs": {
                   "input_1": {
@@ -161,12 +164,20 @@ describe('HogFunctionManager', () => {
         ])
     })
 
+    it("keeps a team's hog functions when a fractional id of that team shares the load", async () => {
+        const result = await manager.getHogFunctionsForTeams([teamId1, teamId1 + 0.5], ['destination'])
+
+        expect(result[teamId1].map((fn) => fn.id)).toEqual([hogFunctions[0].id])
+        expect(result[teamId1 + 0.5]).toEqual([])
+    })
+
     describe('filters hog functions by type', () => {
         it('for just transformations', async () => {
             expect((await manager.getHogFunctionsForTeam(teamId1, ['transformation'])).length).toEqual(1)
             expect((await manager.getHogFunctionsForTeam(teamId1, ['transformation']))[0].type).toEqual(
                 'transformation'
             )
+            expect((await manager.getHogFunctionsForTeam(teamId1, ['transformation']))[0].hog).toEqual('return event')
         })
 
         it('for just destinations', async () => {
@@ -206,6 +217,20 @@ describe('HogFunctionManager', () => {
 
             expect(result[nonExistentTeamId]).toEqual([])
         })
+
+        it.each(INVALID_TEAM_ID_KEYS)(
+            'returns no ids for invalid team id %p without failing the valid team in the same load',
+            async (key) => {
+                const invalidTeamId = key as unknown as number
+                const result = await manager.getHogFunctionIdsForTeams(
+                    [teamId1, invalidTeamId],
+                    ['destination', 'transformation']
+                )
+
+                expect(result[teamId1]).toHaveLength(2)
+                expect(result[invalidTeamId]).toEqual([])
+            }
+        )
 
         it('filters by specific type correctly', async () => {
             const result = await manager.getHogFunctionIdsForTeams([teamId1], ['transformation'])

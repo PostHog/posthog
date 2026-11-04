@@ -53,15 +53,10 @@ from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
+from posthog.models.workload_trust_policy import WorkloadTrustPolicy
 from posthog.session.activity import session_activity_credential
 from posthog.session.models import Session
 from posthog.utils import get_ip_address, get_short_user_agent
-
-from products.experiments.backend.models.experiment import (
-    ExperimentHoldout,
-    ExperimentSavedMetric,
-    ExperimentToSavedMetric,
-)
 
 logger = structlog.get_logger(__name__)
 
@@ -420,75 +415,6 @@ def handle_identity_provider_config_change(
     )
 
 
-@mutable_receiver(model_activity_signal, sender=ExperimentSavedMetric)
-def handle_experiment_saved_metric_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
-        activity=activity,
-        detail=Detail(
-            # need to use ExperimentSavedMetric here for field exclusions..
-            changes=changes_between("ExperimentSavedMetric", previous=before_update, current=after_update),
-            name=after_update.name,
-            type="shared_metric",
-        ),
-    )
-
-
-@receiver(pre_delete, sender=ExperimentSavedMetric)
-def handle_experiment_saved_metric_delete(sender, instance, **kwargs):
-    log_activity(
-        organization_id=instance.team.organization_id,
-        team_id=instance.team_id,
-        user=activity_storage.get_user() or getattr(instance, "last_modified_by", instance.created_by),
-        was_impersonated=activity_storage.get_was_impersonated(),
-        item_id=instance.id,
-        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
-        activity="deleted",
-        detail=Detail(name=instance.name, type="shared_metric"),
-    )
-
-
-@mutable_receiver(model_activity_signal, sender=ExperimentHoldout)
-def handle_experiment_holdout_change(
-    sender, scope, before_update, after_update, activity, user=None, was_impersonated=False, **kwargs
-):
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=user or after_update.created_by,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.name,
-            type="holdout",
-        ),
-    )
-
-
-@receiver(pre_delete, sender=ExperimentHoldout)
-def handle_experiment_holdout_delete(sender, instance, **kwargs):
-    log_activity(
-        organization_id=instance.team.organization_id,
-        team_id=instance.team_id,
-        user=activity_storage.get_user() or getattr(instance, "last_modified_by", instance.created_by),
-        was_impersonated=activity_storage.get_was_impersonated(),
-        item_id=instance.id,
-        scope="Experiment",
-        activity="deleted",
-        detail=Detail(name=instance.name, type="holdout"),
-    )
-
-
 @dataclasses.dataclass(frozen=True)
 class OAuthApplicationScopesContext(ActivityContextBase):
     client_id: str
@@ -569,31 +495,31 @@ def handle_oauth_application_scopes_change(
     )
 
 
-@mutable_receiver(model_activity_signal, sender=ExperimentToSavedMetric)
-def handle_experiment_to_saved_metric_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    instance = after_update or before_update
-    if not instance:
+@mutable_receiver(model_activity_signal, sender=WorkloadTrustPolicy)
+def handle_workload_trust_policy_change(
+    sender: type[WorkloadTrustPolicy],
+    scope: ActivityScope,
+    before_update: WorkloadTrustPolicy | None,
+    after_update: WorkloadTrustPolicy | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool = False,
+    **kwargs,
+) -> None:
+    policy = after_update or before_update
+    if policy is None:
         return
-
     log_activity(
-        organization_id=instance.experiment.team.organization_id,
-        team_id=instance.experiment.team_id,
-        user=user or activity_storage.get_user(),
-        was_impersonated=was_impersonated or activity_storage.get_was_impersonated(),
-        item_id=instance.experiment_id,
-        # Stored under the public Experiment scope so it shows up in the experiment
-        # activity log feed. The describer arm on `type="saved_metric_config"`
-        # renders the row.
-        scope="Experiment",
+        organization_id=policy.team.organization_id,
+        team_id=policy.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=policy.pk,
+        scope=scope,
         activity=activity,
         detail=Detail(
-            # `"ExperimentToSavedMetric"` is an InternalActivityScope key used only for
-            # field_exclusions / changes_between — never written to ActivityLog.scope.
-            changes=changes_between("ExperimentToSavedMetric", previous=before_update, current=after_update),
-            name=instance.saved_metric.name,
-            type="saved_metric_config",
+            name=policy.name,
+            changes=changes_between(scope, previous=before_update, current=after_update),
         ),
     )
 
@@ -668,6 +594,7 @@ RELATED_OBJECT_ACTIVITY_LOGGERS: dict[str, RelatedObjectActivityLogger] = {
     ),
     "account": RelatedObjectActivityLogger(scope="Account"),
     "endpoint": RelatedObjectActivityLogger(scope="Endpoint"),
+    "hog_flow": RelatedObjectActivityLogger(scope="HogFlow"),
 }
 
 

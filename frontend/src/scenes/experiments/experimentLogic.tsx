@@ -36,14 +36,17 @@ import {
     featureFlagLogic as sceneFeatureFlagLogic,
 } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     Breakdown,
     ExperimentExposureCriteria,
@@ -56,7 +59,6 @@ import {
     NodeKind,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     BreakdownAttributionType,
     BreakdownType,
@@ -67,6 +69,7 @@ import {
     ExperimentStatsMethod,
     FeatureFlagType,
     MultivariateFlagVariant,
+    UserType,
 } from '~/types'
 
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
@@ -74,11 +77,14 @@ import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentSt
 import { experimentsHealthRetrieve, experimentsMigrateCreate } from 'products/experiments/frontend/generated/api'
 import type { ExperimentHealthApi } from 'products/experiments/frontend/generated/api.schemas'
 import {
+    type ExperimentHealthChecksOpenedFrom,
     type ExperimentHealthFinding,
     type ExperimentHealthFindingActionKind,
     type ExperimentHealthFindingOpenKind,
     type ExperimentHealthUi,
     captureExperimentHealthChecked,
+    captureExperimentHealthCheckExpanded,
+    captureExperimentHealthChecksOpened,
     captureExperimentHealthFindingActedOn,
     captureExperimentHealthFindingOpened,
     captureExperimentHealthFindingShown,
@@ -86,6 +92,12 @@ import {
     experimentWarningFromHealth,
     exposureHealthEventProperties,
 } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
+import {
+    type ExposureChecksState,
+    type HealthPanelCheck,
+    exposureChecksState,
+    healthPanelChecks,
+} from 'products/experiments/frontend/health/healthPanelChecks'
 import { type HealthPanelFinding, healthPanelFindings } from 'products/experiments/frontend/health/healthPanelFindings'
 import {
     experimentsLogic,
@@ -341,6 +353,7 @@ export interface experimentLogicValues {
     currentProjectId: number | null // projectLogic
     sharedMetrics: SharedMetric[] // sharedMetricsLogic
     currentTeamId: number | null // teamLogic
+    user: UserType | null // userLogic
     browserExperimentWarning: ExperimentWarning | null
     browserNoMetricsWarning: boolean
     currentRefresh: CurrentRefreshSnapshot | null
@@ -365,6 +378,8 @@ export interface experimentLogicValues {
     freezeExposureLoading: boolean
     hasMetrics: boolean
     hasMinimumExposureForResults: boolean
+    healthChecks: HealthPanelCheck[] | null
+    healthExposureChecks: ExposureChecksState
     healthFindings: HealthPanelFinding[] | null
     healthPending: boolean
     healthUi: ExperimentHealthUi
@@ -384,10 +399,10 @@ export interface experimentLogicValues {
     shippedVariantKey: string | null
     showDebugPanel: boolean
     shownHealth: ExperimentHealthApi | null
+    showsHealthFindings: boolean
     statsMethod: ExperimentStatsMethod
     unfreezeExposureLoading: boolean
     unmodifiedExperiment: Experiment | null
-    usesNewQueryRunner: boolean
     variants: MultivariateFlagVariant[]
 }
 
@@ -745,6 +760,12 @@ export interface experimentLogicActions {
         experiment: Experiment
         forceRefresh: boolean
     }
+    reportHealthCheckExpanded: (check: HealthPanelCheck) => {
+        check: HealthPanelCheck
+    }
+    reportHealthChecksOpened: (openedFrom: ExperimentHealthChecksOpenedFrom) => {
+        openedFrom: ExperimentHealthChecksOpenedFrom
+    }
     reportHealthFindingActedOn: (
         finding: ExperimentHealthFinding,
         actionKind: ExperimentHealthFindingActionKind
@@ -945,12 +966,13 @@ export interface experimentLogicMeta {
             isSingleVariantShipped: boolean,
             shippedVariantKey: string | null
         ) => ExperimentWarning | null
+        showsHealthFindings: (featureFlags: FeatureFlagsSet, user: UserType | null) => boolean
         shownHealth: (
             experimentHealth: ExperimentHealthApi | null,
-            featureFlags: FeatureFlagsSet
+            showsHealthFindings: boolean
         ) => ExperimentHealthApi | null
         healthPending: (
-            featureFlags: FeatureFlagsSet,
+            showsHealthFindings: boolean,
             experimentHealth: ExperimentHealthApi | null,
             experimentHealthLoading: boolean
         ) => boolean
@@ -970,8 +992,17 @@ export interface experimentLogicMeta {
             exposures: any,
             isExperimentDraft: boolean
         ) => HealthPanelFinding[] | null
-        usesNewQueryRunner: (experiment: Experiment) => boolean
-        hasMinimumExposureForResults: (exposures: any, usesNewQueryRunner: boolean) => boolean
+        healthChecks: (
+            shownHealth: ExperimentHealthApi | null,
+            exposures: any,
+            isExperimentDraft: boolean
+        ) => HealthPanelCheck[] | null
+        healthExposureChecks: (
+            isExperimentLaunched: boolean,
+            exposures: any,
+            exposuresLoading: boolean
+        ) => ExposureChecksState
+        hasMinimumExposureForResults: (exposures: any) => boolean
         exposureCriteria: (experiment: Experiment) => ExperimentExposureCriteria | undefined
         hasMetrics: (experiment: Experiment) => boolean
         browserNoMetricsWarning: (hasMetrics: boolean, isExperimentLaunched: boolean) => boolean
@@ -1002,6 +1033,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ['holdouts'],
             sharedMetricsLogic,
             ['sharedMetrics'],
+            userLogic,
+            ['user'],
         ],
         actions: [
             experimentsLogic,
@@ -1059,6 +1092,8 @@ export const experimentLogic = kea<experimentLogicType>([
             finding: ExperimentHealthFinding,
             actionKind: ExperimentHealthFindingActionKind
         ) => ({ finding, actionKind }),
+        reportHealthChecksOpened: (openedFrom: ExperimentHealthChecksOpenedFrom) => ({ openedFrom }),
+        reportHealthCheckExpanded: (check: HealthPanelCheck) => ({ check }),
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
@@ -1527,7 +1562,7 @@ export const experimentLogic = kea<experimentLogicType>([
         reportHealthFindingShown: ({ finding }) => {
             // The page remounts its warnings within one load, for example on a tab change or after
             // a save, and each mount reports again.
-            const key = `${values.experimentLoadCount}:${finding.code}:${finding.variant ?? ''}`
+            const key = `${values.experimentLoadCount}:${finding.code}:${finding.subcode ?? ''}`
             cache.shownHealthFindingKeys ??= new Set<string>()
             if (cache.shownHealthFindingKeys.has(key)) {
                 return
@@ -1543,6 +1578,18 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         reportHealthFindingActedOn: ({ finding, actionKind }) => {
             captureExperimentHealthFindingActedOn(values.experiment, finding, values.healthUi, actionKind)
+        },
+        reportHealthCheckExpanded: ({ check }) => {
+            captureExperimentHealthCheckExpanded(values.experiment, check, values.healthUi)
+        },
+        reportHealthChecksOpened: ({ openedFrom }) => {
+            captureExperimentHealthChecksOpened(
+                values.experiment,
+                values.healthChecks ?? [],
+                values.healthFindings?.length ?? 0,
+                values.healthUi,
+                openedFrom
+            )
         },
         setExperiment: () => {
             // A save returns the whole experiment, so compare values: only a changed input makes the findings stale.
@@ -2107,25 +2154,42 @@ export const experimentLogic = kea<experimentLogicType>([
             })
             const combinedMetricsIds = [...existingMetricsIds, ...newMetricsIds]
 
+            let response: Experiment
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsPartialUpdate() from 'products/experiments/frontend/generated/api' instead.
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                    ...toConcurrencyPayload(values.unmodifiedExperiment),
-                    saved_metrics_ids: combinedMetricsIds,
-                    update_feature_flag_params: false,
-                })
+                response = await api.update(
+                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                    {
+                        ...toConcurrencyPayload(values.unmodifiedExperiment),
+                        saved_metrics_ids: combinedMetricsIds,
+                        update_feature_flag_params: false,
+                    }
+                )
             } catch (error: any) {
                 if (isExperimentConflictError(error)) {
                     lemonToast.error(
                         error.data?.detail ||
                             'This experiment was changed while you were editing it. Review the latest changes and try again.'
                     )
-                } else {
-                    throw error
+                    actions.loadExperiment({ triggeredBy: 'metric_config_change' })
+                    return
                 }
+                throw error
             }
 
-            actions.loadExperiment({ triggeredBy: 'metric_config_change' })
+            /** A reload would unmount the metrics view and drop the recalculation trigger, so apply the response. */
+            actions.setUnmodifiedExperiment(structuredClone(response))
+            actions.setExperiment(response)
+
+            const metricsLogic = experimentMetricsLogic({ experiment: values.experiment })
+            metricsLogic.actions.setPrimaryMetricsResults([])
+            metricsLogic.actions.setPrimaryMetricsResultsErrors([])
+            metricsLogic.actions.setSecondaryMetricsResults([])
+            metricsLogic.actions.setSecondaryMetricsResultsErrors([])
+
+            if (isLaunched(response)) {
+                actions.refreshExperimentResults(false, 'metric_config_change')
+            }
         },
         duplicateSharedMetricAsInlineMetric: ({ isSecondary, newUuid }) => {
             // Listeners run after reducers, so the copy is only there if the shared metric was actually found
@@ -2150,27 +2214,44 @@ export const experimentLogic = kea<experimentLogicType>([
                 (m) => !('isSharedMetric' in m && m.isSharedMetric && m.sharedMetricId === sharedMetricId)
             )
 
+            let response: Experiment
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsPartialUpdate() from 'products/experiments/frontend/generated/api' instead.
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                    ...toConcurrencyPayload(values.unmodifiedExperiment),
-                    saved_metrics_ids: sharedMetricsIds,
-                    metrics: cleanedMetrics,
-                    metrics_secondary: cleanedMetricsSecondary,
-                    update_feature_flag_params: false,
-                })
+                response = await api.update(
+                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                    {
+                        ...toConcurrencyPayload(values.unmodifiedExperiment),
+                        saved_metrics_ids: sharedMetricsIds,
+                        metrics: cleanedMetrics,
+                        metrics_secondary: cleanedMetricsSecondary,
+                        update_feature_flag_params: false,
+                    }
+                )
             } catch (error: any) {
                 if (isExperimentConflictError(error)) {
                     lemonToast.error(
                         error.data?.detail ||
                             'This experiment was changed while you were editing it. Review the latest changes and try again.'
                     )
-                } else {
-                    throw error
+                    actions.loadExperiment({ triggeredBy: 'metric_config_change' })
+                    return
                 }
+                throw error
             }
 
-            actions.loadExperiment({ triggeredBy: 'metric_config_change' })
+            /** A reload would unmount the metrics view and drop the recalculation trigger, so apply the response. */
+            actions.setUnmodifiedExperiment(structuredClone(response))
+            actions.setExperiment(response)
+
+            const metricsLogic = experimentMetricsLogic({ experiment: values.experiment })
+            metricsLogic.actions.setPrimaryMetricsResults([])
+            metricsLogic.actions.setPrimaryMetricsResultsErrors([])
+            metricsLogic.actions.setSecondaryMetricsResults([])
+            metricsLogic.actions.setSecondaryMetricsResultsErrors([])
+
+            if (isLaunched(response)) {
+                actions.refreshExperimentResults(false, 'metric_config_change')
+            }
         },
         createExperimentDashboard: async () => {
             actions.setIsCreatingExperimentDashboard(true)
@@ -2239,12 +2320,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     for (const query of metrics) {
                         const insightQuery = queryBuilder(query)
 
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsCreate() from 'products/product_analytics/frontend/generated/api' instead.
-                        await api.create(`api/projects/${projectLogic.values.currentProjectId}/insights`, {
-                            name: query.name || undefined,
-                            query: insightQuery,
-                            dashboards: [dashboard.id],
-                        })
+                        await insightsApi.create({ name: query.name || undefined, query: insightQuery }, [dashboard.id])
                     }
                 }
 
@@ -2627,9 +2703,10 @@ export const experimentLogic = kea<experimentLogicType>([
             null as any,
             {
                 loadExposures: async (refresh: boolean = false) => {
-                    const { experiment, usesNewQueryRunner } = values
+                    const { experiment } = values
 
-                    if (!usesNewQueryRunner) {
+                    // The legacy page shows no exposures, but its variant exclusion toggle still dispatches this.
+                    if (isLegacyExperiment(experiment)) {
                         // A bare `return` would make kea error ("Reducer returned undefined")
                         return values.exposures
                     }
@@ -2777,27 +2854,31 @@ export const experimentLogic = kea<experimentLogicType>([
                 return null
             },
         ],
+        showsHealthFindings: [
+            (s) => [s.featureFlags, s.user],
+            (featureFlags: FeatureFlagsSet, user: UserType | null): boolean =>
+                // While impersonating, the flag evaluates on the customer, so the impersonation itself counts.
+                !!featureFlags[FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS] || !!user?.is_impersonated,
+        ],
         shownHealth: [
-            (s) => [s.experimentHealth, s.featureFlags],
-            (experimentHealth: ExperimentHealthApi | null, featureFlags: FeatureFlagsSet): ExperimentHealthApi | null =>
+            (s) => [s.experimentHealth, s.showsHealthFindings],
+            (experimentHealth: ExperimentHealthApi | null, showsHealthFindings: boolean): ExperimentHealthApi | null =>
                 // Every reader loads the findings, so every load can compare them with the browser's rules. The
-                // page shows them only with the experiment-health-findings flag, and the browser's rules cover
+                // page shows them only to the readers in `showsHealthFindings`, and the browser's rules cover
                 // everyone else.
-                featureFlags[FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS] ? experimentHealth : null,
+                showsHealthFindings ? experimentHealth : null,
         ],
         healthPending: [
-            (s) => [s.featureFlags, s.experimentHealth, s.experimentHealthLoading],
+            (s) => [s.showsHealthFindings, s.experimentHealth, s.experimentHealthLoading],
             (
-                featureFlags: FeatureFlagsSet,
+                showsHealthFindings: boolean,
                 experimentHealth: ExperimentHealthApi | null,
                 experimentHealthLoading: boolean
             ): boolean =>
-                // Until the first answer, a reader with the flag sees neither the browser's warnings nor the panel,
-                // so the page never shows a warning that the server then contradicts. A failed request ends the
-                // wait, and the browser's rules apply.
-                !!featureFlags[FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS] &&
-                experimentHealthLoading &&
-                experimentHealth === null,
+                // Until the first answer, a reader who gets the findings sees neither the browser's warnings nor
+                // the panel, so the page never shows a warning that the server then contradicts. A failed request
+                // ends the wait, and the browser's rules apply.
+                showsHealthFindings && experimentHealthLoading && experimentHealth === null,
         ],
         healthUi: [
             (s) => [s.experiment, s.shownHealth, s.healthPending],
@@ -2830,34 +2911,22 @@ export const experimentLogic = kea<experimentLogicType>([
             ): HealthPanelFinding[] | null =>
                 healthPending ? [] : healthPanelFindings(shownHealth, exposures, isExperimentDraft),
         ],
-        usesNewQueryRunner: [
-            (s) => [s.experiment],
-            (experiment: Experiment): boolean => {
-                const hasLegacyMetrics = isLegacyExperiment(experiment)
-
-                const allMetrics = [...experiment.metrics, ...experiment.metrics_secondary, ...experiment.saved_metrics]
-                const hasExperimentMetrics = allMetrics.some((query) => query.kind === NodeKind.ExperimentMetric)
-
-                if (hasExperimentMetrics) {
-                    return true
-                }
-
-                if (hasLegacyMetrics) {
-                    return false
-                }
-
-                // If the experiment has no experiment metrics, we use the new query runner
-                return true
-            },
+        healthChecks: [
+            (s) => [s.shownHealth, s.exposures, s.isExperimentDraft],
+            (
+                shownHealth: ExperimentHealthApi | null,
+                exposures: any,
+                isExperimentDraft: boolean
+            ): HealthPanelCheck[] | null => healthPanelChecks(shownHealth, exposures, isExperimentDraft),
+        ],
+        healthExposureChecks: [
+            (s) => [s.isExperimentLaunched, s.exposures, s.exposuresLoading],
+            (isExperimentLaunched: boolean, exposures: any, exposuresLoading: boolean): ExposureChecksState =>
+                exposureChecksState(isExperimentLaunched, exposures, exposuresLoading),
         ],
         hasMinimumExposureForResults: [
-            (s) => [s.exposures, s.usesNewQueryRunner],
-            (exposures: ExperimentExposureQueryResponse, usesNewQueryRunner: boolean): boolean => {
-                // Not relevant for old metrics
-                if (!usesNewQueryRunner) {
-                    return true
-                }
-
+            (s) => [s.exposures],
+            (exposures: ExperimentExposureQueryResponse): boolean => {
                 if (!exposures || !exposures.total_exposures) {
                     return false
                 }

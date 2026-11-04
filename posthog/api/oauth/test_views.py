@@ -28,7 +28,7 @@ from redis.exceptions import RedisError
 from rest_framework import status
 
 from posthog.api.oauth import OAuthAuthorizationSerializer
-from posthog.api.oauth.cimd import CIMD_SUPPORTED_AUTH_METHODS
+from posthog.api.oauth.cimd import CIMD_SUPPORTED_AUTH_METHODS, refresh_cimd_metadata_task
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
 from posthog.api.oauth.metadata import authorization_server_metadata, openid_provider_metadata
 from posthog.api.oauth.views import OAuthTokenView, OAuthValidator, _token_error_code
@@ -82,9 +82,14 @@ def private_pem_to_public_pem(private_key_pem: str) -> str:
     return public_pem(private_key.public_key())
 
 
+MCP_RESOURCE_PARAM = "&resource=https%3A%2F%2Fmcp.posthog.com%2Fmcp"
+
+
 class TestOAuthAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
+        # Celery runs the stale-cache CIMD refresh inline, and it would fetch the partner URL over the network.
+        self.enterContext(patch.object(refresh_cimd_metadata_task, "delay"))
 
         self.confidential_application = OAuthApplication.objects.create(
             name="Test Confidential App",
@@ -327,6 +332,113 @@ class TestOAuthAPI(APIBaseTest):
         resolution = response.context["posthog_app_context"]["oauth_scope_resolution"]
         self.assertEqual(resolution["scopes"], sorted({"insight:read", "canvas:read"} | ALWAYS_ALLOWED_SCOPES))
         self.assertTrue(resolution["was_defaulted"])
+
+    @parameterized.expand(
+        [
+            (
+                "step_up_first_connection",
+                True,
+                "openid insight:write batch_export:write comment:write",
+                ["batch_export:read", "insight:write", "openid"],
+            ),
+            (
+                "no_step_up",
+                False,
+                "openid insight:write batch_export:write comment:write",
+                ["batch_export:write", "comment:write", "insight:write", "openid"],
+            ),
+            ("step_up_nothing_in_default_set", True, "openid comment:write", ["comment:write", "openid"]),
+        ]
+    )
+    def test_mcp_authorize_narrows_the_first_connection_of_a_step_up_app(
+        self, _name, supports_step_up, requested, expected
+    ):
+        self.confidential_application.supports_step_up = supports_step_up
+        self.confidential_application.save()
+
+        response = self.client.get(
+            f"{self.base_authorization_url}&scope={quote(requested)}&resource=https%3A%2F%2Fmcp.posthog.com%2Fmcp"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        resolution = response.context["posthog_app_context"]["oauth_scope_resolution"]
+        self.assertEqual(sorted(resolution["scopes"]), expected)
+
+    @parameterized.expand(
+        [
+            (
+                "step_up",
+                True,
+                MCP_RESOURCE_PARAM,
+                "comment:write insight:write openid",
+                ["comment:write", "insight:write", "openid"],
+                ["insight:write", "openid"],
+                {"openid", "insight:write", "comment:write"},
+            ),
+            ("no_step_up", False, MCP_RESOURCE_PARAM, "comment:write", ["comment:write"], None, {"comment:write"}),
+            ("step_up_outside_mcp", True, "", "comment:write", ["comment:write"], None, {"comment:write"}),
+            # A tampered form still gets nothing outside the app's ceiling.
+            (
+                "step_up_tampered_form",
+                True,
+                MCP_RESOURCE_PARAM,
+                "comment:write insight:write openid llm_gateway:read",
+                ["comment:write", "insight:write", "openid"],
+                ["insight:write", "openid"],
+                {"openid", "insight:write", "comment:write"},
+            ),
+        ]
+    )
+    @time_machine.travel("2026-03-01 12:00:00", tick=False)
+    def test_mcp_reauthorize_keeps_prior_scopes_and_preselects_the_prior_projects_for_a_step_up_app(
+        self,
+        _name,
+        supports_step_up,
+        resource_param,
+        submitted_scope,
+        expected_consent,
+        expected_already_granted,
+        expected_token_scopes,
+    ):
+        self.confidential_application.supports_step_up = supports_step_up
+        self.confidential_application.save()
+        expired_access_token = OAuthAccessToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token="pha_prior_grant",
+            expires=timezone.now() - timedelta(hours=1),
+            # `llm_gateway:read` sits outside the app's ceiling, as after the ceiling shrank.
+            scope="openid insight:write llm_gateway:read",
+            scoped_teams=[self.team.id],
+        )
+        OAuthRefreshToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token="prior_refresh_token",
+            access_token=expired_access_token,
+        )
+
+        consent = self.client.get(f"{self.base_authorization_url}&scope={quote('comment:write')}{resource_param}")
+        authorize = self.client.post(
+            "/oauth/authorize/",
+            {
+                **self.base_authorization_post_body,
+                "scope": submitted_scope,
+                "access_level": OAuthApplicationAccessLevel.TEAM.value,
+                "scoped_teams": [self.team.id],
+            },
+        )
+        code = authorize.json()["redirect_to"].split("code=")[1].split("&")[0]
+        token = self.post("/oauth/token/", {**self.base_token_body, "code": code}).json()
+
+        resolution = consent.context["posthog_app_context"]["oauth_scope_resolution"]
+        self.assertEqual(resolution["scopes"], expected_consent)
+        self.assertEqual(resolution.get("already_granted_scopes"), expected_already_granted)
+        self.assertEqual(
+            resolution.get("earlier_access"),
+            {"scoped_teams": [self.team.id], "scoped_organizations": []} if expected_already_granted else None,
+        )
+        self.assertEqual(set(token["scope"].split()), expected_token_scopes)
 
     @patch("posthog.api.oauth.views.render_template")
     def test_authorize_omits_mcp_consent_for_untrusted_resource(self, mock_render):
@@ -1834,6 +1946,24 @@ class TestOAuthAPI(APIBaseTest):
             self.assertEqual(db_token.scoped_teams, [self.team.id])
 
             refresh_token = refresh_response.json()["refresh_token"]
+
+    @parameterized.expand([("rotating", False), ("non_rotating", True)])
+    def test_supports_step_up_is_copied_from_the_app_at_every_mint(self, _name, is_dcr_client):
+        self.confidential_application.is_dcr_client = is_dcr_client
+        self.confidential_application.supports_step_up = True
+        self.confidential_application.save()
+
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code}).json()
+
+        self.assertTrue(OAuthAccessToken.objects.get(token=token_response["access_token"]).supports_step_up)
+
+        self.confidential_application.supports_step_up = False
+        self.confidential_application.save()
+        refreshed = self._refresh(token_response["refresh_token"])
+
+        self.assertFalse(OAuthAccessToken.objects.get(token=refreshed["access_token"]).supports_step_up)
 
     def _create_refreshable_token_pair(self, scope: str) -> OAuthRefreshToken:
         suffix = scope.replace(" ", "_").replace("*", "star").replace(":", "_")
@@ -3406,21 +3536,8 @@ class TestOAuthAPI(APIBaseTest):
         code = parse_qs(urlparse(location).query)["code"][0]
         return OAuthGrant.objects.get(code=code)
 
-    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=True)
-    def test_authorize_refuses_a_blocklisted_identity_a_gateway_scope(self, mock_blocked):
-        # The legacy gateway authenticates the token straight from the database, so
-        # a ban has to stop it being issued, not only its use.
-        app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
-        url = self.replace_param_in_url(self.base_authorization_url, "client_id", app.client_id)
-
-        response = self.client.get(f"{url}&scope=insight:read llm_gateway:read")
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
-        self.assertEqual(response.json()["error"], "access_denied")
-        self.assertFalse(OAuthGrant.objects.filter(application=app).exists())
-
-    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=True)
-    def test_authorize_still_grants_a_blocklisted_identity_scopes_without_the_gateway(self, mock_blocked):
+    @patch("posthog.api.oauth.views.security_access_refused", return_value=True)
+    def test_authorize_still_grants_a_blocked_identity_scopes_without_the_gateway(self, mock_blocked):
         app = self._create_first_party_app_with_ceiling("insight:read")
 
         grant = self._first_party_authorize_grant(app, "insight:read")
@@ -3428,8 +3545,8 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(set(grant.scope.split()), {"insight:read"})
         mock_blocked.assert_not_called()
 
-    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=True)
-    def test_authorize_post_refuses_a_blocklisted_identity_a_gateway_scope(self, mock_blocked):
+    @patch("posthog.api.oauth.views.security_access_refused", return_value=True)
+    def test_authorize_post_refuses_a_blocked_identity_a_gateway_scope(self, mock_blocked):
         # The only caller passing scopes as a raw string, so it is what proves the
         # normalisation: a bare set() would intersect nothing.
         app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
@@ -3447,8 +3564,8 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.json()["error"], "access_denied")
         self.assertFalse(OAuthGrant.objects.filter(application=app).exists())
 
-    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=True)
-    def test_authorize_post_refuses_a_blocklisted_identity_a_wildcard_scope(self, mock_blocked):
+    @patch("posthog.api.oauth.views.security_access_refused", return_value=True)
+    def test_authorize_post_refuses_a_blocked_identity_a_wildcard_scope(self, mock_blocked):
         # An app with no ceiling keeps `*` verbatim, the shape a self-registered
         # client has, and the legacy gateway authenticates it.
         app = self._create_first_party_app_with_ceiling()
@@ -3461,7 +3578,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
         self.assertFalse(OAuthGrant.objects.filter(application=app).exists())
 
-    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=False)
+    @patch("posthog.api.oauth.views.security_access_refused", return_value=False)
     def test_authorize_asks_about_every_organization_the_grant_reaches(self, mock_blocked):
         # An unscoped first-party grant reaches every organization its user belongs
         # to, so a ban naming one of them has to be asked about.
@@ -3470,13 +3587,13 @@ class TestOAuthAPI(APIBaseTest):
 
         self.client.get(f"{url}&scope=llm_gateway:read")
 
-        kwargs = mock_blocked.call_args.kwargs
-        self.assertIn(str(self.organization.id), kwargs["organization_ids"])
-        self.assertEqual(kwargs["user_uuid"], str(self.user.uuid))
+        subject = mock_blocked.call_args.args[0]
+        self.assertIn(str(self.organization.id), subject.organization_ids)
+        self.assertEqual(subject.user_uuid, str(self.user.uuid))
 
-    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=False)
+    @patch("posthog.api.oauth.views.security_access_refused", return_value=False)
     def test_authorize_post_carries_the_grants_own_organization_scoping(self, mock_blocked):
-        # Without this the grant's organizations never reach the flag, so a ban
+        # Without this the grant's organizations never reach the access rules, so a ban
         # keyed on one silently matches nothing at issuance.
         app = self._create_first_party_app_with_ceiling("llm_gateway:read")
 
@@ -3491,9 +3608,9 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(mock_blocked.call_args.kwargs["organization_ids"], [str(self.organization.id)])
+        self.assertEqual(mock_blocked.call_args.args[0].organization_ids, (str(self.organization.id),))
 
-    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=True)
+    @patch("posthog.api.oauth.views.security_access_refused", return_value=True)
     def test_authorize_post_still_grants_scopes_without_a_gateway_scope(self, mock_blocked):
         app = self._create_first_party_app_with_ceiling("insight:read")
 
@@ -3505,33 +3622,22 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         mock_blocked.assert_not_called()
 
-    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=False)
-    def test_authorize_grants_the_gateway_scope_to_an_unlisted_identity(self, mock_blocked):
+    @patch("posthog.api.oauth.views.security_access_refused", return_value=False)
+    def test_authorize_asks_the_access_rules_for_the_gateway_scope(self, check: MagicMock) -> None:
         app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
 
         grant = self._first_party_authorize_grant(app, "insight:read llm_gateway:read")
 
         self.assertIn("llm_gateway:read", grant.scope.split())
-        self.assertEqual(mock_blocked.call_args.kwargs["surface"], "oauth_authorize")
-        self.assertEqual(mock_blocked.call_args.kwargs["email"], self.user.email)
-
-    @patch("posthog.api.oauth.views.security_access_refused", return_value=False)
-    def test_authorize_asks_the_access_rules_for_the_gateway_scope(self, check: MagicMock) -> None:
-        app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
-
-        self._first_party_authorize_grant(app, "insight:read llm_gateway:read")
-
         check.assert_called_once()
         subject, surface = check.call_args.args
         self.assertEqual(surface, SecuritySurface.AI_GATEWAY)
         self.assertEqual(subject.user_uuid, str(self.user.uuid))
+        self.assertEqual(subject.email, self.user.email)
         self.assertEqual(check.call_args.kwargs, {"call_site": "oauth_authorize"})
 
-    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=False)
     @patch("posthog.api.oauth.views.security_access_refused", return_value=True)
-    def test_authorize_refuses_the_gateway_scope_when_an_access_rule_refuses(
-        self, check: MagicMock, mock_blocked: MagicMock
-    ) -> None:
+    def test_authorize_refuses_the_gateway_scope_when_an_access_rule_refuses(self, check: MagicMock) -> None:
         app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
         url = self.replace_param_in_url(self.base_authorization_url, "client_id", app.client_id)
 
@@ -4359,11 +4465,14 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertFalse(data["active"])
 
-    @parameterized.expand([True, False])
-    def test_self_introspection_succeeds_without_introspection_scope(self, impersonated: bool) -> None:
+    @parameterized.expand([(True, False), (False, True)])
+    def test_self_introspection_succeeds_without_introspection_scope(
+        self, impersonated: bool, supports_step_up: bool
+    ) -> None:
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid user:read")
         access_token.impersonated_by = self.user if impersonated else None
-        access_token.save(update_fields=["impersonated_by"])
+        access_token.supports_step_up = supports_step_up
+        access_token.save(update_fields=["impersonated_by", "supports_step_up"])
 
         response = self.post(
             "/oauth/introspect/",
@@ -4376,6 +4485,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertTrue(data["active"])
         self.assertEqual(data["scope"], "openid user:read")
         self.assertEqual(data["is_impersonated"], impersonated)
+        self.assertEqual(data["supports_step_up"], supports_step_up)
 
     def test_self_introspection_via_get_succeeds_without_introspection_scope(self):
         """Self-introspection also works via GET method."""
@@ -5686,6 +5796,7 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
             "issuer",
             "authorization_endpoint",
             "token_endpoint",
+            "device_authorization_endpoint",
             "revocation_endpoint",
             "introspection_endpoint",
             "userinfo_endpoint",
@@ -5706,7 +5817,12 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         self.assertEqual(metadata["response_types_supported"], ["code"])
         self.assertEqual(
             metadata["grant_types_supported"],
-            ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"],
+            [
+                "authorization_code",
+                "refresh_token",
+                "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                "urn:ietf:params:oauth:grant-type:device_code",
+            ],
         )
         self.assertEqual(metadata["code_challenge_methods_supported"], ["S256"])
         self.assertIn("none", metadata["token_endpoint_auth_methods_supported"])

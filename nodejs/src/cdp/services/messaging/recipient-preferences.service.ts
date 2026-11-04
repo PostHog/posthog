@@ -1,12 +1,16 @@
 import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { acceptedSendEmailFields } from '~/cdp/services/hogflows/transactional-email'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
-import { CyclotronJobInvocationHogFunction } from '../../types'
+import { CyclotronJobInvocationHogFunction, MessageOptOutRecord } from '../../types'
+import { NATIVE_PUSH_TEMPLATE_ID, pushRecipientOtherThanRunPerson } from '../../utils/push-subscription-utils'
 import { workflowStepDispatchKeyFromInvocation } from '../../utils/workflow-step-dispatch-key'
+import { PersonsManagerService } from '../managers/persons-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService } from './email-suppression.service'
+import { removeSuppressedRecipients } from './helpers/suppressed-recipients'
 
 type MessageFunctionActionType = 'function_email' | 'function_sms' | 'function_push'
 
@@ -16,63 +20,68 @@ type MessageAction = Extract<HogFlowAction, { type: MessageFunctionActionType }>
 // reason instead of collapsing suppression and opt-out into a single "opted out" message.
 export type RecipientSkipReason = 'suppressed' | 'opted_out'
 
-// Split a comma-separated address list and, for each entry, extract the bare email from an RFC-822
-// `"Name" <email@x>` form so it can be matched against normalized suppression identifiers.
-const extractEmailsFromAddressList = (value: unknown): string[] => {
-    if (typeof value !== 'string' || value.trim().length === 0) {
-        return []
-    }
-    return value
-        .split(',')
-        .map((raw) => {
-            const trimmed = raw.trim()
-            const bracketed = trimmed.match(/<([^>]+)>/)
-            return (bracketed ? bracketed[1] : trimmed).trim()
-        })
-        .filter((addr) => addr.length > 0)
-}
-
 // One Lua script, so two concurrent sends to one person cannot both pass with one slot left. Each slot
 // is keyed on the step visit. The email queue and send retries run the same step visit again, so a
 // visit that already holds a slot passes. That run also moves the slot score to now, because the email
 // queue can delay the actual send by hours and the window must start when the email goes out.
+// A capped call returns the time in ms when the next slot frees up: the oldest slot that must leave
+// the window before the count drops below the cap. An allowed call returns 0.
 const FREQUENCY_CAP_SCRIPT = `
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', tonumber(ARGV[1]) - tonumber(ARGV[2]))
-if not redis.call('ZSCORE', KEYS[1], ARGV[4]) and redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[3]) then return 1 end
+if not redis.call('ZSCORE', KEYS[1], ARGV[4]) then
+    local count = redis.call('ZCARD', KEYS[1])
+    if count >= tonumber(ARGV[3]) then
+        local freeing = redis.call('ZRANGE', KEYS[1], count - tonumber(ARGV[3]), count - tonumber(ARGV[3]), 'WITHSCORES')
+        return tonumber(freeing[2]) + tonumber(ARGV[2])
+    end
+end
 redis.call('ZADD', KEYS[1], ARGV[1], ARGV[4])
 redis.call('PEXPIRE', KEYS[1], ARGV[2])
 return 0
 `
 
+export type FrequencyCapCheck =
+    | { capped: false }
+    // nextSlotAt is when the person can get a marketing message again, in ms. holdHours is how long the
+    // team lets a capped message wait for that slot; null means skip it.
+    | { capped: true; nextSlotAt: number; holdHours: number | null }
+
 export class RecipientPreferencesService {
     constructor(
         private recipientsManager: RecipientsManagerService,
         private emailSuppressionService: EmailSuppressionService,
-        private frequencyCap?: { teamWorkflowsConfig: TeamWorkflowsConfigService; valkey: RedisV2 }
+        private frequencyCap?: {
+            teamWorkflowsConfig: TeamWorkflowsConfigService
+            valkey: RedisV2
+            persons: Pick<PersonsManagerService, 'getCyclotronPerson'>
+        }
     ) {}
 
-    /** Returns true when the person is at the cap. Otherwise records this send against the cap and returns false. */
-    public async isFrequencyCapped(
+    /** Reports whether the person is at the cap. When they are not, records this send against the cap. */
+    public async checkFrequencyCap(
         invocation: CyclotronJobInvocationHogFunction,
         action: HogFlowAction
-    ): Promise<boolean> {
-        const personId = invocation.state.globals.person?.id
+    ): Promise<FrequencyCapCheck> {
+        const messageAction = this.asMessageAction(action)
         if (
             !this.frequencyCap ||
-            !personId ||
-            !this.isSubjectToRecipientPreferences(action) ||
-            action.config.message_category_type === 'transactional'
+            !messageAction ||
+            messageAction.config.message_category_type === 'transactional' ||
+            (messageAction.type === 'function_email' && messageAction.config.skip_frequency_cap === true)
         ) {
-            return false
+            return { capped: false }
         }
         try {
-            const { max_messages, window_days } = await this.frequencyCap.teamWorkflowsConfig.getFrequencyCap(
-                invocation.teamId
-            )
+            const { max_messages, window_days, hold_hours } =
+                await this.frequencyCap.teamWorkflowsConfig.getFrequencyCap(invocation.teamId)
             if (!max_messages || !window_days) {
-                return false
+                return { capped: false }
             }
-            const capped = await this.frequencyCap.valkey.useClient(
+            const personId = await this.cappedPersonId(invocation, messageAction, this.frequencyCap.persons)
+            if (!personId) {
+                return { capped: false }
+            }
+            const nextSlotAt = await this.frequencyCap.valkey.useClient(
                 { name: 'workflows-frequency-cap', failOpen: true },
                 (client) =>
                     client.eval(
@@ -85,26 +94,44 @@ export class RecipientPreferencesService {
                         workflowStepDispatchKeyFromInvocation(invocation) ?? `${invocation.id}:${action.id}`
                     ) as Promise<number>
             )
-            return capped === 1
+            return nextSlotAt ? { capped: true, nextSlotAt, holdHours: hold_hours } : { capped: false }
         } catch (error) {
             // Fail open: a config or Valkey pool error must never block a send. failOpen above only
             // covers errors inside the Valkey callback.
             logger.error(`Failed to check the frequency cap for team ${invocation.teamId}:`, error)
-            return false
+            return { capped: false }
         }
+    }
+
+    private async cappedPersonId(
+        invocation: CyclotronJobInvocationHogFunction,
+        action: MessageAction,
+        persons: Pick<PersonsManagerService, 'getCyclotronPerson'>
+    ): Promise<string | undefined> {
+        const { globals } = invocation.state
+        const named =
+            action.type === 'function_push'
+                ? pushRecipientOtherThanRunPerson(globals.inputs?.distinctId, globals)
+                : null
+        if (!named) {
+            return globals.person?.id
+        }
+        return (await persons.getCyclotronPerson(invocation.teamId, named, 'distinct_id'))?.id
     }
 
     public async shouldSkipAction(
         invocation: CyclotronJobInvocationHogFunction,
-        action: HogFlowAction
+        hogFlowAction: HogFlowAction,
+        runOptOuts: MessageOptOutRecord[] = []
     ): Promise<RecipientSkipReason | null> {
-        if (!this.isSubjectToRecipientPreferences(action)) {
+        const action = this.asMessageAction(hogFlowAction)
+        if (!action) {
             return null
         }
 
-        // Suppression is a deliverability signal, not a messaging preference: an address that can't
-        // receive mail can't receive it regardless of category. So we check it even for
-        // transactional messages, and before the transactional opt-out bypass below.
+        // Suppression is mostly a deliverability signal, not a messaging preference. We check it even for
+        // transactional messages, and before the transactional opt-out bypass below. For those, only a hard
+        // bounce blocks the send, because then the address can't receive mail.
         if (await this.isRecipientSuppressed(invocation, action)) {
             return 'suppressed'
         }
@@ -115,7 +142,7 @@ export class RecipientPreferencesService {
             return null
         }
 
-        return (await this.isRecipientOptedOutOfAction(invocation, action)) ? 'opted_out' : null
+        return (await this.isRecipientOptedOutOfAction(invocation, action, runOptOuts)) ? 'opted_out' : null
     }
 
     private async isRecipientSuppressed(
@@ -127,39 +154,47 @@ export class RecipientPreferencesService {
             return false
         }
 
-        // Check every destination address SES will see — `to`, `cc`, and `bcc`. A suppressed
-        // address in any of the three blocks the send, not just when it appears in `to`.
-        const emailInputs = invocation.state.globals.inputs?.email
-        const to = emailInputs?.to?.email
-        const recipients = [
-            ...(typeof to === 'string' && to.trim() ? [to.trim()] : []),
-            ...extractEmailsFromAddressList(emailInputs?.cc),
-            ...extractEmailsFromAddressList(emailInputs?.bcc),
-        ]
-
-        if (recipients.length === 0) {
-            return false
+        // Skip only when `to` is suppressed and no cc address can take its place. EmailService
+        // removes the other suppressed addresses at send time, and the email still goes to the rest.
+        const emailInputs = {
+            ...invocation.state.globals.inputs?.email,
+            ...acceptedSendEmailFields(invocation.state.send),
         }
-
         try {
-            const results = await Promise.all(
-                recipients.map((email) => this.emailSuppressionService.isSuppressed(invocation.teamId, email))
+            const result = await removeSuppressedRecipients(
+                {
+                    to: { email: typeof emailInputs?.to?.email === 'string' ? emailInputs.to.email : undefined },
+                    cc: typeof emailInputs?.cc === 'string' ? emailInputs.cc : undefined,
+                    bcc: typeof emailInputs?.bcc === 'string' ? emailInputs.bcc : undefined,
+                },
+                (email) =>
+                    this.emailSuppressionService.isSuppressed(invocation.teamId, email, {
+                        transactional: action.config.message_category_type === 'transactional',
+                    })
             )
-            return results.some(Boolean)
+            return result.skip
         } catch (error) {
             // Fail open — never block a send on a suppression-lookup error.
-            logger.error(`Failed to check suppression list for recipients ${recipients.join(', ')}:`, error)
+            logger.error(`Failed to check suppression list for team ${invocation.teamId}:`, error)
             return false
         }
     }
 
-    private isSubjectToRecipientPreferences(action: HogFlowAction): action is MessageAction {
-        return ['function_email', 'function_sms', 'function_push'].includes(action.type)
+    // A generic function step saved through the API can run the push template, and it then sends like a push step.
+    private asMessageAction(action: HogFlowAction): MessageAction | null {
+        if (['function_email', 'function_sms', 'function_push'].includes(action.type)) {
+            return action as MessageAction
+        }
+        if (action.type === 'function' && action.config.template_id === NATIVE_PUSH_TEMPLATE_ID) {
+            return { ...action, type: 'function_push' } as unknown as MessageAction
+        }
+        return null
     }
 
     private async isRecipientOptedOutOfAction(
         invocation: CyclotronJobInvocationHogFunction,
-        action: MessageAction
+        action: MessageAction,
+        runOptOuts: MessageOptOutRecord[]
     ): Promise<boolean> {
         let identifier
 
@@ -168,12 +203,14 @@ export class RecipientPreferencesService {
         } else if (action.type === 'function_email') {
             identifier = invocation.state.globals.inputs?.email?.to?.email
         } else if (action.type === 'function_push') {
-            // Push has no email/phone "to" field. Delivery reads the device token from the invocation's
-            // person (globals.person.properties), so key the opt-out on that same person's distinct_id —
-            // not the configurable inputs.distinctId or the triggering event — so the recipient we check
-            // is always the recipient we deliver to. Fall back to the event distinct_id when the person
-            // has no resolved one.
-            identifier = invocation.state.globals.person?.distinct_id ?? invocation.state.globals.event?.distinct_id
+            // Push has no email/phone "to" field. Key the opt-out on the person the push is delivered to:
+            // the person the Distinct ID input names, or the run's person when it names them. Fall back to
+            // the event distinct_id when the run's person has no resolved one.
+            const { globals } = invocation.state
+            identifier =
+                pushRecipientOtherThanRunPerson(globals.inputs?.distinctId, globals) ??
+                globals.person?.distinct_id ??
+                globals.event?.distinct_id
         }
 
         if (!identifier) {
@@ -184,6 +221,19 @@ export class RecipientPreferencesService {
             throw new Error(
                 `No recipient identifier found for message action [Action:${action.id}]. Check that the message 'to' field is set correctly for this person.`
             )
+        }
+
+        // Grab the recipient preferences for the action category
+        const categoryId = action.config.message_category_id || '$all'
+        const trimmedIdentifier = String(identifier).trim()
+        if (
+            runOptOuts.some(
+                (optOut) =>
+                    optOut.identifier === trimmedIdentifier &&
+                    (optOut.categoryId === categoryId || optOut.categoryId === '$all')
+            )
+        ) {
+            return true
         }
 
         try {
@@ -200,9 +250,6 @@ export class RecipientPreferencesService {
                  */
                 return false
             }
-
-            // Grab the recipient preferences for the action category
-            const categoryId = action.config.message_category_id || '$all'
 
             const messageCategoryPreference = this.recipientsManager.getPreference(recipient, categoryId)
             const allMarketingPreferences = this.recipientsManager.getAllMarketingMessagingPreference(recipient)

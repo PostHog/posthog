@@ -13,12 +13,16 @@ from django.db.models import Q
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
+from posthog.exceptions import QuotaLimitExceeded
+from posthog.models.team import Team
 
 from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision
+from products.ai_observability.backend.dataset_retention import DatasetUsage
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineEvaluationResultPayload,
+    OfflineEvaluationUsageLedger,
     OfflineExperiment,
     OfflineExperimentItem,
     OfflineExperimentItemPayload,
@@ -33,6 +37,8 @@ from products.ai_observability.backend.offline_evaluation_types import (
     UploadSubmission,
 )
 from products.ai_observability.backend.score_validation import validate_score_value
+
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -53,6 +59,7 @@ class ExperimentReceipt:
     experiment: OfflineExperiment
     counts: ExperimentCounts
     created: bool = False
+    status_changed: bool = False
 
 
 @frozen
@@ -167,7 +174,11 @@ class _OfflineEvaluationService:
 
     def _dataset_revisions(self) -> QuerySet[DatasetRevision]:
         # Skip parent resolution because hosted dataset references belong to the submitted environment.
-        revisions = DatasetRevision.objects.for_team(self.team_id, canonical=True)
+        revisions = (
+            DatasetRevision.objects.for_team(self.team_id, canonical=True)
+            .filter(expired_at__isnull=True, dataset__expired_at__isnull=True)
+            .select_related("dataset")
+        )
         if self._user_access_control is not None:
             datasets = self._user_access_control.filter_queryset_by_access_level(
                 Dataset.objects.for_team(self.team_id, canonical=True), include_all_if_admin=True, resource="dataset"
@@ -207,9 +218,15 @@ class OfflineExperimentService(_OfflineEvaluationService):
                 errors.update(error.errors)
         if errors:
             raise OfflineEvaluationValidationError.from_errors(errors)
+        try:
+            DatasetUsage.record(revision.dataset, revision)
+        except (Dataset.DoesNotExist, DatasetRevision.DoesNotExist) as error:
+            raise OfflineEvaluationValidationError(
+                "dataset_revision_id", "Select an existing dataset revision."
+            ) from error
         return fields
 
-    def create(self, submission: ExperimentSubmission) -> ExperimentReceipt:
+    def create(self, submission: ExperimentSubmission, *, created_by_id: int | None = None) -> ExperimentReceipt:
         fingerprint = submission_fingerprint(submission)
         try:
             with transaction.atomic():
@@ -222,7 +239,12 @@ class OfflineExperimentService(_OfflineEvaluationService):
                 fields.pop("id")
                 experiment, created = experiments.get_or_create(
                     id=submission.id,
-                    defaults={**fields, "team_id": self.team_id, "submission_fingerprint": fingerprint},
+                    defaults={
+                        **fields,
+                        "team_id": self.team_id,
+                        "submission_fingerprint": fingerprint,
+                        "created_by_id": created_by_id,
+                    },
                 )
                 _check_fingerprint(experiment.submission_fingerprint, fingerprint, field="id")
                 receipt = ExperimentReceipt(
@@ -240,6 +262,10 @@ class OfflineExperimentService(_OfflineEvaluationService):
                 return ExperimentReceipt(experiment=experiment, counts=counts)
             if experiment.status != OfflineExperiment.Status.UPLOADING:
                 raise OfflineEvaluationConflict("experiment_closed", "This experiment is already closed.")
+            if experiment.dataset_revision_id is not None:
+                revision = self._dataset_revisions().filter(id=experiment.dataset_revision_id).first()
+                if revision is not None:
+                    DatasetUsage.record(revision.dataset, revision)
             if status == "completed" and (
                 counts.expected_item_count is not None
                 and counts.expected_item_count != counts.accepted_item_count
@@ -254,7 +280,7 @@ class OfflineExperimentService(_OfflineEvaluationService):
             experiment.status = status
             experiment.finished_at = timezone.now()
             experiment.save(update_fields=["status", "finished_at"])
-            receipt = ExperimentReceipt(experiment=experiment, counts=counts)
+            receipt = ExperimentReceipt(experiment=experiment, counts=counts, status_changed=True)
         return receipt
 
 
@@ -295,6 +321,7 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
         revision = self._dataset_revisions().filter(id=revision_id).first()
         if revision is None:
             raise OfflineEvaluationValidationError("items", "The experiment's dataset revision is no longer available.")
+        DatasetUsage.record(revision.dataset, revision)
         return {
             version.id: version
             for version in dataset_item_versions_at_revision(
@@ -436,6 +463,13 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
         new_item_submissions = [item for item in submission.items if item.id not in items]
         if (new_item_submissions or new_results) and experiment.status != OfflineExperiment.Status.UPLOADING:
             raise OfflineEvaluationConflict("experiment_closed", "This experiment is closed to new items and results.")
+        if new_results:
+            api_token = Team.objects.values_list("api_token", flat=True).get(id=self.team_id)
+            if is_team_limited(api_token, QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
+                raise QuotaLimitExceeded(
+                    "Your organization reached its AI observability usage limit. Increase the limit in Billing settings, "
+                    "or ask an org admin to do so."
+                )
         errors: dict[str, str] = {}
         try:
             dataset_versions = self._dataset_versions(experiment, new_item_submissions)
@@ -488,6 +522,10 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
             results[ResultIdentity(item_id=result.item_id, scorer_version_id=result.scorer_version_id)] = row
         if errors:
             raise OfflineEvaluationValidationError.from_errors(errors)
+        if new_results and not new_item_submissions and experiment.dataset_revision_id is not None:
+            revision = self._dataset_revisions().filter(id=experiment.dataset_revision_id).first()
+            if revision is not None:
+                DatasetUsage.record(revision.dataset, revision)
         OfflineExperimentItem.objects.for_team(self.team_id).bulk_create(new_items)
         new_item_ids = {item.id for item in new_items}
         OfflineExperimentItemPayload.objects.for_team(self.team_id).bulk_create(
@@ -510,6 +548,15 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
                 if result.payload is not None
             ]
         )
+        if new_result_rows:
+            organization_id = Team.objects.values_list("organization_id", flat=True).get(id=experiment.team_id)
+            OfflineEvaluationUsageLedger.objects.for_team(experiment.team_id).create(
+                team_id=experiment.team_id,
+                organization_id=organization_id,
+                experiment_id=experiment.id,
+                accepted_at=accepted_at,
+                quantity=len(new_result_rows),
+            )
         return UploadReceipt(
             items=[
                 ItemReceipt(id=item.id, accepted_at=item.accepted_at, created=item.id in new_item_ids)

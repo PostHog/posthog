@@ -77,6 +77,16 @@ export const BooleanFlagSnippet = memo(({ language = 'javascript' }: { language?
                 // Do something differently for this user
             }
         `,
+        dotnet: dedent`
+            var flags = await posthog.EvaluateFlagsAsync("distinct_id_of_your_user");
+
+            if (flags.IsEnabled("flag-key"))
+            {
+                // Do something differently for this user
+                // Optional: fetch the payload
+                var matchedFlagPayload = flags.GetFlagPayload("flag-key");
+            }
+        `,
     }
 
     const langMap: Record<string, string> = {
@@ -87,6 +97,7 @@ export const BooleanFlagSnippet = memo(({ language = 'javascript' }: { language?
         php: 'php',
         ruby: 'ruby',
         go: 'go',
+        dotnet: 'csharp',
     }
 
     return <CodeBlock language={langMap[language] || 'javascript'} code={snippets[language] || snippets.javascript} />

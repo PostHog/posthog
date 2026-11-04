@@ -64,14 +64,14 @@ function webhookFacts({ method, url, body }: PresentationOf<'webhook'>): StepFac
     }
 }
 
-function aiTaskFacts({ title, prompt, repository, writes }: PresentationOf<'ai-task'>): StepFacts {
+function aiTaskFacts({ title, prompt, repositories, writes }: PresentationOf<'ai-task'>): StepFacts {
     const instructions = plainVariables(prompt ?? '')
     return {
         headline: title ? plainVariables(title) : firstSentence(instructions) || 'AI task',
         detail: firstSentence(instructions) || undefined,
         fields: [
             ['Instructions', instructions || 'Not set'],
-            ...fieldIf('Repository', repository),
+            ...fieldIf(repositories.length > 1 ? 'Repositories' : 'Repository', repositories.join(', ')),
             ...fieldIf('Writes', joinList(writes)),
         ],
     }
@@ -197,9 +197,14 @@ function windowFacts({ day, time, timezone }: TimeWindowPresentation): StepFacts
 }
 
 function otherStepFacts(action: HogFlowAction, templateName: string | undefined): StepFacts {
-    return templateName
-        ? { headline: templateName, fields: [['Runs', templateName]] }
-        : { headline: action.name, detail: action.description || undefined, fields: [['Runs', action.name]] }
+    const runs = templateName ?? action.name
+    // A new step takes the template's name, so any other name is one the author chose.
+    const renamed = !!templateName && action.name.trim().toLowerCase() !== templateName.toLowerCase()
+    return {
+        headline: renamed ? action.name : runs,
+        detail: action.description || (renamed ? templateName : undefined),
+        fields: [['Runs', runs]],
+    }
 }
 
 function presentationFacts(

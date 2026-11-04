@@ -9,6 +9,10 @@ MAX_LISTED_KEYS = 100_000
 # One table per root-level file can turn a large flat folder into thousands of tables.
 MAX_TABLES = 1_000
 
+# How old a file's modification time must be before an append-only sync reads it. Object stores
+# stamp files to the second, so a younger timestamp can still be given to another file.
+APPEND_SETTLE_SECONDS = 60
+
 CONNECT_TIMEOUT_SECONDS = 10
 READ_TIMEOUT_SECONDS = 60
 MAX_REQUEST_ATTEMPTS = 3
@@ -25,6 +29,7 @@ MAX_FIRST_CSV_RECORD_BYTES = 1024 * 1024
 MAX_UNPACKED_PARQUET_BYTES = 2 * 1024 * 1024 * 1024
 PARQUET_BATCH_ROWS = 10_000
 DELTA_BATCH_ROWS = 16_384
+DELTA_MISSING_RETRY_DELAYS_SECONDS: tuple[float, ...] = (5.0, 10.0, 20.0)
 
 # Arrow batches from wide files can be large, so the pipeline's batcher flushes before this many bytes.
 CHUNK_SIZE_BYTES = 100 * 1024 * 1024

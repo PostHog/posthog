@@ -44,12 +44,12 @@ role "logs" {
 
 # APM satellite: the ingestion-apm nodes. Every environment runs the shared
 # custom_metrics suite and writes to the query log archive. Every environment also
-# runs the metrics4 ingest chain. Development runs the legacy APM ingest chain too.
-# The production logs nodes still run that legacy chain.
+# runs the metrics4 ingest chain and the logs Kafka ingest. Development runs the
+# legacy APM ingest chain too. The production logs nodes still run that legacy chain.
 role "apm" {
   env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/apm/shared", "roles/apm/dev"] }
-  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/apm/shared"] }
-  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/apm/shared"] }
+  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest", "roles/apm/shared"] }
+  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest", "roles/apm/shared"] }
 }
 
 # AI_EVENTS satellite (LLM analytics). local/hobby run the MSK variant

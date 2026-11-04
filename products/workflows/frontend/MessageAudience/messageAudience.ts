@@ -25,6 +25,8 @@ export interface MessageAudience {
     workflowTrigger?: WorkflowTriggerConfig
     broadcastEmail?: MessageDraft
     workflowEmail?: MessageDraft
+    /** The record the email is about, as "<kind>:<id>". A later broadcast about it warns that it was already sent. */
+    sourceRecord?: string
     draftSource?: EmailDraftRequestApi
 }
 
@@ -46,6 +48,7 @@ export function messageAudienceUrl(audience: MessageAudience, destination: Messa
             properties: audience.properties,
             name: audience.broadcastName,
             source: audience.source,
+            sourceRecord: audience.sourceRecord,
             email: audience.broadcastEmail,
             draftSource: audience.draftSource,
         })

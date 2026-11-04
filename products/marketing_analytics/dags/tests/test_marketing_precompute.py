@@ -1,15 +1,26 @@
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
+import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase
 
 import dagster
 from parameterized import parameterized
 
-from posthog.schema import MarketingAnalyticsDrillDownLevel
+from posthog.schema import DateRange, MarketingAnalyticsDrillDownLevel
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_log_archive import (
+    DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE,
+    SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
+)
 from posthog.dags.common import chunk_ranges
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Organization, Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationTable
@@ -26,6 +37,7 @@ from products.marketing_analytics.dags.marketing_precompute import (
     SELECTED_TEAM_IDS_ENV_VAR,
     SHARDS_ENV_VAR,
     TEAM_CONCURRENCY_ENV_VAR,
+    _recently_active_team_ids,
     get_selected_team_ids,
     marketing_precompute_job,
     split_marketing_precompute_teams_op,
@@ -130,6 +142,37 @@ class TestGetSelectedTeamIds:
         # The override wins even when empty — an explicit kill switch, regardless of configured teams.
         with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
             assert get_selected_team_ids() == []
+
+
+@pytest.mark.usefixtures("clickhouse_database")
+class TestRecentlyActiveTeamIds(SimpleTestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        sync_execute(SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL())
+        sync_execute(DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL())
+
+    def _archive_query(self, team_id: int, query_type: str, days_ago: int) -> None:
+        sync_execute(
+            f"""
+            INSERT INTO {SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE}
+                (initial_query_start_time, team_id, initial_query_id, type, lc_query_type)
+            VALUES (now64(6) - toIntervalDay(%(days_ago)s), %(team_id)s, generateUUIDv4(), 'QueryFinish', %(query_type)s)
+            """,
+            {"team_id": team_id, "query_type": query_type, "days_ago": days_ago},
+        )
+
+    def test_reads_marketing_query_types_within_window_from_archive(self) -> None:
+        self._archive_query(101, "marketing_analytics_table_query", days_ago=1)
+        self._archive_query(102, "marketing_analytics_aggregated_query", days_ago=29)
+        self._archive_query(103, "web_overview_query", days_ago=1)
+        self._archive_query(104, "marketing_analytics_table_query", days_ago=31)
+        self._archive_query(0, "marketing_analytics_table_query", days_ago=1)
+
+        active = _recently_active_team_ids(30)
+        assert active is not None
+        # The archive MV also records this test run's own queries, so compare only the seeded teams.
+        assert active & {0, 101, 102, 103, 104} == {101, 102}
 
 
 class TestShardSplit:
@@ -353,15 +396,28 @@ class TestConversionWarming(APIBaseTest):
         assert ensure_mock.call_count > len(teams)
         assert database.create_for.call_count == len(teams)
 
+    @parameterized.expand([("utc", "UTC"), ("behind_utc", "America/Los_Angeles"), ("ahead_of_utc", "Asia/Jerusalem")])
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
-    def test_touchpoints_window_reaches_back_past_attribution_window(self, ensure_mock):
+    def test_touchpoints_window_covers_a_local_read_and_its_attribution_backfill(self, _name, timezone, ensure_mock):
         team = self._make_team("A", goals=[_INELIGIBLE_GOAL])
-        expected = PRECOMPUTE_WINDOW_DAYS + team.marketing_analytics_config.attribution_window_days
-        with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
+        team.timezone = timezone
+        team.save()
+        # The lookback crosses each zone's DST switch (Los Angeles 2024-03-10, Jerusalem 2024-03-29).
+        now = datetime(2024, 4, 2, 20, 0, tzinfo=UTC)
+        with (
+            time_machine.travel(now, tick=False),
+            patch(_FF, _flag_fn(conversion=True)),
+            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
+        ):
             warm_selected_teams(dagster.build_op_context())
+        read = QueryDateRange(
+            date_range=DateRange(date_from=f"-{PRECOMPUTE_WINDOW_DAYS}d"), team=team, interval=None, now=now
+        )
+        attribution = timedelta(days=team.marketing_analytics_config.attribution_window_days)
         kwargs = ensure_mock.call_args_list[0].kwargs  # touchpoints is warmed first
-        assert (kwargs["time_range_end"] - kwargs["time_range_start"]).days == expected
+        assert kwargs["time_range_start"] <= read.date_from() - attribution
+        assert kwargs["time_range_end"] >= read.date_to()
 
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
@@ -392,11 +448,14 @@ class TestConversionWarming(APIBaseTest):
         for call in ensure_mock.call_args_list:
             assert (call.kwargs["time_range_end"] - call.kwargs["time_range_start"]).days <= 7
 
+    @parameterized.expand([("warm_error", False, 2), ("invalid_timezone", True, 1)])
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
-    def test_one_team_failure_does_not_poison_others(self, ensure_mock):
+    def test_one_team_failure_does_not_poison_others(self, _name, invalid_timezone, expected_calls, ensure_mock):
         t1 = self._make_team("A", goals=[_INELIGIBLE_GOAL])
         t2 = self._make_team("B", goals=[_INELIGIBLE_GOAL])
+        if invalid_timezone:
+            Team.objects.filter(pk=t1.pk).update(timezone="Not/AZone")
 
         def side_effect(*args, **kwargs):
             if kwargs["team"].pk == t1.pk:
@@ -411,7 +470,7 @@ class TestConversionWarming(APIBaseTest):
             result = warm_selected_teams(dagster.build_op_context())
         assert result["teams"] == 2
         assert result["failures"] == 1
-        assert ensure_mock.call_count == 2
+        assert ensure_mock.call_count == expected_calls
 
     @patch(_ENSURE)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)

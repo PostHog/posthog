@@ -610,6 +610,8 @@ const llmaDatasetList = (): ToolBase<
                     'tags',
                     'archived',
                     'current_revision',
+                    'expires_at',
+                    'expiring_soon',
                     'created_at',
                     'updated_at',
                     'user_access_level',
@@ -674,7 +676,15 @@ const llmaDatasetRevisionList = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, ['id', 'dataset_id', 'revision', 'created_at', 'created_by'])
+                pickResponseFields(item, [
+                    'id',
+                    'dataset_id',
+                    'revision',
+                    'expires_at',
+                    'expiring_soon',
+                    'created_at',
+                    'created_by',
+                ])
             ),
         } as typeof result
         return withInformationalResponse(
@@ -729,7 +739,11 @@ const LlmaEvaluationBackfillCancelSchema = () => {
     const EvaluationsBackfillsCancelCreateParams = orvalSchemas.EvaluationsBackfillsCancelCreateParams()
     return z.preprocess(
         normalizeParamAliases({ evaluation_id: ['evaluationId'], id: ['backfillId', 'backfill_id'] }),
-        EvaluationsBackfillsCancelCreateParams.omit({ project_id: true })
+        EvaluationsBackfillsCancelCreateParams.omit({ project_id: true }).extend({
+            evaluation_id: EvaluationsBackfillsCancelCreateParams.shape['evaluation_id'].describe(
+                'UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.'
+            ),
+        })
     )
 }
 
@@ -754,7 +768,13 @@ const LlmaEvaluationBackfillCreateSchema = () => {
     const EvaluationsBackfillsCreateParams = orvalSchemas.EvaluationsBackfillsCreateParams()
     return z.preprocess(
         normalizeParamAliases({ evaluation_id: ['evaluationId'] }),
-        EvaluationsBackfillsCreateParams.omit({ project_id: true }).extend(EvaluationsBackfillsCreateBody.shape)
+        EvaluationsBackfillsCreateParams.omit({ project_id: true })
+            .extend(EvaluationsBackfillsCreateBody.shape)
+            .extend({
+                evaluation_id: EvaluationsBackfillsCreateParams.shape['evaluation_id'].describe(
+                    'UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.'
+                ),
+            })
     )
 }
 
@@ -793,9 +813,13 @@ const LlmaEvaluationBackfillEstimateSchema = () => {
     const EvaluationsBackfillsEstimateCreateParams = orvalSchemas.EvaluationsBackfillsEstimateCreateParams()
     return z.preprocess(
         normalizeParamAliases({ evaluation_id: ['evaluationId'] }),
-        EvaluationsBackfillsEstimateCreateParams.omit({ project_id: true }).extend(
-            EvaluationsBackfillsEstimateCreateBody.shape
-        )
+        EvaluationsBackfillsEstimateCreateParams.omit({ project_id: true })
+            .extend(EvaluationsBackfillsEstimateCreateBody.shape)
+            .extend({
+                evaluation_id: EvaluationsBackfillsEstimateCreateParams.shape['evaluation_id'].describe(
+                    'UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.'
+                ),
+            })
     )
 }
 
@@ -833,7 +857,11 @@ const LlmaEvaluationBackfillGetSchema = () => {
     const EvaluationsBackfillsRetrieveParams = orvalSchemas.EvaluationsBackfillsRetrieveParams()
     return z.preprocess(
         normalizeParamAliases({ evaluation_id: ['evaluationId'], id: ['backfillId', 'backfill_id'] }),
-        EvaluationsBackfillsRetrieveParams.omit({ project_id: true })
+        EvaluationsBackfillsRetrieveParams.omit({ project_id: true }).extend({
+            evaluation_id: EvaluationsBackfillsRetrieveParams.shape['evaluation_id'].describe(
+                'UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.'
+            ),
+        })
     )
 }
 
@@ -858,7 +886,13 @@ const LlmaEvaluationBackfillListSchema = () => {
     const EvaluationsBackfillsListQueryParams = orvalSchemas.EvaluationsBackfillsListQueryParams()
     return z.preprocess(
         normalizeParamAliases({ evaluation_id: ['evaluationId'] }),
-        EvaluationsBackfillsListParams.omit({ project_id: true }).extend(EvaluationsBackfillsListQueryParams.shape)
+        EvaluationsBackfillsListParams.omit({ project_id: true })
+            .extend(EvaluationsBackfillsListQueryParams.shape)
+            .extend({
+                evaluation_id: EvaluationsBackfillsListParams.shape['evaluation_id'].describe(
+                    'UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.'
+                ),
+            })
     )
 }
 
@@ -1324,8 +1358,11 @@ const LlmaEvaluationReportRunListSchema = () => {
     const LlmAnalyticsEvaluationReportsRunsListParams = orvalSchemas.LlmAnalyticsEvaluationReportsRunsListParams()
     const LlmAnalyticsEvaluationReportsRunsListQueryParams =
         orvalSchemas.LlmAnalyticsEvaluationReportsRunsListQueryParams()
-    return LlmAnalyticsEvaluationReportsRunsListParams.omit({ project_id: true }).extend(
-        LlmAnalyticsEvaluationReportsRunsListQueryParams.shape
+    return z.preprocess(
+        normalizeParamAliases({ id: ['report_id', 'reportId'] }),
+        LlmAnalyticsEvaluationReportsRunsListParams.omit({ project_id: true }).extend(
+            LlmAnalyticsEvaluationReportsRunsListQueryParams.shape
+        )
     )
 }
 
@@ -1846,6 +1883,8 @@ const llmaOfflineExperimentList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/ai_observability/offline_experiments/`,
             query: {
                 application_version: params.application_version,
+                created_by: params.created_by,
+                created_by_is_null: params.created_by_is_null,
                 cursor: params.cursor,
                 dataset_identifier: params.dataset_identifier,
                 dataset_revision_identifier: params.dataset_revision_identifier,
@@ -2076,6 +2115,9 @@ const llmaOfflineScorerHistory = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/ai_observability/offline_scorers/${encodeURIComponent(String(params.id))}/history/`,
             query: {
                 application_version: params.application_version,
+                breakdown: params.breakdown,
+                created_by: params.created_by,
+                created_by_is_null: params.created_by_is_null,
                 cursor: params.cursor,
                 dataset_identifier: params.dataset_identifier,
                 dataset_revision_identifier: params.dataset_revision_identifier,
@@ -2657,6 +2699,9 @@ const llmaScoreDefinitionCreate = (): ToolBase<
         if (params.name !== undefined) {
             body['name'] = params.name
         }
+        if (params.short_name !== undefined) {
+            body['short_name'] = params.short_name
+        }
         if (params.description !== undefined) {
             body['description'] = params.description
         }
@@ -2717,6 +2762,7 @@ const llmaScoreDefinitionList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/score_definitions/`,
             query: {
                 archived: params.archived,
+                created_by: params.created_by,
                 kind: params.kind,
                 limit: params.limit,
                 offset: params.offset,
@@ -2749,6 +2795,9 @@ const llmaScoreDefinitionNewVersion = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaScoreDefinitionNewVersionSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.short_name !== undefined) {
+            body['short_name'] = params.short_name
+        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }
@@ -2793,6 +2842,9 @@ const llmaScoreDefinitionUpdate = (): ToolBase<
         }
         if (params.name !== undefined) {
             body['name'] = params.name
+        }
+        if (params.short_name !== undefined) {
+            body['short_name'] = params.short_name
         }
         if (params.description !== undefined) {
             body['description'] = params.description

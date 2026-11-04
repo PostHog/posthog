@@ -77,6 +77,7 @@ class ServiceRequest:
         self.successful_authenticator = None
         self.path = "/"
         self.data: dict = {}
+        self.FILES: dict = {}
         self.GET: dict = {}
         self.META: dict = {}
         self.headers: dict = {}

@@ -1,6 +1,6 @@
 import { ReactNode, RefCallback } from 'react'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { IconChevronRight } from '@posthog/icons'
 import { MenuLabel, cn } from '@posthog/quill'
 
 import { TodayPaneSectionResizeHandle } from './TodayPaneSectionResizeHandle'
@@ -46,7 +46,6 @@ export function TodayPaneSection({
     contentRef,
     children,
 }: TodayPaneSectionProps): JSX.Element {
-    const Caret = open ? IconChevronDown : IconChevronRight
     return (
         <section aria-label={label} className="flex shrink-0 flex-col">
             <div className={cn('relative flex h-7 shrink-0 items-center gap-1', divider && 'border-t border-border')}>
@@ -68,7 +67,7 @@ export function TodayPaneSection({
                             </span>
                         )}
                         <span>{label}</span>
-                        <Caret className="size-3 shrink-0 opacity-60" />
+                        <IconChevronRight className={cn('size-3 shrink-0 opacity-60', open && 'rotate-90')} />
                         {!open && showCount && count > 0 && (
                             <span className="ml-0.5 font-normal text-muted-foreground tabular-nums">{count}</span>
                         )}

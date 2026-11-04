@@ -1,3 +1,5 @@
+import { IconPerson } from '@posthog/icons'
+
 import { cn } from 'lib/utils/css-classes'
 
 export function TileBadge({
@@ -27,7 +29,15 @@ export function TileBadge({
             style={color ? { color } : undefined}
             translate="no"
         >
-            {children}
+            {placement === 'count' ? (
+                // Beside a stack's step count, a bare number reads as steps rather than people.
+                <span className="inline-flex items-center gap-0.5">
+                    <IconPerson className={size === 'mini' ? 'size-2.5' : 'size-3'} />
+                    {children}
+                </span>
+            ) : (
+                children
+            )}
         </span>
     )
 }

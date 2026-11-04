@@ -10,6 +10,7 @@ import {
     Size,
     viewportAfterResize,
     viewportAnchoredOn,
+    viewportShowing,
     viewportToFit,
 } from './tileCanvasModel'
 
@@ -54,6 +55,31 @@ function useViewportFollowsResize(wrapperRef: RefObject<HTMLDivElement>): void {
     }, [reactFlow, wrapperRef, selectedStepBox])
 }
 
+/** A step picked off screen, such as one just added, has no position until the next layout, so it is shown once that lands. */
+function useSelectedStepInView(wrapperRef: RefObject<HTMLDivElement>): void {
+    const reactFlow = useReactFlow()
+    const { selectedNodeId } = useValues(tileCanvasLogic)
+    const selectedStepBox = useSelectedStepBox()
+    const shownStepId = useRef<string | null>(null)
+    const box = selectedStepBox.current
+    useEffect(() => {
+        const wrapper = wrapperRef.current
+        if (!selectedNodeId) {
+            shownStepId.current = null
+            return
+        }
+        if (!wrapper || !box || shownStepId.current === selectedNodeId) {
+            return
+        }
+        shownStepId.current = selectedNodeId
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        void reactFlow.setViewport(viewportShowing(reactFlow.getViewport(), sizeOf(wrapper), box), {
+            duration: reduceMotion ? 0 : FOCUS_MS,
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedNodeId, box?.x, box?.y, box?.width, box?.height])
+}
+
 /** Edits keep the viewport the person panned or zoomed to; only an explicit fit request moves it. */
 function useFitOnRequest(wrapperRef: RefObject<HTMLDivElement>): void {
     const reactFlow = useReactFlow()
@@ -95,6 +121,7 @@ function useFocusOnPath(wrapperRef: RefObject<HTMLDivElement>): void {
 
 export function useCanvasViewport(wrapperRef: RefObject<HTMLDivElement>): void {
     useViewportFollowsResize(wrapperRef)
+    useSelectedStepInView(wrapperRef)
     useFitOnRequest(wrapperRef)
     useFocusOnPath(wrapperRef)
 }

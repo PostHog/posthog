@@ -142,10 +142,13 @@ def forward_pending_user_message(run_id: str) -> None:
                 refresh_agent_instructions_state(task_run, actor_user, reason="warm_activation")
 
         from products.tasks.backend.logic.services.sandbox_usage import (  # noqa: PLC0415 — matches the file's deferred-import pattern
+            claim_task_run_sandbox_sessions,
             measure_task_run_cpu_attribution,
         )
 
         cpu_attribution = measure_task_run_cpu_attribution(run_id, task_run.team_id)
+        if state.get("await_user_message"):
+            claim_task_run_sandbox_sessions(run_id, task_run.team_id, cpu_attribution)
         result = send_user_message(
             task_run,
             pending_message,
@@ -272,6 +275,7 @@ def _enqueue_pending_reply_relay(task_run: Any, user_message_ts: str | None, com
             user_message_ts=user_message_ts,
             trace_id=_extract_trace_id_from_command_result(command_result_data),
             offer_reply_suggestions=is_agent_answer,
+            offer_feature_tip=is_agent_answer,
         )
     except Exception:
         logger.exception("forward_pending_message_relay_enqueue_failed", run_id=str(task_run.id))

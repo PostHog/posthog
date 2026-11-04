@@ -1007,13 +1007,36 @@ class TestRedshiftSourceNonRetryableErrors:
 
     @pytest.mark.parametrize(
         "error_msg",
-        [f"{HOST_RESOLUTION_TIMEOUT_ERROR} after 15.0s", TEMPORARY_HOST_RESOLUTION_ERROR],
+        [
+            f"{HOST_RESOLUTION_TIMEOUT_ERROR} after 15.0s",
+            TEMPORARY_HOST_RESOLUTION_ERROR,
+            "connection timeout expired",
+        ],
     )
-    def test_resolver_failures_before_the_connect_are_classified_retryable(self, error_msg):
+    def test_connect_time_failures_are_classified_retryable(self, error_msg):
         source = RedshiftSource()
         assert any(pattern in error_msg for pattern in source.get_retryable_errors())
-        assert not any(pattern in error_msg for pattern in source.get_non_retryable_errors())
+        assert not error_message_matches(error_msg, {**Any_Source_Errors, **source.get_non_retryable_errors()})
         assert source.get_retryable_errors() == set(source.get_retry_exhausted_errors().keys())
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Reported by error tracking: a mid-stream socket drop raised once `cursor.stream()`
+            # has already yielded rows, so `_stream_arrow_batches` can no longer retry in-process
+            # (re-running the query would re-emit consumed rows) and the raw psycopg error
+            # propagates all the way up to the activity.
+            "consuming input failed: SSL SYSCALL error: EOF detected",
+            "server closed the connection unexpectedly",
+            "the connection is lost",
+        ],
+    )
+    def test_mid_stream_connection_drops_are_classified_retryable(self, error_msg):
+        # The retryable/exhausted key-set invariant is covered once, for any error message, by
+        # `test_connect_time_failures_are_classified_retryable` above.
+        source = RedshiftSource()
+        assert error_message_matches(error_msg, source.get_retryable_errors())
+        assert not error_message_matches(error_msg, {**Any_Source_Errors, **source.get_non_retryable_errors()})
 
 
 class TestRedshiftValidateCredentials:
@@ -1159,6 +1182,20 @@ def build_pipeline_mocks(mocker):
     )
     mock_connect.created_conns = created_conns
     return mock_connect, streaming_cursor
+
+
+class TestConnect:
+    @pytest.mark.parametrize(
+        "overrides,expected_sslmode",
+        [({}, "require"), ({"verify_server_certificate": "true"}, "verify-full")],
+    )
+    def test_certificate_verification_is_opt_in(self, mocker, overrides, expected_sslmode):
+        mock_connect = mocker.patch(f"{_REDSHIFT_MODULE}.psycopg.connect")
+
+        with RedshiftImplementation().connect(_make_config(**overrides), statement_timeout_ms=None):
+            pass
+
+        assert mock_connect.call_args.kwargs["sslmode"] == expected_sslmode
 
 
 class TestIsTransientConnectionDropError:

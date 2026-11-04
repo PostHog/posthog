@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDialog, LemonModal, LemonSkeleton, LemonTabs, LemonTextArea } from '@posthog/lemon-ui'
 
-import { MarkdownTextDiff } from 'lib/components/MarkdownNotebook/MarkdownTextDiff'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { ContentAutopilotBriefPanel } from './ContentAutopilotBriefPanel'
+import { ContentAutopilotLineDiff } from './ContentAutopilotLineDiff'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotSourceLedger } from './ContentAutopilotSourceLedger'
 import { ContentAutopilotValidationSummary } from './ContentAutopilotValidationSummary'
@@ -167,12 +167,10 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
                                   key: 'changes',
                                   label: 'Changes',
                                   content: (
-                                      <div className="max-h-160 overflow-auto rounded border p-3 whitespace-pre-wrap font-mono text-sm">
-                                          <MarkdownTextDiff
-                                              before={selectedProposal.original_markdown}
-                                              after={proposedMarkdown}
-                                          />
-                                      </div>
+                                      <ContentAutopilotLineDiff
+                                          before={selectedProposal.original_markdown}
+                                          after={proposedMarkdown}
+                                      />
                                   ),
                               }
                             : null,

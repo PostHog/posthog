@@ -6,6 +6,7 @@ import {
     ActivityLogUserName,
     Describer,
     Description,
+    defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
@@ -54,9 +55,15 @@ describe('humanizeActivity', () => {
             changes: [
                 { field: 'session_recording_opt_in', after: true },
                 { field: 'effective_membership_level', after: 1 },
+                {
+                    field: 'feature_flag_policy_config',
+                    before: { require_tags: false, blocked_hosts: ['old.example.com'], blocked_ips: [] },
+                    after: { require_tags: true, blocked_hosts: ['new.example.com'], blocked_ips: [] },
+                },
             ],
-            action: 'enabled session recording',
-            description: 'A user enabled session recording on Example',
+            action: 'enabled session recording, enabled required tags on feature flags, added new.example.com to the blocked domains for feature flag requests, and removed old.example.com from the blocked domains for feature flag requests',
+            description:
+                'A user enabled session recording, enabled required tags on feature flags, added new.example.com to the blocked domains for feature flag requests, and removed old.example.com from the blocked domains for feature flag requests on Example',
         },
         {
             scope: ActivityScope.EVENT_DEFINITION,
@@ -159,6 +166,66 @@ describe('humanizeActivity', () => {
 
             expect(render(<>{describer(logItem).summary?.action}</>).container.textContent).toBe(expected)
         }
+    })
+
+    it.each<{ reason: string; changes: Partial<ActivityChange>[]; action: string; description: string }>([
+        {
+            reason: 'staff_set',
+            changes: [
+                { field: 'email_sending_tier', before: 2, after: 3 },
+                { field: 'email_sending_tier_pinned', before: false, after: true },
+            ],
+            action: 'Set the workflow email sending tier from 2 to 3 and pinned it there',
+            description: 'A user set the workflow email sending tier on Example from 2 to 3 and pinned it there',
+        },
+        {
+            reason: 'clean_and_used',
+            changes: [{ field: 'email_sending_tier', before: 1, after: 2 }],
+            action: 'Moved the workflow email sending tier from 1 to 2',
+            description: 'A user moved the workflow email sending tier on Example from 1 to 2 (reason: clean_and_used)',
+        },
+        {
+            reason: 'staff_set',
+            changes: [{ field: 'email_sending_tier_pinned', before: true, after: false }],
+            action: 'Unpinned the workflow email sending tier',
+            description: 'A user unpinned the workflow email sending tier on Example',
+        },
+    ])('describes an email sending tier change: $action', ({ reason, changes, action, description }) => {
+        const logItem = makeLogItem({
+            scope: ActivityScope.TEAM,
+            activity: 'email_sending_tier_changed',
+            detail: {
+                merge: null,
+                trigger: null,
+                name: 'Example',
+                context: { reason },
+                changes: changes.map((change) => ({ type: ActivityScope.TEAM, action: 'changed', ...change })),
+            },
+        })
+        const result = teamActivityDescriber(logItem)
+        const text = (value: Description | undefined): string =>
+            (render(<>{value}</>).container.textContent || '').replace(/\s+/g, ' ').trim()
+
+        expect(text(result.description)).toBe(description)
+        expect(text(result.summary?.action)).toBe(action)
+    })
+
+    it.each([
+        ['minted', 'A user created Developer mode token for a@posthog.com'],
+        ['revoked', 'A user revoked Developer mode token for a@posthog.com'],
+    ])('describes a %s DevGatewayToken row with the default describer', (activity, expected) => {
+        const logItem = makeLogItem({
+            scope: ActivityScope.DEV_GATEWAY_TOKEN,
+            activity,
+            detail: { merge: null, trigger: null, changes: null, name: 'Developer mode token for a@posthog.com' },
+        })
+        const { description } = defaultDescriber(logItem)
+
+        expect(
+            render(<>{description}</>)
+                .container.textContent?.replace(/\s+/g, ' ')
+                .trim()
+        ).toBe(expected)
     })
 
     describe('userNameForLogItem', () => {

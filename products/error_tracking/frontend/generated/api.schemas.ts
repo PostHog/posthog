@@ -335,6 +335,10 @@ export interface SessionPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -639,6 +643,44 @@ export type PatchedErrorTrackingAssignmentRuleReorderRequestApiOrders = { [key: 
 export interface PatchedErrorTrackingAssignmentRuleReorderRequestApi {
     /** Mapping from assignment rule UUID to its new evaluation order. */
     orders?: PatchedErrorTrackingAssignmentRuleReorderRequestApiOrders
+}
+
+/**
+ * * `client` - Client
+ * * `server` - Server
+ */
+export type BuiltInFilterEvaluationEnumApi =
+    (typeof BuiltInFilterEvaluationEnumApi)[keyof typeof BuiltInFilterEvaluationEnumApi]
+
+export const BuiltInFilterEvaluationEnumApi = {
+    Client: 'client',
+    Server: 'server',
+} as const
+
+export interface ErrorTrackingBuiltInFilterApi {
+    /** Stable identifier of the built-in filter, for example `web_crawlers`. */
+    readonly key: string
+    /** Display name of the built-in filter. */
+    readonly name: string
+    /** One sentence on which exceptions the filter drops. */
+    readonly description: string
+    /** Where the filter runs. `client` filters also run in the web SDK, which drops matching exceptions before it sends them. `server` filters run only during ingestion.
+     *
+     * * `client` - Client
+     * * `server` - Server */
+    readonly evaluation: BuiltInFilterEvaluationEnumApi
+    /** Whether the filter drops exceptions for this project. */
+    readonly enabled: boolean
+    /**
+     * Set when ingestion turned the filter off because it failed on an event. Turning the filter on again resets it.
+     * @nullable
+     */
+    readonly disabled_reason: string | null
+}
+
+export interface PatchedErrorTrackingBuiltInFilterUpdateRequestApi {
+    /** `true` drops matching exceptions for this project. `false` stops dropping them. */
+    enabled?: boolean
 }
 
 export interface ErrorTrackingBypassRuleApi {
@@ -1066,6 +1108,95 @@ export interface ErrorTrackingIssueSplitResponseApi {
 }
 
 /**
+ * * `ready` - Ready
+ * * `not_generated` - Not Generated
+ * * `unavailable` - Unavailable
+ */
+export type IssueSummaryStatusEnumApi = (typeof IssueSummaryStatusEnumApi)[keyof typeof IssueSummaryStatusEnumApi]
+
+export const IssueSummaryStatusEnumApi = {
+    Ready: 'ready',
+    NotGenerated: 'not_generated',
+    Unavailable: 'unavailable',
+} as const
+
+/**
+ * * `own_code` - Own Code
+ * * `third_party` - Third Party
+ * * `network` - Network
+ * * `bots` - Bots
+ * * `expected` - Expected
+ * * `unclear` - Unclear
+ */
+export type IssueSummaryCategoryEnumApi = (typeof IssueSummaryCategoryEnumApi)[keyof typeof IssueSummaryCategoryEnumApi]
+
+export const IssueSummaryCategoryEnumApi = {
+    OwnCode: 'own_code',
+    ThirdParty: 'third_party',
+    Network: 'network',
+    Bots: 'bots',
+    Expected: 'expected',
+    Unclear: 'unclear',
+} as const
+
+export interface ErrorTrackingStoredIssueSummaryApi {
+    /** What the exception is and where it happens. */
+    what_happened: string
+    /** The model's hypothesis about the cause. Not a confirmed finding. Can be empty. */
+    likely_cause: string
+    /** Which users, sessions or environments see the issue. */
+    who_is_affected: string
+    /** One concrete step to investigate or fix the issue. */
+    suggested_next_step: string
+    /** Broad source of the issue, or null when the category model did not answer.
+     *
+     * * `own_code` - Own Code
+     * * `third_party` - Third Party
+     * * `network` - Network
+     * * `bots` - Bots
+     * * `expected` - Expected
+     * * `unclear` - Unclear */
+    category: IssueSummaryCategoryEnumApi | null
+    /** Model that wrote the summary. */
+    model: string
+    /** When the summary was written. */
+    generated_at: string
+    /** When generation last wrote the summary. */
+    checked_at: string
+}
+
+/**
+ * * `restricted` - Restricted
+ * * `disabled` - Disabled
+ * * `ai_not_approved` - Ai Not Approved
+ */
+export type IssueSummaryUnavailableReasonEnumApi =
+    (typeof IssueSummaryUnavailableReasonEnumApi)[keyof typeof IssueSummaryUnavailableReasonEnumApi]
+
+export const IssueSummaryUnavailableReasonEnumApi = {
+    Restricted: 'restricted',
+    Disabled: 'disabled',
+    AiNotApproved: 'ai_not_approved',
+} as const
+
+export interface ErrorTrackingIssueSummaryResponseApi {
+    /** ready: `summary` holds the stored summary. not_generated: no summary is stored for this issue. A summary is written only when an issue is created. unavailable: no summary can be shown. `reason` says why.
+     *
+     * * `ready` - Ready
+     * * `not_generated` - Not Generated
+     * * `unavailable` - Unavailable */
+    status: IssueSummaryStatusEnumApi
+    /** The stored summary, or null when the status is not ready. */
+    summary: ErrorTrackingStoredIssueSummaryApi | null
+    /** Why the status is unavailable, else null. restricted: the user may not read a property that the summary is written from. disabled: summaries are off for the project. ai_not_approved: the organization has not approved AI data processing.
+     *
+     * * `restricted` - Restricted
+     * * `disabled` - Disabled
+     * * `ai_not_approved` - Ai Not Approved */
+    reason: IssueSummaryUnavailableReasonEnumApi | null
+}
+
+/**
  * * `set_status` - set_status
  * * `assign` - assign
  */
@@ -1211,6 +1342,43 @@ export interface ErrorTrackingImpactApi {
     sessions?: number
 }
 
+/**
+ * * `new` - New
+ * * `increasing` - Increasing
+ * * `decreasing` - Decreasing
+ * * `stable` - Stable
+ */
+export type IssueTrendDirectionEnumApi = (typeof IssueTrendDirectionEnumApi)[keyof typeof IssueTrendDirectionEnumApi]
+
+export const IssueTrendDirectionEnumApi = {
+    New: 'new',
+    Increasing: 'increasing',
+    Decreasing: 'decreasing',
+    Stable: 'stable',
+} as const
+
+export interface ErrorTrackingIssueTrendApi {
+    /** Occurrences in the second half of dateRange against the first half. 'increasing' or 'decreasing' means a change of at least 25%. 'new' means the issue first occurred in the second half, counting merged fingerprints. 'stable' means a smaller change.
+     *
+     * * `new` - New
+     * * `increasing` - Increasing
+     * * `decreasing` - Decreasing
+     * * `stable` - Stable */
+    direction: IssueTrendDirectionEnumApi
+    /** Occurrences in the second half of dateRange. */
+    current_occurrences: number
+    /** Occurrences in the first half of dateRange. */
+    previous_occurrences: number
+    /** Percent change from the first half to the second half. Absent when the first half has no occurrences. */
+    change_percent?: number
+    /** Start of the first half. */
+    previous_from: string
+    /** End of the first half. */
+    previous_to: string
+    /** Start of the second half. The second half ends at the end of dateRange. */
+    current_from: string
+}
+
 export interface ErrorTrackingBreakdownValueApi {
     /** Property value. */
     value: string
@@ -1250,6 +1418,28 @@ export interface ErrorTrackingIssueBreakdownApi {
     sample_session_ids: string[]
     /** Most common values for each dimension. A dimension with no values is left out. */
     top_values: ErrorTrackingBreakdownTopValuesApi
+}
+
+export interface ErrorTrackingIssueSummaryApi {
+    /** What the error is and where it happens, in plain language. */
+    what_happened: string
+    /** The model's best guess at the cause. A hypothesis to check against the code, never a finding. */
+    likely_cause: string
+    /** Which users, sessions or platforms the error reaches. */
+    who_is_affected: string
+    /** One concrete step to investigate or fix the error. */
+    suggested_next_step: string
+    /** Where the error most likely comes from. 'own_code' is a bug in the application's code, 'third_party' a third-party script, browser extension or dependency, 'network' a network or connectivity failure, 'bots' automated traffic, 'expected' handled behavior that needs no fix, and 'unclear' means the stack trace does not tell. Absent when no category was inferred.
+     *
+     * * `own_code` - Own Code
+     * * `third_party` - Third Party
+     * * `network` - Network
+     * * `bots` - Bots
+     * * `expected` - Expected
+     * * `unclear` - Unclear */
+    category?: IssueSummaryCategoryEnumApi
+    /** When the summary was written. */
+    generated_at: string
 }
 
 export interface ErrorTrackingIssueDetailApi {
@@ -1302,12 +1492,30 @@ export interface ErrorTrackingIssueDetailApi {
     top_in_app_frame?: ErrorTrackingTopFrameApi
     /** Latest release metadata. */
     latest_release?: ErrorTrackingLatestReleaseApi
+    /** Release metadata from the issue's first event, found near first_seen and not limited by dateRange. Compare it with latest_release to see which release introduced the issue. Absent when the first event has no release metadata. */
+    first_release?: ErrorTrackingLatestReleaseApi
     /** Compact impact counts. */
     impact?: ErrorTrackingImpactApi
+    /** Whether the issue is getting worse or better: occurrences in the second half of dateRange against the first half. Absent when the issue has no occurrences in dateRange. */
+    trend?: ErrorTrackingIssueTrendApi
     /** Optional compact occurrence sparkline. */
     sparkline?: number[]
     /** Aggregate over matching events. Returned only when includeBreakdown is true. */
     breakdown?: ErrorTrackingIssueBreakdownApi
+    /** An AI-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
+    summary?: ErrorTrackingIssueSummaryApi
+    /** 'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is written only when an issue is created. 'unavailable' means no summary can be shown, and summary_reason says why.
+     *
+     * * `ready` - Ready
+     * * `not_generated` - Not Generated
+     * * `unavailable` - Unavailable */
+    summary_status: IssueSummaryStatusEnumApi
+    /** Present only when summary_status is 'unavailable'. 'restricted': the user may not read a property that the summary is written from. 'disabled': summaries are off for the project. 'ai_not_approved': the organization has not approved AI data processing.
+     *
+     * * `restricted` - Restricted
+     * * `disabled` - Disabled
+     * * `ai_not_approved` - Ai Not Approved */
+    summary_reason?: IssueSummaryUnavailableReasonEnumApi
 }
 
 /**
@@ -1593,6 +1801,8 @@ export const ErrorTrackingIssueOrderByEnumApi = {
 } as const
 
 export interface ErrorTrackingIssuesListQueryRequestApi {
+    /** Only include issues first seen strictly after this ISO timestamp or relative date, such as -24h or -7d. Independent of dateRange, which filters occurrences. */
+    firstSeenAfter?: string
     /** Date range for issue aggregates. Defaults to the last 7 days. */
     dateRange?: ErrorTrackingDateRangeApi
     /** Filter by issue status. Defaults to active.
@@ -1649,7 +1859,7 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
     /** Filter by SDK/library value from event $lib, for example posthog-js. */
     library?: string | string[]
     /**
-     * Filter by exact release ID, version, or git commit ID captured in $exception_releases.
+     * Filter by exact release ID, version, or git commit ID captured in $exception_release.
      * @maxLength 500
      */
     release?: string
@@ -1767,6 +1977,167 @@ export interface PaginatedErrorTrackingRecommendationListApi {
 }
 
 /**
+ * * `javascript` - JavaScript
+ * * `java` - Android
+ * * `native` - iOS and native
+ */
+export type SymbolsPlatformEnumApi = (typeof SymbolsPlatformEnumApi)[keyof typeof SymbolsPlatformEnumApi]
+
+export const SymbolsPlatformEnumApi = {
+    Javascript: 'javascript',
+    Java: 'java',
+    Native: 'native',
+} as const
+
+/**
+ * * `chunk_not_uploaded` - Source map not uploaded
+ * * `no_source_map_linked` - Script links no source map
+ * * `file_not_reachable` - Script or source map not reachable
+ * * `invalid_source_map` - Source map URL returns something else
+ * * `too_large_to_fetch` - Too large to fetch
+ * * `bundle_not_injected` - Bundle not processed by the PostHog CLI
+ * * `mapping_not_uploaded` - Mapping file not uploaded
+ * * `dsym_not_uploaded` - dSYM not uploaded
+ * * `debug_symbols_not_uploaded` - Debug symbols not uploaded
+ */
+export type MissingSymbolsReasonEnumApi = (typeof MissingSymbolsReasonEnumApi)[keyof typeof MissingSymbolsReasonEnumApi]
+
+export const MissingSymbolsReasonEnumApi = {
+    ChunkNotUploaded: 'chunk_not_uploaded',
+    NoSourceMapLinked: 'no_source_map_linked',
+    FileNotReachable: 'file_not_reachable',
+    InvalidSourceMap: 'invalid_source_map',
+    TooLargeToFetch: 'too_large_to_fetch',
+    BundleNotInjected: 'bundle_not_injected',
+    MappingNotUploaded: 'mapping_not_uploaded',
+    DsymNotUploaded: 'dsym_not_uploaded',
+    DebugSymbolsNotUploaded: 'debug_symbols_not_uploaded',
+} as const
+
+export interface MissingSymbolsIssueApi {
+    /** The issue ID. */
+    id: string
+    /**
+     * The issue name, usually the exception type.
+     * @nullable
+     */
+    name: string | null
+    /**
+     * The issue description, usually the message.
+     * @nullable
+     */
+    description: string | null
+    /** How many of the issue's exceptions in the lookback window contain these frames. */
+    occurrences: number
+}
+
+export interface MissingSymbolsStackFrameApi {
+    /**
+     * The function name, resolved when symbols were available.
+     * @nullable
+     */
+    function: string | null
+    /**
+     * The file, script URL or module of the frame.
+     * @nullable
+     */
+    source: string | null
+    /**
+     * The line number, when known.
+     * @nullable
+     */
+    line: number | null
+    /**
+     * The column number, when known.
+     * @nullable
+     */
+    column: number | null
+    /** Whether the frame is the team's own code. */
+    in_app: boolean
+    /** Whether an upload of symbols would resolve this frame. */
+    missing_symbols: boolean
+}
+
+export interface MissingSymbolsExampleExceptionApi {
+    /**
+     * The issue the exception belongs to, or null when no issue owns its fingerprint.
+     * @nullable
+     */
+    issue_id: string | null
+    /** The exception's fingerprint, which the issue page uses to find it. */
+    fingerprint: string
+    /** When the exception happened. */
+    timestamp: string
+    /**
+     * The exception type, such as TypeError.
+     * @nullable
+     */
+    type: string | null
+    /**
+     * The exception message.
+     * @nullable
+     */
+    value: string | null
+    /** The stack trace, most recent call first, cut to the frames nearest the crash. */
+    frames: MissingSymbolsStackFrameApi[]
+}
+
+export interface MissingSymbolsExampleApi {
+    /** Why the frames miss symbols, as a code. Each code maps to one kind of setup gap.
+     *
+     * * `chunk_not_uploaded` - Source map not uploaded
+     * * `no_source_map_linked` - Script links no source map
+     * * `file_not_reachable` - Script or source map not reachable
+     * * `invalid_source_map` - Source map URL returns something else
+     * * `too_large_to_fetch` - Too large to fetch
+     * * `bundle_not_injected` - Bundle not processed by the PostHog CLI
+     * * `mapping_not_uploaded` - Mapping file not uploaded
+     * * `dsym_not_uploaded` - dSYM not uploaded
+     * * `debug_symbols_not_uploaded` - Debug symbols not uploaded */
+    reason: MissingSymbolsReasonEnumApi
+    /**
+     * Where the frames come from: the script URL or path, the bundle, or an example class or app image.
+     * @nullable
+     */
+    location: string | null
+    /**
+     * The chunk ID, mapping ID or debug ID that the missing symbols must be uploaded under, when known.
+     * @nullable
+     */
+    symbol_id: string | null
+    /**
+     * The HTTP status the script or source map returned, for 'file_not_reachable'.
+     * @nullable
+     */
+    http_status: number | null
+    /** How many distinct stack frames in the lookback window this covers. */
+    frames: number
+    /** Up to five issues whose exceptions in the lookback window contain these frames, most occurrences first. */
+    issues: MissingSymbolsIssueApi[]
+    /** How many issues have exceptions in the lookback window that contain these frames. */
+    issue_count: number
+    /** True when the exception scan searched only a sample of the frames or stopped at its limit, so `issue_count` is a lower bound. */
+    issue_count_capped: boolean
+    /** A recent exception whose stack trace contains these frames, or null when none was found. */
+    example_exception: MissingSymbolsExampleExceptionApi | null
+}
+
+export interface MissingSymbolsExamplesApi {
+    /** The platform the examples are for.
+     *
+     * * `javascript` - JavaScript
+     * * `java` - Android
+     * * `native` - iOS and native */
+    platform: SymbolsPlatformEnumApi
+    /** How many hours of recent stack frames the examples cover. */
+    lookback_hours: number
+    /** False when the exception lookup failed, so `issues` and `example_exception` are unknown, not empty. */
+    exceptions_loaded: boolean
+    /** The files and builds with the most frames missing symbols, most frames first. */
+    results: MissingSymbolsExampleApi[]
+}
+
+/**
  * @nullable
  */
 export type ErrorTrackingReleaseApiMetadata = { [key: string]: unknown } | null
@@ -1876,6 +2247,8 @@ export interface PatchedErrorTrackingReleaseUpdateRequestApi {
 }
 
 export interface ErrorTrackingSettingsApi {
+    /** Project preference for adaptive ingestion. Turning this on does not currently change ingestion. */
+    adaptive_ingestion_enabled?: boolean
     /**
      * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
      * @minimum 1
@@ -1900,9 +2273,13 @@ export interface ErrorTrackingSettingsApi {
      * @nullable
      */
     per_issue_rate_limit_bucket_size_minutes?: number | null
+    /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
+    ingestion_enabled?: boolean
 }
 
 export interface PatchedErrorTrackingSettingsApi {
+    /** Project preference for adaptive ingestion. Turning this on does not currently change ingestion. */
+    adaptive_ingestion_enabled?: boolean
     /**
      * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
      * @minimum 1
@@ -1927,6 +2304,8 @@ export interface PatchedErrorTrackingSettingsApi {
      * @nullable
      */
     per_issue_rate_limit_bucket_size_minutes?: number | null
+    /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
+    ingestion_enabled?: boolean
 }
 
 /**
@@ -2278,6 +2657,10 @@ export interface ErrorTrackingSymbolSetBulkDeleteApi {
 export type ErrorTrackingSymbolSetBulkFinishUploadApiContentHashes = { [key: string]: string }
 
 export interface ErrorTrackingSymbolSetBulkFinishUploadApi {
+    /** Optional ID from the corresponding bulk start request for upload analytics. */
+    upload_attempt_id?: string
+    /** Optional ID shared by every batch in one CLI upload run, including release-ID retries. */
+    upload_run_id?: string
     /** Map of symbol set ID to uploaded content hash. */
     content_hashes: ErrorTrackingSymbolSetBulkFinishUploadApiContentHashes
 }
@@ -2289,6 +2672,10 @@ export interface ErrorTrackingSymbolSetBulkStartUploadApi {
     force?: boolean
     /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
     skip_on_conflict?: boolean
+    /** Optional ID used to correlate upload analytics across start and finish requests. */
+    upload_attempt_id?: string
+    /** Optional ID shared by every batch in one CLI upload run, including release-ID retries. */
+    upload_run_id?: string
     /** Legacy list of symbol set references to upload, all associated with `release_id`. */
     chunk_ids?: string[]
     /**
@@ -2401,6 +2788,7 @@ export type ErrorTrackingFingerprintsListParams = {
     issue_id?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2465,6 +2853,7 @@ export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
 export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2513,9 +2902,31 @@ export type ErrorTrackingRecommendationsRefreshCreateParams = {
     force?: boolean
 }
 
+export type ErrorTrackingRecommendationsSourceMapsExamplesRetrieveParams = {
+    /**
+     * The platform to list examples for: 'javascript', 'java' (Android) or 'native' (iOS and native).
+     *
+     * * `javascript` - JavaScript
+     * * `java` - Android
+     * * `native` - iOS and native
+     * @minLength 1
+     */
+    platform: ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform
+}
+
+export type ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform =
+    (typeof ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform)[keyof typeof ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform]
+
+export const ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform = {
+    Javascript: 'javascript',
+    Java: 'java',
+    Native: 'native',
+} as const
+
 export type ErrorTrackingReleasesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2539,6 +2950,7 @@ export type ErrorTrackingSpikeEventsListParams = {
     issue_ids?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2554,6 +2966,7 @@ export type ErrorTrackingSpikeEventsListParams = {
 export type ErrorTrackingStackFramesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2576,6 +2989,7 @@ export type ErrorTrackingSuppressionRulesListParams = {
 export type ErrorTrackingSymbolSetsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**

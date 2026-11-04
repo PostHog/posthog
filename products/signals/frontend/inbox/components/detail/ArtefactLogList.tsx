@@ -2,6 +2,7 @@ import { type ComponentType, Fragment, useState } from 'react'
 
 import {
     IconActivity,
+    IconCheckCircle,
     IconHide,
     IconCode,
     IconComment,
@@ -28,6 +29,7 @@ import { LemonCard, LemonTag, type LemonTagType, Link, ProfilePicture, Tooltip }
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import type { SignalNode } from 'scenes/debug/signals/types'
@@ -39,6 +41,7 @@ import type { SignalReportPullRequestApi } from 'products/signals/frontend/gener
 import { INBOX_RANKING_SCORES, PRIORITY_TAG_TYPE, rankingScoreForHead } from '../../filterOptions'
 import { SignalCard } from '../../SignalCard'
 import { EnrichedReviewer, SignalReportActionability, SignalReportPriority, SignalReportArtefact } from '../../types'
+import { dismissalReasonLabel } from '../../utils/dismissalReasons'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { formatRankingLift, formatRankingProbability } from '../cards/rankingFormat'
 import { RankingLiftBar } from '../cards/RankingLiftBar'
@@ -176,7 +179,7 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
 }
 
 function dismissReasonLabel(reason: string): string {
-    return DISMISS_REASON_LABELS[reason] ?? prettify(reason)
+    return DISMISS_REASON_LABELS[reason] ?? dismissalReasonLabel(reason) ?? prettify(reason)
 }
 
 /** A short relevance / context note above a code block. */
@@ -591,7 +594,7 @@ function RankingScoreBody({ score }: { score: RankingScoreView }): JSX.Element {
     )
 }
 
-function renderArtefactSummary(artefact: SignalReportArtefact): JSX.Element | null {
+function renderArtefactSummary(artefact: SignalReportArtefact, monitoringEnabled: boolean): JSX.Element | null {
     const content = artefact.content
 
     switch (artefact.type) {
@@ -672,7 +675,7 @@ function renderArtefactSummary(artefact: SignalReportArtefact): JSX.Element | nu
         case 'check_scheduled':
         case 'check_expired':
         case 'check_cancelled': {
-            const { tag } = CHECK_LIFECYCLE_ENTRIES[artefact.type](content as CheckLifecycleContent)
+            const { tag } = CHECK_LIFECYCLE_ENTRIES[artefact.type](content as CheckLifecycleContent, monitoringEnabled)
             return (
                 <LemonTag size="small" type={tag.type}>
                     {tag.label}
@@ -712,6 +715,7 @@ function renderArtefactSummary(artefact: SignalReportArtefact): JSX.Element | nu
 }
 
 function renderArtefactBody({
+    monitoringEnabled,
     reportId,
     artefact,
     knownTasks,
@@ -721,6 +725,7 @@ function renderArtefactBody({
     artefact: SignalReportArtefact
     knownTasks?: Map<string, Task>
     knownPullRequests: Map<string, SignalReportPullRequestApi>
+    monitoringEnabled: boolean
 }): JSX.Element | null {
     const content = artefact.content
     const renderPullRequest = (url: string, outcome?: 'closed' | 'already_closed' | 'skipped'): JSX.Element => {
@@ -806,7 +811,7 @@ function renderArtefactBody({
                 <CheckLifecycleBody
                     title={c.title}
                     rationale={c.rationale}
-                    detail={CHECK_LIFECYCLE_ENTRIES[artefact.type](c).detail}
+                    detail={CHECK_LIFECYCLE_ENTRIES[artefact.type](c, monitoringEnabled).detail}
                 />
             )
         }
@@ -897,18 +902,22 @@ function ArtefactRow({
     knownSignals?: Map<string, SignalNode>
     knownPullRequests: Map<string, SignalReportPullRequestApi>
 }): JSX.Element {
+    const monitoringEnabled = useFeatureFlag('SIGNALS_REPORT_MONITORING')
     const signalId = artefact.type === 'signal_finding' ? (artefact.content as SignalFindingContent).signal_id : null
     const signal = signalId ? knownSignals?.get(signalId) : undefined
     const location = artefactLocationLabel(artefact)
     const attribution = artefactAttributionLabel(artefact)
-    const summary = renderArtefactSummary(artefact)
+    const summary = renderArtefactSummary(artefact, monitoringEnabled)
     const body = signal ? (
         <SignalFindingBody signal={signal} />
     ) : (
-        renderArtefactBody({ reportId, artefact, knownTasks, knownPullRequests })
+        renderArtefactBody({ reportId, artefact, knownTasks, knownPullRequests, monitoringEnabled })
     )
     const bodyHasOwnCard = artefact.type === 'signal_finding' || artefact.type === 'commit'
-    const MarkerIcon = ARTEFACT_MARKER[artefact.type] ?? IconActivity
+    const MarkerIcon =
+        artefact.type === 'dismissal' && (artefact.content as DismissalContent).state === 'resolved'
+            ? IconCheckCircle
+            : (ARTEFACT_MARKER[artefact.type] ?? IconActivity)
 
     return (
         <div className="relative flex gap-3 pb-4 last:pb-0">

@@ -197,6 +197,7 @@ describe('CDP Consumer loop', () => {
                     "headers": {
                       "Authorization": "Bearer super-secret-token",
                     },
+                    "maxResponseBytes": 5242880,
                     "method": "POST",
                   },
                 ]

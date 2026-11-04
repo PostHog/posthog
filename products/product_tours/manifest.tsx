@@ -2,10 +2,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
-import { FileSystemIconColor, ProductManifest } from '~/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'Product tours',
+    activityDescribers: {
+        [ActivityScope.PRODUCT_TOUR]: () =>
+            import('scenes/product-tours/activityDescriptions').then((module) => module.productTourActivityDescriber),
+    },
     urls: {
         productTours: (): string => '/product_tours',
         productTour: (id: string): string => `/product_tours/${id}`,

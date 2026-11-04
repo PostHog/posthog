@@ -12,7 +12,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.batch_exports.backend.models.batch_export import BatchExportFileDownload
-from products.batch_exports.backend.service import BatchExportModel, FileDownloadBatchExportInputs
+from products.batch_exports.backend.service import BatchExportEventsModel, FileDownloadBatchExportInputs
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.file_download_batch_export import (
     FileDownloadBatchExportWorkflow,
@@ -73,7 +73,7 @@ async def file_download_batch_export(
 
 @requires_aws_credentials
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 async def test_file_download_workflow_exports_data(
     clickhouse_client,
@@ -87,7 +87,7 @@ async def test_file_download_workflow_exports_data(
     file_format,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel,
+    model: BatchExportEventsModel,
     generate_test_data,
     aws_role_arn,
     region,
@@ -222,9 +222,7 @@ async def test_file_download_workflow_generates_no_downloads_for_a_failed_run(
         data_interval_end=data_interval_end.isoformat(),
         data_interval_start=data_interval_start.isoformat(),
         interval=interval,
-        batch_export_model=BatchExportModel(
-            name="events",
-            schema=None,
+        batch_export_model=BatchExportEventsModel(
             filters=[{"key": "event =", "type": "hogql", "value": None}],
         ),
         file_format=file_format,

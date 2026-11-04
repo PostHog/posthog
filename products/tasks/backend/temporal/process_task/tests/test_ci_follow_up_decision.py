@@ -252,7 +252,6 @@ class TestBabysitFollowUpDecision:
             return snapshot if activity_fn is get_pr_babysit_snapshot else False
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
 
         await wf._should_run_ci_follow_up()
@@ -303,7 +302,6 @@ class TestBabysitFollowUpDecision:
         _patch_snapshot(
             monkeypatch, _babysit_snapshot(failing_checks=[BABYSIT_CHECK], merge_queue_push_would_eject=True)
         )
-        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
 
         assert await wf._should_run_ci_follow_up() is CIFollowUpDecision.WAIT
 

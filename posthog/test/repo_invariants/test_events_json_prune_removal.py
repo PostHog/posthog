@@ -10,7 +10,6 @@ PRUNE_MODULES = (
 )
 PRUNE_WIRING = (
     "conftest.py",
-    ".github/workflows/ci-backend.yml",
     ".github/workflows/ci-backend-update-test-timing.yml",
     ".depot/workflows/ci-backend.yml",
 )

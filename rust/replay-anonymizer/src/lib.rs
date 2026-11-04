@@ -19,10 +19,10 @@
 //! The stable crates.io surface is what this page documents: [`AllowLists`], [`Ctx`], the event
 //! entry points ([`anonymize_message`], [`anonymize_event`], [`anonymize_line`] and friends), the
 //! byte-buffer snapshot pipeline ([`anonymize_kafka_payload`] and friends), the rrweb routing
-//! constants in [`event`], and — behind the default `typed-parse` feature — the typed rrweb parse
-//! in [`typed`] ([`parse_scrubbed_event`]). Everything `#[doc(hidden)]` stays `pub` only for this
-//! workspace (the Node addon, the parity tests) — it is internal and may change or disappear in
-//! any release.
+//! constants in [`event`], and — behind
+//! the default `typed-parse` feature — the typed rrweb parse in [`typed`]
+//! ([`parse_scrubbed_event`]). Everything `#[doc(hidden)]` stays `pub` only for this workspace
+//! (the Node addon, the parity tests) — it is internal and may change or disappear in any release.
 
 pub mod allow_lists;
 #[doc(hidden)]

@@ -51,7 +51,7 @@ describe('featureFlagsStaffToolsLogic', () => {
 
     describe('team-admin deep link', () => {
         it('seeds and resolves a team from the team-admin deep link', async () => {
-            router.actions.push('/feature_flags/staff?team_id=5')
+            router.actions.push('/feature-flags/staff?team_id=5')
             await expectLogic(logic).toDispatchActions(['seedTeamFromDeepLink', 'searchTeams', 'searchTeamsSuccess'])
             await expectLogic(logic).toMatchValues({
                 selectedTeamIds: [5],
@@ -75,7 +75,7 @@ describe('featureFlagsStaffToolsLogic', () => {
                 },
             })
 
-            router.actions.push('/feature_flags/staff?team_id=5')
+            router.actions.push('/feature-flags/staff?team_id=5')
             await expectLogic(logic).toDispatchActions(['seedTeamFromDeepLink', 'loadCacheStatusSuccess'])
             await expectLogic(logic).toMatchValues({
                 cacheStatusByTeamId: {
@@ -89,12 +89,12 @@ describe('featureFlagsStaffToolsLogic', () => {
         })
 
         it('does not re-seed a team after it has been manually deselected', async () => {
-            router.actions.push('/feature_flags/staff?team_id=5')
+            router.actions.push('/feature-flags/staff?team_id=5')
             await expectLogic(logic).toDispatchActions(['seedTeamFromDeepLink', 'searchTeamsSuccess'])
 
             logic.actions.setSelectedTeamIds([])
             // Simulates urlToAction re-running with the same URL, e.g. browser back/forward.
-            router.actions.push('/feature_flags/staff?team_id=5')
+            router.actions.push('/feature-flags/staff?team_id=5')
 
             await expectLogic(logic).toMatchValues({ selectedTeamIds: [] })
         })

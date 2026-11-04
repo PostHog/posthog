@@ -452,11 +452,6 @@ class TestCanonicalDescriptionsResolver:
         assert descriptions["Charge"]["docs_url"].startswith("https://stripe.com")
         assert "amount" in descriptions["Charge"]["columns"]
 
-    def test_hubspot_ships_canonical_descriptions(self):
-        descriptions = enrich.get_canonical_descriptions_for_source(ExternalDataSourceType.HUBSPOT)
-        assert "contacts" in descriptions
-        assert "email" in descriptions["contacts"]["columns"]
-
     def test_sql_source_ships_no_canonical_descriptions(self):
         assert enrich.get_canonical_descriptions_for_source(ExternalDataSourceType.POSTGRES) == {}
 
@@ -468,15 +463,6 @@ class TestCanonicalDescriptionsResolver:
 
         missing = set(ENDPOINTS) - set(CANONICAL_DESCRIPTIONS)
         assert not missing, f"Stripe endpoints missing canonical descriptions: {sorted(missing)}"
-
-    def test_hubspot_canonical_covers_every_synced_endpoint(self):
-        from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
-        from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import ENDPOINTS
-
-        missing = set(ENDPOINTS) - set(CANONICAL_DESCRIPTIONS)
-        assert not missing, f"Hubspot endpoints missing canonical descriptions: {sorted(missing)}"
 
 
 class TestEnrichTableSemanticsSync:
@@ -526,6 +512,28 @@ class TestEnrichTableSemanticsSync:
         mock_llm.assert_not_called()
         assert result["status"] == "skipped"
         assert result["reason"] == "ai_data_processing_not_approved"
+        assert _annotations(team, table) == {}
+
+    def test_skipped_when_team_was_deleted(self):
+        # Same fire-and-forget race as the schema case below, but for the team itself.
+        team = _team()
+        team_id = team.pk
+        team.delete()
+        with patch.object(enrich, "_generate_descriptions") as mock_llm:
+            result = enrich_table_semantics_sync(team_id, uuid.uuid4())
+        mock_llm.assert_not_called()
+        assert result == {"status": "skipped", "reason": "team_deleted"}
+
+    def test_skipped_when_schema_was_deleted(self):
+        # This activity is a fire-and-forget child workflow started after a sync completes, so the
+        # schema can be deleted by the user before it actually runs. That's a benign race, not a bug.
+        team = _team()
+        schema, table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
+        schema.soft_delete()
+        with patch.object(enrich, "_generate_descriptions") as mock_llm:
+            result = enrich_table_semantics_sync(team.pk, schema.id)
+        mock_llm.assert_not_called()
+        assert result == {"status": "skipped", "reason": "schema_deleted"}
         assert _annotations(team, table) == {}
 
     def test_skipped_when_table_has_no_columns(self):

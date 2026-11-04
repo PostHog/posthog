@@ -1,9 +1,7 @@
 import dataclasses
 from datetime import UTC, datetime
-from typing import Any
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
@@ -11,13 +9,15 @@ from rest_framework.exceptions import ValidationError
 from posthog.hogql import ast
 
 from posthog.models import EventProperty
+from posthog.models.team import Team
 
+from products.experiments.backend.facade import replay as facade_replay
+from products.experiments.backend.facade.contracts import InSessionExposureSemantics
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-    EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.replay_linkage import (
@@ -29,6 +29,7 @@ from products.experiments.backend.replay_linkage import (
     resolve_in_session_exposure_semantics,
 )
 from products.experiments.backend.session_exposure import resolve_session_exposure
+from products.experiments.backend.test.utils import patch_exposure_event_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -175,11 +176,7 @@ class TestResolveInSessionExposureSemantics(BaseTest):
             team=self.team, project_id=self.team.project_id, event=EXPERIMENT_EXPOSURE_EVENT, property="$session_id"
         )
 
-        # Only answer for the rollout flag; a blanket True would flip unrelated rollouts on too.
-        def rollout_only(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG
-
-        with patch("posthoganalytics.feature_enabled", side_effect=rollout_only):
+        with patch_exposure_event_flag(enabled=True):
             semantics = resolve_in_session_exposure_semantics(self.team, experiment)
 
         assert semantics.session_exposure is not None
@@ -217,6 +214,45 @@ class TestResolveInSessionExposureSemantics(BaseTest):
 
         assert semantics.unavailable_reason == IN_SESSION_EXPOSURE_UNMATCHABLE_REASON
         assert semantics.session_exposure is None
+
+    @parameterized.expand(
+        [
+            ("stamped_fallback", None, InSessionExposureSemantics(unavailable_reason=None, uses_stamped_fallback=True)),
+            (
+                "activation",
+                {
+                    "activation_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "task_completed",
+                        "properties": [],
+                    }
+                },
+                InSessionExposureSemantics(
+                    unavailable_reason=IN_SESSION_EXPOSURE_ACTIVATION_REASON, uses_stamped_fallback=False
+                ),
+            ),
+        ]
+    )
+    def test_facade_maps_the_semantics_of_the_experiment_it_reads_by_id(
+        self, _name: str, exposure_criteria: dict | None, expected: InSessionExposureSemantics
+    ) -> None:
+        experiment = self._experiment(exposure_criteria=exposure_criteria)
+
+        semantics = facade_replay.resolve_in_session_exposure_semantics(
+            team_id=self.team.pk, experiment_id=experiment.id
+        )
+
+        assert semantics == expected
+
+    def test_facade_reads_no_experiment_of_another_team(self) -> None:
+        experiment = self._experiment()
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+
+        semantics = facade_replay.resolve_in_session_exposure_semantics(
+            team_id=other_team.pk, experiment_id=experiment.id
+        )
+
+        assert semantics is None
 
 
 def _variant_filter(query: ast.SelectQuery) -> list[str]:

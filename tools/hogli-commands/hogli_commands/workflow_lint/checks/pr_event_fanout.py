@@ -37,6 +37,7 @@ PR_EVENT_FANOUT_BUDGET: Mapping[str, int] = {
     "ready_for_review": 11,
     "reopened": 24,
     "review_requested": 1,
+    "stacked": 1,
     "synchronize": 28,
 }
 

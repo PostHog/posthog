@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, TestCase, override_settings
 
 import requests
+import structlog
 import dns.resolver
 from parameterized import parameterized
 
@@ -620,8 +621,10 @@ class TestDiagnoseOrchestrator(TestCase):
         # fired at all rather than on how a half-configured mock happens to fail.
         post_mock.return_value = MagicMock(status_code=200)
 
+        log_context = dict(structlog.get_context(diagnostics.LOGGER.bind()))
         report = diagnostics.diagnose(_record(domain="169.254.169.254:80/pad.attacker.example", target=CF_TARGET))
 
+        self.assertEqual(dict(structlog.get_context(diagnostics.LOGGER.bind())), log_context)
         post_mock.assert_not_called()
         http_get_mock.assert_not_called()
         socket_mock.assert_not_called()

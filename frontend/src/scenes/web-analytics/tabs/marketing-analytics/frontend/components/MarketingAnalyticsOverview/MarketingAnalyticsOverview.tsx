@@ -1,12 +1,11 @@
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { useChartTheme } from 'lib/charts/hooks'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { OverviewMetricCardGrid, OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
+import { OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
 import {
     AnyResponseType,
     MarketingAnalyticsAggregatedQuery,
@@ -16,20 +15,15 @@ import { QueryContext } from '~/queries/types'
 import { MarketingAnalyticsNotReady } from '~/scenes/marketing-analytics/MarketingAnalyticsNotReady'
 
 import { adPerformanceMetricKey } from 'products/marketing_analytics/frontend/adPerformanceMetrics'
-import { adPerformanceTrendsLogic } from 'products/marketing_analytics/frontend/adPerformanceTrendsLogic'
+import { AdPerformanceOverviewMetrics } from 'products/marketing_analytics/frontend/overview/AdPerformanceOverviewMetrics'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-import {
-    MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
-    marketingAnalyticsTilesLogic,
-} from '../../logic/marketingAnalyticsTilesLogic'
+import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../logic/marketingAnalyticsTilesLogic'
 import {
     MarketingAnalyticsValidationWarningBanner,
     validateConversionGoals,
 } from '../MarketingAnalyticsValidationWarningBanner'
-
-const BASE_METRICS_COUNT = 6 // Total Cost, Total Clicks, CPC, CTR, Total Impressions, Reported Conversion
 
 let uniqueNode = 0
 
@@ -57,17 +51,8 @@ export function MarketingAnalyticsOverview(props: {
 
     const marketingOverviewQueryResponse = response as MarketingAnalyticsAggregatedQueryResponse | undefined
 
-    const { createAdPerformanceSparklineQuery } = useValues(marketingAnalyticsTilesLogic)
     const { tileColumnSelection } = useValues(marketingAnalyticsLogic)
     const { setTileColumnSelection } = useActions(marketingAnalyticsLogic)
-    const { sparklines } = useValues(
-        adPerformanceTrendsLogic({
-            query: createAdPerformanceSparklineQuery(props.query),
-            queryKey: `${key}-sparklines`,
-            dataNodeCollectionId: dataNodeCollectionId ?? MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
-        })
-    )
-    const sparklineTheme = useChartTheme()
     const samplingRate = marketingOverviewQueryResponse?.samplingRate
 
     const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
@@ -84,14 +69,9 @@ export function MarketingAnalyticsOverview(props: {
                   isIncreaseBad: item.isIncreaseBad,
                   selected: metric ? tileColumnSelection === metric : undefined,
                   onClick: metric ? () => setTileColumnSelection(metric) : undefined,
-                  sparkline: metric && typeof item.value === 'number' ? sparklines[metric] : undefined,
               }
           })
         : []
-
-    // Calculate number of skeletons based on expected metrics
-    const conversionGoalMetrics = conversion_goals.length * 2 // Each conversion goal adds 2 metrics: goal + cost per conversion
-    const numSkeletons = BASE_METRICS_COUNT + conversionGoalMetrics
 
     const hasResults = overviewItems.length > 0
     if (responseError && !responseLoading && !hasResults) {
@@ -113,28 +93,13 @@ export function MarketingAnalyticsOverview(props: {
     return (
         <>
             {allWarnings.length > 0 && <MarketingAnalyticsValidationWarningBanner warnings={allWarnings} />}
-            <div className="flex flex-col gap-2">
-                {[
-                    overviewItems.filter((item) => adPerformanceMetricKey(item.key)),
-                    overviewItems.filter((item) => !adPerformanceMetricKey(item.key)),
-                ].map((items, index) =>
-                    (responseLoading && index === 0) || (!responseLoading && items.length > 0) ? (
-                        <OverviewMetricCardGrid
-                            key={index}
-                            sparklineTheme={sparklineTheme}
-                            className="grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]"
-                            items={items.filter(filterEmptyMetrics)}
-                            loading={responseLoading}
-                            numSkeletons={numSkeletons}
-                            emptyMessage="-"
-                            samplingRate={index === 0 ? samplingRate : undefined}
-                            labelFromKey={(key) => (
-                                <span className="[overflow-wrap:anywhere]">{labelFromKey(key)}</span>
-                            )}
-                        />
-                    ) : null
-                )}
-            </div>
+            <AdPerformanceOverviewMetrics
+                viewKey={dataNodeCollectionId ?? MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID}
+                items={overviewItems.filter(filterEmptyMetrics)}
+                loading={responseLoading}
+                samplingRate={samplingRate}
+                labelFromKey={(key) => <span className="[overflow-wrap:anywhere]">{labelFromKey(key)}</span>}
+            />
         </>
     )
 }

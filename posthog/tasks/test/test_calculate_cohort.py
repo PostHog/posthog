@@ -6,8 +6,9 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.db import InterfaceError, OperationalError
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import grpc
@@ -38,7 +39,9 @@ from posthog.tasks.calculate_cohort import (
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
     insert_cohort_from_query,
+    refresh_static_cohort_count,
     reset_stuck_cohorts,
+    schedule_static_cohort_count_refresh,
     trigger_cohort_backfill_run_task,
     update_cohort_metrics,
 )
@@ -598,10 +601,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             reset_stuck_cohorts()
 
             stuck_static_cohort.refresh_from_db()
-            # Should NOT be picked up because errors_calculating is at the max
-            self.assertTrue(stuck_static_cohort.is_calculating)
-
-            # Verify insert_cohort_from_query was NOT called
+            self.assertFalse(stuck_static_cohort.is_calculating)
             mock_insert_cohort_from_query.delay.assert_not_called()
 
         @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
@@ -2279,3 +2279,18 @@ class TestCollectCohortQueryStats(APIBaseTest):
             task.pop_request()
 
         mock_logger.exception.assert_not_called()
+
+
+class TestScheduleStaticCohortCountRefresh(SimpleTestCase):
+    def test_a_failed_publish_lets_the_next_insert_schedule_the_recount(self) -> None:
+        cohort_id = 987654
+        self.addCleanup(cache.delete, f"static-cohort-count-refresh:{cohort_id}")
+
+        with patch.object(
+            refresh_static_cohort_count, "apply_async", side_effect=[ConnectionError("broker down"), None]
+        ) as publish:
+            with self.assertRaises(ConnectionError):
+                schedule_static_cohort_count_refresh(team_id=1, cohort_id=cohort_id)
+            schedule_static_cohort_count_refresh(team_id=1, cohort_id=cohort_id)
+
+        assert publish.call_count == 2

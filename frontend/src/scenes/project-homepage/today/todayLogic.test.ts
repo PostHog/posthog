@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
+import { recentItemsModel } from '~/models/recentItemsModel'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -18,6 +19,7 @@ import { makeHighlightItem, makeHighlights } from './todayTestFixtures'
 import { todayVerdictLogic } from './todayVerdictLogic'
 
 describe('todayLogic', () => {
+    let frequentResponse: [number, unknown]
     let listResponse: [number, any]
     let listParams: URLSearchParams | null
     let reportResponse: [number, any] | null
@@ -25,6 +27,7 @@ describe('todayLogic', () => {
     let highlightCalls: number
 
     beforeEach(() => {
+        frequentResponse = [200, []]
         highlightResponses = [[200, makeHighlights()]]
         listResponse = [200, { results: [], count: 0 }]
         highlightCalls = 0
@@ -32,6 +35,7 @@ describe('todayLogic', () => {
         reportResponse = null
         useMocks({
             get: {
+                '/api/projects/:team_id/file_system/frequent/': () => frequentResponse,
                 '/api/projects/:team_id/signals/reports/': ({ request }) => {
                     listParams = new URL(request.url).searchParams
                     return listResponse
@@ -49,14 +53,68 @@ describe('todayLogic', () => {
         initKeaTests()
     })
 
+    it.each([
+        { status: 200, mixed: true },
+        { status: 500, mixed: false },
+    ])('mixes frequent items into Jump back: $mixed when the request returns $status', async ({ status, mixed }) => {
+        const entry = (id: string): { id: string; path: string; type: string; ref: string } => ({
+            id,
+            path: `Dashboards/${id}`,
+            type: 'dashboard',
+            ref: id,
+        })
+        frequentResponse = [status, status === 200 ? [entry('daily'), entry('weekly')] : {}]
+        const logic = todayLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        recentItemsModel.actions.loadRecentsSuccess(['a', 'b', 'c', 'd'].map(entry))
+        expect(logic.values.recentObjects.map((item) => item.id)).toEqual(
+            mixed ? ['a', 'b', 'daily', 'weekly', 'c', 'd'] : ['a', 'b', 'c', 'd']
+        )
+        logic.actions.jumpBackOpened(logic.values.recentObjects[2], 3, mixed)
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'today jump back opened',
+            expect.objectContaining({
+                position: 3,
+                reason: mixed ? 'frequent' : 'recent',
+            })
+        )
+    })
+
     afterEach(() => {
         jest.useRealTimers()
+        jest.restoreAllMocks()
+    })
+
+    it.each(['toggle', 'url'])('reloads frequent items when sample mode is disabled by %s', async (source) => {
+        const entry = { id: 'daily', path: 'Daily dashboard', type: 'dashboard', ref: 'daily' }
+        frequentResponse = [200, [entry]]
+        const logic = todayLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => logic.actions.setUseSampleData(true))
+            .toFinishAllListeners()
+            .toMatchValues({ frequentObjects: [] })
+
+        await expectLogic(logic, () => {
+            if (source === 'url') {
+                router.actions.push('/home', { sample: '0' })
+            } else {
+                logic.actions.setUseSampleData(false)
+            }
+        })
+            .toFinishAllListeners()
+            .toMatchValues({ useSampleData: false, frequentObjects: [entry] })
     })
 
     it.each([
         {
             shown: 'the report list',
-            expected: ['the page shows these reports', '](http://localhost/project/997/home/reports/r-1)'],
+            expected: [
+                'the page shows these reports',
+                '](http://localhost/project/997/home/reports/r-1?link_source=today)',
+            ],
         },
         {
             shown: 'the open report',
@@ -166,7 +224,12 @@ describe('todayLogic', () => {
         logic.actions.loadTopReports()
         await expectLogic(logic).toFinishAllListeners()
 
+        reportResponse = [200, report]
         logic.actions.reportOpened(report, 'list')
+        const reportLogic = todayReportLogic({ reportId: 'a' })
+        reportLogic.mount()
+        reportLogic.actions.reportVisited()
+        await expectLogic(reportLogic).toDispatchActions(['loadFullReportSuccess'])
         todayVerdictLogic.actions.setReportVerdict(
             { reportId: 'a', title: 'Signup form rejects emails', hasOpenPullRequest: false },
             'dismiss',
@@ -189,7 +252,13 @@ describe('todayLogic', () => {
                 ],
                 [
                     'Inbox report opened',
-                    expect.objectContaining({ report_id: 'a', surface: 'today', list: 'briefing', rank: 1 }),
+                    expect.objectContaining({
+                        report_id: 'a',
+                        surface: 'today',
+                        open_method: 'click',
+                        list: 'briefing',
+                        rank: 1,
+                    }),
                     undefined,
                 ],
                 [
@@ -209,7 +278,12 @@ describe('todayLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
+        reportResponse = [200, b]
         logic.actions.reportOpened(b, 'list')
+        const reportLogic = todayReportLogic({ reportId: 'b' })
+        reportLogic.mount()
+        reportLogic.actions.reportVisited()
+        await expectLogic(reportLogic).toDispatchActions(['loadFullReportSuccess'])
 
         const events = capture.mock.calls.filter(([event]) => event.startsWith('Inbox '))
         expect(events).toEqual([
@@ -241,6 +315,19 @@ describe('todayLogic', () => {
 
         expect(capture.mock.calls.filter(([event]) => event === 'today report previewed')).toEqual([
             ['today report previewed', expect.objectContaining({ list: 'team', report_id: 'a', surface: 'list' })],
+        ])
+        expect(capture.mock.calls.filter(([event]) => event === 'Inbox report action')).toEqual([
+            [
+                'Inbox report action',
+                expect.objectContaining({
+                    report_id: 'a',
+                    action_type: 'expand_preview',
+                    surface: 'today',
+                    list: 'briefing',
+                    rank: 1,
+                }),
+                undefined,
+            ],
         ])
     })
 
@@ -277,6 +364,7 @@ describe('todayLogic', () => {
     })
 
     it('asks for the top reports for the person and counts the rest', async () => {
+        jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-10-28T12:00:00.000Z').getTime())
         const reports = [makeReport({ id: 'a' }), makeReport({ id: 'b' })]
         listResponse = [200, { results: reports, count: 9 }]
         const logic = todayLogic()
@@ -285,12 +373,14 @@ describe('todayLogic', () => {
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ reports, moreReportCount: 7 })
         expect(Object.fromEntries(listParams!.entries())).toEqual({
             view: 'for_you',
-            sort: 'priority',
+            sort: 'recommended',
+            created_after: '2026-10-21T12:00:00.000Z',
             limit: String(TOP_REPORT_COUNT),
         })
     })
 
     it('pages through the reports past the list without the ones it shows, and starts over when the list shows other reports', async () => {
+        jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-10-28T12:00:00.000Z').getTime())
         const page = (prefix: string, length: number): ReturnType<typeof makeReport>[] =>
             Array.from({ length }, (_, index) => makeReport({ id: `${prefix}${index}` }))
         listResponse = [200, { results: [makeReport({ id: 'a' })], count: 5 }]
@@ -307,7 +397,8 @@ describe('todayLogic', () => {
             .toMatchValues({ loadedMoreReports: first, canLoadMoreReports: true, moreReportsInInbox: 0 })
         expect(Object.fromEntries(listParams!.entries())).toEqual({
             view: 'for_you',
-            sort: 'priority',
+            sort: 'recommended',
+            created_after: '2026-10-21T12:00:00.000Z',
             limit: String(MORE_REPORTS_PAGE_SIZE),
             offset: '0',
             exclude: 'a',
@@ -363,10 +454,37 @@ describe('todayLogic', () => {
         { status: 403, expected: { topReports: { results: [], count: 0 }, reportsFailed: false } },
     ])('keeps a failed load apart from an empty list, and treats $status that way', async ({ status, expected }) => {
         listResponse = [status, { detail: 'Error' }]
+        const item = makeHighlightItem({ key: 'alert:synthetic', source: 'alerts' })
+        highlightResponses = [[200, makeHighlights({ items: [item] })]]
         const logic = todayLogic()
         logic.mount()
 
-        await expectLogic(logic).toFinishAllListeners().toMatchValues(expected)
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                ...expected,
+                forYouRows: { rows: [expect.objectContaining({ kind: 'highlight', item })], limit: 1 },
+            })
+    })
+
+    it('stops the For you loader when a poll fails before any rows arrive', async () => {
+        const pending = makeHighlights({ status: 'computing', generated_at: null, items: [], pulse: [] })
+        highlightResponses = [[200, pending]]
+        const logic = todayLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.forYouReady).toBe(false)
+        expect(logic.values.forYouRows.rows).toEqual([])
+
+        highlightResponses = [[500, { detail: 'Request failed' }]]
+        await expectLogic(todayHighlightsLogic(), () => {
+            todayHighlightsLogic.actions.loadHighlights()
+        }).toDispatchActions(['loadHighlightsFailure'])
+
+        expect(todayHighlightsLogic.values.highlights).toEqual(pending)
+        expect(todayHighlightsLogic.values.highlightsPending).toBe(false)
+        expect(logic.values.forYouReady).toBe(true)
+        expect(logic.values.forYouFailedNote).toBe('Highlights didn’t load.')
     })
 
     it('remembers the report to focus and the home scroll only while the person stays on Today', async () => {

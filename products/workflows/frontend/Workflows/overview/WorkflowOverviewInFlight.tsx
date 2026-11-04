@@ -10,7 +10,15 @@ import { workflowOverviewLogic } from './workflowOverviewLogic'
 
 const MAX_STEPS = 5
 
-export function WorkflowOverviewInFlight({ id, logicKey }: { id: string; logicKey: string }): JSX.Element {
+export function WorkflowOverviewInFlight({
+    id,
+    logicKey,
+    allRuns = false,
+}: {
+    id: string
+    logicKey: string
+    allRuns?: boolean
+}): JSX.Element {
     const logic = workflowOverviewLogic({ id, logicKey })
     const { inFlight, inFlightLoading, inFlightSteps } = useValues(logic)
     const { loadInFlight } = useActions(logic)
@@ -27,7 +35,9 @@ export function WorkflowOverviewInFlight({ id, logicKey }: { id: string; logicKe
             <div className="flex flex-col gap-1">
                 <h3 className="mb-0 text-base font-semibold">In the workflow now</h3>
                 <span className="text-xs text-muted">
-                    People partway through, waiting on a step or being processed.
+                    {allRuns
+                        ? 'People partway through, across all runs of this workflow.'
+                        : 'People partway through, waiting on a step or being processed.'}
                 </span>
             </div>
             {inFlightLoading && !inFlight ? (

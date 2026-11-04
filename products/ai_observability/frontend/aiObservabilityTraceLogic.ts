@@ -868,10 +868,13 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
             const traceId = tryDecodeURIComponent(id ?? '')
             const isNewTrace = traceId !== values.traceId
             actions.setTraceId(traceId)
-            void addProductIntent({
-                product_type: ProductKey.AI_OBSERVABILITY,
-                intent_context: ProductIntentContext.LLM_ANALYTICS_TRACE_VIEWED,
-            })
+            // The trace views rewrite the URL as people select steps and search, and each intent is a team PATCH.
+            if (isNewTrace) {
+                void addProductIntent({
+                    product_type: ProductKey.AI_OBSERVABILITY,
+                    intent_context: ProductIntentContext.LLM_ANALYTICS_TRACE_VIEWED,
+                })
+            }
             actions.setEventId(event || null)
             const parsedMsg = msg ? parseInt(msg, 10) : NaN
             actions.setHighlightMessageIndex(!isNaN(parsedMsg) ? parsedMsg : null)

@@ -53,9 +53,8 @@ async def test_untagged_followup_with_files_classifier_gating(text: str, expecte
 
         raise AssertionError(f"unexpected activity: {activity_fn.__name__}")
 
-    with (
-        patch.object(slack_app_mention_processing, "_execute_posthog_code_activity", side_effect=fake_execute_activity),
-        patch.object(slack_app_mention_processing.workflow, "deprecate_patch"),
+    with patch.object(
+        slack_app_mention_processing, "_execute_posthog_code_activity", side_effect=fake_execute_activity
     ):
         await workflow.run(inputs)
 
@@ -87,9 +86,8 @@ async def test_confirmed_untagged_followup_skips_the_classifier_and_the_prompt()
             return True
         raise AssertionError(f"unexpected activity: {activity_fn.__name__}")
 
-    with (
-        patch.object(slack_app_mention_processing, "_execute_posthog_code_activity", side_effect=fake_execute_activity),
-        patch.object(slack_app_mention_processing.workflow, "deprecate_patch"),
+    with patch.object(
+        slack_app_mention_processing, "_execute_posthog_code_activity", side_effect=fake_execute_activity
     ):
         await workflow.run(inputs)
 

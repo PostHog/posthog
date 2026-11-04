@@ -1,0 +1,48 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "evidence_reason": {
+            "description": "Explain why the evidence supports this qualification. Must not be blank.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+        },
+        "evidence_refs": {
+            "description": "Evidence references supporting the conclusion, or an empty list when none are available.",
+            "items": {
+                "minLength": 1,
+                "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+        },
+        "evidence_status": {
+            "description": "Whether the fixed-window evidence is sufficient, insufficient, unsupported, or errored.\n\n* `sufficient` - Sufficient\n* `insufficient` - Insufficient\n* `unsupported` - Unsupported\n* `errored` - Errored",
+            "enum": ["sufficient", "insufficient", "unsupported", "errored"],
+            "type": "string"
+        },
+        "expectation_matches": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether the authored expectation holds: a boolean for sufficient evidence, null for unsupported or errored evidence."
+        },
+        "explanation": {
+            "description": "Explain the conclusion using evidence from the assignment's fixed window.",
+            "maxLength": 16000,
+            "minLength": 1,
+            "type": "string"
+        },
+        "run_id": {
+            "description": "UUID of the `SignalScoutRun` bridge row.",
+            "type": "string"
+        }
+    },
+    "required": ["run_id", "evidence_status", "evidence_reason", "expectation_matches", "explanation", "evidence_refs"],
+    "type": "object"
+}

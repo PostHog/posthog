@@ -13,9 +13,11 @@ import {
     canvasesRequestAgentCreate,
     canvasesStateRetrieve,
     canvasesStateSet,
+    canvasesToolsInvoke,
 } from '../generated/api'
 import type {
     CanvasActionDefinitionApi,
+    CanvasToolDefinitionApi,
     CanvasConnectorCallResultApi,
     CanvasStateEntryApi,
 } from '../generated/api.schemas'
@@ -163,6 +165,7 @@ function assertVariablesApplied(
 export class CanvasDataBridge {
     private readonly cache = new CanvasReadCache()
     private readonly connectorConsent = new Map<string, boolean>()
+    private toolRegistry: Promise<CanvasToolDefinitionApi[]> | null = null
 
     constructor(
         private readonly context: () => CanvasDataBridgeContext,
@@ -186,6 +189,10 @@ export class CanvasDataBridge {
                 return this.stateList(input)
             case 'actionInvoke':
                 return this.actionInvoke(input)
+            case 'toolRead':
+                return this.toolInvoke(input, false)
+            case 'toolCall':
+                return this.toolInvoke(input, true)
             case 'agentRequest':
                 return this.agentRequest(payload)
             case 'connectorCall':
@@ -369,6 +376,49 @@ export class CanvasDataBridge {
             verb,
             payload,
         })
+    }
+
+    // ph.tools.read runs without a click, so it takes read-only tools only. ph.tools.call
+    // comes from a click, and the viewer confirms every tool that is not read-only.
+    private async toolInvoke(input: Record<string, unknown>, fromGesture: boolean): Promise<unknown> {
+        const name = input.tool
+        if (typeof name !== 'string' || !name) {
+            throw new Error('ph.tools requires a tool name')
+        }
+        const { projectId, canvasId } = this.context()
+        const tool = (await this.tools(projectId)).find((entry) => entry.name === name)
+        if (!tool) {
+            throw new Error(`Canvases cannot run the tool "${name}"`)
+        }
+        if (!fromGesture && !tool.read_only) {
+            throw new Error(`"${name}" changes data. Run it with ph.tools.call from a click.`)
+        }
+        const args = (input.arguments as Record<string, unknown> | undefined) ?? {}
+        if (
+            !tool.read_only &&
+            !(await this.prompts.confirmAction({
+                action: { verb: tool.name, summary: tool.summary, destructive: tool.destructive, usage: '' },
+                payload: args,
+            }))
+        ) {
+            throw new Error('Canvas tool call canceled')
+        }
+        const { result } = await canvasesToolsInvoke(projectId, canvasId, { tool: name, arguments: args })
+        return result
+    }
+
+    // The allowlist changes only with a deploy, so a board that reads many flags on load fetches it once.
+    private tools(projectId: string): Promise<CanvasToolDefinitionApi[]> {
+        if (!this.toolRegistry) {
+            this.toolRegistry = canvasesActionsRetrieve(projectId).then(
+                ({ tools }) => tools,
+                (error) => {
+                    this.toolRegistry = null
+                    throw error
+                }
+            )
+        }
+        return this.toolRegistry
     }
 
     private async agentRequest(payload: unknown): Promise<{ requestOutcome: string; taskId: string }> {

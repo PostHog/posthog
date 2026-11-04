@@ -14,7 +14,9 @@ use arrow_schema::SchemaRef;
 use deltalake::writer::RecordBatchWriter;
 use deltalite_core::errors::Error;
 use deltalite_core::handle::TableHandle;
-use deltalite_core::limits::ProcessLimits;
+use deltalite_core::history::HistoryUpsertOptions;
+use deltalite_core::limits::{Budget, ProcessLimits};
+use deltalite_core::probecache::ProbeCache;
 use deltalite_core::schema::import_column;
 use deltalite_core::table::{open_table, table_exists, MultipartConfig};
 use deltalite_core::upsert::{PruneStrategy, UpsertOptions};
@@ -30,6 +32,7 @@ create_exception!(deltalite, DeltaLiteSchemaMismatchError, DeltaLiteError);
 create_exception!(deltalite, DeltaLiteTableNotFoundError, DeltaLiteError);
 create_exception!(deltalite, DeltaLiteUnsupportedTableError, DeltaLiteError);
 create_exception!(deltalite, DeltaLiteSourceTooLargeError, DeltaLiteError);
+create_exception!(deltalite, DeltaLiteTimeoutError, DeltaLiteError);
 
 /// Map a core error onto the matching Python exception class.
 fn to_py_err(e: Error) -> PyErr {
@@ -40,6 +43,7 @@ fn to_py_err(e: Error) -> PyErr {
         Error::Unsupported(_) => DeltaLiteUnsupportedTableError::new_err(msg),
         Error::Conflict(_) => DeltaLiteCommitConflictError::new_err(msg),
         Error::SourceTooLarge(_) => DeltaLiteSourceTooLargeError::new_err(msg),
+        Error::Timeout(_) => DeltaLiteTimeoutError::new_err(msg),
         Error::Generic(_) => DeltaLiteError::new_err(msg),
     }
 }
@@ -152,6 +156,8 @@ pub struct UpsertStats {
     #[pyo3(get)]
     pub files_probed: usize,
     #[pyo3(get)]
+    pub files_probe_cached: usize,
+    #[pyo3(get)]
     pub rows_updated: usize,
     #[pyo3(get)]
     pub rows_inserted: usize,
@@ -165,6 +171,8 @@ pub struct UpsertStats {
     pub plan_ms: u64,
     #[pyo3(get)]
     pub rewrite_ms: u64,
+    #[pyo3(get)]
+    pub probe_ms: u64,
     #[pyo3(get)]
     pub commit_ms: u64,
     #[pyo3(get)]
@@ -186,14 +194,15 @@ impl UpsertStats {
     fn __repr__(&self) -> String {
         format!(
             "UpsertStats(version={}, partitions_touched={}, files_added={}, files_removed={}, \
-             files_carried_over={}, files_probed={}, rows_updated={}, rows_inserted={}, \
-             rows_copied={})",
+             files_carried_over={}, files_probed={}, files_probe_cached={}, rows_updated={}, \
+             rows_inserted={}, rows_copied={})",
             self.version,
             self.partitions_touched,
             self.files_added,
             self.files_removed,
             self.files_carried_over,
             self.files_probed,
+            self.files_probe_cached,
             self.rows_updated,
             self.rows_inserted,
             self.rows_copied
@@ -210,12 +219,127 @@ impl From<deltalite_core::upsert::UpsertStats> for UpsertStats {
             files_added: s.files_added,
             files_carried_over: s.files_carried_over,
             files_probed: s.files_probed,
+            files_probe_cached: s.files_probe_cached,
             rows_updated: s.rows_updated,
             rows_inserted: s.rows_inserted,
             rows_copied: s.rows_copied,
             source_rows: s.source_rows,
             null_pk_rows: s.null_pk_rows,
             plan_ms: s.plan_ms,
+            rewrite_ms: s.rewrite_ms,
+            probe_ms: s.probe_ms,
+            commit_ms: s.commit_ms,
+            columns_relaxed: s.columns_relaxed,
+            open_ms: s.open_ms,
+            initial_open_ms: s.initial_open_ms,
+            ingest_ms: s.ingest_ms,
+            relax_ms: s.relax_ms,
+            maintenance_ms: s.maintenance_ms,
+        }
+    }
+}
+
+/// Counters describing what one `history_upsert` did.
+#[pyclass(module = "deltalite", skip_from_py_object)]
+#[derive(Clone, Debug, Default)]
+pub struct HistoryUpsertStats {
+    #[pyo3(get)]
+    pub version: i64,
+    #[pyo3(get)]
+    pub committed: bool,
+    #[pyo3(get)]
+    pub rows_in: usize,
+    #[pyo3(get)]
+    pub rows_deduped: usize,
+    #[pyo3(get)]
+    pub rows_reread: usize,
+    #[pyo3(get)]
+    pub rows_backwards: usize,
+    #[pyo3(get)]
+    pub versions_opened: usize,
+    #[pyo3(get)]
+    pub versions_closed: usize,
+    #[pyo3(get)]
+    pub chain_rows_closed: usize,
+    #[pyo3(get)]
+    pub rows_copied: usize,
+    #[pyo3(get)]
+    pub files_removed: usize,
+    #[pyo3(get)]
+    pub files_added: usize,
+    #[pyo3(get)]
+    pub files_carried_over: usize,
+    #[pyo3(get)]
+    pub files_probed: usize,
+    #[pyo3(get)]
+    pub bytes_read: u64,
+    #[pyo3(get)]
+    pub bytes_written: u64,
+    #[pyo3(get)]
+    pub plan_ms: u64,
+    #[pyo3(get)]
+    pub probe_ms: u64,
+    #[pyo3(get)]
+    pub rewrite_ms: u64,
+    #[pyo3(get)]
+    pub commit_ms: u64,
+    #[pyo3(get)]
+    pub columns_relaxed: usize,
+    #[pyo3(get)]
+    pub open_ms: u64,
+    #[pyo3(get)]
+    pub initial_open_ms: u64,
+    #[pyo3(get)]
+    pub ingest_ms: u64,
+    #[pyo3(get)]
+    pub relax_ms: u64,
+    #[pyo3(get)]
+    pub maintenance_ms: u64,
+}
+
+#[pymethods]
+impl HistoryUpsertStats {
+    fn __repr__(&self) -> String {
+        format!(
+            "HistoryUpsertStats(version={}, committed={}, rows_in={}, rows_deduped={}, \
+             rows_reread={}, rows_backwards={}, versions_opened={}, versions_closed={}, \
+             chain_rows_closed={}, files_added={}, files_removed={})",
+            self.version,
+            self.committed,
+            self.rows_in,
+            self.rows_deduped,
+            self.rows_reread,
+            self.rows_backwards,
+            self.versions_opened,
+            self.versions_closed,
+            self.chain_rows_closed,
+            self.files_added,
+            self.files_removed
+        )
+    }
+}
+
+impl From<deltalite_core::history::HistoryUpsertStats> for HistoryUpsertStats {
+    fn from(s: deltalite_core::history::HistoryUpsertStats) -> Self {
+        Self {
+            version: s.version,
+            committed: s.committed,
+            rows_in: s.rows_in,
+            rows_deduped: s.rows_deduped,
+            rows_reread: s.rows_reread,
+            rows_backwards: s.rows_backwards,
+            versions_opened: s.versions_opened,
+            versions_closed: s.versions_closed,
+            chain_rows_closed: s.chain_rows_closed,
+            rows_copied: s.rows_copied,
+            files_removed: s.files_removed,
+            files_added: s.files_added,
+            files_carried_over: s.files_carried_over,
+            files_probed: s.files_probed,
+            bytes_read: s.bytes_read,
+            bytes_written: s.bytes_written,
+            plan_ms: s.plan_ms,
+            probe_ms: s.probe_ms,
             rewrite_ms: s.rewrite_ms,
             commit_ms: s.commit_ms,
             columns_relaxed: s.columns_relaxed,
@@ -378,7 +502,15 @@ impl DeltaLiteTable {
     /// `max_source_bytes` guards against oversized batches (resident source + estimated
     /// PK set); `0` disables the guard, `None` uses `DELTALITE_MAX_SOURCE_BYTES` or the
     /// built-in 2 GiB default. `multipart_threshold` / `multipart_part_size` control
-    /// multipart upload of output files (`0` threshold disables).
+    /// multipart upload of output files (`0` threshold disables), and
+    /// `multipart_concurrency` sets how many parts upload at once. A ranged read of a
+    /// data file larger than `range_get_part_size` is split into requests of that size,
+    /// `range_get_concurrency` at once. A concurrency of `1` turns either off; see the
+    /// README for the defaults and environment variables.
+    ///
+    /// `read_ahead_row_groups=True` reads the next row group of a file while the
+    /// current one decodes. A reader then holds up to two row groups from the fetch
+    /// budget. Off by default.
     ///
     /// `max_fetch_bytes` caps the compressed row-group bytes this call's file readers
     /// hold between fetching and decoding (`DELTALITE_PROCESS_MAX_FETCH_BYTES` caps it
@@ -391,6 +523,9 @@ impl DeltaLiteTable {
     /// `max_row_group_bytes` closes an output row group once its encoded bytes reach the
     /// value, so a later reader fetches less per row group. `None` (the default) closes
     /// row groups only at the encoder's row cap.
+    ///
+    /// `use_probe_cache=False` makes the probe read every candidate file from storage
+    /// instead of using the process-wide probe cache (see `set_probe_cache_max_bytes`).
     #[pyo3(signature = (
         data,
         primary_keys,
@@ -412,6 +547,11 @@ impl DeltaLiteTable {
         max_source_bytes = None,
         multipart_threshold = None,
         multipart_part_size = None,
+        multipart_concurrency = None,
+        range_get_part_size = None,
+        range_get_concurrency = None,
+        read_ahead_row_groups = false,
+        use_probe_cache = true,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn upsert(
@@ -436,6 +576,11 @@ impl DeltaLiteTable {
         max_source_bytes: Option<usize>,
         multipart_threshold: Option<usize>,
         multipart_part_size: Option<usize>,
+        multipart_concurrency: Option<usize>,
+        range_get_part_size: Option<usize>,
+        range_get_concurrency: Option<usize>,
+        read_ahead_row_groups: bool,
+        use_probe_cache: bool,
     ) -> PyResult<UpsertStats> {
         // Import while holding the GIL (it reads a Python object), then release it for
         // all the I/O.
@@ -463,6 +608,7 @@ impl DeltaLiteTable {
             max_parallel_files,
             max_buffered_bytes,
             max_fetch_bytes,
+            read_ahead_row_groups,
             commit_max_retries,
             read_batch_size,
             target_file_size,
@@ -472,8 +618,15 @@ impl DeltaLiteTable {
             // Shared with every other concurrent upsert in this process, so the
             // process-level memory bound holds regardless of thread count.
             limits: ProcessLimits::global().clone(),
+            probe_cache: use_probe_cache.then(|| ProbeCache::global().clone()),
         };
-        let multipart = MultipartConfig::resolve(multipart_threshold, multipart_part_size);
+        let multipart = MultipartConfig::resolve(
+            multipart_threshold,
+            multipart_part_size,
+            multipart_concurrency,
+            range_get_part_size,
+            range_get_concurrency,
+        );
 
         // Conflict retries, snapshot refreshes and the post-commit reload all live in
         // `TableHandle::upsert` (shared with the Rust benchmarks); the handle refreshes
@@ -486,6 +639,127 @@ impl DeltaLiteTable {
         let mut stats: UpsertStats = stats.into();
         stats.ingest_ms = ingest_ms;
         Ok(stats)
+    }
+
+    /// Apply a batch of versions to an SCD2 history table in one data commit. See the
+    /// README's "History upsert" section for the rules, refusals and knobs.
+    /// `max_parallel_partitions` is accepted and has no effect.
+    #[pyo3(signature = (
+        data,
+        key_columns,
+        order_column,
+        valid_from_column,
+        valid_to_column,
+        partition_column,
+        current_partition,
+        tie_break_column,
+        *,
+        commit_metadata = None,
+        max_parallel_partitions = 1,
+        max_parallel_files = 4,
+        max_buffered_bytes = 67108864,
+        max_fetch_bytes = 134217728,
+        probe_concurrency = 8,
+        read_batch_size = 8192,
+        target_file_size = None,
+        max_row_group_bytes = None,
+        max_source_bytes = None,
+        multipart_threshold = None,
+        multipart_part_size = None,
+        multipart_concurrency = None,
+        range_get_part_size = None,
+        range_get_concurrency = None,
+        read_ahead_row_groups = false,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn history_upsert(
+        &mut self,
+        py: Python<'_>,
+        data: &Bound<'_, PyAny>,
+        key_columns: Vec<String>,
+        order_column: String,
+        valid_from_column: String,
+        valid_to_column: String,
+        partition_column: String,
+        current_partition: String,
+        tie_break_column: String,
+        commit_metadata: Option<HashMap<String, String>>,
+        max_parallel_partitions: usize,
+        max_parallel_files: usize,
+        max_buffered_bytes: usize,
+        max_fetch_bytes: usize,
+        probe_concurrency: usize,
+        read_batch_size: usize,
+        target_file_size: Option<usize>,
+        max_row_group_bytes: Option<usize>,
+        max_source_bytes: Option<usize>,
+        multipart_threshold: Option<usize>,
+        multipart_part_size: Option<usize>,
+        multipart_concurrency: Option<usize>,
+        range_get_part_size: Option<usize>,
+        range_get_concurrency: Option<usize>,
+        read_ahead_row_groups: bool,
+    ) -> PyResult<HistoryUpsertStats> {
+        let _ = max_parallel_partitions;
+        let ingest_started = std::time::Instant::now();
+        let (schema, batches) = read_pyarrow(data)?;
+        let ingest_ms = ingest_started.elapsed().as_millis() as u64;
+
+        let opts = HistoryUpsertOptions {
+            key_columns,
+            order_column,
+            valid_from_column,
+            valid_to_column,
+            partition_column,
+            current_partition,
+            tie_break_column,
+            commit_metadata: commit_metadata.map(|m| {
+                m.into_iter()
+                    .map(|(k, v)| (k, Value::String(v)))
+                    .collect::<HashMap<String, Value>>()
+            }),
+            probe_concurrency,
+            max_parallel_files,
+            max_buffered_bytes,
+            max_fetch_bytes,
+            read_ahead_row_groups,
+            read_batch_size,
+            target_file_size,
+            max_row_group_bytes,
+            max_source_bytes,
+            limits: ProcessLimits::global().clone(),
+        };
+        let multipart = MultipartConfig::resolve(
+            multipart_threshold,
+            multipart_part_size,
+            multipart_concurrency,
+            range_get_part_size,
+            range_get_concurrency,
+        );
+        let handle = &mut self.handle;
+        let stats = py
+            .detach(|| runtime().block_on(handle.history_upsert(batches, schema, opts, multipart)))
+            .map_err(to_py_err)?;
+        let mut stats: HistoryUpsertStats = stats.into();
+        stats.ingest_ms = ingest_ms;
+        Ok(stats)
+    }
+
+    /// A null-safe bucket id in `0..n` (`pyarrow.UInt32Array`) for every row of `data`,
+    /// from `key_columns` cast to this table's types. See the README.
+    fn key_buckets(
+        &mut self,
+        py: Python<'_>,
+        data: &Bound<'_, PyAny>,
+        key_columns: Vec<String>,
+        n: u32,
+    ) -> PyResult<Py<PyAny>> {
+        let (_, batches) = read_pyarrow(data)?;
+        let handle = &mut self.handle;
+        let buckets = py
+            .detach(|| handle.key_buckets(&batches, &key_columns, n))
+            .map_err(to_py_err)?;
+        Ok(buckets.to_data().to_pyarrow(py)?.unbind())
     }
 
     /// Compact small files the way `DeltaTable.optimize.compact` does, streaming each bin
@@ -524,6 +798,9 @@ impl DeltaLiteTable {
         dry_run = false,
         multipart_threshold = None,
         multipart_part_size = None,
+        multipart_concurrency = None,
+        range_get_part_size = None,
+        range_get_concurrency = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn compact(
@@ -547,6 +824,9 @@ impl DeltaLiteTable {
         dry_run: bool,
         multipart_threshold: Option<usize>,
         multipart_part_size: Option<usize>,
+        multipart_concurrency: Option<usize>,
+        range_get_part_size: Option<usize>,
+        range_get_concurrency: Option<usize>,
     ) -> PyResult<Py<PyAny>> {
         let opts = deltalite_core::CompactOptions {
             target_file_size,
@@ -571,7 +851,13 @@ impl DeltaLiteTable {
             dry_run,
             limits: ProcessLimits::global().clone(),
         };
-        let multipart = MultipartConfig::resolve(multipart_threshold, multipart_part_size);
+        let multipart = MultipartConfig::resolve(
+            multipart_threshold,
+            multipart_part_size,
+            multipart_concurrency,
+            range_get_part_size,
+            range_get_concurrency,
+        );
         let handle = &mut self.handle;
         let s = py
             .detach(|| runtime().block_on(handle.compact(opts, multipart)))
@@ -659,10 +945,69 @@ impl DeltaLiteTable {
     }
 }
 
+/// Set the byte cap of the process-wide probe cache, evicting entries down to it. `0`
+/// turns the cache off. The default comes from `DELTALITE_PROBE_CACHE_BYTES` (128 MiB
+/// when unset).
+#[pyfunction]
+fn set_probe_cache_max_bytes(max_bytes: usize) {
+    ProbeCache::global().set_max_bytes(max_bytes);
+}
+
+/// Drop every entry of the process-wide probe cache.
+#[pyfunction]
+fn clear_probe_cache() {
+    ProbeCache::global().clear();
+}
+
+/// Size and counters of the process-wide probe cache.
+#[pyfunction]
+fn probe_cache_stats(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    let s = ProbeCache::global().stats();
+    let d = PyDict::new(py);
+    d.set_item("entries", s.entries)?;
+    d.set_item("bytes", s.bytes)?;
+    d.set_item("max_bytes", s.max_bytes)?;
+    d.set_item("hits", s.hits)?;
+    d.set_item("misses", s.misses)?;
+    d.set_item("inserts", s.inserts)?;
+    d.set_item("evictions", s.evictions)?;
+    Ok(d.into_any().unbind())
+}
+
+/// Free and total permits of each process-wide budget that every upsert and compaction
+/// of this process shares, and the acquisitions that wait for each:
+/// `{"partitions": {"available": .., "total": .., "waiters": ..}, "files": {..},
+/// "buffer_kb": {..}, "fetch_kb": {..}}`. The byte budgets count KiB. It takes no
+/// lock and does no I/O, so a caller can read it while a call of this process hangs.
+#[pyfunction]
+fn limits_snapshot(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    let s = ProcessLimits::global().snapshot();
+    let d = PyDict::new(py);
+    for budget in [
+        Budget::Partitions,
+        Budget::Files,
+        Budget::Buffer,
+        Budget::Fetch,
+    ] {
+        let b = s.get(budget);
+        let entry = PyDict::new(py);
+        entry.set_item("available", b.available)?;
+        entry.set_item("total", b.total)?;
+        entry.set_item("waiters", b.waiters)?;
+        d.set_item(budget.name(), entry)?;
+    }
+    Ok(d.into_any().unbind())
+}
+
 #[pymodule]
 fn deltalite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DeltaLiteTable>()?;
+    m.add_function(wrap_pyfunction!(set_probe_cache_max_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(clear_probe_cache, m)?)?;
+    m.add_function(wrap_pyfunction!(probe_cache_stats, m)?)?;
+    m.add_function(wrap_pyfunction!(limits_snapshot, m)?)?;
     m.add_class::<UpsertStats>()?;
+    m.add_class::<HistoryUpsertStats>()?;
     m.add("DeltaLiteError", m.py().get_type::<DeltaLiteError>())?;
     m.add(
         "DeltaLiteCommitConflictError",
@@ -683,6 +1028,10 @@ fn deltalite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add(
         "DeltaLiteSourceTooLargeError",
         m.py().get_type::<DeltaLiteSourceTooLargeError>(),
+    )?;
+    m.add(
+        "DeltaLiteTimeoutError",
+        m.py().get_type::<DeltaLiteTimeoutError>(),
     )?;
     Ok(())
 }

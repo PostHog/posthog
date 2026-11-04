@@ -30,12 +30,16 @@
 //! crate (built with maturin, imported as `deltalite`).
 
 pub mod compact;
+pub mod deadline;
 pub mod errors;
 pub mod handle;
+pub mod history;
 pub mod limits;
 mod logprobe;
 pub mod pkset;
 pub mod prefetch;
+pub mod probecache;
+mod readahead;
 pub mod schema;
 mod smallfile;
 mod stats;
@@ -47,8 +51,12 @@ mod writer;
 pub use compact::{compact, CompactOptions, CompactStats};
 pub use errors::{Error, Result};
 pub use handle::{LiveFile, TableHandle};
-pub use limits::ProcessLimits;
+pub use history::{
+    history_upsert, key_buckets, HistoryUpsertOptions, HistoryUpsertStats, KEY_BUCKET_SEED,
+};
+pub use limits::{Budget, BudgetSnapshot, LimitsSnapshot, ProcessLimits};
 pub use prefetch::CheckpointCache;
+pub use probecache::{ProbeCache, ProbeCacheStats};
 pub use table::{
     open_table, open_table_multipart, open_table_prefetched, wrap_multipart, MultipartConfig,
 };

@@ -13,7 +13,7 @@ export const FUNNEL_STEPS_BAR_SERIES_KEY = 'funnel-steps-bar-series'
 export const FUNNEL_STEPS_BAND_PADDING = 0.1
 
 export interface FunnelStepsBarConfigOptions {
-    /** Hide x-axis category labels — the web container renders its own StepLegend row instead. */
+    /** Hide x-axis category labels — the web container renders its own StepNameLabel row instead. */
     hideXAxis?: boolean
     /** Truncate long category (step-name) labels to this px width; omit to render untruncated. */
     maxCategoryLabelWidth?: number
@@ -77,7 +77,7 @@ export interface FunnelStepsBarsModel<TMeta = unknown> {
     series: Series<TMeta>[]
     /** X-axis band labels — 1-based step indices as strings. Always unique, so steps that share an event
      *  name (e.g. two `$pageview` steps) don't collapse onto one band slot; surfaces map the index back to
-     *  the step name for display (web's StepLegend row, the MCP app's `xTickFormatter`). */
+     *  the step name for display (web's StepNameLabel row, the MCP app's `xTickFormatter`). */
     labels: string[]
     rows: FunnelStepsBarRow[]
     overall: { rate: number; firstCount: number; lastCount: number }

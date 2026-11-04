@@ -348,13 +348,13 @@
     --color-product-data-warehouse-dark: rgb(160 135 255);
     --color-product-data-catalog-light: rgb(101 78 196);
     --color-product-data-catalog-dark: rgb(139 118 232);
-    --color-product-llm-analytics-light: rgb(182 42 217);
-    --color-product-llm-analytics-dark: rgb(212 106 240);
-    --color-product-llm-clusters-light: rgb(108 93 238);
+    --color-product-llm-analytics-light: rgb(99 102 241);
+    --color-product-llm-analytics-dark: rgb(129 140 248);
+    --color-product-llm-clusters-light: rgb(110 92 238);
     --color-product-llm-datasets-light: rgb(121 87 235);
-    --color-product-llm-evaluations-light: rgb(135 81 232);
-    --color-product-mcp-analytics-light: rgb(150 76 229);
-    --color-product-mcp-analytics-dark: rgb(181 124 249);
+    --color-product-llm-evaluations-light: rgb(126 85 234);
+    --color-product-mcp-analytics-light: rgb(142 78 231);
+    --color-product-mcp-analytics-dark: rgb(173 125 248);
     --color-product-notebooks-light: rgb(239 68 68);
     --color-product-notebooks-dark: rgb(252 165 165);
     --color-product-tracing-light: rgb(6 182 212);
@@ -383,13 +383,13 @@
     --color-product-annotations-dark: rgb(94 235 238);
     --color-product-warehouse-destinations-dark: rgb(249 115 22);
     --color-product-warehouse-destinations-light: rgb(194 65 12);
-    --color-product-llm-clusters-dark: rgb(133 128 248);
+    --color-product-llm-clusters-dark: rgb(136 128 248);
     --color-product-llm-datasets-dark: rgb(149 127 248);
-    --color-product-llm-evaluations-dark: rgb(165 126 248);
-    --color-product-llm-playground-light: rgb(165 70 226);
-    --color-product-llm-playground-dark: rgb(198 123 249);
-    --color-product-llm-prompts-light: rgb(180 65 222);
-    --color-product-llm-prompts-dark: rgb(215 122 249);
+    --color-product-llm-evaluations-dark: rgb(154 126 248);
+    --color-product-llm-playground-light: rgb(160 72 227);
+    --color-product-llm-playground-dark: rgb(192 124 249);
+    --color-product-llm-prompts-light: rgb(178 66 222);
+    --color-product-llm-prompts-dark: rgb(212 122 249);
     --color-product-llm-tags-light: rgb(196 60 218);
     --color-product-llm-tags-dark: rgb(232 121 249);
     --color-product-event-definitions-light: rgb(24 145 200);
@@ -1242,9 +1242,10 @@
     }
 
     // Quill controls draw their own focus ring, so the Lemon accent outline must not stack on them.
+    // Base UI also marks the parts inside a highlighted item, such as a menu's radio indicator, so only the item gets it.
     a:focus-visible:not([data-quill]),
     button:focus-visible:not([data-quill]),
-    [data-highlighted]:not(:hover, [data-quill]) {
+    [data-highlighted]:not(:hover, [data-quill], [data-highlighted] *) {
         outline: 2px solid var(--color-accent);
     }
 

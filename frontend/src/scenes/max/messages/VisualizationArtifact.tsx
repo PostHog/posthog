@@ -10,7 +10,8 @@ import { Scene } from 'scenes/sceneTypes'
 
 import { ArtifactMessage, VisualizationArtifactContent } from '~/queries/schema/schema-assistant-messages'
 
-import { VisualizationWidget, getArtifactOpenTarget } from 'products/posthog_ai/frontend/api/primitives'
+import { VisualizationWidget, getArtifactOpenTarget } from 'products/posthog_ai/frontend/api/dataWidgets'
+import { useQuillThread } from 'products/posthog_ai/frontend/api/primitives'
 
 import { MessageStatus } from '../maxLogic'
 
@@ -62,6 +63,7 @@ export const VisualizationArtifact = React.memo(function VisualizationArtifact({
 }: VisualizationArtifactProps): JSX.Element | null {
     // Controlled collapse synced to edit mode — a key-remount would refetch the query instead.
     const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
+    const quill = useQuillThread()
 
     useLayoutEffect(() => {
         setIsCollapsed(isEditingInsight)
@@ -74,7 +76,7 @@ export const VisualizationArtifact = React.memo(function VisualizationArtifact({
     const target = getArtifactOpenTarget(message, content)
     const showSuggestionButton = isEditingInsight && activeSceneId === Scene.Insight
 
-    return (
+    const widget = (
         <VisualizationWidget
             content={content}
             openUrl={isEditingInsight ? null : target.url}
@@ -84,4 +86,6 @@ export const VisualizationArtifact = React.memo(function VisualizationArtifact({
             extraActions={showSuggestionButton ? <InsightSuggestionButton /> : null}
         />
     )
+    // In the quill thread a chart card needs more room from the text around it than the row gap gives.
+    return quill ? <div className="w-full my-2">{widget}</div> : widget
 })

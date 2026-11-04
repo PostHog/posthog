@@ -1,19 +1,175 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
+import posthog, { type CaptureOptions } from 'posthog-js'
+import { v4 as uuidv4 } from 'uuid'
+
+import { toast } from '@posthog/quill'
 
 import { ApiError } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { todayHighlightsRetrieve } from 'products/today/frontend/generated/api'
-import type { HighlightItemApi, HighlightMetricApi, HighlightsApi } from 'products/today/frontend/generated/api.schemas'
+import type {
+    HighlightItemApi,
+    HighlightMetricApi,
+    HighlightsApi,
+    PulseSlotApi,
+} from 'products/today/frontend/generated/api.schemas'
 
 export const HIGHLIGHTS_POLL_MS = 2_000
 const HIGHLIGHTS_WAIT_MS = 2_000
+export const PULSE_TILES = 4
+const PULSE_SLOW_MS = 30_000
+
+interface PulseLoad {
+    id: string
+    startedAt: number
+    firstCardAt: number | null
+    firstResponseAt: number | null
+    loadingMode: 'progressive' | 'complete' | null
+    firstNumberAt: number | null
+    requestCount: number
+    responseCount: number
+    errorCount: number
+    initialStatus: HighlightsApi['status'] | null
+    contentAtMount: boolean
+    startedVisible: boolean
+    wasHidden: boolean
+    finished: boolean
+}
+
+function pulseLoadOutcome(
+    status: HighlightsApi['status'] | undefined,
+    failed: boolean,
+    unavailable: boolean,
+    numberCount: number
+): 'request_error' | 'unavailable' | 'failed' | 'ready' | 'empty' | null {
+    if (failed) {
+        return 'request_error'
+    }
+    if (unavailable) {
+        return 'unavailable'
+    }
+    if (status === 'failed') {
+        return 'failed'
+    }
+    return status === 'ready' ? (numberCount > 0 ? 'ready' : 'empty') : null
+}
+
+function capturePulseLoad(
+    event: string,
+    load: PulseLoad,
+    properties: Record<string, unknown> = {},
+    options?: CaptureOptions
+): void {
+    const payload = {
+        load_id: load.id,
+        duration_ms: Math.round(performance.now() - load.startedAt),
+        first_card_duration_ms: load.firstCardAt === null ? null : Math.round(load.firstCardAt - load.startedAt),
+        first_response_duration_ms:
+            load.firstResponseAt === null ? null : Math.round(load.firstResponseAt - load.startedAt),
+        loading_mode: load.loadingMode,
+        first_number_duration_ms: load.firstNumberAt === null ? null : Math.round(load.firstNumberAt - load.startedAt),
+        request_count: load.requestCount,
+        response_count: load.responseCount,
+        error_count: load.errorCount,
+        initial_status: load.initialStatus,
+        content_at_mount: load.contentAtMount,
+        started_visible: load.startedVisible,
+        was_hidden: load.wasHidden,
+        visible: document.visibilityState === 'visible',
+        ...properties,
+    }
+    if (options) {
+        posthog.capture(event, payload, options)
+    } else {
+        posthog.capture(event, payload)
+    }
+}
+
+function pulseKind(key: string): 'insight' | 'key_metric' {
+    return key.startsWith('insight:') ? 'insight' : 'key_metric'
+}
 
 function hiddenHighlightKey(projectId: number | string, key: string): string {
     return `${projectId}:${key}`
+}
+
+export interface PulsePlace {
+    key: string
+    standIn: string | null
+}
+
+export interface PulsePlacement {
+    slots: PulseSlotApi[]
+    places: PulsePlace[]
+}
+
+export function pulseSlotsOf(highlights: HighlightsApi | null): PulseSlotApi[] {
+    return (
+        highlights?.pulse_slots ??
+        (highlights?.pulse ?? []).map((metric) => ({
+            key: metric.key,
+            name: metric.name,
+            url: metric.url,
+            interval: metric.interval,
+            status: 'ready',
+        }))
+    )
+}
+
+function needsStandIn(place: PulsePlace, present: boolean, isHidden: (key: string) => boolean): boolean {
+    return present ? isHidden(place.key) : place.standIn !== null
+}
+
+export function placePulseSlots(
+    slots: PulseSlotApi[],
+    places: PulsePlace[],
+    isHidden: (key: string) => boolean
+): PulsePlacement {
+    const byKey = new Map(slots.map((slot) => [slot.key, slot]))
+    const kept = places.slice(0, PULSE_TILES)
+    const claimed = new Set(
+        kept
+            .flatMap((place) => [place.key, ...(place.standIn !== null ? [place.standIn] : [])])
+            .filter((key) => byKey.has(key))
+    )
+    const spare = slots.filter((slot) => !claimed.has(slot.key) && !isHidden(slot.key))
+    const used = new Set<string>()
+    const take = (key: string | null): PulseSlotApi | undefined => {
+        const slot = key !== null ? byKey.get(key) : undefined
+        if (slot && !isHidden(slot.key) && !used.has(slot.key)) {
+            used.add(slot.key)
+            return slot
+        }
+        const next = spare.shift()
+        if (next) {
+            used.add(next.key)
+        }
+        return next
+    }
+    const shown: PulseSlotApi[] = []
+    const nextPlaces: PulsePlace[] = []
+    for (const place of kept) {
+        if (needsStandIn(place, byKey.has(place.key), isHidden)) {
+            const standIn = take(place.standIn)
+            if (standIn) {
+                shown.push(standIn)
+            }
+            nextPlaces.push({ key: place.key, standIn: standIn?.key ?? null })
+            continue
+        }
+        const slot = take(byKey.has(place.key) ? place.key : null)
+        if (slot) {
+            shown.push(slot)
+            nextPlaces.push({ key: slot.key, standIn: null })
+        }
+    }
+    for (const slot of spare.slice(0, PULSE_TILES - nextPlaces.length)) {
+        shown.push(slot)
+        nextPlaces.push({ key: slot.key, standIn: null })
+    }
+    return { slots: shown, places: nextPlaces }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -22,12 +178,18 @@ export interface todayHighlightsLogicValues {
     doneHighlightKeys: string[]
     forYouHighlights: HighlightItemApi[]
     hiddenHighlights: Record<string, string>
+    hiddenPulseMetrics: Record<string, true>
     highlights: HighlightsApi | null
     highlightsFailed: boolean
     highlightsHiddenNow: string[]
     highlightsLoading: boolean
     highlightsPending: boolean
     highlightsWaitOver: boolean
+    pulsePending: boolean
+    pulsePlacement: PulsePlacement
+    pulsePlaces: PulsePlace[]
+    pulseSlots: PulseSlotApi[]
+    pulseTiles: HighlightMetricApi[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -39,6 +201,13 @@ export interface todayHighlightsLogicActions {
         item: HighlightItemApi
         position: number
     }
+    hidePulseMetric: (
+        metric: HighlightMetricApi,
+        position: number
+    ) => {
+        metric: HighlightMetricApi
+        position: number
+    }
     highlightOpened: (
         item: HighlightItemApi,
         position: number
@@ -46,7 +215,7 @@ export interface todayHighlightsLogicActions {
         item: HighlightItemApi
         position: number
     }
-    loadHighlights: () => any
+    loadHighlights: (refresh?: boolean) => boolean
     loadHighlightsFailure: (
         error: string,
         errorObject?: any
@@ -56,10 +225,10 @@ export interface todayHighlightsLogicActions {
     }
     loadHighlightsSuccess: (
         highlights: HighlightsApi | null,
-        payload?: any
+        payload?: boolean
     ) => {
         highlights: HighlightsApi | null
-        payload?: any
+        payload?: boolean
     }
     pulseMetricOpened: (
         metric: HighlightMetricApi,
@@ -75,8 +244,26 @@ export interface todayHighlightsLogicActions {
         metric: HighlightMetricApi
         position: number
     }
+    pulseViewMounted: (sample: boolean) => {
+        sample: boolean
+    }
+    pulseViewUnmounted: (documentDeparture?: boolean) => {
+        documentDeparture: boolean
+    }
+    pulseViewUpdated: () => {
+        value: true
+    }
+    retryPulse: () => {
+        value: true
+    }
     setHiddenHighlights: (hidden: Record<string, string>) => {
         hidden: Record<string, string>
+    }
+    setHiddenPulseMetrics: (hidden: Record<string, true>) => {
+        hidden: Record<string, true>
+    }
+    setPulsePlaces: (places: PulsePlace[]) => {
+        places: PulsePlace[]
     }
     stopWaitingForHighlights: () => {
         value: true
@@ -88,12 +275,37 @@ export interface todayHighlightsLogicActions {
         item: HighlightItemApi
         position: number
     }
+    unhidePulseMetric: (
+        metric: HighlightMetricApi,
+        position: number
+    ) => {
+        metric: HighlightMetricApi
+        position: number
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface todayHighlightsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        highlightsPending: (highlights: HighlightsApi | null, highlightsLoading: boolean) => boolean
+        pulsePlacement: (
+            highlights: HighlightsApi | null,
+            hiddenPulseMetrics: Record<string, true>,
+            currentProjectId: number | string,
+            pulsePlaces: PulsePlace[]
+        ) => PulsePlacement
+        pulseSlots: (pulsePlacement: PulsePlacement, highlightsFailed: boolean) => PulseSlotApi[]
+        pulseTiles: (highlights: HighlightsApi | null, pulseSlots: PulseSlotApi[]) => HighlightMetricApi[]
+        highlightsPending: (
+            highlights: HighlightsApi | null,
+            highlightsLoading: boolean,
+            highlightsFailed: boolean
+        ) => boolean
+        pulsePending: (
+            highlights: HighlightsApi | null,
+            highlightsPending: boolean,
+            pulseSlots: PulseSlotApi[],
+            highlightsFailed: boolean
+        ) => boolean
         doneHighlightKeys: (
             highlights: HighlightsApi | null,
             hiddenHighlights: Record<string, string>,
@@ -129,17 +341,27 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         unhideHighlight: (item: HighlightItemApi, position: number) => ({ item, position }),
         setHiddenHighlights: (hidden: Record<string, string>) => ({ hidden }),
         stopWaitingForHighlights: true,
+        hidePulseMetric: (metric: HighlightMetricApi, position: number) => ({ metric, position }),
+        unhidePulseMetric: (metric: HighlightMetricApi, position: number) => ({ metric, position }),
+        setHiddenPulseMetrics: (hidden: Record<string, true>) => ({ hidden }),
+        setPulsePlaces: (places: PulsePlace[]) => ({ places }),
+        pulseViewMounted: (sample: boolean) => ({ sample }),
+        pulseViewUpdated: true,
+        retryPulse: true,
+        pulseViewUnmounted: (documentDeparture: boolean = false) => ({ documentDeparture }),
     }),
     loaders(({ values }) => ({
         highlights: [
             null as HighlightsApi | null,
             {
-                loadHighlights: async (): Promise<HighlightsApi | null> => {
+                loadHighlights: async (refresh: boolean = false): Promise<HighlightsApi | null> => {
                     if (values.currentProjectId === null) {
                         return null
                     }
                     try {
-                        return await todayHighlightsRetrieve(String(values.currentProjectId))
+                        return refresh
+                            ? await todayHighlightsRetrieve(String(values.currentProjectId), { refresh: true })
+                            : await todayHighlightsRetrieve(String(values.currentProjectId))
                     } catch (error) {
                         if (error instanceof ApiError && error.status === 404) {
                             return null
@@ -151,10 +373,21 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         ],
     })),
     reducers({
+        pulsePlaces: [
+            [] as PulsePlace[],
+            {
+                setPulsePlaces: (_, { places }) => places,
+            },
+        ],
         hiddenHighlights: [
             {} as Record<string, string>,
             { persist: true },
             { setHiddenHighlights: (_, { hidden }) => hidden },
+        ],
+        hiddenPulseMetrics: [
+            {} as Record<string, true>,
+            { persist: true },
+            { setHiddenPulseMetrics: (_, { hidden }) => hidden },
         ],
         highlightsHiddenNow: [
             [] as string[],
@@ -172,14 +405,56 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             },
         ],
         highlights: {
-            loadHighlightsFailure: () => null,
+            loadHighlightsFailure: (state) => state,
         },
     }),
     selectors({
+        pulsePlacement: [
+            (s) => [s.highlights, s.hiddenPulseMetrics, s.currentProjectId, s.pulsePlaces],
+            (
+                highlights: HighlightsApi | null,
+                hiddenPulseMetrics: Record<string, true>,
+                currentProjectId: number | string,
+                pulsePlaces: PulsePlace[]
+            ): PulsePlacement =>
+                placePulseSlots(
+                    pulseSlotsOf(highlights),
+                    pulsePlaces,
+                    (key) => !!hiddenPulseMetrics[hiddenHighlightKey(currentProjectId, key)]
+                ),
+        ],
+        pulseSlots: [
+            (s) => [s.pulsePlacement, s.highlightsFailed],
+            (pulsePlacement: PulsePlacement, highlightsFailed: boolean): PulseSlotApi[] =>
+                pulsePlacement.slots.map(
+                    (slot): PulseSlotApi =>
+                        highlightsFailed && slot.status === 'pending' ? { ...slot, status: 'error' } : slot
+                ),
+        ],
+        pulseTiles: [
+            (s) => [s.highlights, s.pulseSlots],
+            (highlights: HighlightsApi | null, pulseSlots: PulseSlotApi[]): HighlightMetricApi[] =>
+                pulseSlots.flatMap((slot) => highlights?.pulse.find((metric) => metric.key === slot.key) ?? []),
+        ],
         highlightsPending: [
-            (s) => [s.highlights, s.highlightsLoading],
-            (highlights: HighlightsApi | null, highlightsLoading: boolean): boolean =>
-                highlights ? highlights.status === 'computing' && highlights.generated_at === null : highlightsLoading,
+            (s) => [s.highlights, s.highlightsLoading, s.highlightsFailed],
+            (highlights: HighlightsApi | null, highlightsLoading: boolean, highlightsFailed: boolean): boolean =>
+                !highlightsFailed &&
+                (highlights
+                    ? highlights.status === 'computing' && highlights.generated_at === null
+                    : highlightsLoading),
+        ],
+        pulsePending: [
+            (s) => [s.highlights, s.highlightsPending, s.pulseSlots, s.highlightsFailed],
+            (
+                highlights: HighlightsApi | null,
+                highlightsPending: boolean,
+                pulseSlots: PulseSlotApi[],
+                highlightsFailed: boolean
+            ): boolean =>
+                !highlightsFailed &&
+                pulseSlots.length === 0 &&
+                (highlightsPending || highlights?.status === 'computing'),
         ],
         doneHighlightKeys: [
             (s) => [s.highlights, s.hiddenHighlights, s.highlightsHiddenNow, s.currentProjectId],
@@ -209,6 +484,166 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        pulseViewMounted: ({ sample }) => {
+            actions.setPulsePlaces(
+                placePulseSlots(
+                    pulseSlotsOf(values.highlights),
+                    [],
+                    (key) => !!values.hiddenPulseMetrics[hiddenHighlightKey(values.currentProjectId, key)]
+                ).places
+            )
+            if (sample) {
+                return
+            }
+            const load: PulseLoad = {
+                id: uuidv4(),
+                startedAt: performance.now(),
+                firstCardAt: null,
+                firstResponseAt: null,
+                loadingMode: null,
+                firstNumberAt: null,
+                requestCount: values.highlightsLoading ? 1 : 0,
+                responseCount: 0,
+                errorCount: 0,
+                initialStatus: values.highlights?.status ?? null,
+                contentAtMount: values.highlights?.generated_at !== null && values.highlights !== null,
+                startedVisible: document.visibilityState === 'visible',
+                wasHidden: document.visibilityState !== 'visible',
+                finished: false,
+            }
+            cache.pulseLoad = load
+            capturePulseLoad('today pulse load started', load)
+            cache.disposables.add(
+                () => {
+                    const onPageHide = (): void => actions.pulseViewUnmounted(true)
+                    const onPageShow = (event: PageTransitionEvent): void => {
+                        if (event.persisted) {
+                            actions.pulseViewMounted(sample)
+                            actions.pulseViewUpdated()
+                        }
+                    }
+                    window.addEventListener('pagehide', onPageHide)
+                    window.addEventListener('pageshow', onPageShow)
+                    return () => {
+                        window.removeEventListener('pagehide', onPageHide)
+                        window.removeEventListener('pageshow', onPageShow)
+                    }
+                },
+                'pulseLoadPageLifecycle',
+                { pauseOnPageHidden: false }
+            )
+            cache.disposables.add(
+                () => {
+                    const onVisibilityChange = (): void => {
+                        load.wasHidden ||= document.visibilityState !== 'visible'
+                    }
+                    document.addEventListener('visibilitychange', onVisibilityChange)
+                    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+                },
+                'pulseLoadVisibility',
+                { pauseOnPageHidden: false }
+            )
+            cache.disposables.add(
+                () => {
+                    const timer = window.setTimeout(() => {
+                        if (!load.finished) {
+                            capturePulseLoad('today pulse load slow', load)
+                        }
+                    }, PULSE_SLOW_MS)
+                    return () => clearTimeout(timer)
+                },
+                'pulseLoadSlow',
+                { pauseOnPageHidden: false }
+            )
+        },
+        pulseViewUpdated: () => {
+            const load = cache.pulseLoad as PulseLoad | undefined
+            if (!load || load.finished) {
+                return
+            }
+            if (values.pulseSlots.length > 0 && load.firstCardAt === null) {
+                load.firstCardAt = performance.now()
+            }
+            const numberCount = values.highlightsPending ? 0 : values.pulseTiles.length
+            if (numberCount > 0 && load.firstNumberAt === null) {
+                load.firstNumberAt = performance.now()
+                capturePulseLoad('today pulse first number shown', load, { number_count: numberCount })
+            }
+            const outcome = pulseLoadOutcome(
+                values.highlights?.status,
+                values.highlightsFailed,
+                cache.highlightsUnavailable === true,
+                numberCount
+            )
+            if (outcome) {
+                load.finished = true
+                cache.disposables.dispose('pulseLoadSlow')
+                cache.disposables.dispose('pulseLoadVisibility')
+                capturePulseLoad('today pulse load finished', load, {
+                    outcome,
+                    number_count: numberCount,
+                    pending_count: values.pulseSlots.filter((slot) => slot.status === 'pending').length,
+                })
+            }
+        },
+        pulseViewUnmounted: ({ documentDeparture }) => {
+            const load = cache.pulseLoad as PulseLoad | undefined
+            if (load && !load.finished) {
+                load.finished = true
+                capturePulseLoad(
+                    'today pulse load finished',
+                    load,
+                    { outcome: 'abandoned' },
+                    documentDeparture ? { transport: 'sendBeacon', send_instantly: true } : undefined
+                )
+            }
+            cache.disposables.dispose('pulseLoadSlow')
+            cache.disposables.dispose('pulseLoadVisibility')
+            if (!documentDeparture) {
+                cache.disposables.dispose('pulseLoadPageLifecycle')
+            }
+            delete cache.pulseLoad
+        },
+        loadHighlights: () => {
+            cache.highlightsUnavailable = false
+            const load = cache.pulseLoad as PulseLoad | undefined
+            if (load && !load.finished) {
+                load.requestCount += 1
+            }
+        },
+        setHiddenPulseMetrics: () => {
+            actions.setPulsePlaces(values.pulsePlacement.places)
+        },
+        loadHighlightsFailure: () => {
+            const load = cache.pulseLoad as PulseLoad | undefined
+            if (load && !load.finished) {
+                load.errorCount += 1
+            }
+        },
+        hidePulseMetric: ({ metric, position }) => {
+            actions.setHiddenPulseMetrics({
+                ...values.hiddenPulseMetrics,
+                [hiddenHighlightKey(values.currentProjectId, metric.key)]: true,
+            })
+            posthog.capture('today pulse metric hidden', {
+                kind: pulseKind(metric.key),
+                reason: metric.reason,
+                position,
+            })
+            toast.success({
+                title: 'Hidden from Today',
+                action: { label: 'Undo', onClick: () => actions.unhidePulseMetric(metric, position) },
+            })
+        },
+        unhidePulseMetric: ({ metric, position }) => {
+            const { [hiddenHighlightKey(values.currentProjectId, metric.key)]: _, ...rest } = values.hiddenPulseMetrics
+            actions.setHiddenPulseMetrics(rest)
+            posthog.capture('today pulse metric unhidden', {
+                kind: pulseKind(metric.key),
+                reason: metric.reason,
+                position,
+            })
+        },
         hideHighlight: ({ item, position }) => {
             const day = values.highlights?.day
             if (!day) {
@@ -245,10 +680,9 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         },
         pulseMetricOpened: ({ metric, position }) => {
             posthog.capture('today pulse metric opened', {
-                kind: metric.key.startsWith('insight:') ? 'insight' : 'key_metric',
+                kind: pulseKind(metric.key),
                 reason: metric.reason,
                 position,
-                pulse_ranking: posthog.getFeatureFlag(FEATURE_FLAGS.TODAY_PULSE_RANKING) ?? null,
             })
         },
         pulseMetricPreviewed: ({ metric, position }) => {
@@ -258,16 +692,29 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             }
             previewed.add(metric.key)
             posthog.capture('today pulse metric previewed', {
-                kind: metric.key.startsWith('insight:') ? 'insight' : 'key_metric',
+                kind: pulseKind(metric.key),
                 reason: metric.reason,
                 position,
-                pulse_ranking: posthog.getFeatureFlag(FEATURE_FLAGS.TODAY_PULSE_RANKING) ?? null,
             })
         },
+        retryPulse: () => {
+            if (!values.highlightsLoading && (values.highlightsFailed || values.highlights?.status !== 'computing')) {
+                actions.loadHighlights(true)
+            }
+        },
         loadHighlightsSuccess: ({ highlights }) => {
+            cache.highlightsUnavailable = highlights === null
+            const load = cache.pulseLoad as PulseLoad | undefined
+            if (load && !load.finished) {
+                load.firstResponseAt ??= performance.now()
+                load.loadingMode = highlights?.pulse_slots == null ? 'complete' : 'progressive'
+                load.responseCount += 1
+                load.initialStatus ??= highlights?.status ?? null
+            }
             if (!highlights) {
                 return
             }
+            actions.setPulsePlaces(values.pulsePlacement.places)
             if (highlights.status === 'computing') {
                 cache.disposables.add(() => {
                     const poll = window.setTimeout(() => actions.loadHighlights(), HIGHLIGHTS_POLL_MS)
@@ -275,15 +722,19 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 }, 'highlightsPoll')
                 return
             }
+            if (cache.highlightsLoadedCaptured) {
+                return
+            }
+            cache.highlightsLoadedCaptured = true
             posthog.capture('today highlights loaded', {
                 status: highlights.status,
                 item_count: highlights.items.length,
                 risk_count: highlights.items.filter((item) => item.label === 'risk').length,
                 opportunity_count: highlights.items.filter((item) => item.label === 'opportunity').length,
                 sources: highlights.items.map((item) => item.source),
-                pulse_count: highlights.pulse.length,
-                pulse_reasons: highlights.pulse.map((metric) => metric.reason),
-                pulse_ranking: posthog.getFeatureFlag(FEATURE_FLAGS.TODAY_PULSE_RANKING) ?? null,
+                pulse_count: values.pulseTiles.length,
+                pulse_candidate_count: highlights.pulse.length,
+                pulse_reasons: values.pulseTiles.map((metric) => metric.reason),
             })
         },
     })),

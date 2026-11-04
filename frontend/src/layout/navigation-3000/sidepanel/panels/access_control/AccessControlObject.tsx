@@ -128,7 +128,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
         addableMembers,
         accessControlMembers,
         accessControlsLoading,
-        availableLevels,
+        availableLevelsWithNone,
         canEditAccessControls,
     } = useValues(accessControlLogic)
     const { updateAccessControlMembers } = useAsyncActions(accessControlLogic)
@@ -197,7 +197,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                             size="small"
                             level={resource === 'project' ? AccessControlLevel.Admin : AccessControlLevel.Editor}
                             disabled={true}
-                            levels={availableLevels}
+                            levels={availableLevelsWithNone}
                             onChange={() => {}}
                         />
                     </div>
@@ -206,7 +206,8 @@ function AccessControlObjectUsers(): JSX.Element | null {
                         <SimplLevelComponent
                             size="small"
                             level={ac.access_level}
-                            levels={availableLevels}
+                            disabledReason={accessControlsLoading ? 'Saving…' : undefined}
+                            levels={availableLevelsWithNone}
                             onChange={(level) =>
                                 void updateAccessControlMembers([{ member: ac.organization_member as string, level }])
                             }
@@ -274,7 +275,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
         accessControlsLoading,
         addableRoles,
         rolesById,
-        availableLevels,
+        availableLevelsWithNone,
         canEditAccessControls,
     } = useValues(accessControlLogic)
     const { updateAccessControlRoles } = useAsyncActions(accessControlLogic)
@@ -323,7 +324,8 @@ function AccessControlObjectRoles(): JSX.Element | null {
                         <SimplLevelComponent
                             size="small"
                             level={access_level}
-                            levels={availableLevels}
+                            disabledReason={accessControlsLoading ? 'Saving…' : undefined}
+                            levels={availableLevelsWithNone}
                             onChange={(level) => void updateAccessControlRoles([{ role, level }])}
                         />
                     </div>
@@ -449,9 +451,10 @@ function AddItemsControlsModal(props: {
         label: string
     }[]
 }): JSX.Element | null {
-    const { availableLevels, canEditAccessControls } = useValues(accessControlLogic)
+    const { availableLevels, availableLevelsWithNone, canEditAccessControls } = useValues(accessControlLogic)
     // TODO: Move this into a form logic
     const [items, setItems] = useState<string[]>([])
+    const [submitting, setSubmitting] = useState(false)
     const [level, setLevel] = useState<AccessControlLevel | null>(availableLevels[0] ?? null)
 
     useEffect(() => {
@@ -460,11 +463,16 @@ function AddItemsControlsModal(props: {
 
     const onSubmit =
         items.length && level
-            ? (): void =>
-                  void props.onAdd(items, level).then(() => {
-                      setItems([])
-                      setLevel(availableLevels[0] ?? null)
-                  })
+            ? (): void => {
+                  setSubmitting(true)
+                  void props
+                      .onAdd(items, level)
+                      .then(() => {
+                          setItems([])
+                          setLevel(availableLevels[0] ?? null)
+                      })
+                      .finally(() => setSubmitting(false))
+              }
             : undefined
 
     return (
@@ -473,7 +481,7 @@ function AddItemsControlsModal(props: {
             onClose={() => props.setModelOpen(false)}
             title="Add access"
             maxWidth="30rem"
-            description="Allow other users or roles to access this resource"
+            description="Set access for specific users or roles on this resource"
             footer={
                 <div className="flex items-center justify-end gap-2">
                     <LemonButton type="secondary" onClick={() => props.setModelOpen(false)}>
@@ -482,6 +490,7 @@ function AddItemsControlsModal(props: {
                     <LemonButton
                         type="primary"
                         onClick={onSubmit}
+                        loading={submitting}
                         disabledReason={
                             !canEditAccessControls
                                 ? 'You cannot edit this'
@@ -496,7 +505,7 @@ function AddItemsControlsModal(props: {
             }
         >
             <div className="flex gap-2 items-center w-full">
-                <div className="min-w-[16rem] w-full">
+                <div className="min-w-0 flex-1">
                     <LemonInputSelect
                         placeholder={props.placeholder}
                         value={items}
@@ -506,7 +515,7 @@ function AddItemsControlsModal(props: {
                         disabled={!canEditAccessControls}
                     />
                 </div>
-                <SimplLevelComponent levels={availableLevels} level={level} onChange={setLevel} />
+                <SimplLevelComponent levels={availableLevelsWithNone} level={level} onChange={setLevel} />
             </div>
         </LemonModal>
     )

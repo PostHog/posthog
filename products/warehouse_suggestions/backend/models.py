@@ -37,6 +37,9 @@ class WarehouseSuggestion(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     reviewed_at = models.DateTimeField(null=True, blank=True)
+    assignee = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
     dismissal_reason = models.CharField(
         max_length=16, choices=WarehouseSuggestionDismissalReason.choices, null=True, blank=True
     )
@@ -46,6 +49,8 @@ class WarehouseSuggestion(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     asset_outcome = models.CharField(
         max_length=16, choices=WarehouseSuggestionAssetOutcome.choices, null=True, blank=True
     )
+    realized_seconds_saved_per_month = models.FloatField(null=True, blank=True)
+    realized_bytes_saved_per_month = models.FloatField(null=True, blank=True)
     run_id = models.CharField(max_length=255, blank=True)
 
     class Meta:

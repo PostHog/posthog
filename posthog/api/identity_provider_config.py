@@ -11,6 +11,12 @@ from rest_framework.request import Request
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scim.utils import (
+    disable_scim_for_config,
+    enable_scim_for_config,
+    get_scim_base_url,
+    regenerate_scim_token_for_config,
+)
 from posthog.api.scim_request_log import (
     PaginatedSCIMRequestLogSerializer,
     SCIMRequestLogQuerySerializer,
@@ -30,17 +36,10 @@ from posthog.models.identity_provider_config import (
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.scim_request_log import SCIMRequestLog
 from posthog.models.user import User
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 from posthog.security.url_validation import is_url_allowed
-
-from ee.api.scim.utils import (
-    disable_scim_for_config,
-    enable_scim_for_config,
-    get_scim_base_url,
-    regenerate_scim_token_for_config,
-)
-from ee.models.scim_request_log import SCIMRequestLog
 
 
 def _capture_idp_config_event(

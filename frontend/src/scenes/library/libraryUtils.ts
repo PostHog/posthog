@@ -72,7 +72,7 @@ function routeSegments(route: string): string[] {
 let parsedRoutes: { scene: string; parts: string[] }[] | null = null
 let objectTypeByScene: Map<string, string> | null = null
 
-// The router prefers a fixed segment to a parameter, so `/feature_flags/templates` opens its own scene.
+// The router prefers a fixed segment to a parameter, so `/feature-flags/templates` opens its own scene.
 function sceneForPath(path: string): string | null {
     parsedRoutes ??= Object.entries(routes).map(([route, [scene]]) => ({ scene, parts: routeSegments(route) }))
     const segments = routeSegments(path)

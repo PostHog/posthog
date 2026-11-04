@@ -6,15 +6,16 @@ live on `SignalReportArtefact`. Every reader goes through this module instead of
 itself, so the tolerance for a row that no longer parses, the graph budgets, and the direction
 vocabulary are decided once.
 
-Reading outgoing edges is a seek on `(report, type)`. Reading incoming edges is a team-scoped scan,
-because `content` is a `TextField` and nothing mirrors the row onto the target: the candidate rows
-are narrowed with a `content__contains` on the target's UUID and then confirmed by parsing. Links
-are rare and team-scoped, so the scan is cheap. If it ever shows up in query timings, the fix is a
-materialised target column or a JSON index, not a mirror row, because the direction is the payload.
+Reading outgoing edges is a seek on `(report, type)`. Reading incoming edges is a seek on
+`link_target_id`, which every write copies out of `content`, and the candidates are then confirmed by
+parsing. Nothing mirrors the row onto the target, because the direction is the payload.
 """
 
 import uuid
 from collections.abc import Collection
+
+from django.db.models import F, QuerySet, Window
+from django.db.models.functions import RowNumber
 
 import structlog
 import posthoganalytics
@@ -70,6 +71,28 @@ def _edges_from_rows(
     return edges
 
 
+def _rows_within_budget_per_report(
+    candidates: QuerySet[SignalReportArtefact], *, partition_field: str
+) -> QuerySet[SignalReportArtefact, tuple[uuid.UUID, str]]:
+    """`(report_id, content)` rows, oldest first, with the graph row budget applied to each report.
+
+    One budget shared by the whole batch would let a report with many links hide the links of every
+    report after it, so a batch read could give a different answer than the single-report read.
+    """
+    return (
+        candidates.annotate(
+            _report_rank=Window(
+                expression=RowNumber(),
+                partition_by=[F(partition_field)],
+                order_by=[F("created_at").asc(), F("id").asc()],
+            )
+        )
+        .filter(_report_rank__lte=SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS)
+        .order_by("created_at", "id")
+        .values_list("report_id", "content")
+    )
+
+
 def outgoing_links(
     *, team_id: int, report_id: str | uuid.UUID, kinds: Collection[ReportLinkKind] | None = None
 ) -> list[ReportEdge]:
@@ -84,6 +107,23 @@ def outgoing_links(
         .values_list("report_id", "content")[: SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS]
     )
     return _edges_from_rows(list(rows), kinds=kinds)
+
+
+def outgoing_links_by_report(
+    *, team_id: int, report_ids: Collection[str], kinds: Collection[ReportLinkKind] | None = None
+) -> dict[str, list[ReportEdge]]:
+    """`outgoing_links` for several reports in one query, keyed by source report id."""
+    source_ids = [source_id for source_id in map(_canonical_report_id, report_ids) if source_id is not None]
+    if not source_ids:
+        return {}
+    candidates = SignalReportArtefact.objects.using("default").filter(
+        team_id=team_id, report_id__in=source_ids, type=SignalReportArtefact.ArtefactType.REPORT_LINK
+    )
+    rows = list(_rows_within_budget_per_report(candidates, partition_field="report_id"))
+    edges_by_report: dict[str, list[ReportEdge]] = {}
+    for edge in _edges_from_rows(rows, kinds=kinds):
+        edges_by_report.setdefault(edge.source_id, []).append(edge)
+    return edges_by_report
 
 
 def incoming_links(
@@ -105,7 +145,7 @@ def incoming_links(
     candidates = SignalReportArtefact.objects.using("default").filter(
         team_id=team_id,
         type=SignalReportArtefact.ArtefactType.REPORT_LINK,
-        content__contains=target_id,
+        link_target_id=target_id,
     )
     if not include_deleted_sources:
         candidates = candidates.exclude(report__status=SignalReport.Status.DELETED)
@@ -114,9 +154,34 @@ def incoming_links(
             : SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS
         ]
     )
-    # `content__contains` also matches a row whose free-text `reason` quotes the UUID, so the
-    # parsed target decides.
+    # `link_target_id` is a copy of the target in `content`, so the parsed target decides if they differ.
     return [edge for edge in _edges_from_rows(rows, kinds=kinds) if edge.target_id == target_id]
+
+
+def incoming_links_by_report(
+    *,
+    team_id: int,
+    report_ids: Collection[str],
+    kinds: Collection[ReportLinkKind] | None = None,
+    include_deleted_sources: bool = False,
+) -> dict[str, list[ReportEdge]]:
+    """`incoming_links` for several reports in one query, keyed by target report id."""
+    target_ids = {target_id for target_id in map(_canonical_report_id, report_ids) if target_id is not None}
+    if not target_ids:
+        return {}
+    candidates = SignalReportArtefact.objects.using("default").filter(
+        team_id=team_id,
+        type=SignalReportArtefact.ArtefactType.REPORT_LINK,
+        link_target_id__in=target_ids,
+    )
+    if not include_deleted_sources:
+        candidates = candidates.exclude(report__status=SignalReport.Status.DELETED)
+    rows = list(_rows_within_budget_per_report(candidates, partition_field="link_target_id"))
+    edges_by_report: dict[str, list[ReportEdge]] = {}
+    for edge in _edges_from_rows(rows, kinds=kinds):
+        if edge.target_id in target_ids:
+            edges_by_report.setdefault(edge.target_id, []).append(edge)
+    return edges_by_report
 
 
 def duplicate_chain(*, team_id: int, report_id: str | uuid.UUID) -> list[str]:

@@ -1,30 +1,38 @@
 """Batch export run endpoints: list, retrieve, retry and cancel."""
 
-from typing import cast
+from typing import Any, cast
+from uuid import UUID
 
 from django.utils.timezone import now
 
-import structlog
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import filters, response, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
-from rest_framework.pagination import CursorPagination
+from rest_framework import filters, mixins, request, response, serializers, status, viewsets
+from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.api.log_entries import LogEntryMixin
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.pagination import FacadeCursorPagination, facade_cursor_page_response
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.temporal.common.client import sync_connect
+from posthog.models.integer_field_bounds import (
+    BIG_INTEGER_FIELD_MAX,
+    BIG_INTEGER_FIELD_MIN,
+    INTEGER_FIELD_MAX,
+    INTEGER_FIELD_MIN,
+)
 from posthog.utils import relative_date_parse
 
-from products.batch_exports.backend.models.batch_export import BatchExportRun
-from products.batch_exports.backend.service import backfill_export, cancel_running_batch_export_run
+from products.batch_exports.backend.facade import (
+    api as batch_exports_api,
+    contracts,
+)
+from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 
-logger = structlog.get_logger(__name__)
 
-
-class BatchExportRunSerializer(serializers.ModelSerializer):
+class BatchExportRunSerializer(serializers.Serializer):
     """Serializer for a BatchExportRun model."""
 
+    # TODO: Why aren't all these read only?
+    id = serializers.UUIDField(read_only=True)
     # Underlying model can be null for on demand batch exports. But scheduled
     # batch exports always have a data_interval_end given by the schedule
     # itself (even if that isn't used by the underlying HogQL query). This
@@ -33,12 +41,70 @@ class BatchExportRunSerializer(serializers.ModelSerializer):
     data_interval_end = serializers.DateTimeField(
         required=True, allow_null=False, help_text="The end of the data interval."
     )
-
-    class Meta:
-        model = BatchExportRun
-        fields = "__all__"
-        # TODO: Why aren't all these read only?
-        read_only_fields = ["batch_export"]
+    status = serializers.ChoiceField(choices=BatchExportRunStatus.choices, help_text="The status of this run.")
+    records_completed = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
+        help_text="The number of records that have been exported.",
+    )
+    records_failed = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
+        help_text="The number of records that failed downstream processing (e.g. hog function execution errors).",
+    )
+    latest_error = serializers.CharField(
+        required=False, allow_null=True, help_text="The latest error that occurred during this run."
+    )
+    data_interval_start = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="The start of the data interval."
+    )
+    cursor = serializers.CharField(
+        required=False, allow_null=True, help_text="An opaque cursor that may be used to resume."
+    )
+    created_at = serializers.DateTimeField(
+        read_only=True, help_text="The timestamp at which this BatchExportRun was created."
+    )
+    finished_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="The timestamp at which this BatchExportRun finished, successfully or not.",
+    )
+    last_updated_at = serializers.DateTimeField(
+        read_only=True, help_text="The timestamp at which this BatchExportRun was last updated."
+    )
+    records_total_count = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
+        help_text="The total count of records that should be exported in this BatchExportRun.",
+    )
+    bytes_exported = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=BIG_INTEGER_FIELD_MIN,
+        max_value=BIG_INTEGER_FIELD_MAX,
+        help_text="The number of bytes that have been exported in this BatchExportRun.",
+    )
+    batch_export = serializers.UUIDField(
+        source="batch_export_id",
+        read_only=True,
+        allow_null=True,
+        help_text="The `BatchExport` this run belongs to.",
+    )
+    batch_export_on_demand = serializers.UUIDField(
+        source="batch_export_on_demand_id",
+        required=False,
+        allow_null=True,
+        help_text="The `BatchExportOnDemand` this run belongs to.",
+    )
+    backfill = serializers.UUIDField(
+        source="backfill_id", required=False, allow_null=True, help_text="The backfill this run belongs to."
+    )
 
 
 class BatchExportRunListQuerySerializer(serializers.Serializer):
@@ -46,7 +112,7 @@ class BatchExportRunListQuerySerializer(serializers.Serializer):
 
     status = serializers.ListField(
         required=False,
-        child=serializers.ChoiceField(choices=BatchExportRun.Status.choices),
+        child=serializers.ChoiceField(choices=BatchExportRunStatus.choices),
         help_text="Only return runs in these statuses. Repeat the parameter to pass more than one status.",
     )
     after = serializers.CharField(
@@ -87,27 +153,33 @@ class BatchExportRunListQuerySerializer(serializers.Serializer):
     )
 
 
-class RunsCursorPagination(CursorPagination):
+class RunsCursorPagination(FacadeCursorPagination):
     page_size = 100
 
 
 @extend_schema(tags=["batch_exports"])
 @extend_schema_view(list=extend_schema(parameters=[BatchExportRunListQuerySerializer]))
-class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ReadOnlyModelViewSet):
+class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this batch export run."),
+        "batch_export_id": PathParameter(type=UUID, description="The `BatchExport` this run belongs to."),
+    }
     scope_object = "batch_export"
-    queryset = BatchExportRun.objects.select_related("batch_export__destination").all()
     serializer_class = BatchExportRunSerializer
     pagination_class = RunsCursorPagination
-    filter_rewrite_rules = {"team_id": "batch_export__team_id"}
+    # The paginator reads the ordering through this filter, and the facade applies it.
     filter_backends = [filters.OrderingFilter]
-    ordering_fields = ["created_at", "data_interval_start"]
+    ordering_fields = list(contracts.BATCH_EXPORT_RUN_ORDERING_FIELDS)
     ordering = "-created_at"
     log_source = "batch_exports"
 
     def get_log_entry_instance_id(self) -> str:
         return cast(str, self.parents_query_dict["run_id"])
 
-    def safely_get_queryset(self, queryset):
+    def _get_export_id(self) -> UUID:
+        return self.kwargs["parent_lookup_batch_export_id"]
+
+    def _get_run_filters(self) -> contracts.BatchExportRunFilters:
         query = BatchExportRunListQuerySerializer(data=self.request.GET)
         query.is_valid(raise_exception=True)
         params = query.validated_data
@@ -116,6 +188,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         before = params.get("before")
         start = params.get("start")
         end = params.get("end")
+        statuses = tuple(params.get("status") or ())
 
         # OrderingFilter applies the sort and declares this parameter, so it is not on the serializer.
         ordering = self.request.GET.get("ordering", None)
@@ -123,18 +196,35 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         if ordering == "data_interval_start" or ordering == "-data_interval_start":
             start_timestamp = relative_date_parse(start if start else "-7d", self.team.timezone_info)
             end_timestamp = relative_date_parse(end, self.team.timezone_info) if end else now()
-            queryset = queryset.filter(data_interval_start__gte=start_timestamp, data_interval_end__lte=end_timestamp)
-        else:
-            after_datetime = relative_date_parse(after if after else "-7d", self.team.timezone_info)
-            before_datetime = relative_date_parse(before, self.team.timezone_info) if before else now()
-            date_range = (after_datetime, before_datetime)
-            queryset = queryset.filter(created_at__range=date_range)
+            return contracts.BatchExportRunFilters(
+                statuses=statuses, data_interval=contracts.DatetimeRange(start=start_timestamp, end=end_timestamp)
+            )
 
-        if statuses := params.get("status"):
-            queryset = queryset.filter(status__in=statuses)
+        after_datetime = relative_date_parse(after if after else "-7d", self.team.timezone_info)
+        before_datetime = relative_date_parse(before, self.team.timezone_info) if before else now()
+        return contracts.BatchExportRunFilters(
+            statuses=statuses, created=contracts.DatetimeRange(start=after_datetime, end=before_datetime)
+        )
 
-        queryset = queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"])
-        return queryset
+    def dangerously_get_object(self) -> contracts.BatchExportRunDetail:
+        # The mixin's get_object() reads through a queryset, which this view no longer has, so the
+        # run is read through the facade instead. That skips the mixin's team filter and object
+        # permission check, so both happen here: the facade filters by team and export, and
+        # check_object_permissions runs on the contract. `logs` reads the run through here too.
+        try:
+            run = batch_exports_api.get_batch_export_run(self.team_id, self._get_export_id(), self.kwargs["pk"])
+        except contracts.BatchExportRunNotFoundError as e:
+            raise NotFound(*e.args) from e
+        self.check_object_permissions(self.request, run)
+        return run
+
+    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        export_id = self._get_export_id()
+        filters = self._get_run_filters()
+        return facade_cursor_page_response(
+            self,
+            lambda page: batch_exports_api.list_batch_export_runs(self.team_id, export_id, filters=filters, page=page),
+        )
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def retry(self, *args, **kwargs) -> response.Response:
@@ -143,37 +233,25 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         We use the same underlying mechanism as when backfilling a batch export, as retrying
         a run is the same as backfilling one run.
         """
-        batch_export_run = self.get_object()
+        run = self.get_object()
 
-        temporal = sync_connect()
-        backfill_id = backfill_export(
-            temporal,
-            str(batch_export_run.batch_export.id),
-            self.team_id,
-            batch_export_run.data_interval_start,
-            batch_export_run.data_interval_end,
-        )
+        try:
+            backfill_id = batch_exports_api.retry_batch_export_run(self.team_id, self._get_export_id(), run.id)
+        except contracts.BatchExportRunNotFoundError as e:
+            raise NotFound(*e.args) from e
 
         return response.Response({"backfill_id": backfill_id}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def cancel(self, *args, **kwargs) -> response.Response:
         """Cancel a batch export run."""
+        run = self.get_object()
 
-        batch_export_run: BatchExportRun = self.get_object()
-
-        if (
-            batch_export_run.status == BatchExportRun.Status.RUNNING
-            or batch_export_run.status == BatchExportRun.Status.STARTING
-        ):
-            temporal = sync_connect()
-            try:
-                cancel_running_batch_export_run(temporal, batch_export_run)
-            except Exception as e:
-                # It could be the case that the run is already cancelled but our database hasn't been updated yet. In
-                # this case, we can just ignore the error but log it for visibility (in case there is an actual issue).
-                logger.warning("Error cancelling batch export run: %s", e)
-        else:
-            raise ValidationError(f"Cannot cancel a run that is in '{batch_export_run.status}' status")
+        try:
+            batch_exports_api.cancel_batch_export_run(self.team_id, self._get_export_id(), run.id)
+        except contracts.InvalidBatchExportRunRequestError as e:
+            raise ValidationError(str(e)) from e
+        except contracts.BatchExportRunNotFoundError as e:
+            raise NotFound(*e.args) from e
 
         return response.Response({"cancelled": True})

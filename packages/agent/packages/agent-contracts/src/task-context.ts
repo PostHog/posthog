@@ -1,5 +1,6 @@
 export interface TaskContextInput {
   taskId: string;
+  taskRunId?: string;
   cwd: string;
   customInstructions?: string;
   additionalDirectories?: string[];

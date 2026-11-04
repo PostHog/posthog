@@ -851,8 +851,16 @@ def select_coarsen_target(
     schema: ExternalDataSchema,
     partition_bytes: dict[str | None, int],
     target_partition_bytes: int,
+    *,
+    min_md5_count: int = 1,
+    preferred_md5_count: int | None = None,
 ) -> tuple[RepartitionTarget | None, str]:
     """Pick the coarsest partition scheme whose largest partition still fits `target_partition_bytes`.
+
+    For md5, `min_md5_count` and `preferred_md5_count` change "coarsest" to "the fitting divisor nearest
+    to `preferred_md5_count`, never below `min_md5_count`". A keyed upsert rewrites at least one file in
+    each md5 partition, but it also merges up to a fixed number of partitions in parallel, so the fewest
+    partitions is not the fastest layout for that table.
 
     The mirror of `select_repartition_target`, for tables left over-fragmented, most of them by the
     finer path itself reacting to failures that were never about partition size. Fragmentation is not
@@ -914,15 +922,25 @@ def select_coarsen_target(
                 divisors.add(low)
                 divisors.add(count // low)
         divisors.discard(count)
-        for new_count in sorted(divisors):  # ascending, so the coarsest layout that fits wins
-            if acceptable(_simulate_modulo_coarsening(partition_bytes, new_count)):
-                return RepartitionTarget(
-                    partition_keys=keys,
-                    trigger_reason="",
-                    partition_mode="md5",
-                    partition_count=new_count,
-                ), "selected"
-        return None, "no_coarser_layout_fits"
+        allowed = sorted(divisor for divisor in divisors if divisor >= min_md5_count)
+        if not allowed:
+            return None, "md5_at_partition_floor"
+        fitting = [
+            new_count for new_count in allowed if acceptable(_simulate_modulo_coarsening(partition_bytes, new_count))
+        ]
+        if not fitting:
+            return None, "no_coarser_layout_fits"
+        if preferred_md5_count is None:
+            new_count = fitting[0]  # ascending, so the coarsest layout that fits wins
+        else:
+            # On a tie, the larger count wins, because it keeps the partitions smaller.
+            new_count = min(fitting, key=lambda divisor: (abs(divisor - preferred_md5_count), -divisor))
+        return RepartitionTarget(
+            partition_keys=keys,
+            trigger_reason="",
+            partition_mode="md5",
+            partition_count=new_count,
+        ), "selected"
 
     if mode == "numerical":
         current_size = schema.partition_size

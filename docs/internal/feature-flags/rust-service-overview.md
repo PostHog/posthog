@@ -113,7 +113,7 @@ All flag routes accept trailing slashes.
 The POST handler follows this pipeline:
 
 1. **Rate limiting**: IP-based check (DDoS defense), then token-based check (per-project limits)
-2. **Body decoding**: JSON, base64, or gzip-compressed bodies
+2. **Body decoding**: JSON, base64, or gzip-compressed bodies. A body with arrays or objects nested more than 128 levels deep gets a 400.
 3. **Authentication**: Extracts API token from body, query params, or headers
 4. **Team lookup**: HyperCache (Redis -> S3) with PostgreSQL fallback (configurable via `SKIP_PG_TEAM_FALLBACK`)
 5. **Flag definitions fetch**: HyperCache (Redis -> S3) with PostgreSQL fallback
@@ -292,12 +292,13 @@ Cache and query health are observable via the `flags_cohort_membership_cache_*` 
 
 ### S3 / HyperCache
 
-| Variable                             | Default     | Purpose                                                                                                                                                                                    |
-| ------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `OBJECT_STORAGE_BUCKET`              | `posthog`   | S3 bucket name                                                                                                                                                                             |
-| `OBJECT_STORAGE_REGION`              | `us-east-1` | AWS region                                                                                                                                                                                 |
-| `OBJECT_STORAGE_ENDPOINT`            | (empty)     | Custom S3 endpoint for local dev                                                                                                                                                           |
-| `HYPERCACHE_READ_REPAIR_TTL_SECONDS` | `600`       | TTL for writing an S3 hit back into Redis after a confirmed miss. `0` disables, as does `SKIP_WRITES`. Also read by hypercache-server. See [read repair](hypercache-system.md#read-repair) |
+| Variable                             | Default     | Purpose                                                                                                                                                                                             |
+| ------------------------------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OBJECT_STORAGE_BUCKET`              | `posthog`   | S3 bucket name                                                                                                                                                                                      |
+| `OBJECT_STORAGE_REGION`              | `us-east-1` | AWS region                                                                                                                                                                                          |
+| `OBJECT_STORAGE_ENDPOINT`            | (empty)     | Custom S3 endpoint for local dev                                                                                                                                                                    |
+| `HYPERCACHE_READ_REPAIR_TTL_SECONDS` | `600`       | TTL for writing an S3 hit back into Redis after a confirmed miss. `0` disables, as does `SKIP_WRITES`. Also read by hypercache-server. See [read repair](hypercache-system.md#read-repair)          |
+| `HYPERCACHE_S3_TIMEOUT_MS`           | `3000`      | Upper bound on one S3 read, for every HyperCache reader. Keep it below `REQUEST_TIMEOUT_MS`, so a slow read leaves time for the fallback. Startup replaces `0` or a value above `10000` with `3000` |
 
 ### Team lookup
 

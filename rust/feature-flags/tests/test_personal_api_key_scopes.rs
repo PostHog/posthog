@@ -2,6 +2,7 @@ mod common;
 
 use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::utils::test_utils::TestContext;
+use sha2::Digest;
 use uuid::Uuid;
 
 /// Helper: Clean up test data (PAK, organization memberships, and user)
@@ -398,6 +399,94 @@ async fn test_personal_api_key_mixed_scopes_both_valid() {
         401,
         "Should authenticate when both scoped_teams and scoped_organizations match"
     );
+
+    cleanup_test_data(&ctx, pak_id, user_id).await;
+}
+
+/// Expiry is enforced in the flags service itself: a key that is valid in every other way is
+/// refused once `expires_at` has passed, including on a cache hit from before it expired.
+#[tokio::test]
+async fn test_personal_api_key_expired_is_rejected() {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let ctx = TestContext::new(Some(&config)).await;
+
+    let org_id = Uuid::new_v4();
+    let team = ctx
+        .insert_new_team_with_org(None, &org_id.to_string())
+        .await
+        .unwrap();
+    let user_email = format!("test_{}@example.com", Uuid::new_v4());
+    let user_id = ctx
+        .create_user_with_options(&user_email, &org_id, Some(team.id), true)
+        .await
+        .unwrap();
+    ctx.add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+    let (pak_id, secure_value) = ctx
+        .create_personal_api_key(
+            user_id,
+            "Test PAK - Expiry",
+            vec!["feature_flag:read"],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    server.wait_until_ready().await;
+    let client = reqwest::Client::new();
+    let url = format!(
+        "http://{}/flags/definitions?token={}",
+        server.addr, team.api_token
+    );
+
+    // A key with no expiry authenticates, and this request caches its auth data.
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {secure_value}"))
+        .send()
+        .await
+        .unwrap();
+    assert_ne!(
+        response.status(),
+        401,
+        "A key without an expiry is accepted"
+    );
+
+    // Expire the key and evict its cache entry, as Django does when it saves an expiry, so the
+    // next request reloads the key through the SQL and sees the new value.
+    let mut conn = ctx.get_non_persons_connection().await.unwrap();
+    sqlx::query(
+        "UPDATE posthog_personalapikey SET expires_at = NOW() - INTERVAL '1 minute' WHERE id = $1",
+    )
+    .bind(&pak_id)
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    // The cache key is the token's sha256 hash, the same hashing `hash_token_value` does.
+    let token_hash = format!(
+        "sha256${}",
+        hex::encode(sha2::Sha256::digest(secure_value.as_bytes()))
+    );
+    let redis_client =
+        feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
+    redis_client
+        .del(format!(
+            "{}{token_hash}",
+            feature_flags::api::auth::TOKEN_CACHE_PREFIX
+        ))
+        .await
+        .expect("Failed to evict the auth token cache entry");
+
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {secure_value}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 401, "An expired key is refused");
 
     cleanup_test_data(&ctx, pak_id, user_id).await;
 }

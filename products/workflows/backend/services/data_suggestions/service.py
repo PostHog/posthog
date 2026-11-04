@@ -1,5 +1,6 @@
 import json
 import uuid
+import hashlib
 import threading
 import dataclasses
 from collections.abc import Callable, Iterator
@@ -30,6 +31,7 @@ from products.workflows.backend.facade.contracts import (
     DataSuggestion,
     DataSuggestionNotFound,
     DataSuggestionsResult,
+    EventWorkflowsBuild,
     MissingInput,
     PreparedIdeas,
 )
@@ -42,9 +44,10 @@ from products.workflows.backend.services.data_suggestions.builder import (
     clean_copy,
     missing_inputs,
 )
-from products.workflows.backend.services.data_suggestions.event_volume import weekly_counts
+from products.workflows.backend.services.data_suggestions.event_volume import mobile_share, weekly_counts
 from products.workflows.backend.services.data_suggestions.planner import (
     MAX_PLANNED_STEPS,
+    Channel,
     IdeaContext,
     PlannedWorkflow,
     StepsContext,
@@ -60,12 +63,13 @@ from products.workflows.backend.services.data_suggestions.premade import (
     premade_suggestions,
     store_premade_ideas,
     waiting_premade_idea,
+    with_push_channels,
     with_sender,
 )
 from products.workflows.backend.services.data_suggestions.ranking import (
+    STAGE_WEIGHTS,
     pick_one_per_stage,
     select_prompt_events,
-    suggestion_score,
 )
 from products.workflows.backend.services.data_suggestions.stages import (
     MAX_CLASSIFIED_EVENTS,
@@ -88,6 +92,8 @@ _GENERATION_LOCK_SECONDS = 15 * 60
 _BUILD_CACHE_SECONDS = 60 * 60
 _PLAN_ATTEMPTS = 2
 MAX_SUGGESTIONS = 3
+# Each picked event costs one plan from the stronger model, so a request can name only a few.
+MAX_PICKED_EVENTS = 5
 _PROMPT_EVENTS_LIMIT = 60
 _GENERATION_ERRORS = (
     StageClassificationFailed,
@@ -101,9 +107,12 @@ _GENERATING = DataSuggestionsResult(status="generating", suggestions=())
 _BUILDING = BuiltSuggestion(status="building")
 _BUILD_FAILED = BuiltSuggestion(status="failed")
 _UNAVAILABLE = DataSuggestionsResult(status="unavailable", suggestions=())
-# pinned: feature flag key - the frontend gates the same surfaces on it
-FEATURE_FLAG_KEY = "workflows-data-suggestions"
+_EVENTS_BUILDING = EventWorkflowsBuild(status="building")
+_EVENTS_FAILED = EventWorkflowsBuild(status="failed")
+# pinned: feature flag key - the destination modal, the build_for_events endpoint and the MCP tool all read it
+DESTINATION_SUGGESTION_FLAG_KEY = "workflows-destination-suggestion"
 _ONCE_PER_PERSON_STAGES = frozenset({"signup", "onboarding"})
+_MOBILE_FIRST_SHARE = 0.5
 # A project without a verified sender cannot pick one yet, so the field says what to do first.
 NO_SENDER_FIELD = "Email sender (no verified sender yet: add a sending domain under Workflows > Channels)"
 
@@ -123,18 +132,6 @@ def get_data_suggestions(*, team: Team) -> DataSuggestionsResult:
     return _read_cache(team) or _UNAVAILABLE
 
 
-def is_data_suggestions_enabled(user: User, organization_id: str) -> bool:
-    return bool(
-        user.distinct_id
-        and posthoganalytics.feature_enabled(
-            FEATURE_FLAG_KEY,
-            user.distinct_id,
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-        )
-    )
-
-
 def data_suggestions_acting_user(team: Team) -> User | None:
     """The organization's longest-standing owner or admin, who runs the models when ideas are prepared ahead of time."""
     membership = (
@@ -150,11 +147,9 @@ def data_suggestions_acting_user(team: Team) -> User | None:
     return membership.user if membership is not None else None
 
 
-def count_waiting_data_suggestions(*, team: Team, user: User) -> int:
+def count_waiting_data_suggestions(*, team: Team) -> int:
     """The ideas this person would see on the empty workflows page. Like `get_data_suggestions`, it never runs a model."""
     if HogFlow.objects.filter(team_id=team.id).exclude(status=HogFlow.State.ARCHIVED).exists():
-        return 0
-    if not is_data_suggestions_enabled(user, str(team.organization_id)):
         return 0
     result = get_data_suggestions(team=team)
     return len(result.suggestions) if result.status == "ready" else 0
@@ -270,7 +265,7 @@ def save_premade_draft(
         row = lock_premade_idea(team.id, idea_id)
         if row is None:
             return None
-        workflow = with_sender(row.definition, team_context.email_sender(team))
+        workflow = _premade_workflow(team, row)
         validated = validate_draft(team, workflow)
         if validated is None:
             return _BUILD_FAILED
@@ -296,10 +291,15 @@ def get_premade_workflow(
     row = waiting_premade_idea(team.id, idea_id)
     if row is None:
         return None
-    workflow = with_sender(row.definition, team_context.email_sender(team))
+    workflow = _premade_workflow(team, row)
     if validate_draft(team, workflow) is None:
         return _BUILD_FAILED
     return _premade_build(team, row, workflow)
+
+
+def _premade_workflow(team: Team, row: WorkflowIdeaRow) -> dict[str, Any]:
+    workflow = with_sender(row.definition, team_context.email_sender(team))
+    return with_push_channels(workflow, team_context.push_integration_ids(team))
 
 
 def _premade_build(team: Team, row: WorkflowIdeaRow, workflow: dict[str, Any]) -> BuiltSuggestion:
@@ -351,7 +351,12 @@ def run_build(
                 result = _BUILD_FAILED
             else:
                 result, validated = _plan_and_build(
-                    team=team, user=user, suggestion=suggestion, events=cached.events, validate_draft=validate_draft
+                    team=team,
+                    user=user,
+                    suggestion=suggestion,
+                    events=cached.events,
+                    mobile_first=cached.mobile_first,
+                    validate_draft=validate_draft,
                 )
                 # A task that outlived its lock would save a second draft next to the newer run's draft.
                 if save_draft is not None and validated is not None and not _lost_lock(lock_key, lock_token):
@@ -370,6 +375,155 @@ def run_build(
                 _capture_saved_build(capture=capture, user=user, suggestion=suggestion, result=result, caller=caller)
     finally:
         _release(lock_key, lock_token)
+
+
+def event_workflows_available(*, team: Team) -> bool:
+    """Whether workflows can be built for picked events. Unlike the cards, this needs no Jev, because the team named
+    the events itself."""
+    return team.organization.is_ai_data_processing_approved is True and not is_privacy_mode_enabled(team)
+
+
+def start_event_workflows(
+    *, team: Team, user_id: int, events: tuple[str, ...], retry: bool, enqueue: Callable[[str], None]
+) -> EventWorkflowsBuild:
+    """The drafts built for these events, or a background build through `enqueue`. Ask again with the same events
+    while the status is building. A failed result stays until `retry` asks for a new build."""
+    key = _event_build_key(team.id, user_id, events)
+    stored = _read_event_build(key)
+    if stored is not None and not (retry and stored.status == "failed"):
+        return stored
+    lock_key = _event_build_lock_key(team.id, user_id, events)
+    lock_token = str(uuid.uuid4())
+    # A second click or tab while a build runs would pay for the same plans again.
+    if not cache.add(lock_key, lock_token, _GENERATION_LOCK_SECONDS):
+        return _EVENTS_BUILDING
+    cache.delete(key)
+    try:
+        enqueue(lock_token)
+    except Exception:
+        _release(lock_key, lock_token)
+        logger.exception("workflows.data_suggestions.event_build_enqueue_failed", team_id=team.id)
+        return _EVENTS_FAILED
+    # A worker that ran inline, like in tests, has already stored the result.
+    return _read_event_build(key) or _EVENTS_BUILDING
+
+
+def needs_new_event_workflows(*, team: Team, user_id: int, events: tuple[str, ...], retry: bool) -> bool:
+    """Whether a call would start planning, the only case that costs model time."""
+    stored = _read_event_build(_event_build_key(team.id, user_id, events))
+    reusable = stored is not None and not (retry and stored.status == "failed")
+    return not reusable and cache.get(_event_build_lock_key(team.id, user_id, events)) is None
+
+
+def run_event_workflows(
+    *,
+    team_id: int,
+    user_id: int,
+    events: tuple[str, ...],
+    lock_token: str,
+    validate_draft: Callable[[Team, dict[str, Any]], dict[str, Any] | None],
+    save_draft: Callable[[Team, User, dict[str, Any]], str],
+) -> None:
+    """The background build that `start_event_workflows` queues. It saves one draft per event that plans cleanly,
+    stores the ids and releases the lock."""
+    lock_key = _event_build_lock_key(team_id, user_id, events)
+    try:
+        try:
+            team = Team.objects.select_related("organization").get(id=team_id)
+            user = User.objects.get(id=user_id)
+            # Consent can change between the click and the worker picking the build up.
+            if not event_workflows_available(team=team):
+                result = _EVENTS_FAILED
+            else:
+                result = _build_event_workflows(
+                    team=team,
+                    user=user,
+                    events=events,
+                    validate_draft=validate_draft,
+                    save_draft=save_draft,
+                    still_owns_lock=lambda: not _lost_lock(lock_key, lock_token),
+                )
+        except Exception as error:
+            # Without a stored failure the next poll finds no result and no lock, and queues the same build again.
+            logger.exception("workflows.data_suggestions.event_build_failed", team_id=team_id)
+            capture_exception(error, {"team_id": team_id})
+            result = _EVENTS_FAILED
+        ttl = _BUILD_CACHE_SECONDS if result.status == "ready" else FAILURE_CACHE_TTL_SECONDS
+        if not _lost_lock(lock_key, lock_token):
+            cache.set(_event_build_key(team_id, user_id, events), dataclasses.asdict(result), ttl)
+    finally:
+        _release(lock_key, lock_token)
+
+
+def _build_event_workflows(
+    *,
+    team: Team,
+    user: User,
+    events: tuple[str, ...],
+    validate_draft: Callable[[Team, dict[str, Any]], dict[str, Any] | None],
+    save_draft: Callable[[Team, User, dict[str, Any]], str],
+    still_owns_lock: Callable[[], bool],
+) -> EventWorkflowsBuild:
+    all_counts = weekly_counts(team)
+    # A step can wait on any busy event, not only the picked ones.
+    planning_events = tuple(name for name, _ in select_prompt_events(all_counts, limit=_PROMPT_EVENTS_LIMIT))
+    # A batch that waited in the queue past its lock is replaced by a newer one, so it stops before any model call.
+    if not still_owns_lock():
+        return _EVENTS_FAILED
+    with _analytics_client() as analytics_client:
+        ideas = suggest_ideas(
+            team=team,
+            user=user,
+            context=IdeaContext(
+                events=tuple((event, all_counts.get(event, 0)) for event in events),
+                stages={},
+                channels=team_context.channels(team),
+                has_slack=team_context.slack_integration_id(team) is not None,
+                picked_events=True,
+            ),
+            analytics_client=analytics_client,
+        )
+    workflow_ids: list[str] = []
+    seen_events: set[str] = set()
+    for idea in ideas:
+        outline = tuple(idea.step_outline[:MAX_PLANNED_STEPS])
+        # The model can only pick from the listed events; anything else is a made-up name.
+        if idea.trigger_event not in events or idea.trigger_event in seen_events or not outline:
+            continue
+        # Each plan is a call to the stronger model, so a batch that lost its lock does not pay for the rest.
+        if not still_owns_lock():
+            break
+        seen_events.add(idea.trigger_event)
+        suggestion = DataSuggestion(
+            id=str(uuid.uuid4()),
+            name=clean_copy(idea.name)[:50],
+            description=clean_copy(idea.description),
+            reason=clean_copy(idea.reason),
+            trigger_event=idea.trigger_event,
+            weekly_count=all_counts.get(idea.trigger_event, 0),
+            stage="other",
+            step_outline=outline,
+        )
+        try:
+            _, validated = _plan_and_build(
+                team=team,
+                user=user,
+                suggestion=suggestion,
+                events=planning_events,
+                # Picked events get an email workflow each, so push stays out whatever the project's app is.
+                mobile_first=False,
+                validate_draft=validate_draft,
+                picked_events=True,
+            )
+            # A task that outlived its lock would save drafts next to the newer run's drafts.
+            if validated is None or not still_owns_lock():
+                continue
+            workflow_ids.append(save_draft(team, user, validated))
+        except Exception as error:
+            # The drafts saved for earlier events stay in the result, so a retry does not save them a second time.
+            logger.exception("workflows.data_suggestions.event_build_item_failed", team_id=team.id)
+            capture_exception(error, {"team_id": team.id})
+    return EventWorkflowsBuild(status="ready" if workflow_ids else "failed", workflow_ids=tuple(workflow_ids))
 
 
 def prepare_premade_ideas(
@@ -391,7 +545,12 @@ def prepare_premade_ideas(
     for suggestion in result.suggestions:
         try:
             build, _ = _plan_and_build(
-                team=team, user=user, suggestion=suggestion, events=result.events, validate_draft=validate_draft
+                team=team,
+                user=user,
+                suggestion=suggestion,
+                events=result.events,
+                mobile_first=result.mobile_first,
+                validate_draft=validate_draft,
             )
         except Exception as error:
             logger.exception("workflows.data_suggestions.prepare_build_failed", team_id=team.id)
@@ -409,7 +568,9 @@ def _plan_and_build(
     user: User,
     suggestion: DataSuggestion,
     events: tuple[str, ...],
+    mobile_first: bool,
     validate_draft: Callable[[Team, dict[str, Any]], dict[str, Any] | None],
+    picked_events: bool = False,
 ) -> tuple[BuiltSuggestion, dict[str, Any] | None]:
     idea = WorkflowIdea(
         name=suggestion.name,
@@ -421,8 +582,13 @@ def _plan_and_build(
     email_templates = team_context.email_templates(team)
     slack_integration_id = team_context.slack_integration_id(team)
     step_templates = tuple(list_step_templates(team))
-    channels = team_context.channels(team)
+    channels = _offered_channels(team, mobile_first)
     event_properties = team_context.event_property_names(team, suggestion.trigger_event)
+    try:
+        person_properties = team_context.person_properties(team)
+    except _GENERATION_ERRORS:
+        # Without them a branch keeps an empty condition for the team to set, which is no reason to fail the build.
+        person_properties = {}
     context = BuildContext(
         allowed_events=frozenset({suggestion.trigger_event, *events}),
         step_template_ids=frozenset(template.template_id for template in step_templates),
@@ -432,6 +598,9 @@ def _plan_and_build(
         slack_integration_id=slack_integration_id,
         once_per_person=suggestion.stage in _ONCE_PER_PERSON_STAGES,
         event_properties=frozenset(event_properties),
+        weekly_count=suggestion.weekly_count,
+        person_properties=person_properties,
+        push_integration_ids=team_context.push_integration_ids(team),
     )
     built = None
     # The model now and then links a step to an id it never wrote. A second plan almost always holds up.
@@ -447,7 +616,10 @@ def _plan_and_build(
                     events=events,
                     channels=channels,
                     has_slack=slack_integration_id is not None,
+                    picked_events=picked_events,
                     event_properties=event_properties,
+                    person_properties=person_properties,
+                    mobile_first=mobile_first,
                 ),
                 analytics_client=analytics_client,
             )
@@ -490,6 +662,14 @@ def _current_build(team: Team, suggestion_id: str, caller: str) -> BuiltSuggesti
     if actions is None:
         return None
     return dataclasses.replace(stored, missing_inputs=_missing_inputs(team, {"actions": actions}))
+
+
+def _offered_channels(team: Team, mobile_first: bool) -> frozenset[Channel]:
+    """The channels a plan may use. A mobile-first project gets push even before it connects a provider, and the
+    step's note asks the team to connect one."""
+    connected = team_context.channels(team)
+    push: frozenset[Channel] = frozenset({"push"})
+    return connected | push if mobile_first else connected
 
 
 def _missing_inputs(team: Team, workflow: dict[str, Any]) -> tuple[MissingInput, ...]:
@@ -594,6 +774,29 @@ def _build_lock_key(team_id: int, suggestion_id: str, caller: str) -> str:
     return f"workflows:data_suggestions:building:{team_id}:{suggestion_id}:{caller}"
 
 
+def _events_digest(events: tuple[str, ...]) -> str:
+    # Event names can hold any character and be long, so the cache key carries a digest of the sorted names.
+    return hashlib.sha256(json.dumps(sorted(set(events))).encode()).hexdigest()[:32]
+
+
+def _event_build_key(team_id: int, user_id: int, events: tuple[str, ...]) -> str:
+    return f"workflows:data_suggestions:event_build:{team_id}:{user_id}:{_events_digest(events)}"
+
+
+def _event_build_lock_key(team_id: int, user_id: int, events: tuple[str, ...]) -> str:
+    return f"workflows:data_suggestions:event_building:{team_id}:{user_id}:{_events_digest(events)}"
+
+
+def _read_event_build(key: str) -> EventWorkflowsBuild | None:
+    stored = cache.get(key)
+    if not isinstance(stored, dict):
+        return None
+    try:
+        return EventWorkflowsBuild(status=stored["status"], workflow_ids=tuple(stored["workflow_ids"]))
+    except (KeyError, TypeError):
+        return None
+
+
 def _read_build(team_id: int, suggestion_id: str, caller: str) -> BuiltSuggestion | None:
     stored = cache.get(_build_key(team_id, suggestion_id, caller))
     if not isinstance(stored, dict):
@@ -623,6 +826,8 @@ def _read_cache(team: Team) -> DataSuggestionsResult | None:
                 for item in stored["suggestions"]
             ),
             events=tuple(stored["events"]),
+            # Cards cached before the share was stored were made without push, so their builds stay without it.
+            mobile_first=bool(stored.get("mobile_first", False)),
         )
     except (KeyError, TypeError):
         # An entry from before a field change is treated as missing, so the next visit generates new cards.
@@ -680,14 +885,17 @@ def _suggest(*, team: Team, user: User, analytics_client: Any) -> DataSuggestion
     if not prompt_events:
         return DataSuggestionsResult(status="ready", suggestions=())
     offered = {name for name, _ in prompt_events}
+    mobile_first = mobile_share(team) >= _MOBILE_FIRST_SHARE
+    channels = _offered_channels(team, mobile_first)
     ideas = suggest_ideas(
         team=team,
         user=user,
         context=IdeaContext(
             events=tuple(prompt_events),
             stages=jev_stages,
-            channels=team_context.channels(team),
+            channels=channels,
             has_slack=team_context.slack_integration_id(team) is not None,
+            mobile_first=mobile_first,
         ),
         analytics_client=analytics_client,
     )
@@ -715,9 +923,12 @@ def _suggest(*, team: Team, user: User, analytics_client: Any) -> DataSuggestion
                 step_outline=outline,
             )
         )
-    ranked = sorted(suggestions, key=lambda item: suggestion_score(item.stage, item.weekly_count), reverse=True)
+    # The sort is stable, so within a stage the model's order wins. A busier event is not a better moment: a
+    # dismissed upgrade dialog fires more often than a started checkout.
+    ranked = sorted(suggestions, key=lambda item: STAGE_WEIGHTS[item.stage], reverse=True)
     return DataSuggestionsResult(
         status="ready",
         suggestions=tuple(pick_one_per_stage(ranked, stage_of=lambda item: item.stage, limit=MAX_SUGGESTIONS)),
         events=planning_events,
+        mobile_first=mobile_first,
     )

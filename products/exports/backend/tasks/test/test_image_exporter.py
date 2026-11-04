@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -29,6 +30,7 @@ from posthog.settings import (
 )
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -291,9 +293,17 @@ class TestImageExporter(APIBaseTest):
                 f"Call {i + 1} has unexpected insight {called_insight.id}"
             )
 
+    @parameterized.expand(
+        [
+            ("plain_key", "test_cache_key_123"),
+            ("key_with_backslash", "cache_[{'regex': '/project/\\\\d+'}]"),
+        ]
+    )
     @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
     def test_export_captures_cache_keys_and_passes_to_url(
         self,
+        _name: str,
+        cache_key: str,
         mock_calculate: Any,
         mock_remove: Any,
         mock_open: Any,
@@ -311,7 +321,7 @@ class TestImageExporter(APIBaseTest):
             insight=insight,
         )
 
-        mock_calculate.return_value = make_insight_result("test_cache_key_123")
+        mock_calculate.return_value = make_insight_result(cache_key)
 
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             image_exporter.export_image(exported_asset)
@@ -322,11 +332,20 @@ class TestImageExporter(APIBaseTest):
         url_to_render = call_args[0][1]  # Second positional arg is the URL
 
         assert "cache_keys=" in url_to_render, f"URL should contain cache_keys parameter: {url_to_render}"
-        assert "test_cache_key_123" in url_to_render, f"URL should contain the cache key: {url_to_render}"
+        exported_cache_keys = json.loads(parse_qs(urlparse(url_to_render).query)["cache_keys"][0])
+        assert exported_cache_keys == {str(insight.id): cache_key}
 
+    @parameterized.expand(
+        [
+            ("plain_keys", ""),
+            ("keys_with_backslash", "\\d+"),
+        ]
+    )
     @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
     def test_dashboard_export_captures_all_cache_keys(
         self,
+        _name: str,
+        cache_key_suffix: str,
         mock_calculate: Any,
         mock_remove: Any,
         mock_open: Any,
@@ -352,7 +371,7 @@ class TestImageExporter(APIBaseTest):
         )
 
         def mock_calc(insight: Any, **kwargs: Any) -> InsightResult:
-            return make_insight_result(f"cache_key_for_insight_{insight.id}")
+            return make_insight_result(f"cache_key_for_insight_{insight.id}{cache_key_suffix}")
 
         mock_calculate.side_effect = mock_calc
 
@@ -363,11 +382,10 @@ class TestImageExporter(APIBaseTest):
         assert mock_screenshot_asset.called
         url_to_render = mock_screenshot_asset.call_args[0][1]
 
-        # URL should contain cache_keys for all insights
-        for insight in insights:
-            assert f"cache_key_for_insight_{insight.id}" in url_to_render, (
-                f"URL should contain cache key for insight {insight.id}"
-            )
+        exported_cache_keys = json.loads(parse_qs(urlparse(url_to_render).query)["cache_keys"][0])
+        assert exported_cache_keys == {
+            str(insight.id): f"cache_key_for_insight_{insight.id}{cache_key_suffix}" for insight in insights
+        }
 
     @patch("products.exports.backend.tasks.image_exporter._screenshot_asset_browserless")
     @patch("products.exports.backend.tasks.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
@@ -456,12 +474,14 @@ class TestImageExporter(APIBaseTest):
                 {"source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
                 {"kind": "HogQLQuery", "query": "SELECT 1"},
                 False,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             ),
             (
                 "with_source_and_dashboard_variables",
                 {"source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
                 {"kind": "HogQLQuery", "query": "SELECT 1"},
                 True,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             ),
             (
                 "source_vars_not_overridden_by_dashboard_vars",
@@ -478,12 +498,28 @@ class TestImageExporter(APIBaseTest):
                     "variables": {"var_1": {"code_name": "eventName", "value": "$pageview"}},
                 },
                 True,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             ),
             (
                 "without_export_context",
                 None,
                 None,
                 False,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            ),
+            (
+                "recent_cache_execution_mode",
+                {"execution_mode": ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE.value},
+                None,
+                False,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+            (
+                "async_execution_mode_falls_back",
+                {"execution_mode": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE.value},
+                None,
+                False,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             ),
         ]
     )
@@ -494,6 +530,7 @@ class TestImageExporter(APIBaseTest):
         export_context: dict | None,
         expected_query_override: dict | None,
         with_dashboard: bool,
+        expected_execution_mode: ExecutionMode,
         mock_calculate: Any,
         *args: Any,
     ) -> None:
@@ -530,6 +567,7 @@ class TestImageExporter(APIBaseTest):
             image_exporter.export_image(exported_asset)
 
         call_kwargs = mock_calculate.call_args[1]
+        assert call_kwargs["execution_mode"] == expected_execution_mode
         if expected_query_override is not None:
             assert call_kwargs["query_override"] == expected_query_override
         else:
@@ -661,7 +699,10 @@ class TestHeatmapExportURLEncoding(APIBaseTest):
             },
         )
 
-        with self.settings(OBJECT_STORAGE_ENABLED=False):
+        with (
+            self.settings(OBJECT_STORAGE_ENABLED=False),
+            mock_anti_ssrf_dns_lookup(),
+        ):
             image_exporter.export_image(exported_asset)
 
         url_to_render = mock_screenshot_asset.call_args[0][1]

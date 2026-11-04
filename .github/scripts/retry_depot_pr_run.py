@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Retry the failed and cancelled jobs of a pull request's newest Depot CI run.
 
-.depot/workflows/retry-on-comment.yml runs this for a `/depot retry` comment.
+.github/workflows/depot-retry-on-comment.yml runs this for a `/depot retry` comment.
 See "Reruns" in .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
 
 Standard library only: the job runs this with the runner's python3 before any install.

@@ -28,9 +28,12 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.actions.backend.models.action import Action
+from products.tasks.backend.facade.model_catalogue import REASONING_EFFORT_DISPLAY_NAMES, display_name_for_model
 
 from ..dataset import templates as templates_module
 from ..dataset.labeling import (
@@ -65,6 +68,13 @@ from ..models import (
 )
 from ..query import measure_queries
 from ..training import artifacts as artifact_store
+from ..training.agent_model import (
+    AUTORESEARCH_DEFAULT_MODEL,
+    AgentModelError,
+    agent_model_choices,
+    resolve_agent_run_config,
+    validate_agent_settings,
+)
 from ..training.explanation import (
     MAX_TOP_FEATURES as _MAX_TOP_FEATURES,
     FeatureDirection as _FeatureDirection,
@@ -74,6 +84,9 @@ from ..training.recipe_validation import RecipeValidationError, feature_sql_hint
 from ..training.schedule import ScheduleRun, research_schedule, schedule_runs_for
 from ..training.shadow_set import shadow_set_ids
 from .contracts import (
+    AgentModelOption,
+    AgentModelOptions,
+    AgentReasoningEffortOption,
     ArtifactContent,
     ArtifactDeleteResult,
     ArtifactList,
@@ -379,6 +392,7 @@ def _pipeline_to_contract(
         pipeline_created_at=row.created_at,
         runs=activity.schedule_runs,
     )
+    agent_config = resolve_agent_run_config(row.agent_model, row.agent_reasoning_effort)
     return Pipeline(
         id=row.id,
         name=row.name,
@@ -398,6 +412,10 @@ def _pipeline_to_contract(
         iteration_budget_remaining=row.iteration_budget_remaining or 0,
         iterations_per_run=row.iterations_per_run,
         research_interval_days=row.research_interval_days,
+        agent_model=row.agent_model,
+        agent_reasoning_effort=row.agent_reasoning_effort,
+        effective_agent_model=agent_config.model,
+        effective_agent_reasoning_effort=agent_config.reasoning_effort,
         training_phase=schedule.phase,
         next_research_at=schedule.next_research_at,
         success_auc=row.success_auc,
@@ -480,6 +498,10 @@ def _training_run_to_contract(row: AutoresearchTrainingRun) -> TrainingRun:
         task_url=f"/tasks/{row.task_id}" if row.task_id else None,
         status=row.status,
         kickoff_reason=row.kickoff_reason,
+        agent_runtime_adapter=row.agent_runtime_adapter,
+        agent_model=row.agent_model,
+        agent_model_label=display_name_for_model(row.agent_model) if row.agent_model else None,
+        agent_reasoning_effort=row.agent_reasoning_effort,
         iteration_budget=row.iteration_budget,
         iteration_count=row.iteration_count,
         best_holdout_score=row.best_holdout_score,
@@ -603,7 +625,7 @@ def _training_run_row(
 # ── Pipelines ──────────────────────────────────────────────────────────────
 
 
-def list_pipelines(team_id: int, *, offset: int, limit: int) -> tuple[list[Pipeline], int]:
+def list_pipelines(team_id: int, page: PageRequest) -> Page[Pipeline]:
     """One page of the team's non-archived pipelines, newest first, plus the total count."""
     qs = (
         AutoresearchPipeline.objects.for_team(team_id)
@@ -611,24 +633,16 @@ def list_pipelines(team_id: int, *, offset: int, limit: int) -> tuple[list[Pipel
         .select_related("created_by")
         .order_by("-created_at")
     )
-    count = qs.count()
-    rows = list(
-        qs[offset : offset + limit].prefetch_related(
-            Prefetch(
-                "models",
-                queryset=AutoresearchModel.objects.for_team(team_id)
-                .filter(role=AutoresearchModel.Role.CHAMPION)
-                .order_by("-created_at"),
-                to_attr="prefetched_champions",
-            )
-        )
-    )
-    champions: dict[UUID, AutoresearchModel] = {
-        row.id: row.prefetched_champions[0] for row in rows if row.prefetched_champions
-    }
-    activity = _pipeline_activity(team_id, [row.id for row in rows], champions)
-    pipelines = [_pipeline_to_contract(row, champion=champions.get(row.id), activity=activity[row.id]) for row in rows]
-    return pipelines, count
+    rows = select_page(qs, page)
+    champions: dict[UUID, AutoresearchModel] = {}
+    for model in (
+        AutoresearchModel.objects.for_team(team_id)
+        .filter(pipeline_id__in=[row.id for row in rows.results], role=AutoresearchModel.Role.CHAMPION)
+        .order_by("-created_at")
+    ):
+        champions.setdefault(model.pipeline_id, model)
+    activity = _pipeline_activity(team_id, [row.id for row in rows.results], champions)
+    return rows.map(lambda row: _pipeline_to_contract(row, champion=champions.get(row.id), activity=activity[row.id]))
 
 
 def get_pipeline(team_id: int, pipeline_id: str | UUID) -> Pipeline:
@@ -919,6 +933,8 @@ def get_pipeline_definition(team_id: int, pipeline_id: str | UUID) -> PipelineWr
         iteration_budget=row.iteration_budget,
         iterations_per_run=row.iterations_per_run,
         research_interval_days=row.research_interval_days,
+        agent_model=row.agent_model,
+        agent_reasoning_effort=row.agent_reasoning_effort,
         success_auc=row.success_auc,
         plateau_iterations=row.plateau_iterations,
         output_person_property=row.output_person_property,
@@ -962,6 +978,41 @@ def resolve_action_target(project_id: int, action_id: Any) -> tuple[str, int]:
             "Every step of a target action must name an event other than the prediction event."
         )
     return action.name or "", int(action_id)
+
+
+# ── Training agent model ───────────────────────────────────────────────────
+
+
+def list_agent_model_options() -> AgentModelOptions:
+    choices = agent_model_choices()
+    default = resolve_agent_run_config(None, None)
+    return AgentModelOptions(
+        default_model=default.model,
+        default_model_label=display_name_for_model(AUTORESEARCH_DEFAULT_MODEL),
+        default_reasoning_effort=default.reasoning_effort,
+        models=[
+            AgentModelOption(
+                model=choice.model,
+                label=choice.label,
+                runtime_adapter=choice.runtime_adapter,
+                supported_efforts=[
+                    AgentReasoningEffortOption(value=effort, label=REASONING_EFFORT_DISPLAY_NAMES.get(effort, effort))
+                    for effort in choice.supported_efforts
+                ],
+                cost_multiplier=choice.cost_multiplier,
+            )
+            for choice in choices
+        ],
+    )
+
+
+def agent_settings_error(model: str | None, reasoning_effort: str | None) -> str | None:
+    """Why this model and effort cannot be stored on a pipeline, or None when they can."""
+    try:
+        validate_agent_settings(model, reasoning_effort)
+    except AgentModelError as exc:
+        return str(exc)
+    return None
 
 
 # ── Validation and templates ───────────────────────────────────────────────
@@ -1064,14 +1115,13 @@ def validate_features_sql(features_sql: str) -> None:
 # ── Models ─────────────────────────────────────────────────────────────────
 
 
-def list_models(team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int) -> tuple[list[Model], int]:
+def list_models(team_id: int, *, pipeline_id: str | UUID | None, page: PageRequest) -> Page[Model]:
     qs = AutoresearchModel.objects.for_team(team_id).order_by("-created_at")
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
-    count = qs.count()
-    rows = list(qs[offset : offset + limit])
-    in_shadow = shadow_set_ids(team_id, {row.pipeline_id for row in rows})
-    return [_model_to_contract(row, in_shadow_set=row.pk in in_shadow) for row in rows], count
+    rows = select_page(qs, page)
+    in_shadow = shadow_set_ids(team_id, {row.pipeline_id for row in rows.results})
+    return rows.map(lambda row: _model_to_contract(row, in_shadow_set=row.pk in in_shadow))
 
 
 def get_model(team_id: int, model_id: str | UUID, *, pipeline_id: str | UUID | None = None) -> Model | None:
@@ -1090,12 +1140,11 @@ def get_model(team_id: int, model_id: str | UUID, *, pipeline_id: str | UUID | N
 # ── Operational runs ───────────────────────────────────────────────────────
 
 
-def list_runs(team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int) -> tuple[list[Run], int]:
+def list_runs(team_id: int, *, pipeline_id: str | UUID | None, page: PageRequest) -> Page[Run]:
     qs = AutoresearchRun.objects.for_team(team_id).order_by("-created_at")
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
-    count = qs.count()
-    return [_run_to_contract(row) for row in qs[offset : offset + limit]], count
+    return select_page(qs, page).map(_run_to_contract)
 
 
 def get_run(team_id: int, run_id: str | UUID, *, pipeline_id: str | UUID | None = None) -> Run | None:
@@ -1362,14 +1411,11 @@ def _segment_thresholds(team_id: int, pipeline: AutoresearchPipeline) -> Predict
 # ── Training runs ──────────────────────────────────────────────────────────
 
 
-def list_training_runs(
-    team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int
-) -> tuple[list[TrainingRun], int]:
+def list_training_runs(team_id: int, *, pipeline_id: str | UUID | None, page: PageRequest) -> Page[TrainingRun]:
     qs = AutoresearchTrainingRun.objects.for_team(team_id).prefetch_related("iterations").order_by("-created_at")
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
-    count = qs.count()
-    return [_training_run_to_contract(row) for row in qs[offset : offset + limit]], count
+    return select_page(qs, page).map(_training_run_to_contract)
 
 
 def get_training_run(
@@ -1429,7 +1475,11 @@ def start_training(
     # The runner and the sandbox import pandas and pyarrow, so the router path loads them only here.
     from ..inference.sandbox import SandboxInferenceError  # noqa: PLC0415
     from ..training.runner import run_training  # noqa: PLC0415
+    from ..training.stale import fail_stale_training_runs  # noqa: PLC0415
 
+    # A run whose sandbox died would otherwise refuse this start for good.
+    if (pipeline_uuid := _as_uuid(pipeline_id)) is not None:
+        fail_stale_training_runs(team_id=team_id, pipeline_id=pipeline_uuid)
     with transaction.atomic():
         pipeline = _claim_pipeline_for_training(team_id, pipeline_id)
         if not allow_action_target and pipeline.target_definition.get("type") == "action":
@@ -1936,12 +1986,9 @@ def delete_artifact(
 # ── Suggestions ────────────────────────────────────────────────────────────
 
 
-def list_suggestions(
-    team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int
-) -> tuple[list[Suggestion], int]:
+def list_suggestions(team_id: int, *, pipeline_id: str | UUID | None, page: PageRequest) -> Page[Suggestion]:
     qs = _suggestion_rows(team_id, pipeline_id=pipeline_id).order_by("-created_at")
-    count = qs.count()
-    return [_suggestion_to_contract(row) for row in qs[offset : offset + limit]], count
+    return select_page(qs, page).map(_suggestion_to_contract)
 
 
 def _suggestion_rows(team_id: int, *, pipeline_id: str | UUID | None) -> Any:

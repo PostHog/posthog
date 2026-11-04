@@ -1,6 +1,7 @@
 import collections.abc
 
-from posthog.models.integration.azure_blob import strip_leading_whitespace, validate_azure_blob_connection_string
+from posthog.models.integration.azure_blob import EndpointNotAllowedError, strip_leading_whitespace
+from posthog.security.pinned_requests import SSRFBlockedError
 
 from products.batch_exports.backend.destination_tests.base import (
     DestinationTest,
@@ -37,27 +38,24 @@ class AzureBlobContainerTestStep(DestinationTestStep):
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
         from azure.core.exceptions import ClientAuthenticationError, ResourceNotFoundError, ServiceRequestError
-        from azure.storage.blob.aio import BlobServiceClient
+
+        from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
+            MalformedConnectionStringError,
+            azure_container_client,
+        )
 
         assert self.connection_string is not None
         assert self.container_name is not None
 
         connection_string = strip_leading_whitespace(self.connection_string)
         try:
-            validate_azure_blob_connection_string(connection_string)
-        except ValueError as e:
+            async with azure_container_client(connection_string, self.container_name) as client:
+                await client.get_container_properties()
+        except (MalformedConnectionStringError, EndpointNotAllowedError, SSRFBlockedError) as e:
             return DestinationTestStepResult(
                 status=Status.FAILED,
                 message=f"Invalid connection string: {str(e)}",
             )
-
-        try:
-            async with BlobServiceClient.from_connection_string(
-                connection_string, permit_redirects=False
-            ) as blob_service_client:
-                container_client = blob_service_client.get_container_client(self.container_name)
-                await container_client.get_container_properties()
-
         except ResourceNotFoundError:
             return DestinationTestStepResult(
                 status=Status.FAILED,
@@ -72,11 +70,6 @@ class AzureBlobContainerTestStep(DestinationTestStep):
             return DestinationTestStepResult(
                 status=Status.FAILED,
                 message=f"Could not connect to Azure Blob Storage: {err}",
-            )
-        except ValueError as err:
-            return DestinationTestStepResult(
-                status=Status.FAILED,
-                message=f"Invalid connection string format: {err}",
             )
 
         return DestinationTestStepResult(status=Status.PASSED)

@@ -1,6 +1,7 @@
 import json
+from contextlib import nullcontext
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import time_machine
@@ -26,14 +27,16 @@ from posthog.models.personal_api_key import hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.facade import api as signals
-from products.signals.backend.models import SignalReport
-from products.today.backend.logic import highlights
-from products.today.backend.logic.highlight_types import Found, Source
+from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportArtefact
+from products.today.backend.facade.contracts import HighlightFindings, HighlightSource
+from products.today.backend.logic import highlights, pinned
 from products.today.backend.logic.jev import JevPick
+from products.today.backend.models import TodayHighlights
 from products.today.backend.temporal.inputs import (
     ComputeHighlightsInputs,
     FinalizeHighlightsInputs,
     HighlightSourceInputs,
+    ResolvePinsInputs,
 )
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
 from products.today.backend.tests.factories import AGREEING, FakeJev, SameAnswerJev, page_source
@@ -118,6 +121,7 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         [
             ("a signal states the number", True, "signal", None, status.HTTP_200_OK),
             ("the agent's research states the number", True, "research", None, status.HTTP_200_OK),
+            ("a protected assessment states the number", True, "protected_note", None, status.HTTP_200_OK),
             ("flag off", False, "signal", None, status.HTTP_404_NOT_FOUND),
             ("no gateway", True, "signal", SystemOneNotConfigured("no gateway"), status.HTTP_503_SERVICE_UNAVAILABLE),
         ]
@@ -130,6 +134,17 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         gateway_error: Exception | None,
         expected: int,
     ) -> None:
+        if source_kind == "protected_note":
+            report = SignalReport.objects.create(id=REPORT_ID, team=self.team, title="Synthetic export finding")
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.NOTE,
+                actor_kind=SignalActorKind.TASK,
+                content=json.dumps(
+                    {"note": FIGURE_SOURCE, "analytics_query_context": [], "restricted_to_user_id": self.user.id}
+                ),
+            )
         signal = signals.ReportSignal(
             signal_id="signal-1",
             content=FIGURE_SOURCE,
@@ -156,7 +171,9 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             patch(
                 "products.today.backend.facade.api.signals.report_agent_texts",
                 return_value=[finding] if source_kind == "research" else [],
-            ),
+            )
+            if source_kind != "protected_note"
+            else nullcontext(),
             patch(
                 "products.today.backend.facade.api.GatewayJev",
                 return_value=SameAnswerJev(AGREEING),
@@ -166,6 +183,9 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/today/reports/{REPORT_ID}/figure_marks/")
 
         assert response.status_code == expected
+        if source_kind == "protected_note":
+            assert response.json()["marks"] == []
+            return
         if expected == status.HTTP_200_OK:
             marks = response.json()["marks"]
             quote_signal = marks[0]["quote"].pop("signal")
@@ -252,7 +272,14 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         [
             ("the page with only today", "get", f"reports/{REPORT_ID}/page", ["today:read"], status.HTTP_403_FORBIDDEN),
             (
-                "the page with today and signals",
+                "the page with today and inbox",
+                "get",
+                f"reports/{REPORT_ID}/page",
+                ["today:read", "inbox:read"],
+                status.HTTP_200_OK,
+            ),
+            (
+                "the page with today and the legacy task scope",
                 "get",
                 f"reports/{REPORT_ID}/page",
                 ["today:read", "task:read"],
@@ -273,6 +300,9 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
                 status.HTTP_403_FORBIDDEN,
             ),
             ("highlights with only today", "get", "highlights", ["today:read"], status.HTTP_403_FORBIDDEN),
+            ("pins with today read", "get", "pulse_pins", ["today:read"], status.HTTP_200_OK),
+            ("saving pins with today read", "put", "pulse_pins", ["today:read"], status.HTTP_403_FORBIDDEN),
+            ("saving pins with today write", "put", "pulse_pins", ["today:write"], status.HTTP_200_OK),
         ]
     )
     def test_a_scoped_key_reads_data_only_with_its_underlying_scope(
@@ -289,6 +319,8 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         ):
             response = getattr(self.client, method)(
                 f"/api/projects/{self.team.id}/today/{path}/",
+                {"pins": []} if method == "put" else None,
+                format="json",
                 HTTP_AUTHORIZATION=f"Bearer {raw_key}",
             )
 
@@ -348,14 +380,18 @@ def _temporal() -> MagicMock:
 
 
 class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
-    def _get(self, connect: MagicMock, flag: bool = True) -> "_MonkeyPatchedResponse":
-        source = Source(
-            name="alerts", find=lambda _c: Found(items=(candidate("alert:1", "alerts", 0.8),), pulse=(metric("k1"),))
+    def _get(self, connect: MagicMock, flag: bool = True, pulse: tuple[str, ...] = ("k1",)) -> "_MonkeyPatchedResponse":
+        source = HighlightSource(
+            name="alerts",
+            find=lambda _c: HighlightFindings(
+                items=(candidate("alert:1", "alerts", 0.8),), pulse=tuple(metric(key) for key in pulse)
+            ),
         )
         with (
             patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=flag),
             patch.object(highlights, "load_sources", return_value=(source,)),
             patch.object(highlights, "sync_connect", connect),
+            patch.object(pinned, "get_key_metrics", return_value=[]),
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/today/highlights/")
             if response.status_code == status.HTTP_200_OK and connect.return_value.start_workflow.called:
@@ -372,9 +408,26 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
                     )
                     for name in inputs.source_names
                 ]
+                found_pins = (
+                    pinned.resolve_pins(
+                        ResolvePinsInputs(
+                            team_id=inputs.team_id,
+                            user_id=inputs.user_id,
+                            local_day=inputs.local_day,
+                            scopes=inputs.scopes,
+                            pins=inputs.pins,
+                        )
+                    ).found
+                    if inputs.pins
+                    else "[]"
+                )
                 highlights.finalize(
                     FinalizeHighlightsInputs(
-                        team_id=inputs.team_id, highlights_id=inputs.highlights_id, results=results
+                        team_id=inputs.team_id,
+                        highlights_id=inputs.highlights_id,
+                        results=results,
+                        pins=inputs.pins,
+                        pinned=found_pins,
                     )
                 )
         return response
@@ -413,3 +466,32 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
                 False,
             ),
         )
+
+    def test_a_result_computed_with_pins_is_computed_again_with_suggestions_only(self) -> None:
+        cache.clear()
+        with time_machine.travel(datetime(2026, 10, 13, 12, 0, tzinfo=UTC), tick=False) as clock:
+            self._get(_temporal(), pulse=("k1", "k2"))
+            TodayHighlights.objects.for_team(self.team.id).update(pins_key="pinned")
+            with patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=True):
+                self.client.put(
+                    f"/api/projects/{self.team.id}/today/pulse_pins/",
+                    {"pins": [{"key": "k2", "name": "k2"}]},
+                    format="json",
+                )
+            clock.shift(timedelta(seconds=1))
+            connect = _temporal()
+            self._get(connect, pulse=("k1", "k2"))
+            after = self._get(_temporal(), pulse=("k1", "k2")).json()
+
+        self.assertEqual(
+            (connect.return_value.start_workflow.called, [m["key"] for m in after["pulse"]], after["pins"]),
+            (True, ["k1", "k2"], []),
+        )
+
+    def test_saving_too_many_pins_is_rejected(self) -> None:
+        pins = [{"key": f"k{index}", "name": f"k{index}"} for index in range(21)]
+
+        with patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=True):
+            response = self.client.put(f"/api/projects/{self.team.id}/today/pulse_pins/", {"pins": pins}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

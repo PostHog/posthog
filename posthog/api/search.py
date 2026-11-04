@@ -1,9 +1,11 @@
 import re
+import operator
 from collections import defaultdict
+from functools import reduce
 from typing import Any, Literal, TypedDict, cast
 
-from django.db.models import BigIntegerField, CharField, F, Model, OuterRef, QuerySet, Subquery, Value
-from django.db.models.functions import Cast, JSONObject
+from django.db.models import BigIntegerField, CharField, F, Model, OuterRef, Q, QuerySet, Subquery, Value
+from django.db.models.functions import Cast, JSONObject, Lower
 from django.http import HttpResponse
 
 from drf_spectacular.utils import extend_schema
@@ -23,6 +25,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Node
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.facade.models import Endpoint
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
@@ -243,7 +246,7 @@ def search_entities(
     # happens here when workflows were the one entity requested.
     if entities or not workflows_requested:
         if query:
-            qs = qs.order_by("-rank")
+            qs = qs.order_by(F("rank").desc())
         else:
             qs = qs.order_by("type", F("_sort_name").asc(nulls_first=True))
 
@@ -333,7 +336,16 @@ def class_queryset(
     entity_type = entity_type or class_to_entity_name(klass)
     values = ["type", "result_id", "extra_fields", "_sort_name", "_pk", "_created_by_id"]
 
-    qs: QuerySet[Any] = cast(Any, klass).objects.filter(team__project_id=project_id)  # filter team
+    qs: QuerySet[Any]
+    if klass in (EventDefinition, PropertyDefinition):
+        # A join on team would bypass the project-leading unique index on these large tables.
+        qs = (
+            cast(Any, klass)
+            .objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=project_id)
+        )
+    else:
+        qs = cast(Any, klass).objects.filter(team__project_id=project_id)  # filter team
     qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
 
     if annotations:
@@ -390,6 +402,15 @@ def class_queryset(
 
     # full-text search rank
     if query:
+        if klass in (EventDefinition, PropertyDefinition):
+            # ts_rank keeps a name only when at least one search word matches it, so a cheap substring
+            # check runs first and the costly rank only scores names that can match, not every definition.
+            # Postgres lower() folds case as the rank does, where UPPER() would miss names such as "İstanbul".
+            words = re.findall(r"[^\W_]+", query)
+            if words:
+                qs = qs.alias(_lower_name=Lower("name")).filter(
+                    reduce(operator.or_, (Q(_lower_name__contains=Lower(Value(word))) for word in words))
+                )
         qs = qs.annotate(rank=build_rank(search_fields, query, config="simple"))
         qs = qs.filter(rank__gt=0.05)
         values.append("rank")

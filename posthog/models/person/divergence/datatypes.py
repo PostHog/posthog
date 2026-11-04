@@ -7,7 +7,8 @@ from uuid import UUID
 
 from posthog.dataclasses import frozen
 
-PersonDivergenceKind = Literal["hidden", "swept", "stale", "behind", "absent"]
+# "equal": the versions match but the ClickHouse winner holds other content (a tie or a blanked person).
+PersonDivergenceKind = Literal["hidden", "swept", "stale", "behind", "absent", "equal"]
 
 MappingDivergenceKind = Literal["hidden", "other_person", "stale", "absent"]
 
@@ -25,6 +26,7 @@ RepairOutcome = Literal[
     "skipped_owner_changed",
     "skipped_mapping_gone",
     "skipped_reread_lagging",
+    "skipped_raise_refused",
     "skipped_stale",
     "skipped_stale_merge_failed",
     "skipped_stale_merge_too_large",

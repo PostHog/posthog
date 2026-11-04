@@ -18,10 +18,10 @@ import { actionToUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import { objectsEqual } from 'lib/utils/objects'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -41,20 +41,19 @@ import {
 import { sqlVisualizationDisabledReason } from '~/queries/nodes/DataVisualization/sqlVisualizationSupport'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { compareQuery, isDraftQueryWorthSaving } from '~/queries/nodes/InsightViz/queryUtils'
 import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'
-import { VisualizationNode, HogQLVariable, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import {
     isDataTableNode,
     isDataVisualizationNode,
     isDataVisualizationNodeWithHogQLQuery,
     isHogQLQuery,
-    isHogQuery,
     isInsightQueryNode,
     isInsightVizNode,
-    isWebAnalyticsInsightQuery,
-    shouldQueryBeAsync,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import { VisualizationNode, HogQLVariable, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import { isHogQuery, isWebAnalyticsInsightQuery, shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, InsightLogicProps, InsightType } from '~/types'
 
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'products/data_warehouse/frontend/utils'
@@ -98,7 +97,6 @@ import { insightLogic } from './insightLogic'
 import { insightSceneLogic } from './insightSceneLogic'
 import { insightUsageLogic } from './insightUsageLogic'
 import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
-import { compareQuery, isDraftQueryWorthSaving } from './utils/queryUtils'
 
 // insightId/dashboardId are reducers set synchronously by the same action that matches the URL.
 // insightLogicRef is set by a separate listener that rebuilds and mounts a new logic instance, a
@@ -128,6 +126,50 @@ const isMatchingSqlQuery = (
     reference.kind === NodeKind.DataVisualizationNode &&
     query.source.query === reference.source.query &&
     objectsEqual(query.source.variables ?? {}, reference.source.variables ?? {})
+
+// A tile's query carries the dashboard's filters in these fields (resolve_effective_dashboard_filters and
+// QueryRunner.apply_dashboard_filters). Saving them back bakes the filters into the insight, nesting
+// properties one group deeper per save.
+const DASHBOARD_FILTERED_SOURCE_KEYS = [
+    'series',
+    'properties',
+    'dateRange',
+    'breakdownFilter',
+    'interval',
+    'filterTestAccounts',
+    'compareFilter',
+] as const
+
+// Restores a field from the stored query only when the tile left it as loaded, so a change the tile
+// made on purpose (switching to World map adds a country breakdown) is still saved.
+const withStoredDashboardFilteredFields = (
+    query: Node,
+    tileBaseQuery: Node | null | undefined,
+    storedQuery: Node | null | undefined
+): Node => {
+    if (
+        !isInsightVizNode(query) ||
+        !isInsightVizNode(tileBaseQuery) ||
+        !isInsightVizNode(storedQuery) ||
+        query.source.kind !== storedQuery.source.kind
+    ) {
+        return query
+    }
+    const source: Record<string, any> = { ...query.source }
+    const baseSource: Record<string, any> = tileBaseQuery.source
+    const storedSource: Record<string, any> = storedQuery.source
+    for (const key of DASHBOARD_FILTERED_SOURCE_KEYS) {
+        if (!objectsEqual(source[key], baseSource[key])) {
+            continue
+        }
+        if (key in storedSource) {
+            source[key] = storedSource[key]
+        } else {
+            delete source[key]
+        }
+    }
+    return { ...query, source } as InsightVizNode
+}
 
 export type SqlVisualizationUpdate =
     | { type: 'chart-type'; display: ChartDisplayType }
@@ -869,8 +911,19 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 // Breakpoints cannot cancel PATCHes that have already started, so serialize them per insight.
                 await cache.displayOptionsSave
                 breakpoint()
+                const shortId = values.insight.short_id
+                const tileBaseQuery = values.savedInsight.query
                 const save = withTimeout(
-                    (signal) => insightsApi.update(insightId, { query }, { signal }),
+                    async (signal) => {
+                        const storedInsight =
+                            props.dashboardId != null && shortId ? await insightsApi.getByShortId(shortId, true) : null
+                        const persistedQuery = withStoredDashboardFilteredFields(
+                            query,
+                            tileBaseQuery,
+                            storedInsight?.query
+                        )
+                        return insightsApi.update(insightId, { query: persistedQuery }, { signal })
+                    },
                     15_000,
                     'Saving display options timed out'
                 )
@@ -880,9 +933,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 if (saveId !== cache.displayOptionsSaveId) {
                     return
                 }
-                actions.renameInsightSuccess(updatedItem)
+                // The response holds the stored query; the tile keeps its dashboard-filtered one.
+                const tileItem = props.dashboardId != null ? { ...updatedItem, query } : updatedItem
+                actions.renameInsightSuccess(tileItem)
                 if (refreshResults) {
-                    props.refreshAfterDisplayOptionsChange?.(updatedItem)
+                    props.refreshAfterDisplayOptionsChange?.(tileItem)
                 }
                 actions.persistDisplayOptionsSettled()
                 lemonToast.success('Insight updated')

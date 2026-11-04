@@ -1,8 +1,9 @@
-import logging
 from uuid import UUID
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import DatabaseError
+
+import structlog
 
 from products.tasks.backend.facade.sandbox import SandboxCleanupError
 from products.wizard.backend.facade.errors import WizardRunNotFoundError
@@ -16,7 +17,7 @@ from products.wizard.backend.logic.workers.contracts import WizardWorkerUsageMea
 from products.wizard.backend.observability.contracts import WizardWorkerCleanupOutcome
 from products.wizard.backend.observability.service import wizard_observability
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def cleanup_worker(team_id: int, run_id: UUID, sandbox_id: str) -> None:
@@ -47,7 +48,9 @@ def _record_worker_usage(
     except (DatabaseError, ObjectDoesNotExist, ValueError):
         logger.exception(
             "wizard_worker_usage_recording_failed",
-            extra={"team_id": team_id, "run_id": str(run_id), "sandbox_id": sandbox_id},
+            team_id=team_id,
+            run_id=str(run_id),
+            sandbox_id=sandbox_id,
         )
 
 
@@ -69,7 +72,9 @@ def _record_cleanup_failure(team_id: int, run_id: UUID, sandbox_id: str) -> None
     except DatabaseError:
         logger.exception(
             "wizard_worker_cleanup_failure_recording_failed",
-            extra={"team_id": team_id, "run_id": str(run_id), "sandbox_id": sandbox_id},
+            team_id=team_id,
+            run_id=str(run_id),
+            sandbox_id=sandbox_id,
         )
 
 
@@ -80,7 +85,8 @@ def _report_worker_usage(team_id: int, run_id: UUID) -> None:
     except (DatabaseError, ObjectDoesNotExist, ValueError, WizardRunNotFoundError):
         logger.exception(
             "wizard_worker_usage_reporting_failed",
-            extra={"team_id": team_id, "run_id": str(run_id)},
+            team_id=team_id,
+            run_id=str(run_id),
         )
         return
 

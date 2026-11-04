@@ -39,15 +39,8 @@
          "posthog_user"."onboarding_delegated_to_organization_id",
          "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in"
-  FROM "posthog_user"
-  WHERE ("posthog_user"."is_active"
-         AND "posthog_user"."id" = 99999)
-  '''
-# ---
-# name: TestPreflight.test_cloud_preflight_limited_db_queries.1
-  '''
-  SELECT "posthog_organization"."id",
+         "posthog_user"."email_opt_in",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -86,12 +79,13 @@
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
-  FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  FROM "posthog_user"
+  LEFT OUTER JOIN "posthog_organization" ON ("posthog_user"."current_organization_id" = "posthog_organization"."id")
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestPreflight.test_cloud_preflight_limited_db_queries.2
+# name: TestPreflight.test_cloud_preflight_limited_db_queries.1
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",

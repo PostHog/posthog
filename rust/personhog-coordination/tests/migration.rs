@@ -4,12 +4,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use personhog_coordination::authority::AuthorityClock;
+use personhog_coordination::follow::{Follower, Reporter};
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_coordination::types::{
-    AssignmentPrecondition, AssignmentStatus, ChangelogConfig, ChangelogTarget, Generation,
-    HandoffPhase, HandoffState, MigrationPhase, MigrationRequest, MigrationState,
+    AssignmentPrecondition, AssignmentStatus, ChangelogConfig, ChangelogTarget, DrainReport,
+    Generation, HandoffPhase, HandoffState, MigrationPhase, MigrationRequest, MigrationState,
     PartitionAssignment, SealAck,
 };
 use tokio_util::sync::CancellationToken;
@@ -178,6 +179,7 @@ async fn an_acquisition_parks_until_the_config_reaches_the_handoffs_epoch() {
             partitions: PARTITIONS,
             epoch: 2,
             writer_group: String::new(),
+            retire_groups: vec![],
             draining: Vec::new(),
         })
         .await
@@ -353,6 +355,12 @@ async fn a_grow_migration_restarts_every_partition_over_the_new_changelog() {
         first.clone(),
     );
     wait_for_steady_state(&store, PARTITIONS).await;
+    for group in ["relay", "relay", "writer", "gone"] {
+        assert!(store.add_changelog_retire_group(group).await.unwrap());
+    }
+    for group in ["gone", "never-added"] {
+        assert!(store.remove_changelog_retire_group(group).await.unwrap());
+    }
 
     assert!(store.create_migration(&migration("m-1", 8)).await.unwrap());
     wait_for_phase(&store, MigrationPhase::Sealing).await;
@@ -383,6 +391,7 @@ async fn a_grow_migration_restarts_every_partition_over_the_new_changelog() {
     assert_eq!(config.partitions, 8);
     assert_eq!(config.epoch, 2);
     assert_eq!(config.writer_group, "writer");
+    assert_eq!(config.retire_groups, vec!["relay".to_string()]);
     assert_eq!(
         config.draining,
         vec![Generation {
@@ -412,7 +421,26 @@ async fn a_grow_migration_restarts_every_partition_over_the_new_changelog() {
             "partition {partition} drained again for its restart: {events:?}"
         );
     }
-    assert!(store.retire_changelog_topic(TOPIC).await.unwrap());
+    // A retire lands only on the config its drain checks read.
+    let (config, rev) = store
+        .get_changelog_config_with_mod_revision()
+        .await
+        .unwrap()
+        .unwrap();
+    store.put_changelog_config(&config).await.unwrap();
+    assert!(!store
+        .retire_changelog_topic(&config, rev, TOPIC)
+        .await
+        .unwrap());
+    let (config, rev) = store
+        .get_changelog_config_with_mod_revision()
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(store
+        .retire_changelog_topic(&config, rev, TOPIC)
+        .await
+        .unwrap());
     assert!(store
         .get_changelog_config()
         .await
@@ -640,31 +668,174 @@ async fn a_request_that_fails_admission_is_rejected_with_its_reason() {
         store.get_changelog_config().await.unwrap().unwrap().epoch,
         1
     );
+    cancel.cancel();
+}
 
-    store
-        .put_changelog_config(&ChangelogConfig {
-            topic: TOPIC.to_string(),
+const TOPIC_V0: &str = "personhog_updates_test_v0";
+
+fn draining_config(retire_groups: &[&str]) -> ChangelogConfig {
+    ChangelogConfig {
+        topic: TOPIC.to_string(),
+        partitions: PARTITIONS,
+        epoch: 1,
+        writer_group: "writer".to_string(),
+        retire_groups: retire_groups.iter().map(|g| g.to_string()).collect(),
+        draining: vec![Generation {
+            topic: TOPIC_V0.to_string(),
             partitions: PARTITIONS,
-            epoch: 1,
-            writer_group: "writer".to_string(),
-            draining: vec![Generation {
-                topic: "personhog_updates_test_v0".to_string(),
-                partitions: PARTITIONS,
-                epoch: 0,
-            }],
-        })
+            epoch: 0,
+        }],
+    }
+}
+
+fn drain_report(topic: &str, group: &str) -> DrainReport {
+    DrainReport {
+        topic: topic.to_string(),
+        group: group.to_string(),
+        reported_by: format!("{group}-0"),
+        reported_at_ms: now_ms(),
+    }
+}
+
+async fn wait_for_request_waiting(store: &Arc<PersonhogStore>, waiting: &[&str]) {
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(store);
+        let waiting: Vec<String> = waiting.iter().map(|w| w.to_string()).collect();
+        async move {
+            store
+                .get_migration_request_with_mod_revision()
+                .await
+                .unwrap()
+                .is_some_and(|(r, _)| r.waiting == waiting)
+        }
+    })
+    .await;
+}
+
+/// A request made while a generation drains waits, naming the groups that have
+/// not reported it; once every gated group has, the coordinator retires the
+/// generation, drops its reports and late ones for other topics, and starts the request.
+#[tokio::test]
+async fn a_drained_generation_retires_once_every_gated_group_reports_it() {
+    let Fleet { store, cancel, .. } = fleet("migration-auto-retire").await;
+    start_coordinator_with_config(
+        Arc::clone(&store),
+        coordinator_config("coordinator-0", 10, Duration::from_secs(86_400)),
+        Arc::new(StickyBalancedStrategy),
+        cancel.clone(),
+    );
+    wait_for_steady_state(&store, PARTITIONS).await;
+    store
+        .put_changelog_config(&draining_config(&["relay"]))
         .await
         .unwrap();
+    store
+        .put_drain_report(&drain_report("personhog_updates_test_retired", "writer"))
+        .await
+        .unwrap();
+
     assert!(store
-        .create_migration_request(&request("m-2", 8))
+        .create_migration_request(&request("m-1", 8))
         .await
         .unwrap());
-    let archived = wait_for_rejection(&store, "m-2").await;
+    wait_for_request_waiting(
+        &store,
+        &["personhog_updates_test_v0: waiting on drain reports from writer, relay"],
+    )
+    .await;
+
+    store
+        .put_drain_report(&drain_report(TOPIC_V0, "writer"))
+        .await
+        .unwrap();
+    wait_for_request_waiting(
+        &store,
+        &["personhog_updates_test_v0: waiting on drain reports from relay"],
+    )
+    .await;
     assert_eq!(
-        archived.blocking,
-        vec!["generation_still_draining".to_string()]
+        store
+            .get_changelog_config()
+            .await
+            .unwrap()
+            .unwrap()
+            .draining
+            .len(),
+        1
     );
+
+    store
+        .put_drain_report(&drain_report(TOPIC_V0, "relay"))
+        .await
+        .unwrap();
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&store);
+        async move { store.get_migration().await.unwrap().is_some() }
+    })
+    .await;
+    let config = store.get_changelog_config().await.unwrap().unwrap();
+    assert!(config.draining.is_empty());
+    assert_eq!(config.epoch, 1);
+    assert!(store.list_drain_reports().await.unwrap().is_empty());
     cancel.cancel();
+}
+
+/// The coordinator's retire lands only while no saga exists, and takes the
+/// generation's drain reports with it.
+#[tokio::test]
+async fn a_retire_lands_only_while_no_saga_exists() {
+    let store = test_store("migration-retire-guard").await;
+    store
+        .put_changelog_config(&draining_config(&[]))
+        .await
+        .unwrap();
+    store
+        .put_drain_report(&drain_report(TOPIC_V0, "writer"))
+        .await
+        .unwrap();
+    assert!(store.create_migration(&migration("m-1", 8)).await.unwrap());
+
+    let (config, rev) = store
+        .get_changelog_config_with_mod_revision()
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!store
+        .retire_changelog_topic(&config, rev, TOPIC_V0)
+        .await
+        .unwrap());
+    assert_eq!(
+        store
+            .get_changelog_config()
+            .await
+            .unwrap()
+            .unwrap()
+            .draining
+            .len(),
+        1
+    );
+
+    let (migration, migration_rev) = store
+        .get_migration_with_mod_revision()
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(store
+        .archive_migration(&migration, migration_rev, MigrationPhase::Cancelled)
+        .await
+        .unwrap());
+    assert!(store
+        .retire_changelog_topic(&config, rev, TOPIC_V0)
+        .await
+        .unwrap());
+    assert!(store
+        .get_changelog_config()
+        .await
+        .unwrap()
+        .unwrap()
+        .draining
+        .is_empty());
+    assert!(store.list_drain_reports().await.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -771,6 +942,7 @@ async fn a_plan_lands_only_on_the_basis_it_was_read_on() {
         partitions: 8,
         epoch: 2,
         writer_group: String::new(),
+        retire_groups: vec![],
         draining: vec![],
     };
     store.put_changelog_config(&flipped).await.unwrap();
@@ -1200,7 +1372,7 @@ async fn a_request_waits_while_an_owner_is_draining() {
                 .await
                 .unwrap()
                 .unwrap();
-            consider_request(&store, &members, &pods, req, rev)
+            consider_request(&store, &members, &pods, req, rev, Vec::new())
                 .await
                 .unwrap();
         }
@@ -1230,4 +1402,29 @@ async fn a_request_waits_while_an_owner_is_draining() {
         .unwrap();
     pass().await;
     assert_eq!(store.get_migration().await.unwrap().unwrap().id, "m-1");
+}
+
+/// A consumer that proves a generation drained, even one already drained when
+/// it starts and never subscribed to, reports it for its group.
+#[tokio::test]
+async fn a_follower_reports_each_generation_it_proves_drained() {
+    let store = test_store("migration-drain-report").await;
+    let mut follower = Follower::default();
+    let topic = follower
+        .select_topic(&draining_config(&[]), |_| async { Ok(true) })
+        .await
+        .unwrap();
+    assert_eq!(topic, TOPIC);
+
+    let reporter = Reporter {
+        group: "writer".to_string(),
+        pod: "writer-0".to_string(),
+    };
+    follower.report(&store, &reporter).await;
+    let reports = store.list_drain_reports().await.unwrap();
+    assert_eq!(reports.len(), 1);
+    assert_eq!(
+        (reports[0].topic.as_str(), reports[0].group.as_str()),
+        (TOPIC_V0, "writer")
+    );
 }

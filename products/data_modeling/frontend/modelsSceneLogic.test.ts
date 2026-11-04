@@ -88,13 +88,8 @@ describe('modelsSceneLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_MODELING_USAGE]: true })
     })
-
-    /** Flags outlive a test, so each test that cares states the value it needs. */
-    const setFlag = (flag: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS], value: boolean): void => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags(value ? [flag] : [], { [flag]: value })
-    }
 
     afterEach(() => {
         logic?.unmount()
@@ -105,11 +100,20 @@ describe('modelsSceneLogic', () => {
         ['/models?tab=models', 'models'],
         ['/models?tab=lineage', 'lineage'],
         ['/models?tab=nope', 'overview'],
-        ['/models?tab=data-quality', 'overview'],
+        ['/models?tab=data-quality', 'data-quality'],
+        ['/models?tab=usage', 'usage'],
     ])('%s opens the %s tab', async (path, tab) => {
         await mount(path)
         expect(logic.values.activeTab).toEqual(tab)
         expect(logic.values.lineageTabVisited).toBe(tab === 'lineage')
+    })
+
+    it('falls back to overview when the usage tab is disabled', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_MODELING_USAGE]: false })
+
+        await mount('/models?tab=usage')
+
+        expect(logic.values.activeTab).toEqual('overview')
     })
 
     it('remembers that the lineage tab was visited after the user leaves it', async () => {
@@ -122,21 +126,6 @@ describe('modelsSceneLogic', () => {
         router.actions.push('/models')
         expect(logic.values.activeTab).toEqual('overview')
         expect(logic.values.lineageTabVisited).toBe(true)
-    })
-
-    it('opens the data quality tab once its flag is on', async () => {
-        setFlag(FEATURE_FLAGS.DATA_QUALITY_CHECKS, true)
-        await mount('/models?tab=data-quality')
-        expect(logic.values.activeTab).toEqual('data-quality')
-    })
-
-    it('opens a data quality deep link after feature flags load', async () => {
-        await mount('/models?tab=data-quality')
-        expect(logic.values.activeTab).toEqual('overview')
-
-        setFlag(FEATURE_FLAGS.DATA_QUALITY_CHECKS, true)
-
-        expect(logic.values.activeTab).toEqual('data-quality')
     })
 
     it('counts models whose last run failed and models that are suspended', async () => {

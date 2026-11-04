@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
@@ -11,12 +11,23 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.alerts.backend.facade.contracts import HogFunctionPathReason
+from products.alerts.backend.facade.destinations import build_alert_destination_config
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import get_configuration, upsert_configuration
-from products.alerts_platform.backend.facade.contracts import DeliveryPath, SourceKind
+from products.alerts_platform.backend.facade.api import get_configuration, list_configurations, upsert_configuration
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationData,
+    DeliveryPath,
+    DestinationType,
+    SourceKind,
+)
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
-from products.logs.backend.alert_destinations import LOGS_ALERT_EVENT_IDS
+from products.logs.backend.alert_destinations import (
+    EVENT_KIND_CONFIG,
+    LOGS_ALERT_EVENT_IDS,
+    LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
+    EventKind,
+)
 from products.logs.backend.delivery_path_report import team_delivery_paths
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import platform_upsert_of
@@ -26,16 +37,27 @@ NOW = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
 State = LogsAlertConfiguration.State
 LEGACY_BODY_FLAG = "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled"
 STOCK_HOG = "return event"
-WEBHOOK_INPUTS: dict[str, Any] = {
-    "url": {"value": "https://hooks.example.com/hook"},
-    "method": {"value": "POST"},
-    "body": {"value": {"type": "logs_alert.firing"}},
+DESTINATION_DATA: dict[DestinationType, dict[str, Any]] = {
+    DestinationType.SLACK: {"slack_workspace_id": 1, "slack_channel_id": "C-1"},
+    DestinationType.WEBHOOK: {"webhook_url": "https://hooks.example.com/hook"},
+    DestinationType.TEAMS: {"webhook_url": "https://example.webhook.office.com/webhookb2/a/IncomingWebhook/b/c"},
+    DestinationType.PAGERDUTY: {"pagerduty_routing_key": "a" * 32},
 }
-SLACK_INPUTS: dict[str, Any] = {
-    "slack_workspace": {"value": 1},
-    "channel": {"value": "C-1"},
-    "text": {"value": "Log alert is firing"},
-}
+
+
+def stock_destination(kind: EventKind, destination_type: DestinationType) -> tuple[str, dict[str, Any]]:
+    payload = build_alert_destination_config(
+        spec=EVENT_KIND_CONFIG[kind],
+        alert_id="alert-1",
+        alert_name="Checkout errors",
+        data=cast(AlertDestinationData, {"type": destination_type, **DESTINATION_DATA[destination_type]}),
+        slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
+    ).payload
+    return payload["template_id"], payload["inputs"]
+
+
+_, WEBHOOK_INPUTS = stock_destination("firing", DestinationType.WEBHOOK)
+_, SLACK_INPUTS = stock_destination("firing", DestinationType.SLACK)
 
 
 class TestPlatformCutover(APIBaseTest):
@@ -53,6 +75,8 @@ class TestPlatformCutover(APIBaseTest):
     @parameterized.expand(
         [
             ("quiet", {}, "not_firing"),
+            ("firing", {"state": State.FIRING}, "firing"),
+            ("pending_resolve", {"state": State.PENDING_RESOLVE}, "firing"),
             (
                 "snoozed_keeps_checking_muted",
                 {"state": State.SNOOZED, "snooze_until": NOW + timedelta(hours=1)},
@@ -88,16 +112,15 @@ class TestPlatformCutover(APIBaseTest):
             max(alert.next_check_at or NOW, NOW + timedelta(minutes=1)),
         )
         assert instance is not None
-        assert (instance.state, instance.last_notified_at, instance.snooze_until) == (
+        assert (instance.state, instance.firing_started_at, instance.last_notified_at, instance.snooze_until) == (
             platform_state,
+            None,
             alert.last_notified_at,
             alert.snooze_until,
         )
 
     @parameterized.expand(
         [
-            ("firing", {"state": State.FIRING}, CutoverSkip.FIRING),
-            ("pending_resolve", {"state": State.PENDING_RESOLVE}, CutoverSkip.FIRING),
             ("check_due", {"next_check_at": NOW}, CutoverSkip.CHECK_DUE),
             ("never_scheduled", {"next_check_at": None}, CutoverSkip.CHECK_DUE),
         ]
@@ -123,12 +146,15 @@ class TestPlatformCutover(APIBaseTest):
         alert.refresh_from_db()
         assert alert.owner == "source"
 
-    def test_a_refused_cutover_leaves_the_firing_platform_copy_as_it_was(self) -> None:
-        alert = self._alert()
+    @parameterized.expand([("quiet", State.NOT_FIRING), ("firing", State.FIRING)])
+    def test_a_refused_cutover_leaves_the_firing_platform_copy_as_it_was(self, _name: str, state: str) -> None:
+        alert = self._alert(state=state)
         upsert_configuration(platform_upsert_of(alert))
         with team_scope(self.team.id):
             copy = platform_testing.copy_of(alert.id)
-            platform_testing.start_firing(copy.id, team_id=self.team.id, at=NOW - timedelta(hours=1))
+            platform_testing.start_firing(
+                copy.id, team_id=self.team.id, at=NOW - timedelta(hours=1), sent_natively=True
+            )
         LogsAlertConfiguration.objects.filter(id=alert.id).update(enabled=False, next_check_at=None)
 
         (result,) = cut_over_team(self.team.id, now=NOW)
@@ -138,6 +164,22 @@ class TestPlatformCutover(APIBaseTest):
         assert view is not None and view.enabled
         with team_scope(self.team.id):
             assert platform_testing.copy_of(alert.id).owner == "source"
+
+    def test_a_dry_run_decides_as_a_real_run_and_changes_nothing(self) -> None:
+        alert = self._alert()
+
+        # Kafka is not transactional, so an event produced inside the dry run would outlive its rollback.
+        with patch("products.cdp.backend.internal_events.produce_internal_event") as produced:
+            (dry,) = cut_over_team(self.team.id, now=NOW, dry_run=True)
+
+        produced.assert_not_called()
+        assert dry.skipped is None
+        alert.refresh_from_db()
+        assert (alert.owner, alert.owner_changed_at) == ("source", None)
+        copies = list_configurations(team_id=self.team.id, source_kinds=[SourceKind.LOGS], limit=10, offset=0)
+        assert copies.configurations == ()
+        (real,) = cut_over_team(self.team.id, now=NOW)
+        assert real.skipped == dry.skipped
 
     def test_a_second_run_leaves_a_moved_alert_alone(self) -> None:
         self._alert()
@@ -288,6 +330,22 @@ class TestPlatformCutover(APIBaseTest):
                 HogFunctionPathReason.CUSTOMIZED,
             ),
             (
+                "body_written_before_the_first_save",
+                "template-webhook",
+                {**WEBHOOK_INPUTS, "body": {"value": {"embeds": [{"title": "{event.properties.alert_name}"}]}}},
+                {},
+                True,
+                HogFunctionPathReason.CUSTOMIZED,
+            ),
+            (
+                "no_body",
+                "template-webhook",
+                {key: value for key, value in WEBHOOK_INPUTS.items() if key != "body"},
+                {},
+                True,
+                HogFunctionPathReason.CUSTOMIZED,
+            ),
+            (
                 "secret_header",
                 "template-webhook",
                 WEBHOOK_INPUTS,
@@ -339,15 +397,15 @@ class TestPlatformCutover(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("stock_slack", "template-slack", SLACK_INPUTS, {}),
-            ("stock_webhook_with_legacy_body", "template-webhook", WEBHOOK_INPUTS, {}),
+            ("stock_slack", "template-slack", SLACK_INPUTS),
+            ("stock_webhook_with_legacy_body", "template-webhook", WEBHOOK_INPUTS),
         ]
     )
     def test_a_team_moves_when_every_destination_is_ready(
-        self, _name: str, template_id: str, inputs: dict[str, Any], edit: dict[str, Any]
+        self, _name: str, template_id: str, inputs: dict[str, Any]
     ) -> None:
         alert = self._alert()
-        self._destination(alert.id, template_id, inputs, edit)
+        self._destination(alert.id, template_id, inputs)
 
         with patch(LEGACY_BODY_FLAG, return_value=True):
             paths = team_delivery_paths(self.team.id)

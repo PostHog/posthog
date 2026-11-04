@@ -129,11 +129,16 @@ class GenerationRecord(_Model):
 
     model: str = ""
     requested_name: str = ""
+    # A finished template lists only the metrics of its panels, so a regeneration starts again from these.
+    requested_metric_names: list[str] = Field(default_factory=list)
     rounds: list[GenerationRound] = Field(default_factory=list)
     # The panels in the shape that the model writes, so that a check round can show the model its own panels.
     draft_panels: list[DraftPanel] = Field(default_factory=list)
     draft_variables: list[DraftVariable] = Field(default_factory=list)
     attributes: dict[str, list[str]] = Field(default_factory=dict)
     attribute_values: dict[str, list[str]] = Field(default_factory=dict)
+    # None when the attribute profile failed, so that a variable is not dropped for a count nobody read.
+    attribute_value_counts: dict[str, int] | None = None
+    variable_candidates: list[str] = Field(default_factory=list)
     dropped_panels: list[str] = Field(default_factory=list)
     error: str | None = None

@@ -1,12 +1,18 @@
+import { combineUrl } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { AnyPropertyFilter, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, AnyPropertyFilter, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Feature Flags',
+    activityDescribers: {
+        [ActivityScope.FEATURE_FLAG]: () =>
+            import('scenes/feature-flags/activityDescriptions').then((module) => module.flagActivityDescriber),
+    },
     scenes: {
         FeatureFlagTemplates: {
             import: () => import('./frontend/FeatureFlagTemplatesScene'),
@@ -20,17 +26,23 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
-        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
+        '/feature-flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
+        '/feature-flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
+    },
+    // The product shipped under /feature_flags. Emails, Slack messages, comments and bookmarks link there,
+    // so every old path forwards and keeps its search and hash params.
+    redirects: {
+        '/feature_flags': (_params, searchParams, hashParams): string =>
+            combineUrl(urls.featureFlags(), searchParams, hashParams).url,
+        '/feature_flags/*': ({ _ }, searchParams, hashParams): string =>
+            combineUrl(`/feature-flags/${_}`, searchParams, hashParams).url,
     },
     urls: {
-        featureFlag: (id: string | number): string => `/feature_flags/${id}`,
-        featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
-        featureFlagTemplates: (): string => '/feature_flags/templates',
+        featureFlag: (id: string | number): string => `/feature-flags/${id}`,
+        featureFlags: (tab?: string): string => `/feature-flags${tab ? `?tab=${tab}` : ''}`,
+        featureFlagTemplates: (): string => '/feature-flags/templates',
         featureFlagsStaffTools: (teamId?: number): string =>
-            `/feature_flags/staff${teamId ? `?team_id=${teamId}` : ''}`,
+            `/feature-flags/staff${teamId ? `?team_id=${teamId}` : ''}`,
         featureFlagNew: ({
             type,
             sourceId,
@@ -38,6 +50,8 @@ export const manifest: ProductManifest = {
             intent,
             format,
             properties,
+            key,
+            variants,
         }: {
             type?: 'boolean' | 'multivariate' | 'remote_config'
             sourceId?: number | string | null
@@ -46,6 +60,9 @@ export const manifest: ProductManifest = {
             format?: 'rules_v2'
             /** Release condition properties for a single condition set rolled out to 100%. */
             properties?: AnyPropertyFilter[]
+            key?: string
+            /** Variant keys for a multivariate flag, split evenly. Only used with `type: 'multivariate'`. */
+            variants?: string[]
         }): string => {
             const params = new URLSearchParams()
             if (type) {
@@ -66,7 +83,13 @@ export const manifest: ProductManifest = {
             if (properties?.length) {
                 params.set('properties', JSON.stringify(properties))
             }
-            return `/feature_flags/new?${params.toString()}`
+            if (key) {
+                params.set('key', key)
+            }
+            if (variants?.length) {
+                params.set('variants', variants.join(','))
+            }
+            return `/feature-flags/new?${params.toString()}`
         },
     },
     fileSystemTypes: {
@@ -75,6 +98,7 @@ export const manifest: ProductManifest = {
             iconType: 'feature_flag',
             href: (ref: string) => urls.featureFlag(ref),
             listHref: () => urls.featureFlags(),
+            listSearchParam: 'search',
             iconColor: ['var(--color-product-feature-flags-light)'],
             filterKey: 'feature_flag',
         },

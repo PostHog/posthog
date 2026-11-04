@@ -6,8 +6,9 @@ from posthog.hogql import ast
 from posthog.hogql.constants import FEATURE_FLAG_PROPERTY_PREFIX
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
-from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AiEventsTable
+from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AI_SUBCOLUMN_TO_SOURCE, AiEventsTable
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
+from posthog.hogql.database.schema.events_with_flag_calls import EVENT_ROW_TABLES
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
@@ -16,6 +17,9 @@ from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN, UNPARSEA
 from posthog.constants import GROUP_TYPES_LIMIT
 
 logger = structlog.get_logger(__name__)
+
+# Event property keys under which identify events carry person properties.
+PERSON_PROPERTY_CONTAINERS: tuple[str, ...] = ("$set", "$set_once")
 
 # JSON blob columns that hold a restrictable property class, so the printer knows which blob reads to wrap in
 # JSONDropKeys. Everything here must be covered by a branch in `restricted_property_keys_for_table_type`, and vice
@@ -46,6 +50,9 @@ _FLAG_EVALUATIONS_MIRRORED_COLUMNS: dict[str, str] = {
 
 
 _AI_EVENTS_MIRRORED_COLUMNS = {column: property_name for property_name, column in AI_PROPERTY_TO_COLUMN.items()}
+_AI_EVENTS_MIRRORED_COLUMNS |= {
+    subcolumn: _AI_EVENTS_MIRRORED_COLUMNS[source] for subcolumn, source in AI_SUBCOLUMN_TO_SOURCE.items()
+}
 
 
 def mirrored_property_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> str | None:
@@ -115,7 +122,7 @@ def restricted_property_keys_for_table_type(
     elif isinstance(table, EventsGroupSubTable):
         prop_def_type = PropertyDefinition.Type.GROUP
         group_type_index = table.group_index
-    elif isinstance(table, EventsTable | FlagEvaluationsTable | AiEventsTable):
+    elif isinstance(table, (*EVENT_ROW_TABLES, AiEventsTable)):
         prop_def_type = PropertyDefinition.Type.EVENT
     elif isinstance(table, (PersonsTable, RawPersonsTable)):
         prop_def_type = PropertyDefinition.Type.PERSON
@@ -140,7 +147,17 @@ def restricted_property_keys_for_table_type(
             or restriction.group_type_index == group_type_index
         )
     }
-    if restricted_keys and context.uses_new_events_schema() and isinstance(table, (EventsTable, EventsPersonSubTable)):
+    native_event_json = context.uses_new_events_schema() and isinstance(table, (EventsTable, EventsPersonSubTable))
+    if prop_def_type == PropertyDefinition.Type.EVENT:
+        # Identify events carry person properties inside `$set` / `$set_once`.
+        for restriction in context.restricted_properties:
+            if restriction.property_type == PropertyDefinition.Type.PERSON:
+                for container in PERSON_PROPERTY_CONTAINERS:
+                    restricted_keys.add(f"{container}.{restriction.name}")
+                    if native_event_json and "." in restriction.name:
+                        # Native JSON escapes dots in the property name, but not in the container.
+                        restricted_keys.add(f"{container}.{restriction.name.replace('.', '%2E')}")
+    if restricted_keys and native_event_json:
         # The native JSON columns store the flat key `a.b` under the path `a%2Eb`, and the printer reads a
         # requested `a%2Eb` from that same path. Restrict both spellings, or the encoded one reads the value.
         restricted_keys |= {key.replace(".", "%2E") for key in restricted_keys if "." in key}
@@ -149,10 +166,38 @@ def restricted_property_keys_for_table_type(
     return restricted_keys
 
 
-def native_property_path_overlaps_restriction(property_name: str, table_type: ast.Type, context: HogQLContext) -> bool:
-    if not context.restricted_properties or not context.uses_new_events_schema():
+def key_read_overlaps_restriction(first_key: str, restricted_keys: Iterable[str]) -> bool:
+    """Whether JSONDropKeys can change what a read of the top-level key `first_key` returns.
+
+    JSONDropKeys matches object keys one dot-separated segment at a time. A restricted `a` also drops the flat key
+    `a.b`, and a restricted `a.b` also filters inside the value of `a`. Any other key reads the same value from the
+    stored blob as from the masked one.
+    """
+    segments = first_key.split(".")
+    for restricted_key in restricted_keys:
+        restricted_segments = restricted_key.split(".")
+        shared = min(len(segments), len(restricted_segments))
+        if segments[:shared] == restricted_segments[:shared]:
+            return True
+    return False
+
+
+def property_path_overlaps_restriction(property_name: str, table_type: ast.Type, context: HogQLContext) -> bool:
+    """Whether `property_name` is a restricted key, sits under one, or holds one as a child.
+
+    A parent of a restricted child must not resolve to a physical column on either schema: a materialized column for
+    `$set` holds the restricted `email` inside it, and only the blob read is scrubbed.
+    """
+    if not context.restricted_properties:
         return False
-    return any(
-        property_name == key or property_name.startswith(key + ".") or key.startswith(property_name + ".")
-        for key in restricted_property_keys_for_table_type(table_type, context)
-    )
+    return key_read_overlaps_restriction(property_name, restricted_property_keys_for_table_type(table_type, context))
+
+
+def restricted_key_path(keys: Iterable[str | int], restricted_keys: set[str]) -> str | None:
+    """The first dotted prefix of `keys` that names a restricted key, or None when the path is readable."""
+    path = ""
+    for key in keys:
+        path = f"{path}.{key}" if path else str(key)
+        if path in restricted_keys:
+            return path
+    return None

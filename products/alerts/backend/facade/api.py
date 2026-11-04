@@ -18,6 +18,8 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -26,17 +28,21 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.alerts.backend.activity_logging import AlertConfigurationContext
 from products.alerts.backend.facade import contracts
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     MAX_CONCURRENT_MODEL_CALLS,
     MAX_PROMPT_POINTS,
     LLMDetectorError,
     LLMDetectorMisconfiguredError,
+    LLMDetectorPausedError,
     LLMDetectorUnavailableError,
 )
+from products.alerts.backend.judge.executor import LLM_EVALUATE_EXECUTOR
 from products.alerts.backend.llm_detector_limits import (
     LLMAlertRefusal,
     LLMAlertWrite,
@@ -45,10 +51,11 @@ from products.alerts.backend.llm_detector_limits import (
     llm_detector_access_error,
 )
 from products.alerts.backend.models.alert import METRICS_INSIGHT_QUERY_FILTER, AlertCheck, AlertConfiguration
+from products.alerts_platform.backend.facade.contracts import InvalidPlatformAlertEdit
 
 logger = structlog.get_logger(__name__)
 
-SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "invalid_until"]
+SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "invalid_until", "not_snoozable"]
 
 # Mirrors the in-app SnoozeButton's DateFilter max — Slack's datetimepicker has no bounds of
 # its own, so the cap has to live here.
@@ -79,6 +86,26 @@ def insight_ids_with_alerts(insight_ids: Collection[int]) -> set[int]:
     # ids to ids and returns no row data.
     # nosemgrep: idor-lookup-without-team
     return set(AlertConfiguration.objects.filter(insight_id__in=insight_ids).values_list("insight_id", flat=True))
+
+
+def insight_ids_with_enabled_alerts(*, team_id: int, insight_ids: Collection[int]) -> set[int]:
+    """Which of the team's given insights have at least one enabled alert, in one query."""
+    return set(
+        AlertConfiguration.objects.filter(team_id=team_id, insight_id__in=insight_ids, enabled=True).values_list(
+            "insight_id", flat=True
+        )
+    )
+
+
+def enabled_alert_insight_ids(*, team_ids: Collection[int]) -> set[int]:
+    """Insights of these teams with at least one enabled alert, in one query."""
+    if not team_ids:
+        return set()
+    return set(
+        AlertConfiguration.objects.filter(team_id__in=team_ids, enabled=True)
+        .values_list("insight_id", flat=True)
+        .distinct()
+    )
 
 
 def delete_insight_alerts(insight_ids: Collection[int]) -> None:
@@ -170,6 +197,19 @@ def snooze_alert_from_slack(
             state_fields = apply_snooze(locked_alert)
             locked_alert.snoozed_until = snoozed_until
             locked_alert.save(update_fields=[*state_fields, "snoozed_until"])
+            if locked_alert.platform_owned:
+                # The platform's copy mutes delivery, so it takes the snooze under the same lock.
+                from products.alerts.backend.platform_ownership import (  # noqa: PLC0415 - platform_ownership reaches this module back
+                    on_updated,
+                )
+
+                try:
+                    on_updated(locked_alert, snooze_changed=True)
+                except (contracts.PlatformCannotOwn, InvalidPlatformAlertEdit) as error:
+                    # Neither row takes the snooze, so the alert does not mute on one stack only.
+                    capture_exception(error, {"alert_id": str(alert_id)})
+                    transaction.set_rollback(True)
+                    return "not_snoozable"
             AlertCheck.objects.create(
                 alert_configuration=locked_alert,
                 calculated_value=None,
@@ -211,17 +251,58 @@ def list_firing_alerts_created_by(
     ]
 
 
+def assign_alert_owner(*, team_id: int, alert_id: uuid.UUID, user: User, was_impersonated: bool) -> None:
+    """Make `user` the owner of the alert and record the takeover in the activity log.
+
+    `created_by` is excluded from the save diff, so the takeover gets its own activity.
+    """
+    alert = AlertConfiguration.objects.select_related("insight", "created_by").get(team_id=team_id, id=alert_id)
+    previous_owner = alert.created_by
+    alert.created_by = user
+    alert.save(update_fields=["created_by"])
+    log_activity(
+        organization_id=alert.team.organization_id,
+        team_id=alert.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=alert.id,
+        scope="AlertConfiguration",
+        activity="took_ownership",
+        detail=Detail(
+            name=alert.name or f"Alert for {alert.insight.name}",
+            changes=[
+                Change(
+                    type="AlertConfiguration",
+                    action="changed",
+                    field="created_by",
+                    before={"id": previous_owner.id, "email": previous_owner.email} if previous_owner else None,
+                    after={"id": user.id, "email": user.email},
+                )
+            ],
+            context=AlertConfigurationContext(
+                insight_id=alert.insight_id,
+                insight_short_id=alert.insight.short_id,
+                insight_name=alert.insight.name,
+            ),
+        ),
+    )
+
+
 __all__ = [
+    "LLM_DETECTOR_PAUSED_ERROR_CODE",
     "LLM_DETECTOR_UNAVAILABLE_ERROR_CODE",
     "LLM_DETECTOR_UNAVAILABLE_MESSAGE",
+    "LLM_EVALUATE_EXECUTOR",
     "MAX_CONCURRENT_MODEL_CALLS",
     "MAX_PROMPT_POINTS",
     "LLMAlertRefusal",
     "LLMAlertWrite",
     "LLMDetectorError",
     "LLMDetectorMisconfiguredError",
+    "LLMDetectorPausedError",
     "LLMDetectorUnavailableError",
     "admit_llm_alert_write",
+    "assign_alert_owner",
     "is_llm_detector_config",
     "llm_detector_access_error",
 ]

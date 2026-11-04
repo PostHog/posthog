@@ -385,6 +385,14 @@ describe('tileCanvasModel', () => {
             focus: { x: 0, y: 0, width: 64, height: 64 },
             expected: { x: 24, y: 50, zoom: 0.5 },
         },
+        {
+            name: 'lifts a selected step out from under the command bar',
+            startX: 100,
+            previousWidth: 1200,
+            nextWidth: 1200,
+            focus: { x: 0, y: 1400, width: 64, height: 64 },
+            expected: { x: 100, y: -28, zoom: 0.5 },
+        },
     ])('moves the viewport on a canvas resize: $name', ({ startX, previousWidth, nextWidth, focus, expected }) => {
         const viewport = { x: startX, y: 50, zoom: 0.5 }
 

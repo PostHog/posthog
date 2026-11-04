@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { AccountsTableAccountField } from '~/queries/schema/schema-general'
+
 import type {
     AccountRelationshipDefinitionApi,
     CustomPropertyDefinitionApi,
@@ -10,9 +12,10 @@ import type {
 import { AccountPinnedProperties } from './AccountPinnedProperties'
 import { AccountPropertyConfigurator } from './AccountPropertyConfigurator'
 import { AccountPropertyField } from './AccountPropertyField'
-import type {
+import {
     AccountCustomProperty,
     AccountCustomPropertyValue,
+    accountPropertyLabel,
     AccountPropertyOption,
     AccountRelationshipMember,
     AccountRelationshipProperty,
@@ -103,6 +106,12 @@ const DISPLAY_PROPERTIES: AccountSidebarProperty[] = [
         definition: customDefinition('canonical', 'First seen', 'datetime', { is_canonical: true }),
     }),
     relationshipProperty('csm', 'Customer success manager', [MEMBERS[0]], true),
+    {
+        key: 'field:stripe_customer_id',
+        kind: 'account_field',
+        field: { key: AccountsTableAccountField.StripeCustomerId, label: 'Stripe customer ID', isDateTime: false },
+        value: 'cus_example',
+    },
 ]
 
 const noop = (): void => {}
@@ -234,7 +243,7 @@ export const RelationshipEditors: Story = {
 
 const CONFIG_OPTIONS: AccountPropertyOption[] = DISPLAY_PROPERTIES.map((property) => ({
     key: property.key,
-    label: property.definition.name,
+    label: accountPropertyLabel(property),
     kind: property.kind,
 }))
 

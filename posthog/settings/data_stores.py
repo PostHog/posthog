@@ -298,6 +298,7 @@ elif TEST:
     SUFFIX = "_test" + XDIST_SUFFIX
 
 # Clickhouse Settings
+
 CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "clickhouse")
@@ -342,6 +343,8 @@ CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
 # query_log_archive's single data table lives on the OPS cluster; every cluster's
 # Distributed read/write tables route to it via this cluster name.
 CLICKHOUSE_OPS_CLUSTER: str = os.getenv("CLICKHOUSE_OPS_CLUSTER", "ops")
+# In deployed cloud, the live raw_sessions_v3 MergeTree is on this satellite cluster.
+CLICKHOUSE_SESSIONS_CLUSTER: str = os.getenv("CLICKHOUSE_SESSIONS_CLUSTER", "sessions")
 # Opt-in flag for the multinode ClickHouse smoke-test stack. When true, migrations
 # respect their declared NodeRole(s) instead of being collapsed to NodeRole.ALL,
 # so a per-cluster topology can actually exercise routing.
@@ -640,6 +643,24 @@ WORKFLOW_VISION_REQUEST_JWT_SECRETS = get_list(
     get_from_env("WORKFLOW_VISION_REQUEST_JWT_SECRET", "local-dev-workflow-vision-request-jwt" if DEBUG or TEST else "")
 )
 
+# Signs the tokens a workflow's "Add to static cohort" step calls back with. The dev/test value
+# must match the plugin server's minting default.
+WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRET",
+        "local-dev-workflow-add-to-static-cohort-jwt" if DEBUG or TEST else "",
+    )
+)
+
+# Signs the tokens a workflow's "Opt out of messages" step calls back with. The dev/test value must match the
+# plugin server's minting default.
+WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRET",
+        "local-dev-workflow-message-opt-out-jwt" if DEBUG or TEST else "",
+    )
+)
+
 # Verifies the scoped JWTs the CDP worker's conversations ticket actions send to the internal
 # ticket route (the worker mints, Django verifies; products/conversations/backend/api/internal.py).
 # Comma-separated, newest first. Empty outside dev/test, so the internal route rejects every
@@ -680,12 +701,6 @@ TASKS_REDIS_URL = os.getenv("TASKS_REDIS_URL", None)
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
-HOGQL_LANGUAGE_SERVICE_URL = get_from_env(
-    "HOGQL_LANGUAGE_SERVICE_URL", "http://localhost:8091" if DEBUG and not TEST else ""
-)
-HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS = get_list(
-    get_from_env("HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS", "local-development-key" if DEBUG and not TEST else "")
-)
 
 MCP_SERVER_URL: str = get_from_env("MCP_SERVER_URL", "http://localhost:8787/mcp" if DEBUG and not TEST else "")
 
@@ -763,6 +778,13 @@ CACHES["metrics_variable_options"] = {
     "LOCATION": REDIS_URL,
 }
 
+# Warehouse destination connect tokens are polled right after they are written, and completion claims a
+# token with SETNX. A lagging replica would report a fresh token as expired, so read from the writer.
+CACHES["warehouse_destination_connect"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Dedicated cache for the feature flags service (if configured)
 # Django only writes to this cache (never reads), so no reader URL needed
 if FLAGS_REDIS_URL:
@@ -830,6 +852,7 @@ if TEST:
     CACHES["ingress_dedup"] = CACHES["default"]
     CACHES["task_artifact_preview"] = CACHES["default"]
     CACHES["metrics_variable_options"] = CACHES["default"]
+    CACHES["warehouse_destination_connect"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)
@@ -845,6 +868,12 @@ PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM: set[int] = get_from_env(
 )
 
 CLICKHOUSE_EVENT_LIST_MAX_THREADS: int = get_from_env("CLICKHOUSE_EVENT_LIST_MAX_THREADS", 50, type_cast=int)
+
+CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS: int | None = get_from_env(
+    "CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS", optional=True, type_cast=int
+)
+if CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS is not None and CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS <= 0:
+    raise ImproperlyConfigured("CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS must be a positive integer.")
 
 WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL: str = os.getenv("WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL", "")
 WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL: str = os.getenv(

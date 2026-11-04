@@ -1,6 +1,6 @@
 import { cleanup, render } from '@testing-library/react'
 
-import { clickAtIndex, getHogChart, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { clickAtIndex, getChart, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { initKeaTests } from '~/test/init'
 
@@ -59,7 +59,7 @@ function renderChart(props: Partial<React.ComponentProps<typeof TracingSparkline
             {...props}
         />
     )
-    return { element: getHogChart(container).element, onDateRangeChange }
+    return { element: getChart(container).element, onDateRangeChange }
 }
 
 describe('TracingSparkline', () => {
