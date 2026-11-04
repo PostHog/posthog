@@ -335,6 +335,8 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/check-idor-model-coverage.py', PYTHON],
     // ci-backend's events_json leg and its test selection read this list.
     ['.github/new-events-schema-targets.txt', PYTHON],
+    // ci-backend's legacy person mode rows read this list.
+    ['.github/legacy-person-mode-product-targets.txt', PYTHON],
     ['.github/scripts/report_test_timings.py', FULLSTACK],
     ['.github/scripts/test_report_test_timings.py', FULLSTACK],
     // Bot, report, sync, and canary workflows. None is a required check; each
