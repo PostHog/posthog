@@ -17,6 +17,7 @@ export interface DotMatrixQueryContext {
     accountId: string
     externalId?: string
     groupTypeIndex?: number | null
+    weekStartDay?: number
     weeks: DotMatrixWeeks
 }
 
@@ -39,7 +40,11 @@ export function createMatrixHogQLQuery(query: string, context: DotMatrixQueryCon
         kind: NodeKind.HogQLQuery,
         tags: { productKey: 'customer_analytics', scene: 'CustomerAnalytics' },
         query,
-        values: { account_id: context.accountId, account_external_id: context.externalId ?? '' },
+        values: {
+            account_id: context.accountId,
+            account_external_id: context.externalId ?? '',
+            week_start_day: context.weekStartDay ?? 0,
+        },
         filters: {
             dateRange: { date_from: `-${context.weeks - 1}wStart`, date_to: null },
             properties:

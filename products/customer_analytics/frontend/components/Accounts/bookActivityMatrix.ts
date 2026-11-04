@@ -35,6 +35,10 @@ export function getBookActivityMatrixProps(
         sizeThresholds: [1, 5, 20],
         legend: {
             itemLabel: 'product',
+            selectionLabel: (count, mode) =>
+                mode === 'count'
+                    ? `Users of ${count} selected ${count === 1 ? 'product' : 'products'}`
+                    : `Showing ${count} ${count === 1 ? 'product' : 'products'}`,
             valueLabel: 'Users',
             countLabel: selectedSeries.length ? 'Users of selected products' : 'Products used',
         },

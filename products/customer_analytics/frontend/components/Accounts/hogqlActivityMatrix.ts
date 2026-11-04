@@ -9,7 +9,7 @@ import type { DotMatrixSourceMapping } from './dotMatrixTileConfig'
 export const DEFAULT_MATRIX_QUERY: string = `SELECT
     person_id AS row,
     coalesce(nullIf(person.properties.email, ''), nullIf(person.properties.name, ''), toString(person_id)) AS row_label,
-    toString(toStartOfWeek(timestamp)) AS column,
+    toString(toStartOfWeek(timestamp, {week_start_day})) AS column,
     event AS series,
     count() AS value
 FROM events

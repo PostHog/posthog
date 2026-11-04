@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import type { DotMatrixProps } from 'lib/components/DotMatrix/types'
 
@@ -16,7 +16,11 @@ const mockPerformQuery = performQuery as jest.Mock
 jest.mock('lib/components/DotMatrix/DotMatrix', () => ({
     DotMatrix: (props: DotMatrixProps<AccountActivityMatrixDatum>) => (
         <>
-            <button data-attr="matrix-selection" onClick={() => props.onSelectedSeriesChange?.(['replay'])}>
+            <button
+                data-attr="matrix-selection"
+                disabled={!props.onSelectedSeriesChange}
+                onClick={() => props.onSelectedSeriesChange?.(['replay'])}
+            >
                 {props.selectedSeries?.length ? props.selectedSeries.join(',') : 'Select replay'}
             </button>
             {!props.loading && !props.rows?.length ? <span data-attr="matrix-empty">{props.emptyState}</span> : null}
@@ -41,6 +45,18 @@ describe('AccountDotMatrixTile', () => {
         mockPerformQuery.mockResolvedValue({ results: WITH_SERIES })
     })
     afterEach(cleanup)
+
+    it('keeps the single SQL series legend static', async () => {
+        mockPerformQuery.mockResolvedValue({ columns: ['r', 'c'], results: [['one', 'week']] })
+        render(
+            <AccountDotMatrixTile
+                accountId="account-1"
+                initialConfig={{ source: { kind: 'hogql', query: 'SELECT 1', mapping: { row: 'r', column: 'c' } } }}
+            />
+        )
+        await waitFor(() => expect(mockPerformQuery).toHaveBeenCalled())
+        expect((screen.getByTestId('matrix-selection') as HTMLButtonElement).disabled).toBe(true)
+    })
 
     it('keeps identically named document tiles independent across mounted account views', () => {
         const firstSave = jest.fn()

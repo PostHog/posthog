@@ -63,6 +63,19 @@ describe('HogQL activity matrix', () => {
         })
     })
 
+    it.each([0, 1])('uses the project week start in the starter SQL (%s)', (weekStartDay) => {
+        expect(DEFAULT_MATRIX_QUERY).toContain('toStartOfWeek(timestamp, {week_start_day})')
+        expect(
+            createMatrixHogQLQuery(DEFAULT_MATRIX_QUERY, {
+                accountId: 'a',
+                externalId: 'org',
+                groupTypeIndex: 0,
+                weeks: 8,
+                weekStartDay,
+            }).values
+        ).toMatchObject({ week_start_day: weekStartDay })
+    })
+
     it('maps column names independently of their order and sums duplicate cells', () => {
         const result = getHogQLActivityMatrix(
             {
@@ -120,7 +133,7 @@ describe('HogQL activity matrix', () => {
             kind: NodeKind.HogQLQuery,
             tags: { productKey: 'customer_analytics', scene: 'CustomerAnalytics' },
             query: 'SELECT {account_external_id} FROM events WHERE {filters}',
-            values: { account_id: 'account', account_external_id: "org'quote" },
+            values: { account_id: 'account', account_external_id: "org'quote", week_start_day: 0 },
             filters: {
                 dateRange: { date_from: '-7wStart', date_to: null },
                 properties: [

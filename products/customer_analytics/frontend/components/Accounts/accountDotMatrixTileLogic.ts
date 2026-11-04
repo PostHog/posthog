@@ -57,6 +57,7 @@ export interface AccountDotMatrixTileLogicProps extends AccountViewTileLogicProp
 export interface accountDotMatrixTileLogicValues {
     currentTeamId: number | null // teamLogic
     customerAnalyticsConfig: CustomerAnalyticsConfig // teamLogic
+    weekStartDay: number // teamLogic
     activeMapping: DotMatrixSourceMapping
     config: DotMatrixTileConfig
     displayResult: DotMatrixTileResult | null
@@ -226,7 +227,7 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
         props({} as AccountDotMatrixTileLogicProps),
         key(({ instanceId }) => instanceId),
         path((key) => ['products', 'customer_analytics', 'accountDotMatrixTileLogic', key]),
-        connect(() => ({ values: [teamLogic, ['currentTeamId', 'customerAnalyticsConfig']] })),
+        connect(() => ({ values: [teamLogic, ['currentTeamId', 'customerAnalyticsConfig', 'weekStartDay']] })),
         actions({
             restoreConfig: (config: DotMatrixTileConfig) => ({ config }),
             chooseSource: (kind: DotMatrixTileSource['kind'] | null) => ({ kind }),
@@ -281,6 +282,7 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
                                     externalId: props.externalId,
                                     groupTypeIndex: values.customerAnalyticsConfig.account_group_type_index,
                                     weeks: values.config.weeks,
+                                    weekStartDay: values.weekStartDay,
                                 },
                                 controller.signal,
                                 queryId

@@ -4,6 +4,12 @@ import { getBookActivityMatrixProps } from './bookActivityMatrix'
 import { BOOK_ACTIVITY_MATRIX_MOCK } from './bookActivityMatrixMock'
 
 describe('bookActivityMatrix', () => {
+    it('uses plural product labels for multi-selection', () => {
+        const props = getBookActivityMatrixProps(BOOK_ACTIVITY_MATRIX_MOCK, ['pa', 'replay'])
+        expect(props.legend && props.legend.selectionLabel?.(2, 'dots')).toBe('Showing 2 products')
+        expect(props.legend && props.legend.selectionLabel?.(1, 'dots')).toBe('Showing 1 product')
+    })
+
     it('counts overlapping product users once using the response series order', () => {
         const response = {
             ...BOOK_ACTIVITY_MATRIX_MOCK,
