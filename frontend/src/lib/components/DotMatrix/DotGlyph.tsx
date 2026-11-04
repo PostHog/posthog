@@ -40,7 +40,10 @@ export function DotGlyph({
     const width = perRow * 17
     const height = Math.max(1, rowCount) * 17
     const valueLabel = getDotMatrixActiveSeries(series, values)
-        .map(({ key, label }) => `${label ?? key} ${values[key]}`)
+        .map(
+            ({ key, label }) =>
+                `${label ?? key} ${values[key]}${firstUseSeries.includes(key) ? ', first use ever' : ''}`
+        )
         .join(', ')
     let rowOffset = 0
 

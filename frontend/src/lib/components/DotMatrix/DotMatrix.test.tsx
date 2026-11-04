@@ -197,4 +197,17 @@ describe('DotMatrix', () => {
         expect(container.querySelectorAll('.DotGlyph polygon').length).toBe(1)
         expect(container.querySelectorAll('.DotGlyph circle').length).toBe(3)
     })
+    it('keeps implicit series groups on separate glyph rows', () => {
+        const { container } = render(
+            <DotGlyph
+                series={[
+                    { key: 'one', group: 'a' },
+                    { key: 'two', group: 'b' },
+                ]}
+                values={{ one: 1, two: 1 }}
+                label="Groups"
+            />
+        )
+        expect(container.querySelector('.DotGlyph')?.getAttribute('height')).toBe('34')
+    })
 })

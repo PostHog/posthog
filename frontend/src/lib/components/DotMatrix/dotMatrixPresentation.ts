@@ -22,10 +22,10 @@ export function getDotMatrixActiveSeries(series: DotMatrixSeries[], values: Reco
     return series.filter(({ key }) => Number.isFinite(values[key]) && values[key] > 0)
 }
 
-export function getDotMatrixGroups(
-    series: DotMatrixSeries[],
+export function getDotMatrixGroups<S extends DotMatrixSeries>(
+    series: S[],
     groups: DotMatrixGroup[]
-): (DotMatrixGroup & { series: DotMatrixSeries[] })[] {
+): (DotMatrixGroup & { series: S[] })[] {
     const byKey = new Map(series.map((item) => [item.key, item]))
     const grouped = groups.map((group) => ({
         ...group,
@@ -35,8 +35,12 @@ export function getDotMatrixGroups(
     }))
     const assigned = new Set(grouped.flatMap((group) => group.series.map((item) => item.key)))
     const remaining = series.filter((item) => !assigned.has(item.key))
-    if (remaining.length) {
-        grouped.push({ key: '', label: '', series: remaining })
+    for (const key of new Set(remaining.map((item) => item.group ?? ''))) {
+        grouped.push({
+            key: `unassigned:${key}`,
+            label: '',
+            series: remaining.filter((item) => (item.group ?? '') === key),
+        })
     }
     return grouped.filter((group) => group.series.length > 0)
 }
