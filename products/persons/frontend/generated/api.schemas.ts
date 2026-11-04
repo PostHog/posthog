@@ -4123,6 +4123,7 @@ export type PersonsListParams = {
     include_matched_fields?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4371,6 +4372,7 @@ export type PersonsDeletionStatusListParams = {
     format?: PersonsDeletionStatusListFormat
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

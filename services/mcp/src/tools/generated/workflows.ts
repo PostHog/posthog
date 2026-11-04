@@ -673,6 +673,7 @@ const workflowsLogs = (): ToolBase<ReturnType<typeof WorkflowsLogsSchema>, unkno
                 instance_id: params.instance_id,
                 level: params.level,
                 limit: params.limit,
+                offset: params.offset,
                 search: params.search,
             },
         })
@@ -895,6 +896,9 @@ const workflowsSendingRulesUpdate = (): ToolBase<
             }
             if (params.marketing_frequency_cap_window_days !== undefined) {
                 body['marketing_frequency_cap_window_days'] = params.marketing_frequency_cap_window_days
+            }
+            if (params.marketing_frequency_cap_hold_hours !== undefined) {
+                body['marketing_frequency_cap_hold_hours'] = params.marketing_frequency_cap_hold_hours
             }
             if (params.email_tracking_consent_mode !== undefined) {
                 body['email_tracking_consent_mode'] = params.email_tracking_consent_mode

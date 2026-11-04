@@ -28,8 +28,6 @@ import { LemonButton, LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import { dashboardsCopyGroupCreate } from '@posthog/products-dashboards/frontend/generated/api'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
-import { tryGetDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/frontend/widget_types/catalog'
-import { getDashboardWidgetFilterKeys } from '@posthog/products-dashboards/frontend/widget_types/widgetManifest'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 import {
     applyIssueMetadataToWidgetListResult,
@@ -41,6 +39,7 @@ import api, { getJSONOrNull } from 'lib/api'
 import { ApiError, isAccessDeniedError } from 'lib/api-error'
 import { ApiRequestTiming, flattenRequestTiming } from 'lib/apiRequestTiming'
 import { DataColorTheme } from 'lib/colors'
+import { preloadRichContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
@@ -76,7 +75,6 @@ import {
     findNewlyAddedWidgetTiles,
     isWidgetStale,
     WIDGET_CLIENT_TTL_MS,
-    widgetDashboardFilters,
 } from 'scenes/dashboard/widgetFetchUtils'
 import { createDashboardWidgetTileRefreshScheduler } from 'scenes/dashboard/widgetTileRefreshScheduler'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
@@ -93,6 +91,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { filterVariablesReferencedInQuery } from '~/queries/nodes/InsightViz/queryUtils'
+import { DataVisualizationRenderer, InsightVizRenderer } from '~/queries/Query/queryNodeRenderers'
 import {
     BreakdownFilter,
     CompareFilter,
@@ -129,6 +128,7 @@ import {
     TileLayout,
 } from '~/types'
 
+import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
 import { DashboardGridCompaction, getDashboardGridCompactor } from 'products/dashboards/frontend/dashboardCustomization'
 import {
     dashboardFiltersEqual,
@@ -833,8 +833,6 @@ export interface dashboardLogicValues {
     urlVariables: Record<string, HogQLVariable>
     variablesDirty: boolean
     waitingTileRefresh: WaitingTileRefresh | null
-    widgetEditorTileId: number | null
-    widgetFiltersKeys: Record<number, string>
     widgetRefreshStatus: Record<
         number,
         {
@@ -1164,8 +1162,7 @@ export interface dashboardLogicActions {
         forceRefresh?: boolean | undefined
         previewUnsavedFilters?: boolean | undefined
     }
-    refreshDashboardWidgets: (payload: { filters?: DashboardFilter; forceRefresh?: boolean; tileIds: number[] }) => {
-        filters?: DashboardFilter | undefined
+    refreshDashboardWidgets: (payload: { forceRefresh?: boolean; tileIds: number[] }) => {
         forceRefresh?: boolean | undefined
         tileIds: number[]
     }
@@ -1195,6 +1192,13 @@ export interface dashboardLogicActions {
         payload?: {
             tile: DashboardTile
         }
+    }
+    renameTileGroup: (
+        groupKey: string,
+        title: string
+    ) => {
+        groupKey: string
+        title: string
     }
     reportDashboardFilterChange: (
         changeType: DashboardFilterChangeType,
@@ -1467,12 +1471,6 @@ export interface dashboardLogicActions {
     }
     setWaitingTileRefresh: (waiting: WaitingTileRefresh) => {
         waiting: WaitingTileRefresh
-    }
-    setWidgetEditorTileId: (tileId: number | null) => {
-        tileId: number | null
-    }
-    setWidgetFiltersKeys: (filtersKeys: Record<number, string>) => {
-        filtersKeys: Record<number, string>
     }
     setWidgetRefreshStatuses: (
         tileIds: number[],
@@ -1762,10 +1760,7 @@ export interface dashboardLogicMeta {
         collapsedTileIds: (tileGroupKeys: Map<number, string>, collapsedTileGroupKeys: string[]) => Set<number>
         insightTiles: (tiles: DashboardTile[]) => DashboardTile[]
         textTiles: (tiles: DashboardTile[]) => DashboardTile[]
-        dashboardControlScopes: (
-            insightTiles: DashboardTile[],
-            widgetTiles: DashboardTile[]
-        ) => Record<DashboardControl, DashboardControlScope>
+        dashboardControlScopes: (insightTiles: DashboardTile[]) => Record<DashboardControl, DashboardControlScope>
         itemsLoading: (
             dashboardLoading: boolean,
             dashboardStreaming: boolean,
@@ -1965,6 +1960,13 @@ function planTileMove(
     }
 }
 
+/** Text tiles render rich text, so start loading it while the rest of the dashboard renders. */
+function preloadTextTileRenderer(dashboard: DashboardType): void {
+    if (dashboard.tiles?.some((tile) => !!tile.text && !getImageOnlyTextCardImage(tile.text.body))) {
+        preloadRichContent()
+    }
+}
+
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
     connect(() => ({
@@ -2040,13 +2042,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             forceRefresh?: boolean
             previewUnsavedFilters?: boolean
         }) => payload,
-        /** `filters` are the dashboard filters the insights refresh with; the applied filters by default. */
-        refreshDashboardWidgets: (payload: { tileIds: number[]; forceRefresh?: boolean; filters?: DashboardFilter }) =>
-            payload,
+        refreshDashboardWidgets: (payload: { tileIds: number[]; forceRefresh?: boolean }) => payload,
         toggleTileGroup: (groupKey: string) => ({ groupKey }),
         selectTileGroupTab: (sectionKey: string) => ({ sectionKey }),
         refreshOpenTileGroupsWaiting: true,
         changeTileGroupDisplay: (groupDisplay: TileGroupDisplay) => ({ groupDisplay }),
+        renameTileGroup: (groupKey: string, title: string) => ({ groupKey, title }),
         refreshTileGroup: (groupKey: string) => ({ groupKey }),
         setWaitingTileRefresh: (waiting: WaitingTileRefresh) => ({ waiting }),
         clearWaitingTileRefresh: (tileIds: number[]) => ({ tileIds }),
@@ -2081,9 +2082,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             widgets: { widgetType: string; config: Record<string, unknown> }[]
         }) => payload,
         setAddWidgetModalOpen: (open: boolean) => ({ open }),
-        /** A newly added tile whose widget settings open as soon as it renders. */
-        setWidgetEditorTileId: (tileId: number | null) => ({ tileId }),
-        setWidgetFiltersKeys: (filtersKeys: Record<number, string>) => ({ filtersKeys }),
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
         toggleAddWidgetCollapsedGroup: (groupId: string) => ({ groupId }),
@@ -3438,19 +3436,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }),
             },
         ],
-        // The dashboard filters each widget tile last ran with, for widgets that follow dashboard filters.
-        widgetFiltersKeys: [
-            {} as Record<number, string>,
-            {
-                setWidgetFiltersKeys: (state, { filtersKeys }) => ({ ...state, ...filtersKeys }),
-            },
-        ],
-        widgetEditorTileId: [
-            null as number | null,
-            {
-                setWidgetEditorTileId: (_, { tileId }) => tileId,
-            },
-        ],
         refreshEligibilityTick: [0, { recheckRefreshEligibility: (state) => state + 1 }],
         addWidgetTileLoading: [
             false,
@@ -3992,21 +3977,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         textTiles: [(s) => [s.tiles], (tiles: DashboardTile[]) => tiles.filter((t) => !!t.text)],
         dashboardControlScopes: [
-            (s) => [s.insightTiles, s.widgetTiles],
-            (
-                insightTiles: DashboardTile[],
-                widgetTiles: DashboardTile[]
-            ): Record<DashboardControl, DashboardControlScope> =>
-                getDashboardControlScopes(
-                    insightTiles,
-                    widgetTiles.flatMap((tile) => {
-                        const widget = tile.widget
-                        const dashboardControls = widget
-                            ? tryGetDashboardWidgetCatalogEntry(widget.widget_type)?.dashboardControls
-                            : undefined
-                        return widget && dashboardControls ? [dashboardControls(widget.config)] : []
-                    })
-                ),
+            (s) => [s.insightTiles],
+            (insightTiles: DashboardTile[]): Record<DashboardControl, DashboardControlScope> =>
+                getDashboardControlScopes(insightTiles),
         ],
         itemsLoading: [
             (s) => [s.dashboardLoading, s.dashboardStreaming, s.refreshStatus, s.initialVariablesLoaded],
@@ -4478,6 +4451,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
     })),
     events(({ actions, props, values, cache }) => ({
         afterMount: () => {
+            // Insight and SQL tiles render through these. Fetch them alongside the dashboard itself.
+            void InsightVizRenderer.preload()
+            void DataVisualizationRenderer.preload()
             // NOTE: initial dashboard load is done after variables are loaded in initialVariablesLoaded
             if (!Number.isFinite(props.id)) {
                 actions.dashboardNotFound()
@@ -5046,7 +5022,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 other_dashboard_count: otherDashboardCount,
                             })
                             return deleteInsightWithUndo({
-                                object: { ...insight, dashboards: dashboardIds },
+                                object: insight,
+                                dashboardIds,
                                 endpoint: `projects/${values.currentTeamId}/insights`,
                                 callback: (undo) => {
                                     const updatedInsight = {
@@ -5472,18 +5449,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const sortedTilesToRefresh = staleTiles.filter((tile) => !collapsedTileIds.has(tile.id))
             const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
             const openWidgetTileIds = widgetTileIds.filter((id) => !collapsedTileIds.has(id))
-            let widgetsRefreshed = false
-            const refreshWidgets = (): void => {
-                if (widgetsRefreshed || openWidgetTileIds.length === 0) {
-                    return
-                }
-                widgetsRefreshed = true
-                actions.refreshDashboardWidgets({
-                    tileIds: openWidgetTileIds,
-                    forceRefresh: !!forceRefresh,
-                    filters: combineDashboardFilters(settingsToRefresh.filters, values.externalFilters),
-                })
-            }
             const waiting = nextWaitingTileRefresh({
                 previous: values.waitingTileRefresh,
                 tileGroupKeys: values.tileGroupKeys,
@@ -5516,9 +5481,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 actions.abortAnyRunningQuery()
                 cache.abortController = new AbortController()
-                // Widgets load alongside the insights, so a filter change reaches metric widgets without
-                // waiting for every insight to finish.
-                refreshWidgets()
             }
 
             const openGroupsWaiting = (): Set<string> =>
@@ -5662,7 +5624,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.forceRefreshIfStale()
             }
 
-            refreshWidgets()
+            if (openWidgetTileIds.length > 0) {
+                actions.refreshDashboardWidgets({ tileIds: openWidgetTileIds, forceRefresh: !!forceRefresh })
+            }
         },
         toggleTileGroup: ({ groupKey }) => {
             const collapse = !values.collapsedTileGroupKeys.includes(groupKey)
@@ -5738,6 +5702,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         changeTileGroupDisplay: ({ groupDisplay }) => {
             actions.triggerDashboardUpdate({ group_display: groupDisplay })
         },
+        renameTileGroup: ({ groupKey, title }) => {
+            // The API replaces every group on write, so send the others back unchanged.
+            const groups = values.dashboard?.customization?.groups ?? {}
+            actions.triggerDashboardUpdate({
+                groups: { ...groups, [groupKey]: { ...groups[groupKey], title: title.trim() } },
+            })
+        },
         refreshTileGroup: async ({ groupKey }) => {
             const { waitingTileRefresh: waiting, refreshStatus, widgetRefreshStatus } = values
             // A tile leaves the waiting list only once it loads, so one still loading must not load again.
@@ -5798,34 +5769,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             )
         },
-        refreshDashboardWidgets: async ({ tileIds, forceRefresh, filters }, breakpoint) => {
+        refreshDashboardWidgets: async ({ tileIds, forceRefresh }, breakpoint) => {
             if (values.placement === DashboardPlacement.Export || values.placement === DashboardPlacement.Public) {
                 return
             }
 
-            const dashboardFilters = filters ?? values.effectiveRefreshFilters
-            const filterKeysByTileId = new Map(
-                values.widgetTiles.map((tile) => [
-                    tile.id,
-                    tile.widget ? getDashboardWidgetFilterKeys(tile.widget.widget_type) : [],
-                ])
-            )
-            // Each tile's key covers only the filters it follows, so a tile refetches only when one of them changes.
-            const filtersKeyByTileId: Record<number, string> = Object.fromEntries(
-                tileIds.map((tileId) => [
-                    tileId,
-                    JSON.stringify(widgetDashboardFilters(dashboardFilters, filterKeysByTileId.get(tileId) ?? [])),
-                ])
-            )
-            const filtersChanged = (tileId: number): boolean =>
-                values.widgetFiltersKeys[tileId] !== undefined &&
-                values.widgetFiltersKeys[tileId] !== filtersKeyByTileId[tileId]
-            // A tile whose filters changed loads again even while an older load runs, so the newest filters win.
             const loadingTileIds = forceRefresh
                 ? []
-                : tileIds.filter((tileId) => values.widgetRefreshStatus[tileId]?.loading && !filtersChanged(tileId))
+                : tileIds.filter((tileId) => values.widgetRefreshStatus[tileId]?.loading)
             const staleTileIds = tileIds.filter((tileId) => {
-                if (forceRefresh || filtersChanged(tileId)) {
+                if (forceRefresh) {
                     return true
                 }
                 const fetchedAt = values.widgetRefreshStatus[tileId]?.fetchedAt
@@ -5853,46 +5806,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.setWidgetRefreshStatuses(staleTileIds, true)
             await breakpoint()
 
-            // A later load of the same tile (after a filter change, say) wins, even when this one returns last.
-            cache.widgetRefreshGeneration = (cache.widgetRefreshGeneration ?? 0) + 1
-            const generation: number = cache.widgetRefreshGeneration
-            const latestRefreshByTileId: Record<number, number> = (cache.widgetLatestRefreshByTileId ??= {})
-            for (const tileId of staleTileIds) {
-                latestRefreshByTileId[tileId] = generation
-            }
-            const isLatest = (tileId: number): boolean => latestRefreshByTileId[tileId] === generation
-
             const projectId = String(values.currentTeamId)
             const dashboardId = props.id
             const queue = tileLoadQueue(cache)
             const loadRefresh = { forceRefresh: !!forceRefresh, settings: values.settingsForRefresh }
             const fetchFunctions = chunkTileIds(staleTileIds, 4).map((chunk) => async () => {
                 const { signal: chunkSignal, finish } = tileLoads(cache).start(chunk, signal, loadRefresh)
-                const chunkFilterKeys = [...new Set(chunk.flatMap((tileId) => filterKeysByTileId.get(tileId) ?? []))]
                 try {
                     const results = await queue.run(
-                        () =>
-                            fetchRunWidgets(projectId, dashboardId, chunk, {
-                                signal: chunkSignal,
-                                filtersOverride:
-                                    chunkFilterKeys.length > 0
-                                        ? widgetDashboardFilters(dashboardFilters, chunkFilterKeys)
-                                        : undefined,
-                                refresh: !!forceRefresh,
-                            }),
+                        () => fetchRunWidgets(projectId, dashboardId, chunk, { signal: chunkSignal }),
                         chunkSignal
                     )
-                    const latestResults = results.filter((result) => isLatest(result.tile_id))
-                    actions.setWidgetRunResults(
-                        Object.fromEntries(latestResults.map((result) => [result.tile_id, result]))
-                    )
-                    actions.setWidgetFiltersKeys(
-                        Object.fromEntries(chunk.filter(isLatest).map((tileId) => [tileId, filtersKeyByTileId[tileId]]))
-                    )
-                    actions.clearWaitingTileRefresh(
-                        latestResults.filter((result) => !result.error).map((result) => result.tile_id)
-                    )
-                    for (const result of latestResults) {
+                    const resultsByTileId = Object.fromEntries(results.map((result) => [result.tile_id, result]))
+                    actions.setWidgetRunResults(resultsByTileId)
+                    actions.clearWaitingTileRefresh(results.filter((result) => !result.error).map((r) => r.tile_id))
+                    for (const result of results) {
                         actions.setWidgetRefreshStatuses(
                             [result.tile_id],
                             false,
@@ -5907,11 +5835,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         )
                         return
                     }
-                    actions.setWidgetRefreshStatuses(
-                        chunk.filter(isLatest),
-                        false,
-                        DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE
-                    )
+                    actions.setWidgetRefreshStatuses(chunk, false, DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
                 } finally {
                     finish()
                 }
@@ -5935,14 +5859,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     { widgets: widgetsPayload }
                 )
                 const createdTiles = findNewlyAddedWidgetTiles(previousWidgetTileIds, response.tiles)
-                const [onlyCreatedTile] = createdTiles.length === 1 ? createdTiles : []
-                // Set before the tile renders, so it mounts with its settings open.
-                if (
-                    onlyCreatedTile?.widget &&
-                    tryGetDashboardWidgetCatalogEntry(onlyCreatedTile.widget.widget_type)?.openEditorOnAdd
-                ) {
-                    actions.setWidgetEditorTileId(onlyCreatedTile.id)
-                }
                 if (createdTiles.length > 0 && values.dashboard?.id === dashboardId) {
                     const dashboard = {
                         ...values.dashboard,
@@ -6254,6 +6170,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.dashboardNotFound()
                     return // We hit a 404
                 }
+                preloadTextTileRenderer(values.dashboard)
             },
             sharedListeners.handleDashboardLoadComplete,
         ],
@@ -6264,6 +6181,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.dashboardNotFound()
                 return // We hit a 404
             }
+            preloadTextTileRenderer(dashboard)
         },
         tileStreamingComplete: sharedListeners.handleDashboardLoadComplete,
         dashboardNotFound: () => {

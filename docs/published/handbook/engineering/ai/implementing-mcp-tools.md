@@ -331,6 +331,8 @@ An explicit request declaration takes precedence over stored session support.
 The server builds the `render-ui` schema from the full catalog of read-only tools with UI apps.
 The schema stays the same across accounts; execution checks the tools available to the current account.
 The server rejects direct `render-ui` calls without UI support, even if the client has a cached tool list that includes it.
+A `render-ui` call runs the same tool call the app would make for its data, through the normal dispatch path, and returns that data on the app-only `_meta["com.posthog.mcp/app_data"]` key.
+The app draws the first view from that data, so it still renders on hosts that reject an app's own `tools/call`. The app calls the server itself only when the preload failed or took longer than 15 seconds (the app treats a result that takes 20 seconds as lost), and for later actions such as drill-downs.
 This check does not change mode selection. Cursor still defaults to tools mode, and an explicit mode override still takes precedence.
 
 ## Claude web and desktop exec schema budget
@@ -545,9 +547,6 @@ Product teams own their definitions and control which operations are exposed as 
    Scopes come from the API when you omit them. Annotations default for GET and DELETE, so declare them for PATCH, POST and PUT.
    A `scopes` list that misses a scope the API requires fails codegen.
    When an action's scopes depend on the request, list the action in the viewset's `request_dependent_scope_actions`, and declare `scopes` on its tools.
-   A tool that reads ingested project data declares `reads_ingested_data`: `events`, or `events_or_warehouse` for a tool that also reads data warehouse tables.
-   On a project that has not received an event yet, the server can return install guidance for these tools instead of an empty result.
-   Every `query-*` tool must declare it.
    Each YAML file has a top-level structure validated by Zod ([`scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts)):
 
    **Tool names** follow a **`domain-action`** convention in lowercase kebab-case (`[a-z0-9-]`),
@@ -590,6 +589,7 @@ Product teams own their definitions and control which operations are exposed as 
        title: List things # human-friendly title (used in UI)
        description: > # instructions for the LLM
          Human-friendly description for the LLM.
+       search_keywords: [prometheus, promql] # extra search words, matched at title weight
        list: true # marks as a list endpoint
        enrich_url: '{id}' # appended to url_prefix for result URLs
        category: Other product # overrides the file-level category, e.g. for $mcp_tool_category in MCP analytics
@@ -885,6 +885,9 @@ This is a work in progress –
 the goal is to make it easier to generate HogQL queries from typed schemas
 than from freeform SQL.
 A `schema.json` integration into the codegen pipeline is planned.
+
+For SQL table insights, set `query.tableSettings.columns[].settings.display.description` in `insight-create` or `insight-update`.
+For updates, read the saved query first and retain its other fields.
 
 ## Agent skills that support the MCP server
 

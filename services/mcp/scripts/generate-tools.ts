@@ -2232,6 +2232,18 @@ function generateDefinitionsJson(
             const supersededBy = toolConfig.superseded_by
             const hiddenWhenFlagOn = toolConfig.hidden_when_flag_on
             const redirectHint = toolConfig.redirect_hint
+            const optionalFields = {
+                ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
+                ...(featureFlag ? { feature_flag: featureFlag } : {}),
+                ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
+                ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
+                ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
+                ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
+                ...(redirectHint ? { redirect_hint: redirectHint } : {}),
+                ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                ...(toolConfig.search_keywords?.length ? { search_keywords: toolConfig.search_keywords } : {}),
+            }
             // The endpoint the handler calls. The Django API reads it to refuse a write that a
             // sandbox run did not pick a tool for (posthog/mcp_tool_operations.py).
             const apiOperations = [`${handlerHttpMethod(toolConfig, resolved).toUpperCase()} ${resolved.path}`]
@@ -2258,16 +2270,7 @@ function generateDefinitionsJson(
                         openWorldHint: true,
                         readOnlyHint: true,
                     },
-                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
-                    ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
-                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
-                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
-                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
-                    ...(toolConfig.reads_ingested_data ? { reads_ingested_data: toolConfig.reads_ingested_data } : {}),
-                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
-                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
-                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...optionalFields,
                 }
                 definitions[`${name}-execute`] = {
                     description:
@@ -2287,16 +2290,7 @@ function generateDefinitionsJson(
                         openWorldHint: true,
                         readOnlyHint: toolConfig.annotations.readOnly,
                     },
-                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
-                    ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
-                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
-                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
-                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
-                    ...(toolConfig.reads_ingested_data ? { reads_ingested_data: toolConfig.reads_ingested_data } : {}),
-                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
-                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
-                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...optionalFields,
                 }
             } else {
                 definitions[name] = {
@@ -2313,16 +2307,7 @@ function generateDefinitionsJson(
                         openWorldHint: true,
                         readOnlyHint: toolConfig.annotations.readOnly,
                     },
-                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
-                    ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
-                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
-                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
-                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
-                    ...(toolConfig.reads_ingested_data ? { reads_ingested_data: toolConfig.reads_ingested_data } : {}),
-                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
-                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
-                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...optionalFields,
                 }
             }
         }
@@ -2356,12 +2341,10 @@ function generateDefinitionsJson(
                 ...(wrapperConfig.hidden_when_flag_on
                     ? { hidden_when_flag_on: wrapperConfig.hidden_when_flag_on }
                     : {}),
-                ...(wrapperConfig.reads_ingested_data
-                    ? { reads_ingested_data: wrapperConfig.reads_ingested_data }
-                    : {}),
                 ...(wrapperConfig.superseded_by?.length ? { superseded_by: wrapperConfig.superseded_by } : {}),
                 ...(wrapperConfig.redirect_hint ? { redirect_hint: wrapperConfig.redirect_hint } : {}),
                 ...(wrapperConfig.system_prompt_hint ? { system_prompt_hint: wrapperConfig.system_prompt_hint } : {}),
+                ...(wrapperConfig.search_keywords?.length ? { search_keywords: wrapperConfig.search_keywords } : {}),
             }
         }
     }
@@ -2539,10 +2522,10 @@ function generateQueryWrapperDefinitionsJson(
             ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
             ...(toolConfig.feature_flag_variant ? { feature_flag_variant: toolConfig.feature_flag_variant } : {}),
             ...(toolConfig.hidden_when_flag_on ? { hidden_when_flag_on: toolConfig.hidden_when_flag_on } : {}),
-            ...(toolConfig.reads_ingested_data ? { reads_ingested_data: toolConfig.reads_ingested_data } : {}),
             ...(toolConfig.superseded_by?.length ? { superseded_by: toolConfig.superseded_by } : {}),
             ...(toolConfig.redirect_hint ? { redirect_hint: toolConfig.redirect_hint } : {}),
             ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+            ...(toolConfig.search_keywords?.length ? { search_keywords: toolConfig.search_keywords } : {}),
         }
     }
     return definitions

@@ -215,11 +215,6 @@ export const ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS = ANTHROPIC_USER_AGENT_FRAGM
 // render UI.
 export const OPENAI_RENDER_UI_CLIENT_NAMES = ['openai-mcp'] as const
 
-// Claude desktop's Code tab sends `claude-code/<version> (claude-desktop, ...)`.
-// The terminal CLI sends the same product token without `claude-desktop`.
-export const CLAUDE_CODE_USER_AGENT_PRODUCTS = ['claude-code'] as const
-export const CLAUDE_DESKTOP_USER_AGENT_FRAGMENTS = ['claude-desktop'] as const
-
 export type ClientCapabilities = {
     // MCP `initialize` response includes an `instructions` field that most
     // clients inject into the model's system prompt. Codex discards it, so
@@ -336,20 +331,9 @@ export class MCPClientProfile {
     }
 
     isRenderUiHost(): boolean {
-        // The Code tab in Claude desktop declares the MCP Apps extension, but its host
-        // rejects every app `callServerTool` with JSON-RPC -32603. The `render-ui` app
-        // then cannot load its data and shows only an error state.
-        // ponytail: this blocks every desktop Code build, including a future fixed one.
-        // Remove the check when a desktop Code build forwards app tool calls.
-        if (
-            matchesProductName(this.userAgent, CLAUDE_CODE_USER_AGENT_PRODUCTS) &&
-            matchesAnyFragment(this.userAgent, CLAUDE_DESKTOP_USER_AGENT_FRAGMENTS)
-        ) {
-            return false
-        }
-        // Any other client that declares the MCP Apps extension states its own support,
-        // so the declaration wins over name detection in both directions. Clients that
-        // omit the extension fall back to the hosts known to render `render-ui`.
+        // A client that declares the MCP Apps extension states its own support, so the
+        // declaration wins over name detection in both directions. Clients that omit the
+        // extension fall back to the hosts known to render `render-ui`.
         if (this.uiSupported !== undefined) {
             return this.uiSupported
         }

@@ -14,7 +14,7 @@ from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.exceptions import ActiveSessionCapError, CredentialUnavailableError
 from products.tasks.backend.feature_flags import run_stream_presence_gated
 from products.tasks.backend.logic.services.agent_command import (
     FOLLOWUP_TIMEOUT_SECONDS,
@@ -358,6 +358,23 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
 
     _fail_when_sandbox_stopped(input.run_id, state, actor_user, task_run=task_run)
 
+    from products.tasks.backend.logic.services.sandbox_usage import (  # noqa: PLC0415 — matches forward_pending_message's deferred-import pattern
+        claim_task_run_sandbox_sessions,
+        record_task_run_user_activity,
+    )
+
+    try:
+        claim_task_run_sandbox_sessions(input.run_id, task_run.team_id)
+    except ActiveSessionCapError as error:
+        _write_error_and_complete(
+            input.run_id,
+            error.message,
+            run_uses_dedicated_stream(task_run.state),
+            run_stream_presence_gated(task_run.state),
+            task_run.task.origin_product,
+        )
+        raise
+
     # Rebind the sandbox's MCP session to this actor before the turn. On an
     # actor transition this must rebind or clear the prior session; if it can't,
     # fail closed rather than run the turn under the previous actor's creds.
@@ -434,6 +451,8 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
         message_id=input.message_id,
         steer=input.steer,
     )
+    if result.turn_in_flight or (result.success and not (input.steer and _is_steer_declined(result.data))):
+        record_task_run_user_activity(input.run_id, task_run.team_id)
     logger.info(
         "send_followup_to_sandbox_attempted",
         run_id=input.run_id,
@@ -772,6 +791,11 @@ def _refresh_sandbox_github(
     GitHub already issued, so an unconfirmed clear can leave it usable in the sandbox.
     """
     if actor_user is None:
+        return None
+
+    # Read-only runs use a team installation grant, not the message actor's identity.
+    # The periodic credential refresh rotates that grant without widening its permissions.
+    if (state or {}).get("github_read_access") is True:
         return None
 
     run_id = str(task_run.id)

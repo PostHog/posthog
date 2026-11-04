@@ -133,6 +133,9 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.conversations.backend.api.ticket_macros.TicketMacroViewSet",
     "products.conversations.backend.api.tickets.TicketViewSet",
     "products.customer_analytics.backend.presentation.views.announcements.AnnouncementViewSet",
+    # HogQL paginates after person aggregation. Tied-sort boundaries are covered by
+    # TestAccountUsersQuery.test_persons_are_narrowed_aggregated_and_paginated.
+    "products.customer_analytics.backend.presentation.views.account_persons_query.AccountPersonsViewSet",
     "products.customer_analytics.backend.presentation.views.customer_tasks.CustomerTaskViewSet",
     "products.customer_analytics.backend.presentation.views.views.AccountNotebookViewSet",
     "products.customer_analytics.backend.presentation.views.views.AccountNotesViewSet",
@@ -255,6 +258,10 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.signals.backend.presentation.onboarding.InboxOnboardingViewSet",
     # Lists only the requesting member's own exclusions, a short list, so `pagination_class` is None.
     "products.signals.backend.presentation.reviewer_exclusions.SignalReviewerExclusionViewSet",
+    # Returns one usage overview document, not a page of rows.
+    "products.signals.backend.presentation.spend.SignalSpendViewSet",
+    # Returns one rollup per signal source type; Settings needs the complete breakdown to total usage.
+    "products.signals.backend.presentation.spend.SignalSourceSpendViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutConfigViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutMembersViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutNoteViewSet",

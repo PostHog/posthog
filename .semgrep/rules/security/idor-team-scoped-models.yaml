@@ -105,6 +105,7 @@ rules:
                               |BatchImport
                               |BriefConfig
                               |ButtonTile
+                              |WorkloadTrustPolicy
                               |Canvas
                               |CanvasBuild
                               |CanvasHomePreference
@@ -270,6 +271,7 @@ rules:
                               |KnowledgeLibraryRepository
                               |KnowledgeLibrarySource
                               |KnowledgeSource
+                              |KnowledgeUsageRecord
                               |PlaygroundChat
                               |PlaygroundTurn
                               |Link
@@ -429,6 +431,7 @@ rules:
 
                               |AnomalyScoringState
                               |AnomalyScoringDueInsight
+                              |PushTokenImport
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -486,6 +489,7 @@ rules:
                               |TraceReviewScore
                               |TracesRetentionRule
                               |TracingView
+                              |TransactionalEmailKey
                               |UploadedMedia
                               |UptimeMonitor
                               |UserInterview
@@ -612,6 +616,7 @@ rules:
                         |BatchImport
                         |BriefConfig
                         |ButtonTile
+                        |WorkloadTrustPolicy
                         |Canvas
                         |CanvasBuild
                         |CanvasHomePreference
@@ -774,6 +779,7 @@ rules:
                         |KnowledgeLibraryRepository
                         |KnowledgeLibrarySource
                         |KnowledgeSource
+                        |KnowledgeUsageRecord
                         |PlaygroundChat
                         |PlaygroundTurn
                         |Link
@@ -926,6 +932,7 @@ rules:
 
                         |AnomalyScoringState
                         |AnomalyScoringDueInsight
+                        |PushTokenImport
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -982,6 +989,7 @@ rules:
                         |TraceReviewScore
                         |TracesRetentionRule
                         |TracingView
+                        |TransactionalEmailKey
                         |UploadedMedia
                         |UptimeMonitor
                         |UserInterview
@@ -1183,6 +1191,7 @@ rules:
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeSource
+                        |KnowledgeUsageRecord
                         |Link
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration
@@ -1311,6 +1320,7 @@ rules:
                         |TraceReview
                         |TraceReviewScore
                         |TracesRetentionRule
+                        |TransactionalEmailKey
                         |User
                         |UserGroup
                         |UserInterview

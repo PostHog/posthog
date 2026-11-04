@@ -223,17 +223,14 @@ export function isFunnelWithIncompleteDataWarehouseStep(series: FunnelsQuery['se
     )
 }
 
-// The caller passes the regex check so that the RE2 engine stays out of every bundle that imports this module.
-export const validateQuery = (q: DataNode, hasInvalidRegexFilter: (q: DataNode) => boolean): boolean => {
+// Regex filters are checked separately with `hasInvalidRegexPattern`, because the RE2 engine loads on demand.
+export const validateQuery = (q: DataNode): boolean => {
     if (isFunnelsQuery(q)) {
         return isFunnelWithEnoughSteps(q.series) && !isFunnelWithIncompleteDataWarehouseStep(q.series)
     }
 
     if (isTrendsQuery(q) && q.trendsFilter?.display === ChartDisplayType.BoxPlot) {
         return !isBoxPlotMissingProperty(q.series)
-    }
-    if (hasInvalidRegexFilter(q)) {
-        return false
     }
     return true
 }

@@ -681,6 +681,8 @@ class WorkflowRef:
     has_email_step: bool
 
 
+EMAIL_FROM_CODE_FLAG: Final[str] = "workflows-email-from-code"
+
 # Engagement tracking and message assets key on this id, so it stays stable across versions.
 TRANSACTIONAL_EMAIL_ACTION_ID: Final[str] = "transactional_email"
 
@@ -708,6 +710,10 @@ class TransactionalEmailContent:
 
 class TransactionalEmailSenderUnavailable(Exception):
     """No verified email sender: neither the requested one nor the project's default."""
+
+
+class TransactionalEmailSenderRequired(Exception):
+    """The project has several verified email senders and no default, so the send has to name one."""
 
 
 class TransactionalEmailContentInvalid(Exception):
@@ -742,14 +748,6 @@ class WorkflowListQuery:
     tags: frozenset[str] = frozenset()
     latest_send_first: bool = False
     field_filters: Mapping[str, str] = field(default_factory=dict)
-
-
-@frozen
-class WorkflowPage:
-    """One limit/offset page of a workflow list, and how many workflows the whole list holds."""
-
-    count: int
-    results: list[Workflow]
 
 
 @frozen
@@ -993,8 +991,8 @@ class AudienceSuggestion:
     window_days: int
     # How many times the event must happen in the window. Set only for regulars.
     min_count: int | None
-    # People in the audience with an email address, counted when the suggestion was made.
-    reachable_count: int
+    # Roughly how many people in the audience have an email address. None until counted, or when the count failed.
+    reachable_count: int | None
     cohort_filters: dict[str, Any]
 
 

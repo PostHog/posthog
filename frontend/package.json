@@ -35,7 +35,7 @@
         "typegen:watch": "cd .. && NODE_OPTIONS=--max-old-space-size=16384 kea-typegen watch --delete --show-ts-errors --use-cache",
         "typegen:write": "cd .. && NODE_OPTIONS=--max-old-space-size=16384 kea-typegen write --delete --show-ts-errors --use-cache",
         "typegen:write:no-cache": "cd .. && NODE_OPTIONS=--max-old-space-size=16384 kea-typegen write --delete --show-ts-errors",
-        "schema:build:json": "ts-node ./bin/build-schema-json.mjs && oxfmt ./src/queries/schema.json && ts-node ./bin/build-validators.mjs && oxfmt ./src/queries/validators.js",
+        "schema:build:json": "ts-node ./bin/build-schema-json.mjs && oxfmt ./src/queries/schema.json && ts-node ./bin/build-validators.mjs && oxfmt ./src/queries/validators.js ./src/queries/web-analytics-validators.js",
         "test": "SHARD_IDX=${SHARD_INDEX:-1}; SHARD_TOTAL=${SHARD_COUNT:-1}; echo $SHARD_IDX/$SHARD_TOTAL; pnpm build:products && jest --testPathPattern='(frontend/|products/|common/|packages/quill/|packages/llm-normalizer/)' --forceExit --shard=$SHARD_IDX/$SHARD_TOTAL",
         "jest": "pnpm build:products && jest",
         "typescript:check": "node ./bin/typescript-check.mjs",
@@ -151,6 +151,7 @@
         "@posthog/products-session-replay": "workspace:*",
         "@posthog/products-signals": "workspace:*",
         "@posthog/products-skills": "workspace:*",
+        "@posthog/products-slack-app": "workspace:*",
         "@posthog/products-stamphog": "workspace:*",
         "@posthog/products-streamlit-apps": "workspace:*",
         "@posthog/products-subscriptions": "workspace:*",
@@ -187,6 +188,7 @@
         "@simplewebauthn/browser": "^13.2.2",
         "@stripe/react-stripe-js": "^2.8.0",
         "@stripe/stripe-js": "^4.5.0",
+        "@tanstack/react-table": "^8.21.3",
         "@tanstack/react-virtual": "^3.14.3",
         "@testing-library/dom": ">=9.3.4",
         "@tiptap/core": "3.20.6",
@@ -224,6 +226,7 @@
         "crypto-browserify": "^3.12.0",
         "cva": "1.0.0-beta.3",
         "d3": "^7.9.0",
+        "d3-array": "^3.2.4",
         "d3-flame-graph": "^5.0.0",
         "dayjs": "1.11.11",
         "dompurify": "^3.4.0",
@@ -302,9 +305,11 @@
         "rrule": "^2.8.1",
         "simple-statistics": "^7.8.8",
         "snappy-wasm": "^0.3.0",
+        "sql-formatter": "^15.9.0",
         "tailwind-merge": "^2.2.2",
         "torph": "^0.0.9",
         "ts-pattern": "catalog:",
+        "url-pattern": "^1.0.3",
         "use-debounce": "catalog:",
         "use-resize-observer": "^8.0.0",
         "v86": "0.5.458",
@@ -327,6 +332,7 @@
         "@testing-library/user-event": "^14.6.1",
         "@types/clone": "^2.1.1",
         "@types/d3": "^7.4.3",
+        "@types/d3-array": "^3.2.1",
         "@types/d3-selection": "3.0.3",
         "@types/dompurify": "^3.0.3",
         "@types/he": "^1.2.3",
@@ -397,6 +403,6 @@
         ]
     },
     "engines": {
-        "node": ">=24 <25"
+        "node": ">=26 <27"
     }
 }

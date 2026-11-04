@@ -25,7 +25,7 @@ from posthog.dataclasses import frozen
 
 # Bump on any code change to the filters, the default caps, the sampling or the rendered layout, so summaries
 # stay comparable. Limits from the flag payload go into `inputs_used` instead.
-RENDER_VERSION = 11
+RENDER_VERSION = 12
 
 WINDOW_DAYS = 28
 RECENCY_HALF_LIFE_DAYS = 7
@@ -67,6 +67,11 @@ MCP_INTENT_CHARS = 200
 MIN_MCP_INTENT_CHARS = 60
 # An agent can keep one MCP session open all day. A longer pause between two calls starts a new line.
 MCP_SESSION_IDLE_GAP = datetime.timedelta(minutes=30)
+# A log scale lets a long investigation win a slot over a one-call lookup, but not every slot. Calls can
+# repeat one step, so their share is smaller and stops below the share of one more distinct intent.
+MCP_WEIGHT_PER_INTENT_DOUBLING = 1.0
+MCP_WEIGHT_PER_CALL_DOUBLING = 0.25
+MCP_MAX_CALL_WEIGHT = 0.5
 # Intents that open with the same text keep it on the first intent only, if the shared text is at least this long.
 MIN_SHARED_OPENING_CHARS = 20
 SECTIONS_MAX_CHARS = 8000
@@ -402,6 +407,7 @@ class Unit:
     # Characters of agent intent on the line.
     intent_chars: int = 0
     intent_keys: frozenset[str] = frozenset()
+    weight: float = 1.0
 
 
 @frozen
@@ -444,8 +450,12 @@ class RenderedInput:
     intent_chars: int = 0
     n_mcp_lines: int = 0
     mcp_chars: int = 0
-    # MCP sessions that passed the named filters, before the caps.
+    # MCP sessions that passed the named filters and the per-day cap, before the sample.
     mcp_pool: int = 0
+    # MCP lines that the per-day cap, the sample and the sections budget dropped. `drops` mixes the sources.
+    mcp_burst_cap_drops: int = 0
+    mcp_sample_cap_drops: int = 0
+    mcp_budget_drops: int = 0
     # Products whose pages the person opened. They render in the computed block, not here, but count as units.
     n_page_units: int = 0
     # The refs of the task and MCP lines in `text`, in the order of the lines.
@@ -1080,7 +1090,7 @@ def view_units(
     return sorted(units, key=lambda unit: (unit.at, unit.text))
 
 
-def _is_plumbing_route(route_name: str) -> bool:
+def is_plumbing_route(route_name: str) -> bool:
     return route_name in MCP_PLUMBING_ROUTES or route_name.startswith(MCP_PLUMBING_ROUTE_PREFIXES)
 
 
@@ -1133,7 +1143,7 @@ def _mcp_sessions(records: Iterable[McpItem], shown_intents: frozenset[str], dro
     A record without a session id is its own session, and a long pause splits a session in two."""
     grouped: dict[tuple[str, int], list[McpItem]] = {}
     for index, record in enumerate(records):
-        if _is_plumbing_route(record.route_name):
+        if is_plumbing_route(record.route_name):
             drops[Drop.MCP_PLUMBING_ROUTE] += 1
             continue
         grouped.setdefault((record.session_id, -1) if record.session_id else ("", index), []).append(record)
@@ -1194,6 +1204,12 @@ def _mcp_line(session: _McpSession, limits: RenderLimits) -> str:
     return cap_line(head + MCP_CHAIN_SEPARATOR.join(cap_line(intent, room) for intent in chain), limits.mcp_line_chars)
 
 
+def _session_weight(session: _McpSession) -> float:
+    """1.0 for a one-call session with one intent, and more for each doubling of its distinct intents or calls."""
+    calls = min(MCP_WEIGHT_PER_CALL_DOUBLING * math.log2(max(session.calls, 1)), MCP_MAX_CALL_WEIGHT)
+    return 1.0 + MCP_WEIGHT_PER_INTENT_DOUBLING * math.log2(max(len(session.chain), 1)) + calls
+
+
 def mcp_units(
     records: Iterable[McpItem],
     activity_lines: Iterable[Unit],
@@ -1212,7 +1228,7 @@ def mcp_units(
         if chains[tuple(_goal_key(intent) for intent in session.chain)] >= MIN_REPEATED_MCP_CHAINS:
             drops[Drop.MCP_REPEATED_CHAIN] += 1
             continue
-        units.append(Unit(at=session.at, text=_mcp_line(session, limits)))
+        units.append(Unit(at=session.at, text=_mcp_line(session, limits), weight=_session_weight(session)))
     return sorted(units, key=lambda unit: (unit.at, unit.text))
 
 
@@ -1228,10 +1244,10 @@ def dedupe_latest(units: Iterable[Unit], drops: Counter[str]) -> list[Unit]:
 
 
 def burst_cap(units: Sequence[Unit], drops: Counter[str], max_per_day: int = MAX_UNITS_PER_DAY) -> list[Unit]:
-    """At most `max_per_day` units per UTC day, newest first, in chronological order."""
+    """At most `max_per_day` units per UTC day, the heaviest and then the newest, in chronological order."""
     kept: list[Unit] = []
     per_day: Counter[datetime.date] = Counter()
-    for unit in sorted(units, key=lambda unit: (unit.at, unit.text), reverse=True):
+    for unit in sorted(units, key=lambda unit: (unit.weight, unit.at, unit.text), reverse=True):
         if per_day[_day(unit.at)] >= max_per_day:
             drops[Drop.BURST_CAP] += 1
             continue
@@ -1247,17 +1263,18 @@ def sampling_seed(seed_key: str, team_id: int, user_id: int) -> int:
 
 
 def sample_units(units: Sequence[Unit], *, limit: int, as_of: datetime.datetime, seed: int) -> list[Unit]:
-    """Up to `limit` units without replacement, weighted towards recent ones, in chronological order.
+    """Up to `limit` units without replacement, weighted towards recent and heavy ones, in chronological order.
 
     Weighted reservoir keys (Efraimidis and Spirakis): each unit draws `u ** (1 / weight)` and the
-    largest keys win, so one busy afternoon cannot fill every slot."""
+    largest keys win, so one busy afternoon cannot fill every slot. The weight is the recency
+    weight times `unit.weight`."""
     if len(units) <= limit:
         return sorted(units, key=lambda unit: (unit.at, unit.text))
     rng = random.Random(seed)
     keyed: list[tuple[float, Unit]] = []
     for unit in sorted(units, key=lambda unit: (unit.at, unit.text)):
         age_days = max((as_of - unit.at).total_seconds(), 0.0) / 86400
-        weight = 0.5 ** (age_days / RECENCY_HALF_LIFE_DAYS)
+        weight = 0.5 ** (age_days / RECENCY_HALF_LIFE_DAYS) * unit.weight
         keyed.append((rng.random() ** (1 / weight), unit))
     chosen = sorted(keyed, key=lambda pair: pair[0], reverse=True)[:limit]
     return sorted((unit for _, unit in chosen), key=lambda unit: (unit.at, unit.text))
@@ -1335,9 +1352,8 @@ def build_input(
     activity_pool = len(activity_lines) + drops[Drop.SAMPLE_CAP] + drops[Drop.BURST_CAP] - capped_before
     view_lines = view_units(views, activity, drops, limits)
     pages = page_products(views, drops)
-    mcp_pool = burst_cap(
-        dedupe_latest(mcp_units(mcp, activity_lines, drops, limits), drops), drops, limits.max_units_per_day
-    )
+    mcp_sessions = dedupe_latest(mcp_units(mcp, activity_lines, drops, limits), drops)
+    mcp_pool = burst_cap(mcp_sessions, drops, limits.max_units_per_day)
     if not task_pool and not activity_lines and not view_lines and not mcp_pool and not pages:
         return None
     chosen_tasks = sample_units(task_pool, limit=limits.task_lines, as_of=as_of, seed=seed)
@@ -1375,6 +1391,9 @@ def build_input(
         n_mcp_lines=len(sections[2][1]),
         mcp_chars=len(rendered[2]),
         mcp_pool=len(mcp_pool),
+        mcp_burst_cap_drops=len(mcp_sessions) - len(mcp_pool),
+        mcp_sample_cap_drops=len(mcp_pool) - len(chosen_mcp),
+        mcp_budget_drops=len(chosen_mcp) - len(sections[2][1]),
         n_page_units=len(pages),
         task_refs=_line_refs(sections[0][1], "t"),
         mcp_refs=_line_refs(sections[2][1], "m"),

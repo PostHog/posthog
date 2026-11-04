@@ -404,6 +404,7 @@ UpdateItem  SET deleted = :true, expires_at = if_not_exists(expires_at, :expiry)
 | Session, and person through its sessions | The session row                                                                                                                               | The session's blocks and its sealed index values. Its `url_fingerprints` can no longer be linked to a URL |
 | Team                                     | The team month rows of the previous, current and next UTC month, then every `month:` row of the team, then every session row in the 32 shards | Everything of the team: blocks, inline images, fetched images and sealed index values                     |
 
+- A public font file (see [Web fonts](#web-fonts)) belongs to no team, so no deletion reaches it. It is a file that Google serves to anyone, and the blocks that say where a session used it are sealed.
 - A session tombstone does not reach inline or fetched images. Both are sealed under the team month key, and other sessions of the team can refer to the same image. They stay readable with that key until they expire (see [Lifecycle](#lifecycle)), but the deleted session's blocks, which say where the session used them, cannot be read.
 - A tombstone the worker creates for a row that does not exist yet gets an `expires_at` by the key rule, from the row's month for a team month row and from the current month for a session row. A tombstone that replaces a key keeps the key's expiry.
 - The worker reads only `pk` and `sk` and has no KMS access. Its role has Query and UpdateItem on the v4 key table.
@@ -416,25 +417,26 @@ UpdateItem  SET deleted = :true, expires_at = if_not_exists(expires_at, :expiry)
 
 Nothing in v4 is kept for good. Each kind of data has a fixed lifetime, and a deletion only makes data unreadable sooner.
 
-| Data                           | Where                                                            | Lifetime                                                                                                                           | Removed by                    |
-| ------------------------------ | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| Session blocks                 | `rrweb-v4` `blocks/`                                             | 30 days after the write                                                                                                            | S3 expiration                 |
-| Block and image index          | `rrweb-v4` `index/`                                              | 30 days after the write                                                                                                            | S3 expiration                 |
-| Inline image packs             | `images-v4` `images/packs/`                                      | 38 days after the write                                                                                                            | S3 expiration                 |
-| Fetched images                 | `images-v4` `images/url/`                                        | 38 days after the last write. The fetcher copies an image onto itself when a job refers to it and the copy is more than 7 days old | S3 expiration                 |
-| Team month and session keys    | `ai-research-replay-v4-keys`                                     | Until the start of the fifth month after `key_month`                                                                               | DynamoDB TTL                  |
-| Tombstones                     | `ai-research-replay-v4-keys`                                     | The same expiry as the row they replace                                                                                            | DynamoDB TTL                  |
-| Fetch history and robots cache | `ai-research-v4-image-fetch-history`                             | URL history: 8 days after the end of its month. Robots and tdmrep cache: at least 30 days                                          | DynamoDB TTL                  |
-| Index records                  | Kafka `ai_research_v4_index`                                     | 7 days                                                                                                                             | Topic retention               |
-| Fetch jobs, with raw URLs      | Kafka `ai_research_v4_image_fetch`, its retry topics and its DLQ | 24 hours                                                                                                                           | Topic retention               |
-| Seen and blocked sessions      | `ai-research-v4` Redis, `@posthog/ai-research-v4/`               | The main lane's expiry, or earlier under memory pressure                                                                           | Redis expiry and LRU eviction |
-| Held keys                      | Recorder and fetcher memory                                      | 5 minutes for a session row, one hour for a team month row                                                                         | Cache expiry                  |
+| Data                           | Where                                                            | Lifetime                                                                                                                                    | Removed by                    |
+| ------------------------------ | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Session blocks                 | `rrweb-v4` `blocks/`                                             | 30 days after the write                                                                                                                     | S3 expiration                 |
+| Block and image index          | `rrweb-v4` `index/`                                              | 30 days after the write                                                                                                                     | S3 expiration                 |
+| Inline image packs             | `images-v4` `images/packs/`                                      | 38 days after the write                                                                                                                     | S3 expiration                 |
+| Fetched images                 | `images-v4` `images/url/`                                        | 38 days after the last write. The fetcher copies an image onto itself when a job refers to it and the copy is more than 7 days old          | S3 expiration                 |
+| Fetched fonts                  | `images-v4` `fonts/url/`                                         | The same as fetched images                                                                                                                  | S3 expiration                 |
+| Team month and session keys    | `ai-research-replay-v4-keys`                                     | Until the start of the fifth month after `key_month`                                                                                        | DynamoDB TTL                  |
+| Tombstones                     | `ai-research-replay-v4-keys`                                     | The same expiry as the row they replace                                                                                                     | DynamoDB TTL                  |
+| Fetch history and robots cache | `ai-research-v4-image-fetch-history`                             | URL history: 8 days after the end of its month, and a public font's history until its next fetch. Robots and tdmrep cache: at least 30 days | DynamoDB TTL                  |
+| Index records                  | Kafka `ai_research_v4_index`                                     | 7 days                                                                                                                                      | Topic retention               |
+| Fetch jobs, with raw URLs      | Kafka `ai_research_v4_image_fetch`, its retry topics and its DLQ | 24 hours                                                                                                                                    | Topic retention               |
+| Seen and blocked sessions      | `ai-research-v4` Redis, `@posthog/ai-research-v4/`               | The main lane's expiry, or earlier under memory pressure                                                                                    | Redis expiry and LRU eviction |
+| Held keys                      | Recorder and fetcher memory                                      | 5 minutes for a session row, one hour for a team month row                                                                                  | Cache expiry                  |
 
 - S3 expiration counts from the time an object was written, rounds up to the next midnight UTC and can run late, so plan for objects to stay for up to 2 days more.
 - Blocks expire by write time, not by session start, so a session whose blocks span several write days loses its first blocks first. Nothing marks the rest as partial, and `cold_start` does not cover it. Readers that need whole sessions follow the rule in [Block index](#block-index).
 - The buckets have no versioning, so an expired object leaves no older version behind. S3 removes the parts of an unfinished upload after one day.
 - `blocks/` is stored in Glacier Instant Retrieval from the start. The index prefixes and both image prefixes stay in Standard, because readers read them often.
-- A block can use an image only while the image outlives the block. A pack is written in the same flush as its blocks and expires 8 days later. A fetched image lives at least 30 days after the last block that refers to it, because the recorder sends a job for each referenced URL at least once per day.
+- A block can use an image only while the image outlives the block. A pack is written in the same flush as its blocks and expires 8 days later. A fetched image lives at least 30 days after the last block that refers to it. Each day that a block refers to an image, the recorder sends a job for it, or the fetcher's history shows a stored copy that is younger than 7 days at the end of that day.
 - A key outlives every object it sealed: a session writes for at most about 15 days after its key month ends, and an object lives at most 38 days plus the S3 delay. The margin lets the object windows go up to 90 days without a change to the key expiry. Raise the object windows in `v4-staging.hcl` in posthog-cloud-infra only together with the key expiry.
 - DynamoDB TTL can remove a row days after `expires_at`. Writers and readers treat a row past `expires_at` as unusable, so the delay only costs storage.
 - The key table has no point-in-time recovery, backups, exports, streams or replicas, so no copy brings a shredded key back.
@@ -449,6 +451,7 @@ The additional authenticated data is the canonical JSON of `{"v": 4, "context": 
 | Session block          | session key    | `teamId`, `sessionId`, `keyMonth`, `kind: "rrweb"`, `codec: "brotli"`, `ref` (the block object key) |
 | Inline image in a pack | team month key | `teamId`, `keyMonth`, `kind: "image"`, `codec: "none"`, `ref` (the image reference)                 |
 | Fetched image          | team month key | `teamId`, `keyMonth`, `kind: "image-url"`, `codec: "none"`, `ref` (the image URL reference)         |
+| Fetched font           | team month key | `teamId`, `keyMonth`, `kind: "font-url"`, `codec: "none"`, `ref` (the font URL reference)           |
 | Sealed index value     | session key    | `teamId`, `sessionId`, `keyMonth`, `kind: "index"`, `ref` (the column name)                         |
 
 A sealed index value uses the v3 JSON envelope with `"v": 4`.
@@ -461,34 +464,47 @@ The recorder streams each block into the encoder. Read a block as a stream: a Br
 
 - posthog-js compresses some fields of an event and marks the event `cv: "2024-10"`. The recorder expands those fields to plain JSON and removes the `cv` key, as the replay player does, because the gzip strings do not compress again. An event that does not decode stays exactly as it arrived.
 - An inline image becomes `image:v4:{team_id}:{YYYY-MM}:{hash}` in the block, where the month is the UTC month of the write.
-- The recorder takes PNG, JPEG, GIF and WebP data URIs in any letter case and with parameters, under the v3 size limits. It decodes the JSON escapes of each string before it looks for data URIs, so an escaped letter does not hide one. It reads a base64 payload across line breaks and escaped slashes, and without its padding. It reads a payload that is not base64 as percent-encoded bytes. The image bytes name the format, not the data URI's label, so the image index `mime` is always one of these four.
+- The recorder takes PNG, JPEG, GIF and WebP data URIs in any letter case and with parameters, under the v3 size limits. It decodes the JSON escapes of each string before it looks for data URIs, so an escaped letter does not hide one. It also reads the CSS escapes in the scheme, the media type and the parameters, skips the tabs and line breaks there, and reads parameters of any length, as a browser does. Only CSS reads a CSS escape as its character. In an attribute such as `src` it is text, so a data URI there whose header holds a CSS escape becomes `image:v4:declined:undecodable`, up to the end of its string. It reads a payload as base64 only when `;base64` ends the header, as a browser does. It reads a base64 payload across line breaks, escaped slashes and percent escapes, and without its padding. It reads a payload that is not base64 as percent-encoded bytes. The image bytes name the format, not the data URI's label, so the image index `mime` is always one of these four.
 - An inline image that the recorder does not store becomes a marker that names the reason, and its bytes are stored nowhere. A srcset loses such a candidate. The recorder counts these as `ai_research_v4_recorder_removed_images_total{reason}`.
   - `image:v4:declined:avif`: the label or the bytes name AVIF. The dataset keeps no AVIF image.
   - `image:v4:declined:over_limit`: the image is larger than 900 KiB, or its message already holds 4,096 images or 64 MiB of them.
-  - `image:v4:declined:undecodable`: the payload does not decode, or it holds an escape that the recorder does not read, for example a CSS escape.
+  - `image:v4:declined:undecodable`: the payload does not decode, or it holds an escape that the recorder does not read, for example a CSS escape in the payload.
   - `image:v4:declined:unsupported`: the bytes are not PNG, JPEG, GIF or WebP, for example a font labeled `image/ttf`, an icon or a bitmap.
-- An SVG data URI stays inline, because SVG is text that the text scrub reads in place. A data URI with an empty payload holds no image, so it stays as it is.
+- An SVG data URI whose payload starts with markup (`<`) stays inline, because SVG is text that the text scrub reads in place. Any other payload under an SVG label follows the rules for raster images, because a browser shows raster bytes as an image whatever the label says. A data URI with an empty payload holds no image, so it stays as it is.
 - The recorder reads every argument of a canvas mutation, not only the frames of the posthog-js canvas recorder. A buffer becomes a reference when its bytes are PNG, JPEG, GIF or WebP, and a marker when they are not. The pixels of an `ImageData`, and the numbers of a `Uint8Array` or a `Uint8ClampedArray`, become `image:v4:declined:unsupported`. A data URI in the `src` of an `HTMLImageElement` moves out like any data URI, and a remote URL there stays as it is.
 - A remote image URL becomes `imageurl:v4:{team_id}:{YYYY-MM}:{hash}` in the block and in its fetch job, where the month is the UTC month of the write. The block and the job always carry the same reference, so a reader opens the fetched image directly.
-- A URL that the URL policy refuses becomes `imageurl:v4:declined:{reason}` in the block, for example `declined:credential`, `declined:non_public_host` or `declined:tracking_beacon`. The original URL cannot be recovered. The recorder counts rewrites and refusals in `ai_research_v4_recorder_image_url_rewrites_total`.
-- The rewrite covers every remote URL that the recorder reads from an image slot: image sources, `srcset`, SVG image links, video posters, `<picture>` sources and CSS `url(...)` in style attributes, style sheets and style rules, in custom properties too, because a page passes a custom property to an image property through `var()`. It also covers `src`, `srcset`, `href` and `poster` in an attribute change on a node the recorder does not know, for example after a restart. `srcset` keeps its descriptors and CSS keeps its `url(...)` syntax. A URL is also replaced where a selector holds it with CSSOM's escapes, by the reference with the same escapes, so a class such as `bg-[url(https://cdn.example.com/a.png)]` and its rule `.bg-\[url\(https\:\/\/cdn\.example\.com\/a\.png\)\]` still match within a block. A reader that replaces references by text must replace the escaped form as well. It is not limited by the 512 URLs per message that get fetch jobs.
-- A srcset in an image slot keeps only the candidates the recorder stores. A candidate the URL policy refuses leaves the list instead of becoming a `declined` marker, and the rest keep their descriptors. A `<picture>` source whose `type` names a media type the image fetcher does not store, such as `image/avif`, gets no fetch job and loses its remote candidates, unless a source of a stored type names the same URL. Its inline images, such as SVG data URIs, stay. The writer rebuilds each srcset that the inspector read in an image slot, in the bytes it stores, after the inline images left and the escapes were written again. It separates the candidates with a comma and a space. A `srcset` key elsewhere, for example in a custom event's payload, stays as it is. A browser skips a source with no candidates, so the replay falls back to the next source or the `img`. The recorder counts these as `ai_research_v4_recorder_srcset_rewrites_total{outcome="trimmed"|"emptied"}`.
-- The writer rewrites CSS text before it replaces the URLs, so that an offline render loads only images the block refers to. An `image-set()` keeps one candidate, because a renderer picks the candidate that fits its pixel ratio and does not fall back when that candidate fails. It keeps the highest resolution of a type the image fetcher stores among the candidates that can load: inline, accepted by the URL policy, or root-relative on a known page. Only that candidate gets a fetch job, and the other remote candidates get references without one, in case the writer does not find the set's text. A set that holds an inline image keeps all its candidates, because the writer moves the inline image out first.
-- A root-relative CSS `url(/…)` resolves against the origin of its window's latest page URL, from a Meta event or a custom event that names a page, such as `$url_changed`, with `https` in place of the page's scheme. It gets the reference of the absolute URL, or a `declined` marker. A path-relative `url(…)` stays as the page wrote it, so that no part of a page path, which can hold a token, reaches a fetch. rrweb writes snapshot CSS with absolute URLs, but sends rule text, adopted style sheets and style declarations as the page wrote them. A text that resolves two ways in one block, as in windows on two origins, or that one window resolves and another cannot, keeps no rewrite. An event resolves at most 1,024 relative URLs, a flush keeps at most 64 MiB of resolved URLs, and a page URL longer than 2,048 characters resolves none.
-- The writer rewrites only whole `url()` and `image-set()` functions, found as the inspector finds them, inside JSON strings that hold CSS: the values of `_cssText`, `style` (style diffs included), `textContent`, `rule`, `replace`, `replaceSync` and `value`. So a class name such as `bg-[url(/a.png)]`, a quoted string or a comment keeps its text, and the class's rule still matches. A text node that shows the same function text gets the rewrite too. The recorder counts these as `ai_research_v4_recorder_css_rewrites_total{kind="image_set"|"relative_url", outcome="rewritten"|"unfound"}`.
-- The recorder reads a protocol-relative URL, such as `//cdn.example.com/a.png`, as `https`. It gets the same reference or `declined` marker as the `https` form, and the rewrite replaces the text as the block holds it. A browser reads a backslash as a slash there, so `\\cdn.example.com/a.png` counts too, and so does a URL such as `https:\\cdn.example.com/a.png` with any mix of slashes and backslashes after the scheme, or none: on a page of another scheme the browser loads `https:cdn.example.com/a.png` from that host.
-- Some URLs stay as they arrived: relative URLs outside CSS, path-relative CSS URLs, root-relative CSS URLs that resolve two ways in a block, go past a budget, or come before this process saw their window's page URL (after a restart or an eviction), the candidates of an `image-set()` that does not parse, remote URLs outside image slots (links, frames, text and CSS properties that do not show an image), URLs inside a compressed value that did not decode or that the decode budget skipped, and URL text written in another form than the recorder read it, for example with a CSS hex escape. The recorder counts the last kind as `outcome="unrewritten"`.
-- Before the rewrite, the recorder writes again any JSON string that holds an escape capture would not write, for example `\/`, so an escaped URL is found too. A scheme matches in any letter case.
-- If a refused URL is still in a block after the rewrite, the recorder writes the block again instead of dropping it. The second pass replaces the refused URL wherever its bytes are, also inside a longer URL. For a refused URL the stored bytes do not hold as the recorder read it, for example behind a CSS escape, it replaces every URL token that holds the URL's host with `imageurl:v4:declined:unchecked`. The recorder counts this as `url_fallbacks_total{reason="declined_kept"|"declined_unfound"}`. It drops the block, as `dropped_blocks_total{outcome="declined_unrewritten"}`, only when the second pass still leaves a refused URL, so no refused URL is stored.
+- A URL that the URL policy refuses gets no reference and no fetch job. It becomes `imageurl:v4:declined:{reason}` or `fonturl:v4:declined:{reason}` in the block, for example `declined:non_public_host` or `declined:tracking_beacon`, and the original URL cannot be recovered.
+- A URL that the policy refuses only for a credential keeps its place without its credentials: its userinfo, each credential parameter of its query and fragment, such as `X-Amz-Signature` or `#access_token=`, and each path segment that holds a token, such as `;jsessionid=`. A relative URL counts as on any host, so `/p/{token}/n/` loses its token as an Oracle Object Storage path does. The rest stays as the page wrote it. When the policy still reads a credential after those cuts, as in a path that hides a token behind a dot segment, only the URL's origin stays. When the policy refuses the URL that is left, for example for its host, the slot holds `declined:credential`. The recorder reads each URL with the URL parser, as the policy does, so it sees a host after IDNA maps it and a path once it is decoded and its dot segments are gone. A URL that the URL parser does not read, or one longer than 2,048 characters, can hold a credential that the recorder cannot see, so it becomes `declined:not_absolute` or `declined:too_long`, also where it shows no image. Blocks that an earlier recorder wrote hold `declined:credential` for every credential URL. The recorder counts rewrites and refusals in `ai_research_v4_recorder_image_url_rewrites_total`.
+- Each `src` URL of an `@font-face` rule becomes a font reference in the same way, as [Web fonts](#web-fonts) describes. `ai_research_v4_recorder_image_url_rewrites_total` counts both, by `kind`: `image`, `font` or `bundled_font`.
+- The `v4_image_refs` module of the `replay-core-v4` crate defines each reference and marker shape, for images and for fonts. The recorder writes them with it. A reader that must tell them apart from page text uses its `parse` function, which accepts only the exact strings the recorder writes.
+- The rewrite covers every remote URL that the recorder reads from an image slot: image sources, `srcset`, SVG image links, video posters, `<picture>` sources and CSS `url(...)` in style attributes, style sheets and style rules, in custom properties too, because a page passes a custom property to an image property through `var()`. It also covers `src`, `srcset`, `href` and `poster` in an attribute change on a node the recorder does not know, for example after a restart. For the same reason, a `<source>` added under such a node is read as a `<picture>` source, and a text change on such a node loses the credentials of the `url()`s, the `image-set()` strings and the `@import`s in it, because the node can be the text of a `<style>`. Every other byte of that text stays, so it gets no references and an `image-set()` keeps each candidate, because it may not be CSS. `srcset` keeps its descriptors and CSS keeps its `url(...)` syntax. A class such as `bg-[url(https://cdn.example.com/a.png)]` and its rule's selector keep the URL as the page wrote it, because a selector is no URL slot. It is not limited by the 512 URLs per message that get fetch jobs.
+- A srcset in an image slot keeps one candidate: the one that Chromium shows at a device pixel ratio of 1, which is the ratio the screenshotter renders at. Of `x` descriptors, that is the smallest density at or above 1x, or the largest density when all are below 1x. A `w` descriptor gives a density only against the layout width, which the recorder does not know, so of `w` descriptors the recorder keeps the v3 choice: the largest at or below 1024w, or the smallest when all are wider. The first candidate wins a tie. Only that candidate gets a fetch job, because the renderer has no network access and shows only fetched images. A srcset that mixes `w` and `x` descriptors, or that v3 would read as malformed, keeps no candidate.
+- The kept candidate stays as its reference when the URL policy accepts it, or as it is when it is an inline image that the image scan keeps. A kept candidate that the policy refuses leaves the srcset empty. An inline image that the scan declines leaves the srcset empty, and no other candidate takes its place, because no other candidate has a fetch job. A candidate that leaves becomes no marker.
+- HTML adds the non-empty `src` of an `img` as a 1x candidate when its srcset has no 1x candidate and no `w` descriptor. At a device pixel ratio of 1 the `img` then shows its `src`, so the recorder fetches the `src` and empties the srcset.
+- A visible `img` that shows its kept candidate gets no fetch job for its `src` or `rr_src`, as in v3. They still become references. Any other `img` with a `src` gets a fetch job for it. The recorder decides this on the srcset and the `src` as the event holds them, before the inline images leave, and keeps the same candidate in the stored block.
+- An attribute change that sets the srcset but not the `src` does not hold the `src`, so the recorder decides as for an `img` with no `src`. If the `img` has a `src` that wins over the new srcset, the replay shows that `src`, which has a fetch job only if an earlier event gave it one.
+- When an attribute change shows a hidden `img`, the recorder decides this on the srcset and the `src` after the change.
+- The image scan can still decline an inline kept candidate when its message is past the caps. The srcset is then empty, and the `img` shows no image.
+- An inline image in a candidate that leaves still moves to the image pack, where no reference names it.
+- A `<picture>` source whose `type` names a media type the image fetcher does not store, such as `image/avif`, gets no fetch job and loses its remote candidates. Its kept candidate stays only when it is inline, such as an SVG data URI. The writer rebuilds each srcset that the inspector read in an image slot, where the inspector read it. A `srcset` key elsewhere, for example in a custom event's payload, stays as it is. A browser skips a source with no candidates, so the replay falls back to the next source or the `img`. The recorder counts these as `ai_research_v4_recorder_srcset_rewrites_total{outcome="trimmed"|"emptied"}`.
+- The writer rewrites each CSS text where the inspector read it, so that an offline render loads only images the block refers to. An `image-set()` keeps one candidate, because a renderer picks the candidate that fits its pixel ratio and does not fall back when that candidate fails. It keeps the highest resolution of a type the image fetcher stores among the candidates that can load: inline, accepted by the URL policy, or root-relative on a known page. Only that candidate gets a fetch job, and the other candidates leave the set. A set that holds an inline image keeps all its candidates, and each remote one gets its reference.
+- A root-relative CSS `url(/…)` resolves against the origin of its window's latest page URL, from a Meta event or a custom event that names a page, such as `$url_changed`, with `https` in place of the page's scheme. It gets what the absolute URL gets: its reference, or the marker or the URL without its credentials when the URL policy refuses it. A C0 control or a space before the `/`, which the URL parser strips, does not change this. A path-relative `url(…)` stays as the page wrote it, so that no part of a page path, which can hold a token, reaches a fetch. rrweb writes snapshot CSS with absolute URLs, but sends rule text, adopted style sheets and style declarations as the page wrote them. Each window resolves its own texts, so the same rule in windows on two origins gets two references. An event resolves at most 1,024 relative URLs, a flush keeps at most 64 MiB of resolved URLs, and a page URL longer than 2,048 characters resolves none.
+
+- The recorder reads CSS with `cssparser`, which tokenizes as CSS Syntax 3 does, so names, escapes, comments, strings and bad URLs read as a browser reads them. So `background-\69mage`, `\75 rl(…)` and `background/**/:url("…"/**/)` count, and so does a `url(` that the end of the text closes. A bad URL such as `url(a(1).png)`, which no browser loads, does not count. An image URL that itself holds an escape gets the reference of the URL it decodes to, as a font URL does, and its whole `url()` is rewritten. A block whose `image-set()` holds such a candidate, or a candidate such as `cross-fade()` with a `url()` inside, is dropped, because the set keeps its candidate as the page wrote it. A block is also dropped when an escaped URL decodes to a remote URL that the URL parser does not read.
+- The writer rewrites only whole `url()` and `image-set()` functions, found as the inspector finds them, inside JSON strings that hold CSS: the values of `_cssText`, `style` (style diffs included), `textContent`, `rule`, `replace`, `replaceSync` and `value`. So a class name such as `bg-[url(/a.png)]`, a quoted string or a comment keeps its text, and the class's rule still matches. The recorder counts these as `ai_research_v4_recorder_css_rewrites_total{kind="image_set"|"relative_url", outcome="rewritten"}`.
+- The recorder reads a protocol-relative URL, such as `//cdn.example.com/a.png`, as `https`. It gets the same reference as the `https` form, and the rewrite replaces the text as the block holds it. A browser reads a backslash as a slash there, so `\\cdn.example.com/a.png` counts too, and so does a URL such as `https:\\cdn.example.com/a.png` with any mix of slashes and backslashes after the scheme, or none: on a page of another scheme the browser loads `https:cdn.example.com/a.png` from that host. The URL parser drops ASCII tabs and line breaks anywhere in a URL, and C0 controls and spaces at either end, so the recorder drops them before it decides that a URL is remote, and `/\n/cdn.example.com/a.png` and `\u0001https://cdn.example.com/a.png` count too.
+- Some URLs get no reference and keep their place without their credentials: relative URLs outside CSS, path-relative CSS URLs, root-relative CSS URLs that go past a budget or come before this process saw their window's page URL (after a restart or an eviction), and remote URLs in attributes that show no image. Those attributes are `href` and `src` of links, frames, scripts and other elements, `action`, `formaction`, `data`, `background`, `cite`, `longdesc`, `manifest`, `codebase`, `icon`, `imagesrcset` and the URL lists of `ping` and `attributionsrc`, and the `data-` attributes that lazy loaders use, such as `data-src` and `data-srcset`. So do `url()`s in CSS properties that show no image, such as `filter`, in SVG presentation attributes such as `fill`, `stroke`, `filter`, `clip-path`, `mask` and `marker-end`, and in `@import`. A URL with no credential there keeps every byte. On a page of its scheme a browser reads `https:a/b`, with no two slashes after the scheme, as a path on the page's host, so the recorder looks for a credential in both readings, and a URL whose credential is in what the URL parser alone reads as its host becomes its decline marker. The candidates of an `image-set()` that does not parse stay as they arrived.
+- The writer writes again any JSON string that holds an escape capture would not write, for example `\/`. A scheme matches in any letter case.
+- v4 stores pages unscrubbed, so the recorder removes credentials only from URLs where a page can load them: URL attributes and CSS. A copy of a URL elsewhere, such as in `alt` or `title` text, a text node, a CSS selector, a custom event, a console log or a network body, keeps its text.
 - The recorder reads object keys as the player does: it writes an escaped key, such as `"\u0073rc"`, in its plain form before it inspects the event, and it takes the last copy of a repeated key.
-- A block that the recorder cannot check in full is kept. Past 10,000 image-slot URLs (`too_many_urls`), 2 MiB of them (`too_many_url_bytes`) or 200,000 attribute changes in a mutation (`too_many_attribute_items`), the recorder names the URLs it read, and replaces every other remote URL token in the block, links and text included, with `imageurl:v4:declined:unchecked`. A replaced token runs to whitespace or the end of its JSON string, and to the `)`, `'` or `"` that ends a CSS URL, so the scrub never splits an escape. It counts these as `url_fallbacks_total{reason}` and the replaced tokens as `scrubbed_urls_total`. A URL of any length is named; one longer than the fetcher takes becomes `imageurl:v4:declined:too_long`. Only a block whose sealing fails is dropped.
-- When the text of a rewritten URL also appears outside an image slot in the same block, it is replaced there too.
+- The inspector records where each image slot, srcset and CSS string is, and the writer copies each event once and writes each reference, marker or URL without its credentials there. So a block has no limit on its URLs, and the writer finds no URL by its text. A URL of any length is named; one longer than the fetcher takes, 2,048 characters, becomes `imageurl:v4:declined:too_long`.
+- A block that the recorder cannot read in full is dropped, because a URL in the part it did not read went unchecked: CSS that nests rules or functions 75 deep (`too_many_nested_blocks`), compressed JSON that nests more than 1,024 deep, which the message read cannot see (`too_deep_json`), a mutation with more than 200,000 attribute changes (`too_many_attribute_items`), an event whose compressed strings did not decode or that a decode budget skipped (`undecoded_events`), a block whose edits do not fit in the flush's 256 MiB edit budget (`too_many_edits`), and a slot that the writer could not find again (`unplaced_slot`). The recorder counts these as `dropped_blocks_total{outcome}`.
 - `hash` is the first 22 characters of the base64url HMAC-SHA256, as in v3.
 
 ### Layout
 
 Every prefix that the recorder writes is partitioned by the UTC day of the write.
-Fetched images are partitioned by the key month of their reference.
+Fetched images and fonts are partitioned by the key month of their reference. A public font file has no month.
 
 | Bucket      | Prefix                                        | Contents                                                                        |
 | ----------- | --------------------------------------------- | ------------------------------------------------------------------------------- |
@@ -497,8 +513,11 @@ Fetched images are partitioned by the key month of their reference.
 | `rrweb-v4`  | `index/images/dt={day}/`                      | Parquet, one row per stored inline image                                        |
 | `rrweb-v4`  | `index/blocks/_watermarks/`                   | JSON, one object per Kafka partition: how far the block index is complete       |
 | `rrweb-v4`  | `index/images/_watermarks/`                   | JSON, one object per Kafka partition: how far the image index is complete       |
+| `rrweb-v4`  | `index/_recorder_watermarks/dt={day}/`        | JSON, one object per input Kafka partition: how far the recorder is complete    |
 | `images-v4` | `images/packs/dt={day}/{team_id}/`            | One object per recorder flush and team: sealed images, each found by byte range |
 | `images-v4` | `images/url/month={YYYY-MM}/{team_id}/{hash}` | One sealed fetched image per URL reference                                      |
+| `images-v4` | `fonts/url/month={YYYY-MM}/{team_id}/{hash}`  | One sealed fetched font per font URL reference                                  |
+| `images-v4` | `fonts/url/public/{hash}`                     | One unsealed font file per public font reference, for every team                |
 
 S3 expires every object a fixed time after it was written: 30 days in `rrweb-v4` and 38 days in `images-v4`. [Lifecycle](#lifecycle) lists every lifetime and why they fit together.
 
@@ -513,10 +532,12 @@ The recorder does not write the two index prefixes itself, as in v3:
 ### Block index
 
 A flush can write its blocks and index rows and then fail before it commits its Kafka offsets.
-The next attempt for that partition starts at the same committed offset and writes the same messages again.
+The recorder keeps running and tries to commit those offsets again later, and it exits only when commits keep failing for 10 minutes.
+When the partition moves first, or the process restarts, the next attempt for that partition starts at the same committed offset and writes the same messages again.
 A retry can also cover a different range than the attempt it replaces, for example one flush that replays two earlier flushes.
 Every row therefore names its flush and its Kafka position.
 The index rows are published without waiting for delivery, so a retry can also reach the index only in part.
+`flush_id` is a random 64-bit number for each attempt, written as 16 lowercase hexadecimal digits, so its text order is its numeric order.
 Every row of one (`flush_id`, `topic`, `partition`) carries the same `flush_end_offset` and `flush_row_count`, and its own `flush_row_index` from 0.
 Readers drop duplicates with one rule per (`topic`, `partition`), applied to all rows before any session or team filter:
 
@@ -533,6 +554,7 @@ The order holds only within a file. The blocks of a session spread over many fil
 A reader that needs whole sessions selects them by the start time in the session UUIDv7, not by write day:
 
 - Read the write days from the UTC day of `start - 1 day` onward. The recorder admits a session from 1 day before its start until 14 days after it, so no block of a session has an earlier write day.
+- The [recorder watermark files](#recorder-watermark-files) give the last write day to read for every block captured before a cutoff. A recorder that lags writes blocks to write days after their capture day.
 - Use a session only while its start is less than 29 days old. Every block lives at least 30 days after its write, so until then no block has expired.
 - A session can get more blocks until its start is 14 days old. A reader that needs final sessions uses only sessions with a start between 14 and 29 days old.
 
@@ -629,7 +651,7 @@ Each write is a plain PUT that replaces the file.
 A failed write does not fail the flush. The sink counts it in `ai_research_v4_parquet_sink_watermark_writes_total`, logs it, and writes the file again after the next interval. A write that the sink aborts because it lost the partition counts as `outcome="cancelled"`.
 S3 expires a file 30 days after its last write, as it does every object in the bucket.
 
-To learn how far an index is complete, a reader:
+To learn how far the sink has written an index, a reader:
 
 1. Reads every file under that index's `_watermarks/`.
 2. Takes the minimum `complete_up_to_capture_ms` across the partitions.
@@ -640,8 +662,65 @@ Some limits apply:
 - A partition that delivers no records keeps its last value, as the gauge does, and the sink keeps rewriting its file. So a quiet partition holds the minimum down.
 - When the sink loses a partition, it aborts the partition's watermark writes that are still in flight, retries included. A write that S3 already received can still land. The new owner writes its first file only after its first flush, so the two overlap only if S3 takes longer to apply that write than the new owner takes to flush. The file then holds an older value until the new owner writes again. That value is still true. A full fence is not possible, because the bucket does not let the sink read the file that it replaces.
 - A partition that the sink has not flushed since it started to write these files has no file. A reader that needs every partition compares the number of files with the partition count of the topic.
-- The value covers only the rows that reached the sink. The recorder sends a row only after its own flush stores the block or image, so a row with an earlier capture time can still be in the recorder. A sink that has read all of its topic does not make the index complete.
+- The value covers only the rows that reached the sink. The recorder sends a row only after its own flush stores the block or image, so a row with an earlier capture time can still be in the recorder. A sink that has read all of its topic does not make the index complete. The [recorder watermark files](#recorder-watermark-files) cover the recorder.
 - A reader that lists `index/blocks/` or `index/images/` for Parquet files must skip `_watermarks/`. Hive-style readers such as Spark, Athena and pyarrow datasets ignore paths that start with `_`, and a `*.parquet` glob does not match the JSON files.
+
+#### Recorder watermark files
+
+The recorder sets the write day of a flush from its own clock when the flush starts.
+A recorder that lags therefore puts blocks and index rows in a write day after their capture day.
+The sink's watermark files cannot show this, so the recorder writes its own files to the rrweb bucket:
+
+- `index/_recorder_watermarks/dt={day}/topic={topic}/partition={NNNN}.json`
+
+There is one file per write day, input topic and Kafka partition.
+The input topics are the replay topic and its overflow topic.
+`{NNNN}` is the partition number with four digits.
+Each file holds one object:
+
+| Field                       | Meaning                                                                                                                                                                                                          |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `topic`                     | The input topic.                                                                                                                                                                                                 |
+| `partition`                 | The input partition.                                                                                                                                                                                             |
+| `complete_up_to_capture_ms` | Every record of the partition with an earlier capture time has its blocks and images stored in this write day or an earlier one. Each index row of the record was delivered to `ai_research_v4_index` or failed. |
+| `index_end_offsets`         | The high watermark of each partition of `ai_research_v4_index`, by partition number. The recorder reads them after it takes the value, so each delivered row that the value covers is below them.                |
+| `input_partitions`          | The partition count of each input topic, by topic name. Any one file tells a reader which files a day must have.                                                                                                 |
+| `written_at_ms`             | When the recorder wrote the file.                                                                                                                                                                                |
+
+The capture time of a record is its Kafka timestamp, the same time as the `capture-timestamp-ms` header of its index rows.
+The recorder sets the value this way:
+
+- A record that the recorder has read but not finished holds the value at or below its capture time. A record is finished when its flush has stored the blocks and the producer has delivered or failed every index row of the flush.
+- A record that the recorder has not read yet can have an earlier capture time than one that it has read, by up to the delivery timeout of the record's producer. So the value is at least `CAPTURE_ORDER_SLACK_MS` (`watermark.rs`) before the capture time of the last record read, unless the partition is read to its end.
+- A partition that the recorder has read to its end moves with the clock, also when no records arrive. Its value can rise to `CAPTURE_ORDER_SLACK_MS` before the time that the recorder read the end offset, so a quiet overflow partition does not stop a reader. A partition that holds no record counts as read to its end, also when it has no committed offset.
+- After an assignment, the recorder writes no file for the partition until the index delivery timeout plus one minute has passed. By then, each index row that the previous owner sent is delivered or failed.
+
+The recorder writes the files every `WATERMARK_FILE_INTERVAL` (`watermark.rs`), from the consume loop, for each partition that it owns.
+Each write goes to the UTC day of the write and is a plain PUT that replaces the file of that day.
+So the files of a day change until the day ends, and the last write of the day stays.
+A file of a running recorder is at most the interval plus one flush old. A file of the current day that is more than about 15 minutes old shows a partition that no consume loop moves forward.
+A failed write does not stop the recorder. It counts the write in `ai_research_v4_recorder_watermark_files_total` and writes the file again in the next round.
+A round that cannot read the Kafka offsets writes no files and counts `outcome="kafka_failed"` in `ai_research_v4_recorder_watermark_rounds_total`.
+S3 expires a file 30 days after its last write, as it does every object in the bucket.
+
+To find the write days that hold every record captured before a cutoff `C`, a reader:
+
+1. Starts at the UTC day of `C` and uses only days that have ended, because the files of the current day still change.
+2. Finds the first day `X` with a file for every partition of every topic in `input_partitions`, each with `complete_up_to_capture_ms` at or after `C`. Each block and index row of a record captured before `C` then has a write day of `X` or earlier. A day with a missing file proves nothing, but a later day can.
+3. Takes the highest value of `index_end_offsets` for each index partition, over the files of day `X`.
+4. Waits until, for each index partition, one of the sink's [watermark files](#watermark-files) of that partition has a `committed_offset` at or past that value. The block and image files of a partition carry its one committed offset, so either file shows it, and a reader of one index does not wait for the other's file to refresh. An index partition whose value is 0 has never received a row, so it needs no sink file. Every index row of those records is then in an index file in S3.
+5. Reads the write days up to and including `X`.
+
+For example, take a cutoff of 2026-10-27 00:00 and a recorder that is 60 hours behind.
+The recorder reaches the cutoff at about 2026-10-29 12:00, so 2026-10-29 is the first day whose files reach the cutoff.
+A reader of the sessions that start from 2026-10-12 then reads the write days from 2026-10-11 to 2026-10-29.
+
+Some limits apply:
+
+- An index row that the producer failed to deliver stays out of the index, as above. The value counts its record as finished.
+- A write of an earlier owner can land after a newer file of the same day. Its value is older, but it is still true.
+- The value assumes that a record reaches its partition no later than `CAPTURE_ORDER_SLACK_MS` after its capture time. A record that arrives later can have a capture time before a value that the recorder already wrote.
+- A reader that lists `index/` must skip `_recorder_watermarks/`.
 
 ### Image index
 
@@ -655,11 +734,11 @@ Some limits apply:
 ### Remote images
 
 The recorder sends each remote image URL that the URL policy accepts to the `ai_research_v4_image_fetch` topic in the v3 job shape, keyed by registrable domain. The job carries the reference that replaces the URL in the block.
-It collects URLs from image sources, `srcset`, SVG image links, CSS `url(...)` values and attribute mutations, and skips hidden or 1×1 images as v3 does. Unlike v3, it also collects CSS custom properties and relative CSS URLs, and fetches one `image-set()` candidate of a stored type.
+It collects URLs from image sources, the kept candidate of each `srcset`, SVG image links, CSS `url(...)` values and attribute mutations, and skips hidden or 1×1 images as v3 does. Unlike v3, it also collects CSS custom properties and relative CSS URLs, and fetches one `image-set()` candidate of a stored type.
 The topics hold jobs for 24 hours, because jobs carry raw URLs.
-The v4 image fetcher is its own copy of the v3 fetcher under `ai-research/image-fetch-v4/`, with the v3 fetch policy, its own consumer groups, its own `AI_RESEARCH_V4_IMAGE_FETCH_*` settings and a share of the v3 per-host limits. It shares no code or table with v3.
+The v4 image fetcher is its own copy of the v3 fetcher under `ai-research/image-fetch-v4/`, with the v3 fetch policy, its own consumer groups and its own `AI_RESEARCH_V4_IMAGE_FETCH_*` settings. It shares no code or table with v3.
 It applies the recorder's URL policy through `@posthog/ai-research-v4-native`, an addon over `replay_core_v4::url_policy`, so it canonicalizes a URL, groups it by registrable domain and refuses private hosts exactly as the recorder does.
-It stores each image, sealed and unscrubbed, under `images/url/`, and it does not send images to the scrub lane.
+It stores each image, sealed and unscrubbed, under `images/url/`, and it does not send images to the scrub lane. It parses the image URL reference, seals the frame and computes the response URL HMAC with `replay_core_v4::fetched_image` through the same addon.
 It stores PNG, JPEG, GIF, WebP and SVG as fetched. It does not rasterize an SVG; redaction downstream of the dataset handles SVG text.
 The response must have one of these media types and bytes of that format: a signature for a raster image, or an SVG root element for SVG. An SVG may carry a byte order mark, comments, processing instructions and a doctype before its root. The doctype may name no internal subset and no external DTD other than a W3C SVG DTD, so that a parser downstream cannot resolve entities from the document. It refuses AVIF and every other type.
 
@@ -673,6 +752,76 @@ The fetcher keeps a crawl history per URL reference, so per team and month, in i
 - The history holds no URL in plaintext. It binds the stored validators to an HMAC of the response URL under the team month URL key, and sends them only when the job's URL has the same HMAC.
 
 A URL is therefore fetched from its origin about once per team and month, as v3 fetches it about once in 30 days.
-Unlike v3, the history is per team: a sealed image is readable only with its team's key, so two teams that refer to one URL each fetch it.
-The recorder sends a job for each referenced URL at least once per day, so the fetcher sees a reference in every 7-day refresh interval.
-The fetcher drops a job whose team month row is missing, expired or deleted.
+Unlike v3, the history is per team: a sealed image is readable only with its team's key, so two teams that refer to one URL each fetch it. A public font file is the exception, as [Web fonts](#web-fonts) says.
+The recorder sends a job for each referenced URL at least once per day, unless the fetcher's history shows that the fetcher would drop it (see below). So the fetcher sees a reference in every 7-day refresh interval.
+The fetcher drops a job whose team month row is missing, expired or deleted. A public font job needs no row.
+
+Each recorder pod sends a reference at most once per UTC day. When `AI_RESEARCH_V4_IMAGE_FETCH_HISTORY_TABLE` is set, the recorder also reads the fetcher's history, as the v3 mirror did:
+
+- It reads only the image and font references of the flush that it did not send or mark that day, each one once. The read starts with the flush and runs while the flush seals its blocks.
+- It does not send a job that the fetcher would still drop at the end of the day. That is a job before the refetch time of its reference, when the reference has no stored copy or a stored copy less than 7 days old. It marks that reference as sent for the day.
+- It sends every other job, so the fetcher still refreshes each stored copy within its interval.
+- It parses a history row with the same code as the fetcher. A row that the fetcher reads as a miss is a miss for the recorder too.
+- A read that fails or takes more than 5 seconds checks nothing, and its jobs go out. The read does not retry a failed request.
+- `ai_research_v4_recorder_image_fetch_history_total` counts the references it read by `outcome`: `fresh` (marked), `due` (a refresh or refetch is due today), `absent`, `invalid` and `error`.
+
+`replay_core_v4::fetch_history` holds the drop rule, the 7-day refresh interval and the row parser. The recorder calls it directly, and the fetcher calls it through `@posthog/ai-research-v4-native`.
+
+#### Limits per domain and frontier backlog
+
+The fetcher sends at most `AI_RESEARCH_V4_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN` requests at once to one registrable domain.
+The default is 7. An explicit robots.txt crawl delay and the back-off after a failure can lower the rate for a domain. `Retry-After` can also lower it.
+
+The topic key sends each registrable domain to one partition and one pod, so more pods do not drain one domain faster.
+A pass ends after `AI_RESEARCH_V4_IMAGE_FETCH_REQUEST_BUDGET_MS`. A URL that the pass does not reach goes back to the frontier as `pass_deadline`. A URL whose domain is in back-off goes to a delay topic as `not_ready`.
+A URL finishes as `url_too_old` when it reaches `AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_MS`.
+
+When one frontier partition holds most of the lag, find the cause before you change capacity:
+
+1. Read `ai_research_v4_image_fetch_partition_urls_total` for the partition. A high `store_deduped` rate means that the recorder sends jobs that the fetcher drops. Check that the recorder has `AI_RESEARCH_V4_IMAGE_FETCH_HISTORY_TABLE` and read `ai_research_v4_recorder_image_fetch_history_total`.
+2. Read the TopHog metrics by `registrable_domain`, which the staff query path in `/querying-tophog` shows:
+   - `ai_research_v4_image_fetch_filtered_urls_by_registrable_domain` with `stage=received` shows the demand. `pass=first` counts what the recorder sent, and `pass=republished` counts what the fetcher sent back to itself. The other stages count unique URLs after duplicates in a batch merge, so they do not separate the two passes.
+   - `ai_research_v4_image_fetch_attempts_by_registrable_domain` shows each outcome.
+   - `ai_research_v4_image_fetch_block_events_by_registrable_domain` and `ai_research_v4_image_fetch_blocked_ms_by_registrable_domain` show which limit holds the domain.
+3. Act on the limit that holds the domain:
+   - For `transient_backoff`, `retry_after` or `breaker_open`, the site fails or asks for less traffic. Do not raise the limit. The URLs wait, and those that stay blocked finish as `url_too_old`.
+   - For `pass_deadline` with `domain_concurrency`, the domain has more URLs than its limit can serve in a pass. Raise the limit per domain only for a host that can take the traffic.
+   - For `configuration_unreachable`, the fetcher cannot read robots.txt or tdmrep for the origin. It waits for one hour and tries again.
+
+`IngestionSessionReplayMlConsumerNotDraining` and `IngestionSessionReplayMlConsumerStalled` read the lag of the whole topic. The `AiResearchV4ImageFetch*` alerts in the charts repository cover late completions, rejected input and long batches. The v4 image fetch dashboard in Grafana shows the same signals.
+
+### Web fonts
+
+A renderer that has no network needs the page's fonts. rrweb keeps the `@font-face` rules of a page in its style text, but it does not record font files, so the v4 lane fetches them as it fetches images.
+
+The recorder reads the `src` URLs of `@font-face` rules in `<style>` text, `_cssText`, style sheet rules and adopted style sheets. Each URL becomes one of these:
+
+| The rule's family                                                 | In the block                            | Fetch job |
+| ----------------------------------------------------------------- | --------------------------------------- | --------- |
+| A family in `replay-core-v4/src/bundled_fonts.txt`                | `fonturl:v4:bundled:{slug}`             | None      |
+| Any other family, for a public font file                          | `fonturl:v4:public:{hash}`              | Yes       |
+| Any other family                                                  | `fonturl:v4:{team_id}:{YYYY-MM}:{hash}` | Yes       |
+| Any other family, for a URL that the URL policy refuses           | `fonturl:v4:declined:{reason}`          | None      |
+| Any other family, for a URL that the policy refuses as credential | The URL without its credentials         | None      |
+
+- The renderer ships every family in `bundled_fonts.txt`. A reader replaces `fonturl:v4:bundled:{slug}` with its own copy of that family, and picks the face from the rule's `font-weight` and `font-style` descriptors. The slug is the family name in lowercase, with `-` for each space.
+- The list holds only families whose licence lets the renderer carry them. The renderer ships the full font of each family, which holds every glyph of a subset that a page asks for, such as a Google Fonts `text=` or `icon_names=` subset.
+- The list holds Google's icon families, Material Icons and Material Symbols, because Google never moves an icon to another code point or ligature. It holds no site's own icon font. Many sites share a generated name such as `icomoon`, and an icon font generator can number the glyphs again on each build, so the fetcher fetches those.
+- A page can ask Google for one fixed fill or grade of Material Symbols, such as `FILL@1`. The bundled font has every fill and grade, and shows the default unless the page's CSS sets `font-variation-settings`. So such a page shows outlined icons where it showed filled ones. The `font-weight` and `font-size` of the page still set the weight and optical size.
+- The recorder compares family names without case, and reads a run of spaces as one space. A family it does not know, for example a name that a build tool made, is fetched.
+- A team font reference uses the same hash, image URL key and URL policy as an image URL reference. A public font reference uses the same URL policy. A font job goes to the `ai_research_v4_image_fetch` topic in the same shape, keyed by registrable domain, so fonts share the image jobs' partitions, politeness limits and crawl history rules. A record holds only font jobs or only image jobs.
+- An Embedded OpenType or SVG font file gets a reference but no fetch job, because Chromium loads neither format.
+- A root-relative font URL, such as `src:url(/fonts/a.woff2)`, resolves as a root-relative image URL does, and gets the font reference of the absolute URL. A path-relative font URL stays as the page wrote it.
+- The recorder reads CSS escapes as a browser does, in the `@font-face` keyword, the `src` and `font-family` descriptors, the `url()` name and the URL itself. So `@\66 ont-face`, `\73 rc` and `url(https://cdn.example.com/a\2e woff2)` count, and an escaped protocol-relative URL reads as `https`. A quoted URL drops a backslash before a newline, as a line continuation. Comments around a descriptor name, as in `src/**/:`, do not hide it. A font URL that holds an escape gets a rewrite of its whole `url()` to its font reference, as a root-relative font URL does.
+- A URL that is both an image and a font gets the reference of each slot's kind.
+
+The fetcher reads the asset from the reference prefix. For a font it sends `Accept: font/woff2, font/woff, font/ttf, font/otf, */*;q=0.1`. It takes a response whose media type is a `font/*` type, a legacy font type such as `application/x-font-woff`, or `application/octet-stream`, because many servers label fonts with a generic type. The decoded bytes must start with a WOFF2, WOFF, OpenType, TrueType or font collection signature. It stores the font as fetched under `fonts/url/`, sealed under the team month key with `kind: "font-url"`.
+
+Google serves each file under `https://fonts.gstatic.com/s/` at a versioned path whose bytes never change, and it serves the same file to every page. Such a public font file belongs to no team:
+
+- Its reference is `fonturl:v4:public:{hash}`, where `hash` is the first 22 characters of the base64url SHA-256 of the canonical URL. The hash has no key, because the URL holds no personal data. A person who holds a reference can test it against a Google Fonts URL, which tells them only which public font file a page used.
+- The fetcher stores the file once, unsealed, at `fonts/url/public/{hash}`, and reads no team month key for it. All teams share one crawl history entry, so Google gets one request per file, and a later job from any team only refreshes the stored file.
+- The fetcher stores the file only when the response came from the URL that the reference names, so a redirect target never becomes the shared file. It counts a refused one as `ai_research_v4_image_fetch_stored_images_total{asset="font",outcome="not_public"}`.
+- A URL with a query, a port or a path outside `/s/` gets a team reference. Google serves a `text=` subset under `/l/`, and such a file holds the glyphs of the text that the page asked for.
+
+An older fetcher sends a whole record to its dead letter topic when one job in it has a `fonturl` reference. Records never mix the two kinds of job, so while a recorder runs ahead of the fetcher, only font jobs are lost. The fetcher's role must also be allowed to write `fonts/url/` (`v4-staging.hcl` in posthog-cloud-infra). Until then, each font write fails and the fetcher tries the job again after a minute.

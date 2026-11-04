@@ -8,11 +8,11 @@ import datetime
 from collections.abc import Sequence
 from typing import Any, Literal, get_args
 
-from products.signals.backend.activity_summary.read import ActivitySummaryStatus, ActivitySummaryView
+from products.signals.backend.activity_summary.read import ActivitySummaryView
 from products.signals.backend.personal_ranking.candidates import Candidate, NeedsYouKind
 from products.signals.backend.personal_ranking.config import PersonalRankingConfig
 
-PROMPT_VERSION = 5
+PROMPT_VERSION = 6
 
 Tier = Literal["top", "worth_a_look", "later"]
 TIERS: tuple[Tier, ...] = get_args(Tier)
@@ -94,7 +94,6 @@ The person block is an activity summary built from their recent PostHog activity
 - Themes are their recent areas of work. A strong theme seen recently counts more than a weak or old one.
 - Owns lists objects they made or keep changing. Watches lists objects they keep opening. A report about an object they own matters more than one they only watch.
 - Works in lists the PostHog products they use most.
-When no activity summary is available, rank on the needs-you facts and the model's lift.
 
 The `model` line of a report holds the ranking model's predictions for three outcomes:
 - `open`: someone opens the report.
@@ -150,9 +149,8 @@ def _works_in(computed: dict[str, Any] | None) -> list[str]:
     return [item for item in works_in if isinstance(item, str)][:_PRODUCT_LIMIT] if isinstance(works_in, list) else []
 
 
-def render_person(summary: ActivitySummaryView | None, config: PersonalRankingConfig) -> str:
-    if summary is None or summary.status != ActivitySummaryStatus.READY:
-        return "No activity summary for this person. Rank on the needs-you facts and the ranking model."
+def render_person(summary: ActivitySummaryView, config: PersonalRankingConfig) -> str:
+    """The person block, from a ready activity summary. A build with no ready summary does not call the model."""
     lines = []
     if summary.headline:
         lines.append(f"Headline: {summary.headline}")

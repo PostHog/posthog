@@ -18,16 +18,15 @@ use replay_core_v4::inspect::stats::BlockStats;
 use replay_core_v4::inspect::stats::MAX_URL_FINGERPRINTS;
 use replay_core_v4::keys::batch::{FlushKeys, SessionId, SessionKey as Key};
 use replay_core_v4::refs::url_fingerprint;
-use replay_core_v4::scan::cv::extract_event_images;
-use replay_core_v4::scan::images::{Declined, Image, ImageLimits, ImageSink};
+use replay_core_v4::scan::cv::{extract_event_images, Expansion};
+use replay_core_v4::scan::images::{Image, ImageLimits, ImageSink};
 use replay_core_v4::seal::{image_content_key, url_fingerprint_key};
 
 use tokio::sync::Semaphore;
 
 use crate::batch::{Block, SessionKey};
 use crate::index::{BlockIndexRow, ImageIndexRow};
-use crate::rewrite::{Fallback, RewriteReport, UrlRewrite};
-use crate::scrub::Scrub;
+use crate::splice::Splicer;
 use crate::store::{BlobStore, StoreError};
 
 /// Brotli settings for blocks, the same as the v3 lane, which uses the same C encoder. The lane keeps blocks for months
@@ -66,13 +65,8 @@ pub struct WriterCounts {
     /// The bytes of the lines the writer gives the encoder, and the longest line.
     pub jsonl_bytes: u64,
     pub max_line_bytes: u64,
-    /// Why the block must not be stored, as the outcome of its drop: a URL the policy declines stays in it even after
-    /// the fallback.
+    /// Why the block must not be stored, as the outcome of its drop: the inspector could not read some of it.
     pub dropped: Option<&'static str>,
-    /// Why the writer used a fallback to keep the block, as a metric label.
-    pub fallback: Option<&'static str>,
-    /// The URL tokens the fallback replaced.
-    pub scrubbed: u64,
 }
 
 /// A block compressed once for all the attempts of its flush, with the images it moved out.
@@ -118,23 +112,14 @@ fn prepare_block(
     block: &Block,
     team_key: &[u8; 32],
     key_month: &str,
-    fallback: &Fallback,
     out: &mut impl Write,
-) -> io::Result<(Vec<Image>, WriterCounts, RewriteReport)> {
+) -> io::Result<(Vec<Image>, WriterCounts)> {
     let content_key = image_content_key(team_key);
-    let mut rewrite = UrlRewrite::new(
-        &block.remote_urls,
-        &block.srcsets,
-        &block.css_rewrites,
-        block.session.team_id,
-        key_month,
-        team_key,
-    )
-    .with_fallback(fallback.clone());
+    let mut splicer = Splicer::new(&block.edits, block.session.team_id, key_month, team_key);
     let mut images = Vec::new();
     let mut kept = HashSet::new();
     let mut counts = WriterCounts::default();
-    let mut removed_images = [0u64; Declined::ALL.len()];
+    let mut event_index = 0;
     for message in &block.messages {
         let mut window = Vec::new();
         write_json_string(
@@ -148,18 +133,23 @@ fn prepare_block(
             ImageLimits::default(),
         );
         for event in &message.events {
-            let extracted = extract_event_images(&message.inner, event, &mut sink);
+            let extracted = match splicer.edits_of(event_index) {
+                Some(edits) => {
+                    let mut copy = |source, bytes: &[u8], range, out: &mut Vec<u8>| {
+                        splicer.copy(edits, source, bytes, range, out)
+                    };
+                    extract_event_images(&message.inner, event, &mut sink, Some(&mut copy))
+                }
+                None => extract_event_images(&message.inner, event, &mut sink, None),
+            };
+            event_index += 1;
+            let event_bytes = extracted
+                .as_deref()
+                .unwrap_or(&message.inner[event.span.0..event.span.1]);
             out.write_all(b"[")?;
             out.write_all(&window)?;
             out.write_all(b",")?;
-            let stored = extracted
-                .as_deref()
-                .unwrap_or(&message.inner[event.span.0..event.span.1]);
-            // The inspector reads image slots in full snapshots and mutations only.
-            let dom_event =
-                event.kind == Some(2) || (event.kind == Some(3) && event.source == Some(0));
-            let event_bytes = rewrite.apply(stored, dom_event);
-            out.write_all(&event_bytes)?;
+            out.write_all(event_bytes)?;
             out.write_all(b"]\n")?;
             let line = (window.len() + event_bytes.len() + 4) as u64;
             counts.jsonl_bytes += line;
@@ -172,7 +162,12 @@ fn prepare_block(
             .map(|i| i.bytes.len() as u64)
             .sum::<u64>();
         counts.inline += sink.left_inline;
-        for (removed, declined) in removed_images.iter_mut().zip(sink.declined) {
+        for (removed, declined) in splicer
+            .counters
+            .removed_images
+            .iter_mut()
+            .zip(sink.declined)
+        {
             *removed += u64::from(declined);
         }
         images.extend(
@@ -181,81 +176,51 @@ fn prepare_block(
                 .filter(|image| kept.insert(image.reference.clone())),
         );
     }
-    let mut report = rewrite.finish();
-    report.counters.removed_images = removed_images;
-    counts.scrubbed = report.scrubbed;
-    Ok((images, counts, report))
+    splicer.counters.emit();
+    Ok((images, counts))
 }
 
-/// A block whose URLs the inspector did not all name has every remote URL token it did not name scrubbed, so that the
-/// block is kept without a URL nobody checked.
-fn first_fallback(block: &Block) -> Fallback {
-    match block.url_limit {
-        Some(limit) => Fallback {
-            overwrite_declined: true,
-            scrub: Scrub::AllRemote,
-            reason: Some(limit.label()),
-        },
-        None => Fallback::default(),
+/// Why a block must not be stored: the inspector could not read some of it, so a URL there went unchecked.
+fn unread(block: &Block) -> Option<&'static str> {
+    if block.unplaced {
+        return Some("unplaced_slot");
     }
-}
-
-/// What the second pass does about what the first left unsafe: it overwrites each declined URL wherever it is, and
-/// scrubs the tokens that hold the host of a declined URL the stored bytes do not hold as the inspector read it.
-fn second_fallback(first: &Fallback, report: &RewriteReport) -> Fallback {
-    let scrub = match (&first.scrub, &report.unfound_hosts) {
-        (Scrub::AllRemote, _) | (_, None) => Scrub::AllRemote,
-        (_, Some(hosts)) if hosts.is_empty() => Scrub::Nothing,
-        (_, Some(hosts)) => Scrub::Hosts(hosts.clone()),
-    };
-    let reason = if report.unfound_hosts.as_ref().is_some_and(Vec::is_empty) {
-        "declined_kept"
-    } else {
-        "declined_unfound"
-    };
-    Fallback {
-        overwrite_declined: true,
-        scrub,
-        reason: first.reason.or(Some(reason)),
+    if let Some(limit) = block.url_limit {
+        return Some(limit.label());
     }
+    // A block stores such an event as it arrived, with its compressed strings unread.
+    let undecoded = block
+        .messages
+        .iter()
+        .flat_map(|message| &message.events)
+        .any(|event| {
+            matches!(
+                event.expansion,
+                Some(Expansion::Skipped | Expansion::Failed)
+            )
+        });
+    undecoded.then_some("undecoded_events")
 }
 
-/// Writes a block's lines to an output from `open`. A block that the first pass leaves unsafe is written again to a
-/// fresh output with the fallback that makes it safe, so a block is dropped only when even that fails. Moves the
-/// images out and returns them with the output.
+/// Writes a block's lines to an output from `open`, or drops a block that the inspector could not read in full.
+/// A dropped block gets a new output, so that none of its lines are stored.
 pub fn write_block<W: Write>(
     block: &Block,
     team_key: &[u8; 32],
     key_month: &str,
     mut open: impl FnMut() -> io::Result<W>,
 ) -> io::Result<(W, Vec<Image>, WriterCounts)> {
-    let first = first_fallback(block);
-    let mut out = open()?;
-    let (images, mut counts, report) = prepare_block(block, team_key, key_month, &first, &mut out)?;
-    if report.safe {
-        report.counters.emit();
-        counts.fallback = first.reason;
-        return Ok((out, images, counts));
+    if let Some(reason) = unread(block) {
+        let counts = WriterCounts {
+            dropped: Some(reason),
+            ..WriterCounts::default()
+        };
+        return Ok((open()?, Vec::new(), counts));
     }
-    let second = second_fallback(&first, &report);
-    if let Some(key) = &report.kept_in {
-        tracing::info!(
-            team_id = block.session.team_id,
-            key,
-            "a declined URL stayed inside a longer token"
-        );
-    }
-    // The second pass copies every image again, so the first pass's output and images go before it starts.
-    drop(out);
-    drop(images);
     let mut out = open()?;
-    let (images, mut counts, report) =
-        prepare_block(block, team_key, key_month, &second, &mut out)?;
-    report.counters.emit();
-    counts.fallback = second.reason;
-    // Fail closed only when the fallback could not make the block safe either.
-    if !report.safe {
-        counts.dropped = Some("declined_unrewritten");
+    let (images, counts) = prepare_block(block, team_key, key_month, &mut out)?;
+    if counts.dropped.is_some() {
+        return Ok((open()?, images, counts));
     }
     Ok((out, images, counts))
 }
@@ -307,11 +272,6 @@ pub fn compress_block(
     };
     let (lines, images, counts) =
         write_block(block, team_key, key_month, open).map_err(seal_error)?;
-    if let Some(reason) = counts.fallback {
-        counter!("ai_research_v4_recorder_url_fallbacks_total", "reason" => reason).increment(1);
-        counter!("ai_research_v4_recorder_scrubbed_urls_total", "reason" => reason)
-            .increment(counts.scrubbed);
-    }
     let encoder = lines.into_inner().map_err(|e| seal_error(e.into_error()))?;
     let body = encoder
         .into_inner()
@@ -715,7 +675,7 @@ mod tests {
 
     use super::*;
     use crate::batch::{Origin, Tp};
-    use replay_core_v4::inspect::dom::MAX_BLOCK_REMOTE_URLS;
+    use replay_core_v4::refs::UrlAsset;
 
     #[derive(Default)]
     struct MemoryStore {
@@ -742,6 +702,14 @@ mod tests {
                 .unwrap()
                 .entry((bucket.to_owned(), key.to_owned()))
                 .or_insert(body);
+            Ok(())
+        }
+
+        async fn put(&self, bucket: &str, key: &str, body: Vec<u8>) -> Result<(), StoreError> {
+            self.objects
+                .lock()
+                .unwrap()
+                .insert((bucket.to_owned(), key.to_owned()), body);
             Ok(())
         }
     }
@@ -783,10 +751,10 @@ mod tests {
             stats: BlockStats::default(),
             moments: Vec::new(),
             image_urls: Vec::new(),
-            remote_urls: Vec::new(),
+            font_urls: Vec::new(),
             url_limit: None,
-            srcsets: Vec::new(),
-            css_rewrites: Vec::new(),
+            edits: Vec::new(),
+            unplaced: false,
             visited_urls: Vec::new(),
             captured_at_ms: None,
         }
@@ -802,30 +770,39 @@ mod tests {
     }
 
     /// The block's stored lines, after the inspector named its remote URLs.
-    fn stored_lines(events: &str, extra: &[&str]) -> String {
-        stored(block_of("kept", events), extra)
+    fn stored_lines(events: &str) -> String {
+        stored(block_of("kept", events))
     }
 
-    fn stored(mut inspected: Block, extra: &[&str]) -> String {
+    fn stored(inspected: Block) -> String {
+        let (lines, counts) = written(inspected);
+        if counts.dropped.is_some() {
+            return String::new();
+        }
+        lines
+    }
+
+    fn written(block: Block) -> (String, WriterCounts) {
+        let inspected = inspected(block);
+        let (lines, _, counts) =
+            write_block(&inspected, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
+        (String::from_utf8(lines).unwrap(), counts)
+    }
+
+    /// The block with what the session inspector finds in it, as a flush hands it to the writer.
+    fn inspected(mut inspected: Block) -> Block {
         let mut inspector = replay_core_v4::inspect::session::SessionInspector::default();
         let mut inspection = replay_core_v4::inspect::session::BlockInspection::default();
         for message in &inspected.messages {
             inspector.observe_message(&mut inspection, message);
         }
         let found = inspection.finish();
-        inspected.remote_urls = found.remote_urls;
+        inspected.image_urls = found.image_urls;
+        inspected.font_urls = found.font_urls;
         inspected.url_limit = found.url_limit;
-        inspected.srcsets = found.srcsets;
-        inspected.css_rewrites = found.css_rewrites;
+        inspected.edits = found.edits;
+        inspected.unplaced = found.unplaced;
         inspected
-            .remote_urls
-            .extend(extra.iter().map(|url| (*url).to_owned()));
-        let (lines, _, counts) =
-            write_block(&inspected, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
-        if counts.dropped.is_some() {
-            return String::new();
-        }
-        String::from_utf8(lines).unwrap()
     }
 
     #[test]
@@ -838,9 +815,10 @@ mod tests {
         let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
             "attributes": [{"id": 99, "attributes": {"src": signed, "srcset": format!("{public} 2x")}}]}}])
         .to_string();
-        let lines = stored_lines(&events, &[]);
+        let lines = stored_lines(&events);
         let reference = crate::urls::url_reference(
             public,
+            replay_core_v4::refs::UrlAsset::Image,
             7,
             "2026-10",
             &replay_core_v4::seal::image_url_key(&[6; 32]),
@@ -849,45 +827,102 @@ mod tests {
         .1;
         assert!(
             lines.contains(&format!(
-                r#""src":"{}","srcset":"{reference} 2x""#,
-                crate::rewrite::declined_marker("credential")
+                r#""src":"https://bucket.s3.amazonaws.com/avatar.png","srcset":"{reference} 2x""#
             )),
             "{lines}"
         );
-        // A URL past the length the fetcher takes is named and declined.
-        let long = |len: usize| {
-            let url = format!("https://cdn.example.com/{}", "a".repeat(len - 24));
-            json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
-                "attributes": [{"id": 99, "attributes": {"src": url}}]}}])
-            .to_string()
-        };
-        // A URL too long to fetch is declined, and the block is kept.
-        let long_lines = stored_lines(&long(16 * 1024), &[]);
-        assert!(
-            long_lines.contains(&crate::rewrite::declined_marker("too_long")),
-            "{long_lines}"
-        );
+        // A URL refused for a reason other than a credential keeps none of its text. Neither does a credential URL whose
+        // rest the policy refuses, nor a link that is too long to read with a credential in it.
+        let long = format!("https://cdn.example.com/{}", "a".repeat(16 * 1024 - 24));
+        let long_link = format!("{long}?token=abc123");
+        for (attributes, marker) in [
+            (
+                json!({"src": long}),
+                r#""src":"imageurl:v4:declined:too_long""#,
+            ),
+            (
+                json!({"src": "https://cdn.example.com:99999/a.png?token=abc123"}),
+                r#""src":"imageurl:v4:declined:not_absolute""#,
+            ),
+            (
+                json!({"data-src": long_link}),
+                r#""data-src":"imageurl:v4:declined:too_long""#,
+            ),
+            (
+                json!({"src": "https://user:secret@10.0.0.5/a.png"}),
+                r#""src":"imageurl:v4:declined:credential""#,
+            ),
+        ] {
+            let lines = stored_lines(
+                &json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+                    "attributes": [{"id": 99, "attributes": attributes}]}}])
+                .to_string(),
+            );
+            assert!(lines.contains(marker), "{marker} in {lines}");
+        }
         // Keys written with escapes hide no URL.
         let escaped = events
             .replace(r#""src""#, r#""\u0073rc""#)
             .replace(r#""srcset""#, r#""src\u0073et""#);
-        assert_eq!(stored_lines(&escaped, &[]), lines);
+        assert_eq!(stored_lines(&escaped), lines);
         // A browser reads backslashes after the scheme as slashes, so such a URL is replaced like its `https://` form.
+        // The URL parser drops tabs and line breaks anywhere, and C0 controls at either end, so these load from the host too.
         for backslashed in [
             r"https:\\user:secret@cdn.example.com/a.png",
             r"https:/\user:secret@cdn.example.com/a.png",
             "https:user:secret@cdn.example.com/a.png",
+            "ht\ttps://user:secret@cdn.example.com/a.png",
+            "/\n/user:secret@cdn.example.com/a.png",
+            "\u{1}https://user:secret@cdn.example.com/a.png",
+            "\u{0}\u{1f}//user:secret@cdn.example.com/a.png",
         ] {
             let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
                 "attributes": [{"id": 99, "attributes": {"src": backslashed}}]}}])
             .to_string();
-            let lines = stored_lines(&events, &[]);
+            let lines = stored_lines(&events);
             assert!(
-                lines.contains(&crate::rewrite::declined_marker("credential"))
-                    && !lines.contains("secret"),
+                lines.contains("cdn.example.com/a.png") && !lines.contains("secret"),
                 "{lines}"
             );
         }
+        // Such a node's text may not be CSS, so only a URL with a credential in it changes. An accepted URL gets no
+        // reference, and an `image-set()` keeps each candidate.
+        let accepted = ".a{background:url(https://cdn.example.com/a.png)}";
+        let set = ".a{background:image-set(url(https://cdn.example.com/a.png) 1x, url(https://cdn.example.com/b.png) 2x)}";
+        let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "removes": [], "attributes": [],
+            "texts": [{"id": 99, "value": format!(".a{{background:url({signed})}}")}, {"id": 96, "value": accepted},
+                {"id": 95, "value": format!("@import \"{signed}\";")}, {"id": 94, "value": set},
+                {"id": 93, "value": format!(".a{{background:image-set(\"{signed}\" 1x)}}")}],
+            "adds": [{"parentId": 98, "node": {"type": 2, "tagName": "source", "attributes": {"srcset": format!("{signed} 1x")}, "childNodes": [], "id": 97}}]}}])
+        .to_string();
+        let lines = stored_lines(&events);
+        assert!(
+            lines.contains(accepted) && lines.contains(set) && !lines.contains("X-Amz-Signature"),
+            "{lines}"
+        );
+        // The URL parser keeps a backslash in a query, so the rewrite escapes it, and the CSS string still ends.
+        let style = r#"background-image:url("https://cdn.example.com/a.png?token=abc123&q=\\")"#;
+        let lines = stored_lines(
+            &json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+                "attributes": [{"id": 99, "attributes": {"style": style}}]}}])
+            .to_string(),
+        );
+        let escaped =
+            json!(r#"background-image:url("https://cdn.example.com/a.png?q=\\")"#).to_string();
+        assert!(lines.contains(&escaped), "{escaped} in {lines}");
+        // A property set on its own, by a style diff or a style declaration event, loses its credential too.
+        let events = json!([
+            {"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+                "attributes": [{"id": 99, "attributes": {"style": {"filter": format!("url({signed})")}}}]}},
+            {"type": 3, "timestamp": 2, "data": {"source": 13, "id": 3, "set": {"property": "filter", "value": format!("url({signed})")}}},
+        ])
+        .to_string();
+        let lines = stored_lines(&events);
+        assert!(
+            lines.matches("bucket.s3.amazonaws.com/avatar.png").count() == 2
+                && !lines.contains("X-Amz-Signature"),
+            "{lines}"
+        );
         // The player loads the last of a repeated attribute, so the inspector names that one.
         for events in [
             format!(
@@ -897,54 +932,225 @@ mod tests {
                 r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[{{"parentId":1,"node":{{"type":2,"tagName":"img","attributes":{{"src":"{public}","src":"{signed}"}},"childNodes":[],"id":5}}}}],"removes":[],"texts":[],"attributes":[]}}}}]"#
             ),
         ] {
-            let lines = stored_lines(&events, &[]);
+            let lines = stored_lines(&events);
             assert!(
-                lines.contains(&crate::rewrite::declined_marker("credential"))
+                lines.contains(r#""src":"https://bucket.s3.amazonaws.com/avatar.png""#)
                     && !lines.contains("X-Amz-Signature"),
                 "{lines}"
             );
         }
-        // A declined URL the inspector named but the stored bytes do not show as it read it no longer fails the block:
-        // the writer scrubs every token that holds its host, and keeps the rest.
-        let event = json!([{"type": 4, "timestamp": 1, "data": {"href": "https://app.example.com/", "img": "https\\3a //bucket.s3.amazonaws.com/avatar.png"}}])
+        // Each slot loses its credential, also an escaped font URL of a bundled family, which names no URL. v4 stores
+        // pages unscrubbed, so a copy of the URL outside a URL slot, here in `alt`, keeps its text.
+        let font = |family: &str, host: &str| {
+            json!({"parentId": 1, "node": {"type": 2, "tagName": "style",
+            "attributes": {"_cssText": format!("@font-face{{font-family:{family};src:url(https://{host}/f\\2e woff2?X-Amz-Signature=abc123)}}")}, "childNodes": [], "id": 6}})
+        };
+        let style = |style: &str| json!({"parentId": 1, "node": {"type": 2, "tagName": "div", "attributes": {"style": style}, "childNodes": [], "id": 9}});
+        let link = |tag: &str, attributes: Value| json!({"parentId": 1, "node": {"type": 2, "tagName": tag, "attributes": attributes, "childNodes": [], "id": 10}});
+        for adds in [
+            json!([link("img", json!({"src": signed}))]),
+            json!([font("Brand", "bucket.s3.amazonaws.com")]),
+            json!([font("Roboto", "bucket.s3.amazonaws.com")]),
+            json!([style(
+                "background-image:url('\\2f \\2f cdn.example.com/a.png?X-Amz-Signature=abc123')"
+            )]),
+            json!([style(
+                "background-image:url('\\1 //cdn.example.com/a.png?X-Amz-Signature=abc123')"
+            )]),
+            // A browser loads a URL with a tab in it, or in another letter case, from the same place.
+            json!([link(
+                "img",
+                json!({"src": "HTTPS://Bucket.s3.amazonaws.com/x\t.png?X-Amz-Signature=abc123"})
+            )]),
+            json!([link("a", json!({"href": signed}))]),
+            json!([link(
+                "form",
+                json!({"action": "/session/reset?token=abc123"})
+            )]),
+            json!([link(
+                "img",
+                json!({"data-src": signed, "data-srcset": format!("{signed} 2x, /b.png 1x")})
+            )]),
+            json!([link(
+                "img",
+                json!({"src": "/api/avatar.png?X-Amz-Signature=abc123"})
+            )]),
+            json!([style(
+                "cursor:pointer;filter:url(https://cdn.example.com/f.svg?X-Amz-Signature=abc123#f)"
+            )]),
+            json!([link(
+                "rect",
+                json!({"fill": "url(https://cdn.example.com/p.svg?X-Amz-Signature=abc123#g)"})
+            )]),
+            // On a page of its scheme, a browser reads `https:` with no slashes as a path on the page's host.
+            json!([link("a", json!({"href": "https:bcdn_token=abc123/a.png"}))]),
+            // This window has no page URL, so the set's root-relative candidate cannot load, and keeps its place.
+            json!([style(
+                "background-image:image-set(url(/a.png?X-Amz-Signature=abc123) 1x)"
+            )]),
+            json!([{"parentId": 1, "node": {"type": 2, "tagName": "style", "attributes": {"_cssText": "@import url(\"https://cdn.example.com/a.css?X-Amz-Signature=abc123\");@import \"/b.css?token=abc123\";@import \"https://cdn.example.com/c\\2e css?token=abc123\";"}, "childNodes": [], "id": 11}}]),
+            json!([link(
+                "a",
+                json!({"ping": format!("{signed} https://cdn.example.com/b")})
+            )]),
+            json!([link(
+                "img",
+                json!({"attributionsrc": format!("https://cdn.example.com/b {signed}")})
+            )]),
+            // The policy reads a host without its trailing dot, and a path once it is decoded.
+            json!([link(
+                "img",
+                json!({"src": "https://objectstorage.us-ashburn-1.oraclecloud.com./p/X-Amz-Signature/n/ns/b/bucket/o/a.png"})
+            )]),
+            json!([link(
+                "img",
+                json!({"src": "https://cdn.example.com/image/upload%2Fs--X-Amz-Signature--%2Fv1/a.png"})
+            )]),
+        ] {
+            let copy = json!(signed).to_string();
+            let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": adds, "removes": [], "texts": [],
+                "attributes": [{"id": 99, "attributes": {"alt": signed}}]}}])
             .to_string();
-        let lines = stored_lines(&event, &[signed]);
-        assert!(
-            lines.contains("https://app.example.com/")
-                && !lines.contains("bucket.s3.amazonaws.com"),
-            "{lines}"
-        );
-        assert!(!stored_lines(&event, &[public]).is_empty());
-        // A declined URL that a longer URL also holds is overwritten there too, and the block is kept.
-        let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
-            "attributes": [{"id": 99, "attributes": {"src": signed, "alt": format!("{signed}&size=2")}}]}}])
-        .to_string();
-        let lines = stored_lines(&events, &[]);
-        assert!(
-            !lines.is_empty() && !lines.contains("X-Amz-Signature"),
-            "{lines}"
-        );
+            let lines = stored_lines(&events);
+            assert_eq!(lines.matches(&copy).count(), 1, "{lines}");
+            assert!(
+                !lines.replace(&copy, "").contains("X-Amz-Signature")
+                    && !lines.contains("token=abc123"),
+                "{lines}"
+            );
+            for line in lines.lines() {
+                serde_json::from_str::<Value>(line).unwrap_or_else(|e| panic!("{e}: {line}"));
+            }
+        }
     }
 
     #[test]
-    fn keeps_a_block_past_the_url_limit_without_a_url_it_did_not_check() {
-        let urls = MAX_BLOCK_REMOTE_URLS + 1;
-        let nodes: Vec<_> = (0..urls)
+    fn names_every_url_in_place_however_many_a_block_holds() {
+        let link = || json!({"type": 2, "tagName": "a", "attributes": {"href": "https://app.example.com/pricing"}, "childNodes": [], "id": 1_000_000});
+        let mut images: Vec<_> = (0..=10_000)
             .map(|i| json!({"type": 2, "tagName": "img", "attributes": {"src": format!("https://cdn.example.com/{i}.png")}, "childNodes": [], "id": i + 2}))
             .collect();
-        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": nodes}}}]).to_string();
-        let lines = stored_lines(&events, &[]);
-        // The inspector named the first URLs, which keep their references; the fallback scrubbed the rest.
-        assert!(
-            lines.contains("imageurl:v4:7:2026-10:"),
-            "named URLs keep their references"
-        );
-        assert!(lines.contains(crate::scrub::UNCHECKED_MARKER));
-        assert!(!lines.contains("https://"));
+        images.push(link());
+        let faces: String = (0..=4_096)
+            .map(|i| format!("@font-face{{font-family:Brand{i};src:url(https://fonts.example.com/{i}.woff2)}}"))
+            .collect();
+        let fonts = vec![
+            json!({"type": 2, "tagName": "style", "attributes": {"_cssText": faces}, "childNodes": [], "id": 2}),
+            link(),
+            json!({"type": 2, "tagName": "style", "attributes": {"_cssText": "@\\66 ont-face{font-family:Escaped;src:url(https://fonts.example.com/escaped.woff2)}"}, "childNodes": [], "id": 4}),
+        ];
+        // An escaped URL takes a rewrite of its whole `url()`, also where a line continuation splits its scheme.
+        let escaped_faces: String = (0..=10_000)
+            .map(|i| format!("@font-face{{font-family:Escaped{i};src:url(https://fonts.example.com/{i}\\2e woff2)}}"))
+            .collect();
+        let split_face = "@font-face{font-family:Split;src:url(\"htt\\\nps://fonts.example.com/split.woff2?token=secret\")}";
+        let escaped_fonts = vec![
+            json!({"type": 2, "tagName": "style", "attributes": {"_cssText": escaped_faces}, "childNodes": [], "id": 2}),
+            link(),
+            json!({"type": 2, "tagName": "style", "attributes": {"_cssText": split_face}, "childNodes": [], "id": 4}),
+        ];
+        let split_kept = r#"src:url(\"https://fonts.example.com/split.woff2\")"#;
+        for (nodes, named, references, kept) in [
+            (images, "imageurl:v4:7:2026-10:", 10_001, None),
+            (fonts, "fonturl:v4:7:2026-10:", 4_098, None),
+            (
+                escaped_fonts,
+                "fonturl:v4:7:2026-10:",
+                10_001,
+                Some(split_kept),
+            ),
+        ] {
+            let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": nodes}}}]).to_string();
+            let mut lines = stored_lines(&events);
+            assert_eq!(lines.matches(named).count(), references);
+            if let Some(kept) = kept {
+                assert!(lines.contains(kept), "{lines}");
+                lines = lines.replace(kept, "");
+            }
+            for raw in [
+                "https://cdn.",
+                "https://fonts.",
+                "token=secret",
+                "declined:unchecked",
+            ] {
+                assert!(!lines.contains(raw), "{raw}");
+            }
+            assert!(lines.contains("https://app.example.com/pricing"));
+        }
     }
 
     #[test]
-    fn leaves_css_only_images_an_offline_render_can_load() {
+    fn drops_a_block_the_inspector_could_not_read_in_full() {
+        let deep_face = format!(
+            "{}@font-face{{font-family:Deep;src:url(\"https://fonts.example.com/deep.woff2?token=secret\")}}{}",
+            "@media all{".repeat(80),
+            "}".repeat(80)
+        );
+        let deep_value = format!(
+            "background-image:{}url('https://cdn.example.com/deep.png?token=secret'){}",
+            "var(--a,".repeat(80),
+            ")".repeat(80)
+        );
+        for node in [
+            json!({"type": 2, "tagName": "style", "attributes": {"_cssText": deep_face}, "childNodes": [], "id": 2}),
+            json!({"type": 2, "tagName": "div", "attributes": {"style": deep_value}, "childNodes": [], "id": 2}),
+        ] {
+            let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [node]}}}]).to_string();
+            let (_, counts) = written(block_of("kept", &events));
+            assert_eq!(counts.dropped, Some("too_many_nested_blocks"));
+        }
+        // posthog-js compresses these, so the message read does not see how deep they nest.
+        let cv = |value: Value| -> String {
+            replay_core_v4::compression::gzip(value.to_string().as_bytes())
+                .unwrap()
+                .iter()
+                .map(|&byte| char::from(byte))
+                .collect()
+        };
+        let img = json!({"type": 2, "tagName": "img", "attributes": {"src": "https://cdn.example.com/a.png?token=secret"}, "childNodes": [], "id": 2});
+        let deep_node = (0..600).fold(img, |node, id| {
+            json!({"type": 2, "tagName": "div", "attributes": {}, "childNodes": [node], "id": id + 3})
+        });
+        let deep_index = (0..1_100).fold(json!(0), |index, _| json!([index]));
+        for event in [
+            json!({"type": 2, "timestamp": 1, "cv": "2024-10", "data": cv(json!({"node": {"type": 0, "id": 1, "childNodes": [deep_node]}}))}),
+            json!({"type": 3, "timestamp": 1, "cv": "2024-10", "data": {"source": 0, "adds": cv(json!([{"parentId": 1, "node": deep_node}])), "removes": "", "texts": "", "attributes": ""}}),
+            json!({"type": 3, "timestamp": 1, "cv": "2024-10", "data": {"source": 8, "id": 3, "adds": cv(json!([{"rule": ".a{background:url(https://cdn.example.com/a.png?token=secret)}", "index": deep_index}]))}}),
+        ] {
+            let (_, counts) = written(block_of("kept", &json!([event]).to_string()));
+            assert_eq!(counts.dropped, Some("too_deep_json"), "{event:.80}");
+        }
+        // cssparser reads a NUL in a string as U+FFFD, so the decoded URL is not in its token, only in the comment.
+        let nul_url = "url(\"https://cdn.example.com/a.png?X-Amz-Signature=abc123#\u{0}\"/*https://cdn.example.com/a.png?X-Amz-Signature=abc123#\u{FFFD}*/)";
+        // A set keeps its candidate as the page wrote it, so it cannot keep an escaped one, or one that another image function holds.
+        for style in [
+            format!("background-image:{nul_url}"),
+            format!("background-image:image-set({nul_url} 1x)"),
+            "background-image:image-set(url('\\2f \\2f cdn.example.com/a.png?token=secret') 1x)"
+                .to_owned(),
+            "background-image:image-set(url('\\2f a.png?token=secret') 1x)".to_owned(),
+            "background-image:image-set(-webkit-cross-fade(url(https://cdn.example.com/a.png?token=secret), url(https://cdn.example.com/b.png), 50%) 1x)"
+                .to_owned(),
+            // An escaped remote URL that the URL parser does not read may still load in a browser that does.
+            "background-image:url('\\68 ttps://cdn.exa\\1 mple.com/a.png?token=secret')".to_owned(),
+        ] {
+            let node = json!({"type": 2, "tagName": "div", "attributes": {"style": style}, "childNodes": [], "id": 2});
+            let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [node]}}}]).to_string();
+            let (_, counts) = written(block_of("kept", &events));
+            assert_eq!(counts.dropped, Some("unplaced_slot"), "{style}");
+        }
+        // The block would store an event that the flush did not decode as it arrived, with its URLs unread.
+        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": []}}}]).to_string();
+        for expansion in [Expansion::Skipped, Expansion::Failed] {
+            let mut block = block_of("kept", &events);
+            block.messages[0].events[0].expansion = Some(expansion);
+            let (_, counts) = written(block);
+            assert_eq!(counts.dropped, Some("undecoded_events"));
+        }
+    }
+
+    #[test]
+    fn leaves_css_only_images_and_fonts_an_offline_render_can_load() {
         let compressed: String = replay_core_v4::compression::gzip(
             json!([{"rule": ".a{background:url(/img/a.png)} .q{content:\"url(/img/a.png)\"} .b{background-image:image-set(url(https://cdn.example.com/1x.png) 1x, url(https://cdn.example.com/2x.png) 2x)} .c{background:url(/c.png?X-Amz-Signature=abc123)} .bg-\\[url\\(https\\:\\/\\/cdn\\.example\\.com\\/t\\.png\\)\\]{background-image:url(https://cdn.example.com/t.png)} .s-\\[url\\(https\\:\\/\\/cdn\\.example\\.com\\/s\\.png\\?X-Amz-Signature\\=abc123\\)\\]{background-image:url(https://cdn.example.com/s.png?X-Amz-Signature=abc123)}", "index": 0}])
                 .to_string()
@@ -959,11 +1165,13 @@ mod tests {
             {"type": 3, "timestamp": 2, "cv": "2024-10", "data": {"source": 8, "id": 3, "adds": compressed}},
             {"type": 3, "timestamp": 3, "data": {"source": 0, "adds": [], "removes": [], "texts": [], "attributes": [{"id": 9, "attributes": {"class": "bg-[url(/img/a.png)]"}}, {"id": 10, "attributes": {"class": "bg-[url(https://cdn.example.com/t.png)]"}}]}},
             {"type": 3, "timestamp": 4, "data": {"source": 8, "id": 3, "replaceSync": ".\\/\\/cdn\\.example\\.com\\/p\\.png\\?X-Amz-Signature\\=abc123{background:url(//cdn.example.com/p.png?X-Amz-Signature=abc123)}"}},
+            {"type": 3, "timestamp": 5, "data": {"source": 8, "id": 4, "replaceSync": "@font-face{font-family:Brand;src:url(/fonts/brand.woff2)}@font-face{font-family:Roboto;src:url(/fonts/roboto.woff2)}@font-face{font-family:Escaped;src:url(https://fonts.example.com/escaped\\2e woff2)} .e{background:url(https://cdn.example.com/escaped\\2e png)}"}},
         ]);
-        let lines = stored_lines(&events.to_string(), &[]);
+        let lines = stored_lines(&events.to_string());
         let reference = |url: &str| {
             crate::urls::url_reference(
                 url,
+                UrlAsset::Image,
                 7,
                 "2026-10",
                 &replay_core_v4::seal::image_url_key(&[6; 32]),
@@ -980,9 +1188,37 @@ mod tests {
                 r#"image-set(url({}) 2x)"#,
                 reference("https://cdn.example.com/2x.png")
             ),
+            r#".c{background:url(\"https://app.example.com/c.png\")}"#.to_owned(),
+            r".s-\\[url\\(https\\:\\/\\/cdn\\.example\\.com\\/s\\.png\\?X-Amz-Signature\\=abc123\\)\\]{background-image:url(https://cdn.example.com/s.png)}".to_owned(),
+            r".\\/\\/cdn\\.example\\.com\\/p\\.png\\?X-Amz-Signature\\=abc123{background:url(//cdn.example.com/p.png)}".to_owned(),
             format!(
-                r#"url(\"{}\")"#,
-                crate::rewrite::declined_marker("credential")
+                r#"src:url(\"{}\")"#,
+                crate::urls::url_reference(
+                    "https://app.example.com/fonts/brand.woff2",
+                    UrlAsset::Font,
+                    7,
+                    "2026-10",
+                    &replay_core_v4::seal::image_url_key(&[6; 32]),
+                )
+                .unwrap()
+                .1
+            ),
+            r#"src:url(\"fonturl:v4:bundled:roboto\")"#.to_owned(),
+            format!(
+                r#".e{{background:url(\"{}\")}}"#,
+                reference("https://cdn.example.com/escaped.png")
+            ),
+            format!(
+                r#"src:url(\"{}\")"#,
+                crate::urls::url_reference(
+                    "https://fonts.example.com/escaped.woff2",
+                    UrlAsset::Font,
+                    7,
+                    "2026-10",
+                    &replay_core_v4::seal::image_url_key(&[6; 32]),
+                )
+                .unwrap()
+                .1
             ),
         ] {
             assert!(lines.contains(&expected), "{expected} in {lines}");
@@ -993,20 +1229,28 @@ mod tests {
         ] {
             assert!(lines.contains(kept), "{kept} in {lines}");
         }
-        let class_url = reference("https://cdn.example.com/t.png");
-        for expected in [
-            format!(r#""class":"bg-[url({class_url})]""#),
-            format!(r".bg-\\[url\\({}\\)\\]", class_url.replace(':', r"\\:")),
+        // A copy of an accepted URL outside an image slot stays as the page wrote it, as a link does.
+        for kept in [
+            r#""class":"bg-[url(https://cdn.example.com/t.png)]""#,
+            r".bg-\\[url\\(https\\:\\/\\/cdn\\.example\\.com\\/t\\.png\\)\\]",
         ] {
-            assert!(lines.contains(&expected), "{expected} in {lines}");
+            assert!(lines.contains(kept), "{kept} in {lines}");
         }
-        for gone in [":url(/img/a.png)", "1x.png", "1x,", "Signature"] {
+        // A selector is no URL slot, so it keeps a refused URL as the page wrote it.
+        assert_eq!(lines.matches("X-Amz-Signature").count(), 2, "{lines}");
+        for gone in [
+            ":url(/img/a.png)",
+            "1x.png",
+            "1x,",
+            "/fonts/",
+            "fonts.example.com",
+        ] {
             assert!(!lines.contains(gone), "{gone} in {lines}");
         }
     }
 
     #[test]
-    fn leaves_a_relative_url_that_resolves_two_ways_as_the_page_wrote_it() {
+    fn resolves_a_relative_url_against_the_page_of_its_own_window() {
         let window = |id: &str, href: &str| {
             let mut message = block_of(
                 "kept",
@@ -1026,15 +1270,42 @@ mod tests {
             window("w1", "http://10.0.0.5/admin"),
             window("w2", "https://app.example.com/shop"),
         ];
-        let lines = stored(block, &[]);
-        // A private host declines its resolved URL, which must not send the block to the host scrub.
-        for kept in [
-            r#""href":"http://10.0.0.5/admin""#,
-            r#""href":"https://app.example.com/shop""#,
+        let lines = stored(block);
+        let reference = crate::urls::url_reference(
+            "https://app.example.com/a.png",
+            UrlAsset::Image,
+            7,
+            "2026-10",
+            &replay_core_v4::seal::image_url_key(&[6; 32]),
+        )
+        .unwrap()
+        .1;
+        for expected in [
+            r#""href":"http://10.0.0.5/admin""#.to_owned(),
+            r#""href":"https://app.example.com/shop""#.to_owned(),
+            r#"url(\"imageurl:v4:declined:non_public_host\")"#.to_owned(),
+            format!(r#"url(\"{reference}\")"#),
         ] {
-            assert!(lines.contains(kept), "{kept} in {lines}");
+            assert!(lines.contains(&expected), "{expected} in {lines}");
         }
-        assert_eq!(lines.matches("url(/a.png)").count(), 2, "{lines}");
+        assert!(!lines.contains("url(/a.png)"), "{lines}");
+        // The URL parser strips a C0 control at either end, so these load from the page's origin too.
+        for css in [
+            ".a{background:url(\"\u{1}/api/img?token=secret\")}",
+            ".a{background:url(\"\\1 /api/img?token=secret\")}",
+        ] {
+            let events = json!([
+                {"type": 4, "timestamp": 1, "data": {"href": "https://app.example.com/shop"}},
+                {"type": 3, "timestamp": 2, "data": {"source": 8, "id": 3, "replaceSync": css}},
+            ])
+            .to_string();
+            let lines = stored_lines(&events);
+            assert!(
+                lines.contains(r#"url(\"https://app.example.com/api/img\")"#)
+                    && !lines.contains("secret"),
+                "{css}: {lines}"
+            );
+        }
     }
 
     #[test]
@@ -1054,7 +1325,16 @@ mod tests {
         let svg =
             "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E";
         let remote_svg = "https://cdn.example.com/a.svg";
+        let avif_typed_svg = "data:image/svg+xml,%3Csvg%2F%3E";
         let shared = "https://cdn.example.com/shared.webp";
+        let (beside_img_src, img_src) = (
+            "https://cdn.example.com/beside-img-src.png",
+            "https://cdn.example.com/img-src.png",
+        );
+        let (also_in_webp, webp_1x) = (
+            "https://cdn.example.com/also-in-webp.png",
+            "https://cdn.example.com/webp-1x.webp",
+        );
         let other_avif = format!(
             "data:image/avif;base64,{}",
             STANDARD.encode(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1other")
@@ -1069,20 +1349,28 @@ mod tests {
             source(6, json!({"type": "image/svg+xml", "srcset": format!("{svg} 1x")})),
             source(7, json!({"type": "image/svg+xml", "srcset": format!("{remote_svg} 1x")})),
             source(3, json!({"type": "image/avif", "srcset": format!("{avif} 1x, {inline_avif} 2x")})),
+            // An inline candidate needs no fetch job, so it stays whatever the type.
+            source(15, json!({"type": "image/avif", "srcset": format!("{avif} 2x, {avif_typed_svg} 1x")})),
             // A bare srcset equal to the img's src below: only the srcset empties.
             source(8, json!({"type": "image/avif", "srcset": bare})),
             // Values that read the same once their inline AVIFs leave merge their policies, so the WebP source keeps
             // the shared candidate.
             source(11, json!({"type": "image/avif", "srcset": format!("{shared} 1x, {inline_avif} 2x")})),
             source(12, json!({"type": "image/webp", "srcset": format!("{shared} 1x, {other_avif} 2x")})),
+            // The WebP source keeps its other candidate, so no source fetches the URL the two share.
+            source(13, json!({"type": "image/avif", "srcset": format!("{also_in_webp} 1x")})),
+            source(14, json!({"type": "image/webp", "srcset": format!("{also_in_webp} 2x, {webp_1x} 1x")})),
+            // Neither this source nor the img below with the same srcset shows the candidate, so neither keeps it.
+            source(16, json!({"type": "image/avif", "srcset": format!("{beside_img_src} 2x")})),
             // An empty type gives no hint, so the source keeps its candidate.
             source(9, json!({"type": "", "srcset": format!("{typeless} 1x")})),
-            // An inline image the image scrub cannot read leaves the list as a declined URL does.
-            source(4, json!({"type": "image/webp", "srcset": format!("{signed} 2x, {webp} 1x, {bitmap} 3x")})),
+            // Only the kept candidate stays, so a declined URL and an inline image the image scrub cannot read leave too.
+            source(4, json!({"type": "image/webp", "srcset": format!("{webp} 1x, {signed} 2x, {bitmap} 3x")})),
             {"type": 2, "tagName": "img", "attributes": {"src": fallback}, "childNodes": [], "id": 5},
         ]});
         let img = json!({"type": 2, "tagName": "img", "attributes": {"src": bare}, "childNodes": [], "id": 10});
-        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [picture, img]}}}]).to_string();
+        let img_with_src = json!({"type": 2, "tagName": "img", "attributes": {"src": img_src, "srcset": format!("{beside_img_src} 2x")}, "childNodes": [], "id": 17});
+        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [picture, img, img_with_src]}}}]).to_string();
 
         let block = block_of("kept", &events);
         let mut inspector = replay_core_v4::inspect::session::SessionInspector::default();
@@ -1091,12 +1379,18 @@ mod tests {
             inspector.observe_message(&mut inspection, message);
         }
         // The fetcher stores no AVIF, so the AVIF source gets no fetch job.
-        assert!(!inspection.finish().image_urls.iter().any(|u| u == avif));
+        let fetched = inspection.finish().image_urls;
+        assert!(!fetched
+            .iter()
+            .any(|u| u == avif || u == also_in_webp || u == beside_img_src));
+        assert!(fetched.iter().any(|u| u == img_src));
+        assert!(fetched.iter().any(|u| u == webp_1x));
 
-        let lines = stored_lines(&events, &[]);
+        let lines = stored_lines(&events);
         let reference = |url: &str| {
             crate::urls::url_reference(
                 url,
+                replay_core_v4::refs::UrlAsset::Image,
                 7,
                 "2026-10",
                 &replay_core_v4::seal::image_url_key(&[6; 32]),
@@ -1104,10 +1398,11 @@ mod tests {
             .unwrap()
             .1
         };
-        // The AVIF source has no candidate left and the declined one leaves the list, so the browser takes the WebP.
+        // The AVIF source has no candidate left, so the browser takes the WebP.
         assert!(lines.contains(r#""srcset":"""#), "{lines}");
         assert!(
-            lines.contains(&format!(r#""srcset":"{svg} 1x""#)),
+            lines.contains(&format!(r#""srcset":"{svg} 1x""#))
+                && lines.contains(&format!(r#""srcset":"{avif_typed_svg} 1x""#)),
             "{lines}"
         );
         assert!(
@@ -1121,6 +1416,12 @@ mod tests {
         assert!(lines.contains(&reference(fallback)), "{lines}");
         assert!(
             lines.contains(&format!(r#""srcset":"{} 1x""#, reference(shared))),
+            "{lines}"
+        );
+        assert!(
+            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(webp_1x)))
+                && !lines.contains(&reference(also_in_webp))
+                && !lines.contains(&reference(beside_img_src)),
             "{lines}"
         );
         assert!(
@@ -1151,7 +1452,7 @@ mod tests {
             r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[],"removes":[],"texts":[],"attributes":[{{"id":99,"attributes":{{"srcset":"{} 1x, https://10.0.0.7/a.png 2x"}}}}]}}}}]"#,
             inline.replace('/', "\\/")
         );
-        let lines = stored_lines(&events, &[]);
+        let lines = stored_lines(&events);
         assert!(
             lines.contains(&format!(r#""srcset":"{inline} 1x""#)),
             "{lines}"
@@ -1161,16 +1462,16 @@ mod tests {
             "{lines}"
         );
 
-        // A srcset key outside an image slot, here in a custom event, is no srcset of the DOM and stays as it is. With
-        // the same value as an inspected image slot, only the slot is rebuilt, and the custom event gets the rewrite of
-        // each URL that every copy of a named URL gets.
+        // A srcset key outside an image slot, here in a custom event, is no srcset of the DOM and stays as it is, also
+        // with the same value as an inspected image slot.
         let value = "https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x";
         let both = format!(
             r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[],"removes":[],"texts":[],"attributes":[{{"id":99,"attributes":{{"srcset":"{value}"}}}}]}}}},{{"type":5,"timestamp":2,"data":{{"tag":"app","payload":{{"srcset":"{value}"}}}}}}]"#
         );
-        let lines = stored_lines(&both, &[]);
+        let lines = stored_lines(&both);
         let reference = crate::urls::url_reference(
             "https://cdn.example.com/a.png",
+            replay_core_v4::refs::UrlAsset::Image,
             7,
             "2026-10",
             &replay_core_v4::seal::image_url_key(&[6; 32]),
@@ -1183,14 +1484,11 @@ mod tests {
             "{dom}"
         );
         assert!(
-            custom.contains(&format!(
-                r#""srcset":"{reference} 1x, {} 2x""#,
-                crate::rewrite::declined_marker("non_public_host")
-            )),
+            custom.contains(&format!(r#""srcset":"{value}""#)),
             "{custom}"
         );
         let custom = r#"[{"type":5,"timestamp":1,"data":{"tag":"app","payload":{"srcset":"https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x"}}}]"#;
-        let lines = stored_lines(custom, &[]);
+        let lines = stored_lines(custom);
         assert!(
             lines.contains(
                 r#""srcset":"https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x""#
@@ -1225,29 +1523,55 @@ mod tests {
             "https://cdn.example.com/a.png",
             "https://cdn.example.com/a.png?token=secret",
         );
-        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"attributes": {"src": fetched, "srcset": format!("{declined} 2x")}}}}]);
-        let mut block = block("kept", events);
-        block.image_urls = vec![fetched.to_owned()];
-        block.remote_urls = vec![fetched.to_owned(), declined.to_owned()];
+        let (font, bundled, public) = (
+            "https://fonts.example.com/brand.woff2",
+            "https://fonts.example.com/inter.woff2",
+            "https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxK.woff2",
+        );
+        let css = format!("@font-face{{font-family:Brand;src:url({font})}}@font-face{{font-family:Inter;src:url({bundled})}}@font-face{{font-family:Brand Display;src:url({public})}}");
+        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [
+            {"type": 2, "tagName": "img", "attributes": {"src": fetched, "srcset": format!("{declined} 2x")}, "childNodes": [], "id": 2},
+            {"type": 2, "tagName": "style", "attributes": {"_cssText": css}, "childNodes": [], "id": 3},
+        ]}}}]);
+        let block = inspected(block("kept", events));
         let mut keys = FlushKeys::default();
         let (id, key) = session_key("kept");
         keys.sessions.insert(id, key);
         keys.team_months.insert(7, [6; 32]);
         let mut stats = BlockStats::default();
-        let jobs = crate::urls::fetch_jobs([(&block, &mut stats)], &keys, "2026-10", 1, &|_| false);
+        let urls = crate::urls::FlushUrls::new([&block], &keys, "2026-10", &|_| false);
+        let jobs = crate::urls::fetch_jobs(&urls, [(0, &block, &mut stats)], 1, &|_| false);
         let (lines, _, _) = write_block(&block, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
-
         let lines = String::from_utf8(lines).unwrap();
-        let reference = jobs["example.com"][0]["originalRef"].as_str().unwrap();
-        assert!(
-            lines.contains(&format!(r#""src":"{reference}""#)),
-            "{lines}"
+        let references: Vec<_> = jobs
+            .iter()
+            .flat_map(|((_, asset), jobs)| {
+                jobs.iter()
+                    .map(move |job| (*asset, job["originalRef"].as_str().unwrap()))
+            })
+            .collect();
+        let [(UrlAsset::Image, image_reference), (UrlAsset::Font, font_reference), (UrlAsset::Font, public_reference)] =
+            references.as_slice()
+        else {
+            panic!("a job each for the image and the fetched fonts, none for the bundled font: {references:?}");
+        };
+        assert!(font_reference.starts_with("fonturl:v4:7:2026-10:"));
+        assert_eq!(
+            *public_reference,
+            "fonturl:v4:public:I6bjVBXgjPcaYLPITibNM4"
         );
-        assert!(lines.contains(&format!(
-            r#""srcset":"{} 2x""#,
-            crate::rewrite::declined_marker("credential")
-        )));
-        assert!(!lines.contains("cdn.example.com"));
+        for expected in [
+            format!(r#""src":"{image_reference}""#),
+            // The srcset keeps only the candidate it shows, and the policy refuses that one.
+            r#""srcset":"""#.to_owned(),
+            format!("src:url({font_reference})"),
+            "src:url(fonturl:v4:bundled:inter)".to_owned(),
+            format!("src:url({public_reference})"),
+        ] {
+            assert!(lines.contains(&expected), "{expected} in {lines}");
+        }
+        assert!(!lines.contains("example.com/"), "{lines}");
+        assert!(!lines.contains("gstatic.com/"), "{lines}");
     }
 
     fn session_key(session: &str) -> (SessionId, Key) {
@@ -1348,7 +1672,7 @@ mod tests {
             keys.sessions.insert(id, key);
         }
         keys.team_months.insert(7, [6; 32]);
-        let old_ref = replay_core_v4::refs::image_ref(
+        let old_ref = replay_core_v4::v4_image_refs::image_ref(
             7,
             "2026-10",
             &replay_core_v4::refs::reference_hash(&image_content_key(&[6; 32]), &png(b"old")),

@@ -18,10 +18,38 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
+        permissions:
+            actions: read
+            contents: read
+            pull-requests: read
         name: Determine need to run proto checks
         outputs:
-            proto: ${{ steps.filter.outputs.proto || 'true' }}
+            proto: ${{ steps.filter.outcome == 'success' && steps.filter.outputs.proto || 'true' }}
         steps:
+            - name: Check push baseline
+              id: baseline
+              if: github.event_name == 'push'
+              continue-on-error: true
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              with:
+                  script: |
+                      const before = context.payload.before;
+                      if (context.payload.forced || !/^[0-9a-f]{40}$/.test(before || '') || /^0+$/.test(before)) {
+                          core.info('Full checks: no safe push baseline.');
+                          return false;
+                      }
+                      const { data } = await github.rest.actions.listWorkflowRuns({
+                          ...context.repo,
+                          workflow_id: 'ci-proto.yml',
+                          branch: 'master',
+                          event: 'push',
+                          head_sha: before,
+                          per_page: 1,
+                      });
+                      const previous = data.workflow_runs[0];
+                      const safe = previous?.head_sha === before && previous?.conclusion === 'success';
+                      core.info(safe ? 'Compare the complete push range.' : 'Full checks: push baseline is not green.');
+                      return safe;
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
@@ -33,27 +61,64 @@ jobs:
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - name: Fetch push baseline without blobs
+              id: fetch-baseline
+              if: steps.baseline.outcome == 'success' && steps.baseline.outputs.result == 'true'
+              continue-on-error: true
+              env:
+                  PUSH_BEFORE: ${{ github.event.before }}
+              run: git fetch --no-tags --depth=1 --filter=blob:none origin "$PUSH_BEFORE"
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push'
+              if: github.event_name == 'pull_request' || steps.fetch-baseline.outcome == 'success'
+              continue-on-error: ${{ github.event_name == 'push' }}
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  base: ${{ github.event.before }}
+                  ref: ${{ github.sha }}
                   filters: |
                       proto:
+                        - '*'
                         - 'proto/**'
-                        - 'packages/personhog-proto/**'
-                        - 'pyproject.toml'
-                        - 'uv.lock'
-                        - 'bin/generate_personhog_proto.sh'
-                        - 'nodejs/src/common/generated/personhog/**'
-                        - 'nodejs/src/common/generated/ingestion-worker/**'
-                        - 'nodejs/buf.gen.yaml'
-                        - 'nodejs/buf.gen.ingestion-worker.yaml'
-                        - 'nodejs/package.json'
+                        - 'packages/**'
+                        - 'common/**'
+                        - 'rust/**'
+                        - '**/package.json'
+                        - 'bin/**'
+                        - 'nodejs/**'
+                        - 'patches/**'
+                        - '.github/actions/**'
                         - '.github/workflows/ci-proto.yml'
+            - name: Capture proto selection to DevEx PostHog
+              if: >-
+                  !cancelled() && github.run_attempt == '1'
+                  && github.repository == 'PostHog/posthog'
+                  && github.actor != 'dependabot[bot]'
+                  && (github.event_name != 'pull_request'
+                      || github.event.pull_request.head.repo.full_name == github.repository)
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-proto-selection'
+                  properties: |
+                      {
+                        "mode": ${{ toJSON(steps.filter.outcome == 'success' && steps.filter.outputs.proto == 'false' && 'skip' || 'full') }},
+                        "selection_eligible": ${{ github.event_name == 'pull_request' || steps.fetch-baseline.outcome == 'success' }},
+                        "matched_file_count": ${{ steps.filter.outcome == 'success' && steps.filter.outputs.proto_count || 'null' }},
+                        "selected_check_count": ${{ steps.filter.outcome == 'success' && steps.filter.outputs.proto == 'false' && '0' || '4' }},
+                        "selection_reason_category": ${{ toJSON(steps.filter.outcome == 'failure' && 'filter-failed' || steps.filter.outcome == 'success' && (steps.filter.outputs.proto == 'false' && 'no-matching-paths' || 'matching-paths') || github.event_name != 'push' && 'full-event' || steps.baseline.outcome == 'failure' && 'baseline-api-failed' || steps.baseline.outputs.result != 'true' && 'unsafe-baseline' || 'baseline-fetch-failed') }},
+                        "selection_reason_detail": ${{ toJSON(format('event={0}; baseline={1}/{2}; fetch={3}; filter={4}', github.event_name, steps.baseline.outcome, steps.baseline.outputs.result, steps.fetch-baseline.outcome, steps.filter.outcome)) }},
+                        "pr_draft": ${{ toJSON(github.event.pull_request.draft) }},
+                        "merge_queue": ${{ startsWith(github.head_ref, 'trunk-merge/') }},
+                        "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
+                        "sha": ${{ toJSON(github.sha) }},
+                        "pr_number": ${{ github.event.pull_request.number || 'null' }},
+                        "run_id": ${{ toJSON(github.run_id) }}
+                      }
 
-    lint:
-        name: Lint proto definitions (depot-ubuntu-22.04-4)
+    validation:
+        name: Lint and check proto compatibility (depot-ubuntu-22.04-4)
         needs: changes
         if: needs.changes.outputs.proto == 'true'
         runs-on: depot-ubuntu-22.04-4
@@ -75,28 +140,20 @@ jobs:
             - name: Lint protos
               run: buf lint proto/
 
-    breaking:
-        name: Check for breaking changes (depot-ubuntu-22.04-4)
-        needs: changes
-        if: needs.changes.outputs.proto == 'true'
-        runs-on: depot-ubuntu-22.04-4
-        timeout-minutes: 5
-
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Check out the compatibility baseline
+              if: ${{ !cancelled() }}
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  clean: false
+                  ref: master
+                  path: .proto-baseline
+                  fetch-depth: 1
                   sparse-checkout: proto
                   sparse-checkout-cone-mode: false
-
-            - name: Install buf
-              uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1.4.0
-              with:
-                  setup_only: true
-                  version: '1.50.0'
+                  persist-credentials: false
 
             - name: Check for breaking changes
-              run: buf breaking proto/ --against 'https://github.com/PostHog/posthog.git#branch=master,subdir=proto'
+              if: ${{ !cancelled() }}
+              run: buf breaking proto/ --against .proto-baseline/proto/
 
     python-codegen:
         name: Check Python proto stubs are up to date (depot-ubuntu-22.04-4)
@@ -109,6 +166,16 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  sparse-checkout: |
+                      .github/actions/setup-uv
+                      bin/generate_personhog_proto.sh
+                      packages/owners-yaml
+                      packages/personhog-proto
+                      proto
+                      pyproject.toml
+                      tools/hogli
+                      uv.lock
+                  sparse-checkout-cone-mode: false
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token
@@ -188,7 +255,7 @@ jobs:
                   echo "Generated Node proto stubs are up to date."
 
     proto_checks:
-        needs: [changes, lint, breaking, python-codegen, node-codegen]
+        needs: [changes, validation, python-codegen, node-codegen]
         name: Proto Checks Pass
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -207,13 +274,8 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.lint.result }}" != "success" && "${{ needs.lint.result }}" != "skipped" ]]; then
-                    echo "Proto lint failed."
-                    exit 1
-                  fi
-
-                  if [[ "${{ needs.breaking.result }}" != "success" && "${{ needs.breaking.result }}" != "skipped" ]]; then
-                    echo "Proto breaking change check failed."
+                  if [[ "${{ needs.validation.result }}" != "success" && "${{ needs.validation.result }}" != "skipped" ]]; then
+                    echo "Proto lint or compatibility check failed."
                     exit 1
                   fi
 

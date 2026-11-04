@@ -16,7 +16,7 @@ from rest_framework.response import Response
 
 from posthog.hogql.database.database import Database
 
-from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
+from posthog.api.log_entries import LogEntryPagination, LogEntryRequestSerializer, log_entries_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     UnsupportedSyncTypeError,
     discovered_schema_finder,
+    is_pinned_schema,
     mark_schema_running_unless_halted,
     resolve_destinations,
     resolve_sync_type,
@@ -70,8 +71,10 @@ from products.warehouse_sources.backend.facade.source_management import (
     BUFFER_LANE,
     CDC_RESET_PENDING_KEY,
     AnySource,
+    Config,
     RowFilterValidationError,
     SourceRegistry,
+    SourceSchema,
     WebhookSource,
     add_table_failure_message,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
@@ -81,6 +84,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     history_table_name,
     is_another_schemas_history_table,
     is_history_table_mode,
+    known_source_key,
     new_history_naming,
     pin_history_naming,
     pinned_history_naming,
@@ -93,11 +97,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     tables_wait_for_repair,
     validate_and_coerce_row_filters,
 )
-from products.warehouse_sources.backend.facade.types import (
-    ExternalDataSourceType,
-    IncrementalFieldType,
-    IncrementalSyncBlockedReason,
-)
+from products.warehouse_sources.backend.facade.types import IncrementalFieldType, IncrementalSyncBlockedReason
 from products.warehouse_sources.backend.presentation.history_tracking import report_history_change
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
@@ -121,7 +121,7 @@ def source_supports_column_selection(source_type: str) -> bool:
     Excludes managed-schema sources (Stripe, Paddle, Zendesk): their HogQL tables expose a
     fixed canonical schema, so dropping a referenced column breaks the query."""
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception as e:
         capture_exception(e)
         return False
@@ -130,7 +130,7 @@ def source_supports_column_selection(source_type: str) -> bool:
 
 def source_supports_row_filters(source_type: str) -> bool:
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception as e:
         capture_exception(e)
         return False
@@ -143,7 +143,7 @@ ON_DEMAND_SYNC_ERROR = "This table syncs only when its data changes, so its sync
 
 def source_syncs_on_demand(source_type: str) -> bool:
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception as e:
         capture_exception(e)
         return False
@@ -189,11 +189,46 @@ def linked_table_id(schema: ExternalDataSchema, context: dict[str, Any]) -> uuid
 
 def manual_sync_refusal(source_model: ExternalDataSource) -> str | None:
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_model.source_type))
+        source = SourceRegistry.get_source(source_model.source_type)
     except Exception as e:
         capture_exception(e)
         return None
     return source.manual_sync_refusal(source_model)
+
+
+def _discovery_error_response(source_impl: AnySource, error: Exception) -> Response:
+    """A 400 with the error's message. Only an error the source doesn't classify goes to error tracking.
+
+    A failure that the source itself classifies is an expected customer or upstream condition rather
+    than a bug, and must not flood error tracking. Both maps count: a non-retryable match names
+    something only the customer can fix, such as bad credentials, and a retryable match names a
+    transient failure `get_retryable_errors` already exists to keep out of error tracking.
+    Mirrors `refresh_schemas`'s `_classify_refresh_schemas_error`.
+    """
+    error_text = str(error)
+    expected_patterns = (*source_impl.get_non_retryable_errors(), *source_impl.get_retryable_errors())
+    if not any(pattern and pattern in error_text for pattern in expected_patterns):
+        capture_exception(error)
+    return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": error_text})
+
+
+def describe_pinned_schema(source_impl: AnySource, config: Config, schema: ExternalDataSchema) -> SourceSchema | None:
+    """The source's own description of a pinned schema, or None when the schema isn't pinned or the
+    source can't describe it. The source also checks that the credentials can read the schema's data."""
+    if not is_pinned_schema(schema):
+        return None
+    return source_impl.describe_pinned_schema(config, schema.team_id, schema.name, schema.schema_metadata or {})
+
+
+def discover_existing_schema(
+    source_impl: AnySource, config: Config, schema: ExternalDataSchema, api_version: str | None
+) -> list[SourceSchema]:
+    """What the source reports for one stored schema. Discovery can't report a pinned schema, so the
+    source describes a pinned schema from its stored definition when it can."""
+    pinned = describe_pinned_schema(source_impl, config, schema)
+    if pinned is not None:
+        return [pinned]
+    return source_impl.get_schemas(config, schema.team_id, names=[schema.name], api_version=api_version)
 
 
 def source_row_filter_columns(source_type: str, schema_name: str) -> tuple[Any, ...] | None:
@@ -203,7 +238,7 @@ def source_row_filter_columns(source_type: str, schema_name: str) -> tuple[Any, 
     package, so this layer does not name it.
     """
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception as e:
         capture_exception(e)
         return None
@@ -220,7 +255,7 @@ def source_requires_exact_column_metadata(source_type: str) -> bool:
     also includes sources whose columns are projected generically after extraction.
     """
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception as e:
         capture_exception(e)
         # Unknown source types already fail the broader column-selection check. Keep the
@@ -913,7 +948,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if user_access_control is not None:
             user_access_level = user_access_control.get_user_access_level(source)
         try:
-            source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+            source_impl = SourceRegistry.get_source(source.source_type)
             # The version the schema falls back to without an override, and the picker's options.
             source_api_version: str | None = source_impl.resolve_api_version(source.api_version)
             supported_api_versions = list(source_impl.supported_versions)
@@ -991,7 +1026,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # no create path to validate.
             if "api_version" in attrs and instance is not None and override != instance.api_version:
                 try:
-                    source_impl = SourceRegistry.get_source(ExternalDataSourceType(instance.source.source_type))
+                    source_impl = SourceRegistry.get_source(instance.source.source_type)
                 except ValueError:
                     raise ValidationError(
                         {"api_version": "API version overrides are not supported for this source type."}
@@ -1234,7 +1269,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # actually advertises xmin support — otherwise a raw PATCH would persist an xmin schema that
         # silently degrades to full_refresh.
         if sync_type == ExternalDataSchema.SyncType.XMIN:
-            if not SourceRegistry.get_source(ExternalDataSourceType(instance.source.source_type)).supports_xmin:
+            if not SourceRegistry.get_source(instance.source.source_type).supports_xmin:
                 raise ValidationError("xmin replication is only available for Postgres sources.")
             if not self._xmin_available_for_schema(instance):
                 raise ValidationError(
@@ -1321,9 +1356,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # Only for a source that reads keys off the table, and only when the schema's columns
             # are known. A source that declares its key in code never needs one here, and without
             # columns there is nothing to say the table has none; the sync-time guard covers both.
-            source_detects_keys = SourceRegistry.get_source(
-                ExternalDataSourceType(instance.source.source_type)
-            ).detects_primary_keys
+            source_detects_keys = SourceRegistry.get_source(instance.source.source_type).detects_primary_keys
             if source_detects_keys and known_columns and not merge_keys and "id" not in column_names:
                 raise ValidationError(
                     f"'{instance.name}' has no primary key to sync incrementally on. "
@@ -1849,16 +1882,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if not source_inputs:
             return False
         try:
-            source_type = ExternalDataSourceType(source.source_type)
+            source_type = known_source_key(source.source_type)
             source_impl = SourceRegistry.get_source(source_type)
         except Exception:
             return False
         try:
             config = source_impl.parse_config(source_inputs)
-            source_schemas = source_impl.get_schemas(
+            source_schemas = discover_existing_schema(
+                source_impl,
                 config,
-                schema.team_id,
-                names=[schema.name],
+                schema,
                 api_version=source_impl.resolve_api_version(self._effective_probe_api_version(schema, source_impl)),
             )
         except Exception:
@@ -1877,13 +1910,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if not source_inputs:
             return False
         try:
-            source_type = ExternalDataSourceType(source.source_type)
+            source_type = known_source_key(source.source_type)
             source_impl = SourceRegistry.get_source(source_type)
             config = source_impl.parse_config(source_inputs)
-            source_schemas = source_impl.get_schemas(
+            source_schemas = discover_existing_schema(
+                source_impl,
                 config,
-                schema.team_id,
-                names=[schema.name],
+                schema,
                 api_version=source_impl.resolve_api_version(self._effective_probe_api_version(schema, source_impl)),
             )
         except Exception:
@@ -1903,17 +1936,17 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if not source_inputs:
             return unsupported
         try:
-            source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+            source_impl = SourceRegistry.get_source(source.source_type)
         except Exception:
             return unsupported
         if not isinstance(source_impl, WebhookSource):
             return unsupported
         try:
             config = source_impl.parse_config(source_inputs)
-            source_schemas = source_impl.get_schemas(
+            source_schemas = discover_existing_schema(
+                source_impl,
                 config,
-                schema.team_id,
-                names=[schema.name],
+                schema,
                 api_version=source_impl.resolve_api_version(self._effective_probe_api_version(schema, source_impl)),
             )
         except Exception as e:
@@ -1980,7 +2013,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return
 
         try:
-            source_type = ExternalDataSourceType(source.source_type)
+            source_type = known_source_key(source.source_type)
             source_impl = SourceRegistry.get_source(source_type)
         except Exception as e:
             capture_exception(e)
@@ -2427,28 +2460,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     @extend_schema(parameters=[LogEntryRequestSerializer])
-    @action(methods=["GET"], detail=True, filter_backends=[])
+    @action(methods=["GET"], detail=True, filter_backends=[], pagination_class=LogEntryPagination)
     def logs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSchema = self.get_object()
-        param_serializer = LogEntryRequestSerializer(data=request.query_params)
-        if not param_serializer.is_valid():
-            raise ValidationError(param_serializer.errors)
-        params = param_serializer.validated_data
-        data = fetch_log_entries(
-            team_id=self.team_id,
-            log_source="external_data_jobs",
-            log_source_id=str(instance.id),
-            limit=params["limit"],
-            instance_id=params.get("instance_id"),
-            after=params.get("after"),
-            before=params.get("before"),
-            search=params.get("search"),
-            level=params["level"].split(",") if params.get("level") else None,
-        )
-        page = self.paginate_queryset(data)
-        if page is not None:
-            return self.get_paginated_response(LogEntrySerializer(page, many=True).data)
-        return Response(LogEntrySerializer(data, many=True).data)
+        return log_entries_response(self, request, log_source="external_data_jobs", log_source_id=str(instance.id))
 
     @extend_schema(
         request=None,
@@ -2687,9 +2702,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not source.source_type:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Missing source type"})
 
-        source_type_enum = ExternalDataSourceType(source.source_type)
+        source_type_key = known_source_key(source.source_type)
 
-        new_source = SourceRegistry.get_source(source_type_enum)
+        new_source = SourceRegistry.get_source(source_type_key)
         try:
             config = new_source.parse_config(source_inputs)
         except (UndecryptedConfigError, ConfigValueError):
@@ -2697,56 +2712,52 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         effective_api_version = new_source.resolve_api_version(instance.api_version or source.api_version)
         try:
-            credentials_valid, credentials_error = new_source.validate_credentials(
-                config, self.team_id, instance.name, api_version=effective_api_version
-            )
+            # Discovery can't report a pinned schema, and a source-wide check can fail where the sync
+            # works, for example when the key can't list the bucket root. The source checks access to
+            # the schema's own data instead.
+            pinned_schema = describe_pinned_schema(new_source, config, instance)
         except Exception as e:
-            credentials_valid, credentials_error = source_helpers._credentials_validation_failed(
-                new_source, self.team_id, e
-            )
-        if not credentials_valid:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": credentials_error or "Invalid credentials"},
-            )
-
-        stored_resource_id = (
-            (instance.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY)
-            if new_source.uses_stable_schema_resource_ids
-            else None
-        )
-        try:
-            schemas = new_source.get_schemas(
-                config, self.team_id, names=[instance.name], api_version=effective_api_version
-            )
-            # A stored resource id can outlive the stored name after an upstream rename. Discover every
-            # schema only when the name lookup misses that id, so an unrenamed schema keeps the cheap
-            # filtered discovery.
-            if stored_resource_id is not None:
-                found = discovered_schema_finder(schemas)(instance.name, instance.schema_metadata)
-                found_resource_id = (
-                    (found.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY) if found else None
+            return _discovery_error_response(new_source, e)
+        if pinned_schema is not None:
+            schemas = [pinned_schema]
+        else:
+            try:
+                credentials_valid, credentials_error = new_source.validate_credentials(
+                    config, self.team_id, instance.name, api_version=effective_api_version
                 )
-                if str(found_resource_id) != str(stored_resource_id):
-                    schemas = new_source.get_schemas(
-                        config, self.team_id, names=None, api_version=effective_api_version
-                    )
-        except Exception as e:
-            # `validate_credentials` above just probed the same connection successfully, so a
-            # failure here that the source itself classifies is an expected customer or upstream
-            # condition rather than a bug, and must not flood error tracking. Both maps count: a
-            # non-retryable match names something only the customer can fix, such as bad
-            # credentials, and a retryable match names a transient failure `get_retryable_errors`
-            # already exists to keep out of error tracking.
-            # Mirrors `refresh_schemas`'s `_classify_refresh_schemas_error`.
-            error_text = str(e)
-            expected_patterns = (*new_source.get_non_retryable_errors(), *new_source.get_retryable_errors())
-            if not any(pattern and pattern in error_text for pattern in expected_patterns):
-                capture_exception(e)
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": str(e)},
+            except Exception as e:
+                credentials_valid, credentials_error = source_helpers._credentials_validation_failed(
+                    new_source, self.team_id, e
+                )
+            if not credentials_valid:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": credentials_error or "Invalid credentials"},
+                )
+
+            stored_resource_id = (
+                (instance.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY)
+                if new_source.uses_stable_schema_resource_ids
+                else None
             )
+            try:
+                schemas = new_source.get_schemas(
+                    config, self.team_id, names=[instance.name], api_version=effective_api_version
+                )
+                # A stored resource id can outlive the stored name after an upstream rename. Discover every
+                # schema only when the name lookup misses that id, so an unrenamed schema keeps the cheap
+                # filtered discovery.
+                if stored_resource_id is not None:
+                    found = discovered_schema_finder(schemas)(instance.name, instance.schema_metadata)
+                    found_resource_id = (
+                        (found.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY) if found else None
+                    )
+                    if str(found_resource_id) != str(stored_resource_id):
+                        schemas = new_source.get_schemas(
+                            config, self.team_id, names=None, api_version=effective_api_version
+                        )
+            except Exception as e:
+                return _discovery_error_response(new_source, e)
 
         if not schemas:
             return Response(
@@ -2770,7 +2781,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
         source_cdc_enabled = str_to_bool(SourceInputsStore.load_settings(source).get("cdc_enabled"))
-        source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+        source_impl = SourceRegistry.get_source(source.source_type)
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
         # xmin is source-capability-gated, mirroring the database_schema endpoint.
         xmin_available = schema.supports_xmin if source_impl.supports_xmin else None

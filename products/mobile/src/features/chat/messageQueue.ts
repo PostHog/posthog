@@ -1,3 +1,5 @@
+import { randomUUID } from 'expo-crypto'
+
 import type { PendingAttachment } from './attachments/types'
 import type { SessionPhase } from './session/types'
 
@@ -5,6 +7,7 @@ export interface QueuedMessage {
     id: string
     text: string
     /** The composer's files when the message was queued. They go with it, as on the web. */
+    missingAttachments?: number
     attachments: PendingAttachment[]
 }
 
@@ -26,15 +29,14 @@ export type QueueAction =
     | { type: 'restore'; rows: QueuedMessage[] }
     | { type: 'hold'; reason: QueueHold }
     | { type: 'release' }
+    | { type: 'delivered'; ids: string[] }
 
 export const EMPTY_QUEUE: QueueState = { rows: [], hold: null }
-
-let lastId = 0
 
 export const queueActions = {
     enqueue: (text: string, attachments: readonly PendingAttachment[] = []): QueueAction => ({
         type: 'enqueue',
-        id: `queued-${++lastId}`,
+        id: `queued-${randomUUID()}`,
         text,
         attachments: [...attachments],
     }),
@@ -57,6 +59,10 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
         case 'remove': {
             const rows = state.rows.filter((row) => row.id !== action.id)
             return { rows, hold: rows.length > 0 ? state.hold : null }
+        }
+        case 'delivered': {
+            const rows = state.rows.filter((row) => !action.ids.includes(row.id))
+            return { rows, hold: rows.length && state.hold === 'cancelled' ? 'cancelled' : null }
         }
         case 'clear':
             return EMPTY_QUEUE
@@ -94,7 +100,12 @@ export function shouldQueue(gate: SendGate, queue: QueueState): boolean {
 
 export function canDrain(gate: SendGate, queue: QueueState): boolean {
     return (
-        queue.rows.length > 0 && queue.hold === null && gate.phase === 'idle' && !gate.sending && !gate.decisionPending
+        queue.rows.length > 0 &&
+        !queue.rows.some((row) => row.missingAttachments) &&
+        queue.hold === null &&
+        gate.phase === 'idle' &&
+        !gate.sending &&
+        !gate.decisionPending
     )
 }
 

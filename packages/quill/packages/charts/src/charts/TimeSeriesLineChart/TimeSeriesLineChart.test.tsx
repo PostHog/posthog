@@ -53,6 +53,39 @@ describe('TimeSeriesLineChart', () => {
         expect(bottomMargin).toBe(76)
     })
 
+    describe('config.xScale', () => {
+        const TIME_LABELS = ['2026-03-01T00:00:00Z', '2026-03-01T01:00:00Z', '2026-03-01T04:00:00Z']
+
+        it.each([
+            ['spaces points evenly by default', {}, [0, 0.5, 1]],
+            ["places points by time with xScale: 'time'", { xScale: 'time' as const }, [0, 0.25, 1]],
+            [
+                'spans xDomain and drops points outside it',
+                {
+                    xScale: 'time' as const,
+                    xDomain: [Date.parse('2026-03-01T01:00:00Z'), Date.parse('2026-03-01T03:00:00Z')] as const,
+                },
+                [null, 0, null],
+            ],
+        ])('%s', (_, config, expectedFractions) => {
+            let fractions: (number | null)[] = []
+            function Measure(): null {
+                const { scales, dimensions } = useChartLayout()
+                fractions = TIME_LABELS.map((label) => {
+                    const x = scales.x(label)
+                    return x == null ? null : (x - dimensions.plotLeft) / dimensions.plotWidth
+                })
+                return null
+            }
+            renderChart(
+                <TimeSeriesLineChart series={SERIES} labels={TIME_LABELS} theme={THEME} config={config}>
+                    <Measure />
+                </TimeSeriesLineChart>
+            )
+            expect(fractions).toEqual(expectedFractions)
+        })
+    })
+
     describe('config.xAxis', () => {
         it('hides x-axis ticks when xAxis.hide is true', () => {
             const { chart } = renderChart(

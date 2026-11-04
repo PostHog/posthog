@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from functools import reduce
@@ -29,7 +29,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.event_definitions.backend.models import EventDefinition, PropertyDefinition, effective_project_id_expr
+from products.event_definitions.backend.models import PropertyDefinition, effective_project_id_expr
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthMetricCompileErrorKind,
@@ -47,8 +47,12 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
 from products.experiments.backend.logic.result_stats import MetricResultStats
 from products.experiments.backend.metric_resolution import MetricRole, saved_metric_link_role, saved_metric_links
 from products.experiments.backend.metric_utils import get_default_metric_title
-from products.experiments.backend.metric_validation import defined_event_names, extract_entity_nodes
-from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
+from products.experiments.backend.metric_validation import defined_event_names, event_last_seen, extract_entity_nodes
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentToSavedMetric,
+    live_experiments_for_flag,
+)
 from products.experiments.backend.running_time_target import RunningTimeTarget
 from products.feature_flags.backend.facade.edits import (
     BucketingChange,
@@ -220,6 +224,25 @@ class PauseHistory:
 
 
 @frozen
+class ExperimentOnFlag:
+    """Another experiment of the project that uses the same feature flag. The API lets several experiments share one
+    flag, so the flag's state can belong to one of them. It has no name or id, because the reader of this experiment
+    may have no access to the other one."""
+
+    launched_at: datetime | None
+    ended_at: datetime | None
+    archived: bool
+
+    @property
+    def is_draft(self) -> bool:
+        return self.launched_at is None
+
+    @property
+    def is_running(self) -> bool:
+        return self.launched_at is not None and self.ended_at is None
+
+
+@frozen
 class PrimaryMetric:
     """The experiment's first primary metric, which its running-time estimate sizes, with its stored result."""
 
@@ -361,6 +384,37 @@ class MetricCalculationFailure:
     exposures_path: ExposuresPath | None
 
 
+RatioSide = Literal["numerator", "denominator"]
+
+
+@frozen
+class ZeroMetric:
+    """A metric, or one side of a ratio metric, whose latest calculation reads zero in every variant, which the results
+    page shows as "Not enough data yet" at any sample size."""
+
+    metric_id: str
+    name: str
+    role: MetricRole
+    # The persons or groups of the result, across the variants.
+    exposures: int
+    # The side of a ratio that reads zero, each side its own `ZeroMetric`. None for the other metric types.
+    ratio_side: RatioSide | None
+    # The effective definition now, which holds the outlier handling and the retention window.
+    definition: Mapping[str, Any]
+    # The persons or groups that reached a step of a funnel before the last one. Zero for the other metric types.
+    reached_earlier_step: int
+    # The events that the zero reads by name, without the other side of a ratio.
+    events: tuple[str, ...]
+    # The data warehouse tables that the zero reads, without the other side of a ratio.
+    warehouse_tables: tuple[str, ...]
+    # Whether the zero reads an event node with a blank name, which matches no event. "All events" stores no name.
+    has_blank_event: bool
+    # Whether the zero reads a node with property filters.
+    has_filters: bool
+    # Of `events`, those that the project last received before launch, by the time of the last one.
+    stopped_events: Mapping[str, datetime]
+
+
 @frozen
 class LatestCalculation:
     """The latest finished calculation of the experiment's metrics, whose results and errors the results page
@@ -375,6 +429,11 @@ class LatestCalculation:
     completed_count: int
     # Where the queries of those results read the exposures, when there is a failure to compare them with.
     completed_exposures_paths: frozenset[ExposuresPath]
+    # Of those results, the ones that read zero in every variant.
+    zero_metrics: tuple[ZeroMetric, ...] = ()
+    # The hours from launch to the end of the data of this calculation. None when no calculation has finished. The
+    # page can show a calculation from days ago until its refresh finishes.
+    hours_of_data: float | None = None
 
 
 @frozen
@@ -517,11 +576,15 @@ class HealthContext:
     # answer this. None before launch, when the experiment has no flag, when the flag's latest call came after the
     # end, or when PostHog can't record the calls of this organization's flags.
     flag_called_during_run: bool | None
-    # Whether the flag's latest recorded call came after the end. False only when no call is recorded in the
-    # ENDED_FLAG_QUIET_PERIOD after the end, also for a flag without a recorded call. None before the end, when the
-    # experiment has no flag, before that period is over, or when PostHog can't record the calls of this
-    # organization's flags.
+    # Whether PostHog has recorded a call of the flag after the end and in the last ENDED_FLAG_QUIET_PERIOD, so that
+    # one stray call doesn't count as a flag that is still read. False only once that period after the end is over.
+    # None before the end, when the experiment has no flag, before that period is over without a call, or when
+    # PostHog can't record the calls of this organization's flags.
     flag_called_after_end: bool | None
+    # The flag's latest recorded call. None when the experiment has no flag, or the flag has no recorded call.
+    flag_last_called_at: datetime | None
+    # The other non-deleted experiments on the flag.
+    other_experiments_on_flag: tuple[ExperimentOnFlag, ...]
     # Whether the team has an active flag, which posthog-js needs to request flags on page load. None when not read:
     # it is read only for a draft whose flag has no recorded call.
     team_has_active_flag: bool | None
@@ -709,11 +772,25 @@ def _flag_called_after_end(experiment: Experiment) -> bool | None:
     if not experiment.is_stopped or end_date is None or feature_flag_id is None:
         return None
     last_called_at = experiment.feature_flag.last_called_at
-    if last_called_at is not None and last_called_at > end_date:
+    now = timezone.now()
+    if last_called_at is not None and last_called_at > max(end_date, now - ENDED_FLAG_QUIET_PERIOD):
         return True
-    if timezone.now() - end_date < ENDED_FLAG_QUIET_PERIOD + LAST_CALLED_AT_LAG_DURATION:
+    if now - end_date < ENDED_FLAG_QUIET_PERIOD + LAST_CALLED_AT_LAG_DURATION:
         return None
     return None if _flag_calls_unrecorded(experiment) else False
+
+
+def _other_experiments_on_flag(experiment: Experiment) -> tuple[ExperimentOnFlag, ...]:
+    others = (
+        live_experiments_for_flag(experiment.feature_flag_id)
+        .filter(team_id=experiment.team_id)
+        .exclude(id=experiment.id)
+        .values_list("start_date", "end_date", "archived", named=True)
+    )
+    return tuple(
+        ExperimentOnFlag(launched_at=other.start_date, ended_at=other.end_date, archived=other.archived)
+        for other in others
+    )
 
 
 def _flag_calls_unrecorded(experiment: Experiment) -> bool:
@@ -920,25 +997,28 @@ def _received(
     }
 
 
+def ingestion_proof_events(experiment_events: Iterable[str]) -> set[str]:
+    """The events whose `last_seen_at` can show that ingestion records the project: the flag calls and the events of
+    the experiment."""
+    return {DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT, *experiment_events}
+
+
+def ingestion_records_project(last_seen: Mapping[str, datetime]) -> bool:
+    """Whether ingestion writes the project's definitions now, from `last_seen` of `ingestion_proof_events`. A missing
+    or stale definition proves nothing without it. Ingestion can be set to skip a team, and then writes no definition at
+    all. It refreshes `last_seen_at` of an event that it sees about once an hour. So a flag call or an event of the
+    experiment seen within the margin shows that it records the project."""
+    recent = timezone.now() - _DEFINITION_RECREATION_MARGIN
+    return any(seen >= recent for seen in last_seen.values())
+
+
 def _ingestion_records_project(
     experiment: Experiment, metric_events: tuple[MetricEvents, ...], exposure_events: ExposureEvents | None
 ) -> bool:
-    """Whether ingestion writes the project's definitions now, which a missing definition needs to prove anything.
-    Ingestion can be set to skip a team, and then writes no definition at all. It refreshes `last_seen_at` of an event
-    that it sees about once an hour. So a flag call or an event of the experiment seen within the margin shows that it
-    records the project."""
-    names = {DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT, *(event for m in metric_events for event in m.events)}
+    names = ingestion_proof_events(event for m in metric_events for event in m.events)
     if exposure_events is not None and exposure_events.custom_event is not None:
         names.add(exposure_events.custom_event)
-    return (
-        EventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
-        .filter(
-            effective_project_id=experiment.team.project_id,
-            name__in=names,
-            last_seen_at__gte=timezone.now() - _DEFINITION_RECREATION_MARGIN,
-        )
-        .exists()
-    )
+    return ingestion_records_project(event_last_seen(experiment.team.project_id, names))
 
 
 def _deletions_since(experiment: Experiment) -> datetime:
@@ -1007,6 +1087,8 @@ def load_health_context(
         flag_called=flag_called,
         flag_called_during_run=_flag_called_during_run(experiment, flag_called),
         flag_called_after_end=_flag_called_after_end(experiment),
+        flag_last_called_at=experiment.feature_flag.last_called_at if experiment.feature_flag_id else None,
+        other_experiments_on_flag=_other_experiments_on_flag(experiment),
         team_has_active_flag=(
             has_active_flags(experiment.team) if flag_called is False and not experiment.is_launched else None
         ),
