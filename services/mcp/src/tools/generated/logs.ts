@@ -4,13 +4,13 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/logs/api'
 import hooks_logsGroupBy from '@/tools/logs/groupByRedactionHooks'
+import hooks_queryLogs from '@/tools/logs/queryLogsHooks'
 import hooks_logsAttributeValuesList from '@/tools/logs/redactCredentialsHooks'
 import hooks_logsContext from '@/tools/logs/redactCredentialsHooks'
 import hooks_logsFacetValuesCreate from '@/tools/logs/redactCredentialsHooks'
 import hooks_logsImpact from '@/tools/logs/redactCredentialsHooks'
 import hooks_logsPatterns from '@/tools/logs/redactCredentialsHooks'
 import hooks_logsPatternsDiff from '@/tools/logs/redactCredentialsHooks'
-import hooks_queryLogs from '@/tools/logs/redactCredentialsHooks'
 import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -959,7 +959,14 @@ const queryLogs = (): ToolBase<ReturnType<typeof QueryLogsSchema>, Schemas._Logs
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/query/`,
                 body: await transformRequestBody(hooks_queryLogs, context, params, body),
             })
-            const filtered = pickResponseFields(result, ['results', 'columns']) as typeof result
+            const filtered = omitResponseFields(result, [
+                'query',
+                'maxExportableLogs',
+                'results.*.observed_timestamp',
+                'results.*.severity_number',
+                'results.*.level',
+                'results.*.live_logs_checkpoint',
+            ]) as typeof result
             return filtered
         }
     ),
