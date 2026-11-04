@@ -508,6 +508,7 @@ def check_page(
         total = 0
     return PlatformCheckPage(
         total=total,
+        configuration_id=configuration_id,
         checks=tuple(
             _check_entry(occurred_at, evaluation_key, state, value, error_message, source_detail)
             for occurred_at, evaluation_key, state, value, error_message, _, source_detail in rows

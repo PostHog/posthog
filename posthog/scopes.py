@@ -689,6 +689,25 @@ def is_truncated_scope_request(requested: Sequence[str]) -> bool:
     return any(scope.startswith(tail) for scope in known)
 
 
+def resolve_requested_scopes(
+    requested: Sequence[str],
+    app_scopes: Iterable[str],
+    *,
+    allow_wildcard_under_empty_ceiling: bool = False,
+) -> list[str]:
+    """The scopes an OAuth request gets: no scope, or a list cut off mid-token, resolves to the
+    whole ceiling, and anything else is clamped to it.
+
+    `/oauth/authorize` and `/oauth/device-authorization` both resolve scopes here, so a client
+    gets the same scopes from either.
+    """
+    if not requested or is_truncated_scope_request(requested):
+        return sorted(effective_ceiling(app_scopes) | ALWAYS_ALLOWED_SCOPES)
+    return clamp_scopes_to_ceiling(
+        set(requested), app_scopes, allow_wildcard_under_empty_ceiling=allow_wildcard_under_empty_ceiling
+    )
+
+
 def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str]) -> list[str] | None:
     """Cap previously-granted scopes at an app's current ceiling (refresh-time).
 

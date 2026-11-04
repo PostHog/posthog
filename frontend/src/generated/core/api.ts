@@ -21,6 +21,10 @@ import type {
     DataDeletionRequestCreateApi,
     DataDeletionRequestInputApi,
     DataDeletionRequestsListParams,
+    DeviceApprovalApi,
+    DeviceDecisionApi,
+    DeviceGrantDetailsApi,
+    DeviceUserCodeApi,
     DomainsListParams,
     DomainsScimLogsRetrieveParams,
     EmojiSearchResponseApi,
@@ -184,6 +188,63 @@ export const oauthConnectedAppsRevokeCreate = async (id: string, options?: Reque
     return apiMutator<void>(getOauthConnectedAppsRevokeCreateUrl(id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getOauthDeviceApproveCreateUrl = () => {
+    return `/api/oauth_device/approve/`
+}
+
+/**
+ * Approve a device grant for one project. The token gets the scopes `lookup` showed.
+ */
+export const oauthDeviceApproveCreate = async (
+    deviceApprovalApi: DeviceApprovalApi,
+    options?: RequestInit
+): Promise<DeviceDecisionApi> => {
+    return apiMutator<DeviceDecisionApi>(getOauthDeviceApproveCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(deviceApprovalApi),
+    })
+}
+
+export const getOauthDeviceDenyCreateUrl = () => {
+    return `/api/oauth_device/deny/`
+}
+
+/**
+ * Refuse a device grant, so the client's next poll gets `access_denied`.
+ */
+export const oauthDeviceDenyCreate = async (
+    deviceUserCodeApi: DeviceUserCodeApi,
+    options?: RequestInit
+): Promise<DeviceDecisionApi> => {
+    return apiMutator<DeviceDecisionApi>(getOauthDeviceDenyCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(deviceUserCodeApi),
+    })
+}
+
+export const getOauthDeviceLookupCreateUrl = () => {
+    return `/api/oauth_device/lookup/`
+}
+
+/**
+ * Show what a device code asks for, so the person can check it before approving.
+ */
+export const oauthDeviceLookupCreate = async (
+    deviceUserCodeApi: DeviceUserCodeApi,
+    options?: RequestInit
+): Promise<DeviceGrantDetailsApi> => {
+    return apiMutator<DeviceGrantDetailsApi>(getOauthDeviceLookupCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(deviceUserCodeApi),
     })
 }
 
