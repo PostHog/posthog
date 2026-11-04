@@ -139,7 +139,6 @@ export function InsightViz({
                                     query={query.source}
                                     showing={!readOnly && showingFilters}
                                     embedded={isEmbedded}
-                                    inSharedMode={inSharedMode}
                                 />
                                 {!isEmbedded ? (
                                     <div className="flex-1 max-h-full overflow-auto pb-8">

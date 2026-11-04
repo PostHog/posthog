@@ -18,21 +18,16 @@ export interface WebAnalyticsEditorFiltersProps {
     query: WebStatsTableQuery | WebOverviewQuery
     showing: boolean
     embedded: boolean
-    inSharedMode?: boolean
 }
 
-export function WebAnalyticsEditorFilters({
-    query,
-    embedded,
-    inSharedMode,
-}: WebAnalyticsEditorFiltersProps): JSX.Element | null {
+export function WebAnalyticsEditorFilters({ query, embedded }: WebAnalyticsEditorFiltersProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     // Dashboard tiles render a readOnly snapshot. The Query component ignores
     // updateQuerySource changes here (see Query.tsx — `query = readOnly ? propsQuery : localQuery`),
     // so the toggle/filters never reflect the new state and clicks have no useful effect.
-    if (insightProps.dashboardId != null || inSharedMode) {
+    if (insightProps.dashboardId != null || insightProps.hideEditorFilters) {
         return null
     }
 

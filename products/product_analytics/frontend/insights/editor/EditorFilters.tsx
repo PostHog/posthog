@@ -67,10 +67,9 @@ export interface EditorFiltersProps {
     query: InsightQueryNode
     showing: boolean
     embedded: boolean
-    inSharedMode?: boolean
 }
 
-export function EditorFilters({ query, showing, embedded, inSharedMode }: EditorFiltersProps): JSX.Element | null {
+export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
 
     const { insightProps } = useValues(insightLogic)
@@ -107,7 +106,6 @@ export function EditorFilters({ query, showing, embedded, inSharedMode }: Editor
                         query={query as WebOverviewQuery | WebStatsTableQuery}
                         showing={showing}
                         embedded={embedded}
-                        inSharedMode={inSharedMode}
                     />
                 </Suspense>
             </ChunkLoadErrorBoundary>

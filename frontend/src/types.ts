@@ -3668,6 +3668,8 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null
     /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
+    /** hide interactive filter bars that an insight type renders itself (web analytics), e.g. in static exports */
+    hideEditorFilters?: boolean
     /** cached insight */
     cachedInsight?: Partial<InsightModel> | null
     /** Reuse recent completed responses when this embedded insight remounts. */
