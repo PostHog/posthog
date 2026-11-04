@@ -156,7 +156,9 @@ export const MarketingAnalyticsFilters = ({
                                             <IntegrationFilter />
                                         </div>
                                     )}
-                                    <LemonDivider className="my-0" />
+                                    {(showMetricEditor || canToggleConversionGoals || !showSearch) && (
+                                        <LemonDivider className="my-0" />
+                                    )}
                                     {/* Only the event side honors this: ad spend comes from the platforms. */}
                                     <TestAccountFilterSwitch
                                         fullWidth
