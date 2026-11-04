@@ -23,7 +23,7 @@ export function DotMatrixSourcePicker({
             <LemonSelect
                 id={id}
                 value={value}
-                onChange={onChange}
+                onSelect={onChange}
                 fullWidth
                 placeholder="Choose a data source"
                 data-attr="account-dot-matrix-source"

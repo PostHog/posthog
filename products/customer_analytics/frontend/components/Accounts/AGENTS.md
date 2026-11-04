@@ -43,7 +43,7 @@ Product usage tiles use `AccountProductUsage` and `AccountProductUsageTable`: Pr
 
 The `AccountDotMatrixTile` uses the shared renderer in `lib/components/DotMatrix/`.
 Its deterministic datasets and tooltip examples live in `lib/components/DotMatrix/examples/`.
-`accountDotMatrixTileLogic` saves the data source, display mode, and weeks through the account view config callback. Series selection stays local to the mounted tile.
+`accountDotMatrixTileLogic` saves the data source, display mode, and weeks through the account view config callback. Series selection stays local to the mounted tile. Selecting Custom HogQL again reopens the saved query as a draft without saving or rerunning it.
 
 Custom HogQL requests include Customer analytics query tags and bind account IDs as values. `{filters}` applies the account and selected weeks to event queries. Warehouse queries must use an explicit account predicate, such as `WHERE account_external_id = {account_external_id}`, and their own date condition. The editor warns when SQL has no active account placeholder outside comments or quoted text. This warning is a lexical hint; SQL controls the actual filter. Result columns map by name, then position. An optional `rowLabel` keeps readable labels separate from stable row keys. The starter event query uses the project week start. The product usage starter requires `CUSTOMER_ANALYTICS_PRODUCT_USAGE`.
 

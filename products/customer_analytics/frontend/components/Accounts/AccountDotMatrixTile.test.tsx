@@ -83,6 +83,26 @@ describe('AccountDotMatrixTile', () => {
         ).toBe(false)
     })
 
+    it('reopens the saved SQL editor when its selected source is chosen again', async () => {
+        mockPerformQuery.mockResolvedValue({ columns: ['r', 'c'], results: [['one', 'week']] })
+        const onConfigChange = jest.fn()
+        render(
+            <AccountDotMatrixTile
+                accountId="account-1"
+                initialConfig={{ source: { kind: 'hogql', query: 'SELECT 1', mapping: { row: 'r', column: 'c' } } }}
+                onConfigChange={onConfigChange}
+            />
+        )
+        await waitFor(() => expect(mockPerformQuery).toHaveBeenCalledTimes(1))
+        expect(screen.queryByTestId('matrix-code-editor')).toBeNull()
+        fireEvent.click(screen.getByTestId('account-dot-matrix-settings'))
+        fireEvent.click(screen.getByTestId('account-dot-matrix-source'))
+        fireEvent.click(screen.getAllByText('Custom HogQL').at(-1)!)
+        expect(await screen.findByTestId('matrix-code-editor')).toBeTruthy()
+        expect(onConfigChange).not.toHaveBeenCalled()
+        expect(mockPerformQuery).toHaveBeenCalledTimes(1)
+    })
+
     it('keeps the single SQL series legend static', async () => {
         mockPerformQuery.mockResolvedValue({ columns: ['r', 'c'], results: [['one', 'week']] })
         render(
