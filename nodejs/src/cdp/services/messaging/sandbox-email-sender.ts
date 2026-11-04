@@ -291,6 +291,58 @@ function conditionHolds(condition: string, client: ConditionalClient): boolean {
 
 const MAX_TEMPLATE_HTML_BYTES = 75_000
 const MAX_ELEMENT_DEPTH = 256
+const MAX_ATTRIBUTES_PER_TAG = 64
+
+function hasTagWithTooManyAttributes(html: string): boolean {
+    const space = /[\s/]/
+    const nameEnd = /[\s/>=]/
+    const valueEnd = /[\s>]/
+    let index = html.indexOf('<')
+    while (index !== -1) {
+        index += html[index + 1] === '/' ? 2 : 1
+        if (/[a-z]/i.test(html[index] ?? '')) {
+            while (index < html.length && !/[\s/>]/.test(html[index])) {
+                index += 1
+            }
+            let attributes = 0
+            while (index < html.length && html[index] !== '>') {
+                if (space.test(html[index])) {
+                    index += 1
+                    continue
+                }
+                attributes += 1
+                if (attributes > MAX_ATTRIBUTES_PER_TAG) {
+                    return true
+                }
+                index += 1
+                while (index < html.length && !nameEnd.test(html[index])) {
+                    index += 1
+                }
+                while (/\s/.test(html[index] ?? '')) {
+                    index += 1
+                }
+                if (html[index] !== '=') {
+                    continue
+                }
+                index += 1
+                while (/\s/.test(html[index] ?? '')) {
+                    index += 1
+                }
+                const quote = html[index]
+                if (quote === '"' || quote === "'") {
+                    const end = html.indexOf(quote, index + 1)
+                    index = end === -1 ? html.length : end + 1
+                } else {
+                    while (index < html.length && !valueEnd.test(html[index])) {
+                        index += 1
+                    }
+                }
+            }
+        }
+        index = html.indexOf('<', index)
+    }
+    return false
+}
 
 const templateOwners = new WeakMap<DefaultTreeAdapterMap['parentNode'], DefaultTreeAdapterMap['template']>()
 
@@ -411,6 +463,11 @@ function outlookViews(html: string): DefaultTreeAdapterMap['document'][] {
 function appendHtmlFooter(html: string, footer: string, preheader?: string): string {
     if (Buffer.byteLength(html) + Buffer.byteLength(preheader ?? '') > MAX_TEMPLATE_HTML_BYTES) {
         throw new TooLargeForSandbox()
+    }
+    if (hasTagWithTooManyAttributes(html) || hasTagWithTooManyAttributes(preheader ?? '')) {
+        throw new Error(
+            'The sandbox email template could not retain its identification footer. Update the template and try again.'
+        )
     }
     const preheaderText = parseFragment(preheader ?? '', {
         scriptingEnabled: false,
