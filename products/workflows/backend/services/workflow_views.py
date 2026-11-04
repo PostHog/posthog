@@ -1,6 +1,6 @@
 from typing import cast
+from uuid import UUID
 
-from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from posthog.paging import Page, PageRequest
@@ -36,16 +36,16 @@ class WorkflowViewStore:
         views = WorkflowView.objects.for_team(self.team_id).filter(deleted=False).order_by("created_at", "id")
         return select_page(views, page).map(self._record)
 
-    def get(self, view_id: str) -> WorkflowViewRecord:
+    def get(self, view_id: UUID) -> WorkflowViewRecord:
         return self._record(self._find(view_id))
 
-    def _find(self, view_id: str, *, for_update: bool = False) -> WorkflowView:
+    def _find(self, view_id: UUID, *, for_update: bool = False) -> WorkflowView:
         views = WorkflowView.objects.for_team(self.team_id).filter(deleted=False)
         if for_update:
             views = views.select_for_update()
         try:
             return views.get(pk=view_id)
-        except (WorkflowView.DoesNotExist, ValidationError) as error:
+        except WorkflowView.DoesNotExist as error:
             raise WorkflowViewNotFound() from error
 
     def create(self, *, name: str, state: WorkflowViewState) -> WorkflowViewRecord:
@@ -79,14 +79,14 @@ class WorkflowViewStore:
                 view.save(update_fields=["name", "state", "deleted", "version", "updated_at"])
         return self._record(view)
 
-    def _lock(self, view_id: str, version: int) -> WorkflowView:
+    def _lock(self, view_id: UUID, version: int) -> WorkflowView:
         current = self._find(view_id, for_update=True)
         if current.version != version:
             raise WorkflowViewConflict()
         return current
 
     def update(
-        self, view_id: str, version: int, *, name: str | None, state: WorkflowViewState | None
+        self, view_id: UUID, version: int, *, name: str | None, state: WorkflowViewState | None
     ) -> WorkflowViewRecord:
         with transaction.atomic():
             current = self._lock(view_id, version)
@@ -98,7 +98,7 @@ class WorkflowViewStore:
             current.save(update_fields=["name", "state", "version", "updated_at"])
         return self._record(current)
 
-    def delete(self, view_id: str, version: int) -> None:
+    def delete(self, view_id: UUID, version: int) -> None:
         with transaction.atomic():
             current = self._lock(view_id, version)
             if current.default_key is not None:

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
+from uuid import UUID
 
 from django.db.models import TextChoices
 
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, NotFound
@@ -16,13 +16,12 @@ from rest_framework.views import APIView
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.permissions import (
     FEATURE_FLAG_REQUIRED_ERROR_CODE,
-    AccessControlPermission,
     PostHogFeatureFlagPermission,
     get_authenticator_client,
-    is_service_auth,
     posthog_feature_flag_enabled,
 )
 
@@ -113,6 +112,11 @@ class WorkflowViewUpdateSerializer(RequiredFieldsOnPatchSerializer):
         required=False, help_text="Replacement filters, text search, and visible columns."
     )
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if "name" not in attrs and "state" not in attrs:
+            raise serializers.ValidationError("Send a name or a state to change.")
+        return attrs
+
 
 class WorkflowViewDeleteSerializer(serializers.Serializer):
     version = serializers.IntegerField(
@@ -138,19 +142,6 @@ class WorkflowViewPagination(FacadeLimitOffsetPagination):
     max_limit = 100
 
 
-class WorkflowViewsResourcePermission(AccessControlPermission):
-    message = "You do not have access to shared workflow views."
-
-    def has_permission(self, request: Request, view: APIView) -> bool:
-        if is_service_auth(request):
-            return True
-        workflow_views = cast(WorkflowViewViewSet, view)
-        required_level = self._get_required_access_level(request, view)
-        return required_level is not None and workflow_views.user_access_control.check_access_level_for_resource(
-            "hog_flow", required_level
-        )
-
-
 class WorkflowViewsFeatureFlagPermission(PostHogFeatureFlagPermission):
     message = "Workflow saved views are unavailable."
     code = FEATURE_FLAG_REQUIRED_ERROR_CODE
@@ -167,7 +158,8 @@ class WorkflowViewsFeatureFlagPermission(PostHogFeatureFlagPermission):
                     team_id=workflow_views.team.id,
                     caller_properties=get_authenticator_client(request.successful_authenticator),
                 )
-            except Exception:
+            except Exception as error:
+                capture_exception(error, {"flag": flag})
                 return False
             if not enabled:
                 return False
@@ -179,7 +171,9 @@ class WorkflowViewViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object_read_actions = ["list", "retrieve", "initialize"]
     scope_object_write_actions = ["create", "partial_update", "destroy", "restore_default"]
     serializer_class = WorkflowViewSerializer
-    permission_classes = [WorkflowViewsFeatureFlagPermission, WorkflowViewsResourcePermission]
+    permission_classes = [WorkflowViewsFeatureFlagPermission]
+    requires_resource_level_access = True
+    path_parameters = {"id": UUID}
     pagination_class = WorkflowViewPagination
     lookup_field = "id"
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
@@ -195,10 +189,7 @@ class WorkflowViewViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def list(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
         return facade_page_response(self, lambda page: list_workflow_views(self.team_id, page))
 
-    @validated_request(
-        responses={200: WorkflowViewSerializer},
-        parameters=[OpenApiParameter("id", OpenApiTypes.UUID, OpenApiParameter.PATH)],
-    )
+    @validated_request(responses={200: WorkflowViewSerializer})
     def retrieve(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
         view = get_workflow_view(self.team_id, self.kwargs["id"])
         return Response(self.get_serializer(view).data)
@@ -215,7 +206,6 @@ class WorkflowViewViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(
         WorkflowViewUpdateSerializer,
         responses={200: WorkflowViewSerializer, 409: OpenApiResponse(response=WorkflowViewConflictSerializer)},
-        parameters=[OpenApiParameter("id", OpenApiTypes.UUID, OpenApiParameter.PATH)],
     )
     def partial_update(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
         updated = update_workflow_view(
@@ -230,7 +220,6 @@ class WorkflowViewViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(
         query_serializer=WorkflowViewDeleteSerializer,
         responses={204: None, 409: OpenApiResponse(response=WorkflowViewConflictSerializer)},
-        parameters=[OpenApiParameter("id", OpenApiTypes.UUID, OpenApiParameter.PATH)],
     )
     def destroy(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
         delete_workflow_view(self.team_id, self.kwargs["id"], request.validated_query_data["version"])

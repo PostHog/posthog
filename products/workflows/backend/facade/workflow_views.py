@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from posthog.paging import Page, PageRequest
 
 from products.workflows.backend.facade.contracts import WorkflowViewRecord, WorkflowViewState
@@ -8,7 +10,7 @@ def list_workflow_views(team_id: int, page: PageRequest) -> Page[WorkflowViewRec
     return WorkflowViewStore(team_id).list(page)
 
 
-def get_workflow_view(team_id: int, view_id: str) -> WorkflowViewRecord:
+def get_workflow_view(team_id: int, view_id: UUID) -> WorkflowViewRecord:
     return WorkflowViewStore(team_id).get(view_id)
 
 
@@ -17,12 +19,12 @@ def create_workflow_view(team_id: int, *, name: str, state: WorkflowViewState) -
 
 
 def update_workflow_view(
-    team_id: int, view_id: str, version: int, *, name: str | None, state: WorkflowViewState | None
+    team_id: int, view_id: UUID, version: int, *, name: str | None, state: WorkflowViewState | None
 ) -> WorkflowViewRecord:
     return WorkflowViewStore(team_id).update(view_id, version, name=name, state=state)
 
 
-def delete_workflow_view(team_id: int, view_id: str, version: int) -> None:
+def delete_workflow_view(team_id: int, view_id: UUID, version: int) -> None:
     WorkflowViewStore(team_id).delete(view_id, version)
 
 

@@ -70,12 +70,15 @@ class TestWorkflowViewAPI(APIBaseTest):
         reloaded = self.client.get(self.base_url)
         self.assertEqual(reloaded.status_code, 200, reloaded.content)
         self.assertEqual(reloaded.json()["results"], [view])
-        second = self.client.post(self.base_url, {"name": "Failing", "state": saved_state}, format="json").json()
+
+    def test_paging_through_shared_views_returns_every_view_once(self) -> None:
+        first = self._create_view()
+        second = self._create_view()
         first_page = self.client.get(self.base_url, {"limit": 1}).json()
         next_page = self.client.get(self.base_url, {"limit": 1, "offset": 1}).json()
         self.assertEqual(first_page["count"], 2)
         self.assertEqual(
-            [row["id"] for row in first_page["results"] + next_page["results"]], [view["id"], second["id"]]
+            [row["id"] for row in first_page["results"] + next_page["results"]], [first["id"], second["id"]]
         )
 
     @parameterized.expand(
@@ -143,6 +146,8 @@ class TestWorkflowViewAPI(APIBaseTest):
 
         missing_version = self.client.patch(detail_url, {"name": "Missing version"}, format="json")
         self.assertEqual(missing_version.status_code, 400, missing_version.content)
+        nothing_to_change = self.client.patch(detail_url, {"version": 2}, format="json")
+        self.assertEqual(nothing_to_change.status_code, 400, nothing_to_change.content)
         self.assertEqual(self.client.delete(detail_url).status_code, 400)
         incomplete_state = self.client.patch(detail_url, {"state": {"filters": []}, "version": 2}, format="json")
         self.assertEqual(incomplete_state.status_code, 400, incomplete_state.content)
