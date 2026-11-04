@@ -515,9 +515,6 @@ if [[ "$(uname -s)-$(uname -m)" == "Darwin-arm64" && -z "${SDKROOT:-}" ]] && com
   unset -f _sdk_lld_can_link
 fi
 
-# Share a single Cargo target dir so worktrees skip redundant linking
-export CARGO_TARGET_DIR="$HOME/.cargo/target"
-
 # ── Summary ─────────────────────────────────────────────────────────
 _activation_end=$(date +%s)
 _activation_time=$(( _activation_end - _activation_start ))
