@@ -12,14 +12,14 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from anthropic import AsyncAnthropic
-from anthropic.types import MessageParam
+from anthropic.types import Message, MessageParam
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.event_usage import groups
 from posthog.llm.gateway_client import build_async_anthropic_client, resolve_ai_gateway_config
 from posthog.models import Organization, Team
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 
 from products.signals.backend.emission._prompts import COMMON_ACTIONABILITY_PROMPT_NAMES
 from products.signals.backend.emission.registry import (
@@ -30,7 +30,7 @@ from products.signals.backend.emission.registry import (
 )
 from products.signals.backend.emission.steering import SourceSteering, apply_steering, steering_from_config
 from products.signals.backend.facade.api import emit_signal
-from products.signals.backend.llm_spend import generate_with_spend
+from products.signals.backend.llm_spend import accounted_message, generate_with_spend
 from products.signals.backend.models import SignalEmissionRecord
 from products.signals.backend.spend import complete_signal_pipeline, finalized_signal_ids, signal_id_for
 from products.signals.backend.spend_billing import system_source_exempt
@@ -40,6 +40,8 @@ from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import summarize_drop_error
 from products.signals.backend.temporal.llm import effort_kwargs
 from products.signals.backend.temporal.signal_queries import fetch_source_signal_matches
+from products.signals.backend.trial.policy import TrialRefused
+from products.signals.backend.trial.reports import requires_trial_accounting
 
 logger = structlog.get_logger(__name__)
 
@@ -195,6 +197,23 @@ def build_emitter_outputs(
     return outputs, error_count
 
 
+async def _create_message(
+    client: AsyncAnthropic, *, team_id: int, messages: list[MessageParam], extra_headers: dict[str, str]
+) -> Message:
+    trial = await database_sync_to_async_pool(requires_trial_accounting)(team_id)
+    if trial:
+        client = client.with_options(max_retries=0)
+    return await accounted_message(
+        client,
+        model=LLM_MODEL,
+        messages=messages,
+        max_tokens=LLM_MAX_OUTPUT_TOKENS,
+        metadata={"user_id": f"team-{team_id}"},
+        extra_headers=extra_headers,
+        **effort_kwargs(LLM_MODEL),
+    )
+
+
 async def _summarize_description(
     client: AsyncAnthropic,
     team_id: int,
@@ -217,14 +236,7 @@ async def _summarize_description(
         summary = ""
         try:
             generation = asyncio.wait_for(
-                client.messages.create(
-                    model=LLM_MODEL,
-                    messages=messages,
-                    max_tokens=LLM_MAX_OUTPUT_TOKENS,
-                    metadata={"user_id": f"team-{team_id}"},
-                    extra_headers=extra_headers,
-                    **effort_kwargs(LLM_MODEL),
-                ),
+                _create_message(client, team_id=team_id, messages=messages, extra_headers=extra_headers),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
             priced = await generate_with_spend(
@@ -239,6 +251,8 @@ async def _summarize_description(
             if len(summary) > threshold:
                 raise ValueError(f"Summary is {len(summary)} characters, must be at most {threshold}")
             return dataclasses.replace(output, description=summary)
+        except TrialRefused:
+            raise
         except Exception as e:
             posthoganalytics.capture_exception(
                 e,
@@ -387,13 +401,11 @@ async def check_actionability(
                 await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
             try:
                 generation = asyncio.wait_for(
-                    client.messages.create(
-                        model=LLM_MODEL,
+                    _create_message(
+                        client,
+                        team_id=team_id,
                         messages=[{"role": "user", "content": prompt}],
-                        max_tokens=LLM_MAX_OUTPUT_TOKENS,
-                        metadata={"user_id": f"team-{team_id}"},
                         extra_headers=extra_headers,
-                        **effort_kwargs(LLM_MODEL),
                     ),
                     timeout=LLM_CALL_TIMEOUT_SECONDS,
                 )
@@ -403,6 +415,8 @@ async def check_actionability(
                 response = priced.response
                 response_text = _extract_text(response).strip().upper()
                 return "NOT_ACTION" not in response_text
+            except TrialRefused:
+                raise
             except Exception as e:
                 posthoganalytics.capture_exception(
                     e,
@@ -470,6 +484,8 @@ async def filter_actionable(
                     context_fields=context_fields,
                     system_one_prompt=system_one_prompt,
                 )
+            except TrialRefused:
+                return False
             except Exception:
                 logger.exception(
                     "Actionability check failed, assuming actionable",

@@ -103,13 +103,13 @@ def implementation_requires_trial_opt_in(team_id: int, report_id: str) -> bool:
     ).exists() or requires_trial_accounting(team_id)
 
 
-def prepare_report_pass(*, team: Team, report_id: str, operation_key: str) -> None:
+def report_pass_paid_authorized(*, team: Team, report_id: str, operation_key: str) -> bool:
     from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- model registration cycle
 
     policy = TrialPolicy(team)
     grant = policy.active_grant()
-    if grant is None:
-        return
+    if grant is None or grant.exhausted_at is None:
+        return False
     snapshot = (
         SignalReport.objects.filter(team_id=team.id, id=report_id)
         .values_list("self_driving_funding", flat=True)
@@ -117,8 +117,17 @@ def prepare_report_pass(*, team: Team, report_id: str, operation_key: str) -> No
     )
     previous = TrialFunding.from_dict(snapshot)
     if previous is not None and previous.report_pass_key == operation_key:
+        return False
+    return paid_trial_continuation_authorized(team)
+
+
+def prepare_report_pass(*, team: Team, report_id: str, operation_key: str, paid_authorized: bool = False) -> None:
+    from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- model registration cycle
+
+    policy = TrialPolicy(team)
+    # A new pass must replace historical trial funding even when the rollout is off.
+    if policy.grant() is None:
         return
-    paid_authorized = paid_trial_continuation_authorized(team) if grant.exhausted_at else False
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().get(team_id=team.id, id=report_id)
         previous = TrialFunding.from_dict(report.self_driving_funding)
