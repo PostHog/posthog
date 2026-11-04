@@ -15,18 +15,12 @@ export function SampleDataTag(): JSX.Element {
                 This project hasn't received any events yet - you'll see your real data here as soon as events start
                 coming in.
             </p>
-            {setupStatus?.kind === 'installing' &&
-                (setupStatus.mode === 'cloud' ? (
-                    <p className="m-0">
-                        The setup wizard is installing PostHog in your codebase. Once it's done, it will open a pull
-                        request for you to merge.
-                    </p>
-                ) : (
-                    <p className="m-0">
-                        The setup wizard is installing PostHog in your codebase. You'll see real data here soon after
-                        it's done.
-                    </p>
-                ))}
+            {setupStatus?.kind === 'installing' && (
+                <p className="m-0">
+                    The setup wizard is installing PostHog in your codebase. Once it's done, it will open a pull request
+                    for you to merge.
+                </p>
+            )}
             {setupStatus?.kind === 'pull_request' &&
                 (setupStatus.pullRequest.merged ? (
                     <p className="m-0">

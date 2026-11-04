@@ -102,6 +102,7 @@ export interface PersonhogPersonsStoreOptions {
     syncMergeMoveLimit: number
     /** The injected repository's per-request timeout; the flush's lane wait derives from it. */
     requestTimeoutMs: number
+    mergeTimeoutMs: number
 }
 
 const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
@@ -109,6 +110,7 @@ const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
     updateAllProperties: false,
     syncMergeMoveLimit: 10_000,
     requestTimeoutMs: 3_000,
+    mergeTimeoutMs: 35_000,
 }
 
 const CALLER_TAG = 'ingestion/personhog-store'
@@ -265,6 +267,7 @@ export class PersonhogPersonsStore implements PersonsStore {
     private flushChain: Promise<void> = Promise.resolve()
     /** Total lane wait per flush, derived in the constructor from the transport retry budget. */
     private flushWaitBudgetMs: number
+    private fenceWaitBudgetMs: number
 
     constructor(
         private repository: PersonHogPersonWriteRepository,
@@ -286,6 +289,9 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (!Number.isInteger(this.options.requestTimeoutMs) || this.options.requestTimeoutMs < 1) {
             throw new Error(`PERSONHOG_TIMEOUT_MS must be an integer >= 1, got ${this.options.requestTimeoutMs}`)
         }
+        if (!Number.isInteger(this.options.mergeTimeoutMs) || this.options.mergeTimeoutMs < 1) {
+            throw new Error(`PERSONHOG_MERGE_TIMEOUT_MS must be an integer >= 1, got ${this.options.mergeTimeoutMs}`)
+        }
         // A flush waits out a claimed lane rather than failing past it. The
         // wait outlasts one write's full transport retry budget, derived
         // rather than chosen so the two cannot drift apart; a holder writing
@@ -293,6 +299,10 @@ export class PersonhogPersonsStore implements PersonsStore {
         // redelivery instead of acking over unwritten ops.
         this.flushWaitBudgetMs =
             (TRANSPORT_MAX_RETRIES + 1) * this.options.requestTimeoutMs + TRANSPORT_MAX_BACKOFF_MS + FLUSH_WAIT_ROUND_MS
+        // A merge saga holds its source's fence until it completes, and the
+        // merge call's timeout already outlasts one saga drive, so a fenced
+        // lane waits as long as a merge caller does.
+        this.fenceWaitBudgetMs = Math.max(this.flushWaitBudgetMs, this.options.mergeTimeoutMs)
     }
 
     forBatch(batchId: number): PersonsStoreForBatch {
@@ -1234,9 +1244,10 @@ export class PersonhogPersonsStore implements PersonsStore {
      * Writes the batch's folded lanes to the leader, one call per segment;
      * nothing publishes, because the leader's changelog is the person feed.
      * A missing person redirects to whatever its distinct id resolves to
-     * now; a person genuinely gone and a size rejection are counted and
-     * dropped since neither can succeed on retry; anything else fails the
-     * flush. Passes serialize.
+     * now, and a person with no owner fails the flush so its redelivered
+     * events re-resolve. A size rejection is counted and dropped because it
+     * cannot succeed on retry. A lane fenced by a lifecycle op waits for the
+     * fence to clear. Anything else fails the flush. Passes serialize.
      */
     async flush(): Promise<FlushResult[]> {
         const run = this.flushChain.then(() => this.flushPass())
@@ -1251,15 +1262,24 @@ export class PersonhogPersonsStore implements PersonsStore {
         // Success lets the batch ack, so the pass must not return while any
         // lane holds unwritten segments: claimed lanes are waited out and
         // rewritten, or the pass fails and the batch redelivers.
+        let fenceSeen = false
         for (let round = 0; ; round++) {
-            const pass = { deferrals: 0 }
+            const pass = { deferrals: 0, fenced: 0 }
             await this.writeEligibleLanes(pass)
             if (pass.deferrals === 0) {
                 // No FlushResults: the leader's changelog is the person
                 // feed, so a flush publishes nothing.
                 return []
             }
-            if (round * FLUSH_WAIT_ROUND_MS >= this.flushWaitBudgetMs) {
+            fenceSeen ||= pass.fenced > 0
+            const budgetMs = fenceSeen ? this.fenceWaitBudgetMs : this.flushWaitBudgetMs
+            if (round * FLUSH_WAIT_ROUND_MS >= budgetMs) {
+                if (pass.fenced > 0) {
+                    personhogStoreFlushCounter.inc({ outcome: 'fence_exhausted' })
+                    throw new Error(
+                        `flush cannot complete: ${pass.fenced} lanes still fenced by a lifecycle op after ${budgetMs}ms`
+                    )
+                }
                 personhogStoreFlushCounter.inc({ outcome: 'parked_exhausted' })
                 throw new Error(
                     `flush cannot complete: ${pass.deferrals} lanes deferred behind writes that did not settle`
@@ -1285,7 +1305,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    private async writeEligibleLanes(pass: { deferrals: number }): Promise<void> {
+    private async writeEligibleLanes(pass: { deferrals: number; fenced: number }): Promise<void> {
         // Before the claim, so a held lane that resolves writes in this pass.
         await this.resolveHeldLanes()
         // No await in this block, so the claim snapshot is atomic.
@@ -1311,7 +1331,18 @@ export class PersonhogPersonsStore implements PersonsStore {
         const outcomes = await Promise.allSettled(
             captured.map(({ personKey, entry, segments }) => limit(() => this.writeEntry(personKey, entry, segments)))
         )
-        const failed = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
+        let failed: PromiseRejectedResult | undefined
+        for (const outcome of outcomes) {
+            if (outcome.status !== 'rejected') {
+                continue
+            }
+            if (outcome.reason instanceof PersonhogFencedError) {
+                pass.deferrals += 1
+                pass.fenced += 1
+                continue
+            }
+            failed ??= outcome
+        }
         if (failed) {
             throw failed.reason
         }
@@ -1398,9 +1429,9 @@ export class PersonhogPersonsStore implements PersonsStore {
                     if (error instanceof PersonhogFencedError) {
                         // Expected coordination, so it stays off the error
                         // series an alert would page on: the holder settles
-                        // and redelivery flows.
+                        // and a later round writes the lane.
                         personhogStoreFlushCounter.inc({ outcome: 'fenced' })
-                        logger.warn('flush bounced on a lifecycle fence; the batch redelivers', {
+                        logger.warn('flush bounced on a lifecycle fence; the lane retries', {
                             teamId: entry.teamId,
                             personId: entry.personId,
                             fencingOpId: error.fencingOpId,
