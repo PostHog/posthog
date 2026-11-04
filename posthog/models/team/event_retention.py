@@ -27,7 +27,7 @@ EVENTS_DATA_RETENTION_FLAG = "events-data-retention"
 EVENTS_DATA_RETENTION_FEATURE = AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION
 
 STANDARD_DATA_RETENTION_FEATURE = AvailableFeature.PRODUCT_ANALYTICS_STANDARD_DATA_RETENTION
-STANDARD_DEFAULT_WINDOW_MONTHS = 24
+STANDARD_DEFAULT_PERIOD_MONTHS = 24
 
 
 def should_enforce_events_retention(team_id: int) -> bool:
@@ -56,7 +56,7 @@ def should_enforce_events_retention(team_id: int) -> bool:
 def events_retention_months_for_team(team: Optional[Team], team_id: Optional[int]) -> Optional[int]:
     """Months of events retention to floor a query's events scans to, or None if retention isn't enforced.
 
-    The window set in project or organization settings, never past the plan's, else the default. Computed once per
+    The period set in project or organization settings, never past the plan's, else the default. Computed once per
     query in prepare_ast_for_printing. The cohort gate runs first and is DB-free, so non-cohort teams (the vast majority
     during rollout) never hit Postgres here — only an enforced team triggers the lean field load.
     """
@@ -80,12 +80,12 @@ _REQUEST_CACHED_QUERYABLE_MONTHS_ATTR = "_request_cached_queryable_events_retent
 
 
 def _queryable_months(team: Team) -> int:
-    """Memoise the window on the team instance, which is request-scoped in practice.
+    """Memoise the period on the team instance, which is request-scoped in practice.
 
     Every insight on a dashboard and every query it prints asks again, and each ask is a Postgres query.
     """
     if not hasattr(team, _REQUEST_CACHED_QUERYABLE_MONTHS_ATTR):
-        setattr(team, _REQUEST_CACHED_QUERYABLE_MONTHS_ATTR, events_retention_windows([team])[team.id])
+        setattr(team, _REQUEST_CACHED_QUERYABLE_MONTHS_ATTR, events_retention_periods([team])[team.id])
     return getattr(team, _REQUEST_CACHED_QUERYABLE_MONTHS_ATTR)
 
 
@@ -104,20 +104,20 @@ def team_plan(team: Team) -> TeamPlan:
     )
 
 
-def default_window(plan_months: int, standard: bool, min_months: int | None) -> int:
-    default = min(plan_months, STANDARD_DEFAULT_WINDOW_MONTHS) if standard else plan_months
+def default_period(plan_months: int, standard: bool, min_months: int | None) -> int:
+    default = min(plan_months, STANDARD_DEFAULT_PERIOD_MONTHS) if standard else plan_months
     return min(plan_months, max(default, min_months)) if min_months is not None else default
 
 
-def events_retention_windows(teams: Sequence[Team]) -> dict[int, int]:
-    return retention_windows([team_plan(team) for team in teams])
+def events_retention_periods(teams: Sequence[Team]) -> dict[int, int]:
+    return retention_periods([team_plan(team) for team in teams])
 
 
-def retention_windows(plans: Sequence[TeamPlan]) -> dict[int, int]:
+def retention_periods(plans: Sequence[TeamPlan]) -> dict[int, int]:
     setting_months = {
         item.team_id: item.months for item in effective_events_retention(team_ids=[p.team_id for p in plans])
     }
-    defaults = default_windows([plan for plan in plans if plan.team_id not in setting_months])
+    defaults = default_periods([plan for plan in plans if plan.team_id not in setting_months])
     return {
         plan.team_id: min(plan.plan_months, setting_months[plan.team_id])
         if plan.team_id in setting_months
@@ -126,12 +126,12 @@ def retention_windows(plans: Sequence[TeamPlan]) -> dict[int, int]:
     }
 
 
-def default_windows(teams: Sequence[TeamPlan]) -> dict[int, int]:
-    shortened = {team.organization_id for team in teams if STANDARD_DEFAULT_WINDOW_MONTHS < team.plan_months}
+def default_periods(teams: Sequence[TeamPlan]) -> dict[int, int]:
+    shortened = {team.organization_id for team in teams if STANDARD_DEFAULT_PERIOD_MONTHS < team.plan_months}
     standard = _standard_retention_organization_ids(shortened) if shortened else set()
     min_months = _minimum_months(standard) if standard else {}
     return {
-        team.team_id: default_window(
+        team.team_id: default_period(
             team.plan_months, team.organization_id in standard, min_months.get(team.organization_id)
         )
         for team in teams

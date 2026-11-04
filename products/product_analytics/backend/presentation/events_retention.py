@@ -44,11 +44,11 @@ class OrganizationEventsRetentionSerializer(serializers.Serializer):
     organization_retention_months = serializers.IntegerField(
         read_only=True,
         allow_null=True,
-        help_text="The window, in months, that every project without its own window uses. Null while those projects use the default window.",
+        help_text="The period, in months, that every project without its own period uses. Null while those projects use the default period.",
     )
     default_retention_months = serializers.IntegerField(
         read_only=True,
-        help_text="The window, in months, that projects use while no window is set for them or their organization. 24 months on current plans, never longer than the plan's window and never shorter than the shortest window an admin can set. Plans from before the 24-month default use the plan's window.",
+        help_text="The period, in months, that projects use while no period is set for them or their organization. 24 months on current plans, never longer than the plan's period and never shorter than the shortest period an admin can set. Plans from before the 24-month default use the plan's period.",
     )
     default_is_grandfathered = serializers.BooleanField(
         read_only=True,
@@ -191,7 +191,7 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
         operation_id="organization_events_retention_retrieve",
         summary="Get the organization's events retention window",
         description=(
-            "Returns the events retention window that every project without its own window uses, the default window "
+            "Returns the events retention period that every project without its own period uses, the default period "
             "while none is set, and the range an organization admin can set."
         ),
         responses={200: OrganizationEventsRetentionSerializer},

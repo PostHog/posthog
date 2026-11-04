@@ -14,8 +14,8 @@ from posthog.models.events_retention_config import (
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.team.event_retention import (
-    STANDARD_DEFAULT_WINDOW_MONTHS,
-    default_window,
+    STANDARD_DEFAULT_PERIOD_MONTHS,
+    default_period,
     has_standard_retention,
     organization_events_retention_months,
 )
@@ -87,8 +87,8 @@ def organization_events_retention(organization: Organization) -> OrganizationEve
     standard = has_standard_retention(organization)
     return OrganizationEventsRetention(
         organization_months=config.default_events_retention_months if config else None,
-        default_months=default_window(plan_months, standard, staff_min),
-        default_is_grandfathered=not standard and plan_months > STANDARD_DEFAULT_WINDOW_MONTHS,
+        default_months=default_period(plan_months, standard, staff_min),
+        default_is_grandfathered=not standard and plan_months > STANDARD_DEFAULT_PERIOD_MONTHS,
         plan_months=plan_months,
         min_months=staff_min or 1,
         max_months=min(plan_months, staff_max) if staff_max else plan_months,

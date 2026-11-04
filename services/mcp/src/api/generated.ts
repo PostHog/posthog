@@ -42496,11 +42496,11 @@ export namespace Schemas {
 
     export interface EventsRetention {
       /**
-         * The window, in months, that every project without its own window uses. Null while those projects use the default window.
+         * The period, in months, that every project without its own period uses. Null while those projects use the default period.
          * @nullable
          */
       readonly organization_retention_months: number | null;
-      /** The window, in months, that projects use while no window is set for them or their organization. 24 months on current plans, never longer than the plan's window and never shorter than the shortest window an admin can set. Plans from before the 24-month default use the plan's window. */
+      /** The period, in months, that projects use while no period is set for them or their organization. 24 months on current plans, never longer than the plan's period and never shorter than the shortest period an admin can set. Plans from before the 24-month default use the plan's period. */
       readonly default_retention_months: number;
       /** Whether the default is longer than 24 months because the plan predates the 24-month default. */
       readonly default_is_grandfathered: boolean;
@@ -70015,11 +70015,11 @@ export namespace Schemas {
 
     export interface OrganizationEventsRetention {
       /**
-         * The window, in months, that every project without its own window uses. Null while those projects use the default window.
+         * The period, in months, that every project without its own period uses. Null while those projects use the default period.
          * @nullable
          */
       readonly organization_retention_months: number | null;
-      /** The window, in months, that projects use while no window is set for them or their organization. 24 months on current plans, never longer than the plan's window and never shorter than the shortest window an admin can set. Plans from before the 24-month default use the plan's window. */
+      /** The period, in months, that projects use while no period is set for them or their organization. 24 months on current plans, never longer than the plan's period and never shorter than the shortest period an admin can set. Plans from before the 24-month default use the plan's period. */
       readonly default_retention_months: number;
       /** Whether the default is longer than 24 months because the plan predates the 24-month default. */
       readonly default_is_grandfathered: boolean;

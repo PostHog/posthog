@@ -89,11 +89,11 @@ class TestEventsRetentionAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("standard_plan_defaults_to_24_months", True, None, 24, False),
-            ("grandfathered_plan_defaults_to_its_whole_window", False, None, 84, True),
+            ("grandfathered_plan_defaults_to_its_whole_period", False, None, 84, True),
             ("staff_minimum_raises_the_standard_default", True, 36, 36, False),
         ]
     )
-    def test_reports_the_default_window(
+    def test_reports_the_default_period(
         self, _name: str, standard: bool, staff_min: int | None, expected_months: int, grandfathered: bool
     ) -> None:
         self._set_plan_years(7, standard=standard)
