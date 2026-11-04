@@ -134,6 +134,7 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         "evaluations",
         "clusters",
         "feedback",
+        "review",
         "search",
         "summary",
         "exports",
@@ -276,6 +277,25 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             lambda user, hint: api.get_trace_feedback(self.team, user, trace_id, hint, include_surveys=include_surveys),
         )
         return Response(feedback.model_dump(mode="json", by_alias=True))
+
+    @validated_request(
+        parameters=[TRACE_ID_PARAMETER],
+        responses={
+            200: OpenApiResponse(response=contracts.TraceReviewStatus),
+            400: OpenApiResponse(description="The encoded trace id is malformed."),
+        },
+        operation_id="ai_observability_traces_review_retrieve",
+    )
+    @action(detail=True, methods=["GET"], url_path="review")
+    def review(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
+        """The trace's human review with its scores ready to render, and the review queue the trace waits in."""
+        try:
+            trace_id = decode_trace_id_segment(pk)
+        except MalformedTraceIdSegmentError:
+            return Response({"detail": "Malformed encoded trace id."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            api.get_trace_review_status(self.team, _user(request), trace_id).model_dump(mode="json", by_alias=True)
+        )
 
     @validated_request(
         query_serializer=TraceSearchQuerySerializer,
