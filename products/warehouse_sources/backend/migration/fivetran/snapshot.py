@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.facade.contracts import (
     MigrationConnectionUpload,
     WarehouseMigrationUploadTooLargeError,
 )
+from products.warehouse_sources.backend.migration import catalog
 from products.warehouse_sources.backend.migration.fivetran.client import FivetranAPIError, FivetranClient
 from products.warehouse_sources.backend.migration.secrets import strip_secrets
 from products.warehouse_sources.backend.migration.types import (
@@ -27,6 +28,8 @@ from products.warehouse_sources.backend.migration.types import (
 )
 
 _ALL_DAYS = 7
+# Connection config keys the planner reads whatever the source.
+_PLANNED_CONFIG_KEYS = frozenset({"update_method"})
 _WEEKDAYS = ("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY")
 
 
@@ -237,11 +240,20 @@ def parse_connection(
         setup_state=(raw.get("status") or {}).get("setup_state"),
         succeeded_at=raw.get("succeeded_at"),
         networking_method=raw.get("networking_method"),
-        config=strip_secrets(raw.get("config") or {}),
+        config=_kept_config(raw.get("service") or "", raw.get("config") or {}),
         schema_change_handling=(schema_config or {}).get("schema_change_handling"),
         tables_available=schema_config is not None,
         tables=_parse_tables(schema_config or {}),
     )
+
+
+def _kept_config(service: str, config: Mapping[str, Any]) -> dict[str, Any]:
+    """Only the keys the plan uses. Fivetran marks secrets per connector, so no name rule alone can find them all."""
+    source_type = catalog.match_source(MigrationProvider.FIVETRAN, service)
+    used = _PLANNED_CONFIG_KEYS | (
+        catalog.prefill_vendor_keys(MigrationProvider.FIVETRAN, source_type) if source_type else frozenset()
+    )
+    return strip_secrets({key: value for key, value in config.items() if key in used})
 
 
 def _parse_schedule(raw: Mapping[str, Any], utc_offset_hours: int) -> VendorSchedule:

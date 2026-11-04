@@ -1,7 +1,7 @@
 import re
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import unquote_plus
+from urllib.parse import unquote, unquote_plus
 
 # Vendors mask secrets on read, but we do not rely on it: a field that is not masked
 # (a vendor bug or a new field) must still never reach storage.
@@ -18,6 +18,8 @@ _SECRET_KEY_PARTS = (
     "privatekey",
     "keystore",
     "truststore",
+    # `auth`, `dsv_service_auth`, `shard_authorization_id`, `serviceauthentication`.
+    "auth",
 )
 # Secret fields whose names fit no rule above (GitHub personal access tokens, Alchemer's API key,
 # Open Exchange Rates' app id).
@@ -40,13 +42,11 @@ _NOT_IN_PARAM_NAME = re.compile(r"[#\s]")
 
 def is_secret_key(key: str) -> bool:
     normalized = re.sub(r"[_\-]", "", key.lower())
-    tokens = {token.lower() for token in _KEY_TOKEN_SPLIT.split(key)}
-    # A name part that starts with "auth" names a credential: `auth`, `dsv_service_auth`, `shard_authorization_id`.
-    if normalized in _SECRET_KEYS or any(token.startswith("auth") for token in tokens):
+    if normalized in _SECRET_KEYS:
         return True
     if _KEY_SUFFIX.search(normalized) and normalized not in _NON_SECRET_KEYS:
         return True
-    if "cert" in normalized and not _CA_TOKENS & tokens:
+    if "cert" in normalized and not _CA_TOKENS & {token.lower() for token in _KEY_TOKEN_SPLIT.split(key)}:
         return True
     return any(part in normalized for part in _SECRET_KEY_PARTS)
 
@@ -71,8 +71,8 @@ def _has_url_password(value: str) -> bool:
     while start >= 0:
         authority = _URL_AUTHORITY.match(value, start + 3)
         userinfo, at, _host = (authority.group() if authority else "").partition("@")
-        # A colon with a non-empty password after it.
-        if at and ":" in userinfo[:-1]:
+        # A colon with a non-empty password after it, also percent-encoded as `%3A`.
+        if at and (":" in userinfo[:-1] or ":" in unquote(userinfo)[:-1]):
             return True
         start = value.find("://", start + 3)
     return False

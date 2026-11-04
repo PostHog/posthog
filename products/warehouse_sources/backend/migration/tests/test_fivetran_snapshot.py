@@ -89,7 +89,11 @@ class TestFetchSnapshot(SimpleTestCase):
                         "host": "db.example.com",
                         "port": 5432,
                         "password": UNMASKED_SOURCE_PASSWORD,
-                        "tunnel": {"tunnel_host": "bastion.example.com", "tunnel_private_key": UNMASKED_TUNNEL_KEY},
+                        "tunnel_host": "bastion.example.com",
+                        "tunnel_private_key": UNMASKED_TUNNEL_KEY,
+                        "update_method": "XMIN",
+                        # Not a Postgres setting in PostHog, so the snapshot leaves it out.
+                        "connection_label": "app",
                     },
                 }
             ),
@@ -138,7 +142,12 @@ class TestFetchSnapshot(SimpleTestCase):
         assert [c.id for c in snapshot.connections] == ["conn_pg", "conn_folder"]
 
         pg, folder = snapshot.connections
-        assert pg.config == {"host": "db.example.com", "port": 5432, "tunnel": {"tunnel_host": "bastion.example.com"}}
+        assert pg.config == {
+            "host": "db.example.com",
+            "port": 5432,
+            "tunnel_host": "bastion.example.com",
+            "update_method": "XMIN",
+        }
         assert pg.schedule == VendorSchedule(kind=ScheduleKind.TIME_OF_DAY, time_of_day_utc="23:00")
         assert pg.schema_change_handling == "ALLOW_COLUMNS"
         assert [(t.schema_name, t.name, t.enabled) for t in pg.tables] == [
@@ -172,6 +181,21 @@ class TestFetchSnapshot(SimpleTestCase):
             m.get(f"{FIVETRAN_API_URL}/connections/conn_pg/schemas", status_code=status_code, json=body)
             with pytest.raises(error):
                 fetch_snapshot(_client())
+
+
+class TestConnectionConfig(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # ShipStation's `username` holds its API key; no PostHog field reads it, so it is never kept.
+            ("unread_key_of_a_matched_source", "shipstation", {"username": "fake", "update_method": "API"}),
+            ("unmatched_service", "not_a_fivetran_service", {"host": "db.example.com", "update_method": "API"}),
+        ]
+    )
+    def test_keeps_only_keys_the_plan_reads(self, _name: str, service: str, config: dict[str, Any]) -> None:
+        connection = parse_connection(
+            {"id": "conn_example", "service": service, "config": config}, None, utc_offset_hours=0
+        )
+        assert connection.config == {"update_method": "API"}
 
 
 class TestParseSchedule(SimpleTestCase):
@@ -270,6 +294,7 @@ class TestStripSecrets(SimpleTestCase):
                 {"host": "https://" + ":" * 100_000},
             ),
             ("password_in_url_without_user", {"uri": "redis://:fake@cache.example.com:6379"}, {}),
+            ("percent_encoded_password_in_url", {"jdbc_url": "postgres://reader%3Afake@db.example.com/app"}, {}),
             (
                 "credential_in_url_query",
                 {
