@@ -988,7 +988,7 @@ export interface signalSourcesLogicMeta {
         anomalyInvestigationConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         isAnomalyInvestigationToggling: (togglingSourceKeys: Set<string>) => boolean
         analyticsAlertScope: (
-            savingAnalyticsAlertScope: any,
+            savingAnalyticsAlertScope: SignalAlertScope | null,
             anomalyInvestigationConfig: SignalSourceConfig | null
         ) => SignalAlertScope
         productStatusBySource: (
