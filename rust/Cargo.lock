@@ -7736,6 +7736,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "logs-ingestion"
+version = "0.1.0"
+dependencies = [
+ "ahash 0.8.12",
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "common-alloc",
+ "futures",
+ "hashbrown 0.15.5",
+ "hex",
+ "hmac 0.12.1",
+ "ingestion-framework",
+ "itoa",
+ "metrics",
+ "rand 0.8.5",
+ "redis",
+ "regex",
+ "regex-automata",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+ "zstd 0.13.3",
+]
+
+[[package]]
 name = "lru"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
