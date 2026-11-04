@@ -1,7 +1,7 @@
 import { IconCloud, IconLaptop } from '@posthog/icons'
 import { Badge } from '@posthog/quill-primitives'
 
-import type { RunEnvironmentEnumApi } from '../generated/api.schemas'
+import type { RunEnvironmentEnumApi } from '../../generated/api.schemas'
 
 export function WizardRunEnvironmentTag({ environment }: { environment: RunEnvironmentEnumApi }): JSX.Element {
     return (

@@ -22,12 +22,12 @@ import {
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import type { WizardRunApi } from '../generated/api.schemas'
-import { wizardGithubRepositoryUrl, wizardWorkspaceLabel } from '../wizardRunDisplay'
+import type { WizardRunApi } from '../../generated/api.schemas'
+import { wizardGithubRepositoryUrl, wizardWorkspaceLabel } from '../../lib/wizardRunDisplay'
+import { WizardRunEnvironmentTag } from '../run-tags/WizardRunEnvironmentTag'
+import { WizardRunStatusTag } from '../run-tags/WizardRunStatusTag'
 import { WizardRunActionsMenu } from './WizardRunActionsMenu'
-import { WizardRunEnvironmentTag } from './WizardRunEnvironmentTag'
 import { WizardRunsEmptyState } from './WizardRunsEmptyState'
-import { WizardRunStatusTag } from './WizardRunStatusTag'
 
 export function WizardRunTable({
     runs,

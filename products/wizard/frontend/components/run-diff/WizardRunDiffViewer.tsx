@@ -10,7 +10,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { MAX_RENDERED_WIZARD_DIFF_LINES, wizardRunDiffCanRender } from '../wizardRunDisplay'
+import { MAX_RENDERED_WIZARD_DIFF_LINES, wizardRunDiffCanRender } from '../../lib/wizardRunDisplay'
 const DIFF_THEME = { light: 'github-light', dark: 'github-dark' } as const
 
 function DiffNotice({

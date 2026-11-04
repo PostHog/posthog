@@ -7,9 +7,9 @@ import {
     DialogTitle,
 } from '@posthog/quill-primitives'
 
-import type { RunEnvironmentEnumApi, WizardProgramApi } from '../generated/api.schemas'
-import { WizardProgramDetails } from './WizardProgramDetails'
-import { WizardProgramList } from './WizardProgramList'
+import type { RunEnvironmentEnumApi, WizardProgramApi } from '../../generated/api.schemas'
+import { WizardProgramDetails } from './components/WizardProgramDetails'
+import { WizardProgramList } from './components/WizardProgramList'
 
 export function WizardLibraryModal({
     isOpen,

@@ -15,8 +15,8 @@ import {
     cn,
 } from '@posthog/quill-primitives'
 
-import type { WizardProgramApi } from '../generated/api.schemas'
-import { WIZARD_LOCAL_RUNS_VISIBLE } from '../wizardRunDisplay'
+import type { WizardProgramApi } from '../../../generated/api.schemas'
+import { WIZARD_LOCAL_RUNS_VISIBLE } from '../../../lib/wizardRunDisplay'
 
 export function WizardProgramList({
     programs,
