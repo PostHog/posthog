@@ -175,8 +175,6 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                             )
                         } catch (e) {
                             if (!extraSessionProperties.length) {
-                                // These are supplementary columns on the recordings list. A backend blip shouldn't
-                                // toast, it should just leave this batch's rows without properties.
                                 posthog.captureException(e)
                                 return values.recordingProperties
                             }
@@ -189,7 +187,6 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                                 posthog.captureException(fallbackError)
                                 return values.recordingProperties
                             }
-                            // only a 400 (a pin missing from this project's session table) blacklists the pin set — transient errors retry next batch
                             if (e instanceof ApiError && e.status === 400) {
                                 actions.markExtraPropertiesUnqueryable(extraSessionProperties)
                             }
@@ -204,7 +201,6 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                             BASE_PROPERTIES.forEach((property, index) => {
                                 properties[property] = row[index + 1]
                             })
-                            // fallback rows have no extra columns — keep cached values (or null) so entries read as complete
                             extraSessionProperties.forEach((property, index) => {
                                 properties[property] =
                                     row[BASE_PROPERTIES.length + 1 + index] ?? cachedProperties?.[property] ?? null

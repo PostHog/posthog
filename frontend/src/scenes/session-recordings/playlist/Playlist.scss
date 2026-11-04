@@ -23,7 +23,6 @@
 }
 
 .SessionRecordingPlaylistHeightWrapper {
-    // Fills the scene column when there is one; the height is the fallback for non-flex hosts such as storybook.
     flex: 1 1 auto;
     height: calc(100vh - 12rem);
     min-height: 25rem;
