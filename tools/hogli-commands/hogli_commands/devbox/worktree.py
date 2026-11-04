@@ -492,6 +492,8 @@ def devbox_worktree(
                 worktree_id=worktree_id,
             ),
         )
+    if _prune_box_of_worktree_removed_during_setup(root, git_dir):
+        return
     ensure_sync_session(target.workspace_name, workspaces, root, verbose=verbose)
     click.echo()
     click.echo(f"App URL, once the stack runs on the box: {_app_url(target.workspace_name)}")
@@ -532,6 +534,15 @@ def _claim_box(
     elif on_clean is not None:
         save_worktree_box_cleanup(on_clean)
     return git_dir, worktree_id
+
+
+def _prune_box_of_worktree_removed_during_setup(root: Path, git_dir: Path) -> bool:
+    if root.exists():
+        return False
+    click.echo(f"{root} was removed while its devbox started.")
+    box_action = saved_worktree_box_cleanup() or "stop"
+    prune_boxes_of_removed_worktrees(git_dir.parents[2], box_action, root, dry_run=False)
+    return True
 
 
 def _has_reusable_mirror(target: _WorktreeTarget) -> bool:
@@ -593,6 +604,8 @@ def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_r
                 provider="hogland",
             ),
         )
+    if _prune_box_of_worktree_removed_during_setup(root, git_dir):
+        return
     ensure_hogland_sync_session(name, root, verbose=verbose)
     click.echo()
     click.echo(f"  SSH    hogland devbox ssh {name}")
@@ -656,13 +669,11 @@ def _act_on_box_in_background(box: WorktreeBox, box_action: str) -> None:
     # from the main checkout and logs next to the box records.
     main_checkout = Path(box.record.git_dir).parent.parent.parent
     log_path = get_worktree_boxes_path().with_name(_TEARDOWN_LOG_NAME)
+    main_env = {key: value for key, value in os.environ.items() if key not in ("VIRTUAL_ENV", "PYTHONPATH")}
     with log_path.open("ab") as log:
         subprocess.Popen(
             [
-                sys.executable,
-                "-P",
-                "-m",
-                "hogli",
+                str(main_checkout / "bin" / "hogli"),
                 "devbox:worktree:teardown",
                 f"--{box_action}",
                 "--box-of",
@@ -671,7 +682,7 @@ def _act_on_box_in_background(box: WorktreeBox, box_action: str) -> None:
                 str(box.record.worktree_id),
             ],
             cwd=main_checkout,
-            env={**os.environ, "HOGLI_MANIFEST": str(main_checkout / "hogli.yaml")},
+            env={**main_env, "HOGLI_MANIFEST": str(main_checkout / "hogli.yaml")},
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=subprocess.STDOUT,
