@@ -9,7 +9,7 @@ import re
 from typing import ClassVar, Literal
 
 from posthog.dataclasses import frozen
-from posthog.github.requesters import ProjectMember
+from posthog.github.project_members import ProjectMember
 
 # The name goes into GitHub API paths, so it must be exactly `owner/name`.
 REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}")

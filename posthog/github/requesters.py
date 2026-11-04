@@ -27,6 +27,7 @@ import structlog
 from social_django.models import UserSocialAuth
 
 from posthog.dataclasses import frozen
+from posthog.github.project_members import ProjectMember
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
@@ -44,14 +45,6 @@ logger = structlog.get_logger(__name__)
 
 # The repository permissions GitHub reports for an account that can push to it.
 GITHUB_WRITE_PERMISSIONS = frozenset({"admin", "maintain", "write"})
-
-
-@frozen
-class ProjectMember:
-    """A project the requester may act in, and the requester's PostHog account that acts there."""
-
-    team_id: int
-    user_id: int
 
 
 @frozen
