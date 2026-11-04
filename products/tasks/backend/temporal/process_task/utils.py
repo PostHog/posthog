@@ -77,7 +77,7 @@ from products.tasks.backend.logic.services.run_actor import (
     loop_owner_eligible_for_credentials,
 )
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
-from products.tasks.backend.metrics import observe_mcp_exclude_tools_dropped
+from products.tasks.backend.metrics import observe_mcp_exclude_tools_over_cap
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     AI_GATEWAY_TOKEN_MINTS,
@@ -888,14 +888,19 @@ def mcp_exclude_tools_for_task(task: Task, state: dict[str, Any] | None) -> list
     if profile is None:
         return mcp_exclude_tools_from_state(state)
     excluded = _unique_mcp_exclude_tools([*profile.mcp_exclude_tools, *_mcp_exclude_tool_names_in_state(state)])
-    dropped = excluded[MAX_MCP_EXCLUDE_TOOLS:]
-    if dropped:
+    if len(excluded) > MAX_MCP_EXCLUDE_TOOLS:
+        over_cap = excluded[MAX_MCP_EXCLUDE_TOOLS:]
         logger.warning(
-            "task_mcp_exclude_tools_dropped",
-            extra={"task_id": str(task.id), "profile": profile.key, "dropped_tools": dropped},
+            "task_mcp_exclude_tools_over_cap",
+            extra={"task_id": str(task.id), "profile": profile.key, "over_cap_tools": over_cap},
         )
-        observe_mcp_exclude_tools_dropped(profile=profile.key, count=len(dropped))
-    return excluded[:MAX_MCP_EXCLUDE_TOOLS]
+        observe_mcp_exclude_tools_over_cap(profile=profile.key)
+        raise ProcessTaskFatalError(
+            "The task hides more MCP tools than the sandbox can hide",
+            {"task_id": str(task.id), "profile": profile.key, "excluded_tool_count": len(excluded)},
+            cause=ValueError(f"{len(excluded)} hidden MCP tools exceed the limit of {MAX_MCP_EXCLUDE_TOOLS}"),
+        )
+    return excluded
 
 
 def get_sandbox_ph_mcp_configs(
