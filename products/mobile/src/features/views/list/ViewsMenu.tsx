@@ -131,7 +131,6 @@ interface PinMenuProps {
     visible: boolean
     anchor: RowAnchor
     pin: PinView
-    modes: readonly PinDisplayMode[]
     /** The pin's place in the list, for Move up and Move down. */
     position: { index: number; count: number }
     /** The name of the tile a dashboard pin shows, if known. */
@@ -148,7 +147,6 @@ export function PinMenu({
     visible,
     anchor,
     pin,
-    modes,
     position,
     tileName,
     onClose,
@@ -170,20 +168,17 @@ export function PinMenu({
             accessibilityLabel={`${pin.name} actions`}
             testID="pin-menu"
         >
-            {modes.length > 1 ? (
-                <View style={styles.section}>
-                    <Text style={styles.sectionLabel}>Show as</Text>
-                    <ModeSegment
-                        value={pin.display.mode}
-                        available={modes}
-                        onChange={onShowAs}
-                        variant="labels"
-                        name={pin.name}
-                        testIDFor={(mode) => `pin-menu-show-${mode}`}
-                    />
-                </View>
-            ) : null}
-            {pin.kind === 'dashboard' && pin.native ? (
+            <View style={styles.section}>
+                <Text style={styles.sectionLabel}>Show as</Text>
+                <ModeSegment
+                    value={pin.display.mode}
+                    onChange={onShowAs}
+                    variant="labels"
+                    name={pin.name}
+                    testIDFor={(mode) => `pin-menu-show-${mode}`}
+                />
+            </View>
+            {pin.kind === 'dashboard' ? (
                 <MenuItem label="Choose tile…" meta={tileName} onPress={onChooseTile} testID="pin-menu-choose-tile" />
             ) : null}
             <MenuItem
