@@ -275,10 +275,9 @@ class PeopleImportSummary:
 
 @frozen
 class EmailSendingTierLimits:
-    """What a trust tier allows: two send-rate caps and a maximum batch audience."""
+    """What a trust tier allows: a daily send cap and a maximum batch audience."""
 
     tier: int
-    per_hour: int
     per_day: int
     max_batch_audience: int
 
@@ -324,10 +323,8 @@ class EmailSendingAllowance:
 
     tier: int
     max_tier: int
-    emails_per_hour: int
     emails_per_day: int
     max_batch_audience: int
-    emails_sent_last_hour: int
     emails_sent_last_day: int
     enforced: bool
 

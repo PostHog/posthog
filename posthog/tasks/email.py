@@ -1095,11 +1095,13 @@ def send_email_sending_unsuspended(team_id: int, unsuspended_at: str) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @with_team_scope()
-def send_email_sending_tier_demoted(team_id: int, per_day: int, per_hour: int, demoted_at: str) -> None:
+def send_email_sending_tier_demoted(team_id: int, per_day: int, demoted_at: str, per_hour: int = 0) -> None:
     """
     Tell a project's admins that its workflow email sending limit was lowered for deliverability
     problems. Admin+ recipients and no notification-setting gate, matching the suspension emails:
     the limit stays down until someone acts on the list quality.
+
+    `per_hour` is accepted and ignored so a task queued by an older release still deserializes.
     """
     if not is_email_available(with_absolute_urls=True):
         return
@@ -1114,7 +1116,6 @@ def send_email_sending_tier_demoted(team_id: int, per_day: int, per_hour: int, d
         template_context={
             "team": team,
             "per_day": f"{per_day:,}",
-            "per_hour": f"{per_hour:,}",
             "reputation_path": f"/project/{team.id}/workflows/reputation",
         },
     )

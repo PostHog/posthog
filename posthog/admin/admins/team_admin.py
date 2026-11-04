@@ -982,11 +982,10 @@ class TeamAdmin(admin.ModelAdmin):
                 "team is removed from it."
             )
         return format_html(
-            "<strong>Tier {}</strong> of {} — {} emails/hour, {} emails/day, "
+            "<strong>Tier {}</strong> of {} — {} emails/day, "
             "{} max batch audience<br>Set at: {}<br>Pinned: {}<br>Rollout mode: <code>{}</code>{}",
             tier,
             max_email_sending_tier(),
-            f"{limits.per_hour:,}",
             f"{limits.per_day:,}",
             f"{limits.max_batch_audience:,}",
             updated_at.isoformat() if updated_at else "never (team has not been evaluated yet)",
@@ -1003,7 +1002,6 @@ class TeamAdmin(admin.ModelAdmin):
         tiers = [
             {
                 "tier": tier,
-                "per_hour": f"{get_email_sending_tier_limits(tier).per_hour:,}",
                 "per_day": f"{get_email_sending_tier_limits(tier).per_day:,}",
                 "selected": tier == (state.tier if state else 0),
             }

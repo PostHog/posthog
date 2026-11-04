@@ -1168,20 +1168,14 @@ HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS: set[int] = {
 # at tier 0 and earns the next tier by sending cleanly over time, which bounds how much damage an
 # unproven team can do and keeps its early volume small enough that complaint feedback (which lags
 # by hours) arrives while total volume is still low.
-# The three lists are indexed by tier and must all be the same length. The top tier matches
+# Both lists are indexed by tier and must be the same length. The top tier matches
 # HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED so a fully graduated team is no more limited than it was
 # before tiers existed. Adjacent tiers stay roughly 3x apart: published warmup ramps (SendGrid,
 # Mailgun, Oracle) grow 25-50% per step and warn against jumps above 2x, and a promotion is an
 # overnight allowance jump, so a 3x step with the utilization bar below approximates that ramp
-# while keeping the tier count small enough to reason about. Two deliberate exceptions at the
-# bottom: tier 0 is a 100/day probation tier for completely unproven domains (SendGrid trials
-# start at 100/day, Customer.io at 200), and its hourly cap is half the daily cap rather than the
-# usual fifth so a first real send does not crawl at 20 an hour. The 10x step off tier 0 is fine
-# at that absolute volume.
-WORKFLOWS_EMAIL_TIER_HOURLY_CAPS: list[int] = [
-    int(cap)
-    for cap in get_list(get_from_env("WORKFLOWS_EMAIL_TIER_HOURLY_CAPS", "50,200,600,2000,6000,20000,60000,200000"))
-]
+# while keeping the tier count small enough to reason about. Tier 0 is a 100/day probation tier
+# for completely unproven domains (SendGrid trials start at 100/day, Customer.io at 200), so the
+# 10x step off it is fine at that absolute volume.
 WORKFLOWS_EMAIL_TIER_DAILY_CAPS: list[int] = [
     int(cap)
     for cap in get_list(

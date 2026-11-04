@@ -37091,14 +37091,10 @@ export namespace Schemas {
       readonly tier: number;
       /** The highest tier there is, so the current tier can be shown as progress. */
       readonly max_tier: number;
-      /** How many emails this tier allows per hour. */
-      readonly emails_per_hour: number;
       /** How many emails this tier allows per day. */
       readonly emails_per_day: number;
       /** The largest audience this tier allows for a single batch send. */
       readonly max_batch_audience: number;
-      /** Emails sent by this project's workflows in the last hour. */
-      readonly emails_sent_last_hour: number;
       /** Emails sent by this project's workflows in the last 24 hours. */
       readonly emails_sent_last_day: number;
       /** True when these allowances are applied to sends. False while they are only being measured. */

@@ -2998,13 +2998,9 @@ class EmailSendingAllowanceSerializer(serializers.Serializer):
     max_tier = serializers.IntegerField(
         read_only=True, help_text="The highest tier there is, so the current tier can be shown as progress."
     )
-    emails_per_hour = serializers.IntegerField(read_only=True, help_text="How many emails this tier allows per hour.")
     emails_per_day = serializers.IntegerField(read_only=True, help_text="How many emails this tier allows per day.")
     max_batch_audience = serializers.IntegerField(
         read_only=True, help_text="The largest audience this tier allows for a single batch send."
-    )
-    emails_sent_last_hour = serializers.IntegerField(
-        read_only=True, help_text="Emails sent by this project's workflows in the last hour."
     )
     emails_sent_last_day = serializers.IntegerField(
         read_only=True, help_text="Emails sent by this project's workflows in the last 24 hours."
