@@ -7,6 +7,7 @@ import type { AccountsTableQuery } from '~/queries/schema/schema-general'
 import { columnConfigurationsRetrieve } from 'products/product_analytics/frontend/generated/api'
 
 import type { UserType } from '../../../../../frontend/src/types'
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
 import { ACCOUNTS_COLUMN_CONFIG_KEY } from '../Accounts/accountsColumnConfigLogic'
 import { type AccountsOverviewTile, tileQueryMetric } from '../Accounts/accountsOverviewTilesLogic'
 import { getAccountsViewSession } from '../Accounts/accountsViewSessionLogic'
@@ -29,7 +30,7 @@ export function buildProductUsageOverviewQuery(
             const metric = tileQueryMetric(tile)
             return metric ? [metric] : []
         }),
-        tags: { product: 'customer_analytics', name: PRODUCT_USAGE_OVERVIEW_KEY },
+        tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: PRODUCT_USAGE_OVERVIEW_KEY },
     }
 }
 

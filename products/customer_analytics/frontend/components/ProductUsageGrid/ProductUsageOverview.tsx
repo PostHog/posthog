@@ -17,7 +17,9 @@ function ProductUsageOverviewValues(): JSX.Element {
     const { loadData } = useActions(dataNodeLogic)
     // The query is fixed to AccountsTableQuery; reject unrelated data-node responses.
     const accountResponse =
-        response?.kind === NodeKind.AccountsTableQuery ? (response as AccountsTableQueryResponse) : null
+        response && 'kind' in response && response.kind === NodeKind.AccountsTableQuery
+            ? (response as AccountsTableQueryResponse)
+            : null
     const values = parseTileValues(accountResponse, reconciledTiles)
     return (
         <div data-attr="product-activity-overview">

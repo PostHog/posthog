@@ -81,7 +81,9 @@ describe('book overview and row summaries', () => {
             properties: { tiles },
         })
         const logic = productUsageOverviewLogic()
-        await expectLogic(logic, () => logic.mount()).toDispatchActions(['loadTilesSuccess'])
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toDispatchActions(['loadTilesSuccess'])
         expect(retrieve).toHaveBeenCalledWith(
             String(currentTeamId),
             'view-1',
@@ -111,7 +113,9 @@ describe('book overview and row summaries', () => {
             columnDisplay: {},
         }
         const logic = productUsageOverviewLogic()
-        await expectLogic(logic, () => logic.mount()).toDispatchActions(['loadTilesSuccess'])
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toDispatchActions(['loadTilesSuccess'])
         expect(logic.values.reconciledTiles).toEqual(tiles)
         expect(retrieve).not.toHaveBeenCalled()
         logic.unmount()
@@ -128,7 +132,9 @@ describe('book overview and row summaries', () => {
             .mockRejectedValueOnce(new Error('Unavailable'))
             .mockResolvedValueOnce({ context_key: ACCOUNTS_COLUMN_CONFIG_KEY, columns: [], properties: { tiles } })
         const logic = productUsageOverviewLogic()
-        await expectLogic(logic, () => logic.mount()).toDispatchActions(['loadTilesFailure'])
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toDispatchActions(['loadTilesFailure'])
         expect(logic.values.query).toBeNull()
         expect(logic.values.tilesError).toBeTruthy()
         await expectLogic(logic, () => logic.actions.loadTiles()).toDispatchActions(['loadTilesSuccess'])
