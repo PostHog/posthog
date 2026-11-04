@@ -45,7 +45,7 @@ def embedding_table_name() -> str:
 # they carry the same vector, so they get the same topic, and the assignments table keeps one row per intent.
 _ASSIGNMENT_INSERT_SQL = """
 INSERT INTO {target_table}
-    (team_id, intent_hash, run_id, topic_id, distance, x, y, is_outlier, intent_text, calls_in_run, tool, timestamp)
+    (team_id, intent_hash, run_id, topic_id, distance, x, y, is_outlier, intent_text, calls_in_run, timestamp)
 SELECT
     %(team_id)s AS team_id,
     document_id AS intent_hash,
@@ -57,7 +57,6 @@ SELECT
     if(arrayElement(dists, best) > arrayElement(%(thresholds)s, best), 1, 0) AS is_outlier,
     substringUTF8(content, 1, %(max_text_length)s) AS intent_text,
     toUInt32(JSONExtractUInt(metadata, 'calls')) AS calls_in_run,
-    JSONExtractString(metadata, 'tool') AS tool,
     now64(3) AS timestamp
 FROM (
     SELECT

@@ -39,7 +39,7 @@ class TestAssignmentInsert(ClickhouseTestMixin, APIBaseTest):
         response = execute_hogql_query(
             query="""
                 SELECT intent_hash, topic_id, is_outlier, round(toFloat(distance), 3), round(toFloat(x), 3), round(toFloat(y), 3),
-                       intent_text, calls_in_run, run_id, tool
+                       intent_text, calls_in_run, run_id
                 FROM posthog.mcp_intent_assignments ORDER BY intent_hash
             """,
             team=self.team,
@@ -64,7 +64,7 @@ class TestAssignmentInsert(ClickhouseTestMixin, APIBaseTest):
         assert [(r[0], r[1], r[2]) for r in rows] == [("h-a", "topic-a", 0), ("h-b", "topic-b", 0)]
         assert rows[0][3] == 0.0
         assert rows[0][4:6] == (1.0, 0.0)  # PCA projection of e0 on (pc1=e0, pc2=e1)
-        assert rows[0][6:10] == ("near a", 7, "assign-1", "query-trends")
+        assert rows[0][6:9] == ("near a", 7, "assign-1")
 
     def test_flags_outliers_beyond_the_topic_distance(self) -> None:
         far = [0.0] * 256
