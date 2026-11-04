@@ -64,7 +64,6 @@ def add_manual_suppression(team_id: int, identifier: str, created_by_id: int | N
 @frozen
 class BulkSuppressionRequest:
     identifier: str
-    # One of the SUPPRESSION_SOURCE_CHOICES values.
     source: str
 
 

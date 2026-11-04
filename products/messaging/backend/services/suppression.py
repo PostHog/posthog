@@ -74,8 +74,7 @@ def bulk_add_suppressions(
             reason=IMPORTED_SUPPRESSION_REASONS[source],
             suppressed=True,
             suppressed_at=now,
-            # A provider lists a bounced address only when it can't receive mail, so it blocks transactional
-            # email the way our own hard bounces do.
+            # A provider lists a bounce only for an address that can't receive mail, so it blocks transactional email.
             hard_bounced_at=now if source == SuppressionSource.BOUNCE else None,
             created_by_id=created_by_id,
         )
@@ -83,9 +82,8 @@ def bulk_add_suppressions(
         for identifier, source in sorted(sources_by_identifier.items())
         if identifier not in existing
     ]
-    # ignore_conflicts covers an address the bounce feedback inserts between the read above and this write.
+    # ignore_conflicts skips an address inserted after the read above, and the count by pk leaves it out.
     suppressions.bulk_create(new_rows, ignore_conflicts=True)
-    # A skipped conflict keeps its client-generated pk out of the table, so this counts only the rows inserted.
     return suppressions.filter(pk__in=[row.pk for row in new_rows]).count()
 
 

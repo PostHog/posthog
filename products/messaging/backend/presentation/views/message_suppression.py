@@ -124,7 +124,6 @@ class BulkAddSuppressionsRequestSerializer(serializers.Serializer):
     suppressions = BulkSuppressionEntrySerializer(
         many=True,
         allow_empty=False,
-        # Checked before any entry is validated, so an oversized list is rejected cheaply.
         max_length=MAX_BULK_SUPPRESSION_ENTRIES,
         help_text=f"Addresses to suppress, at most {MAX_BULK_SUPPRESSION_ENTRIES} per request.",
     )
@@ -222,7 +221,6 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["post"])
     def bulk_add_suppressions(self, request: Request, **kwargs: Any) -> Response:
         """Suppress every address in the list. Addresses that already have an entry are skipped, so repeating a call is safe."""
-        # Same rationale as add_suppression — this is a team-wide mutation.
         if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
             raise PermissionDenied("You need hog_flow editor access to modify the suppression list.")
 
