@@ -55,7 +55,7 @@ from posthog.models import Team, User
 from posthog.models.oauth import OAuthApplication, OAuthDeviceGrant, live_oauth_access_tokens, live_oauth_refresh_tokens
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.rate_limit import IPThrottle
-from posthog.scopes import clamp_scopes_to_ceiling, resolve_requested_scopes
+from posthog.scopes import clamp_scopes_to_ceiling, resolve_requested_scopes, scopes_not_covered
 
 logger = structlog.get_logger(__name__)
 
@@ -360,6 +360,13 @@ class DeviceUserCodeSerializer(serializers.Serializer):
 
 class DeviceApprovalSerializer(DeviceUserCodeSerializer):
     project_id = serializers.IntegerField(help_text="The project the token is scoped to.")
+    scopes = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_empty=False,
+        help_text="The requested scopes the person kept. Leave it out to grant every requested scope. It must "
+        "include every scope in `required_scopes`, and nothing outside the requested scopes.",
+    )
 
 
 class GrantedScopesSerializer(serializers.Serializer):
@@ -384,6 +391,11 @@ class DeviceGrantDetailsSerializer(serializers.Serializer):
     scopes = serializers.ListField(
         child=serializers.CharField(), help_text="The scopes the token will carry if the person approves."
     )
+    required_scopes = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="The requested scopes the person can't leave out: the client's required scopes and identity "
+        "scopes such as `openid`.",
+    )
     granted_scopes = GrantedScopesSerializer(
         many=True,
         help_text="The scopes the person already gave this client, per project. A step-up in a project asks for "
@@ -403,6 +415,13 @@ class DeviceDecisionSerializer(serializers.Serializer):
     )
 
 
+def _required_scopes(requested: list[str], application: OAuthApplication) -> list[str]:
+    """Return the requested scopes that approval always keeps: the client's required scopes, and the
+    identity scopes, which grant no access to data."""
+    required = set(application.required_scopes)
+    return [scope for scope in requested if scope in required or ":" not in scope]
+
+
 def _invalid_code() -> Response:
     return Response(
         {
@@ -411,6 +430,10 @@ def _invalid_code() -> Response:
         },
         status=status.HTTP_400_BAD_REQUEST,
     )
+
+
+def _invalid_scope(description: str) -> Response:
+    return Response({"error": "invalid_scope", "error_description": description}, status=status.HTTP_400_BAD_REQUEST)
 
 
 def _unverified_client() -> Response:
@@ -512,6 +535,7 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
                     "logo_uri": application.logo_uri or None,
                     "is_verified": application.is_verified,
                     "scopes": (grant.scope or "").split(),
+                    "required_scopes": _required_scopes((grant.scope or "").split(), application),
                     "granted_scopes": _granted_scopes(cast(User, request.user), application),
                     "expires_at": grant.expires,
                 }
@@ -521,7 +545,7 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
     @extend_schema(request=DeviceApprovalSerializer, responses={200: DeviceDecisionSerializer})
     @action(methods=["POST"], detail=False)
     def approve(self, request: Request) -> Response:
-        """Approve a device grant for one project. The token gets the scopes `lookup` showed."""
+        """Approve a device grant for one project. The token gets the requested scopes the person kept."""
         # Late import: the views module imports this one for the token endpoint.
         from posthog.api.oauth.views import _gateway_blocklist_block, _impersonator_id_for_request  # noqa: PLC0415
 
@@ -574,6 +598,15 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
             application = OAuthApplication.objects.filter(client_id=grant.client_id).first()
             if application is None or not application.is_verified:
                 return _unverified_client()
+            requested = (grant.scope or "").split()
+            kept = serializer.validated_data.get("scopes")
+            if kept is not None:
+                # A requested `x:write` also covers `x:read`, so the person can lower write access to read.
+                if scopes_not_covered(requested, kept):
+                    return _invalid_scope("You can only keep scopes the app asked for.")
+                if scopes_not_covered(kept, _required_scopes(requested, application)):
+                    return _invalid_scope("The app needs some of the scopes you removed. Keep those to approve.")
+                grant.scope = " ".join(sorted(set(kept)))
             if block := _gateway_blocklist_block(
                 request, grant.scope or "", access_level="team", scoped_team_ids=[team.id]
             ):
@@ -581,10 +614,18 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
             grant.user = cast(User, request.user)
             grant.scoped_teams = [team.id]
             grant.status = OAuthDeviceGrant.AUTHORIZED
-            grant.save(update_fields=["user", "scoped_teams", "status"])
+            grant.save(update_fields=["user", "scoped_teams", "status", "scope"])
 
         logger.info("oauth_device_grant_approved", client_id=grant.client_id[:64], team_id=team.id)
-        _capture(request, "oauth_device_authorization_approved", grant, team_id=team.id)
+        _capture(
+            request,
+            "oauth_device_authorization_approved",
+            grant,
+            team_id=team.id,
+            scopes_requested=len(requested),
+            scopes_granted=len((grant.scope or "").split()),
+            scopes_chosen=kept is not None and set(kept) != set(requested),
+        )
         return Response(DeviceDecisionSerializer({"status": grant.status}).data)
 
     @extend_schema(request=DeviceUserCodeSerializer, responses={200: DeviceDecisionSerializer})

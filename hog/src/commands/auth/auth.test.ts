@@ -168,6 +168,17 @@ describe('hog auth login', () => {
         expect(result.error()).toMatchObject({ code, hint: expect.any(String) })
     })
 
+    test('--wait stores only the scopes the person approved', async () => {
+        const result = await runHog(['auth', 'login', '--wait'], {
+            env: { CLAUDECODE: '1' },
+            files: { [PENDING_FILE]: PENDING },
+            respond: deviceFlow(0, { status: 200, body: { ...APPROVED, scope: 'openid insight:read' } }),
+        })
+
+        expect(result.json()).toMatchObject({ status: 'logged_in', scopes: ['openid', 'insight:read'] })
+        expect(JSON.parse(result.files[SETTINGS_FILE] ?? '{}').logins[EU].scopes).toEqual(['openid', 'insight:read'])
+    })
+
     test('--wait stores the token for the approved project in the keychain', async () => {
         const result = await runHog(['auth', 'login', '--wait'], {
             env: { CLAUDECODE: '1' },

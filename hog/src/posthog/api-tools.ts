@@ -33,7 +33,7 @@ export interface ToolRow {
 }
 
 const SCOPES_HINT =
-    'Run `hog auth login` to create a key with the scopes the API tools need, or add the scopes to the key in PostHog under Settings, Personal API keys.'
+    'For a personal API key, add the scopes to it in PostHog under Settings, Personal API keys. For a login, run `hog auth login` again and keep these scopes when you approve it.'
 
 // "Events & properties" becomes "events-properties".
 export function groupSlug(name: string): string {
@@ -142,11 +142,7 @@ export async function withApiConnection<T>(
 }
 
 export function missingScopesError(tool: string, scopes: readonly string[]): HogError {
-    return new HogError(
-        'missing_scopes',
-        `The personal API key needs ${scopes.join(', ')} to call ${tool}.`,
-        SCOPES_HINT
-    )
+    return new HogError('missing_scopes', `Your credentials need ${scopes.join(', ')} to call ${tool}.`, SCOPES_HINT)
 }
 
 export function toHogError(error: ApiToolError, tool?: string): HogError {
