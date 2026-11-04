@@ -414,6 +414,44 @@ describe('hogFunctionConfigurationLogic', () => {
             expect(sentInputs.url).toMatchObject({ value: 'https://example.com' })
         })
 
+        it('starts the copy disabled when only a mapping loses its secret', async () => {
+            mockApi.get.mockResolvedValue({
+                ...HOG_FUNCTION,
+                inputs: { url: { value: 'https://example.com' } },
+                mappings: [
+                    {
+                        name: 'Mapping with a secret',
+                        inputs_schema: [
+                            { key: 'token', type: 'string', label: 'Token', secret: true, required: false },
+                            { key: 'channel', type: 'string', label: 'Channel', required: false },
+                        ],
+                        inputs: { token: { value: undefined, secret: true }, channel: { value: 'alerts' } },
+                    },
+                ],
+                template: TEMPLATE_WITH_SECRETS,
+            })
+            logic = hogFunctionConfigurationLogic({ id: HOG_FUNCTION.id })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadHogFunctionSuccess'])
+            const toast = jest.spyOn(lemonToast, 'info')
+            logic.actions.duplicate()
+            expect(toast).toHaveBeenCalledTimes(1)
+
+            const copyLogic = hogFunctionConfigurationLogic({ templateId: TEMPLATE_WITH_SECRETS.id })
+            copyLogic.mount()
+            await expectLogic(copyLogic).toDispatchActions(['loadTemplateSuccess'])
+            await expectLogic(copyLogic, () => {
+                copyLogic.actions.submitConfiguration()
+            }).toDispatchActions(['submitConfigurationSuccess'])
+
+            const sent = mockApi.create.mock.calls[0][0]
+            expect(sent.enabled).toEqual(false)
+            const mappingInputs = sent.mappings?.[0].inputs ?? {}
+            expect(Object.entries(mappingInputs).filter(([, input]) => input?.secret)).toEqual([])
+            expect(mappingInputs.token?.value).toBeUndefined()
+            expect(mappingInputs.channel).toMatchObject({ value: 'alerts' })
+        })
+
         it('keeps the user on their edited function without a toast when they cancel leaving it', async () => {
             mockApi.get.mockResolvedValue({
                 ...HOG_FUNCTION,
