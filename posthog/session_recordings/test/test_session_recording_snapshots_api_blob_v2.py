@@ -158,7 +158,11 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             ("share_link", "share_link", True, True, False),
         ]
     )
-    @override_settings(REPLAY_PROXY_JWT_SECRET="replay-proxy-key", RECORDING_API_BLOCKS_JWT_SECRET="replay-blocks-key")
+    @override_settings(
+        REPLAY_PROXY_JWT_SECRET="replay-proxy-key",
+        RECORDING_API_BLOCKS_JWT_SECRET="replay-blocks-key",
+        CLOUD_DEPLOYMENT="DEV",
+    )
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
@@ -257,6 +261,8 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         else:
             assert urls == [None, None]
             assert body["block_token"] is None
+        for flag_call in mock_feature_enabled.call_args_list:
+            assert flag_call.kwargs["person_properties"] == {"cloud_deployment": "DEV"}
 
     @parameterized.expand(
         [

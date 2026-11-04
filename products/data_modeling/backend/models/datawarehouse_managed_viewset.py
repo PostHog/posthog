@@ -1,6 +1,8 @@
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, cast
+from uuid import UUID
 
 from django.db import connection, models, transaction
 
@@ -25,14 +27,18 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTMode
 
 from products.data_modeling.backend.facade.managed_viewset_hooks import get_expected_views_provider
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
-from products.data_modeling.backend.logic.incremental import parse_incremental_config
+from products.data_modeling.backend.logic.incremental import clear_incremental_state, parse_incremental_config
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.edge import Edge
+from products.data_modeling.backend.models.node import Node
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
+
+    from products.data_modeling.backend.facade.contracts import SavedQueryNodeState
 
 logger = structlog.get_logger(__name__)
 
@@ -83,6 +89,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         Materializes views by default.
         """
         # Deferred: schedule_reconcile pulls in temporalio; a module-level import would drag it onto django.setup()
+        from products.data_modeling.backend.logic.node_frequency import node_states_by_saved_query  # noqa: PLC0415
         from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag  # noqa: PLC0415
         from products.data_modeling.backend.logic.schedule_reconcile import (  # noqa: PLC0415 keeps temporalio off django.setup()
             apply_managed_view_frequency_targets,
@@ -152,9 +159,11 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
         views_created = 0
         views_updated = 0
+        views_unchanged = 0
         saved_queries_to_sync: list[DataWarehouseSavedQuery] = []
         frequency_targets: dict[str, timedelta | None] = {}
         orphaned_views_to_revert: list[DataWarehouseSavedQuery] = []
+        redefined_ids: set[UUID] = set()
 
         # Keep this transaction short: persist DB changes only. The post-commit work
         # (schedule_materialization → Temporal RPCs,
@@ -171,22 +180,34 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                     [f"{self.team_id}_sync_views_{self.kind}"],
                 )
 
+            # Read under the lock, so a row a concurrent sync just created is seen as stored.
+            stored_views = {saved_query.name: saved_query for saved_query in self.saved_queries.exclude(deleted=True)}
+            node_states = node_states_by_saved_query(self.team_id, [v.id for v in stored_views.values()])
+
             for view in expected_views:
-                # Get the one from the DB or create a new one if doesn't exist yet
-                saved_query = DataWarehouseSavedQuery.objects.filter(
-                    name=view.name, team=self.team, managed_viewset=self
-                ).first()
-                if saved_query:
-                    saved_query.managed_viewset = self
-                    created = False
-                else:
+                stored_view = stored_views.get(view.name)
+                created = stored_view is None
+                if stored_view is None:
                     saved_query = DataWarehouseSavedQuery(
                         name=view.name,
                         team=self.team,
                         managed_viewset=self,
                         origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET,
                     )
-                    created = True
+                elif self._stores_view(
+                    stored_view,
+                    view,
+                    external_tables_by_view[view.name],
+                    incremental_config_by_view[view.name],
+                    node_states.get(str(stored_view.id)),
+                ):
+                    # Most syncs follow a load that changed nothing: no write, no DAG or schedule work.
+                    views_unchanged += 1
+                    continue
+                else:
+                    saved_query = stored_view
+                    if saved_query.query != view.query:
+                        redefined_ids.add(saved_query.id)
 
                 # Do NOT use get_columns because it runs the query, and these are possibly heavy
                 saved_query.query = view.query
@@ -223,9 +244,14 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 else:
                     views_updated += 1
 
-            orphaned_views_to_revert = list(
-                self.saved_queries.exclude(name__in=expected_view_names).exclude(deleted=True)
-            )
+            orphaned_views_to_revert = [
+                saved_query for name, saved_query in stored_views.items() if name not in expected_view_names
+            ]
+
+            # In the transaction that writes the new queries, so a failure rolls the redefinition back
+            # and the next sync retries it. The edges are the ones from before this sync, which still
+            # reach every view whose stored rows came from the old upstream.
+            self._rebuild_downstream_of(DAG.get_or_create_default(self.team), redefined_ids)
 
         # No cross-call advisory lock here on purpose: a SESSION-level pg_advisory_lock acquired and
         # released across separate autocommit statements leaks under transaction-mode PgBouncer — the
@@ -302,6 +328,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             kind=self.kind,
             views_created=views_created,
             views_updated=views_updated,
+            views_unchanged=views_unchanged,
             views_deleted=views_deleted,
         )
 
@@ -358,6 +385,63 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 None,
             ),
         }
+
+    @staticmethod
+    def _stores_view(
+        saved_query: DataWarehouseSavedQuery,
+        view: ExpectedView,
+        external_tables: list[str],
+        incremental_config: dict[str, Any] | None,
+        node_state: "SavedQueryNodeState | None",
+    ) -> bool:
+        """Whether this sync's writes for ``view`` would leave ``saved_query`` and its DAG cadence as they are.
+
+        Covers each field the sync writes and the cadence it stores on the DAG node. A view without a
+        node is not stored: its DAG placement failed earlier and the sync repairs it.
+        """
+        return (
+            node_state is not None
+            and node_state.declared_target == (view.sync_frequency if view.materialized else None)
+            and saved_query.query == view.query
+            and saved_query.stores_columns(view.columns)
+            and set(saved_query.external_tables or []) == set(external_tables)
+            and saved_query.is_materialized == view.materialized
+            and saved_query.sync_frequency_interval is None
+            and saved_query.incremental_config == incremental_config
+        )
+
+    def _rebuild_downstream_of(self, dag: DAG, redefined_ids: set[UUID]) -> None:
+        """Clear the watermark of every incremental view downstream of a redefined view.
+
+        A view's own definition fingerprint resets its watermark when its query changes, but not when
+        an upstream query changes. Its stored rows came from the old upstream, so it must rebuild.
+        """
+        if not redefined_ids:
+            return
+        children: dict[UUID, list[UUID]] = defaultdict(list)
+        for source_id, target_id in Edge.objects.filter(team_id=self.team_id, dag=dag).values_list(
+            "source_id", "target_id"
+        ):
+            children[source_id].append(target_id)
+        frontier = list(
+            Node.objects.filter(team_id=self.team_id, dag=dag, saved_query_id__in=redefined_ids).values_list(
+                "id", flat=True
+            )
+        )
+        reached: set[UUID] = set()
+        while frontier:
+            for child in children[frontier.pop()]:
+                if child not in reached:
+                    reached.add(child)
+                    frontier.append(child)
+        downstream = DataWarehouseSavedQuery.objects.filter(
+            team_id=self.team_id,
+            id__in=Node.objects.filter(id__in=reached).values("saved_query_id"),
+            deleted=False,
+        )
+        for saved_query in downstream:
+            if saved_query.incremental_state:
+                clear_incremental_state(saved_query)
 
     def _eligible_incremental_config(self, view: ExpectedView, database: "Database") -> dict[str, Any] | None:
         """The provider's incremental config, or None when the query cannot carry it.
