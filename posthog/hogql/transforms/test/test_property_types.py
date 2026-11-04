@@ -850,6 +850,30 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                         "FROM events GROUP BY payload ORDER BY value",
                         [('{"value":"blue"}', "blue", 1), ('{"value":"green"}', "green", 2)],
                     ),
+                    (
+                        "position",
+                        "SELECT count(), properties AS payload, JSONExtractString(properties, 'value') AS value "
+                        "FROM events GROUP BY 2 ORDER BY value",
+                        [(1, '{"value":"blue"}', "blue"), (2, '{"value":"green"}', "green")],
+                    ),
+                    (
+                        "tuple",
+                        "SELECT JSONExtractString(properties, 'value') AS value, count() "
+                        "FROM events GROUP BY tuple(properties) ORDER BY value",
+                        [("blue", 1), ("green", 2)],
+                    ),
+                    (
+                        "tuple_syntax",
+                        "SELECT JSONExtractString(properties, 'value') AS value, count() "
+                        "FROM events GROUP BY (properties, 1) ORDER BY value",
+                        [("blue", 1), ("green", 2)],
+                    ),
+                    (
+                        "tuple_alias",
+                        "SELECT tuple(properties) AS payload, JSONExtractString(properties, 'value') AS value, count() "
+                        "FROM events GROUP BY payload ORDER BY value",
+                        [(('{"value":"blue"}',), "blue", 1), (('{"value":"green"}',), "green", 2)],
+                    ),
                 ]
             ],
             (

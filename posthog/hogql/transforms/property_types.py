@@ -181,23 +181,27 @@ class PropertySwapper(GroupedClauseTracker, CloningVisitor):
         self._suppress_numeric_conversion = False
         self._grouped_json_fields: list[ast.FieldType] = []
 
-    def _json_document_grouping_field(self, expr: ast.Expr, aliases: dict[str, ast.Expr]) -> ast.FieldType | None:
+    def _json_document_grouping_fields(self, expr: ast.Expr, aliases: dict[str, ast.Expr]) -> list[ast.FieldType]:
         if isinstance(expr, ast.Alias):
-            return self._json_document_grouping_field(expr.expr, aliases)
+            return self._json_document_grouping_fields(expr.expr, aliases)
+        if isinstance(expr, ast.Tuple):
+            return [field for item in expr.exprs for field in self._json_document_grouping_fields(item, aliases)]
+        if isinstance(expr, ast.Call) and expr.name == "tuple":
+            return [field for item in expr.args for field in self._json_document_grouping_fields(item, aliases)]
         if isinstance(expr, ast.Call) and expr.name == "toString" and len(expr.args) == 1:
-            return self._json_document_grouping_field(expr.args[0], aliases)
+            return self._json_document_grouping_fields(expr.args[0], aliases)
         if not isinstance(expr, ast.Field):
-            return None
+            return []
         field_type = expr.type
         if isinstance(field_type, ast.FieldAliasType) and field_type.alias in aliases:
-            return self._json_document_grouping_field(aliases[field_type.alias], aliases)
+            return self._json_document_grouping_fields(aliases[field_type.alias], aliases)
         while isinstance(field_type, ast.FieldAliasType):
             field_type = field_type.type
         if isinstance(field_type, ast.FieldType) and isinstance(
             field_type.resolve_database_field(self.context), StringJSONDatabaseField
         ):
-            return field_type
-        return None
+            return [field_type]
+        return []
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         # We need to track when we're inside WHERE/PREWHERE so that the
@@ -211,9 +215,15 @@ class PropertySwapper(GroupedClauseTracker, CloningVisitor):
         self._grouped_json_fields = []
         for key in grouping_keys:
             for expr in key.exprs if isinstance(key, ast.GroupingSet) else [key]:
-                field_type = self._json_document_grouping_field(expr, aliases)
-                if field_type is not None:
-                    self._grouped_json_fields.append(field_type)
+                if (
+                    node.group_by_mode != "all"
+                    and isinstance(expr, ast.Constant)
+                    and isinstance(expr.value, int)
+                    and not isinstance(expr.value, bool)
+                    and 1 <= expr.value <= len(node.select)
+                ):
+                    expr = node.select[expr.value - 1]
+                self._grouped_json_fields.extend(self._json_document_grouping_fields(expr, aliases))
         try:
             with self._grouped_clause(False):
                 ctes = {key: self.visit(expr) for key, expr in node.ctes.items()} if node.ctes else None
