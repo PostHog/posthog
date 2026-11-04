@@ -11,7 +11,6 @@ const LOOKUP_TIMEOUT_MS = 3_000
 const MAX_OPEN_LOOKUPS = 5
 
 function isDisabled(state: SandboxSenderState | undefined): boolean {
-    // No row means never synced; SES stays the final word.
     return state?.sendingStatus === 'DISABLED'
 }
 
@@ -41,9 +40,6 @@ export class SandboxSenderStateService {
         })
     }
 
-    // `fresh` reads the row itself, for the check right before delivery: a worker that missed the
-    // reload message would otherwise answer from a cached state until the next refresh.
-    // A reload message during a read means the row changed after the read began, so both paths read again.
     public async isPaused(tenantName: string, { fresh = false }: { fresh?: boolean } = {}): Promise<boolean> {
         for (let attempt = 0; attempt < 2; attempt++) {
             const state = fresh
@@ -59,7 +55,6 @@ export class SandboxSenderStateService {
         throw new Error('Sandbox sender state changed during lookup')
     }
 
-    // Both the cached and the fresh check retry here, so a database blip right before delivery does not skip the send.
     private async fetchStatesWithRetry(tenantNames: string[]): Promise<Record<string, SandboxSenderState>> {
         const { retryIntervalMs, retryJitterMs = 0, maxElapsedMs } = DEFAULT_LOADER_RETRY
         const giveUpAt = performance.now() + maxElapsedMs
@@ -67,10 +62,11 @@ export class SandboxSenderStateService {
             try {
                 return await this.fetchStates(tenantNames)
             } catch (error) {
-                if (error?.isRetriable !== true || performance.now() >= giveUpAt) {
+                const delayMs = retryIntervalMs + Math.floor(Math.random() * retryJitterMs)
+                if (error?.isRetriable !== true || performance.now() + delayMs >= giveUpAt) {
                     throw error
                 }
-                await sleep(retryIntervalMs + Math.floor(Math.random() * retryJitterMs))
+                await sleep(delayMs)
             }
         }
     }
@@ -78,7 +74,6 @@ export class SandboxSenderStateService {
     private async fetchStates(tenantNames: string[]): Promise<Record<string, SandboxSenderState>> {
         const generation = this.generation
         const tag = 'fetch-sandbox-sender-state'
-        // The reload message fires right after the commit, so a lagging replica would cache the old state again.
         const rows = await this.lookup.run(tag, async (tx) => {
             const result = await this.postgres.query<{ tenant_name: string; sending_status: string }>(
                 tx,
