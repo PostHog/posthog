@@ -497,30 +497,37 @@ describe('EmailService', () => {
                 }
             )
 
-            it.each([false, true])(
-                'permits sandbox destination invocations only as explicit tests (isTest=%s)',
-                async (isTest) => {
-                    service = createSandboxService(true)
-                    const destination = createExampleInvocation({ team_id: team.id, id: 'email-destination' })
-                    destination.state.vmState = { stack: [] } as any
-                    destination.queueParameters = createSandboxParams()
+            it.each([
+                ['a destination', false],
+                ['a destination', true],
+                ['a broadcast', false],
+                ['a broadcast', true],
+            ] as const)('permits sandbox sends from %s only as explicit tests (isTest=%s)', async (source, isTest) => {
+                service = createSandboxService(true)
+                const sending =
+                    source === 'a destination'
+                        ? createExampleInvocation({ team_id: team.id, id: 'email-destination' })
+                        : Object.assign(invocation, {
+                              hogFlow: { id: invocation.functionId, team_id: team.id, trigger: { type: 'batch' } },
+                          })
+                sending.state.vmState = { stack: [] } as any
+                sending.queueParameters = createSandboxParams()
 
-                    const result = await service.executeSendEmail(destination, isTest)
+                const result = await service.executeSendEmail(sending, isTest)
 
-                    expect(result.error).toBeUndefined()
-                    expect(sendEmailSpy).toHaveBeenCalledTimes(isTest ? 1 : 0)
-                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: isTest }])
-                    if (!isTest) {
-                        expectSkipped(result)
-                        expect(result.logs).toContainEqual(
-                            expect.objectContaining({
-                                message:
-                                    'Skipping send: the sandbox sender is only available for workflows and test sends.',
-                            })
-                        )
-                    }
+                expect(result.error).toBeUndefined()
+                expect(sendEmailSpy).toHaveBeenCalledTimes(isTest ? 1 : 0)
+                expect(result.invocation.state.vmState?.stack).toEqual([{ success: isTest }])
+                if (!isTest) {
+                    expectSkipped(result)
+                    expect(result.logs).toContainEqual(
+                        expect.objectContaining({
+                            message:
+                                'Skipping send: the sandbox sender only sends workflow email steps and test sends. Verify your own domain to send broadcasts and transactional email.',
+                        })
+                    )
                 }
-            )
+            })
 
             it.each([
                 [false, '<body>Hello <a href="https://example.com">there</a>.</body>', 'Hello ', false],
@@ -969,9 +976,9 @@ describe('EmailService', () => {
             })
 
             it.each([
-                ['the sandbox sender is switched off', false, memberEmail, 'sending_suspended'],
-                ['the recipient is not a member', true, () => 'outside@example.com', 'recipient_unreachable'],
-            ])('records a skipped transactional email when %s', async (_case, enabled, recipient, expectedReason) => {
+                ['the sandbox sender is switched off', false],
+                ['the recipient is a verified member', true],
+            ])('records a skipped transactional email when %s', async (_case, enabled) => {
                 const produce = jest.fn().mockResolvedValue(undefined)
                 const emailStatusService = new EmailStatusService(
                     { produce } as unknown as IngestionOutputs<EmailStatusOutput>,
@@ -981,10 +988,12 @@ describe('EmailService', () => {
                 service['emailStatusService'] = emailStatusService
                 invocation.id = new UUIDT().toString()
                 invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
-                invocation.queueParameters = createSandboxParams({ to: { email: recipient() } })
+                invocation.queueParameters = createSandboxParams()
 
                 await service.executeSendEmail(invocation)
                 await emailStatusService.flush()
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
 
                 const rows = produce.mock.calls.map(([, message]) => parseJSON(message.value.toString()))
                 expect(rows).toEqual([
@@ -992,7 +1001,7 @@ describe('EmailService', () => {
                         team_id: team.id,
                         message_id: invocation.id,
                         status: 'failed',
-                        reason: expectedReason,
+                        reason: 'sending_suspended',
                     }),
                 ])
             })

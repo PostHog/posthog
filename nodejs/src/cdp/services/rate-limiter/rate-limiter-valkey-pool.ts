@@ -29,7 +29,7 @@ export type RateLimiterValkeyConfig = Pick<
 export function createSesRateLimiterValkeyPool(
     config: RateLimiterValkeyConfig,
     name = 'ses-rate-limiter',
-    { optional = false }: { optional?: boolean } = {}
+    { optional = false, failFast = false }: { optional?: boolean; failFast?: boolean } = {}
 ): RedisV2 | null {
     if (!config.SES_RATE_LIMITER_VALKEY_HOST) {
         logger.info('🪙', `[${name}] no SES Valkey host configured — feature disabled`)
@@ -60,7 +60,7 @@ export function createSesRateLimiterValkeyPool(
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
         ...(optional ? { acquireTimeoutMillis: OPTIONAL_VALKEY_TIMEOUT_MS } : {}),
     })
-    return optional ? withoutOfflineQueue(pool) : pool
+    return failFast ? withoutOfflineQueue(pool) : pool
 }
 
 // A client waits for its first connection in the offline queue, so the queue can only be switched off

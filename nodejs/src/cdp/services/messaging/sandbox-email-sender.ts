@@ -1,4 +1,12 @@
-import { type DefaultTreeAdapterMap, defaultTreeAdapter, parse, parseFragment, serialize } from 'parse5'
+import {
+    type DefaultTreeAdapterMap,
+    defaultTreeAdapter,
+    html as htmlSpec,
+    parse,
+    parseFragment,
+    serialize,
+    serializeOuter,
+} from 'parse5'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { RedisV2 } from '~/common/redis/redis-v2'
@@ -57,6 +65,26 @@ function completeDeclarations(style: string): string[] {
     return scanDeclarations(style).filter((declaration) => declaration.includes(':') && !/[{}]/.test(declaration))
 }
 
+const QUOTES = ['"', "'"]
+
+// Index scans, not regexes: the style is user content, and a backtracking pattern stalls the worker on it.
+function skipSpaces(text: string, index: number): number {
+    while (index < text.length && /\s/.test(text[index])) {
+        index++
+    }
+    return index
+}
+
+// The index of the `)` that ends an unquoted url(), or -1 when the token is a bad url.
+function unquotedUrlEnd(style: string, start: number): number {
+    let index = skipSpaces(style, start)
+    while (index < style.length && !/["'()\\\s]/.test(style[index])) {
+        index++
+    }
+    index = skipSpaces(style, index)
+    return style[index] === ')' ? index : -1
+}
+
 function scanDeclarations(style: string): string[] {
     const declarations: string[] = []
     const closers: string[] = []
@@ -78,6 +106,19 @@ function scanDeclarations(style: string): string[] {
             // A comment separates tokens, so it becomes a space: dropping it could join a slash and a star.
             current += ' '
             index = end + 1
+        } else if (
+            char === '(' &&
+            current.slice(-3).toLowerCase() === 'url' &&
+            !QUOTES.includes(style[skipSpaces(style, index + 1)])
+        ) {
+            // An unquoted url() is one token that ends at `)`. A quote, bracket, escape or inner space
+            // makes it a bad url, which a browser reads differently from this scanner.
+            const end = unquotedUrlEnd(style, index + 1)
+            if (end === -1) {
+                return declarations
+            }
+            current += style.slice(index, end + 1)
+            index = end
         } else if (char === ';' && !closers.length) {
             declarations.push(current)
             current = ''
@@ -115,8 +156,31 @@ function protectFooterAncestors(
     }
 }
 
+// A plaintext element swallows everything after it, and noscript content parses differently once scripting
+// is on, so neither may reach the delivered email in a form that can hide the footer.
+function neutralizeRawTextElements(roots: DefaultTreeAdapterMap['childNode'][]): void {
+    const nodes = [...roots]
+    for (const node of nodes) {
+        if (defaultTreeAdapter.isElementNode(node)) {
+            if (node.tagName === 'plaintext' && node.namespaceURI === htmlSpec.NS.HTML) {
+                node.tagName = 'pre'
+            }
+            if (node.tagName === 'noscript' && node.namespaceURI === htmlSpec.NS.HTML) {
+                node.tagName = 'div'
+            }
+            nodes.push(...node.childNodes)
+            if (node.tagName === 'template' && node.namespaceURI === htmlSpec.NS.HTML) {
+                nodes.push(
+                    ...defaultTreeAdapter.getTemplateContent(node as DefaultTreeAdapterMap['template']).childNodes
+                )
+            }
+        }
+    }
+}
+
 function appendHtmlFooter(html: string, footer: string, preheader?: string): string {
     const preheaderText = parseFragment(preheader ?? '', { scriptingEnabled: false })
+    neutralizeRawTextElements(preheaderText.childNodes)
     const document = parse(maybeAddPreheaderToEmail(html, serialize(preheaderText, { scriptingEnabled: false })), {
         scriptingEnabled: false,
     })
@@ -124,23 +188,7 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
     if (!body) {
         throw new Error('The sandbox email template must have an HTML body. Update the template and try again.')
     }
-    const nodes: DefaultTreeAdapterMap['childNode'][] = [...document.childNodes]
-    for (const node of nodes) {
-        if (defaultTreeAdapter.isElementNode(node)) {
-            if (node.tagName === 'plaintext' && node.namespaceURI === body.namespaceURI) {
-                node.tagName = 'pre'
-            }
-            if (node.tagName === 'noscript' && node.namespaceURI === body.namespaceURI) {
-                node.tagName = 'div'
-            }
-            nodes.push(...node.childNodes)
-            if (node.tagName === 'template' && node.namespaceURI === body.namespaceURI) {
-                nodes.push(
-                    ...defaultTreeAdapter.getTemplateContent(node as DefaultTreeAdapterMap['template']).childNodes
-                )
-            }
-        }
-    }
+    neutralizeRawTextElements(document.childNodes)
     protectFooterAncestors(document, body)
     const paragraph = defaultTreeAdapter.createElement('div', body.namespaceURI, [
         {
@@ -156,12 +204,8 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
         if (
             !deliveredFooter ||
             !defaultTreeAdapter.isElementNode(deliveredFooter) ||
-            deliveredFooter.tagName !== 'div' ||
             deliveredFooter.namespaceURI !== body.namespaceURI ||
-            deliveredFooter.attrs.find((attribute) => attribute.name === 'style')?.value !== paragraph.attrs[0].value ||
-            deliveredFooter.childNodes.length !== 1 ||
-            !defaultTreeAdapter.isTextNode(deliveredFooter.childNodes[0]) ||
-            deliveredFooter.childNodes[0].value !== footer
+            serializeOuter(deliveredFooter) !== serializeOuter(paragraph)
         ) {
             throw new Error(
                 'The sandbox email template could not retain its identification footer. Update the template and try again.'
@@ -174,6 +218,8 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
 export function sandboxBlockedEventRedisConfig(connection: RedisConnectionConfig): RedisPoolConfig {
     return {
         // Blocked events are optional telemetry, so a store that refuses these connections must not stop the worker.
+        // No command timeout: a timed-out command stays queued on its connection while its slot frees, so a store
+        // that stops answering would collect commands without limit. A stalled call keeps its slot instead.
         connection: { ...connection, exitOnRepeatedErrors: false },
         poolMinSize: 0,
         poolMaxSize: MAX_OPEN_STORE_CALLS,
@@ -262,7 +308,7 @@ export class SandboxEmailSender {
             timer = setTimeout(resolve, EVENT_CAPTURE_TIMEOUT_MS)
         })
         const captureNow = (): Promise<void> => this.captureEventNow(teamId, event, properties, storeCheck)
-        const capture = storeCheck ? this.withStoreSlot(deadline, captureNow) : captureNow()
+        const capture = storeCheck ? this.storeSlots.run(deadline, captureNow) : captureNow()
         try {
             if ((await Promise.race([capture.then(() => true), deadline.then(() => false)])) === false) {
                 logger.warn('Gave up capturing a sandbox email event: the event store did not answer', {
@@ -273,10 +319,6 @@ export class SandboxEmailSender {
         } finally {
             clearTimeout(timer)
         }
-    }
-
-    private async withStoreSlot(deadline: Promise<void>, work: () => Promise<void>): Promise<void> {
-        await this.storeSlots.run(deadline, work)
     }
 
     private async captureEventNow(
