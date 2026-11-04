@@ -2066,6 +2066,12 @@ describe('replayScannerLogic', () => {
                 true,
                 ['prompt', 'model'],
             ],
+            [
+                'saved with a changed experiment variant',
+                { experiment_targeting: { experiment_id: 7, variant: 'test' } },
+                true,
+                ['query'],
+            ],
         ])('an AI draft %s reports what the person changed before create', async (_, edits, edited, changes) => {
             draftSpy.mockReturnValue([
                 200,
@@ -2102,6 +2108,38 @@ describe('replayScannerLogic', () => {
                 scanner_type: 'classifier',
                 entry_point: null,
             })
+        })
+
+        it('an AI draft resumed after a reload still reports its changes', async () => {
+            draftSpy.mockReturnValue([
+                200,
+                {
+                    name: 'User intent',
+                    scanner_type: 'monitor',
+                    scanner_config: { prompt: 'Did the visitor buy?' },
+                },
+            ])
+            router.actions.push(urls.replayVisionScannerGoal('new'))
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal({
+                    goal: 'why do people visit',
+                    spend: { monthlyCreditBudget: 2500 },
+                })
+            ).toFinishAllListeners()
+            logic.actions.setScannerValues({ scanner_config: { prompt: 'Did the visitor buy twice?' } })
+            logic.unmount()
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            scannerEditorSceneLogic.actions.setStep('overview')
+            const captureSpy = jest.spyOn(posthog, 'capture')
+
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay_vision_scanner_draft_saved',
+                expect.objectContaining({ draft_edited: true, draft_changes: ['prompt'] })
+            )
         })
     })
 

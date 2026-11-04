@@ -799,6 +799,9 @@ export interface replayScannerLogicActions {
         dateFrom: string | null
         dateTo: string | null
     }
+    setCreationMethod: (creationMethod: ScannerCreationMethodEnumApi) => {
+        creationMethod: ScannerCreationMethodEnumApi
+    }
     setCreditLimitUnit: (unit: CreditLimitUnit) => {
         unit: CreditLimitUnit
     }
@@ -1079,6 +1082,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setGoalDraftQuery: (query: RecordingsQuery | null) => ({ query }),
         setEntryPoint: (entryPoint: string | null) => ({ entryPoint }),
         setGoalDraftBaseline: (baseline: ScannerFormValues | null) => ({ baseline }),
+        setCreationMethod: (creationMethod: ScannerCreationMethodEnumApi) => ({ creationMethod }),
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
@@ -1235,8 +1239,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             })
                         )
                         if (values.creationMethod === 'ai') {
-                            // Joins to replay_vision_scanner_created on scanner_id. Null changes mean the
-                            // drafted form was lost to a reload, not that the draft was saved unchanged.
+                            // Null changes mean the drafted form is unknown, not that it was saved unchanged.
                             const changes = values.goalDraftBaseline
                                 ? draftChanges(values.goalDraftBaseline, scanner)
                                 : null
@@ -1430,7 +1433,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
         ],
         // The form as the AI draft filled it, so the save can report what the person changed on review.
-        // Not persisted: after a reload it is null and the save reports the changes as unknown.
         goalDraftBaseline: [
             null as ScannerFormValues | null,
             {
@@ -1449,6 +1451,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             {
                 draftScannerFromGoal: () => 'ai' as ScannerCreationMethodEnumApi,
                 startFromScratch: () => 'scratch' as ScannerCreationMethodEnumApi,
+                setCreationMethod: (_, { creationMethod }) => creationMethod,
             },
         ],
         savingCohortKey: [
@@ -2045,7 +2048,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             const savedAt = writeScannerDraft(
                 teamId,
                 values.scanner,
-                typeof linkedExperimentId === 'number' ? linkedExperimentId : null
+                typeof linkedExperimentId === 'number' ? linkedExperimentId : null,
+                { creationMethod: values.creationMethod, goalDraftBaseline: values.goalDraftBaseline }
             )
             if (savedAt === null) {
                 // A failed write leaves any older draft behind; drop it so it can't resurrect stale edits.
@@ -2228,6 +2232,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         if (draft) {
                             actions.setScannerValues(draft.scanner)
                             actions.setScannerDraftSavedAt(draft.savedAt)
+                            if (draft.provenance) {
+                                actions.setCreationMethod(draft.provenance.creationMethod)
+                                actions.setGoalDraftBaseline(draft.provenance.goalDraftBaseline)
+                            }
                             // A draft made from an experiment prefill carries targeting the
                             // loadScannerSuccess above (a bare newScanner) didn't see. A draft started
                             // from an experiment link restores that link, so the wizard stays locked.
@@ -2532,6 +2540,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
             setScannerValues: () => {
                 actions.requestScannerEstimate()
+                persistDraft()
+            },
+            setGoalDraftBaseline: () => {
                 persistDraft()
             },
             startFromScratch: () => {

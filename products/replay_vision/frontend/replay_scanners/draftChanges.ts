@@ -2,7 +2,6 @@ import { objectsEqual } from 'lib/utils/objects'
 
 import type { ScannerFormValues } from './types'
 
-/** The parts of an AI draft a person can change on review, named the way the review sections group them. */
 export type DraftChangedField =
     | 'name'
     | 'description'
@@ -30,7 +29,9 @@ export function draftChanges(drafted: ScannerFormValues, saved: ScannerFormValue
         prompt: (drafted.scanner_config?.prompt ?? '').trim() !== (saved.scanner_config?.prompt ?? '').trim(),
         scanner_type: drafted.scanner_type !== saved.scanner_type,
         type_config: !objectsEqual(configWithoutPrompt(drafted), configWithoutPrompt(saved)),
-        query: !objectsEqual(drafted.query ?? null, saved.query ?? null),
+        query:
+            !objectsEqual(drafted.query ?? null, saved.query ?? null) ||
+            !objectsEqual(drafted.experiment_targeting ?? null, saved.experiment_targeting ?? null),
         sampling: drafted.sampling_mode !== saved.sampling_mode || drafted.sampling_rate !== saved.sampling_rate,
         model: drafted.model !== saved.model,
         budget:
