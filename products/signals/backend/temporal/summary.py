@@ -457,6 +457,7 @@ class SignalReportSummaryWorkflow:
             report_id=inputs.report_id,
             required_signal_id=required_signal_id,
             enabled_sources_only=inputs.github_recovery,
+            for_research=True,
         )
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,

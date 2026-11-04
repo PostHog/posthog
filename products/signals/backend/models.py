@@ -825,7 +825,7 @@ class SignalReport(UUIDModel):
             self.first_visible_at = timezone.now()
             updated_fields.add("first_visible_at")
 
-        if new_status in (S.READY, S.PENDING_INPUT, S.FAILED):
+        if new_status in (S.READY, S.PENDING_INPUT, S.FAILED, S.POTENTIAL):
             self.research_blocked_reason = None
             self.research_blocked_at = None
             updated_fields.update(("research_blocked_reason", "research_blocked_at"))

@@ -646,6 +646,23 @@ class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):
         else:
             assert str(report.pending_triggering_signal_id) == pending_id
 
+    @parameterized.expand([(True, 0), (False, 1)])
+    def test_only_research_drops_disabled_sources_from_a_blocked_report(
+        self, for_research: bool, expected_signals: int
+    ) -> None:
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.CANDIDATE, research_blocked_reason="not_connected"
+        )
+        self._emit_version(
+            document_id=str(uuid.uuid4()), report_id=str(report.id), source_product="errors", inserted_at=self.base
+        )
+        with patch("products.signals.backend.temporal.signal_queries.enabled_recovery_signals", return_value=[]):
+            result = async_to_sync(fetch_signals_for_report_activity)(
+                FetchSignalsForReportInput(team_id=self.team.id, report_id=str(report.id), for_research=for_research)
+            )
+        assert len(result.signals) == expected_signals
+        assert result.fetched_signal_count == 1
+
     def test_returns_latest_content_for_a_revised_signal(self) -> None:
         # The dedup must surface the newest version's content, not an arbitrary one.
         self._emit_version(

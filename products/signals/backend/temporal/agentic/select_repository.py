@@ -92,7 +92,9 @@ async def github_optional_pilot_activity(team_id: int) -> bool:
 
 
 def _pilot_code_availability(team_id: int) -> ReportResearchContext:
-    readiness = get_team_github_readiness(team_id)
+    # A new connection has an unloaded cache, and selection is the only reader that would load it. Without
+    # verification the cached read reports an outage, so the project stays on project data.
+    readiness = get_team_github_readiness(team_id, verify=True)
     if readiness.status == GitHubReadinessStatus.READY:
         return ReportResearchContext(mode="code", repository_status="available")
     status = {
