@@ -113,6 +113,7 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   Both inbox lists prefetch reports as rows become visible, including rows beyond the initial prefetch window.
   The report's inbox pane only prefetches while it is visible and its screen is focused.
 - iOS follows the system's vertical-bar signal. When the rail is active, native tabs and stack toolbar buttons occupy it.
+  Subscribe to Expo's initial edge event; its synchronous edge getter can deadlock React's event beat during startup.
   They use raster copies of the existing app glyphs, icon-only tab labels, and a distinct Chat action.
   Without a vertical rail, the native tab bar is hidden and the existing floating pill and Chat button remain.
   The iOS navigator stays mounted across these transitions. Android retains its existing custom navigation.
