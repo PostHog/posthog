@@ -251,6 +251,17 @@ def list_firing_alerts_created_by(
     ]
 
 
+def insight_short_ids_watched_by(*, team_id: int, user_id: int, limit: int) -> list[str]:
+    """Short ids of insights with an enabled alert that the user created or subscribes to, newest alert first."""
+    rows = (
+        AlertConfiguration.objects.filter(team_id=team_id, enabled=True, insight__deleted=False)
+        .filter(Q(created_by_id=user_id) | Q(alertsubscription__user_id=user_id, alertsubscription__subscribed=True))
+        .order_by("-created_at")
+        .values_list("insight__short_id", flat=True)
+    )
+    return list(dict.fromkeys(rows))[:limit]
+
+
 def assign_alert_owner(*, team_id: int, alert_id: uuid.UUID, user: User, was_impersonated: bool) -> None:
     """Make `user` the owner of the alert and record the takeover in the activity log.
 

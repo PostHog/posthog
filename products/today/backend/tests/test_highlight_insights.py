@@ -301,14 +301,14 @@ class TestRoutineInsights(BaseTest):
                 "a session",
                 None,
                 [
-                    ("insight:signups", "/dashboard/7", "Growth", 2, TODAY - timedelta(days=1)),
-                    ("insight:old", "/insights/old", None, 0, TODAY - timedelta(days=20)),
+                    ("insight:signups", "/dashboard/7", "Growth", 3, TODAY - timedelta(days=1)),
+                    ("insight:old", "/insights/old", None, 1, TODAY - timedelta(days=13)),
                 ],
             ),
             (
                 "a key without dashboard access",
                 frozenset({"insight:read"}),
-                [("insight:old", "/insights/old", None, 0, TODAY - timedelta(days=20))],
+                [("insight:old", "/insights/old", None, 1, TODAY - timedelta(days=13))],
             ),
         ]
     )
@@ -316,7 +316,7 @@ class TestRoutineInsights(BaseTest):
     def test_the_pulse_shows_a_dashboard_opened_often_as_its_first_working_tile(
         self, _name: str, scopes: frozenset[str] | None, expected: list[tuple[str, str, str | None, int, date]]
     ) -> None:
-        for kind, ref, ages in (("insight", "old", (20,)), ("dashboard", "7", (1, 2))):
+        for kind, ref, ages in (("insight", "old", (13, 20, 22)), ("dashboard", "7", (1, 2, 3))):
             FileSystemViewLog.objects.create(
                 team=self.team,
                 user=self.user,
@@ -357,7 +357,7 @@ class TestRoutineInsights(BaseTest):
         self.assertEqual([m.movers for m in pulse], [[]] * len(expected))
 
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
-    def test_a_habit_ranks_above_a_more_recent_single_open(self) -> None:
+    def test_a_habit_shows_and_a_more_recent_single_open_does_not(self) -> None:
         for ref, ages in (("habit", range(2, 10)), ("fresh", (1,))):
             FileSystemViewLog.objects.create(
                 team=self.team,
@@ -376,7 +376,7 @@ class TestRoutineInsights(BaseTest):
         ):
             pulse = routine.find(Context(self.team, self.user, TODAY)).pulse
 
-        self.assertEqual([m.key for m in pulse], ["insight:habit", "insight:fresh"])
+        self.assertEqual([m.key for m in pulse], ["insight:habit"])
 
     @parameterized.expand(
         [
@@ -396,7 +396,7 @@ class TestRoutineInsights(BaseTest):
                 user=self.user,
                 type=kind,
                 ref=ref,
-                view_days=[TODAY - timedelta(days=age)],
+                view_days=[TODAY - timedelta(days=age + extra) for extra in (0, 1, 2)],
                 viewed_at=datetime.combine(TODAY - timedelta(days=age), time(12), tzinfo=UTC),
             )
         growth = DashboardInsights(
@@ -442,40 +442,34 @@ class TestRoutineInsights(BaseTest):
         self.assertTrue(all(not blocking for _, blocking, _, at in queried if at > routine.BLOCKING_SECONDS))
 
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
-    def test_a_person_with_few_views_also_sees_the_insights_the_project_opens_most(self) -> None:
-        others = [User.objects.create_and_join(self.organization, f"viewer{i}@example.com", None) for i in range(2)]
-        for user, ref, age in (
-            (self.user, "mine", 1),
-            (others[0], "mine", 1),
-            (others[0], "shared", 1),
-            (others[1], "shared", 2),
-            (others[1], "once", 1),
-            (others[0], "stale", 40),
-        ):
+    def test_the_pulse_mixes_repeated_watched_and_built_insights_without_popular_ones(self) -> None:
+        other = User.objects.create_and_join(self.organization, "viewer@example.com", None)
+        for user, ref, ages in ((self.user, "habit", [1, 5, 9]), (self.user, "once", [1]), (other, "shared", [1])):
             FileSystemViewLog.objects.create(
                 team=self.team,
                 user=user,
                 type="insight",
                 ref=ref,
-                view_days=[TODAY - timedelta(days=age)],
-                viewed_at=datetime.combine(TODAY - timedelta(days=age), time(12), tzinfo=UTC),
+                view_days=[TODAY - timedelta(days=age) for age in ages],
+                viewed_at=datetime.combine(TODAY - timedelta(days=min(ages)), time(12), tzinfo=UTC),
             )
         points = [(TODAY - timedelta(days=d), 2.0 if d <= 7 else 1.0) for d in range(14, 0, -1)]
 
-        with patch.object(
-            routine,
-            "get_insight_series",
-            side_effect=lambda **kwargs: insight({"opened": points}, short_id=kwargs["short_id"], name="Opened"),
+        with (
+            patch.object(
+                routine,
+                "get_insight_series",
+                side_effect=lambda **kwargs: insight({"opened": points}, short_id=kwargs["short_id"], name="Opened"),
+            ),
+            patch.object(routine, "insight_short_ids_watched_by", return_value=["alerted", "habit"]),
+            patch.object(routine, "insight_short_ids_subscribed_by", return_value=["subscribed"]),
+            patch.object(routine, "insight_short_ids_built_by", return_value=["b1", "b2", "b3"]),
         ):
             pulse = routine.find(Context(self.team, self.user, TODAY)).pulse
 
         self.assertEqual(
-            [(m.key, m.reason, m.last_opened) for m in pulse],
-            [
-                ("insight:mine", "routine", TODAY - timedelta(days=1)),
-                ("insight:shared", "popular", None),
-                ("insight:once", "popular", None),
-            ],
+            [m.key for m in pulse],
+            [f"insight:{ref}" for ref in ("habit", "alerted", "subscribed", "b1", "b2", "b3")],
         )
 
 
@@ -515,8 +509,7 @@ class TestProgressiveInsights(SimpleTestCase):
             ),
         )
         with (
-            patch.object(routine, "_frecent_views", return_value=views),
-            patch.object(routine, "_candidates", side_effect=lambda context, own: iter(own)),
+            patch.object(routine, "_own_candidates", return_value=views),
             patch.object(routine, "viewable_insight_definitions", return_value=definitions),
             patch.object(routine, "get_insight_series", side_effect=series),
             patch.object(
@@ -590,8 +583,7 @@ class TestProgressiveInsights(SimpleTestCase):
             ),
         )
         with (
-            patch.object(routine, "_frecent_views", return_value=views),
-            patch.object(routine, "_candidates", side_effect=lambda context, own: iter(own)),
+            patch.object(routine, "_own_candidates", return_value=views),
             patch.object(routine, "dashboard_insights", return_value=dashboard),
             patch.object(routine, "viewable_insight_definitions", return_value=definitions),
             patch.object(routine, "get_insight_series", side_effect=series),
@@ -645,8 +637,7 @@ class TestProgressiveInsights(SimpleTestCase):
             ),
         )
         with (
-            patch.object(routine, "_frecent_views", return_value=[viewed]),
-            patch.object(routine, "_candidates", side_effect=lambda context, own: iter(own)),
+            patch.object(routine, "_own_candidates", return_value=[viewed]),
             patch.object(routine, "dashboard_insights", return_value=dashboard),
             patch.object(routine, "viewable_insight_definitions", return_value=definitions),
             patch.object(

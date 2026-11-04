@@ -35,6 +35,18 @@ def subscription_ids_in_team(*, team_id: int, subscription_ids: Collection[int])
     return set(Subscription.objects.filter(team_id=team_id, id__in=subscription_ids).values_list("id", flat=True))
 
 
+def insight_short_ids_subscribed_by(*, team_id: int, user_id: int, now: datetime, limit: int) -> list[str]:
+    rows = (
+        Subscription.objects.filter(
+            team_id=team_id, created_by_id=user_id, deleted=False, insight__isnull=False, insight__deleted=False
+        )
+        .filter(Q(until_date__isnull=True) | Q(until_date__gt=now))
+        .order_by("-id")
+        .values_list("insight__short_id", flat=True)
+    )
+    return list(dict.fromkeys(rows))[:limit]
+
+
 def user_has_slack_subscription(*, team_id: int, user_id: int) -> bool:
     return Subscription.objects.filter(
         team_id=team_id,
