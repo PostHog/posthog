@@ -14,7 +14,7 @@ from products.product_analytics.backend.facade.contracts import OrganizationEven
 
 
 def organization_events_retention(organization: Organization) -> OrganizationEventsRetention:
-    """The organization's window and the range its admins can set."""
+    """The organization's period and the periods its admins can set."""
     return events_retention.organization_events_retention(organization)
 
 
@@ -31,7 +31,7 @@ def set_organization_events_retention(
     was_impersonated: bool,
     analytics_properties: dict[str, object] | None = None,
 ) -> None:
-    """Set or clear the organization's window. Raises a Django ValidationError for a window outside the range."""
+    """Set or clear the organization's period. Raises a Django ValidationError for a period its admins can't set."""
     events_retention.set_organization_events_retention(
         organization, months, user=user, was_impersonated=was_impersonated, analytics_properties=analytics_properties
     )
@@ -45,7 +45,7 @@ def set_project_events_retention(
     was_impersonated: bool,
     analytics_properties: dict[str, object] | None = None,
 ) -> None:
-    """Set or clear the project's window. Raises a Django ValidationError for a window outside the range."""
+    """Set or clear the project's period. Raises a Django ValidationError for a period its admins can't set."""
     events_retention.set_project_events_retention(
         team, months, user=user, was_impersonated=was_impersonated, analytics_properties=analytics_properties
     )

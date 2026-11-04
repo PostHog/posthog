@@ -61,15 +61,15 @@ class OrganizationEventsRetentionSerializer(serializers.Serializer):
     )
     plan_retention_months = serializers.IntegerField(
         read_only=True,
-        help_text="The longest window the organization's plan allows, in months.",
+        help_text="The longest period the organization's plan allows, in months.",
     )
     min_retention_months = serializers.IntegerField(
         read_only=True,
-        help_text="The shortest window an admin can set, in months.",
+        help_text="The shortest period an admin can set, in months.",
     )
     max_retention_months = serializers.IntegerField(
         read_only=True,
-        help_text="The longest window an admin can set, in months. Never longer than the plan's window.",
+        help_text="The longest period an admin can set, in months. Never longer than the plan's period.",
     )
     next_monthly_cleanup_on = serializers.DateField(
         read_only=True,
@@ -82,12 +82,12 @@ class EventsRetentionSerializer(OrganizationEventsRetentionSerializer):
     retention_months = serializers.IntegerField(
         read_only=True,
         allow_null=True,
-        help_text="How many months of events stay queryable, counted back from today. Null while no retention window applies to the project.",
+        help_text="How many months of events stay queryable, counted back from today. Null while no retention period applies to the project.",
     )
     retained_from = serializers.DateField(
         read_only=True,
         allow_null=True,
-        help_text="The earliest date whose events are still queryable, in the project's timezone. Null while no retention window applies to the project.",
+        help_text="The earliest date whose events are still queryable, in the project's timezone. Null while no retention period applies to the project.",
     )
     docs_url = serializers.URLField(
         read_only=True,
@@ -96,7 +96,7 @@ class EventsRetentionSerializer(OrganizationEventsRetentionSerializer):
     project_retention_months = serializers.IntegerField(
         read_only=True,
         allow_null=True,
-        help_text="The window, in months, set for this project. Null while the project uses the organization's window.",
+        help_text="The period, in months, set for this project. Null while the project uses the organization's period.",
     )
     next_deletion_on = serializers.DateField(
         read_only=True,
@@ -127,7 +127,7 @@ class EventsRetentionUpdateSerializer(serializers.Serializer):
     retention_months = serializers.IntegerField(
         allow_null=True,
         min_value=1,
-        help_text="The period in months. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period.",
+        help_text="The period in months, one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period.",
     )
 
 
@@ -175,10 +175,10 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @extend_schema(
         operation_id="events_retention_retrieve",
-        summary="Get the events retention window for a project",
+        summary="Get the events retention period for a project",
         description=(
-            "Returns how far back events stay queryable for this project, the windows set for the project and its "
-            "organization, the range an admin can set, and the project's next deletion. Both queryable period fields "
+            "Returns how far back events stay queryable for this project, the periods set for the project and its "
+            "organization, the periods an admin can set, and the project's next deletion. Both queryable period fields "
             "are null while no retention period applies to the project."
         ),
         responses={200: EventsRetentionSerializer},
@@ -189,14 +189,15 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @validated_request(
         EventsRetentionUpdateSerializer,
         operation_id="events_retention_update",
-        summary="Set the events retention window for a project",
+        summary="Set the events retention period for a project",
         description=(
-            "Sets how long this project keeps events, overriding the organization's period. Older events are deleted "
-            "at the next monthly cleanup and can't be restored. Organization admins only."
+            "Sets how long this project keeps events, overriding the organization's period. The period has to be one "
+            "of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. "
+            "Organization admins only."
         ),
         responses={
-            200: OpenApiResponse(response=EventsRetentionSerializer, description="The project's new window."),
-            400: OpenApiResponse(description="The window is outside the range an admin can set."),
+            200: OpenApiResponse(response=EventsRetentionSerializer, description="The project's new period."),
+            400: OpenApiResponse(description="The period isn't one of the periods an admin can set."),
             403: OpenApiResponse(description="The user isn't an organization admin."),
         },
     )
@@ -229,10 +230,10 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
 
     @extend_schema(
         operation_id="organization_events_retention_retrieve",
-        summary="Get the organization's events retention window",
+        summary="Get the organization's events retention period",
         description=(
             "Returns the events retention period that every project without its own period uses, the default period "
-            "while none is set, and the range an organization admin can set."
+            "while none is set, and the periods an organization admin can set."
         ),
         responses={200: OrganizationEventsRetentionSerializer},
     )
@@ -242,16 +243,17 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
     @validated_request(
         EventsRetentionUpdateSerializer,
         operation_id="organization_events_retention_update",
-        summary="Set the organization's events retention window",
+        summary="Set the organization's events retention period",
         description=(
-            "Sets how long every project without its own period keeps events. Older events are deleted at the next "
-            "monthly cleanup and can't be restored. Organization admins only."
+            "Sets how long every project without its own period keeps events. The period has to be one of "
+            "retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. "
+            "Organization admins only."
         ),
         responses={
             200: OpenApiResponse(
-                response=OrganizationEventsRetentionSerializer, description="The organization's new window."
+                response=OrganizationEventsRetentionSerializer, description="The organization's new period."
             ),
-            400: OpenApiResponse(description="The window is outside the range an admin can set."),
+            400: OpenApiResponse(description="The period isn't one of the periods an admin can set."),
             403: OpenApiResponse(description="The user isn't an organization admin."),
         },
     )

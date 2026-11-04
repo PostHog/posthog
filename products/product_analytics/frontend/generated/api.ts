@@ -86,8 +86,8 @@ export const getOrganizationEventsRetentionRetrieveUrl = (organizationId: string
 }
 
 /**
- * Returns the events retention period that every project without its own period uses, the default period while none is set, and the range an organization admin can set.
- * @summary Get the organization's events retention window
+ * Returns the events retention period that every project without its own period uses, the default period while none is set, and the periods an organization admin can set.
+ * @summary Get the organization's events retention period
  */
 export const organizationEventsRetentionRetrieve = async (
     organizationId: string,
@@ -104,8 +104,8 @@ export const getOrganizationEventsRetentionUpdateUrl = (organizationId: string) 
 }
 
 /**
- * Sets how long every project without its own period keeps events. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
- * @summary Set the organization's events retention window
+ * Sets how long every project without its own period keeps events. The period has to be one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
+ * @summary Set the organization's events retention period
  */
 export const organizationEventsRetentionUpdate = async (
     organizationId: string,
@@ -396,8 +396,8 @@ export const getEventsRetentionRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Returns how far back events stay queryable for this project, the windows set for the project and its organization, the range an admin can set, and the project's next deletion. Both queryable period fields are null while no retention period applies to the project.
- * @summary Get the events retention window for a project
+ * Returns how far back events stay queryable for this project, the periods set for the project and its organization, the periods an admin can set, and the project's next deletion. Both queryable period fields are null while no retention period applies to the project.
+ * @summary Get the events retention period for a project
  */
 export const eventsRetentionRetrieve = async (
     projectId: string,
@@ -414,8 +414,8 @@ export const getEventsRetentionUpdateUrl = (projectId: string) => {
 }
 
 /**
- * Sets how long this project keeps events, overriding the organization's period. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
- * @summary Set the events retention window for a project
+ * Sets how long this project keeps events, overriding the organization's period. The period has to be one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
+ * @summary Set the events retention period for a project
  */
 export const eventsRetentionUpdate = async (
     projectId: string,

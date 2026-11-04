@@ -19,11 +19,11 @@ export interface OrganizationEventsRetentionApi {
     readonly default_is_grandfathered: boolean
     /** The periods, in months, an admin can choose from. A save also has to be between min_retention_months and max_retention_months. Only PostHog staff can set other periods. */
     readonly retention_months_choices: readonly number[]
-    /** The longest window the organization's plan allows, in months. */
+    /** The longest period the organization's plan allows, in months. */
     readonly plan_retention_months: number
-    /** The shortest window an admin can set, in months. */
+    /** The shortest period an admin can set, in months. */
     readonly min_retention_months: number
-    /** The longest window an admin can set, in months. Never longer than the plan's window. */
+    /** The longest period an admin can set, in months. Never longer than the plan's period. */
     readonly max_retention_months: number
     /** The date of the next monthly cleanup, in the timezone it runs in. */
     readonly next_monthly_cleanup_on: string
@@ -31,7 +31,7 @@ export interface OrganizationEventsRetentionApi {
 
 export interface EventsRetentionUpdateApi {
     /**
-     * The period in months. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period.
+     * The period in months, one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period.
      * @minimum 1
      * @nullable
      */
@@ -254,28 +254,28 @@ export interface EventsRetentionApi {
     readonly default_is_grandfathered: boolean
     /** The periods, in months, an admin can choose from. A save also has to be between min_retention_months and max_retention_months. Only PostHog staff can set other periods. */
     readonly retention_months_choices: readonly number[]
-    /** The longest window the organization's plan allows, in months. */
+    /** The longest period the organization's plan allows, in months. */
     readonly plan_retention_months: number
-    /** The shortest window an admin can set, in months. */
+    /** The shortest period an admin can set, in months. */
     readonly min_retention_months: number
-    /** The longest window an admin can set, in months. Never longer than the plan's window. */
+    /** The longest period an admin can set, in months. Never longer than the plan's period. */
     readonly max_retention_months: number
     /** The date of the next monthly cleanup, in the timezone it runs in. */
     readonly next_monthly_cleanup_on: string
     /**
-     * How many months of events stay queryable, counted back from today. Null while no retention window applies to the project.
+     * How many months of events stay queryable, counted back from today. Null while no retention period applies to the project.
      * @nullable
      */
     readonly retention_months: number | null
     /**
-     * The earliest date whose events are still queryable, in the project's timezone. Null while no retention window applies to the project.
+     * The earliest date whose events are still queryable, in the project's timezone. Null while no retention period applies to the project.
      * @nullable
      */
     readonly retained_from: string | null
     /** Where the events retention policy is documented. */
     readonly docs_url: string
     /**
-     * The window, in months, set for this project. Null while the project uses the organization's window.
+     * The period, in months, set for this project. Null while the project uses the organization's period.
      * @nullable
      */
     readonly project_retention_months: number | null
