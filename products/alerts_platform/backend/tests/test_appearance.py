@@ -84,11 +84,17 @@ class TestAppearanceAlerts(BaseTest):
         # Resolved inside the window the registry has not read yet, and seen on both sides of it.
         occurrences.resolve(SOURCE, team_id=self.team.id, identity_key="fresh", at=T0 + timedelta(minutes=27))
         self.sightings.append(
-            replace(_seen("fresh", T0 + timedelta(minutes=26)), last_seen_at=T0 + timedelta(minutes=40))
+            replace(
+                _seen("fresh", T0 + timedelta(minutes=26)),
+                last_seen_at=T0 + timedelta(minutes=40),
+                labels={"service_name": "api", "release": "v2"},
+            )
         )
         outcome, _ = self._tick(T0 + timedelta(minutes=50))
         (group,) = outcome.groups
         assert group.source_detail[APPEARANCE_DETAIL_KEY] == "reappeared"
+        # It is described as it came back, not as it was first seen.
+        assert group.labels["release"] == "v2"
         # A reappearance threads under the message that announced the identity.
         assert group.firing_episode is not None and group.firing_episode.started_at == T0 + timedelta(minutes=10)
 
