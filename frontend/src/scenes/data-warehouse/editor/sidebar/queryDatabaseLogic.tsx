@@ -2835,6 +2835,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         }
 
         return {
+            showAllTables: ({ folderId }) => {
+                const firstRevealedTable = findTreeItemById(values.displayedTreeData, folderId)?.children?.[15]
+                if (firstRevealedTable) {
+                    values.treeRef?.current?.focusItem(firstRevealedTable.id)
+                }
+            },
             locateTable: ({ tableName }) => {
                 revealLocatedTable(tableName)
             },

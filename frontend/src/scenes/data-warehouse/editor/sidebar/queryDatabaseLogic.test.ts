@@ -1151,10 +1151,13 @@ describe('queryDatabaseLogic', () => {
             expect(logic.values.displayedTreeData.find((item) => item.name === 'public')?.children).toHaveLength(count)
 
             if (count > 15) {
+                const focusItem = jest.fn()
+                logic.actions.setTreeRef({ current: { focusItem, getVisibleItems: () => [] } })
                 category().children.at(-1).onClick()
                 expect(category().children).toHaveLength(count)
                 expect(category().children.at(-1).name).toEqual('public.example_18')
                 expect(logic.values.visibleTreeData.find((item) => item.name === 'archive')?.children).toHaveLength(16)
+                expect(focusItem).toHaveBeenCalledWith('table-public.example_16')
             }
 
             logic.actions.setSearchTerm('example')
