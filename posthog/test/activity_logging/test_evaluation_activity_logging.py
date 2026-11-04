@@ -1,7 +1,5 @@
 from typing import Any
 
-from unittest.mock import patch
-
 from rest_framework import status
 
 from posthog.test.activity_log_utils import ActivityLogTestHelper
@@ -39,9 +37,6 @@ def _create_evaluation_payload(**overrides: Any) -> dict[str, Any]:
 class TestEvaluationActivityLogging(ActivityLogTestHelper):
     def setUp(self) -> None:
         super().setUp()
-        model_check = patch("products.ai_observability.backend.llm.client.Client.complete")
-        model_check.start()
-        self.addCleanup(model_check.stop)
         active_key = self._create_provider_key(name="Active key")
         EvaluationConfig.objects.create(team=self.team, active_provider_key=active_key)
 

@@ -1,7 +1,6 @@
 import hashlib
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -60,19 +59,10 @@ from ..facade import (
 from ..facade.contracts import Contract
 from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER, supports_reasoning_level
-from ..llm.client import Client
 from ..llm.decisions import is_decision_model
-from ..llm.errors import (
-    LLMError,
-    ModelNotFoundError,
-    ModelPermissionError,
-    ProviderConnectionError,
-    UnsupportedModelError,
-    user_facing_error_message,
-)
+from ..llm.errors import ProviderConnectionError
 from ..llm.providers.openai import OpenAIConfig
 from ..llm.providers.openrouter import is_non_chat_model
-from ..llm.types import CompletionRequest
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
@@ -106,6 +96,7 @@ from ..models.evaluations import Evaluation, EvaluationTarget
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from ..presentation.query_concurrency import query_concurrency_slots
+from ..tasks.evaluation_model_check import check_evaluation_model
 from .condition_sets import ConditionSetSerializer
 from .metrics import llma_track_latency
 
@@ -367,29 +358,6 @@ class _OutputConfigField(serializers.DictField):
 )
 class _TargetConfigField(serializers.JSONField):
     pass
-
-
-# ponytail: a stalled provider keeps its thread after the save stops waiting; a few workers cap that.
-_MODEL_CHECKS = ThreadPoolExecutor(max_workers=4, thread_name_prefix="eval-model-check")
-_MODEL_CHECK_SECONDS = 10
-
-
-def _model_error(provider_key: LLMProviderKey, provider: str, model: str) -> LLMError | None:
-    """The error a one-token call to the model raises when the key can't use it.
-
-    Any other outcome, including a timeout or a provider outage, returns None so a save is never blocked.
-    """
-    request = CompletionRequest(
-        model=model, messages=[{"role": "user", "content": "Hi"}], provider=provider, max_tokens=16
-    )
-    call = _MODEL_CHECKS.submit(Client(provider_key=provider_key, capture_analytics=False).complete, request)
-    try:
-        call.result(timeout=_MODEL_CHECK_SECONDS)
-    except (ModelNotFoundError, ModelPermissionError, UnsupportedModelError) as error:
-        return error
-    except Exception:
-        logger.info("evaluation_model_check_skipped", provider=provider, model=model, exc_info=True)
-    return None
 
 
 class ModelConfigurationSerializer(serializers.Serializer):
@@ -657,6 +625,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             getattr(self.instance, "model_configuration", None) if self.instance else None,
         )
         uses_decision_model = self._uses_decision_model(data)
+        self._judges_with_decisions = uses_decision_model
         if uses_decision_model and output_type not in ("boolean", "categorical", "numeric"):
             raise serializers.ValidationError(
                 {"model_configuration": "Select a model that supports this evaluation output type."}
@@ -685,7 +654,6 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         ).get("judge_method")
         if data.get("model_configuration") or data.get("enabled") or method_changed:
             self._validate_chat_model(data, uses_decision_model=uses_decision_model)
-            self._validate_model_on_key(data, uses_decision_model=uses_decision_model)
         self._validate_reasoning_level(data, uses_decision_model=uses_decision_model)
 
         should_validate_configs = (
@@ -789,20 +757,6 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                     "Choose a chat model or a supported decision model."
                 }
             )
-
-    def _validate_model_on_key(self, data: dict, *, uses_decision_model: bool) -> None:
-        """A model the key can't use fails the first run, which then disables the evaluation."""
-        model_config = data.get("model_configuration")
-        if uses_decision_model or not model_config or model_config["provider"] == LLMProvider.SYSTEM_ONE:
-            return
-        saved = self.instance.model_configuration if self.instance is not None else None
-        if saved is not None and (saved.provider, saved.model) == (model_config["provider"], model_config["model"]):
-            return
-        provider_key = self._effective_provider_key(data)
-        if provider_key is None or provider_key.state != LLMProviderKey.State.OK:
-            return
-        if (error := _model_error(provider_key, model_config["provider"], model_config["model"])) is not None:
-            raise serializers.ValidationError({"model_configuration": user_facing_error_message(error)})
 
     def _validate_reasoning_level(self, data: dict, *, uses_decision_model: bool) -> None:
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
@@ -982,7 +936,9 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 model_config_data, team.id
             )
 
-        return super().create(validated_data)
+        evaluation = super().create(validated_data)
+        self._check_model_after_commit(evaluation, model_config_data)
+        return evaluation
 
     def update(self, instance, validated_data):
         # Switching away from an LLM judge uses an explicit null to detach its config; omission leaves it untouched.
@@ -1004,10 +960,21 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
         result = super().update(instance, validated_data)
 
+        old_model = (old_config.provider, old_config.model) if old_config is not None else None
         if old_config is not None:
             old_config.delete()
 
+        if model_config_data and old_model != (model_config_data["provider"], model_config_data["model"]):
+            self._check_model_after_commit(result, model_config_data)
         return result
+
+    def _check_model_after_commit(self, evaluation: Evaluation, model_config_data: dict[str, Any] | None) -> None:
+        # Decision models answer through a typed decision API, not a chat completion.
+        if not model_config_data or getattr(self, "_judges_with_decisions", False):
+            return
+        team_id, evaluation_id = evaluation.team_id, str(evaluation.id)
+        provider, model = model_config_data["provider"], model_config_data["model"]
+        transaction.on_commit(lambda: check_evaluation_model.delay(team_id, evaluation_id, provider, model))
 
 
 class EvaluationFilter(django_filters.FilterSet):
