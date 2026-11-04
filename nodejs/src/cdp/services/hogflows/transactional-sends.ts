@@ -71,6 +71,11 @@ const writeStatus = (
     void emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, messageId))
 }
 
+const scheduledAtOfRunningRow = (job: CyclotronJobInvocation): DateTime | undefined => {
+    const firstScheduledAt = (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.firstScheduledAt
+    return firstScheduledAt ? DateTime.fromSQL(firstScheduledAt, { zone: 'utc' }) : job.queueScheduledAt
+}
+
 export type TransactionalSendsDeps = {
     siteUrl: string
     idempotencyKeys: IdempotencyKeys
@@ -327,6 +332,7 @@ export class ScheduledTransactionalSends {
         // The loaded flow gives the metrics their version. A flow that is gone still cancels.
         const hogFlow = await this.deps.hogFlows.getHogFlowCheckingPrimaryOnMiss(job.functionId).catch(() => null)
         const result = createCanceledInvocationResult(job, 'Run canceled before it was sent', hogFlow ?? undefined)
+        result.invocation.queueScheduledAt = scheduledAtOfRunningRow(job)
         if ((job.state as CyclotronJobInvocationHogFlow['state'] | null)?.triggerMetricPending) {
             result.metrics.push({
                 team_id: job.teamId,

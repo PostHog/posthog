@@ -2878,6 +2878,10 @@ describe('CDP API', () => {
             ])(
                 'cancels a scheduled send before a worker claims it, and counts the run once, when its workflow %s',
                 async (_desc, flowLoads) => {
+                    const resultsOutputs = api['invocationResultsService'].invocationResultsRowsService['outputs']
+                    const produceResultRow = jest.spyOn(resultsOutputs, 'produce').mockResolvedValue(undefined)
+                    const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
+                    hub.HOG_INVOCATION_RESULTS_ENABLED = true
                     const invocation = await scheduleSend()
                     if (!flowLoads) {
                         jest.spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss').mockRejectedValue(
@@ -2894,7 +2898,7 @@ describe('CDP API', () => {
                                 functionId: hogFlow.id,
                                 queueName: 'email',
                                 priority: 0,
-                                scheduled: invocation.queueScheduledAt,
+                                scheduled: invocation.queueScheduledAt!.plus({ days: 1 }),
                                 created: DateTime.now(),
                                 parentRunId: null,
                                 state: encodeStateColumns(invocation).state,
@@ -2906,10 +2910,6 @@ describe('CDP API', () => {
                         api['invocationResultsService'].monitoringService,
                         'queueAppMetric'
                     )
-                    const resultsOutputs = api['invocationResultsService'].invocationResultsRowsService['outputs']
-                    const produceResultRow = jest.spyOn(resultsOutputs, 'produce').mockResolvedValue(undefined)
-                    const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
-                    hub.HOG_INVOCATION_RESULTS_ENABLED = true
 
                     try {
                         const first = await manage('cancel', invocation.id)
@@ -2933,14 +2933,18 @@ describe('CDP API', () => {
                         const lifecycleRows = produceResultRow.mock.calls
                             .filter(([output]) => output === 'hog_invocation_results')
                             .map(([, message]) => parseJSON(message.value!.toString()))
-                        expect(lifecycleRows).toEqual([
-                            expect.objectContaining({
-                                invocation_id: invocation.id,
-                                function_kind: 'hog_flow',
-                                function_id: hogFlow.id,
-                                status: 'canceled',
-                            }),
-                        ])
+                        const scheduledAt = lifecycleRows[0].scheduled_at
+                        expect(lifecycleRows).toEqual(
+                            ['running', 'canceled'].map((status) =>
+                                expect.objectContaining({
+                                    invocation_id: invocation.id,
+                                    function_kind: 'hog_flow',
+                                    function_id: hogFlow.id,
+                                    status,
+                                    scheduled_at: scheduledAt,
+                                })
+                            )
+                        )
                         expect(emailStatusRows()).toEqual([
                             expect.objectContaining({ message_id: invocation.id, status: 'scheduled' }),
                             expect.objectContaining({ message_id: invocation.id, status: 'canceled' }),
