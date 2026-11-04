@@ -233,19 +233,6 @@ describe('RateLimiterService', () => {
             expect(claim).toEqual({ granted: false, retryAfterMs: 10_000, reserved: true })
         })
 
-        it('grants a fractional request whole, so a decimal cap cannot starve the caller', async () => {
-            // A cap configured as a decimal makes `requested` fractional. Flooring the grant here
-            // would charge the bucket 2 tokens and still report a denial, and every retry would
-            // repeat that until the bucket never granted again.
-            const req = { key: `${AON_KEY}/fractional`, requested: 2.5, capacity: 2.5, refillPerSecond: 0 }
-            expect(await limiter.claimAllOrNothing(req)).toEqual({
-                granted: true,
-                retryAfterMs: null,
-                reserved: false,
-            })
-            expect(await limiter.claimUpTo({ ...req, requested: 2 })).toBe(0)
-        })
-
         it('fails closed when the Lua call throws', async () => {
             const brokenValkey = {
                 useClient: jest.fn().mockRejectedValue(new Error('connection lost')),

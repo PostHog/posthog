@@ -34,6 +34,7 @@ import {
     EmailService,
     formatMailbox,
     parseAddressList,
+    parseTierCaps,
     sanitizeEmailSubject,
     teamEmailCapBucket,
 } from './email.service'
@@ -911,6 +912,20 @@ describe('EmailService', () => {
 
                 expect(otherResult.finished).toBe(true)
                 expect(realSendSpy).toHaveBeenCalledTimes(2)
+            })
+        })
+
+        describe('parseTierCaps', () => {
+            it.each([
+                ['a whole table', '50,200', [50, 200]],
+                // A decimal cap would make a claim fractional, and the limiter floors its grant
+                // while the caller compares against the unfloored request. The claim then charges
+                // the bucket and reads back as a denial, which starves the team on every retry.
+                ['a decimal cap', '50,2.5', []],
+                ['a zero cap', '50,0', []],
+                ['nonsense', 'fifty', []],
+            ])('%s', (_name, value, expected) => {
+                expect(parseTierCaps(value)).toEqual(expected)
             })
         })
 

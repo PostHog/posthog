@@ -292,7 +292,7 @@ export function parseTierCaps(value: string | undefined): number[] {
         .map((part) => part.trim())
         .filter((part) => part.length > 0)
     const caps = parts.map((part) => Number(part))
-    if (caps.length === 0 || caps.some((cap) => !Number.isFinite(cap) || cap <= 0)) {
+    if (caps.length === 0 || caps.some((cap) => !Number.isInteger(cap) || cap <= 0)) {
         return []
     }
     return caps
