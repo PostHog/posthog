@@ -21,6 +21,7 @@ from posthog.api.sdk_health import SdkHealthViewSet
 from posthog.api.wizard import http as wizard
 from posthog.products import load_product_modules
 from posthog.settings import EE_AVAILABLE
+from posthog.workload_identity.trust_policy import WorkloadTrustPolicyViewSet
 
 from ee.api.quota_limits import QuotaLimitsViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
@@ -48,7 +49,6 @@ from . import (
     instance_settings,
     instance_status,
     integration,
-    internal_feedback,
     materialized_column_slot,
     object_media_preview,
     organization,
@@ -414,7 +414,6 @@ router.register(
     "user_facet_settings",
 )
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
-router.register(r"internal_feedback", internal_feedback.InternalFeedbackViewSet, "internal_feedback")
 # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 router.register(r"cli-auth", cli_auth.CLIAuthViewSet, "cli_auth")
 router.register(r"oauth_device", OAuthDeviceViewSet, "oauth_device")
@@ -546,6 +545,10 @@ projects_router.register(
     project_secret_api_key.ProjectSecretAPIKeyViewSet,
     "project_project_secret_api_keys",
     ["team_id"],
+)
+
+projects_router.register(
+    r"workload_trust_policies", WorkloadTrustPolicyViewSet, "project_workload_trust_policies", ["project_id"]
 )
 
 projects_router.register(

@@ -38,6 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 ROLE_ARN = "arn:aws:iam::123456789012:role/posthog-reader"
 ASSUME_ROLE = "products.batch_exports.backend.facade.destinations.s3.get_credentials_using_user_aws_role"
+SESSION_ACTIONS = ("config:Describe*", "config:Get*")
+# A source calls only these verbs, apart from the actions listed per source in NON_READ_ACTIONS.
+READ_VERBS = ("BatchGet", "Describe", "Filter", "Get", "List", "Lookup", "Scan", "Select", "View")
+NON_READ_ACTIONS: dict[ExternalDataSourceType, set[str]] = {}
 
 
 @dataclass(frozen=True)
@@ -75,13 +79,18 @@ class TestResolveAwsCredentials(BaseTest):
         )
 
         with patch(ASSUME_ROLE, assume):
-            credentials = resolve_aws_credentials(Auth(aws_integration_id=integration.id), self.team.id)
+            credentials = resolve_aws_credentials(
+                Auth(aws_integration_id=integration.id), self.team.id, SESSION_ACTIONS
+            )
             frozen = credentials.get_frozen_credentials()
 
         assert frozen.access_key == "ASIASECOND"
         assert frozen.token == "token-SECOND"
         assert assume.call_count == 2
         assert assume.call_args.args == (ROLE_ARN, f"posthog-{self.team.organization_id}")
+        assert assume.call_args.kwargs["policy_statements"] == [
+            {"Effect": "Allow", "Action": ["config:Describe*", "config:Get*"], "Resource": "*"}
+        ]
 
     def test_access_key_connection_under_the_role_option_is_refused(self) -> None:
         integration = self._integration(self.team)
@@ -89,14 +98,14 @@ class TestResolveAwsCredentials(BaseTest):
         integration.save()
 
         with patch(ASSUME_ROLE) as assume, self.assertRaisesMessage(AwsAuthError, KEY_CONNECTION_FOR_ROLE_ERROR):
-            resolve_aws_credentials(Auth(aws_integration_id=integration.id), self.team.id)
+            resolve_aws_credentials(Auth(aws_integration_id=integration.id), self.team.id, SESSION_ACTIONS)
         assume.assert_not_called()
 
     def test_unknown_selection_is_refused_even_with_keys(self) -> None:
         auth = Auth(selection="Role", aws_access_key_id="AKIAEXAMPLE", aws_secret_access_key="example-secret")
 
         with self.assertRaises(AwsAuthError):
-            resolve_aws_credentials(auth, self.team.id)
+            resolve_aws_credentials(auth, self.team.id, SESSION_ACTIONS)
 
     @parameterized.expand(["other_team", "s3_compatible", "github", "deleted"])
     def test_connection_the_source_cannot_use_is_not_found(self, case: str) -> None:
@@ -111,7 +120,7 @@ class TestResolveAwsCredentials(BaseTest):
             integration_id = 999999
 
         with patch(ASSUME_ROLE) as assume, self.assertRaisesMessage(AwsAuthError, ROLE_NOT_FOUND_ERROR):
-            resolve_aws_credentials(Auth(aws_integration_id=integration_id), self.team.id)
+            resolve_aws_credentials(Auth(aws_integration_id=integration_id), self.team.id, SESSION_ACTIONS)
         assume.assert_not_called()
 
     @parameterized.expand(
@@ -136,7 +145,7 @@ class TestResolveAwsCredentials(BaseTest):
         integration = self._integration(self.team, aws_role_arn=ROLE_ARN)
 
         with patch(ASSUME_ROLE, side_effect=error), self.assertRaisesMessage(AwsAuthError, message):
-            resolve_aws_credentials(Auth(aws_integration_id=integration.id), self.team.id)
+            resolve_aws_credentials(Auth(aws_integration_id=integration.id), self.team.id, SESSION_ACTIONS)
 
     @parameterized.expand(
         [
@@ -162,7 +171,7 @@ class TestResolveAwsCredentials(BaseTest):
             patch(ASSUME_ROLE, side_effect=ClientError({"Error": {"Code": code, "Message": message}}, "AssumeRole")),
             self.assertRaises(AwsAuthError) as raised,
         ):
-            resolve_aws_credentials(Auth(aws_integration_id=integration.id), self.team.id)
+            resolve_aws_credentials(Auth(aws_integration_id=integration.id), self.team.id, SESSION_ACTIONS)
 
         assert str(raised.exception) == ROLE_CREDENTIALS_RETRY_ERROR
         assert not error_message_matches(
@@ -185,7 +194,9 @@ class TestResolveAwsCredentials(BaseTest):
         assume = AsyncMock(side_effect=[assumed("FIRST", dt.timedelta(minutes=12)), failure, failure])
 
         with patch(ASSUME_ROLE, assume):
-            credentials = resolve_aws_credentials(Auth(aws_integration_id=integration.id), self.team.id)
+            credentials = resolve_aws_credentials(
+                Auth(aws_integration_id=integration.id), self.team.id, SESSION_ACTIONS
+            )
             first = credentials.get_frozen_credentials()
             with self.assertNoLogs("botocore.credentials", level="WARNING"):
                 second = credentials.get_frozen_credentials()
@@ -228,7 +239,7 @@ def test_endpoint_reasons_block_tables_only_for_errors_the_user_must_fix(
     assert aws_auth_endpoint_reasons(error, ["a", "b"]) == {"a": reason, "b": reason}
 
 
-def test_every_source_with_the_aws_auth_field_lifts_it_and_keeps_its_own_credential_kind() -> None:
+def test_every_source_with_the_aws_auth_field_lifts_it_and_reads_only_with_its_own_kind_and_actions() -> None:
     problems = []
     for source_type, source in SourceRegistry.get_all_sources().items():
         if not any(field.name == AWS_AUTH_FIELD_NAME for field in source.get_source_config.fields):
@@ -237,4 +248,14 @@ def test_every_source_with_the_aws_auth_field_lifts_it_and_keeps_its_own_credent
             problems.append(f"{source_type} does not set flat_stored_selects")
         if source.credential_kind == "aws-s3" and source_type != ExternalDataSourceType.AMAZONS3:
             problems.append(f"{source_type} inherits the aws-s3 credential kind")
+        actions = getattr(source, "aws_session_actions", ())
+        if not actions:
+            problems.append(f"{source_type} declares no aws_session_actions")
+        for action in actions:
+            service, _, name = action.partition(":")
+            if not service or not name or name == "*":
+                problems.append(f"{source_type} allows a whole service or every action: {action}")
+            elif not name.startswith(READ_VERBS) and action != "kms:Decrypt":
+                if action not in NON_READ_ACTIONS.get(source_type, set()):
+                    problems.append(f"{source_type} allows an action that is not a read: {action}")
     assert problems == []

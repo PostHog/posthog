@@ -82,6 +82,7 @@ import type {
     PaginatedUploadedMediaListApi,
     PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
+    PaginatedWorkloadTrustPolicyListApi,
     PatchedCIMDVerificationTokenUpdateApi,
     PatchedEnterprisePropertyDefinitionApi,
     PatchedFileSystemApi,
@@ -92,6 +93,7 @@ import type {
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
     PatchedUserApi,
+    PatchedWorkloadTrustPolicyApi,
     ProductEnablementApi,
     ProductEnablementResultApi,
     ProjectApi,
@@ -137,6 +139,9 @@ import type {
     UsersLoginSessionsListParams,
     UsersProductIntroSeenPartialUpdate200,
     VerifyEmailRequestApi,
+    WorkloadProvidersResponseApi,
+    WorkloadTrustPoliciesListParams,
+    WorkloadTrustPolicyApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -2988,6 +2993,130 @@ export const uploadedMediaStartUploadCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(uploadedMediaStartUploadApi),
+    })
+}
+
+export const getWorkloadTrustPoliciesListUrl = (projectId: string, params?: WorkloadTrustPoliciesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workload_trust_policies/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workload_trust_policies/`
+}
+
+export const workloadTrustPoliciesList = async (
+    projectId: string,
+    params?: WorkloadTrustPoliciesListParams,
+    options?: RequestInit
+): Promise<PaginatedWorkloadTrustPolicyListApi> => {
+    return apiMutator<PaginatedWorkloadTrustPolicyListApi>(getWorkloadTrustPoliciesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkloadTrustPoliciesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workload_trust_policies/`
+}
+
+export const workloadTrustPoliciesCreate = async (
+    projectId: string,
+    workloadTrustPolicyApi: NonReadonly<WorkloadTrustPolicyApi>,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyApi> => {
+    return apiMutator<WorkloadTrustPolicyApi>(getWorkloadTrustPoliciesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workloadTrustPolicyApi),
+    })
+}
+
+export const getWorkloadTrustPoliciesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workload_trust_policies/${id}/`
+}
+
+export const workloadTrustPoliciesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyApi> => {
+    return apiMutator<WorkloadTrustPolicyApi>(getWorkloadTrustPoliciesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkloadTrustPoliciesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workload_trust_policies/${id}/`
+}
+
+export const workloadTrustPoliciesUpdate = async (
+    projectId: string,
+    id: string,
+    workloadTrustPolicyApi: NonReadonly<WorkloadTrustPolicyApi>,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyApi> => {
+    return apiMutator<WorkloadTrustPolicyApi>(getWorkloadTrustPoliciesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workloadTrustPolicyApi),
+    })
+}
+
+export const getWorkloadTrustPoliciesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workload_trust_policies/${id}/`
+}
+
+export const workloadTrustPoliciesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedWorkloadTrustPolicyApi?: NonReadonly<PatchedWorkloadTrustPolicyApi>,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyApi> => {
+    return apiMutator<WorkloadTrustPolicyApi>(getWorkloadTrustPoliciesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedWorkloadTrustPolicyApi),
+    })
+}
+
+export const getWorkloadTrustPoliciesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workload_trust_policies/${id}/`
+}
+
+export const workloadTrustPoliciesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWorkloadTrustPoliciesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getWorkloadTrustPoliciesProvidersRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workload_trust_policies/providers/`
+}
+
+export const workloadTrustPoliciesProvidersRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkloadProvidersResponseApi> => {
+    return apiMutator<WorkloadProvidersResponseApi>(getWorkloadTrustPoliciesProvidersRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
