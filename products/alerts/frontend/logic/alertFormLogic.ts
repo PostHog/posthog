@@ -703,7 +703,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     })
                     if (!notifLogic.values.newAlertPagerDutyAvailable) {
                         lemonToast.error(
-                            "PagerDuty isn't available with these alert settings. Remove the PagerDuty destination or change the check frequency."
+                            "PagerDuty isn't available for this alert yet. Remove the PagerDuty destination to save it."
                         )
                         throw new Error('PagerDuty is not available for this alert')
                     }
