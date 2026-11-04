@@ -5,9 +5,9 @@ import { Link } from '@posthog/lemon-ui'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 
+import { EventsRetentionPeriodForm } from './EventsRetentionPeriodForm'
 import { EventsRetentionPlanNote } from './EventsRetentionPlanNote'
 import { eventsRetentionSettingsLogic } from './eventsRetentionSettingsLogic'
-import { EventsRetentionWindowForm } from './EventsRetentionWindowForm'
 
 export function OrganizationEventsRetentionSetting(): JSX.Element | null {
     const { projectRetention, organizationRetention, organizationRetentionLoading } =
@@ -28,11 +28,11 @@ export function OrganizationEventsRetentionSetting(): JSX.Element | null {
                 </Link>
             </p>
             <EventsRetentionPlanNote plan={organizationRetention} />
-            <EventsRetentionWindowForm
+            <EventsRetentionPeriodForm
                 retentionMonths={organizationRetention.organization_retention_months}
                 defaultMonths={organizationRetention.default_retention_months}
                 defaultSource="plan"
-                defaultDeletesMonthly={false}
+                monthlyDefaultMonths={null}
                 minMonths={organizationRetention.min_retention_months}
                 maxMonths={organizationRetention.max_retention_months}
                 planMonths={organizationRetention.plan_retention_months}

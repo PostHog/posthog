@@ -31,8 +31,8 @@ export function EventsRetentionCustomFields({
     onPressEnter,
     dataAttr,
 }: EventsRetentionCustomFieldsProps): JSX.Element {
-    const hint = problem ?? `Enter a number between ${minMonths} and ${maxMonths}.`
     const planLimit = problem && maxMonths === planMonths ? ` Your plan allows up to ${planMonths} months.` : ''
+    const hint = (problem ?? `Enter a number between ${minMonths} and ${maxMonths}.`) + planLimit
 
     return (
         <div className="flex flex-col gap-4 pl-6">
@@ -52,10 +52,7 @@ export function EventsRetentionCustomFields({
                     className="w-40"
                     data-attr={`${dataAttr}-input`}
                 />
-                <p className={clsx('mb-0 text-xs', problem ? 'text-danger' : 'text-secondary')}>
-                    {hint}
-                    {planLimit}
-                </p>
+                <p className={clsx('mb-0 text-xs', problem ? 'text-danger' : 'text-secondary')}>{hint}</p>
             </div>
             <div className="rounded bg-fill-secondary px-4 py-3 text-xs text-secondary">
                 <p className="mb-2 font-semibold text-primary">How custom retention works</p>
