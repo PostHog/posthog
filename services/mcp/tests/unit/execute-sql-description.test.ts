@@ -70,8 +70,6 @@ describe('formatExecuteSqlDescription', () => {
         expect(catalogSections.length).toBeLessThan(3250)
     })
 
-    // Every client must still reach the full guidelines: inline when it has no on-demand
-    // path, or through the path the compact description names.
     it.each([
         { label: 'tools mode', state: undefined, pointer: undefined },
         { label: 'cli without learn', state: execState(), pointer: undefined },
@@ -97,7 +95,6 @@ describe('formatExecuteSqlDescription', () => {
         expect(rendered).toContain(pointer ?? EXECUTE_SQL_REFERENCE.trim())
     })
 
-    // Agents run `info execute-sql` before most SQL, so this size is paid once per analytics session.
     it('keeps the compact description within its token budget', () => {
         const rendered = new InstructionsBuilder(guidelines).formatExecuteSqlDescription(execState({ skills: true }))
         expect(estimateTokens(rendered)).toBeLessThan(4500)
