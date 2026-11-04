@@ -163,8 +163,8 @@ Map the investigation onto it:
   chart's `days`. The app works out each chapter's numbers from the chart, so leave them out
   of `summary`.
 - **Likely cause** and **Confidence** → `cause`, `confidence` and `confidence_reason`.
-- **Evidence** → `evidence`, each finding with the `query` that produced it, or a `url`
-  for a commit or a deploy. The chart explanation runs each query and draws it: an insight
+- **Evidence** → `evidence`, each finding with the `query` that produced it, the
+  `insightShortId` of a saved insight, or a `url` to a GitHub pull request or commit. No other links are accepted. The chart explanation runs each query and draws it: an insight
   query with its insight chart, and a `HogQLQuery` from its rows. Shape the SQL for the chart,
   with the x-axis column first, then optionally one text column to break down by, then the numbers.
   Prefer a series over time to a before-and-after comparison, so the user sees when the change happened.

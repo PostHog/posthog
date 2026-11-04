@@ -587,12 +587,18 @@ const ExplainChartEvidenceSchema = z.object({
         .describe(
             'The query that found this, as you ran it. The explanation runs it again and draws the result beside the finding. An insight query (`TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `StickinessQuery`, `PathsQuery` or `LifecycleQuery`) draws with its insight chart. A `HogQLQuery` draws from its rows: select the x-axis column first (a time bucket or a label), then either the numbers to draw, or one text column to break down by followed by one number. Order by the x-axis column. SQL returns 100 rows unless it sets a `LIMIT`.'
         ),
+    insightShortId: z
+        .string()
+        .regex(/^[A-Za-z0-9]{8}$/)
+        .optional()
+        .describe('The `short_id` of a saved insight that shows this. The explanation links to it.'),
     url: z
         .string()
-        .url()
-        .startsWith('https://')
+        .regex(/^https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9._-]+\/(pull\/\d+|commit\/[0-9a-fA-F]{7,40})\/?$/)
         .optional()
-        .describe('A link to the source when it is not a query, for example a commit, a pull request or a deploy.'),
+        .describe(
+            'A link to the GitHub pull request or commit behind this, when it is not a query or a saved insight. No other links are accepted.'
+        ),
 })
 
 const ExplainChartChapterSchema = z.object({

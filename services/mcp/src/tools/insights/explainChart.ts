@@ -201,6 +201,19 @@ function warningMessages(warnings: unknown[]): string[] {
     )
 }
 
+// The page builds PostHog links from the query or insight id, so only GitHub links are stored.
+function withoutPostHogLinks(data: ExplainChartData): ExplainChartData {
+    return {
+        ...data,
+        chapters: data.chapters.map((chapter) => ({
+            ...chapter,
+            evidence: chapter.evidence.map((item) =>
+                item.query || item.insightShortId ? { ...item, url: null } : item
+            ),
+        })),
+    }
+}
+
 type SavedExplanation = { id: string; path: string } | { error: string } | null
 
 async function saveExplanation(
@@ -217,8 +230,11 @@ async function saveExplanation(
     const insights = context.api.insights({ projectId })
     try {
         // An id from another chart or another person cannot be updated, so the fix becomes a new explanation.
-        const updated = explanationId ? await insights.updateExplanation({ insightId, explanationId, data }) : null
-        const saved = updated?.success ? updated : await insights.saveExplanation({ insightId, data })
+        const stored = withoutPostHogLinks(data)
+        const updated = explanationId
+            ? await insights.updateExplanation({ insightId, explanationId, data: stored })
+            : null
+        const saved = updated?.success ? updated : await insights.saveExplanation({ insightId, data: stored })
         return saved.success
             ? { id: saved.data.id, path: `${chart.path}?explanation=${saved.data.id}` }
             : { error: saved.error.message }
@@ -304,8 +320,13 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
                 const sql = isSqlQuery(item.query) ? sqlEvidence.get(JSON.stringify(item.query)) : undefined
                 return {
                     text: item.text,
-                    url: item.query ? `${baseUrl}${newInsightPath(item.query)}` : (item.url ?? null),
+                    url: item.query
+                        ? `${baseUrl}${newInsightPath(item.query)}`
+                        : item.insightShortId
+                          ? `${baseUrl}/insights/${item.insightShortId}`
+                          : (item.url ?? null),
                     query: item.query ?? null,
+                    insightShortId: item.insightShortId ?? null,
                     queryTool,
                     chart: sql && 'chart' in sql ? sql.chart : null,
                 }

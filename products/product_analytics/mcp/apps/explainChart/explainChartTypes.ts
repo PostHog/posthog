@@ -14,6 +14,7 @@ export interface StoryEvidence {
     text: string
     url: string | null
     query?: Record<string, unknown> | null
+    insightShortId?: string | null
     queryTool?: string | null
     chart?: StoryEvidenceChartData | null
 }
