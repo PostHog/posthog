@@ -26,17 +26,13 @@ TARGET_UNTRACKED_METRIC = "email_untracked"
 GUARDRAIL_METRICS = ("email_blocked", "email_bounced")
 GUARDRAIL_LABELS = {"email_blocked": "complaint rate", "email_bounced": "bounce rate"}
 
-# Filed under the hour a run started, so dividing by `triggered` compares the same runs.
 TARGET_CONVERSION_METRIC = "conversion_by_start"
 RUN_STARTED_METRIC = "triggered"
-# Runs older than this have no `conversion_by_start` row even when they converted, so counting them
-# would dilute the rate of any version that was live on both sides of this date.
+# Older runs have no `conversion_by_start` row even when they converted, so counting them would dilute the rate.
 CONVERSION_BY_START_RECORDED_SINCE = datetime(2026, 11, 4, tzinfo=UTC)
 
-# What a suggestion can aim at, and how each one is read: the metric counted, what it divides by
-# (an untracked send can record neither an open nor a click, and a conversion belongs to a run rather
-# than a send), and the name a person reads. A suggestion that names anything else is measured on
-# opens, the default.
+# What a suggestion can aim at: the metric counted, what it divides by, and the name a person reads.
+# An untracked send can record neither an open nor a click. Anything else is measured on opens.
 TARGET_METRICS: dict[str, tuple[str, str, str]] = {
     TARGET_OPEN_METRIC: (TARGET_OPEN_METRIC, "tracked_sends", "email open rate"),
     TARGET_CLICK_METRIC: (TARGET_CLICK_METRIC, "tracked_sends", "click rate"),

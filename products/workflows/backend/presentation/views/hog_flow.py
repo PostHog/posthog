@@ -247,6 +247,7 @@ from products.workflows.backend.facade.proposals import (
     aims_at_conversion_without_goal,
     approve_proposal,
     as_the_serializer_stores_it,
+    conversions_by_version,
     create_proposal,
     get_proposal,
     get_proposal_by_source_id,
@@ -6478,7 +6479,9 @@ class HogFlowViewSet(
                 before=before_date,
                 step_id=step_id,
                 target=target_metric_in(evidence),
-                conversion=snapshot_flow_content(hog_flow).get("conversion"),
+                conversions=conversions_by_version(
+                    hog_flow.id, snapshot_flow_content(hog_flow).get("conversion"), [base_version]
+                ),
             )
         except Exception:
             logger.exception("workflow_proposal: could not measure evidence", extra={"hog_flow_id": str(hog_flow.id)})
