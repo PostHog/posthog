@@ -11,7 +11,6 @@ import type {
     ResolvedSeries,
 } from '../types'
 import { clearAndPrepare, releaseCanvas } from './clearCanvas'
-import { useLatest } from './useLatest'
 
 interface UseHoverAnimationOptions {
     /** Context for the hover overlay (highlight rings). Redrawn on every hoverIndex change. */
@@ -47,103 +46,83 @@ export function useHoverAnimation({
     drawHover,
     hoverAnimationMs,
 }: UseHoverAnimationOptions): void {
-    // Cancel the prior RAF on effect re-run — relying on cleanup ordering alone leaves a
-    // window where a stale RAF can paint after the new setup runs.
-    const hoverRafRef = useRef<number | null>(null)
-    const hoverAnimRef = useRef<{ idx: number; startTime: number }>({ idx: -1, startTime: 0 })
-    // Freezes the fade timer while invisible (cursor in a band gap) so the fade always
-    // starts at progress 0 when something visible first appears.
-    const drewVisibleRef = useRef(false)
-    // Mirror everything that changes per-mousemove so the effect's dep array stays small —
-    // otherwise we'd tear down and re-arm the RAF every mouse pixel.
-    const drawHoverRef = useLatest(drawHover)
-    const hoverPositionRef = useLatest(hoverPosition)
-    const seriesRef = useLatest(series)
-    const labelsRef = useLatest(labels)
-    const themeRef = useLatest(theme)
-    const dragRectRef = useLatest(dragRect)
+    // `visible` freezes the fade timer while nothing is drawn (cursor in a band gap), so the fade
+    // always starts at progress 0 when something visible first appears.
+    const fade = useRef({ index: -1, startTime: 0, visible: false })
 
-    // The RAF loop ticks until hoverProgress reaches 1, then exits and waits for the next
-    // dep change. Timer is held in a ref so cancel/restart cycles resume the fade smoothly.
+    // hoverPosition is a dependency so the overlay redraws when the cursor moves within one band:
+    // bar charts decide on a hit per frame in `drawHover`, and entering a bar from empty canvas
+    // does not change hoverIndex. The fade timer resets only on a hoverIndex change.
     useEffect(() => {
-        if (hoverRafRef.current != null) {
-            cancelAnimationFrame(hoverRafRef.current)
-            hoverRafRef.current = null
-        }
-        if (!overlayCtx || !dimensions || !scales || themeRef.current.skipDraw) {
+        if (!overlayCtx || !dimensions || !scales || theme.skipDraw) {
             return
         }
-        // Restart the fade on hoverIndex change — invalidate drewVisible too so the next
-        // visible frame starts at progress 0, not where the previous bar's fade left off.
-        if (hoverIndex !== hoverAnimRef.current.idx) {
-            hoverAnimRef.current.idx = hoverIndex
-            hoverAnimRef.current.startTime = monotonicNow()
-            drewVisibleRef.current = false
+        const state = fade.current
+        if (hoverIndex !== state.index) {
+            state.index = hoverIndex
+            state.startTime = monotonicNow()
+            state.visible = false
         }
+        const progress = (): number =>
+            hoverAnimationMs > 0 ? Math.min(1, (monotonicNow() - state.startTime) / hoverAnimationMs) : 1
         const resetHoverFade = (): number => {
-            hoverAnimRef.current.startTime = monotonicNow()
+            state.startTime = monotonicNow()
             return 0
         }
+        let raf: number | null = null
         const tick = (): void => {
-            // Pin progress to 0 while invisible — see drewVisibleRef comment above.
-            if (!drewVisibleRef.current) {
-                hoverAnimRef.current.startTime = monotonicNow()
+            raf = null
+            if (!state.visible) {
+                state.startTime = monotonicNow()
             }
-            const elapsed = monotonicNow() - hoverAnimRef.current.startTime
-            const hoverProgress = hoverAnimationMs > 0 ? Math.min(1, elapsed / hoverAnimationMs) : 1
             // Idle (no hover, no drag) draws nothing, so release the bitmap instead of clearing a
             // full-size one. drawHover still runs, against the empty canvas, so chart types can
             // reset their own hover state.
-            const idle = hoverIndex < 0 && !dragRectRef.current
-            if (idle) {
+            if (hoverIndex < 0 && !dragRect) {
                 releaseCanvas(overlayCtx.canvas)
                 overlayCtx.save()
             } else {
                 clearAndPrepare(overlayCtx, dimensions)
             }
-            let drewVisible: DrawHoverResult
             try {
-                drewVisible = drawHoverRef.current({
+                state.visible = drawHover({
                     ctx: overlayCtx,
                     dimensions,
                     scales,
-                    series: seriesRef.current,
-                    labels: labelsRef.current,
+                    series,
+                    labels,
                     hoverIndex,
-                    hoverPosition: hoverPositionRef.current,
-                    theme: themeRef.current,
-                    hoverProgress,
+                    hoverPosition,
+                    theme,
+                    hoverProgress: progress(),
                     resetHoverFade,
-                    dragRect: dragRectRef.current,
+                    dragRect,
                 })
             } finally {
                 overlayCtx.restore()
             }
-            drewVisibleRef.current = drewVisible
-            // Recompute after the draw — the chart type may have called resetHoverFade
-            // mid-draw, which would leave the cached hoverProgress stale.
-            const liveElapsed = monotonicNow() - hoverAnimRef.current.startTime
-            const liveProgress = hoverAnimationMs > 0 ? Math.min(1, liveElapsed / hoverAnimationMs) : 1
-            if (drewVisible && liveProgress < 1 && hoverIndex >= 0) {
-                hoverRafRef.current = requestAnimationFrame(tick)
-            } else {
-                hoverRafRef.current = null
+            // Read progress after the draw, because the chart type may have called resetHoverFade.
+            if (state.visible && hoverIndex >= 0 && progress() < 1) {
+                raf = requestAnimationFrame(tick)
             }
         }
-        hoverRafRef.current = requestAnimationFrame(tick)
+        raf = requestAnimationFrame(tick)
         return () => {
-            if (hoverRafRef.current != null) {
-                cancelAnimationFrame(hoverRafRef.current)
-                hoverRafRef.current = null
+            if (raf != null) {
+                cancelAnimationFrame(raf)
             }
         }
-        // hoverPosition is in the dep array (not the ref) so the overlay redraws when the
-        // cursor moves *within* the same band — bar charts decide on a hit per-frame in
-        // `drawHover`, and entering a bar from canvas-empty-space doesn't change hoverIndex.
-        // The fade timer only resets on hoverIndex change (see check above), so re-running
-        // the effect per mousemove doesn't restart the animation.
-        // series/labels/theme/drawHover/dragRect are read via refs — dragRect is also in the dep
-        // array below so the overlay repaints the selection as the drag rectangle changes.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [overlayCtx, dimensions, scales, hoverIndex, hoverPosition, hoverAnimationMs, dragRect])
+    }, [
+        overlayCtx,
+        dimensions,
+        scales,
+        series,
+        labels,
+        theme,
+        drawHover,
+        hoverIndex,
+        hoverPosition,
+        dragRect,
+        hoverAnimationMs,
+    ])
 }
