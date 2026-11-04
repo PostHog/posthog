@@ -7,6 +7,7 @@ import { probeKeychain } from '@/posthog/credential-store/keychain'
 import { openStore } from '@/posthog/credential-store/open'
 import type { StoreChoice } from '@/posthog/credential-store/types'
 import { pollDeviceLogin, startDeviceLogin, type Approval, type PendingLogin } from '@/posthog/device-auth'
+import { withLoginLock } from '@/posthog/oauth'
 import { loginFor, readSettings } from '@/posthog/settings'
 
 import { writeLogin } from './stored'
@@ -50,24 +51,28 @@ export async function saveLogin(runtime: Runtime, unverified: AccessKey): Promis
     let store = openStore(runtime, probe.usable ? 'keychain' : 'file')
     let keychainError = probe.usable ? null : probe.reason
     const { host, projectId } = key
-    try {
-        // A keychain that times out sends the login to the file below.
-        await writeLogin(runtime, store, key, { lastLogin: true, removeIfLate: true })
-    } catch (error) {
-        // The probe writes an item of its own, so the keychain can still refuse this host's item,
-        // such as one an older hog build saved.
-        if (store.kind !== 'keychain' || !(error instanceof HogError) || !error.code.startsWith('keychain_')) {
-            throw error
+    // Under the renewal lock, so a renewal of the previous login that is still in flight can't
+    // store that login over this one.
+    await withLoginLock(runtime, host, async () => {
+        try {
+            // A keychain that times out sends the login to the file below.
+            await writeLogin(runtime, store, key, { lastLogin: true, removeIfLate: true })
+        } catch (error) {
+            // The probe writes an item of its own, so the keychain can still refuse this host's item,
+            // such as one an older hog build saved.
+            if (store.kind !== 'keychain' || !(error instanceof HogError) || !error.code.startsWith('keychain_')) {
+                throw error
+            }
+            keychainError = error.message
+            store = new FileStore(runtime)
+            // The failed keychain write can still land after hog gave up on it.
+            await writeLogin(runtime, store, key, { lastLogin: true, keychainLeftover: true })
         }
-        keychainError = error.message
-        store = new FileStore(runtime)
-        // The failed keychain write can still land after hog gave up on it.
-        await writeLogin(runtime, store, key, { lastLogin: true, keychainLeftover: true })
-    }
-    // Only an old file login is removed. Removing a keychain login after a failed probe would wait for the keychain again.
-    if (loginFor(previous, host)?.store === 'file' && store.kind === 'keychain') {
-        await new FileStore(runtime).remove(host)
-    }
+        // Only an old file login is removed. Removing a keychain login after a failed probe would wait for the keychain again.
+        if (loginFor(previous, host)?.store === 'file' && store.kind === 'keychain') {
+            await new FileStore(runtime).remove(host)
+        }
+    })
     await clearPending(runtime, LOGIN_COMMAND)
     return {
         host,
