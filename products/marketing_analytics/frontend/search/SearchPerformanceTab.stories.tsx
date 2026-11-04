@@ -255,8 +255,20 @@ function searchTermMocks(
     }
 }
 
+async function chooseBreakdown(canvasElement: HTMLElement, label: string): Promise<void> {
+    const trigger = await waitFor(() => {
+        const element = canvasElement.querySelector<HTMLElement>('[data-attr="marketing-search-breakdown"]')
+        if (!element) {
+            throw new Error('Missing the breakdown select')
+        }
+        return element
+    })
+    await userEvent.click(trigger)
+    await userEvent.click(await within(canvasElement.ownerDocument.body).findByRole('menuitem', { name: label }))
+}
+
 const openSearchTerms = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
-    await userEvent.click(await within(canvasElement).findByText('Search terms', { exact: true }))
+    await chooseBreakdown(canvasElement, 'Search terms')
 }
 
 const MOCKS: Mocks = {
@@ -461,11 +473,11 @@ export const Pagination: Story = {
         await userEvent.click(await within(canvasElement.ownerDocument.body).findByText('Page 3 of 3'))
         await canvas.findByText('21-23 of 23 entries')
         await expect(canvas.getByRole('button', { name: 'Next page' }).getBoundingClientRect().top).toBe(arrowTop)
-        await userEvent.click(canvas.getByRole('button', { name: 'Landing pages' }))
+        await chooseBreakdown(canvasElement, 'Landing pages')
         await canvas.findByText('1-10 of 23 entries')
         await userEvent.click(canvas.getByRole('button', { name: 'Next page' }))
         await canvas.findByText('11-20 of 23 entries')
-        await userEvent.click(canvas.getByRole('button', { name: 'Keywords and queries' }))
+        await chooseBreakdown(canvasElement, 'Keywords and queries')
         await expect(await canvas.findByText('1-10 of 23 entries')).toBeVisible()
     },
 }
@@ -519,7 +531,7 @@ export const Narrow: Story = {
 }
 export const LandingPages: Story = {
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByText('Landing pages', { exact: true }))
+        await chooseBreakdown(canvasElement, 'Landing pages')
     },
 }
 export const SearchTerms: Story = {
@@ -965,7 +977,7 @@ export const PostHogConversions: Story = {
             )
             await userEvent.click(canvas.getByRole('button', { name: 'Options' }))
         }
-        await userEvent.click(await canvas.findByRole('button', { name: 'Landing pages' }))
+        await chooseBreakdown(canvasElement, 'Landing pages')
         await userEvent.click(await canvas.findByRole('button', { name: 'Conversions' }))
         teamLogic.actions.loadCurrentTeamSuccess({
             ...teamLogic.values.currentTeam!,
@@ -1014,7 +1026,7 @@ export const PostHogConversionsFlagOff: Story = {
                 ],
             },
         })
-        await userEvent.click(await canvas.findByText('Landing pages'))
+        await chooseBreakdown(canvasElement, 'Landing pages')
         await userEvent.click(await canvas.findByText('Conversions'))
         await expect(canvas.findByText('Reported conversions')).resolves.toBeVisible()
         expect(canvas.queryByText('Cost per Purchases')).not.toBeInTheDocument()
@@ -1037,7 +1049,7 @@ export const KeywordPostHogConversions: Story = {
     play: async (context) => {
         await PostHogConversions.play?.(context)
         const canvas = within(context.canvasElement)
-        await userEvent.click(canvas.getByRole('button', { name: 'Keywords and queries' }))
+        await chooseBreakdown(context.canvasElement, 'Keywords and queries')
         await expect(canvas.findByText(/Paid keywords are matched/)).resolves.toBeVisible()
         await expect(canvas.findByRole('columnheader', { name: /Cost per Purchases/ })).resolves.toBeVisible()
     },
@@ -1079,7 +1091,7 @@ async function showPostHogConversionColumns(canvasElement: HTMLElement): Promise
         },
     })
     const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByRole('button', { name: 'Landing pages' }))
+    await chooseBreakdown(canvasElement, 'Landing pages')
     await userEvent.click(await canvas.findByRole('button', { name: 'Conversions' }))
     await expect(
         (await canvas.findAllByRole('cell', { name: /https:\/\/example.com\/product-analytics/ }))[0]
