@@ -140,9 +140,8 @@ pub(crate) fn personless_mode(mode: PersonMode) -> Option<&'static str> {
 }
 
 impl CohortStreamEvent {
-    /// Moves every field out of `fields` rather than cloning. A personless event forwards
-    /// `person_properties` as null, so the processor leaves the person's record alone and still
-    /// counts the event for behavioral conditions.
+    /// A personless event forwards `person_properties` as null, so the processor leaves the
+    /// person's record alone and still counts the event for behavioral conditions.
     pub(crate) fn from_forward(
         fields: ForwardFields,
         source_partition: i32,

@@ -112,9 +112,8 @@ fn decode_gated(payload: &[u8], team_gate: &TeamGate) -> Decoded {
     match classify_gate(&gate, team_gate) {
         GateOutcome::DropNoPersonId => Decoded::DropNoPersonId,
         GateOutcome::SkipTeamGate => Decoded::SkipTeamGate,
-        GateOutcome::Forward => {
-            serde_json::from_slice(payload).map_or(Decoded::Unparseable, Decoded::Forward)
-        }
+        GateOutcome::Forward => serde_json::from_slice::<Box<ForwardFields>>(payload)
+            .map_or(Decoded::Unparseable, Decoded::Forward),
     }
 }
 
