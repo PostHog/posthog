@@ -1,6 +1,8 @@
 from typing import Any
 from uuid import UUID
 
+import structlog
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import exceptions, serializers, viewsets
@@ -12,11 +14,18 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.event_usage import groups
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
-from products.messaging.backend.facade.transactional_email import EmailDeliveryStatus, get_email_status
-from products.messaging.backend.presentation.views.message_templates import require_transactional_email_api
+from products.messaging.backend.facade.transactional_email import EmailDeliveryStatus, EmailStatus, get_email_status
+from products.messaging.backend.presentation.views.message_templates import (
+    TRANSACTIONAL_EMAIL_STATUS_SCOPE,
+    require_email_status_read,
+    transactional_email_authorized_by,
+)
+
+logger = structlog.get_logger(__name__)
 
 MESSAGE_ID_PARAMETER = OpenApiParameter(
     name="id",
@@ -69,7 +78,7 @@ class TransactionalEmailReadTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThr
 
 class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
-    scope_object_read_actions = ["retrieve"]
+    required_scopes = [TRANSACTIONAL_EMAIL_STATUS_SCOPE]
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     psak_allowed_actions = ["retrieve"]
@@ -99,7 +108,8 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary="Get a transactional email's status",
         description=(
             "Get the status of one transactional email by the `message_id` that the send returned, for 30 days after "
-            "the send. Needs a project secret API key with the `hog_flow:read` scope."
+            "the send. Needs a project secret API key with the `transactional_email:read` scope. A key with "
+            "`hog_flow:read` also works, but that scope reaches the rest of Workflows too."
         ),
     )
     def retrieve(self, request: Request, *args: Any, pk: str | None = None, **kwargs: Any) -> Response:
@@ -107,12 +117,38 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # server that sent the email, so only its project secret API key can read it.
         if not is_authenticated_via_project_secret_api_key(request):
             raise exceptions.NotAuthenticated()
-        require_transactional_email_api(self.team)
-        try:
-            message_id = UUID(str(pk))
-        except ValueError:
-            raise NotFound()
-        email_status = get_email_status(self.team_id, message_id)
+        require_email_status_read(self.team)
+        email_status = self._email_status(pk)
+        self._report_status_read(request, email_status)
         if email_status is None:
             raise NotFound()
         return Response(EmailStatusSerializer(email_status).data)
+
+    def _email_status(self, pk: str | None) -> EmailStatus | None:
+        try:
+            message_id = UUID(str(pk))
+        except ValueError:
+            return None
+        return get_email_status(self.team_id, message_id)
+
+    def _report_status_read(self, request: Request, email_status: EmailStatus | None) -> None:
+        # report_user_action drops the synthetic user behind a project secret API key, so capture directly. That
+        # user is not a Django User, so its distinct_id is read without a type.
+        distinct_id = getattr(request.user, "distinct_id", None)
+        if not isinstance(distinct_id, str):
+            return
+        try:
+            posthoganalytics.capture(
+                distinct_id=distinct_id,
+                event="transactional email api status read",
+                properties={
+                    "team_id": self.team_id,
+                    "outcome": "not_found" if email_status is None else "found",
+                    "status": email_status.status if email_status else None,
+                    "auth_method": "project_secret_api_key",
+                    "authorized_by": transactional_email_authorized_by(request, TRANSACTIONAL_EMAIL_STATUS_SCOPE),
+                },
+                groups=groups(self.organization, self.team),
+            )
+        except Exception as e:
+            logger.warning("Failed to capture transactional email status read event", error=str(e))

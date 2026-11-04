@@ -1,6 +1,6 @@
 """Multi-variant exclusion bias on an uneven split. Pure functions, no I/O."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 
 from posthog.schema import BiasRisk, MultipleVariantHandling
 
@@ -9,53 +9,82 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthMeasurement,
+    ExperimentHealthMeasurementSide,
+    ExperimentHealthMeasurementUnit,
 )
+from products.experiments.backend.health.checks.forced_variant import assigns_nobody_by_split
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.skips import (
+    NEEDS_EXPOSURES,
+    NEEDS_SPLIT_VARIANTS,
     NO_FLAG,
     NOT_AFTER_END,
     RUNS_AFTER_LAUNCH,
+    SPLIT_ASSIGNS_NOBODY,
     CheckOutcome,
+    CheckPassed,
+    CheckSkip,
     not_applicable,
 )
-from products.experiments.backend.variant_distribution import is_evenly_distributed
+from products.feature_flags.backend.facade.edits import FlagVariant
 
 MULTIPLE_VARIANT_KEY = "$multiple"
 
 # `$multiple` share above this triggers the warning. Below this, the asymmetric-
 # exclusion effect on arm means is too small to matter in practice.
 MULTIPLE_VARIANT_BIAS_THRESHOLD = 0.1  # on the 0-100 scale (0.1 = 0.1%)
+# One or two testers who switch between variants must not trigger the warning.
+MULTIPLE_VARIANT_BIAS_MINIMUM_COUNT = 5
+
+
+def _multiple_variant_share(
+    variants: Sequence[FlagVariant],
+    excluded_variant_keys: Collection[str],
+    multiple_variant_handling: MultipleVariantHandling,
+    total_exposures: Mapping[str, int],
+) -> float | CheckSkip:
+    """The share of exposed users seen in multiple variants, on the 0-100 scale, or why the risk can't arise."""
+    if multiple_variant_handling != MultipleVariantHandling.EXCLUDE:
+        return not_applicable('Runs when "Multiple variant handling" is "Exclude from analysis"')
+    # Excluded variants don't count, because the exposure query drops their events before it counts users in several
+    # variants. `is_evenly_distributed` needs shares that add up to 100. Shares one point apart are even, like 34/33/33.
+    compared = [
+        variant.rollout_percentage
+        for variant in variants
+        if variant.rollout_percentage is not None
+        and variant.rollout_percentage > 0
+        and variant.key not in excluded_variant_keys
+    ]
+    if len(compared) < 2:
+        return not_applicable(NEEDS_SPLIT_VARIANTS)
+    if max(compared) - min(compared) <= 1:
+        return not_applicable("Runs when the variant split is uneven")
+    total_observed = sum(total_exposures.values())
+    if total_observed <= 0:
+        return not_applicable(NEEDS_EXPOSURES)
+    return total_exposures.get(MULTIPLE_VARIANT_KEY, 0) / total_observed * 100
+
+
+def _too_few_to_warn(total_exposures: Mapping[str, int]) -> bool:
+    return total_exposures.get(MULTIPLE_VARIANT_KEY, 0) < MULTIPLE_VARIANT_BIAS_MINIMUM_COUNT
 
 
 def evaluate_bias_risk(
-    rollout_percentages: Sequence[float | None],
+    variants: Sequence[FlagVariant],
+    excluded_variant_keys: Collection[str],
     multiple_variant_handling: MultipleVariantHandling,
     total_exposures: Mapping[str, int],
 ) -> BiasRisk | None:
     """
-    Empirically observed multi-variant exclusion bias risk: uneven split + EXCLUDE
-    handling + observed `$multiple` share above the threshold.
+    Empirically observed multi-variant exclusion bias risk: uneven shares of the variants that the flag serves and the
+    analysis compares + EXCLUDE handling + observed `$multiple` share above the threshold, from enough users.
     Returns a `BiasRisk` only when all three conditions hold; `None` otherwise.
     """
-    if multiple_variant_handling != MultipleVariantHandling.EXCLUDE:
+    share = _multiple_variant_share(variants, excluded_variant_keys, multiple_variant_handling, total_exposures)
+    if isinstance(share, CheckSkip) or share <= MULTIPLE_VARIANT_BIAS_THRESHOLD or _too_few_to_warn(total_exposures):
         return None
-
-    if not rollout_percentages:
-        return None
-
-    if is_evenly_distributed(rollout_percentages):
-        return None
-
-    total_observed = sum(total_exposures.values())
-    if total_observed <= 0:
-        return None
-
-    multiple_observed = total_exposures.get(MULTIPLE_VARIANT_KEY, 0)
-    multiple_variant_percentage = (multiple_observed / total_observed) * 100
-    if multiple_variant_percentage <= MULTIPLE_VARIANT_BIAS_THRESHOLD:
-        return None
-
-    return BiasRisk(multiple_variant_percentage=multiple_variant_percentage)
+    return BiasRisk(multiple_variant_percentage=share)
 
 
 def bias_risk_multiple_excluded(ctx: HealthContext) -> CheckOutcome:
@@ -65,25 +94,41 @@ def bias_risk_multiple_excluded(ctx: HealthContext) -> CheckOutcome:
         return not_applicable(NO_FLAG)
     if ctx.has_ended:
         return not_applicable(NOT_AFTER_END)
-    risk = evaluate_bias_risk(
-        rollout_percentages=[variant.rollout_percentage for variant in ctx.flag.variants],
+    # The split's shares then say nothing about the variants' sizes. `forced_variant_release_condition` explains it.
+    if assigns_nobody_by_split(ctx.flag):
+        return not_applicable(SPLIT_ASSIGNS_NOBODY)
+    share = _multiple_variant_share(
+        variants=ctx.flag.variants,
+        excluded_variant_keys=ctx.excluded_variant_keys,
         multiple_variant_handling=ctx.exposures.multiple_variant_handling,
         total_exposures=ctx.exposures.total_exposures,
     )
-    if risk is None:
+    if isinstance(share, CheckSkip):
+        return share
+    if share <= MULTIPLE_VARIANT_BIAS_THRESHOLD:
+        return CheckPassed(
+            measurement=ExperimentHealthMeasurement(
+                value=share,
+                threshold=MULTIPLE_VARIANT_BIAS_THRESHOLD,
+                unit=ExperimentHealthMeasurementUnit.PERCENTAGE,
+                warns=ExperimentHealthMeasurementSide.ABOVE,
+            )
+        )
+    # The minimum count decides this pass, not the threshold, so it shows no measurement.
+    if _too_few_to_warn(ctx.exposures.total_exposures):
         return None
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.BIAS_RISK_MULTIPLE_EXCLUDED,
         subcode=None,
         severity=ExperimentHealthFindingSeverity.WARNING,
-        title="Setup likely introduced bias",
+        title="The uneven split may bias the results",
         detail=(
-            f"{risk.multiple_variant_percentage:.1f}% of users were exposed to multiple variants. "
+            f"{share:.1f}% of users were exposed to multiple variants. "
             "With an uneven variant split and the Exclude handling, these users were dropped more often "
             "from the smaller variant, so its metrics can be biased. Use an even split and control "
             "exposure with the overall rollout, or switch the handling to First seen."
         ),
-        evidence={"multiple_variant_percentage": risk.multiple_variant_percentage},
+        evidence={"multiple_variant_percentage": share},
         actions=(
             ExperimentHealthFindingActionKind.ADJUST_DISTRIBUTION,
             ExperimentHealthFindingActionKind.USE_FIRST_SEEN_VARIANT,

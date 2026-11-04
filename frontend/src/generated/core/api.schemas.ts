@@ -31,6 +31,84 @@ export interface ConnectedAppApi {
     is_self_registered: boolean
 }
 
+export interface DeviceApprovalApi {
+    /**
+     * The code the device shows, as the person typed it. Case and dashes don't matter.
+     * @maxLength 20
+     */
+    user_code: string
+    /** The project the token is scoped to. */
+    project_id: number
+    /** The requested scopes the person kept. Leave it out to grant every requested scope. It must include every scope in `required_scopes`, and nothing outside the requested scopes. */
+    scopes?: string[]
+}
+
+/**
+ * * `authorized` - Authorized
+ * * `denied` - Denied
+ */
+export type DeviceDecisionEnumApi = (typeof DeviceDecisionEnumApi)[keyof typeof DeviceDecisionEnumApi]
+
+export const DeviceDecisionEnumApi = {
+    Authorized: 'authorized',
+    Denied: 'denied',
+} as const
+
+export interface DeviceDecisionApi {
+    /** The device grant's status after the decision.
+     *
+     * * `authorized` - Authorized
+     * * `denied` - Denied */
+    status: DeviceDecisionEnumApi
+}
+
+export interface DeviceUserCodeApi {
+    /**
+     * The code the device shows, as the person typed it. Case and dashes don't matter.
+     * @maxLength 20
+     */
+    user_code: string
+}
+
+export interface GrantedScopesApi {
+    /**
+     * The project these scopes work in. Null when the connection is not limited to projects.
+     * @nullable
+     */
+    project_id: number | null
+    /**
+     * The organization these scopes work in, for a connection limited to organizations. Null when the connection is not limited to organizations.
+     * @nullable
+     */
+    organization_id: string | null
+    /** The scopes granted in the project. */
+    scopes: string[]
+}
+
+export interface DeviceGrantDetailsApi {
+    /** The code, in the form the device shows it. */
+    user_code: string
+    /** The client that started the device grant. */
+    client_id: string
+    /** The client's display name. */
+    client_name: string
+    /**
+     * The client's logo, if it declared one.
+     * @nullable
+     */
+    logo_uri: string | null
+    /** Whether PostHog has verified the client. */
+    is_verified: boolean
+    /** The scopes the token will carry if the person approves. */
+    scopes: string[]
+    /** The requested scopes the person can't leave out: the client's required scopes and identity scopes such as `openid`. */
+    required_scopes: string[]
+    /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones, and the page lists only the new ones. */
+    granted_scopes: GrantedScopesApi[]
+    /** When the code expires. */
+    expires_at: string
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -494,13 +572,19 @@ export interface OrganizationInviteApi {
     /** @maxLength 30 */
     first_name?: string
     readonly emailing_attempt_made: boolean
+    /** True when the email provider reported the target address as suppressed at send time. */
+    readonly email_suppressed: boolean
     level?: OrganizationMembershipLevelEnumApi
     /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
     readonly is_expired: boolean
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
-    /** @nullable */
+    /**
+     * Optional personal message in the invite email.
+     * @maxLength 1000
+     * @nullable
+     */
     message?: string | null
     /** List of team IDs and corresponding access levels to private projects. */
     private_project_access?: unknown
@@ -1836,6 +1920,13 @@ export interface TeamWorkflowsConfigApi {
      * @nullable
      */
     marketing_frequency_cap_window_days?: number | null
+    /**
+     * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away.
+     * @minimum 1
+     * @maximum 168
+     * @nullable
+     */
+    marketing_frequency_cap_hold_hours?: number | null
 }
 
 export interface TeamFeatureFlagPolicyConfigApi {
@@ -2009,6 +2100,7 @@ export interface ProjectCreateRequestApi {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -2857,6 +2949,11 @@ export interface ProjectBackwardCompatApi {
     readonly id: number
     readonly organization: string
     /**
+     * Whether the project's organization approved AI data processing. AI features need this approval.
+     * @nullable
+     */
+    readonly is_ai_data_processing_approved: boolean | null
+    /**
      * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
      * @minLength 1
      * @maxLength 200
@@ -3005,6 +3102,7 @@ export interface ProjectBackwardCompatApi {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -3747,6 +3845,11 @@ export interface PatchedProjectBackwardCompatApi {
     readonly id?: number
     readonly organization?: string
     /**
+     * Whether the project's organization approved AI data processing. AI features need this approval.
+     * @nullable
+     */
+    readonly is_ai_data_processing_approved?: boolean | null
+    /**
      * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
      * @minLength 1
      * @maxLength 200
@@ -3895,6 +3998,7 @@ export interface PatchedProjectBackwardCompatApi {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -5542,61 +5646,6 @@ export interface SearchIntentResponseApi {
     model_query: string | null
 }
 
-export interface EventMatchRequestApi {
-    /**
-     * What the person typed into the events list search box, which matched no event name.
-     * @maxLength 200
-     */
-    query: string
-}
-
-export interface EventMatchApi {
-    /** The event name to select, such as $autocapture. */
-    name: string
-    /** The event's display name, such as Autocapture. */
-    display_name: string
-    /** How likely the search means this event, from 0 to 1. */
-    probability: number
-}
-
-/**
- * * `wrong_length` - The search is too short or too long to ask about
- * * `only_values` - Nothing but values is left for the model to read
- * * `unavailable` - The model could not answer at all
- * * `partial` - Some model requests failed, so an event it never asked about might have matched
- * * `nothing_likely` - The model found no core event likely
- * * `not_ingested` - The project never sent the likely events
- * * `matched` - At least one likely event has data
- */
-export type EventMatchOutcomeEnumApi = (typeof EventMatchOutcomeEnumApi)[keyof typeof EventMatchOutcomeEnumApi]
-
-export const EventMatchOutcomeEnumApi = {
-    WrongLength: 'wrong_length',
-    OnlyValues: 'only_values',
-    Unavailable: 'unavailable',
-    Partial: 'partial',
-    NothingLikely: 'nothing_likely',
-    NotIngested: 'not_ingested',
-    Matched: 'matched',
-} as const
-
-export interface EventMatchResponseApi {
-    /** PostHog core events the search most likely means, strongest first. Empty when nothing is likely. */
-    matches: EventMatchApi[]
-    /** The step that decided the answer, so an empty answer says why it is empty.
-     *
-     * * `wrong_length` - The search is too short or too long to ask about
-     * * `only_values` - Nothing but values is left for the model to read
-     * * `unavailable` - The model could not answer at all
-     * * `partial` - Some model requests failed, so an event it never asked about might have matched
-     * * `nothing_likely` - The model found no core event likely
-     * * `not_ingested` - The project never sent the likely events
-     * * `matched` - At least one likely event has data */
-    outcome: EventMatchOutcomeEnumApi
-    /** Likely core events this project never sent, strongest first. Only filled when outcome is not_ingested. */
-    unsent: EventMatchApi[]
-}
-
 /**
  * * `offer` - offer
  * * `answer` - answer
@@ -5726,6 +5775,165 @@ export interface UploadedMediaUploadStartedApi {
     readonly form_fields: UploadedMediaUploadStartedApiFormFields
     /** Seconds before upload_url expires. */
     readonly expires_in: number
+}
+
+/**
+ * The label of each condition claim the provider allows, keyed by claim name.
+ */
+export type WorkloadClaimLabelsApiConditions = { [key: string]: string }
+
+export interface WorkloadClaimLabelsApi {
+    /** What the provider calls the subject, for example Repository ID. */
+    subject: string
+    /** What the provider calls the subject name, for example Repository. */
+    subject_name: string
+    /** The label of each condition claim the provider allows, keyed by claim name. */
+    conditions: WorkloadClaimLabelsApiConditions
+}
+
+/**
+ * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+ */
+export type WorkloadTrustPolicyApiConditions = { [key: string]: string }
+
+export interface WorkloadTrustPolicyApi {
+    readonly id: string
+    /**
+     * A name that says what the policy is for.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * The OIDC issuer of the workload provider, from the list of supported providers.
+     * @maxLength 255
+     */
+    issuer: string
+    /**
+     * The key of the workload provider the issuer belongs to.
+     * @nullable
+     */
+    readonly provider: string | null
+    /**
+     * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
+     * @maxLength 255
+     */
+    subject_name: string
+    /**
+     * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
+     * @maxLength 255
+     */
+    subject: string
+    /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+    conditions?: WorkloadTrustPolicyApiConditions
+    /** How the provider names the subject, the subject name and each condition claim, for display. */
+    readonly claim_labels: WorkloadClaimLabelsApi
+    /**
+     * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
+     * @items.maxLength 100
+     */
+    scopes: string[]
+    /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
+    enabled?: boolean
+    readonly created_by: UserBasicApi | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedWorkloadTrustPolicyListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WorkloadTrustPolicyApi[]
+}
+
+/**
+ * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+ */
+export type PatchedWorkloadTrustPolicyApiConditions = { [key: string]: string }
+
+export interface PatchedWorkloadTrustPolicyApi {
+    readonly id?: string
+    /**
+     * A name that says what the policy is for.
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * The OIDC issuer of the workload provider, from the list of supported providers.
+     * @maxLength 255
+     */
+    issuer?: string
+    /**
+     * The key of the workload provider the issuer belongs to.
+     * @nullable
+     */
+    readonly provider?: string | null
+    /**
+     * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
+     * @maxLength 255
+     */
+    subject_name?: string
+    /**
+     * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
+     * @maxLength 255
+     */
+    subject?: string
+    /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+    conditions?: PatchedWorkloadTrustPolicyApiConditions
+    /** How the provider names the subject, the subject name and each condition claim, for display. */
+    readonly claim_labels?: WorkloadClaimLabelsApi
+    /**
+     * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
+     * @items.maxLength 100
+     */
+    scopes?: string[]
+    /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
+    enabled?: boolean
+    readonly created_by?: UserBasicApi | null
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+/**
+ * What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care.
+ */
+export type WorkloadProvidersResponseApiRiskyScopes = { [key: string]: string }
+
+export interface WorkloadClaimApi {
+    /** The claim's name in the provider's OIDC token. */
+    name: string
+    /** What to call the claim in the UI. */
+    label: string
+    /** A hint that says where to find the claim's value. */
+    help_text: string
+}
+
+export interface WorkloadProviderApi {
+    /** Stable identifier of the provider. */
+    key: string
+    /** Display name of the provider. */
+    name: string
+    /** OIDC issuer a policy for this provider uses. */
+    issuer: string
+    /** Where to read how to set the provider up. */
+    docs_url: string
+    /** The claim that carries the workload's immutable ID. */
+    subject_claim: WorkloadClaimApi
+    /** The claim that carries the workload's readable name. */
+    subject_name_claim: WorkloadClaimApi
+    /** The claims a policy can require an exact value for, in display order. */
+    condition_claims: WorkloadClaimApi[]
+}
+
+export interface WorkloadProvidersResponseApi {
+    /** Providers a policy can trust. */
+    supported: WorkloadProviderApi[]
+    /** Every scope a policy's ceiling may hold. */
+    grantable_scopes: string[]
+    /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */
+    risky_scopes: WorkloadProvidersResponseApiRiskyScopes
 }
 
 export interface LeakedKeyReportApi {
@@ -6189,6 +6397,8 @@ export interface UserApi {
     readonly pending_invites: readonly PendingInviteApi[]
     /** True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review: boolean
+    /** How many personal API keys the user may hold, from the `personal_api_keys` billing entitlement of the user's organizations. The highest limit across their organizations applies, and 10 when no organization grants a limit. Creating a key beyond it is rejected with a validation error. Read-only. */
+    readonly personal_api_keys_limit: number
 }
 
 export interface PaginatedUserListApi {
@@ -6305,6 +6515,8 @@ export interface PatchedUserApi {
     readonly pending_invites?: readonly PendingInviteApi[]
     /** True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review?: boolean
+    /** How many personal API keys the user may hold, from the `personal_api_keys` billing entitlement of the user's organizations. The highest limit across their organizations applies, and 10 when no organization grants a limit. Creating a key beyond it is rejected with a validation error. Read-only. */
+    readonly personal_api_keys_limit?: number
 }
 
 export interface UserGithubLoginApi {
@@ -6447,7 +6659,20 @@ export interface UserCodexConnectRequestApi {
     tokens: UserCodexAuthTokensApi
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface GitHubBranchesResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** List of branch names */
     branches: string[]
     /**
@@ -6480,7 +6705,20 @@ export interface GitHubRepoApi {
     can_push?: boolean
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface GitHubReposResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
@@ -7032,6 +7270,7 @@ export type FileSystemListParams = {
     include_tags?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -7151,6 +7390,7 @@ export type PropertyDefinitionsListParams = {
     is_numerical?: boolean | null
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -7251,6 +7491,17 @@ export type UploadedMediaCreateBody = {
     image: Blob
     /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
     purpose?: UploadedMediaCreateBodyPurpose
+}
+
+export type WorkloadTrustPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type UsersListParams = {

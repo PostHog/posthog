@@ -42,6 +42,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -55,10 +56,16 @@ from posthog.clickhouse.query_tagging import tag_queries
 # password-only user in a 2FA-enforced org read scout runs/scratchpad without
 # completing 2FA.
 from posthog.dataclasses import frozen
+from posthog.exceptions import InsufficientScope
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
+from posthog.permissions import (
+    AccessControlPermission,
+    APIScopePermission,
+    get_authenticator_scopes,
+    scopes_missing_after_legacy_fallback,
+)
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -70,9 +77,15 @@ from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, SCOUT_GRANTABLE_W
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.signals.backend.activity_summary.search import (
+    MAX_MEMBERS_WITH_ACTIVITY,
+    MemberActivity,
+    member_activities,
+)
 from products.signals.backend.artefact_schemas import ReviewerState
 from products.signals.backend.background_pilot import OPT_OUT_DELETED, capture_background_scout_opted_out
 from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
+from products.signals.backend.facade.source_scouts import SOURCE_TEMPLATE_METADATA_KEYS
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
@@ -112,7 +125,6 @@ from products.signals.backend.scout_harness.precheck import (
     resolve_effective_precheck,
     scout_skill_is_canonical,
 )
-from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
     ScoutRunRejectionKind,
@@ -120,7 +132,6 @@ from products.signals.backend.scout_harness.run_gates import (
     check_run_in_flight,
     check_spend_gates,
 )
-from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS, scout_costs
 from products.signals.backend.scout_harness.scout_naming import SLUG_ALLOCATION_ATTEMPTS, allocate_scout_slug
 from products.signals.backend.scout_harness.serializers import (
     REPOSITORIES_REACHABILITY_CHECKED_CONTEXT_KEY,
@@ -150,8 +161,6 @@ from products.signals.backend.scout_harness.serializers import (
     RecordStructuredOutputResponseSerializer,
     RememberRequestSerializer,
     ScoutCheckSummarySerializer,
-    ScoutCostsQuerySerializer,
-    ScoutCostsSerializer,
     ScoutEmissionReportLinkSerializer,
     ScoutFleetSyncQuerySerializer,
     ScoutMemberSerializer,
@@ -162,7 +171,6 @@ from products.signals.backend.scout_harness.serializers import (
     ScoutNotesQuerySerializer,
     ScoutOrigin,
     ScoutRunIdsBatchRequestSerializer,
-    ScoutRunTokenCostsSerializer,
     ScoutToolCatalogueSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
@@ -231,6 +239,7 @@ from products.signals.backend.scout_harness.tools.notes import (
 )
 from products.signals.backend.scout_harness.tools.profile import get_project_profile
 from products.signals.backend.scout_harness.tools.report import (
+    EmitReportResult,
     ReportChartInput,
     ReportEvidence,
     ReportLinkInput,
@@ -240,7 +249,7 @@ from products.signals.backend.scout_harness.tools.report import (
     edit_report_sync,
     emit_report_sync,
 )
-from products.signals.backend.scout_harness.tools.report_author import ScoutRunReportAuthor
+from products.signals.backend.scout_harness.tools.report_author import ReportAuthor, ScoutRunReportAuthor
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_FINDINGS_WINDOW_HOURS,
     DEFAULT_RUNS_PER_SCOUT,
@@ -371,15 +380,15 @@ def _sandbox_bound_task_id(request: Request) -> uuid.UUID | None:
     return authenticator.access_token.sandbox_task_id
 
 
-def _may_read_reports(request: Request, canonical_team: Team) -> bool:
+def _may_read_reports(request: Request, view: APIView, canonical_team: Team) -> bool:
     """Whether this caller could read the inbox reports a `report_dismissal` note quotes.
 
     Those notes carry a report's id, title, and the reviewer's dismissal text, all of which the
-    reports API gates on the `task` scope object. The notes surface rides `signal_scout` instead,
+    reports API gates on the `inbox` scope object. The notes surface rides `signal_scout` instead,
     so both of that API's legs are re-checked here or a caller reads report content it cannot
-    reach canonically. Mirrors the `signal_scout:read` + `task:read` pair on `emission_reports`.
+    reach canonically. Mirrors the `signal_scout:read` + `inbox:read` pair on `emission_reports`.
 
-    Both legs matter independently. A token carries API scopes, and one without task read is
+    Both legs matter independently. A token carries API scopes, and one without inbox read is
     refused. Every caller, token or session, must also clear the `task` RBAC bar on the canonical
     team, because an admin can grant a member scout access while withholding task access, and a
     session caller carries no scopes for the first leg to inspect.
@@ -389,8 +398,9 @@ def _may_read_reports(request: Request, canonical_team: Team) -> bool:
     scopes, which reads as "session caller" and skips the first leg entirely.
     """
     scopes = get_authenticator_scopes(request.successful_authenticator)
-    if scopes is not None and not ("*" in scopes or "task:read" in scopes or "task:write" in scopes):
-        return False
+    if scopes is not None and "*" not in scopes:
+        if scopes_missing_after_legacy_fallback(request, view, scopes, ["inbox:read"]):
+            return False
 
     user = request.user
     if not isinstance(user, User):
@@ -558,6 +568,48 @@ def _to_reviewer_inputs(entries: list[dict] | None) -> list[ReviewerInput] | Non
     ]
 
 
+def emit_report_from_validated_data(*, team: Team, author: ReportAuthor, data: dict) -> EmitReportResult:
+    """Author a report from a validated `EmitReportRequestSerializer` body. Shared by the scout
+    `emit-report` action and the inbox `create` action, so both authors take one path."""
+    try:
+        return emit_report_sync(
+            team=team,
+            author=author,
+            title=data["title"],
+            summary=data["summary"],
+            evidence=_to_report_evidence(data["evidence"]) or [],
+            actionability_explanation=data["actionability_explanation"],
+            actionability=data["actionability"],
+            already_addressed=data.get("already_addressed", False),
+            repository=data.get("repository"),
+            priority=data.get("priority"),
+            priority_explanation=data.get("priority_explanation"),
+            suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
+            charts=_to_report_charts(data.get("charts")),
+            metrics=_to_report_metrics(data.get("metrics")),
+            suggested_prompts=data.get("suggested_prompts"),
+            links=_to_report_links(data.get("links")),
+            idempotency_key=data.get("idempotency_key"),
+            tags=data.get("tags"),
+        )
+    except InvalidScoutReportError as exc:
+        raise exceptions.ValidationError({"detail": str(exc)})
+
+
+def emit_report_response_data(result: EmitReportResult) -> dict[str, Any]:
+    return EmitReportResponseSerializer(
+        {
+            "report_id": result.report_id,
+            "report_status": result.status,
+            "emitted": result.emitted,
+            "skipped_reason": result.skipped_reason,
+            "safety_explanation": result.safety_explanation,
+            "remediation": result.remediation,
+            "idempotent_replay": result.idempotent_replay,
+        }
+    ).data
+
+
 def _resolve_emission_report_links(
     team_id: int, canonical_team: Team, emissions: list[SignalScoutEmission], *, log_context: dict
 ) -> list[dict]:
@@ -639,7 +691,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def get_serializer_context(self) -> dict[str, object]:
         context = super().get_serializer_context()
-        context["may_read_reports"] = _may_read_reports(self.request, self.team.parent_team or self.team)
+        context["may_read_reports"] = _may_read_reports(self.request, self, self.team.parent_team or self.team)
         return context
 
     def initial(self, request: Request, *args: object, **kwargs: object) -> None:
@@ -671,7 +723,6 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "edit_report",
                 "emissions_batch",
                 "emission_reports_batch",
-                "token_costs",
             }:
                 with trial_state_errors():
                     private.invalidate("The scout requested a write that private trials do not support.")
@@ -999,10 +1050,10 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["get"],
         url_path="emissions/reports",
-        # This action returns report titles, so it requires `task:read` (the scope
+        # This action returns report titles, so it requires `inbox:read` (the scope
         # `SignalReportViewSet` gates report reads on) on top of `signal_scout:read` —
         # otherwise a scout-only token could read titles it can't reach canonically.
-        required_scopes=["signal_scout:read", "task:read"],
+        required_scopes=["signal_scout:read", "inbox:read"],
         pagination_class=None,
     )
     def emission_reports(self, request: Request, **kwargs) -> Response:
@@ -1080,9 +1131,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=False,
         methods=["post"],
         url_path="emissions/reports/batch",
-        # Returns report titles, so it requires `task:read` on top of `signal_scout:read` — same as the
+        # Returns report titles, so it requires `inbox:read` on top of `signal_scout:read` — same as the
         # per-run `emission_reports` action; a scout-only token must not read titles it can't reach.
-        required_scopes=["signal_scout:read", "task:read"],
+        required_scopes=["signal_scout:read", "inbox:read"],
         pagination_class=None,
     )
     def emission_reports_batch(self, request: Request, **kwargs) -> Response:
@@ -1098,90 +1149,6 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             team_id, canonical_team, emissions, log_context={"run_count": len(run_ids)}
         )
         return Response(ScoutEmissionReportLinkSerializer(links, many=True).data)
-
-    @validated_request(
-        request_serializer=ScoutRunIdsBatchRequestSerializer,
-        responses={
-            200: OpenApiResponse(
-                response=ScoutRunTokenCostsSerializer,
-                description="Model spend for each requested run that exists on this project.",
-            ),
-            403: OpenApiResponse(description="Caller is not PostHog staff."),
-        },
-        summary="Get the model spend of many runs at once",
-        description=(
-            "Return what each requested `SignalScoutRun` spent on model calls, summed from the "
-            "`$ai_generation` events its sandbox produced. One query for the whole batch, cached per run: "
-            "a settled run's total is final, a run still in progress reports what it has spent so far. "
-            "`available` is false where the internal AI observability project holding those events can't "
-            "be read, so an unknown cost never reads as zero. Staff-only — fleet spend is an internal "
-            "operating number, and the events sit outside the project in the path. Strictly team-scoped — "
-            "run ids belonging to another project contribute no rows."
-        ),
-        operation_id="signals_scout_runs_token_costs",
-    )
-    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
-    @action(
-        detail=False,
-        methods=["post"],
-        url_path="token-costs",
-        required_scopes=["signal_scout:read"],
-        pagination_class=None,
-    )
-    def token_costs(self, request: Request, **kwargs) -> Response:
-        if not cast(User, request.user).is_staff:
-            raise exceptions.PermissionDenied("Only PostHog staff can read scout run costs.")
-        costs = scout_run_token_costs(team_id=_canonical_team_id(self), run_ids=request.validated_data["run_ids"])
-        return Response(
-            ScoutRunTokenCostsSerializer(
-                {
-                    "costs": [dataclasses.asdict(cost) for cost in costs.costs],
-                    "available": costs.available,
-                }
-            ).data
-        )
-
-    @validated_request(
-        query_serializer=ScoutCostsQuerySerializer,
-        responses={
-            200: OpenApiResponse(
-                response=ScoutCostsSerializer,
-                description="Model spend and output per scout over the window.",
-            ),
-            403: OpenApiResponse(description="Caller is not PostHog staff."),
-        },
-        summary="Get what each scout spent over a window",
-        description=(
-            "Return what every scout on this project spent on model calls over the last `window_days`, "
-            "with how many runs it started, how many of those had spend attributed, and how many inbox "
-            "reports it filed or added to. Cost per day, per run, and per report are derived from those "
-            "numbers by the caller, so the endpoint stays a fact table and the definitions live in one "
-            "place. Spend is summed from the `$ai_generation` events the runs' sandboxes produced and "
-            "joined to the run rows by task run id, because a team-authored scout's generations all "
-            "carry the same stage tag and so cannot name it. Cached per project for 15 minutes: the "
-            "window's trailing edge moves and the newest runs may still be settling, so this is a "
-            "roughly current number, not a live one. `available` is false where the internal AI "
-            "observability project holding those events can't be read, so an unknown spend never reads "
-            "as zero. Staff-only, same gate as the per-run cost read. Strictly team-scoped."
-        ),
-        operation_id="signals_scout_runs_costs",
-    )
-    @action(
-        detail=False,
-        methods=["get"],
-        url_path="costs",
-        required_scopes=["signal_scout:read"],
-        pagination_class=None,
-    )
-    def costs(self, request: Request, **kwargs) -> Response:
-        if not cast(User, request.user).is_staff:
-            raise exceptions.PermissionDenied("Only PostHog staff can read scout costs.")
-        validated = getattr(request, "validated_query_data", {}) or {}
-        costs = scout_costs(
-            team_id=_canonical_team_id(self),
-            window_days=validated.get("window_days") or SCOUT_COST_WINDOW_DAYS,
-        )
-        return Response(ScoutCostsSerializer(dataclasses.asdict(costs)).data)
 
     @validated_request(
         request_serializer=EmitFindingRequestSerializer,
@@ -1364,47 +1331,12 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @trial_state_errors()
     def emit_report(self, request: Request, **kwargs) -> Response:
         run = self._resolve_in_progress_run(kwargs, required_tool="emit_report")
-        data = request.validated_data
-        evidence = _to_report_evidence(data["evidence"]) or []
-        try:
-            result = emit_report_sync(
-                # `run.team` is the canonical (parent) team the run was resolved on; a child-environment
-                # request's `self.team` would mismatch the run's owner and trip `_assert_team_owns_run`.
-                team=run.team,
-                author=ScoutRunReportAuthor(run=run),
-                title=data["title"],
-                summary=data["summary"],
-                evidence=evidence,
-                actionability_explanation=data["actionability_explanation"],
-                actionability=data["actionability"],
-                already_addressed=data.get("already_addressed", False),
-                repository=data.get("repository"),
-                priority=data.get("priority"),
-                priority_explanation=data.get("priority_explanation"),
-                suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
-                charts=_to_report_charts(data.get("charts")),
-                metrics=_to_report_metrics(data.get("metrics")),
-                suggested_prompts=data.get("suggested_prompts"),
-                links=_to_report_links(data.get("links")),
-                idempotency_key=data.get("idempotency_key"),
-                tags=data.get("tags"),
-            )
-        except InvalidScoutReportError as exc:
-            raise exceptions.ValidationError({"detail": str(exc)})
-        return Response(
-            EmitReportResponseSerializer(
-                {
-                    "report_id": result.report_id,
-                    "report_status": result.status,
-                    "emitted": result.emitted,
-                    "skipped_reason": result.skipped_reason,
-                    "safety_explanation": result.safety_explanation,
-                    "remediation": result.remediation,
-                    "idempotent_replay": result.idempotent_replay,
-                }
-            ).data,
-            status=status.HTTP_200_OK,
+        # `run.team` is the canonical (parent) team the run was resolved on; a child-environment
+        # request's `self.team` would mismatch the run's owner and trip `_assert_team_owns_run`.
+        result = emit_report_from_validated_data(
+            team=run.team, author=ScoutRunReportAuthor(run=run), data=request.validated_data
         )
+        return Response(emit_report_response_data(result), status=status.HTTP_200_OK)
 
     @validated_request(
         request_serializer=EditReportRequestSerializer,
@@ -2333,7 +2265,7 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             text=validated.get("text") or None,
             exclude_origins=(
                 ()
-                if _may_read_reports(request, self.team.parent_team or self.team)
+                if _may_read_reports(request, self, self.team.parent_team or self.team)
                 # Every derived origin quotes report content (id, title, and the reviewer's / user's
                 # text), so a caller without report read access must not see any of them.
                 else SignalScoutNote.derived_origins()
@@ -2683,8 +2615,10 @@ class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             "and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner "
             "by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / "
             "`edit-report`. Pass `team` to resolve a team slug to the people on it, maintainers first. Pass "
-            f"`search` to narrow a large roster; the result is capped at {MAX_PROJECT_MEMBERS}. Strictly "
-            "team-scoped."
+            f"`search` to narrow a large roster; the result is capped at {MAX_PROJECT_MEMBERS}. When `search` or "
+            f"`team` narrows the result to {MAX_MEMBERS_WITH_ACTIVITY} members or fewer, each row also carries "
+            "`activity`: the member's recent work, so you can check they are close to the affected area. "
+            "Strictly team-scoped."
         ),
         operation_id="signals_scout_members_list",
     )
@@ -2699,9 +2633,24 @@ class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             raise exceptions.ValidationError({"detail": MEMBERSHIP_NOT_SYNCED})
         if team_slug is not None and not roster.team_is_covered:
             raise exceptions.ValidationError({"detail": TEAM_NOT_IN_ROSTER.format(team=team_slug)})
-        return Response(
-            ScoutMemberSerializer([dataclasses.asdict(member) for member in roster.members], many=True).data
-        )
+        rows = [dataclasses.asdict(member) for member in roster.members]
+        if (validated.get("search") or team_slug) and len(rows) <= MAX_MEMBERS_WITH_ACTIVITY:
+            activities = _member_activities(canonical_team, [row["user_uuid"] for row in rows])
+            for row in rows:
+                activity = activities.get(row["user_uuid"])
+                row["activity"] = dataclasses.asdict(activity) if activity is not None else None
+        return Response(ScoutMemberSerializer(rows, many=True).data)
+
+
+def _member_activities(team: Team, user_uuids: list[str]) -> dict[str, MemberActivity]:
+    """Best effort: the roster is the routing source, so a failed activity read leaves every row without one."""
+    if not user_uuids:
+        return {}
+    try:
+        return member_activities(team, user_uuids) or {}
+    except Exception:
+        logger.exception("scout_members_activity_read_failed", team_id=team.id)
+        return {}
 
 
 def _reject_if_enabled_cap_reached(team_id: int, skill_name: str, *, cap: int) -> None:
@@ -3017,7 +2966,8 @@ def _skill_matches_scout_definition(
         and skill.category == "scout"
         and skill.license == ""
         and skill.compatibility == ""
-        and skill.metadata == {}
+        # A source product's template record is server-owned, so a retried create still matches.
+        and {k: v for k, v in (skill.metadata or {}).items() if k not in SOURCE_TEMPLATE_METADATA_KEYS} == {}
         and set(skill.allowed_tools or []) == REPORT_CHANNEL_TOOLS
         and stored_files == requested_files
     )
@@ -3164,10 +3114,11 @@ def assert_can_grant_scout_write_scopes(
     user = cast(User, request.user)
     token_scopes = get_authenticator_scopes(request.successful_authenticator)
     if token_scopes is not None and "*" not in token_scopes:
-        missing = sorted(added_scopes - set(token_scopes))
+        missing = scopes_missing_after_legacy_fallback(request, None, token_scopes, sorted(added_scopes))
         if missing:
-            raise exceptions.PermissionDenied(
-                f"This API key does not carry {', '.join(missing)}, so it cannot grant that access to a scout."
+            raise InsufficientScope(
+                missing,
+                detail=f"This API key does not carry {', '.join(missing)}, so it cannot grant that access to a scout.",
             )
     level = UserPermissions(user=user, team=team).current_team.effective_membership_level
     if level is not None and level >= OrganizationMembership.Level.ADMIN:

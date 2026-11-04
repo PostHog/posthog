@@ -7,6 +7,8 @@ import React, { useState } from 'react'
 import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand'
+import { LazyFeatureFlagPopoverInfo } from 'lib/components/DefinitionPopover/LazyFeatureFlagPopoverInfo'
+import { featureFlagKeyFromProperty } from 'lib/components/DefinitionPopover/utils'
 import { FlagCalledMoveNotice } from 'lib/components/FlagCalledMoveNotice/FlagCalledMoveNotice'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { pluralize } from 'lib/utils/strings'
@@ -59,6 +61,8 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
     const valueDisplayText = displayText || ((coreDefinition ? coreDefinition.label : value)?.trim() ?? '')
     const valueDisplayElement = valueDisplayText === '' ? <i>(empty string)</i> : valueDisplayText
 
+    const flagKey = featureFlagKeyFromProperty(value)
+
     const recognizedSource: PropertySourceId | null =
         getExternalPropertySource(value)?.id ?? (coreDefinition || value.startsWith('$') ? 'posthog' : null)
 
@@ -105,6 +109,13 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
                             </div>
                         </>
                     ) : null}
+
+                    {flagKey && (
+                        <>
+                            <LemonDivider className="my-3" />
+                            <LazyFeatureFlagPopoverInfo flagKey={flagKey} />
+                        </>
+                    )}
 
                     {!coreDefinition.virtual && (
                         <>

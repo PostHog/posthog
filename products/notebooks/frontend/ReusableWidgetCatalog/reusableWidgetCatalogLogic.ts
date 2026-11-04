@@ -72,7 +72,7 @@ export const reusableWidgetCatalogLogic = kea<reusableWidgetCatalogLogicType>([
                 loadReusableWidgets: async (_, breakpoint) => {
                     await breakpoint(250)
                     if (!values.currentTeamId) {
-                        return { results: [], count: 0, next_offset: null }
+                        return { results: [], count: 0, next: null, previous: null, next_offset: null }
                     }
                     const response = await reusableWidgetsList(String(values.currentTeamId), {
                         search: values.search || undefined,

@@ -10,6 +10,10 @@ Projects with a connected warehouse source or warehouse table use ordinary empty
 
 Onboarding only checks warehouse setup for non-demo projects without events. Source detection returns an existence flag without serializing schemas, and table detection omits columns. Navigation refreshes an empty result so returning after source creation opens the Sources list.
 
+## Direct SQL validation
+
+**Send raw query** checks statement boundaries and read-only restrictions using the selected connection's SQL dialect. Quoted strings, identifiers, and comments follow that dialect, including backslashes in LIKE and regex patterns. Queries with unfinished quotes or comments are rejected before execution. For PostgreSQL, Redshift, and MySQL, quoting must have the same boundaries with and without session-level backslash escaping; use doubled quotes when embedding a quote in a string.
+
 ## Model namespace reservation
 
 The shared PostHog catalog reserves `models.*` for authored data models. New warehouse tables, endpoint saved queries, and managed viewsets cannot claim that namespace. The bare name `models` is reserved for the namespace container; use a name such as `models.revenue` for a model. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
@@ -23,6 +27,7 @@ This reservation does not add qualified names to existing models or require a na
 ## Model materialization usage
 
 The Models **Usage** tab shows bytes read, CPU time, and run counts for materializations over a preset or custom range of complete UTC days.
+The initial load keeps section titles visible and shows skeletons for the metric values, charts, model table, and job rows. Refreshes keep the loaded data visible while new data loads.
 The totals and model breakdown follow saved-query access controls. The breakdown sorts by bytes read and includes soft-deleted models while their saved queries and job history exist.
 Usage includes schema checks, retries, failed runs, and canceled runs, and is attributed to the UTC day each run finished.
 The date and materialized-view filters apply to the whole tab. The jobs table also has a status filter. Projects with the Trino managed warehouse enabled also get a tab-level engine filter, daily bars stacked by engine, and separate ClickHouse and managed warehouse byte totals per model. Legacy Duckgres runs are not included.
@@ -51,9 +56,13 @@ Insights can be saved or updated before running the SQL. Updating a view still r
 
 The data warehouse sidebar lets you rename saved views. The dialog lists references from data model lineage. Renaming does not update SQL references in saved views, materialized views, endpoints, insights, dashboards, notebooks, or external systems.
 
+Saved-query lineage endpoints return only neighboring saved views and warehouse tables the caller can read. PostHog system tables remain visible, denied nodes do not stop the walk, and dependency counts use the same filtered neighbors.
+
 Returning to a notebook can reuse completed query results from the last two minutes in the same browser session. Saved insights still fetch their latest definition; changed queries load their own results. Explicit **Run** and refresh actions fetch results again. This browser cache is bounded and excludes shared notebooks, errors, incomplete responses, and large results; it does not change server cache freshness.
 
 ## Choosing data in Business intelligence
+
+Business intelligence is in beta. The product has a beta label, and the worksheet index shows a dismissible notice with a **Send feedback** button. To collect feedback, launch a survey with **Feedback button → Custom** presentation targeting `#business-intelligence-feedback-button` in the project that collects the app's analytics. No survey ID is needed in the frontend.
 
 **Business intelligence** lists saved worksheets at `/bi` when the `sql-editor-bi-mode` feature flag is enabled. Search all worksheets or switch to those viewed in the last 30 days. **New worksheet** opens `/bi/new`; selecting a saved worksheet opens `/bi/<short_id>` in edit mode. The project tree's **New → Worksheet** entry opens the same editor. Worksheets retain their insight identities and folder placements, but use their own file subtype and no longer appear in the Product analytics insights list. Legacy `/bi?open_insight=...` links and shared worksheet URLs still open the editor. Business intelligence and SQL keep separate unsaved working copies, and existing SQL editor links with `mode=bi` open in Business intelligence.
 
@@ -127,7 +136,10 @@ The **Marks** card offers table calculations per measure: percent of total, runn
 
 **Analysis → Missing dates** defaults to **Observed points only**. **Show gaps** creates empty buckets that occupy a point in the window but do not contribute to an average. **Fill with zero** makes those buckets contribute zero. Filling runs before calculations, separately for each series and comparison period, across the selected date range. It requires one bucketed date dimension matching the worksheet date column and a bounded range. It is available for project and warehouse tables in tables and time-series charts; direct connections do not support it. Saved worksheets and dashboard date overrides retain these semantics.
 
-**Table** automatically uses a pivot layout when both **Rows** and **Columns** contain dimensions. Row members run down the table; column members run across it, with every measure beneath each column header. Move all dimensions onto one shelf to return to a flat table. Period comparisons keep their comparison table layout. Direct database connections keep the flat table layout. Large pivots virtualize rows and columns while retaining grouped headers and the sticky row labels. Pivots support up to 10,000 measure columns; wider results ask you to reduce column dimensions or use Top N. Text-valued custom aggregates retain their values. The explicit **Pivot table** chart uses the same pivot layout. Expand or collapse a row or column header to move between hierarchy levels. Collapsed values are reaggregated from source rows, including averages and distinct counts. **Subtotals** also shows the intermediate aggregates while expanded. Row and column grand totals retain their separate controls, and total cells keep drill-down scoped to the visible dimensions. Expansion is local to the view; the worksheet's shelves and settings remain unchanged. Tracking records hierarchy expansion with axis and depth, and adds missing-date and full-window settings to the existing worksheet events.
+**Table** automatically uses a pivot layout when **Columns** contains dimensions, including when **Rows** contains only measures. Row members run down the table; column members run across it. Measures placed on **Rows** appear vertically, and measures placed on **Columns** appear beneath each column header. Measures split between both shelves appear as columns with guidance to place them together. Move all dimensions onto **Rows** to return to a flat table. Period comparisons keep their comparison table layout. Direct database connections keep the flat table layout. Large pivots virtualize rows and columns while retaining grouped headers and the sticky row labels. Pivots support up to 10,000 measure columns and 100,000 displayed rows, including measures on Rows. Larger results ask you to reduce dimensions or measures, or use Top N. Text-valued custom aggregates retain their values. The explicit **Pivot table** chart uses the same pivot layout. Expand or collapse a row or column header to move between hierarchy levels. Collapsed values are reaggregated from source rows, including averages and distinct counts. **Subtotals** also shows the intermediate aggregates while expanded. Row and column grand totals retain their separate controls, and total cells keep drill-down scoped to the visible dimensions. Expansion is local to the view; the worksheet's shelves and settings remain unchanged. Tracking records hierarchy expansion with axis and depth, and adds missing-date and full-window settings to the existing worksheet events.
+
+Saved BI pivot tables display their results on dashboards, including tiles that ignore dashboard filters.
+Dashboard tiles preserve the worksheet's column groups and measure placement.
 
 **Hierarchies** in the data pane names an ordered set of dimensions, such as Country → State → City. Create a hierarchy with 2–10 levels, then start it on rows or columns. The level list marks the current field and shows the next levels. Selecting a result offers **Drill to** the next level in the current editor worksheet, retaining parent filters, date range, measures, variables, and formatting. The path above the result offers **Drill up**, removing only filters introduced by that drill. Navigation participates in undo/redo and respects Auto update. Changed or removed hierarchy levels disable an incompatible return path. Outside the editor, the action explicitly opens a new worksheet. Leaf values and levels already on a shelf do not offer another drill action; nested pivot expansion remains available for those shelves. Definitions stay with the saved worksheet and survive **Clear sheet**. **Import from worksheet** copies a hierarchy from an accessible saved worksheet using the same table and connection. The copy is independent: edits do not change the source worksheet or create global fields. Deleting a local calculated field removes its uses from hierarchy levels, dropping definitions with fewer than two remaining levels.
 
@@ -435,9 +447,9 @@ Implementation audit, October 28, 2026. These are proposed integration contracts
 ### BI-owned integration work
 
 - [x] Adopt the catalog overwrite-confirmation flow for worksheet metric proposals. Preserve entered values on cancel, allow retry, and keep overwritten metrics proposed.
-- [ ] Show catalog trust context when exploring a metric: approval and drift status, unit, owner, and stable identity. Distinguish the copied definition from current catalog state; never imply a snapshot follows catalog changes.
-- [ ] Add deliberate, searchable metric discovery in BI using the existing catalog search API. Handle loading, failure, no matches, pagination, and unsupported definition kinds explicitly.
-- [ ] Surface existing field descriptions and data-quality context in the data pane. Preserve raw field identities and distinguish certification from current check health.
+- [x] Show catalog trust context when exploring a metric: approval and drift status, unit, owner, and stable identity. Saved copies retain metadata from copy time, labeled **Catalog status when copied (unverified)** without positive approval styling. Only Proposed and Approved statuses are recorded. Older copies explicitly say no status was recorded. The metadata is editable worksheet content, not verified provenance or a live approval; authors are directed to the current catalog entry. Live version checks remain shared-layer work.
+- [x] Add deliberate, searchable metric discovery in BI using the existing catalog search API. The picker handles loading, failure, no matches, pagination, and unsupported definition kinds explicitly.
+- [x] Surface existing table and view field descriptions in the data pane, including related tables. Show recorded data-quality check health separately from certification, with explicit unavailable, unchecked, and error states. Raw field identities remain unchanged.
 
 ### Shared-layer requests
 

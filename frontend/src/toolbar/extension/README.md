@@ -71,6 +71,34 @@ The panel sends usage events only when the user allows `technicalAndInteraction`
 Firefox lets the user change this in the add-on's settings, and the panel applies the change right away.
 The content script never sends usage events or logs, because it mounts the toolbar without `instrument`.
 
+## Store listing images
+
+`store-listing/images/` holds the images of the Chrome Web Store listing: five 1280×800 screenshots, the 440×280 small promo tile and the 1400×560 marquee promo tile.
+They are 24-bit PNGs without alpha, which is what the store accepts.
+
+`store-listing/generate.mjs` makes them. Run it from `frontend/` after a build:
+
+```sh
+pnpm build:toolbar-extension
+node src/toolbar/extension/store-listing/generate.mjs [path/to/unpacked/extension]
+```
+
+The path defaults to `dist/toolbar-extension/chrome`. Point it at the unzipped release build to show exactly what the store item ships.
+
+Each screenshot shows a browser window with a website on the left and the side panel on the right:
+
+- The website comes from a capture of an invented site with the page tools running. The script downloads each capture from the `PostHog/pr-assets` repository and hides the old panel in it.
+- The panel is a fresh render of the built `panel.html` with a fake `browser` API, like `ExtensionPanel.stories.tsx`. `store-listing/panelStates.mjs` holds the state of each tool, and it matches what the capture shows.
+
+To change an image:
+
+- **Headline or caption:** edit `SCREENSHOTS` in `generate.mjs`.
+- **Panel UI:** rebuild the extension and run the script again. A change to the state shape of a tool also needs an update in `panelStates.mjs`.
+- **Tile color, tagline or hedgehog:** edit `TILE_COLOR`, `TILE_TAGLINE` or the `@posthog/brand` import in `generate.mjs`.
+- **Website side:** take a new capture with the extension on the site, upload it with `hogli pr:upload-image`, and replace the `capture` URL. A capture must be 1681×864 points at 2x, with a 44-point browser bar on top and the panel in the right 401 points.
+
+Upload the new images to the store item by hand. The store doesn't take them from this folder.
+
 ## How the page tools work
 
 The page tools run the floating toolbar's own logics in the content script, and draw its overlays in the content script's shadow root:

@@ -85,6 +85,9 @@ vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
   useFileTaskToChannel: () => ({ fileTask: vi.fn() }),
 }));
+vi.mock("@posthog/ui/features/sidebar/useToggleTaskRead", () => ({
+  useTaskReadItem: () => ({ isUnread: false, toggle: vi.fn() }),
+}));
 vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
   useOpenBrowserTab: () => vi.fn(),
 }));

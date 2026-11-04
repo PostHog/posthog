@@ -1,7 +1,7 @@
 import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'

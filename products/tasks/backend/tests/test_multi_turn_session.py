@@ -1,5 +1,6 @@
 import json
 import asyncio
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -12,7 +13,7 @@ from django.db import OperationalError, transaction
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
-from pydantic import BaseModel, Field, JsonValue
+from pydantic import BaseModel, Field, JsonValue, ValidationInfo, field_validator
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import Integration, Organization, Team
@@ -68,6 +69,15 @@ class _DefaultedResp(BaseModel):
     values: list[str] = Field(default_factory=list)
 
 
+class _ContextResp(_Resp):
+    @field_validator("value")
+    @classmethod
+    def value_matches_context(cls, value: str, info: ValidationInfo) -> str:
+        if info.context is None or value != info.context["expected_value"]:
+            raise ValueError("value must match the validation context")
+        return value
+
+
 class TestPollForTurnEmptyEndTurn:
     @pytest.mark.asyncio
     async def test_raises_empty_agent_turn_error_with_offsets(self):
@@ -77,6 +87,7 @@ class TestPollForTurnEmptyEndTurn:
         turn_2_empty = [_user_message_line("prompt"), _end_turn_line()]
         log = "\n".join(turn_1 + turn_2_empty)
         skip = len(turn_1)
+        fake_task_run = FakeTaskRun()
 
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
@@ -85,9 +96,10 @@ class TestPollForTurnEmptyEndTurn:
                 "products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS",
                 0,
             ),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
             with pytest.raises(EmptyAgentTurnError) as exc_info:
-                await poll_for_turn(FakeTaskRun(), skip_lines=skip)
+                await poll_for_turn(fake_task_run, skip_lines=skip)
 
         # Carries log offsets so the caller can resume from the tail on retry
         # instead of re-streaming already-printed lines.
@@ -99,15 +111,38 @@ class TestPollForTurnEmptyEndTurn:
         turn_1 = [_structured_output_line({"word": "alpha"}), _end_turn_line()]
         turn_2 = [_user_message_line("next"), _structured_output_line({"word": "beta", "count": 2}), _end_turn_line()]
         log = "\n".join(turn_1 + turn_2)
+        fake_task_run = FakeTaskRun()
 
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
-            turn = await poll_for_turn(FakeTaskRun(), skip_lines=len(turn_1))
+            turn = await poll_for_turn(fake_task_run, skip_lines=len(turn_1))
 
         assert json.loads(turn.last_message) == {"word": "beta", "count": 2}
+
+    @parameterized.expand(
+        [
+            ("commentary_then_end_turn", [_agent_message_line("Checking the repo"), _end_turn_line()]),
+            ("empty_end_turn", [_usage_update_line(0), _end_turn_line()]),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_end_turn_returns_a_saved_finish_report(self, _name: str, turn_lines: list[str]) -> None:
+        log = "\n".join([_user_message_line("initial prompt"), *turn_lines])
+        fake_task_run = FakeTaskRun(status="completed", finish_report="Weekly report")
+
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+        ):
+            turn = await poll_for_turn(fake_task_run, skip_lines=0)
+
+        assert turn.last_message == "Weekly report"
 
     @pytest.mark.asyncio
     async def test_text_before_end_turn_across_polls_is_not_empty(self):
@@ -1063,6 +1098,23 @@ class TestPollForTurnTerminalDrain:
 
         assert turn.last_message == "partial-before-death"
 
+    @pytest.mark.asyncio
+    async def test_terminal_status_returns_the_finish_report_over_earlier_commentary(self):
+        log = "\n".join(
+            [_user_message_line("initial prompt"), _agent_message_line("Checking the repo"), _usage_update_line(0)]
+        )
+        fake_task_run = FakeTaskRun(status="completed", finish_report='{"title": "Weekly report"}')
+
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+        ):
+            turn = await poll_for_turn(fake_task_run, skip_lines=0)
+
+        assert turn.last_message == '{"title": "Weekly report"}'
+
 
 class TestExtractAgentError:
     @parameterized.expand(
@@ -1367,8 +1419,95 @@ class TestMultiTurnSessionRetry:
         return session
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("first_reply", ["private-reply-text", '{"value":', '{"value": "private-value"}'])
+    @pytest.mark.parametrize(
+        "retry_reply,max_json_retries,invalid_corrections",
+        [
+            (None, 1, 0),
+            ('{"value": "ok"}', 1, 0),
+            ('{"value": "still-invalid"}', 1, 0),
+            ('{"value": "ok"}', 4, 3),
+            ('{"value": "still-invalid"}', 4, 3),
+        ],
+    )
+    async def test_json_retry_preserves_schema_and_context(
+        self,
+        first_reply: str,
+        retry_reply: str | None,
+        max_json_retries: int,
+        invalid_corrections: int,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        session = self._make_session()
+        replies = [first_reply] + ['{"value": "private-value"}'] * invalid_corrections
+        if retry_reply is not None:
+            replies.append(retry_reply)
+        poll = AsyncMock(
+            side_effect=[
+                TurnPollResult(last_message=reply, full_log=None, total_lines=index * 10, printed_lines=index * 5)
+                for index, reply in enumerate(replies, start=1)
+            ]
+        )
+        with (
+            caplog.at_level(logging.WARNING),
+            patch("products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn", new=poll),
+        ):
+            validation_context: dict[str, object] = {"expected_value": "ok"}
+            if retry_reply == '{"value": "ok"}':
+                result = await session.send_followup(
+                    "question",
+                    _ContextResp,
+                    json_retry_prompt="Return valid JSON",
+                    max_json_retries=max_json_retries,
+                    validation_context=validation_context,
+                )
+                assert result.value == "ok"
+            else:
+                with pytest.raises(ValueError):
+                    await session.send_followup(
+                        "question",
+                        _ContextResp,
+                        json_retry_prompt="Return valid JSON" if retry_reply is not None else None,
+                        max_json_retries=max_json_retries,
+                        validation_context=validation_context,
+                    )
+
+        assert poll.await_count == len(replies)
+        if retry_reply is not None:
+            assert poll.await_args_list[1].kwargs["skip_lines"] == 10
+            retry_prompt = cast(AsyncMock, session._workflow_handle).signal.await_args_list[-1].args[1]
+            assert retry_prompt.startswith("Return valid JSON")
+            if first_reply == '{"value": "private-value"}' or invalid_corrections:
+                assert retry_prompt.count("value must match the validation context") == 1
+                assert "private-value" not in retry_prompt
+            assert "asking for corrected JSON" in caplog.text
+        assert "private-reply-text" not in caplog.text
+        assert "private-value" not in caplog.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("during_retry", [False, True])
+    @pytest.mark.parametrize(
+        "failure", [RuntimeError("poll failed"), ValueError("poll failed"), asyncio.CancelledError()]
+    )
+    async def test_json_retry_propagates_execution_failures(self, during_retry: bool, failure: BaseException) -> None:
+        session = self._make_session()
+        responses = (
+            [TurnPollResult(last_message="prose", full_log=None, total_lines=10, printed_lines=5), failure]
+            if during_retry
+            else [failure]
+        )
+        poll = AsyncMock(side_effect=responses)
+        with patch("products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn", new=poll):
+            with pytest.raises(type(failure)) as raised:
+                await session.send_followup("question", _Resp, json_retry_prompt="Return valid JSON")
+
+        assert raised.value is failure
+        assert poll.await_count == len(responses)
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("deadline,turns", [(None, 1), (float("inf"), 2), (0.0, 1)])
-    async def test_happy_path_no_retry(self, deadline: float | None, turns: int) -> None:
+    @pytest.mark.parametrize("json_retry_prompt", [None, "Return valid JSON"])
+    async def test_happy_path_no_retry(self, deadline: float | None, turns: int, json_retry_prompt: str | None) -> None:
         session = self._make_session()
         session.poll_deadline = deadline
         agent_response = json.dumps({"value": "ok"})
@@ -1381,12 +1520,12 @@ class TestMultiTurnSessionRetry:
         ) as poll:
             if deadline == 0.0:
                 with pytest.raises(TimeoutError):
-                    await session.send_followup("hello", _Resp, label="unit")
+                    await session.send_followup("hello", _Resp, label="unit", json_retry_prompt=json_retry_prompt)
                 cast(AsyncMock, session._workflow_handle).signal.assert_not_awaited()
                 poll.assert_not_awaited()
                 return
             for _ in range(turns):
-                result = await session.send_followup("hello", _Resp, label="unit")
+                result = await session.send_followup("hello", _Resp, label="unit", json_retry_prompt=json_retry_prompt)
                 assert result == _Resp(value="ok")
 
         assert all(call.kwargs["poll_deadline"] == deadline for call in poll.await_args_list)
@@ -1480,6 +1619,7 @@ class TestMultiTurnSessionRetry:
             patch("posthog.storage.object_storage.read", side_effect=current_log),
             patch("asyncio.sleep", new=AsyncMock()),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=FakeTaskRun()),
         ):
             result = await session.send_followup("please respond", _Resp, label="priority")
 
@@ -1867,11 +2007,11 @@ class TestCreateTaskAndTriggerForwardsContext:
         assert [written[entry["storage_path"]] for entry in manifest.values()] == [b"Review the PR.", "Ü".encode()]
 
     @pytest.mark.asyncio
-    async def test_codex_options_reach_the_state_the_agent_server_reads(self) -> None:
+    async def test_caller_options_reach_the_state_the_agent_server_reads(self) -> None:
         # The agent server sees only allowlisted state keys, so a dropped key silently keeps the Codex default.
         team, user = await sync_to_async(self._setup_team_and_user)()
         context = CustomPromptSandboxContext(
-            team_id=team.id, user_id=user.id, codex_max_subagents=9, codex_shared_prompt_cache=True
+            team_id=team.id, user_id=user.id, codex_max_subagents=9, codex_shared_prompt_cache=True, disable_skills=True
         )
 
         with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
@@ -1881,6 +2021,7 @@ class TestCreateTaskAndTriggerForwardsContext:
         public_state = _public_task_run_state(persisted.state)
         assert public_state["codex_max_subagents"] == 9
         assert public_state["codex_shared_prompt_cache"] is True
+        assert public_state["disable_skills"] is True
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("output_schema", "expected_flag"), [({"type": "object"}, True), (None, None)])
@@ -1967,11 +2108,13 @@ class TestMultiTurnSessionStartFallback:
         return session
 
     @pytest.mark.asyncio
-    async def test_salvages_unparseable_text_with_fallback(self):
+    @pytest.mark.parametrize("retry_reply", [None, "Updated conclusion from the second turn."])
+    async def test_salvages_unparseable_text_with_fallback(self, retry_reply: str | None):
         # _Resp requires a JSON object with `value`; prose can't validate, so the fallback
         # builds the model from the raw close-out text instead of failing the run.
         session = self._fake_session()
         prose = "No anomalies this run. Scanned 12 commits, remembered the scan marker."
+        session.send_followup_raw = AsyncMock(return_value=retry_reply)  # type: ignore[method-assign]
 
         with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, prose))):
             returned_session, parsed = await MultiTurnSession.start(
@@ -1979,10 +2122,11 @@ class TestMultiTurnSessionStartFallback:
                 context=MagicMock(),
                 model=_Resp,
                 fallback_from_text=lambda text: _Resp(value=text),
+                json_retry_prompt="Return JSON" if retry_reply is not None else None,
             )
 
         assert returned_session is session
-        assert parsed == _Resp(value=prose)
+        assert parsed == _Resp(value=retry_reply if retry_reply is not None else prose)
         # A salvaged run is NOT ended as failed — the caller persists the result and ends normally.
         session.end.assert_not_awaited()  # type: ignore[attr-defined]
 

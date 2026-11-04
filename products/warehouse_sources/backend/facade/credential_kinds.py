@@ -2,7 +2,7 @@
 
 The `Integration` kind that holds the typed-in credentials of each warehouse source type, keyed by
 source type value. A kind is stored data, so a change to an existing value needs a data migration.
-See `sources/common/credential_kind.py` for the derivation.
+The file is append-only: a removed source keeps its entry. See `sources/common/credential_kind.py`.
 """
 
 from collections.abc import Mapping
@@ -443,6 +443,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "FarosAi": "faros-ai",
     "Fastbill": "fastbill",
     "Fastly": "fastly",
+    "Fathom": "fathom",
     "Fauna": "fauna",
     "Featurebase": "featurebase",
     "Feishu": "feishu",
@@ -768,6 +769,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Mastodon": "mastodon",
     "Matomo": "matomo",
     "Maxio": "maxio",
+    "Measure": "measure",
     "Medusa": "medusa",
     "Meetup": "meetup",
     "Megaphone": "megaphone",
@@ -838,6 +840,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Mycase": "mycase",
     "N8n": "n8n",
     "NagerDate": "nager-date",
+    "Nango": "nango",
     "Nasa": "nasa",
     "NationBuilder": "nation-builder",
     "Navan": "navan",
@@ -1192,6 +1195,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Squarespace": "squarespace",
     "StackAdapt": "stack-adapt",
     "StackOverflowForTeams": "stack-overflow-for-teams",
+    "Stamped": "stamped",
     "Starburst": "starburst",
     "Statsig": "statsig",
     "Statuscake": "statuscake",

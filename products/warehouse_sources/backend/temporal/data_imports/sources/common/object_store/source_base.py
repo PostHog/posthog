@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
 from typing import Any, ClassVar, Generic, NoReturn, Optional
 
@@ -7,12 +7,7 @@ import pyarrow as pa
 from botocore.exceptions import ClientError
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import validate_warehouse_table_url_pattern
-from products.warehouse_sources.backend.temporal.data_imports.schema_flags import (
-    REPLACE_ROWS_BY_FILE_FLAG,
-    is_schema_flag_enabled,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ConfigType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import FILE_MODIFIED_AT_COLUMN
@@ -24,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.delta import (
     DELTA_VERSION_COLUMN,
     ObjectStorageDeltaCursor,
+    check_delta_table,
     iter_delta_tables,
     plan_delta_read,
 )
@@ -113,12 +109,10 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
     A full refresh reads each table in full, so the table matches the bucket at the time of the sync.
     The incremental and append sync types read only the files modified since the last sync. An append
     never removes rows, so the rows of a file deleted from the bucket stay in the table. An incremental
-    sync with `REPLACE_ROWS_BY_FILE_FLAG` on also deletes the rows of a deleted file, and a changed file
-    replaces its rows. Without the flag it merges on the file and row number and keeps the rows of
-    deleted files. An append sync of a Delta table reads only the data files committed since the
-    version of the last sync. An incremental sync of a Delta table also replaces the rows of each data
-    file that a commit removed, so deletes, updates, merges and compactions reach the table. Without
-    the flag it rebuilds the table on every run.
+    sync also deletes the rows of a deleted file, and a changed file replaces its rows. An append sync
+    of a Delta table reads only the data files committed since the version of the last sync. An
+    incremental sync of a Delta table also replaces the rows of each data file that a commit removed,
+    so deletes, updates, merges and compactions reach the table.
     """
 
     @abstractmethod
@@ -250,6 +244,32 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             if requested is None or table.name in requested
         ]
 
+    def describe_pinned_schema(
+        self, config: ConfigType, team_id: int, name: str, schema_metadata: Mapping[str, Any]
+    ) -> SourceSchema | None:
+        """Describe a table from its stored definition, and check that the key can read the table.
+
+        Only the table's own location is read. A key that can read the table but can't list the
+        bucket root passes, and a large bucket isn't walked. Discovery also names a table after its
+        folder, and a pinned table, such as a migrated self-managed table, can have another name.
+        """
+        table = TableDefinition.from_schema_metadata(name, schema_metadata)
+        if table is None:
+            return None
+        store = self.open_store(self.object_store_config(config))
+        location = store.path(table.path)
+        try:
+            if table.kind == "delta":
+                check_delta_table(store.delta_uri(table.path), store.delta_storage_options, table.name)
+            else:
+                resolve_table_files(store, table)
+        except OSError as e:
+            # As in `validate_credentials`: s3fs gives a bare 401 or 403 as a plain OSError.
+            if _http_status(e) in (401, 403):
+                raise translate_storage_error(PermissionError(), location) from e
+            _raise_translated(e, location)
+        return _source_schema(table)
+
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
         store = self.open_store(self.object_store_config(config))
         table = TableDefinition.from_schema_metadata(inputs.schema_name, inputs.schema_metadata) or self._find_table(
@@ -258,7 +278,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         if table.kind == "delta":
             return self._delta_response(store, table, inputs)
         selection = FileSelection.from_inputs(inputs)
-        if selection.merges and _mirrors_files(inputs):
+        if selection.merges:
             return self._mirrored_files_response(store, table, inputs, selection)
 
         def items() -> Iterator[pa.Table]:
@@ -267,8 +287,8 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         return SourceResponse(
             name=inputs.schema_name,
             items=items,
-            # Only a merge needs a key. Without one, a full refresh replaces the table and an append adds to it.
-            primary_keys=FILE_PRIMARY_KEYS if selection.merges else None,
+            # A full refresh replaces the table and an append adds to it, so neither needs a key.
+            primary_keys=None,
             chunk_size_bytes=CHUNK_SIZE_BYTES,
             preserve_column_names=table.preserve_column_names,
         )
@@ -308,9 +328,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         cursor_manager = self.get_cursor_manager(inputs)
         appends = inputs.should_use_incremental_field
         by_file = appends and inputs.sync_type == ExternalDataSchemaSyncType.INCREMENTAL
-        # Without the flag the loader can't delete by file, so an incremental sync rebuilds the
-        # table from the snapshot on every run.
-        stored = cursor_manager.load() if appends and (not by_file or _mirrors_files(inputs)) else None
+        stored = cursor_manager.load() if appends else None
         # The plan is made here and not in `items`, because the response has to say up front
         # whether the destination must be rebuilt.
         read = plan_delta_read(
@@ -412,11 +430,3 @@ def _iter_files(
                 yield from iter_file_tables(stream, stored, file_format, resolved.csv, logger)
         except PermissionError as e:
             _raise_translated(e, store.root)
-
-
-def _mirrors_files(inputs: SourceInputs) -> bool:
-    """Whether an incremental read deletes the rows of deleted and rewritten files (see `ReplaceScope`)."""
-    schema = (
-        ExternalDataSchema.objects.filter(team_id=inputs.team_id, id=inputs.schema_id).select_related("source").first()
-    )
-    return schema is not None and is_schema_flag_enabled(schema, REPLACE_ROWS_BY_FILE_FLAG)

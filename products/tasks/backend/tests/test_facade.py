@@ -28,19 +28,31 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
-from products.tasks.backend.facade.profiles import Repository, TaskProfileError, TaskRunOptions, get_task_profile
+from products.tasks.backend.facade.access import PostHogAIAccessDecision
+from products.tasks.backend.facade.profiles import (
+    Repository,
+    SourceKind,
+    TaskProfileError,
+    TaskRunOptions,
+    TaskSource,
+    get_task_profile,
+)
+from products.tasks.backend.logic.services.warm import ActiveSessionCaps, SandboxWarmer
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
     ChannelMembership,
     SandboxCustomImage,
     SandboxEnvironment,
+    SandboxSession,
     Task,
     TaskRun,
     TaskWorkflowDispatch,
 )
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
 from products.tasks.backend.run_options import run_options_record
+
+REPORT_ID = "0f7a6c1e-3b8d-4f2a-9c5e-1d2b3a4c5e6f"
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",
@@ -1145,7 +1157,11 @@ class TestFacadeReadsAndMappers(TestCase):
 
     @patch("products.tasks.backend.logic.services.warm.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.warm.is_team_limited", return_value=False)
-    def test_warm_task_run_returns_contract(self, _mock_quota, mock_workflow):
+    @patch(
+        "products.tasks.backend.logic.services.warm.get_posthog_ai_access_decision",
+        return_value=PostHogAIAccessDecision.GRANDFATHERED,
+    )
+    def test_warm_task_run_returns_contract(self, _mock_access, _mock_quota, mock_workflow):
         task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI)
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -1319,6 +1335,62 @@ class TestFacadeReadsAndMappers(TestCase):
         trigger.assert_not_called()
         assert not task.runs.exists()
 
+    @parameterized.expand(
+        [
+            ("user_immediate", "user", False),
+            ("user_scheduled", "user", True),
+            ("org_immediate", "org", False),
+        ]
+    )
+    def test_run_task_at_the_active_session_cap(self, _name: str, scope: str, scheduled: bool) -> None:
+        caps = ActiveSessionCaps(per_user=2, per_org=3)
+        holder = self.user
+        if scope == "org":
+            holder = User.objects.create_and_join(self.organization, "busy@posthog.com", None)
+        busy_run = TaskRun.objects.create(
+            task=self._make_task(created_by=holder), team=self.team, status=TaskRun.Status.IN_PROGRESS
+        )
+        now = django_timezone.now()
+        for i in range(caps.per_user if scope == "user" else caps.per_org):
+            SandboxSession.objects.unscoped().create(
+                team=self.team,
+                task_run=busy_run,
+                sandbox_id=f"sb-busy-{i}",
+                cpu_cores=4.0,
+                memory_gb=16.0,
+                ttl_seconds=3600,
+                ttl_expires_at=now + timedelta(hours=1),
+                user_attributed_at=now,
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+        task = self._make_task()
+        validated_data: dict[str, Any] = {"mode": "interactive"}
+        if scheduled:
+            validated_data["scheduled_at"] = now + timedelta(hours=2)
+
+        with (
+            patch.dict(SandboxWarmer.ORIGIN_ACTIVE_SESSION_CAPS, {Task.OriginProduct.USER_CREATED: caps}),
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None) as trigger,
+        ):
+            result = facade.run_task(task.id, self.team.id, self.user.id, validated_data=validated_data)
+
+        assert result is not None
+        if scheduled:
+            assert result.error is None
+            assert task.runs.count() == 1
+        else:
+            assert result.error is not None
+            self.assertEqual(
+                result.error.detail,
+                "You already have 2 cloud sandboxes running. Wait for one to finish or stop one, then try again."
+                if scope == "user"
+                else "Your organization already has 3 cloud sandboxes running. "
+                "Wait for one to finish or stop one, then try again.",
+            )
+            assert result.error.code == "active_session_cap"
+            trigger.assert_not_called()
+            assert not task.runs.exists()
+
     def test_run_task_resumed_from_an_import_run_marks_the_new_run(self):
         task = self._make_task()
         import_run = TaskRun.objects.create(
@@ -1409,9 +1481,10 @@ class TestFacadeReadsAndMappers(TestCase):
         [
             ("self_driving_head_branch", "posthog-self-driving/fix-abc123"),
             ("stack_base_branch", "posthog-self-driving/schema-abc123"),
+            ("github_access_repositories", ["acme/api", "acme/assets"]),
         ]
     )
-    def test_run_task_resume_carries_self_driving_branch_stamp(self, state_key: str, branch: str):
+    def test_run_task_resume_carries_self_driving_branch_stamp(self, state_key: str, branch: str | list[str]):
         # The signals review carve-out binds a PR to its run by matching the PR head ref against the
         # PATCH-protected state.self_driving_head_branch stamp. A resume mints a new run, so the
         # stamp must be copied forward or the carve-out stops matching the successor — the receiver
@@ -1813,6 +1886,23 @@ class TestFacadeReadsAndMappers(TestCase):
 
         task = Task.objects.get(id=created if isinstance(created, UUID) else created.task_id)
         self.assertEqual((task.repositories, task.options), (["posthog/posthog"], run_options_record(options)))
+
+    @parameterized.expand([("create_and_run_task",), ("create_task_without_run",)])
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_facade_stores_the_task_source(self, entry: str, _mock_workflow) -> None:
+        flow_id = uuid4()
+
+        created = getattr(facade, entry)(
+            team=self.team,
+            title="t",
+            description="d",
+            user_id=self.user.id,
+            origin_product=facade.TaskOriginProduct.USER_CREATED,
+            source=TaskSource(kind=SourceKind.HOG_FLOW, id=str(flow_id)),
+        )
+
+        task = Task.objects.get(id=created if isinstance(created, UUID) else created.task_id)
+        self.assertEqual(task.hog_flow_id, flow_id)
 
     @parameterized.expand(
         [
@@ -2335,7 +2425,16 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
             return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
         )
 
-    def test_create_and_run_task_blocked_for_self_driving_origin_when_enforced(self):
+    @parameterized.expand(
+        [
+            ("no_report", {}, None),
+            ("report_id", {"signal_report_id": REPORT_ID}, REPORT_ID),
+            ("source", {"source": TaskSource(kind=SourceKind.SIGNAL_REPORT, id=REPORT_ID)}, REPORT_ID),
+        ]
+    )
+    def test_create_and_run_task_blocked_for_self_driving_origin_when_enforced(
+        self, _name: str, report_kwargs: dict, expected_report_id: str | None
+    ) -> None:
         # The implementation task is the step that leads to the billable PR; over-quota teams
         # must not get one through the facade regardless of caller.
         from posthog.exceptions import QuotaLimitExceeded
@@ -2352,12 +2451,14 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
                 origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
                 user_id=self.user.id,
                 repository="posthog/posthog",
+                **report_kwargs,
             )
         self.assertFalse(Task.objects.filter(team=self.team).exists())
         # The facade gate keeps its own stage: its main caller is the auto-start pipeline, whose
         # over-quota hits must not pollute the manual-path (`manual_create`) telemetry bucket.
         self.assertEqual(capture_mock.call_args.kwargs["stage"], "task_create")
         self.assertTrue(capture_mock.call_args.kwargs["enforced"])
+        self.assertEqual(capture_mock.call_args.kwargs["report_id"], expected_report_id)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_task_allows_non_pr_sessions_when_enforced(self, _mock_workflow):

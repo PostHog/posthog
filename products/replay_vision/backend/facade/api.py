@@ -24,6 +24,7 @@ from products.replay_vision.backend.scanner_access import (
     can_read_targeted_experiment,
     is_uuid,
     readable_observation_scanner_ids,
+    recording_viewer_access,
 )
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 
@@ -219,7 +220,6 @@ def start_workflow_observation_request(
         WorkflowScanCapReached,
         WorkflowScanCaps,
         create_observation_request,
-        recording_viewer_access,
         request_progress,
         step_result,
     )
@@ -380,9 +380,6 @@ def workflow_scan_editor_error(*, user: User, team: "Team", scanner_id: UUID | N
     The scan runs as the workflow's owner, but whoever saves or live-tests the step chooses the sessions it
     reads, the scanner it uses and where the answers go, so they need the access the owner needs.
     """
-    # Deferred: reach the temporal package, whose activities import this facade while it loads.
-    from products.replay_vision.backend.observation_requests import recording_viewer_access  # noqa: PLC0415
-
     access = recording_viewer_access(user, team)
     if access is None:
         return "You need access to session recordings to use the Replay Vision step."

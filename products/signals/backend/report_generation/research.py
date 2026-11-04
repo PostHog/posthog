@@ -9,15 +9,7 @@ from html import escape
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
-from pydantic import (
-    BaseModel,
-    Field,
-    ValidationError,
-    ValidationInfo,
-    ValidatorFunctionWrapHandler,
-    field_validator,
-    model_validator,
-)
+from pydantic import BaseModel, Field, ValidationError, ValidationInfo, field_validator, model_validator
 
 from posthog.dataclasses import frozen
 
@@ -385,6 +377,18 @@ _DEFAULT_CHECK_SCHEDULING_GUIDANCE = """`soak_hours` is how long after the repor
 {default_soak} hours, which covers a deploy plus a day of traffic. Say longer when the fix only
 reaches users slowly — a mobile release, a cached client bundle, a weekly batch."""
 
+_MONITORING_CHECK_SCHEDULING_GUIDANCE = """Monitoring uses one fixed observation window: the recorded Monitoring start through start + soak_hours.
+PR completion uses the latest implementation PR merge timestamp as the start. Manual entry uses
+the time Monitoring starts.
+`soak_hours` is the duration of that entire window, not a delay before starting a shorter query.
+The executor replaces relative query dates with these fixed bounds. It does not discard an initial
+deployment buffer or select only the last few hours. Choose a useful duration from the observed
+traffic and ingestion delay. If rollout uncertainty makes this window inconclusive, say so.
+Keep titles, outcome prose, agent instructions, comparisons, and minimum sample requirements
+consistent with the entire window. Agent checks must use the supplied window bounds, even when
+verification starts later. Reference and baseline periods describe their own measured periods;
+they do not move or shorten the observation window."""
+
 _METRIC_FIRST_RESEARCH_GUIDANCE = """## Prepare metric-based follow-up checks
 
 While researching, identify a metric that existing instrumentation can measure to provide useful
@@ -411,17 +415,14 @@ confidence score. Do not require statistical significance or near-certainty, and
 invented confidence percentage. Baselines and thresholds must still come from the research.
 
 Choose the shortest useful observation window based on observed activity, recurrence frequency,
-ingestion delay, and deployment timing. Allow for a deployment delay of several hours before the
-fix reaches users. Consider 4-8 hours for frequent failures or high-volume flows, around 24 hours
+ingestion delay, and deployment timing. {deployment_guidance} Consider 4-8 hours for frequent failures or high-volume flows, around 24 hours
 when a day of activity is needed, and several days only when low volume,
 rollout timing, or a known batch cycle justifies the wait. Do not choose seven days merely because
 it is conventional.
 
 Explicitly set `soak_hours` and explain the chosen window in the check's rationale. Keep the query
-window and comparison consistent with that duration. Shortening only the wait does not shorten a
-longer measurement query. For existing whole-window execution, the query window must fit entirely
-after the fix; do not include pre-fix data. This guidance changes check authoring, not execution
-or final-outcome rules. Preserve still-valid existing checks unless new evidence warrants revision.
+window and comparison consistent with that duration. {execution_guidance}
+Preserve still-valid existing checks unless new evidence warrants revision.
 
 Missing data, absent traffic, or a failed query must not count as evidence of recovery. Prefer a
 rate with a verified denominator when available. If a metric check cannot distinguish improvement
@@ -436,7 +437,7 @@ _METRIC_CHECK_GUIDANCE = """- {metric_selection} All three of these must hold. T
   `{{"metric_id": "<one of this report's metrics>", "comparison": {{"operator": "lte", "value": 10}},
   "baseline_value": <what you measured now>}}`. The `metric_id` must name a metric you returned in
   the presentation turn, so the check rides a query this report already shows. Its comparison is the
-  outcome goal, its `soak_hours` is the decision window after resolution, and its baseline is the
+  outcome goal, its `soak_hours` is {soak_description}, and its baseline is the
   observed starting point. The check copies the metric's query, kind, format, and unit for its chart.
   Do not use a per-interval goal: the executor compares the whole query window. A spec naming
   anything else is dropped."""
@@ -450,10 +451,16 @@ _MONITORING_METRIC_CHECK_GUIDANCE = """- Make every effort to complete `config.m
   without a formula: the target scales by elapsed minutes / reference_period_minutes. Choose `fixed`
   explicitly for rates, averages, distinct counts, or other targets that keep the same bound. Never infer
   scaling from the number's display format. Supply the baseline period whenever baseline_value is present.
+  Distinguish implementation targets from minimum sample requirements. A traffic count used only to
+  decide whether there is enough evidence must set `config.monitoring.purpose` to `minimum_evidence`,
+  use `threshold_scaling: fixed`, and supply a positive whole-number `gte` sample threshold on one
+  unsampled raw event or action count, without a formula. Missing that threshold is inconclusive and
+  requests scout assessment after the fixed soak; it never proves the implementation failed. Keep the
+  implementation's success criterion as a separate check. Ordinary success targets use `expectation`
+  (the default). A rationale saying "inconclusive" does not change the executable definition.
   If required facts remain unknown, explain what is missing in the rationale and omit monitoring rather
-  than invent them. Preserve the bounded relative query
-  and whole-window comparison for existing Resolved behavior. This only defines the measurement; it does
-  not enable interim execution or decide a final outcome.
+  than invent them. Preserve the bounded relative query for legacy execution. Monitoring replaces
+  its relative dates with the fixed observation window and compares the whole window.
 - For metric checks with `config.monitoring`, author `run_interval_minutes` based on activity and
   ingestion delay. It controls interim measurement cadence, independently of query bucket size and
   target reference period. Use at least 360 minutes and strictly less than `soak_hours * 60`.
@@ -525,11 +532,9 @@ class FixVerificationOutput(BaseModel):
                 raise ValueError("Only the Expected impact section may change during verification")
         return summary
 
-    @field_validator("checks", mode="wrap")
+    @field_validator("checks", mode="before")
     @classmethod
-    def preserve_checks_on_invalid_proposals(
-        cls, value: object, handler: ValidatorFunctionWrapHandler, info: ValidationInfo
-    ) -> list[CheckSpec] | None:
+    def inherit_existing_check_waits(cls, value: object, info: ValidationInfo) -> object:
         previous = {
             str(check["id"]): check["soak_hours"]
             for check in (info.context or {}).get("previous_checks", [])
@@ -544,25 +549,18 @@ class FixVerificationOutput(BaseModel):
                 else check
                 for check in value
             ]
-        try:
-            checks: list[CheckSpec] | None = handler(value)
-            return checks
-        except ValidationError as error:
-            logger.warning(
-                "fix verification check specs did not validate",
-                extra={
-                    "report_id": (info.context or {}).get("report_id"),
-                    "team_id": (info.context or {}).get("team_id"),
-                    "validation_rules": sorted({item["type"] for item in error.errors(include_input=False)}),
-                },
-            )
-            return None
+        return value
 
-    def to_note(self) -> NoteArtefact:
+    def to_note(self, *, monitoring_enabled: bool = False) -> NoteArtefact:
         # The note is written before persistence can confirm which checks were scheduled.
         proposed = "".join(
-            f"\n\n_Proposed follow-up check: **{check.title}**, with a minimum wait of "
-            f"{check.soak_hours} hours after this report is resolved._"
+            f"\n\n_Proposed follow-up check: **{check.title}**, "
+            + (
+                f"observing the full {check.soak_hours} hours from the recorded Monitoring start "
+                "(the merge time for PR completion)._"
+                if monitoring_enabled
+                else f"with a minimum wait of {check.soak_hours} hours after this report is resolved._"
+            )
             for check in self.checks or []
         )
         return NoteArtefact(
@@ -587,6 +585,7 @@ class ReportResearchOutput(BaseModel):
     title: str = Field(description="Generated report title.")
     summary: str = Field(description="Generated factual report summary.")
     checks_summary: str | None = Field(default=None, description="Summary to apply only with reconciled checks.")
+    checks_error: str | None = None
     tags: list[str] | None = Field(
         default=None,
         description="The report's whole tag set, replaced with title and summary. `None` keeps the stored set.",
@@ -1585,8 +1584,18 @@ def build_fix_verification_prompt(
         "  reading the project's data, such as re-reading an error issue's recent events."
     )
     scheduling_guidance = (
-        _METRIC_FIRST_SCHEDULING_GUIDANCE
+        _METRIC_FIRST_SCHEDULING_GUIDANCE.format(
+            deployment_guidance="Account for rollout uncertainty within the fixed window."
+            if monitoring_enabled
+            else "Allow for a deployment delay of several hours before the fix reaches users.",
+            execution_guidance=_MONITORING_CHECK_SCHEDULING_GUIDANCE
+            if monitoring_enabled
+            else "Shortening only the wait does not shorten a longer measurement query. For existing whole-window "
+            "execution, the query window must fit entirely after the fix; do not include pre-fix data.",
+        )
         if prefer_metric_checks
+        else _MONITORING_CHECK_SCHEDULING_GUIDANCE
+        if monitoring_enabled
         else _DEFAULT_CHECK_SCHEDULING_GUIDANCE.format(default_soak=DEFAULT_CHECK_SOAK_HOURS)
     )
     metric_method_guidance = (
@@ -1596,6 +1605,13 @@ def build_fix_verification_prompt(
         else "Do not force a product metric when another method gives better evidence."
     )
     schema_dict = FixVerificationOutput.model_json_schema()
+    if monitoring_enabled:
+        schema_dict["$defs"]["CheckSpec"]["properties"]["soak_hours"]["description"] = (
+            "Duration in hours of the entire fixed observation window from the recorded Monitoring start "
+            "through start + soak_hours. PR completion uses the latest implementation PR merge timestamp; "
+            "manual entry uses the time Monitoring starts. "
+            "No deployment buffer is excluded. Omission preserves an existing check's duration."
+        )
     if not (metric_checks_enabled and monitoring_enabled):
         schema_dict["$defs"]["CheckSpec"]["properties"].pop("run_interval_minutes", None)
     kinds = [
@@ -1623,6 +1639,9 @@ def build_fix_verification_prompt(
                 if prefer_metric_checks
                 else "decides the question",
                 agent_selection=agent_selection,
+                soak_description="the full observation duration from the recorded Monitoring start"
+                if monitoring_enabled
+                else "the decision window after resolution",
                 no_metric_guidance=(
                     "When the evidence supports no useful metric check, return no check."
                     if prefer_metric_checks
@@ -1642,7 +1661,7 @@ def build_fix_verification_prompt(
         f"```json\n{json.dumps(previous_checks, indent=2)}\n```\n"
         "Review every check against the new evidence. Set existing_check_id to its id when retaining or revising "
         "an existing check; its remaining recurrence is preserved when revised. Keep soak_hours unchanged to "
-        "preserve its exact wait, or explicitly change soak_hours when the new evidence warrants a different wait. "
+        "preserve its exact duration, or explicitly change soak_hours when the new evidence warrants different timing. "
         "Repeat a still-valid check with the same title, rationale, "
         "kind, config, and soak_hours so its schedule and approval are preserved. Revise a materially changed "
         "check by returning a corrected spec, or omit one that is no longer relevant or measurable. "
@@ -1883,6 +1902,7 @@ async def run_multi_turn_research(
                 followup_prompt,
                 finding_model,
                 label=f"signal_{i}_of_{total}",
+                json_retry_prompt=RESEARCH_JSON_RETRY_PROMPT,
             )
             finding, is_new = _resolve_finding_response(response, previous_finding, signal.signal_id)
             (new_artefacts if is_new else old_artefacts).append(finding)
@@ -1908,6 +1928,7 @@ async def run_multi_turn_research(
             actionability_prompt,
             actionability_schema,
             label="actionability",
+            json_retry_prompt=RESEARCH_JSON_RETRY_PROMPT,
         )
         actionability_result, actionability_is_new = _resolve_actionability_response(
             actionability_response, previous_actionability
@@ -1934,6 +1955,7 @@ async def run_multi_turn_research(
                 priority_prompt,
                 priority_schema,
                 label="priority",
+                json_retry_prompt=RESEARCH_JSON_RETRY_PROMPT,
             )
             priority_result, priority_is_new = _resolve_priority_response(priority_response, previous_priority)
             (new_artefacts if priority_is_new else old_artefacts).append(priority_result)
@@ -1960,6 +1982,7 @@ async def run_multi_turn_research(
             presentation_prompt,
             ReportPresentationOutput,
             label="presentation",
+            json_retry_prompt=RESEARCH_JSON_RETRY_PROMPT,
         )
         if output_fn:
             output_fn(f"Report title: {presentation_result.title}")
@@ -1970,6 +1993,7 @@ async def run_multi_turn_research(
         verification_note: NoteArtefact | None = None
         checks: list[CheckSpec] | None = None
         checks_summary: str | None = None
+        checks_error: str | None = None
         if actionability_result.actionability != ActionabilityChoice.NOT_ACTIONABLE:
             if output_fn:
                 output_fn("Generating fix verification steps...")
@@ -1986,6 +2010,12 @@ async def run_multi_turn_research(
                     verification_prompt,
                     FixVerificationOutput,
                     label="fix_verification",
+                    max_json_retries=4,
+                    json_retry_prompt=(
+                        "Correct only the verification plan from your previous reply using the validation errors below. "
+                        "Preserve the completed research. Do not do more research or change other report sections. "
+                        "Reply with only the corrected verification JSON object matching the schema above."
+                    ),
                     validation_context={
                         "report_id": signal_report_id,
                         "team_id": context.team_id,
@@ -1993,7 +2023,7 @@ async def run_multi_turn_research(
                         "summary": presentation_result.summary,
                     },
                 )
-                verification_note = verification_result.to_note()
+                verification_note = verification_result.to_note(monitoring_enabled=monitoring_enabled)
                 if (
                     (metrics_enabled or agent_checks_enabled)
                     and "checks" in verification_result.model_fields_set
@@ -2001,7 +2031,8 @@ async def run_multi_turn_research(
                 ):
                     checks = list(verification_result.checks)
                     checks_summary = verification_result.summary
-            except Exception:
+            except Exception as error:
+                checks_error = _rejection_reason(error)
                 logger.exception(
                     "multi_turn_research: failed to generate fix verification note",
                     extra={
@@ -2035,6 +2066,7 @@ async def run_multi_turn_research(
                     build_supersede_prompt(own_pr_url, previous_report_research.summary),
                     ImplementationAssessment,
                     label="supersede",
+                    json_retry_prompt=RESEARCH_JSON_RETRY_PROMPT,
                 )
                 candidates = {target.pr_url: target for target in implementation_context.candidates}
                 selected = list(dict.fromkeys(assessment.obsolete_pr_urls))
@@ -2080,6 +2112,7 @@ async def run_multi_turn_research(
         verification_note=verification_note,
         checks=checks,
         checks_summary=checks_summary,
+        checks_error=checks_error,
         old_artefacts=old_artefacts,
         new_artefacts=new_artefacts,
     )

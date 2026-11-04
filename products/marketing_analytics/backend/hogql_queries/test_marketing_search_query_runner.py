@@ -280,6 +280,69 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         assert previous_year.previous is not None and previous_year.previous.clicks == 8
         assert not any(row.keyword == "previous only" for row in year_compared)
 
+    @parameterized.expand([("search",), ("performance_max",), ("both",)])
+    def test_search_terms_union_campaign_types_and_take_currency_from_account(self, campaign_types: str) -> None:
+        metrics = {
+            "customer_id": "Int64",
+            "campaign_id": "Int64",
+            "metrics_clicks": "Float64",
+            "metrics_impressions": "Float64",
+            "metrics_cost_micros": "Float64",
+            "metrics_conversions": "Float64",
+            "segments_date": "Date",
+        }
+        search_terms = None
+        if campaign_types in {"search", "both"}:
+            search_terms = self._table(
+                "search_terms",
+                {**metrics, "ad_group_id": "Int64", "search_term_view_search_term": "String"},
+                "customer_id,campaign_id,ad_group_id,search_term_view_search_term,metrics_clicks,metrics_impressions,metrics_cost_micros,metrics_conversions,segments_date\n"
+                "1,10,100,Hedgehog socks,4,40,8000000,1,2023-01-10\n"
+                "1,10,101, hedgehog socks ,1,10,2000000,0,2023-01-11\n"
+                "2,20,200,hedgehog socks,2,20,3000000,0,2023-01-10\n"
+                "1,99,102,hedgehog socks,1,10,1000000,0,2023-01-12\n"
+                "1,10,100,hedgehog socks,50,500,90000000,5,2022-01-10\n",
+            )
+        performance_max_terms = None
+        if campaign_types in {"performance_max", "both"}:
+            performance_max_terms = self._table(
+                "performance_max_terms",
+                {**metrics, "campaign_search_term_view_search_term": "String"},
+                "customer_id,campaign_id,campaign_search_term_view_search_term,metrics_clicks,metrics_impressions,metrics_cost_micros,metrics_conversions,segments_date\n"
+                "1,30,HEDGEHOG SOCKS,3,30,6000000,2,2023-01-12\n"
+                "1,30,warm slippers,6,60,12000000,1,2023-01-12\n"
+                "1,31,warm slippers,1,10,1000000,0,2023-01-13\n",
+            )
+        campaigns = self._table(
+            "search_term_campaigns",
+            {"customer_id": "Int64", "campaign_id": "Int64", "customer_currency_code": "String"},
+            "customer_id,campaign_id,customer_currency_code\n1,10,USD\n1,10,USD\n1,30,USD\n2,20,EUR\n",
+        )
+        query = MarketingAnalyticsSearchQuery(
+            breakdown="search_term",
+            sources=[
+                MarketingAnalyticsSearchSource(
+                    sourceType="GoogleAds",
+                    statsTable=campaigns,
+                    searchTermTable=search_terms,
+                    performanceMaxSearchTermTable=performance_max_terms,
+                )
+            ],
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+        )
+        rows = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate().results
+        totals = {(row.keyword, row.currency): (row.clicks, row.impressions, row.cost, row.conversions) for row in rows}
+        expected: dict[tuple[str, str], tuple[float, float, float, float]] = {}
+        if search_terms:
+            expected[("hedgehog socks", "USD")] = (6, 60, 11, 1)
+            expected[("hedgehog socks", "EUR")] = (2, 20, 3, 0)
+        if performance_max_terms:
+            current = expected.get(("hedgehog socks", "USD"), (0, 0, 0, 0))
+            expected[("hedgehog socks", "USD")] = (current[0] + 3, current[1] + 30, current[2] + 6, current[3] + 2)
+            expected[("warm slippers", "USD")] = (7, 70, 13, 1)
+        assert totals == expected
+        assert all(row.platform == "GoogleAds" and row.matchType is None and row.page is None for row in rows)
+
     @parameterized.expand([("GoogleAds", True), ("GoogleAds", False), ("BingAds", False), ("BingAds", True)])
     def test_landing_pages_exclude_non_search_traffic_and_keep_currencies(
         self, platform: str, placement_available: bool

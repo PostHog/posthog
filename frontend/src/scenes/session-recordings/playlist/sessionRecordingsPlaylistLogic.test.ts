@@ -172,8 +172,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
         initKeaTests()
         featureFlagLogic.mount()
-        // The list memo is module state, so it survives the kea context these tests reset
-        clearMemoizedListResponses()
     })
 
     afterEach(() => {
@@ -1426,12 +1424,51 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
         it('replaces the filters with the defaults plus the saved keys in one load', async () => {
             logic.actions.setFilters({ filter_test_accounts: true, date_from: '-30d' })
+            logic.actions.filterByPerson('p')
             await expectLogic(logic, () => {
                 logic.actions.applySavedFilter({ date_from: '-7d' })
             })
                 .toDispatchActions(['applySavedFilter', 'loadSessionRecordings'])
                 .toNotHaveDispatchedActions(['resetFilters', 'setFilters'])
                 .toMatchValues({ filters: { ...getDefaultFilters(), date_from: '-7d' } })
+        })
+    })
+
+    describe('filtering by a person', () => {
+        beforeEach(() => {
+            logic = sessionRecordingsPlaylistLogic({ logicKey: 'person_filter', updateSearchParams: true })
+            logic.mount()
+        })
+
+        it.each([
+            { name: 'a second person replaces the first', calls: ['a', 'b'], expected: 'b' },
+            { name: 'null drops the key', calls: ['a', null], expected: undefined },
+        ])('$name', ({ calls, expected }) => {
+            for (const personUUID of calls) {
+                logic.actions.filterByPerson(personUUID)
+            }
+            expect(logic.values.filters.person_uuid).toBe(expected)
+            expect('person_uuid' in logic.values.filters).toBe(expected !== undefined)
+            expect(router.values.searchParams.filters?.person_uuid).toBe(expected)
+            expect(logic.values.totalFiltersCount).toBe(expected ? 1 : 0)
+        })
+
+        it.each([
+            { name: 'reads the person from the URL', picked: null, urlFilters: { person_uuid: 'p' }, expected: 'p' },
+            {
+                name: 'drops the picked person for a URL without one',
+                picked: 'p',
+                urlFilters: { date_from: '-7d' },
+                expected: undefined,
+            },
+        ])('$name', async ({ picked, urlFilters, expected }) => {
+            if (picked) {
+                logic.actions.filterByPerson(picked)
+            }
+            router.actions.push('/replay', { filters: urlFilters })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.filters.person_uuid).toBe(expected)
+            expect('person_uuid' in logic.values.filters).toBe(expected !== undefined)
         })
     })
 
@@ -2633,7 +2670,21 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
         // An embedded playlist unmounts with its tab, so most repeats arrive on a fresh logic
         // instance. The memo has to outlive the one that issued the read.
-        it('reads once when a remount inside the memo window repeats the request', async () => {
+        it.each([
+            { when: 'a remount inside the memo window', elapsedMs: LIST_MEMO_WINDOW_MS - 1, resetKea: false, reads: 1 },
+            {
+                when: 'a remount the memo window no longer covers',
+                elapsedMs: LIST_MEMO_WINDOW_MS + 1,
+                resetKea: false,
+                reads: 2,
+            },
+            {
+                when: 'a reset kea context inside the memo window',
+                elapsedMs: LIST_MEMO_WINDOW_MS - 1,
+                resetKea: true,
+                reads: 2,
+            },
+        ])('reads $reads time(s) when $when repeats the request', async ({ elapsedMs, resetKea, reads }) => {
             const advanceClock = mockClock()
             const listSpy = jest
                 .spyOn(api.recordings, 'list')
@@ -2646,36 +2697,17 @@ describe('sessionRecordingsPlaylistLogic', () => {
             await expectLogic(firstMount).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
             firstMount.unmount()
 
-            advanceClock(LIST_MEMO_WINDOW_MS - 1)
+            advanceClock(elapsedMs)
+            if (resetKea) {
+                initKeaTests()
+                featureFlagLogic.mount()
+            }
             const secondMount = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-remount' })
             secondMount.mount()
             await expectLogic(secondMount).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
 
-            expect(listSpy).toHaveBeenCalledTimes(1)
+            expect(listSpy).toHaveBeenCalledTimes(reads)
             expect(secondMount.values.sessionRecordings).toEqual([aRecording])
-
-            secondMount.unmount()
-        })
-
-        it('reads again when a remount repeats a request the memo window no longer covers', async () => {
-            const advanceClock = mockClock()
-            const listSpy = jest
-                .spyOn(api.recordings, 'list')
-                .mockImplementation(
-                    () => Promise.resolve(listResponse as unknown) as ReturnType<typeof api.recordings.list>
-                )
-
-            const firstMount = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-remount-expired' })
-            firstMount.mount()
-            await expectLogic(firstMount).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
-            firstMount.unmount()
-
-            advanceClock(LIST_MEMO_WINDOW_MS + 1)
-            const secondMount = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-remount-expired' })
-            secondMount.mount()
-            await expectLogic(secondMount).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
-
-            expect(listSpy).toHaveBeenCalledTimes(2)
 
             secondMount.unmount()
         })

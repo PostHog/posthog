@@ -55,7 +55,7 @@ export interface ActivitySummaryThemeApi {
      * @nullable
      */
     strength: string | null
-    /** Refs into `computed.owned`, `computed.watched` and `computed.pages` of the same version, such as `o1` or `p2`, that show this thread. A ref is valid only inside one version. */
+    /** Refs into `computed.owned`, `computed.watched`, `computed.pages`, `computed.tasks` and `computed.mcp_sessions` of the same version, such as `o1`, `p2`, `t3` or `m1`, that show this thread. A ref is valid only inside one version. */
     refs: string[]
     /**
      * The last day of activity on the refs of this thread, as YYYY-MM-DD.
@@ -209,6 +209,13 @@ export interface ActivitySummaryProductSplitApi {
     visits: ActivitySummaryProductEnumApi[]
 }
 
+export interface ActivitySummaryLineRefApi {
+    /** The ref that themes cite, such as `t1` for a task or `m1` for an MCP session. */
+    ref: string
+    /** The day of the task or MCP session, as YYYY-MM-DD. */
+    last_at: string
+}
+
 export interface ActivitySummaryComputedApi {
     /** The version of the shape of these fields. */
     schema_version: number
@@ -222,6 +229,10 @@ export interface ActivitySummaryComputedApi {
     products: ActivitySummaryProductSplitApi
     /** The number of tasks the user gave to PostHog AI or the Slack agent. */
     task_count: number
+    /** Tasks the user gave to PostHog AI or the Slack agent that the summary input showed, oldest first. Empty on summaries from before task refs existed. */
+    tasks: ActivitySummaryLineRefApi[]
+    /** Sessions of the user's AI agent over MCP that the summary input showed, oldest first. Empty on summaries from before MCP refs existed. */
+    mcp_sessions: ActivitySummaryLineRefApi[]
 }
 
 export interface ActivitySummaryApi {
@@ -295,6 +306,93 @@ export interface ActivitySummaryVersionApi {
     profile: string | null
     /** Exact fields that code computed from the user's activity, with ids. The theme refs point into them. Set only when the request asks for one version with `version`. */
     computed: ActivitySummaryComputedApi | null
+}
+
+/**
+ * * `semantic` - Semantic
+ * * `headline` - Headline
+ * * `themes` - Themes
+ * * `owned` - Owned
+ * * `watched` - Watched
+ * * `profile` - Profile
+ */
+export type MatchKindEnumApi = (typeof MatchKindEnumApi)[keyof typeof MatchKindEnumApi]
+
+export const MatchKindEnumApi = {
+    Semantic: 'semantic',
+    Headline: 'headline',
+    Themes: 'themes',
+    Owned: 'owned',
+    Watched: 'watched',
+    Profile: 'profile',
+} as const
+
+export interface ActivitySummarySearchMatchApi {
+    /** `semantic` for a vector match, else the summary field a keyword matched.
+     *
+     * * `semantic` - Semantic
+     * * `headline` - Headline
+     * * `themes` - Themes
+     * * `owned` - Owned
+     * * `watched` - Watched
+     * * `profile` - Profile */
+    kind: MatchKindEnumApi
+    /**
+     * A short excerpt around the first keyword match. Null for a semantic match.
+     * @nullable
+     */
+    snippet: string | null
+}
+
+export interface ActivitySummarySearchHitApi {
+    /** The member. Use it in `suggested_reviewers`. */
+    user_uuid: string
+    /** The member's first name. */
+    first_name: string
+    /** The member's last name. */
+    last_name: string
+    /**
+     * The member's GitHub login, lowercase. Null when no GitHub identity is linked.
+     * @nullable
+     */
+    github_login: string | null
+    /**
+     * The reciprocal rank fusion score. Higher is a better match. Null when the request had no query.
+     * @nullable
+     */
+    score: number | null
+    /** Why this member matched. */
+    matched_on: ActivitySummarySearchMatchApi[]
+    /**
+     * One or two sentences about what the member works on in this project.
+     * @nullable
+     */
+    headline: string | null
+    /** The main threads of the member's work. */
+    themes: ActivitySummaryThemeApi[]
+    /** How the member works in this project overall, the main mode first. */
+    modes: ActivitySummaryModeEnumApi[]
+    /**
+     * When this summary was written.
+     * @nullable
+     */
+    generated_at: string | null
+    /** True when a newer version will replace this summary soon. */
+    stale: boolean
+    /**
+     * The one-page markdown profile. Set only when the request sets `include_profile`.
+     * @nullable
+     */
+    profile: string | null
+}
+
+export interface ActivitySummarySearchResultApi {
+    /** The matching members, best match first. */
+    results: ActivitySummarySearchHitApi[]
+    /** False when the search used keywords only: a `keyword` search, a request with no query, or a `hybrid` search whose vector search failed. */
+    semantic_used: boolean
+    /** Members with access to the project and no summary yet. The search cannot find them. */
+    not_ready_count: number
 }
 
 /**
@@ -394,7 +492,7 @@ export interface AnomalyInsightSeriesApi {
 }
 
 export interface AnomalyInsightResponseApi {
-    /** Whether anomaly scoring covers this project. */
+    /** Whether anomaly scoring scores this project now. False when scoring does not cover the project, or when the project turned it off in its self-driving settings. Scores written before scoring was turned off are still returned. */
     scoring_enabled: boolean
     /** The numeric id of the insight. */
     insight_id: number
@@ -612,7 +710,7 @@ export interface AnomalyInsightRowApi {
 }
 
 export interface AnomalySearchResponseApi {
-    /** Whether anomaly scoring covers this project. */
+    /** Whether anomaly scoring scores this project now. False when scoring does not cover the project, or when the project turned it off in its self-driving settings. Scores written before scoring was turned off are still returned. */
     scoring_enabled: boolean
     /** Active insights that scoring checks: saved trends insights that a person viewed, that sit on a dashboard someone opened, or that were edited in the active window (90 days by default), or that have an enabled alert or subscription. */
     watched_insights: number
@@ -681,6 +779,11 @@ export interface SignalTeamConfigApi {
      * @nullable
      */
     default_slack_notification_channel?: string | null
+    /**
+     * Connected Slack integration that owns `default_slack_notification_channel`. Send it together with the channel. A channel saved without it is routed through the team's oldest Slack integration, and clearing the channel clears this too.
+     * @nullable
+     */
+    default_slack_notification_integration?: number | null
     /** Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch. */
     autostart_base_branches?: SignalTeamConfigApiAutostartBaseBranches
     /**
@@ -724,6 +827,16 @@ export interface SignalTeamConfigApi {
      * @nullable
      */
     pull_request_label?: string | null
+    /**
+     * Extra GitHub repositories, as 'organization/repository', that self-driving implementation tasks can read and write within the connected GitHub App's permissions, for example an assets repository for PR screenshots. A task gets only the entries with the same owner as its selected repository. They are not cloned, and the PR still targets the selected repository. Each new entry must be reachable through one of the project's GitHub installations. Changes apply to tasks started afterwards. Empty by default.
+     * @maxItems 20
+     * @items.maxLength 255
+     */
+    implementation_repositories?: string[]
+    /** Whether anomaly scoring scores this project's active trends insights every hour and writes the results as $anomaly_score events, which are not billed. True by default. Set false to stop new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered. */
+    anomaly_scoring_enabled?: boolean
+    /** Whether anomaly scoring covers this project, so anomaly_scoring_enabled has an effect. PostHog decides which projects anomaly scoring covers. */
+    readonly anomaly_scoring_available: boolean
     /**
      * How many reports first became visible in the inbox during the current project-timezone day. This is the count the daily report limit compares against.
      * @minimum 0
@@ -878,6 +991,18 @@ export const InboxOnboardingStepEnumApi = {
 } as const
 
 /**
+ * * `quick` - Quick
+ * * `guided` - Guided
+ */
+export type InboxOnboardingSetupModeEnumApi =
+    (typeof InboxOnboardingSetupModeEnumApi)[keyof typeof InboxOnboardingSetupModeEnumApi]
+
+export const InboxOnboardingSetupModeEnumApi = {
+    Quick: 'quick',
+    Guided: 'guided',
+} as const
+
+/**
  * * `session_replay` - Session replay
  * * `llm_analytics` - LLM analytics
  * * `github` - GitHub
@@ -889,6 +1014,7 @@ export const InboxOnboardingStepEnumApi = {
  * * `pganalyze` - pganalyze
  * * `signals_scout` - Signals scout
  * * `signals_check` - Report check
+ * * `user_authored` - Team member
  * * `logs` - Logs
  * * `health_checks` - Health checks
  * * `endpoints` - Endpoints
@@ -1005,6 +1131,7 @@ export const SignalSourceProductEnumApi = {
     Pganalyze: 'pganalyze',
     SignalsScout: 'signals_scout',
     SignalsCheck: 'signals_check',
+    UserAuthored: 'user_authored',
     Logs: 'logs',
     HealthChecks: 'health_checks',
     Endpoints: 'endpoints',
@@ -1172,6 +1299,7 @@ export interface InboxOnboardingSourceApi {
      * * `pganalyze` - pganalyze
      * * `signals_scout` - Signals scout
      * * `signals_check` - Report check
+     * * `user_authored` - Team member
      * * `logs` - Logs
      * * `health_checks` - Health checks
      * * `endpoints` - Endpoints
@@ -1382,6 +1510,11 @@ export interface InboxOnboardingDraftApi {
      * * `scouts` - Scouts
      * * `github` - GitHub */
     step: InboxOnboardingStepEnumApi
+    /** How setup was chosen: quick activation from the welcome screen, or the guided steps.
+     *
+     * * `quick` - Quick
+     * * `guided` - Guided */
+    setup_mode?: InboxOnboardingSetupModeEnumApi
     /** Staged signal source choices. */
     sources: InboxOnboardingSourceApi[]
     /**
@@ -1409,20 +1542,6 @@ export interface InboxOnboardingDraftApi {
     implementation_priority: AutonomyPriorityEnumApi
 }
 
-/**
- * * `control` - Control
- * * `test-ui` - Focused steps
- * * `test-github` - Activate and explore
- */
-export type InboxOnboardingVariantEnumApi =
-    (typeof InboxOnboardingVariantEnumApi)[keyof typeof InboxOnboardingVariantEnumApi]
-
-export const InboxOnboardingVariantEnumApi = {
-    Control: 'control',
-    TestUi: 'test-ui',
-    TestGithub: 'test-github',
-} as const
-
 export interface InboxOnboardingStateApi {
     /** Whether this project can activate Self-driving without connecting GitHub. */
     github_optional_available?: boolean
@@ -1444,21 +1563,6 @@ export interface InboxOnboardingStateApi {
      * @nullable
      */
     completed_at: string | null
-    /** Variant recorded at the first eligible impression.
-     *
-     * * `control` - Control
-     * * `test-ui` - Focused steps
-     * * `test-github` - Activate and explore */
-    variant: InboxOnboardingVariantEnumApi | null
-}
-
-export interface InboxOnboardingExposureApi {
-    /** Assigned experiment variant at the eligible Inbox impression.
-     *
-     * * `control` - Control
-     * * `test-ui` - Focused steps
-     * * `test-github` - Activate and explore */
-    variant: InboxOnboardingVariantEnumApi
 }
 
 export interface PauseStateResponseApi {
@@ -2418,7 +2522,7 @@ export interface SignalReportListApi {
     /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
     readonly plan: ReportPlanApi | null
     /**
-     * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's outcome (open, action or fix), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
+     * Sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first, so rows from several requests merge in the order of one request. For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from 0 to 1, and a report without a usable score gets 2 plus its priority rank. The priority ranker uses the priority rank only, from 0 (P0) to 5 (no priority). Null for every other sort.
      * @nullable
      */
     readonly inbox_merge_key: number | null
@@ -2436,6 +2540,297 @@ export interface PaginatedSignalReportListListApi {
      * @nullable
      */
     ranker?: string | null
+    /**
+     * Whether the client shows a ranking score pill on each card, when sort=recommended. The same flag arm sets this and the ranker. Null for every other sort.
+     * @nullable
+     */
+    ranking_pill?: boolean | null
+}
+
+/**
+ * One observation backing an authored report — becomes a bound signal row on the report.
+ */
+export interface ReportEvidenceApi {
+    /**
+     * Prose for this observation. Embedded and rendered to the safety/research surfaces.
+     * @maxLength 4000
+     */
+    description: string
+    /** Stable id for this observation within the report (lets a later edit address it). */
+    source_id: string
+}
+
+/**
+ * * `immediately_actionable` - immediately_actionable
+ * * `requires_human_input` - requires_human_input
+ * * `not_actionable` - not_actionable
+ */
+export type ActionabilityEnumApi = (typeof ActionabilityEnumApi)[keyof typeof ActionabilityEnumApi]
+
+export const ActionabilityEnumApi = {
+    ImmediatelyActionable: 'immediately_actionable',
+    RequiresHumanInput: 'requires_human_input',
+    NotActionable: 'not_actionable',
+} as const
+
+/**
+ * One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
+ *
+ * A reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a
+ * member with no linked GitHub account routes the report like anyone else. A `user_uuid` that
+ * isn't an org member of this team is rejected — so a reviewer is never silently dropped.
+ */
+export interface SuggestedReviewerApi {
+    /**
+     * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
+     * @maxLength 200
+     */
+    github_login?: string
+    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here. */
+    user_uuid?: string
+    /**
+     * One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership.
+     * @maxLength 500
+     * @nullable
+     */
+    reason?: string | null
+}
+
+export interface ReportMetricComparisonApi {
+    /** Baseline or previous value, formatted like the current value. */
+    value: number
+    /**
+     * Short context for the comparison, such as `Previous period`.
+     * @maxLength 40
+     */
+    label: string
+}
+
+/**
+ * Authoring shape: unlike a read response, the live query cannot be absent or redacted.
+ */
+export interface ReportMetricWriteApi {
+    /**
+     * Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.
+     * @maxLength 100
+     */
+    metric_id: string
+    /**
+     * Short human-readable label for the measurement.
+     * @maxLength 200
+     */
+    title: string
+    /** What the value measures, independent of how it is formatted or drawn.
+     *
+     * * `affected_users` - affected_users
+     * * `affected_sessions` - affected_sessions
+     * * `occurrences` - occurrences
+     * * `conversion_rate` - conversion_rate
+     * * `error_rate` - error_rate
+     * * `duration` - duration
+     * * `revenue` - revenue
+     * * `custom` - custom */
+    kind: ReportMetricKindEnumApi
+    /** `primary` for the report's key observation, otherwise `supporting`.
+     *
+     * * `primary` - primary
+     * * `supporting` - supporting */
+    role?: RoleEnumApi
+    /**
+     * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+     * @nullable
+     */
+    value?: number | null
+    /**
+     * When the visible snapshot value was measured; null when value is null.
+     * @nullable
+     */
+    value_at?: string | null
+    /**
+     * Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.
+     * @maxItems 14
+     * @nullable
+     */
+    series?: number[] | null
+    /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
+     *
+     * * `number` - number
+     * * `count` - count
+     * * `percentage` - percentage
+     * * `percentage_scaled` - percentage_scaled
+     * * `duration` - duration
+     * * `currency` - currency */
+    value_format?: ValueFormatEnumApi
+    /**
+     * Optional short suffix or currency code, such as `users`, `ms`, or `USD`.
+     * @maxLength 40
+     * @nullable
+     */
+    unit?: string | null
+    /** Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition. */
+    query: unknown
+    /**
+     * Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.
+     * @maxLength 500
+     * @nullable
+     */
+    caption?: string | null
+    /** Legacy optional comparison. New report metrics must omit it. */
+    comparison?: ReportMetricComparisonApi | null
+}
+
+/**
+ * * `depends_on` - Depends on
+ * * `part_of` - Part of
+ * * `follow_up_of` - Follow-up of
+ * * `duplicate_of` - Duplicate of
+ * * `recurrence_of` - Recurrence of
+ */
+export type ReportLinkKindEnumApi = (typeof ReportLinkKindEnumApi)[keyof typeof ReportLinkKindEnumApi]
+
+export const ReportLinkKindEnumApi = {
+    DependsOn: 'depends_on',
+    PartOf: 'part_of',
+    FollowUpOf: 'follow_up_of',
+    DuplicateOf: 'duplicate_of',
+    RecurrenceOf: 'recurrence_of',
+} as const
+
+/**
+ * One typed, directed link to write on the report being emitted or edited.
+ */
+export interface ReportLinkWriteApi {
+    /** How this report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.
+     *
+     * * `depends_on` - Depends on
+     * * `part_of` - Part of
+     * * `follow_up_of` - Follow-up of
+     * * `duplicate_of` - Duplicate of
+     * * `recurrence_of` - Recurrence of */
+    kind: ReportLinkKindEnumApi
+    /** Id of the report to link to. Must be another report in this project. */
+    report_id: string
+    /**
+     * Optional one-line note on why the reports are linked this way.
+     * @maxLength 500
+     */
+    reason?: string
+}
+
+/**
+ * Request body for the scout `emit-report` action and the inbox report `create` action. A scout run is
+ * taken from the URL path; a person is the authenticated caller.
+ */
+export interface EmitReportRequestApi {
+    /**
+     * One-line report title the inbox shows. Conventional-commit style (`type(scope): description`, e.g. `fix(insights): missing series color`) renders with type/scope styling.
+     * @maxLength 300
+     */
+    title: string
+    /** The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. A heading, or a bold label on a line of its own with a blank line above it, marks a section that a threaded Slack delivery splits into its own reply. */
+    summary: string
+    /**
+     * The observations backing the report — each becomes a bound signal. At least one.
+     * @minItems 1
+     */
+    evidence: ReportEvidenceApi[]
+    /** 2-3 sentence evidence-grounded justification for the actionability call below. */
+    actionability_explanation: string
+    /** The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless. A root cause you have not found is not human input: a report that names the evidence, the code surface, or a reproducible failure path is `immediately_actionable`, because investigating it is the action. Reserve `requires_human_input` for a report blocked on a decision only a person can make.
+     *
+     * * `immediately_actionable` - immediately_actionable
+     * * `requires_human_input` - requires_human_input
+     * * `not_actionable` - not_actionable */
+    actionability: ActionabilityEnumApi
+    /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart of a scout report, so a wrong `false` opens a duplicate PR. Tracked separately. */
+    already_addressed?: boolean
+    /**
+     * Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
+     * @nullable
+     */
+    repository?: string | null
+    /** Optional priority (`P0`-`P4`). Required for autostart; pair with `priority_explanation`.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    priority?: AutonomyPriorityEnumApi | null
+    /**
+     * 2-3 sentence justification for `priority`. Required when `priority` is set.
+     * @nullable
+     */
+    priority_explanation?: string | null
+    /**
+     * Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. On a scout report it also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold. A report a person files never autostarts.
+     * @maxItems 10
+     */
+    suggested_reviewers?: SuggestedReviewerApi[]
+    /**
+     * Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.
+     * @maxItems 20
+     */
+    charts?: ReportChartApi[]
+    /**
+     * Optional typed impact measurements. Use one primary metric for the key observation and supporting metrics for users, sessions, occurrences, conversion, latency, or revenue. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes. A value/value_at snapshot is an optional cached fallback. Affected users must use one series with `math: dau`. Snapshot-only/queryless payloads are invalid; legacy rows of that shape are always redacted.
+     * @maxItems 6
+     */
+    metrics?: ReportMetricWriteApi[]
+    /**
+     * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them.
+     * @maxItems 3
+     * @items.maxLength 200
+     */
+    suggested_prompts?: string[]
+    /**
+     * Typed, directed links from the new report to reports that already exist. Send them here, not in a later `edit-report` call, because autostart reads them when the report is created: a `duplicate_of` link to a report that already has a pull request, or a `depends_on` link to a report with no pull request yet, stops a second draft PR. Only the new report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project.
+     * @maxItems 10
+     */
+    links?: ReportLinkWriteApi[]
+    /**
+     * Optional slug tags that group the report with related ones, at most 10. Write lowercase kebab-case slugs that name the category of the report (`cost-spike`, `tracking-gap`), not the specific entity. Reuse a slug the project already uses before you coin a new one. Near-miss formats are normalized to slugs, and a tag that is empty or longer than 50 characters after normalization is rejected.
+     * @maxItems 10
+     */
+    tags?: string[]
+    /**
+     * Optional name for this emission, unique within a scout's run or within a person's own reports. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report.
+     * @maxLength 200
+     * @nullable
+     */
+    idempotency_key?: string | null
+}
+
+export interface EmitReportResponseApi {
+    /**
+     * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.
+     * @nullable
+     */
+    report_id: string | null
+    /**
+     * Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped.
+     * @nullable
+     */
+    report_status: string | null
+    /** True when the report actually surfaced in the inbox (READY or PENDING_INPUT). */
+    emitted: boolean
+    /**
+     * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.
+     * @nullable
+     */
+    skipped_reason: string | null
+    /**
+     * When the safety judge suppressed the report, why; null when safe.
+     * @nullable
+     */
+    safety_explanation: string | null
+    /**
+     * One-line, actionable next step when `skipped_reason` is set and the block is fixable (e.g. an org admin must approve AI data processing). Null when the report was authored or the skip isn't something the scout can act on.
+     * @nullable
+     */
+    remediation: string | null
+    /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
+    idempotent_replay: boolean
 }
 
 /**
@@ -3401,6 +3796,8 @@ export interface SuggestedReviewerEntryReadApi {
     reason: string | null
     /** True when the scout owner guardrail added the entry rather than commit authorship. */
     is_skill_owner: boolean
+    /** True when no evidence selected anyone and the report fell back to the project's default owner. The entry routes the report, but it is not ownership evidence. */
+    is_default_owner: boolean
     /**
      * Scout skill whose run wrote the entry. Null when no scout did.
      * @nullable
@@ -3488,6 +3885,7 @@ export interface SignalReportLeaveReviewersApi {
  * * `pganalyze` - pganalyze
  * * `signals_scout` - signals_scout
  * * `signals_check` - signals_check
+ * * `user_authored` - user_authored
  * * `logs` - logs
  * * `health_checks` - health_checks
  * * `replay_vision` - replay_vision
@@ -3604,6 +4002,7 @@ export const SignalSourceProductApi = {
     Pganalyze: 'pganalyze',
     SignalsScout: 'signals_scout',
     SignalsCheck: 'signals_check',
+    UserAuthored: 'user_authored',
     Logs: 'logs',
     HealthChecks: 'health_checks',
     ReplayVision: 'replay_vision',
@@ -3723,6 +4122,7 @@ export const SignalSourceProductApi = {
  * * `health_issue` - health_issue
  * * `scanner_finding` - scanner_finding
  * * `anomaly_investigation` - anomaly_investigation
+ * * `alert_firing` - alert_firing
  * * `feedback` - feedback
  * * `review` - review
  * * `ci_flaky_check` - ci_flaky_check
@@ -3730,6 +4130,7 @@ export const SignalSourceProductApi = {
  * * `ci_duration_regression` - ci_duration_regression
  * * `search_opportunity` - search_opportunity
  * * `check_failed` - check_failed
+ * * `monitoring_unresolved` - monitoring_unresolved
  * * `incident` - incident
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
@@ -3751,6 +4152,7 @@ export const SignalSourceTypeApi = {
     HealthIssue: 'health_issue',
     ScannerFinding: 'scanner_finding',
     AnomalyInvestigation: 'anomaly_investigation',
+    AlertFiring: 'alert_firing',
     Feedback: 'feedback',
     Review: 'review',
     CiFlakyCheck: 'ci_flaky_check',
@@ -3758,6 +4160,7 @@ export const SignalSourceTypeApi = {
     CiDurationRegression: 'ci_duration_regression',
     SearchOpportunity: 'search_opportunity',
     CheckFailed: 'check_failed',
+    MonitoringUnresolved: 'monitoring_unresolved',
     Incident: 'incident',
 } as const
 
@@ -3822,6 +4225,11 @@ export interface ZendeskTicketSignalExtraApi {
     status: string
 }
 
+export interface GithubIssueDependencyRefApi {
+    repository: string
+    number: number
+}
+
 export interface GithubIssueSignalExtraApi {
     html_url: string
     number: number
@@ -3832,6 +4240,7 @@ export interface GithubIssueSignalExtraApi {
     state: string
     author_login?: string | null
     author_association?: string | null
+    depends_on_issues?: GithubIssueDependencyRefApi[]
 }
 
 export interface LinearIssueSignalExtraApi {
@@ -3956,6 +4365,13 @@ export interface CheckFailedSignalExtraApi {
     threshold?: string | null
 }
 
+export interface MonitoringUnresolvedSignalExtraApi {
+    /** Original Closed report whose implementation remains unverified. */
+    report_id: string
+    /** Monitoring attempt that durably requested this investigation. */
+    attempt_id: string
+}
+
 export type LogsAlertStateChangeSignalExtraActionEnumApi =
     (typeof LogsAlertStateChangeSignalExtraActionEnumApi)[keyof typeof LogsAlertStateChangeSignalExtraActionEnumApi]
 
@@ -4025,7 +4441,6 @@ export const InvestigationVerdictEnumApi = {
 export interface AnalyticsAnomalyInvestigationSignalExtraApi {
     alert_id: string
     alert_name: string
-    alert_check_id: string
     insight_id: string
     detector_type: string
     verdict: InvestigationVerdictEnumApi
@@ -4034,6 +4449,23 @@ export interface AnalyticsAnomalyInvestigationSignalExtraApi {
     insight_short_id?: string | null
     triggered_dates?: string[] | null
     notebook_short_id?: string | null
+    alert_check_id?: string | null
+    investigation_id?: string | null
+    evaluation_key?: string | null
+}
+
+export interface AnalyticsAlertFiringSignalExtraApi {
+    alert_id: string
+    alert_name: string
+    insight_id: string
+    alert_check_id: string
+    detector_type: string
+    breaches: string[]
+    episode_started_at: string
+    url: string
+    insight_name?: string | null
+    insight_short_id?: string | null
+    triggered_dates?: string[] | null
 }
 
 export type HealthCheckSignalExtraSeverityEnumApi =
@@ -4845,9 +5277,11 @@ export type SignalExtraApi =
     | EndpointBreakdownLimitExceededSignalExtraApi
     | SignalsScoutSignalExtraApi
     | CheckFailedSignalExtraApi
+    | MonitoringUnresolvedSignalExtraApi
     | LogsAlertStateChangeSignalExtraApi
     | ReplayVisionScannerFindingSignalExtraApi
     | AnalyticsAnomalyInvestigationSignalExtraApi
+    | AnalyticsAlertFiringSignalExtraApi
     | HealthCheckSignalExtraApi
     | EngineeringAnalyticsCIFlakyCheckSignalExtraApi
     | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi
@@ -5003,6 +5437,7 @@ export interface SignalNodeApi {
      * * `pganalyze` - pganalyze
      * * `signals_scout` - signals_scout
      * * `signals_check` - signals_check
+     * * `user_authored` - user_authored
      * * `logs` - logs
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
@@ -5122,6 +5557,7 @@ export interface SignalNodeApi {
      * * `health_issue` - health_issue
      * * `scanner_finding` - scanner_finding
      * * `anomaly_investigation` - anomaly_investigation
+     * * `alert_firing` - alert_firing
      * * `feedback` - feedback
      * * `review` - review
      * * `ci_flaky_check` - ci_flaky_check
@@ -5129,6 +5565,7 @@ export interface SignalNodeApi {
      * * `ci_duration_regression` - ci_duration_regression
      * * `search_opportunity` - search_opportunity
      * * `check_failed` - check_failed
+     * * `monitoring_unresolved` - monitoring_unresolved
      * * `incident` - incident */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
@@ -5151,6 +5588,25 @@ export interface ReportSignalsResponseApi {
     report: SignalReportApi
     /** All signals contributing to the report. */
     signals: SignalNodeApi[]
+}
+
+export interface SpendAmountApi {
+    /**
+     * Recorded usage in USD cents, before billing exemptions; null when untracked.
+     * @nullable
+     */
+    total_spend: number | null
+    /** Whether usage is still settling or accounting is incomplete. */
+    incomplete: boolean
+}
+
+export interface ReportSpendApi {
+    /** Usage for the report's backing signals, research and repository selection. */
+    generation: SpendAmountApi
+    /** Usage for implementation tasks owned by the report. */
+    implementation: SpendAmountApi
+    /** Full usage of scout runs that authored this report. Shared with all other output of those runs. */
+    shared_scout_runs: SpendAmountApi
 }
 
 /**
@@ -5269,6 +5725,7 @@ export interface SignalReportStateRequestApi {
  * * `check_result` - Check Result
  * * `check_observation` - Check Observation
  * * `check_scheduled` - Check Scheduled
+ * * `check_authoring` - Check Authoring
  * * `check_expired` - Check Expired
  * * `check_cancelled` - Check Cancelled
  * * `implementation_decision` - Implementation Decision
@@ -5310,6 +5767,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     CheckResult: 'check_result',
     CheckObservation: 'check_observation',
     CheckScheduled: 'check_scheduled',
+    CheckAuthoring: 'check_authoring',
     CheckExpired: 'check_expired',
     CheckCancelled: 'check_cancelled',
     ImplementationDecision: 'implementation_decision',
@@ -5495,6 +5953,14 @@ export const SignalReportCheckStatusEnumApi = {
     Cancelled: 'cancelled',
 } as const
 
+export type MonitoringMetricConfigPurposeEnumApi =
+    (typeof MonitoringMetricConfigPurposeEnumApi)[keyof typeof MonitoringMetricConfigPurposeEnumApi]
+
+export const MonitoringMetricConfigPurposeEnumApi = {
+    Expectation: 'expectation',
+    MinimumEvidence: 'minimum_evidence',
+} as const
+
 export type ThresholdScalingEnumApi = (typeof ThresholdScalingEnumApi)[keyof typeof ThresholdScalingEnumApi]
 
 export const ThresholdScalingEnumApi = {
@@ -5503,6 +5969,8 @@ export const ThresholdScalingEnumApi = {
 } as const
 
 export interface MonitoringMetricConfigApi {
+    /** `expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count. */
+    purpose?: MonitoringMetricConfigPurposeEnumApi
     /**
      * The period the comparison target describes, in minutes. Independent of the soak and run schedule.
      * @maximum 527040
@@ -5676,8 +6144,24 @@ export const MonitoringCheckTimingStateEnumApi = {
     ExpiryReached: 'expiry_reached',
 } as const
 
+/**
+ * * `monitoring` - Monitoring
+ * * `verifying` - Verifying
+ * * `assessment_required` - Assessment required
+ * * `verification_complete` - Verification complete
+ */
+export type FinalVerificationStateEnumApi =
+    (typeof FinalVerificationStateEnumApi)[keyof typeof FinalVerificationStateEnumApi]
+
+export const FinalVerificationStateEnumApi = {
+    Monitoring: 'monitoring',
+    Verifying: 'verifying',
+    AssessmentRequired: 'assessment_required',
+    VerificationComplete: 'verification_complete',
+} as const
+
 export interface MonitoringCheckTimingApi {
-    /** Whether this check has an interim measurement due, is paused, or has finished its observation window. No state implies a final verdict.
+    /** Monitoring timing state. Final verification phases use paused for compatibility; read final_verification_state for their phase.
      *
      * * `scheduled` - Scheduled
      * * `due` - Due
@@ -5689,6 +6173,13 @@ export interface MonitoringCheckTimingApi {
      * * `unavailable` - Timing unavailable
      * * `expiry_reached` - Expiry reached */
     state: MonitoringCheckTimingStateEnumApi
+    /** Final verification phase when state is paused. Null for other timing states. Read the check outcome for its verdict.
+     *
+     * * `monitoring` - Monitoring
+     * * `verifying` - Verifying
+     * * `assessment_required` - Assessment required
+     * * `verification_complete` - Verification complete */
+    readonly final_verification_state?: FinalVerificationStateEnumApi | null
     /**
      * Original Monitoring start for this check's report.
      * @nullable
@@ -5911,6 +6402,220 @@ export interface SignalReportBulkStateResponseApi {
     failed_count: number
     /** Number of requested ids not visible to the caller. */
     not_found_count: number
+}
+
+export interface SignalReportBulkClaimRequestApi {
+    /**
+     * Report ids to claim for the caller in one call (1–100). Duplicates are de-duplicated. Each id is claimed independently, so a report that cannot be claimed does not block the rest.
+     * @minItems 1
+     * @maxItems 100
+     */
+    ids: string[]
+    /** Take over a report that an agent or an internal task holds. A report that a person holds directly is never taken over and comes back as a conflict. */
+    takeover_agent_claims?: boolean
+}
+
+export interface SignalReportBulkClaimResultApi {
+    /** The report id this result refers to. */
+    id: string
+    /** One of: claimed, conflict, not_found. claimed: the caller holds the claim, including when it already did. conflict: the claim was refused, because someone else holds the report or its status does not allow a claim (a 409 on the single-report endpoint). not_found: no report with this id is visible to you. */
+    outcome: string
+    /**
+     * Human-readable explanation for a conflict or not_found outcome.
+     * @nullable
+     */
+    detail?: string | null
+}
+
+export interface SignalReportBulkClaimResponseApi {
+    /** One result per requested id, in request order (after de-duplication). */
+    results: SignalReportBulkClaimResultApi[]
+    /** Number of reports the caller now holds. */
+    claimed_count: number
+    /** Number of reports whose claim was refused. */
+    conflict_count: number
+    /** Number of requested ids not visible to the caller. */
+    not_found_count: number
+}
+
+/**
+ * * `ready` - ready
+ * * `unavailable` - unavailable
+ */
+export type PersonalRankingStatusEnumApi =
+    (typeof PersonalRankingStatusEnumApi)[keyof typeof PersonalRankingStatusEnumApi]
+
+export const PersonalRankingStatusEnumApi = {
+    Ready: 'ready',
+    Unavailable: 'unavailable',
+} as const
+
+/**
+ * * `top` - top
+ * * `worth_a_look` - worth_a_look
+ * * `later` - later
+ */
+export type PersonalRankingTierEnumApi = (typeof PersonalRankingTierEnumApi)[keyof typeof PersonalRankingTierEnumApi]
+
+export const PersonalRankingTierEnumApi = {
+    Top: 'top',
+    WorthALook: 'worth_a_look',
+    Later: 'later',
+} as const
+
+/**
+ * * `suggested_reviewer` - suggested_reviewer
+ * * `claimed` - claimed
+ * * `waiting_on_input` - waiting_on_input
+ */
+export type PersonalRankingNeedsYouEnumApi =
+    (typeof PersonalRankingNeedsYouEnumApi)[keyof typeof PersonalRankingNeedsYouEnumApi]
+
+export const PersonalRankingNeedsYouEnumApi = {
+    SuggestedReviewer: 'suggested_reviewer',
+    Claimed: 'claimed',
+    WaitingOnInput: 'waiting_on_input',
+} as const
+
+export interface PersonalRankingMatchedApi {
+    /**
+     * The theme of your activity summary that the report matches, or null.
+     * @nullable
+     */
+    theme: string | null
+    /** Why the report needs you: you are a suggested reviewer, you claimed it, or it waits on your input. */
+    needs_you: PersonalRankingNeedsYouEnumApi[]
+}
+
+/**
+ * * `llm` - llm
+ * * `model` - model
+ */
+export type PersonalRankingRankedByEnumApi =
+    (typeof PersonalRankingRankedByEnumApi)[keyof typeof PersonalRankingRankedByEnumApi]
+
+export const PersonalRankingRankedByEnumApi = {
+    Llm: 'llm',
+    Model: 'model',
+} as const
+
+export interface PersonalRankingReportApi {
+    /** The report id. Pass it to inbox-reports-retrieve for the full report. */
+    id: string
+    /** The report title. */
+    title: string
+    /** The report status.
+     *
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed */
+    status: SignalReportStatusEnumApi
+    /** The report priority, P0 to P4, or null.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    priority: AutonomyPriorityEnumApi | null
+    /** The state of the report's implementation pull request, or null when it has none.
+     *
+     * * `unknown` - Unknown
+     * * `draft` - Draft
+     * * `open` - Open
+     * * `closed` - Closed
+     * * `merged` - Merged */
+    implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
+    /** The ranking model's predictions for the report. */
+    ranking: ReportRankingApi
+}
+
+export interface PersonalRankingEntryApi {
+    /** The position in your list. 1 is the first. */
+    rank: number
+    /** top, worth_a_look or later.
+     *
+     * * `top` - top
+     * * `worth_a_look` - worth_a_look
+     * * `later` - later */
+    tier: PersonalRankingTierEnumApi
+    /** Why the report has this place in your list. */
+    reason: string
+    /**
+     * A suggested next step for the top entries. Null for the others.
+     * @nullable
+     */
+    next_step: string | null
+    /** What in your work the report matches. */
+    matched: PersonalRankingMatchedApi
+    /** llm: the language model placed the report. model: it kept its place in the inbox order.
+     *
+     * * `llm` - llm
+     * * `model` - model */
+    ranked_by: PersonalRankingRankedByEnumApi
+    /** A compact view of the report. */
+    report: PersonalRankingReportApi
+}
+
+export interface PersonalRankingFoldApi {
+    /** The report that the list leaves out. */
+    report_id: string
+    /** The report in the list that covers the same work. */
+    into_report_id: string
+    /** Why the two reports are about the same work. */
+    reason: string
+}
+
+export interface PersonalRankingApi {
+    /** ready: the list is in `results`. unavailable: personal ranking is off now, and `results` is empty.
+     *
+     * * `ready` - ready
+     * * `unavailable` - unavailable */
+    status: PersonalRankingStatusEnumApi
+    /** True when the language model ranked the list with your activity summary. False when you have no summary yet or the build fell back to the inbox order. */
+    personalized: boolean
+    /** True when the list is a stored one. False when it is the inbox order fallback or the new list that `wait_seconds` waited for. */
+    cached: boolean
+    /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise a build limit was reached, so try again later. */
+    stale: boolean
+    /** True when a new list is being built in the background. Call again in a few seconds, or pass `wait_seconds`, to get it. */
+    building: boolean
+    /**
+     * Why the list is in inbox order and not ranked by the language model. building: no list is stored yet and one is being built. rate_limited: no list is stored yet and a build limit was reached, either yours or the shared daily one. build_failed: no list is stored yet and the build could not start. no_activity_summary: you have no activity summary yet, so the model did not rank the list. llm_error, timeout, malformed_output, truncated_output, no_candidates or ai_not_approved: the stored build fell back. Null when the model ranked it.
+     * @nullable
+     */
+    fallback_reason: string | null
+    /**
+     * When the list was built.
+     * @nullable
+     */
+    generated_at: string | null
+    /**
+     * How long the model call of the build took, in ms. Null when there was no model call.
+     * @nullable
+     */
+    latency_ms: number | null
+    /**
+     * The version of your activity summary that the build read, or null.
+     * @nullable
+     */
+    activity_summary_version: number | null
+    /** How many reports the build considered. */
+    candidates_considered: number
+    /** How many reports the stored list ranks. `results` holds at most `limit` of them. */
+    ranked_count: number
+    /** Your reports, best first. A report that left your inbox since the build, for example a resolved one, is left out. */
+    results: PersonalRankingEntryApi[]
+    /** Reports the list leaves out because another report in it covers the same work. */
+    folded: PersonalRankingFoldApi[]
 }
 
 /**
@@ -6302,8 +7007,8 @@ export interface SignalScoutConfigOptionsApi {
      */
     repositories?: string[]
     /**
-     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-     * @maxItems 14
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 15
      */
     write_scopes?: string[]
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -6652,8 +7357,8 @@ export interface SignalScoutConfigApi {
      */
     repositories?: string[]
     /**
-     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-     * @maxItems 14
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 15
      */
     readonly write_scopes: readonly string[]
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -6816,8 +7521,8 @@ export interface SignalScoutConfigCreateApi {
      */
     repositories?: string[]
     /**
-     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-     * @maxItems 14
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 15
      */
     write_scopes?: string[]
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -6977,8 +7682,8 @@ export interface PatchedSignalScoutConfigUpdateApi {
      */
     repositories?: string[]
     /**
-     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-     * @maxItems 14
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 15
      */
     write_scopes?: string[]
     /**
@@ -7930,6 +8635,37 @@ export interface ScoutMemberTeamApi {
     is_maintainer: boolean
 }
 
+export interface ScoutMemberActivityObjectApi {
+    /** The object type in snake case, such as `dashboard` or `feature_flag`. */
+    type: string
+    /** The latest name of the object. */
+    name: string
+}
+
+/**
+ * What one member worked on recently, from their activity summary.
+ */
+export interface ScoutMemberActivityApi {
+    /**
+     * One line about the member's recent work.
+     * @nullable
+     */
+    headline: string | null
+    /** The labels of the main threads of the member's recent work. */
+    themes: string[]
+    /** Up to 5 objects the member created or changed, the most edited first. */
+    owned: ScoutMemberActivityObjectApi[]
+    /** Up to 5 objects the member opened on several days, the most opened first. A member who only reads the work shows up here. A specific object here can support a reviewer pick when the pick's `reason` names it. */
+    watched: ScoutMemberActivityObjectApi[]
+    /**
+     * When the summary was written.
+     * @nullable
+     */
+    generated_at: string | null
+    /** True when the summary waits for a rebuild in a newer format. Give a stale summary less weight. */
+    stale: boolean
+}
+
 /**
  * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
  */
@@ -7949,6 +8685,8 @@ export interface ScoutMemberApi {
     github_login: string | null
     /** The teams this member is on, from the project's synced team roster. Empty when no roster is synced, or when the member has no linked GitHub account, since the roster is keyed on that login. The roster is a periodic snapshot, so it can lag the live team. */
     teams: ScoutMemberTeamApi[]
+    /** What the member worked on recently. Use it as context to check against the report, not as proof: general activity is not evidence that the member owns the affected work. Filled only when the call passes `search` or `team` and returns at most 10 members. Null when the member has no ready summary, or when activity summaries are not available for this project. */
+    activity?: ScoutMemberActivityApi | null
 }
 
 /**
@@ -8019,7 +8757,7 @@ export interface ScoutNoteApi {
      * @nullable
      */
     created_by_name: string | null
-    /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects, rather than a directive. */
+    /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report, or for a report a person or their agent claimed: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects or supports, rather than a directive. */
     origin: string
 }
 
@@ -9249,176 +9987,6 @@ export interface RecordCheckResultResponseApi {
 }
 
 /**
- * One observation backing an authored report — becomes a bound signal row on the report.
- */
-export interface ReportEvidenceApi {
-    /**
-     * Prose for this observation. Embedded and rendered to the safety/research surfaces.
-     * @maxLength 4000
-     */
-    description: string
-    /** Stable id for this observation within the report (lets a later edit address it). */
-    source_id: string
-}
-
-/**
- * One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
- *
- * A reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a
- * member with no linked GitHub account routes the report like anyone else. A `user_uuid` that
- * isn't an org member of this team is rejected — so a reviewer is never silently dropped.
- */
-export interface SuggestedReviewerApi {
-    /**
-     * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
-     * @maxLength 200
-     */
-    github_login?: string
-    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here. */
-    user_uuid?: string
-    /**
-     * One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership.
-     * @maxLength 500
-     * @nullable
-     */
-    reason?: string | null
-}
-
-export interface ReportMetricComparisonApi {
-    /** Baseline or previous value, formatted like the current value. */
-    value: number
-    /**
-     * Short context for the comparison, such as `Previous period`.
-     * @maxLength 40
-     */
-    label: string
-}
-
-/**
- * Authoring shape: unlike a read response, the live query cannot be absent or redacted.
- */
-export interface ReportMetricWriteApi {
-    /**
-     * Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.
-     * @maxLength 100
-     */
-    metric_id: string
-    /**
-     * Short human-readable label for the measurement.
-     * @maxLength 200
-     */
-    title: string
-    /** What the value measures, independent of how it is formatted or drawn.
-     *
-     * * `affected_users` - affected_users
-     * * `affected_sessions` - affected_sessions
-     * * `occurrences` - occurrences
-     * * `conversion_rate` - conversion_rate
-     * * `error_rate` - error_rate
-     * * `duration` - duration
-     * * `revenue` - revenue
-     * * `custom` - custom */
-    kind: ReportMetricKindEnumApi
-    /** `primary` for the report's key observation, otherwise `supporting`.
-     *
-     * * `primary` - primary
-     * * `supporting` - supporting */
-    role?: RoleEnumApi
-    /**
-     * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
-     * @nullable
-     */
-    value?: number | null
-    /**
-     * When the visible snapshot value was measured; null when value is null.
-     * @nullable
-     */
-    value_at?: string | null
-    /**
-     * Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.
-     * @maxItems 14
-     * @nullable
-     */
-    series?: number[] | null
-    /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
-     *
-     * * `number` - number
-     * * `count` - count
-     * * `percentage` - percentage
-     * * `percentage_scaled` - percentage_scaled
-     * * `duration` - duration
-     * * `currency` - currency */
-    value_format?: ValueFormatEnumApi
-    /**
-     * Optional short suffix or currency code, such as `users`, `ms`, or `USD`.
-     * @maxLength 40
-     * @nullable
-     */
-    unit?: string | null
-    /** Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition. */
-    query: unknown
-    /**
-     * Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.
-     * @maxLength 500
-     * @nullable
-     */
-    caption?: string | null
-    /** Legacy optional comparison. New report metrics must omit it. */
-    comparison?: ReportMetricComparisonApi | null
-}
-
-/**
- * * `depends_on` - Depends on
- * * `part_of` - Part of
- * * `follow_up_of` - Follow-up of
- * * `duplicate_of` - Duplicate of
- * * `recurrence_of` - Recurrence of
- */
-export type ReportLinkKindEnumApi = (typeof ReportLinkKindEnumApi)[keyof typeof ReportLinkKindEnumApi]
-
-export const ReportLinkKindEnumApi = {
-    DependsOn: 'depends_on',
-    PartOf: 'part_of',
-    FollowUpOf: 'follow_up_of',
-    DuplicateOf: 'duplicate_of',
-    RecurrenceOf: 'recurrence_of',
-} as const
-
-/**
- * One typed, directed link to write on the report being emitted or edited.
- */
-export interface ReportLinkWriteApi {
-    /** How this report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.
-     *
-     * * `depends_on` - Depends on
-     * * `part_of` - Part of
-     * * `follow_up_of` - Follow-up of
-     * * `duplicate_of` - Duplicate of
-     * * `recurrence_of` - Recurrence of */
-    kind: ReportLinkKindEnumApi
-    /** Id of the report to link to. Must be another report in this project. */
-    report_id: string
-    /**
-     * Optional one-line note on why the reports are linked this way.
-     * @maxLength 500
-     */
-    reason?: string
-}
-
-/**
- * * `immediately_actionable` - immediately_actionable
- * * `requires_human_input` - requires_human_input
- * * `not_actionable` - not_actionable
- */
-export type ActionabilityEnumApi = (typeof ActionabilityEnumApi)[keyof typeof ActionabilityEnumApi]
-
-export const ActionabilityEnumApi = {
-    ImmediatelyActionable: 'immediately_actionable',
-    RequiresHumanInput: 'requires_human_input',
-    NotActionable: 'not_actionable',
-} as const
-
-/**
  * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
  */
 export interface EditReportRequestApi {
@@ -9657,121 +10225,6 @@ export interface ScoutEmissionReportLinkApi {
     source_id: string
     /** The inbox report this finding linked to, or null if none could be resolved. */
     report: LinkedSignalReportApi | null
-}
-
-/**
- * Request body for `emit-report`. Run attribution is taken from the URL path.
- */
-export interface EmitReportRequestApi {
-    /**
-     * One-line report title the inbox shows. Conventional-commit style (`type(scope): description`, e.g. `fix(insights): missing series color`) renders with type/scope styling.
-     * @maxLength 300
-     */
-    title: string
-    /** The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. A heading, or a bold label on a line of its own with a blank line above it, marks a section that a threaded Slack delivery splits into its own reply. */
-    summary: string
-    /**
-     * The observations backing the report — each becomes a bound signal. At least one.
-     * @minItems 1
-     */
-    evidence: ReportEvidenceApi[]
-    /** 2-3 sentence evidence-grounded justification for the actionability call below. */
-    actionability_explanation: string
-    /** The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless. A root cause you have not found is not human input: a report that names the evidence, the code surface, or a reproducible failure path is `immediately_actionable`, because investigating it is the action. Reserve `requires_human_input` for a report blocked on a decision only a person can make.
-     *
-     * * `immediately_actionable` - immediately_actionable
-     * * `requires_human_input` - requires_human_input
-     * * `not_actionable` - not_actionable */
-    actionability: ActionabilityEnumApi
-    /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately. */
-    already_addressed?: boolean
-    /**
-     * Optional repo for opening a draft PR, by autostart or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
-     * @nullable
-     */
-    repository?: string | null
-    /** Optional priority (`P0`-`P4`). Required for autostart; pair with `priority_explanation`.
-     *
-     * * `P0` - P0
-     * * `P1` - P1
-     * * `P2` - P2
-     * * `P3` - P3
-     * * `P4` - P4 */
-    priority?: AutonomyPriorityEnumApi | null
-    /**
-     * 2-3 sentence justification for `priority`. Required when `priority` is set.
-     * @nullable
-     */
-    priority_explanation?: string | null
-    /**
-     * Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold.
-     * @maxItems 10
-     */
-    suggested_reviewers?: SuggestedReviewerApi[]
-    /**
-     * Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.
-     * @maxItems 20
-     */
-    charts?: ReportChartApi[]
-    /**
-     * Optional typed impact measurements. Use one primary metric for the key observation and supporting metrics for users, sessions, occurrences, conversion, latency, or revenue. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes. A value/value_at snapshot is an optional cached fallback. Affected users must use one series with `math: dau`. Snapshot-only/queryless payloads are invalid; legacy rows of that shape are always redacted.
-     * @maxItems 6
-     */
-    metrics?: ReportMetricWriteApi[]
-    /**
-     * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them.
-     * @maxItems 3
-     * @items.maxLength 200
-     */
-    suggested_prompts?: string[]
-    /**
-     * Typed, directed links from the new report to reports that already exist. Send them here, not in a later `edit-report` call, because autostart reads them when the report is created: a `duplicate_of` link to a report that already has a pull request, or a `depends_on` link to a report with no pull request yet, stops a second draft PR. Only the new report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project.
-     * @maxItems 10
-     */
-    links?: ReportLinkWriteApi[]
-    /**
-     * Optional slug tags that group the report with related ones, at most 10. Write lowercase kebab-case slugs that name the category of the report (`cost-spike`, `tracking-gap`), not the specific entity. Reuse a slug the project already uses before you coin a new one. Near-miss formats are normalized to slugs, and a tag that is empty or longer than 50 characters after normalization is rejected.
-     * @maxItems 10
-     */
-    tags?: string[]
-    /**
-     * Optional name for this emission, unique within the run. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report.
-     * @maxLength 200
-     * @nullable
-     */
-    idempotency_key?: string | null
-}
-
-export interface EmitReportResponseApi {
-    /**
-     * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.
-     * @nullable
-     */
-    report_id: string | null
-    /**
-     * Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped.
-     * @nullable
-     */
-    report_status: string | null
-    /** True when the report actually surfaced in the inbox (READY or PENDING_INPUT). */
-    emitted: boolean
-    /**
-     * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.
-     * @nullable
-     */
-    skipped_reason: string | null
-    /**
-     * When the safety judge suppressed the report, why; null when safe.
-     * @nullable
-     */
-    safety_explanation: string | null
-    /**
-     * One-line, actionable next step when `skipped_reason` is set and the block is fixable (e.g. an org admin must approve AI data processing). Null when the report was authored or the skip isn't something the scout can act on.
-     * @nullable
-     */
-    remediation: string | null
-    /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
-    idempotent_replay: boolean
 }
 
 /**
@@ -10190,34 +10643,6 @@ export interface CreateReportCheckRequestApi {
 }
 
 /**
- * What one scout spent in the window, and what it produced for that spend.
- */
-export interface ScoutCostApi {
-    /** Full skill name of the scout, e.g. `signals-scout-error-tracking`. */
-    skill_name: string
-    /** Model spend attributed to the scout's runs in the window, in US dollars. Zero when none of its runs had spend attributed, which `priced_run_count` tells apart from a scout that really spent nothing. */
-    spend_usd: number
-    /** Runs the scout started in the window. */
-    run_count: number
-    /** Runs of the scout that had spend attributed. Lower than `run_count` where a run failed before its first model call, or its generations haven't landed yet. Divide `spend_usd` by this, not by `run_count`, for cost per run. */
-    priced_run_count: number
-    /** Distinct inbox reports the scout filed or added to in the window. A report it authored in one run and edited in three counts once. Zero means the scout produced no reports, so cost per report has no value rather than a value of zero. */
-    reports_touched: number
-}
-
-/**
- * Model spend and output per scout over a window.
- */
-export interface ScoutCostsApi {
-    /** Window the rows describe, in days. */
-    window_days: number
-    /** One row per scout that started at least one run on this project in the window. */
-    scouts: ScoutCostApi[]
-    /** False when this deployment has no internal AI observability project to read the generations from, so `scouts` is empty and every spend is unknown rather than zero. */
-    available: boolean
-}
-
-/**
  * Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
  * resolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the
  * reports lookup, one ClickHouse round-trip — per emitted run) into a single request.
@@ -10251,29 +10676,6 @@ export interface FleetFindingsSummaryApi {
      * @nullable
      */
     latest_at: string | null
-}
-
-/**
- * What one scout run spent on model calls.
- */
-export interface ScoutRunTokenCostApi {
-    /** UUID of the `SignalScoutRun` this cost belongs to. */
-    run_id: string
-    /**
-     * Model spend attributed to the run in US dollars, summed from its `$ai_generation` events. Null when no generation is attributed to the run — it failed before its first model call, or its events haven't landed yet. A run still in progress reports what it has spent so far.
-     * @nullable
-     */
-    token_cost_usd: number | null
-}
-
-/**
- * Model spend for a batch of scout runs.
- */
-export interface ScoutRunTokenCostsApi {
-    /** One entry per requested run that exists on this project. Runs from another project, and ids that match no run, are absent. */
-    costs: ScoutRunTokenCostApi[]
-    /** False when this deployment has no internal AI observability project to read the generations from, so `costs` is empty and every cost is unknown rather than zero. */
-    available: boolean
 }
 
 /**
@@ -10373,17 +10775,26 @@ export const SignalSourceSyncStatusEnumApi = {
 } as const
 
 /**
- * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint.
+ * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key.
  */
 export type SignalSourceConfigApiConfig = { [key: string]: unknown }
+
+/**
+ * Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.
+ */
+export type SignalSourceConfigApiConfigSet = { [key: string]: unknown }
 
 export interface SignalSourceConfigApi {
     readonly id: string
     source_product: SignalSourceProductEnumApi
     source_type: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
-    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
+    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key. */
     config?: SignalSourceConfigApiConfig
+    /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
+    config_set?: SignalSourceConfigApiConfigSet
+    /** Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config. */
+    config_remove?: string[]
     readonly created_at: string
     readonly updated_at: string
     /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
@@ -10400,21 +10811,64 @@ export interface PaginatedSignalSourceConfigListApi {
 }
 
 /**
- * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint.
+ * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key.
  */
 export type PatchedSignalSourceConfigApiConfig = { [key: string]: unknown }
+
+/**
+ * Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.
+ */
+export type PatchedSignalSourceConfigApiConfigSet = { [key: string]: unknown }
 
 export interface PatchedSignalSourceConfigApi {
     readonly id?: string
     source_product?: SignalSourceProductEnumApi
     source_type?: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
-    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
+    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key. */
     config?: PatchedSignalSourceConfigApiConfig
+    /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
+    config_set?: PatchedSignalSourceConfigApiConfigSet
+    /** Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config. */
+    config_remove?: string[]
     readonly created_at?: string
     readonly updated_at?: string
     /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
     readonly status?: SignalSourceSyncStatusEnumApi | null
+}
+
+export interface SourceSpendApi {
+    /** Product that emitted the signals. */
+    source_product: string
+    /** Type of signals emitted by the source. */
+    source_type: string
+    /** Number of signals received in the last 30 days. */
+    signal_count: number
+    /** Accumulated processing usage on these signals, including later processing. */
+    spend: SpendAmountApi
+}
+
+export interface ScoutSpendApi {
+    /** Name of the scout skill. */
+    skill_name: string
+    /** Accumulated usage for this scout's runs in the period. */
+    spend: SpendAmountApi
+    /**
+     * Average recorded usage per tracked scout run in USD cents; null when no runs were tracked.
+     * @nullable
+     */
+    average_spend: number | null
+}
+
+export interface SpendOverviewApi {
+    /** Inclusive start of the rolling 30-day run window. */
+    period_start: string
+    /** Exclusive end of the rolling 30-day run window. */
+    period_end: string
+    /** Usage for each scout with runs in the period. */
+    scouts: ScoutSpendApi[]
+    /** Total scout run usage in the period. */
+    scout_spend: SpendAmountApi
 }
 
 export interface SignalUserAutonomyConfigApi {
@@ -10495,6 +10949,114 @@ export type SignalsActivitySummaryVersionsRetrieveParams = {
      */
     version?: number
 }
+
+export type SignalsActivitySummaryMembersSearchParams = {
+    /**
+     * Members to leave out, such as people you already checked.
+     */
+    exclude_user_uuids?: string[]
+    /**
+     * Add the one-page markdown profile to each result. Set it only for the people you want to read.
+     */
+    include_profile?: boolean
+    /**
+     * The most results to return, best match first.
+     * @minimum 1
+     * @maximum 25
+     */
+    limit?: number
+    /**
+     * Only members who work in or visit this product.
+     *
+     * * `product_analytics` - Product Analytics
+     * * `dashboards` - Dashboards
+     * * `web_analytics` - Web Analytics
+     * * `session_replay` - Session Replay
+     * * `heatmaps` - Heatmaps
+     * * `error_tracking` - Error Tracking
+     * * `experiments` - Experiments
+     * * `feature_flags` - Feature Flags
+     * * `early_access_features` - Early Access Features
+     * * `surveys` - Surveys
+     * * `product_tours` - Product Tours
+     * * `notebooks` - Notebooks
+     * * `cohorts` - Cohorts
+     * * `persons` - Persons
+     * * `data_management` - Data Management
+     * * `data_warehouse` - Data Warehouse
+     * * `data_pipelines` - Data Pipelines
+     * * `workflows` - Workflows
+     * * `ai_observability` - Ai Observability
+     * * `mcp_analytics` - Mcp Analytics
+     * * `logs` - Logs
+     * * `tracing` - Tracing
+     * * `endpoints` - Endpoints
+     * * `revenue_analytics` - Revenue Analytics
+     * * `customer_analytics` - Customer Analytics
+     * * `inbox` - Inbox
+     * * `canvases` - Canvases
+     * * `support` - Support
+     * @minLength 1
+     */
+    product?: SignalsActivitySummaryMembersSearchProduct
+    /**
+     * Natural language or keywords, such as an object name, a topic or a product area. Without a query, the search lists members with a summary, the newest summary first.
+     * @maxLength 500
+     */
+    query?: string
+    /**
+     * `hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and returns 503 when the vector search fails. `keyword` matches query terms in the profile, the headline, the theme labels and the names of owned and watched objects.
+     *
+     * * `hybrid` - Hybrid
+     * * `semantic` - Semantic
+     * * `keyword` - Keyword
+     * @minLength 1
+     */
+    search_mode?: SignalsActivitySummaryMembersSearchSearchMode
+}
+
+export type SignalsActivitySummaryMembersSearchProduct =
+    (typeof SignalsActivitySummaryMembersSearchProduct)[keyof typeof SignalsActivitySummaryMembersSearchProduct]
+
+export const SignalsActivitySummaryMembersSearchProduct = {
+    ProductAnalytics: 'product_analytics',
+    Dashboards: 'dashboards',
+    WebAnalytics: 'web_analytics',
+    SessionReplay: 'session_replay',
+    Heatmaps: 'heatmaps',
+    ErrorTracking: 'error_tracking',
+    Experiments: 'experiments',
+    FeatureFlags: 'feature_flags',
+    EarlyAccessFeatures: 'early_access_features',
+    Surveys: 'surveys',
+    ProductTours: 'product_tours',
+    Notebooks: 'notebooks',
+    Cohorts: 'cohorts',
+    Persons: 'persons',
+    DataManagement: 'data_management',
+    DataWarehouse: 'data_warehouse',
+    DataPipelines: 'data_pipelines',
+    Workflows: 'workflows',
+    AiObservability: 'ai_observability',
+    McpAnalytics: 'mcp_analytics',
+    Logs: 'logs',
+    Tracing: 'tracing',
+    Endpoints: 'endpoints',
+    RevenueAnalytics: 'revenue_analytics',
+    CustomerAnalytics: 'customer_analytics',
+    Inbox: 'inbox',
+    Canvases: 'canvases',
+    Support: 'support',
+} as const
+
+export type SignalsActivitySummaryMembersSearchSearchMode =
+    (typeof SignalsActivitySummaryMembersSearchSearchMode)[keyof typeof SignalsActivitySummaryMembersSearchSearchMode]
+
+export const SignalsActivitySummaryMembersSearchSearchMode = {
+    Hybrid: 'hybrid',
+    Semantic: 'semantic',
+    Keyword: 'keyword',
+} as const
 
 export type SignalsAnomaliesInsightRetrieveParams = {
     /**
@@ -10614,7 +11176,7 @@ export type SignalsReportsListParams = {
      */
     already_addressed?: boolean
     /**
-     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started.
+     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user claimed: their own claims and claims by MCP agents acting for them. Internal task claims are not included.
      */
     assignee?: SignalsReportsListAssignee
     /**
@@ -10652,6 +11214,7 @@ export type SignalsReportsListParams = {
     include_unlisted?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -10691,7 +11254,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.
+     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills.
      */
     sort?: string
     /**
@@ -10830,6 +11393,30 @@ export type SignalsReportsAvailableReviewersRetrieve200 = {
     }
 }
 
+export type SignalsReportsForMeRetrieveParams = {
+    /**
+     * Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always starts a new build, and an unfocused request never reuses it. Pass `wait_seconds` to wait for it.
+     * @maxLength 2000
+     */
+    focus?: string
+    /**
+     * The most reports to return, best first. Defaults to 25. Values above the configured maximum (50) use the maximum.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Start a new build even when the stored one is current. The build runs in the background, so the response has `building: true`. Pass `wait_seconds` to wait for it.
+     */
+    refresh?: boolean
+    /**
+     * When the request starts a build or one is running, wait for its list until this many seconds after the request started. Defaults to 0, which does not wait. A build usually takes 10 to 60 seconds.
+     * @minimum 0
+     * @maximum 30
+     */
+    wait_seconds?: number
+}
+
 export type SignalsReportsPrCiStatusesParams = {
     /**
      * Comma-separated report UUIDs to resolve CI state for, at most 100 per request.
@@ -10847,7 +11434,7 @@ export type SignalsReportsSectionCountsRetrieveParams = {
      */
     already_addressed?: boolean
     /**
-     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started.
+     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user claimed: their own claims and claims by MCP agents acting for them. Internal task claims are not included.
      */
     assignee?: SignalsReportsSectionCountsRetrieveAssignee
     /**
@@ -11143,15 +11730,6 @@ export type SignalsScoutReportChecksListParams = {
     report_id: string
 }
 
-export type SignalsScoutRunsCostsParams = {
-    /**
-     * Window in days over runs' `created_at` (default 7). Only 7 is accepted today — it matches the window the roster's fleet headline spans, so every number on the page describes one span.
-     * @minimum 7
-     * @maximum 7
-     */
-    window_days?: number
-}
-
 export type SignalsScoutRunsRecentEmissionsParams = {
     /**
      * ISO-8601 inclusive lower bound on `emitted_at`. Omit to skip the lower bound.
@@ -11249,7 +11827,7 @@ export type SignalsScoutScratchpadSearchParams = {
      */
     skill_name?: string
     /**
-     * ILIKE substring match against `content`. Omit to return the most recent entries.
+     * ILIKE substring match against `content` and `key`. Must contain 3 letters or digits in a row, or 2 next to a symbol such as `ai_` or `pr:`. Omit to return the most recent entries.
      */
     text?: string
 }

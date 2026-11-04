@@ -26,6 +26,8 @@ import type {
     EmailDraftApi,
     EmailDraftRequestApi,
     EmailSendingSuspensionStatusApi,
+    EventWorkflowsBuildRequestApi,
+    EventWorkflowsBuildResponseApi,
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
@@ -1534,6 +1536,27 @@ export const workflowDataSuggestionsBuild = async (
     })
 }
 
+export const getWorkflowDataSuggestionsBuildForEventsUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_data_suggestions/build_for_events/`
+}
+
+/**
+ * Build and save draft email workflows for events the team picked, such as the events it was about to send
+ * to an email tool. Free for the customer. Needs the feature flag and AI data processing approved for the organization.
+ */
+export const workflowDataSuggestionsBuildForEvents = async (
+    projectId: string,
+    eventWorkflowsBuildRequestApi: EventWorkflowsBuildRequestApi,
+    options?: RequestInit
+): Promise<EventWorkflowsBuildResponseApi> => {
+    return apiMutator<EventWorkflowsBuildResponseApi>(getWorkflowDataSuggestionsBuildForEventsUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eventWorkflowsBuildRequestApi),
+    })
+}
+
 export const getWorkflowDataSuggestionsCurrentUrl = (projectId: string) => {
     return `/api/projects/${projectId}/workflow_data_suggestions/current/`
 }
@@ -1745,7 +1768,8 @@ export const getInternalHogFlowsBatchJobsStatusUpdateUrl = (teamId: string, batc
  * terminal status, returns 200 without re-writing — the resolver retries
  * this call via cyclotron retry semantics, so safe repeats are required.
  *
- * Accepts: { status: "completed" | "failed" }
+ * Accepts: { status: "completed" | "failed" }. A completed run can later move to
+ * failed or partially_failed, once its child runs show errored sends.
  */
 export const internalHogFlowsBatchJobsStatusUpdate = async (
     teamId: string,
