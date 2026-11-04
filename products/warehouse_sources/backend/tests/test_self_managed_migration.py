@@ -884,6 +884,20 @@ class TestBackdateMigrationSources(_MigrationTest):
             assert schema.created_at == table.created_at
             assert schema.updated_at == schema_updated_at[table.pk]
 
+    def test_live_run_backdates_a_deleted_source_and_its_deleted_schemas(self) -> None:
+        tables = self._legacy_tables()
+        source = _schema_for(tables[0]).source
+        ExternalDataSchema.objects.filter(source_id=source.pk).update(deleted=True)
+        ExternalDataSource.objects.filter(pk=source.pk).update(deleted=True)
+
+        [outcome] = backdate_migration_sources(team_id=self.team.pk, live_run=True)
+
+        assert (outcome.source_id, outcome.action) == (str(source.pk), "backdated")
+        assert ExternalDataSource.objects.get(pk=source.pk).created_at == tables[0].created_at
+        assert {schema.created_at for schema in ExternalDataSchema.objects.filter(source_id=source.pk)} == {
+            table.created_at for table in tables
+        }
+
     def test_source_at_its_oldest_table_date_is_unchanged(self) -> None:
         table = self._table(created_at=datetime(2024, 1, 1, tzinfo=UTC))
         self._migrate()

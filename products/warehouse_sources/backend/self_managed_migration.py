@@ -908,10 +908,9 @@ _GroupId = tuple[int, str, str, str]
 def backdate_migration_sources(team_id: int | None, live_run: bool) -> list[SourceBackdateOutcome]:
     """Use linked table dates for migration sources made by earlier runs."""
 
-    queryset = (
-        ExternalDataSource.objects.filter(connection_metadata__has_key=MIGRATION_MARKER_KEY)
-        .exclude(deleted=True)
-        .order_by("team_id", "id")
+    # Deleted sources too: merged or abandoned sources still count in charts of sources by date.
+    queryset = ExternalDataSource.objects.filter(connection_metadata__has_key=MIGRATION_MARKER_KEY).order_by(
+        "team_id", "id"
     )
     if team_id is not None:
         queryset = queryset.filter(team_id=team_id)
@@ -924,7 +923,7 @@ def backdate_migration_sources(team_id: int | None, live_run: bool) -> list[Sour
         schemas_by_source: dict[uuid.UUID, list[ExternalDataSchema]] = defaultdict(list)
         table_ids: set[str] = set()
         for schema in ExternalDataSchema.objects.filter(
-            team_id=source_team_id, source_id__in=[source.pk for source in sources], deleted=False
+            team_id=source_team_id, source_id__in=[source.pk for source in sources]
         ):
             ref = self_managed_table_ref(schema)
             if ref is not None:
@@ -950,12 +949,12 @@ def backdate_migration_sources(team_id: int | None, live_run: bool) -> list[Sour
                 if live_run:
                     with transaction.atomic():
                         ExternalDataSource.objects.filter(
-                            team_id=source_team_id, pk=source.pk, deleted=False, created_at__gt=oldest
+                            team_id=source_team_id, pk=source.pk, created_at__gt=oldest
                         ).update(created_at=oldest)
                         for schema, created_at in schema_dates:
-                            ExternalDataSchema.objects.filter(
-                                team_id=source_team_id, pk=schema.pk, deleted=False
-                            ).update(created_at=created_at)
+                            ExternalDataSchema.objects.filter(team_id=source_team_id, pk=schema.pk).update(
+                                created_at=created_at
+                            )
                     action = "backdated"
             outcomes.append(
                 SourceBackdateOutcome(
