@@ -25,6 +25,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
     ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
+    CUSTOMER_VISIBLE_CREDENTIAL_ID_TYPES,
     ActivityCredential,
     activity_storage,
     is_uncached_reverse_one_to_one,
@@ -102,6 +103,7 @@ ActivityScope = Literal[
     "PersonalAPIKey",
     "ProjectSecretAPIKey",
     "OAuthApplication",
+    "WorkloadTrustPolicy",
     "User",
     "Action",
     "AccountView",
@@ -324,6 +326,17 @@ class ActivityLog(UUIDTModel):
                 change = {**change, "before": masked.before, "after": masked.after}
             changes.append(change)
         return {**self.detail, "changes": changes}
+
+    @property
+    def customer_visible_credential_id(self) -> Optional[str]:
+        """The `credential_id` that customer-facing surfaces may show, or None when it stays internal."""
+        if self.credential_type not in CUSTOMER_VISIBLE_CREDENTIAL_ID_TYPES:
+            return None
+        # An impersonated change used the staff member's login session. That session is in no list
+        # the customer can read, so its id would point nowhere.
+        if self.was_impersonated or self.impersonated_by_id is not None:
+            return None
+        return self.credential_id
 
 
 # Fields older rows still hold in plaintext although new rows no longer record them.

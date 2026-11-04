@@ -47,6 +47,8 @@ interface DisplayOptionDefinitionBase {
     stacked?: boolean
     // Indented under the option above it, which it refines.
     nested?: boolean
+    // Rarely set, so the quill panels keep it one step away under "More options".
+    advanced?: boolean
 }
 
 export type DisplayOptionDefinition = DisplayOptionDefinitionBase &
@@ -74,6 +76,7 @@ export const DISPLAY_OPTIONS = [
         name: 'metricSummary',
         label: 'Headline value',
         group: 'display',
+        advanced: true,
         control: 'select',
         options: [
             { value: 'total', label: 'Total' },
@@ -81,27 +84,43 @@ export const DISPLAY_OPTIONS = [
             { value: 'latest', label: 'Latest' },
         ],
     },
-    { name: 'metricShowChange', label: 'Show change', group: 'display', control: 'checkbox' },
-    { name: 'metricChangeColors', label: 'Change colors', nested: true, group: 'display', control: 'colors' },
-    { name: 'metricColorByDirection', label: 'Color by trend', group: 'display', control: 'checkbox' },
-    { name: 'metricTrendColors', label: 'Trend colors', nested: true, group: 'display', control: 'colors' },
+    { name: 'metricShowChange', label: 'Show change', group: 'display', advanced: true, control: 'checkbox' },
+    {
+        name: 'metricChangeColors',
+        label: 'Change colors',
+        nested: true,
+        group: 'display',
+        advanced: true,
+        control: 'colors',
+    },
+    { name: 'metricColorByDirection', label: 'Color by trend', group: 'display', advanced: true, control: 'checkbox' },
+    {
+        name: 'metricTrendColors',
+        label: 'Trend colors',
+        nested: true,
+        group: 'display',
+        advanced: true,
+        control: 'colors',
+    },
     { name: 'lifecycleStacking', label: 'Stack bars', group: 'display', control: 'checkbox' },
     { name: 'valuesOnSeries', label: 'Show values on series', group: 'display', control: 'checkbox' },
     {
         name: 'valueLabelPosition',
         label: 'Value position',
         group: 'display',
+        advanced: true,
         control: 'select',
         options: [
             { value: 'end', label: 'At the end' },
             { value: 'center', label: 'Inside' },
         ],
     },
-    { name: 'valueLabelBackground', label: 'Value background', group: 'display', control: 'checkbox' },
+    { name: 'valueLabelBackground', label: 'Value background', group: 'display', advanced: true, control: 'checkbox' },
     {
         name: 'valueLabelFontSize',
         label: 'Value font size',
         group: 'display',
+        advanced: true,
         control: 'select',
         options: [8, 10, 12, 14, 16, 20, 24, 32].map((value) => ({ value, label: `${value}px` })),
     },
@@ -109,12 +128,13 @@ export const DISPLAY_OPTIONS = [
         name: 'valueLabelRotation',
         label: 'Value rotation',
         group: 'display',
+        advanced: true,
         control: 'select',
         options: ROTATION_OPTIONS,
     },
     { name: 'lifecyclePercentages', label: 'Show percentages on series', group: 'display', control: 'checkbox' },
-    { name: 'percentStack', label: 'Show as % of total', group: 'display', control: 'checkbox' },
-    { name: 'stackBreakdown', label: 'Stack breakdown values', group: 'display', control: 'checkbox' },
+    { name: 'percentStack', label: 'Show as % of total', group: 'display', advanced: true, control: 'checkbox' },
+    { name: 'stackBreakdown', label: 'Stack breakdown values', group: 'display', advanced: true, control: 'checkbox' },
     { name: 'sliceNames', label: 'Show names on slices', group: 'display', control: 'checkbox' },
     {
         name: 'pieSliceContent',
@@ -138,12 +158,13 @@ export const DISPLAY_OPTIONS = [
         ],
     },
     { name: 'pieTotal', label: 'Show total', group: 'display', control: 'checkbox' },
-    { name: 'showTotalRow', label: 'Show total row', group: 'display', control: 'checkbox' },
-    { name: 'showNullsAsZero', label: 'Show nulls as zero', group: 'display', control: 'checkbox' },
+    { name: 'showTotalRow', label: 'Show total row', group: 'display', advanced: true, control: 'checkbox' },
+    { name: 'showNullsAsZero', label: 'Show nulls as zero', group: 'display', advanced: true, control: 'checkbox' },
     {
         name: 'barSpacing',
         label: 'Bar spacing',
         group: 'display',
+        advanced: true,
         control: 'select',
         options: [
             { value: 0, label: 'None' },
@@ -186,8 +207,8 @@ export const DISPLAY_OPTIONS = [
         name: 'annotations',
         label: 'Annotations',
         info: 'Annotations are saved on an insight, a dashboard, the project, or the organization. Choose which of those to show here.',
-        stacked: true,
         group: 'display',
+        advanced: true,
         control: 'select',
         options: [
             { value: 'all', label: 'All' },
@@ -205,6 +226,7 @@ export const DISPLAY_OPTIONS = [
         info: "You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).",
         stacked: true,
         group: 'display',
+        advanced: true,
         control: 'toggle',
         options: [
             { value: ResultCustomizationBy.Value, label: 'By name' },
@@ -285,13 +307,7 @@ export const DISPLAY_OPTIONS = [
     { name: 'yAxisBorder', label: 'Show border', group: 'y-axis', control: 'checkbox' },
     { name: 'yAxisScale', label: 'Scale', hideLabel: true, group: 'y-axis', control: 'toggle', options: SCALE_OPTIONS },
 
-    {
-        name: 'rightYAxisLabel',
-        label: 'Label',
-        group: 'right-y-axis',
-        control: 'text',
-        placeholder: 'Right Y-axis label',
-    },
+    { name: 'rightYAxisLabel', label: 'Label', group: 'right-y-axis', control: 'text', placeholder: 'None' },
     {
         name: 'rightYAxisBeginAtZero',
         label: 'Begin at zero',
@@ -414,10 +430,14 @@ export type DisplayOptionBindings<C> = {
 export interface DisplayOptionItem {
     name: DisplayOptionName
     element: ReactNode
+    // How many settings this option holds away from their default.
+    changed: number
+    advanced: boolean
 }
 
 export interface DisplayOptionSection {
     key: string
+    group: DisplayOptionGroupKey
     title?: string
     tooltip?: string
     dataAttr?: string

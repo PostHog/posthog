@@ -1504,6 +1504,16 @@ class ExperimentExposureHealthFindingSeverity(StrEnum):
     INFO = "info"
 
 
+class ExperimentExposureHealthMeasurementSide(StrEnum):
+    ABOVE = "above"
+    BELOW = "below"
+
+
+class ExperimentExposureHealthMeasurementUnit(StrEnum):
+    PERCENTAGE = "percentage"
+    P_VALUE = "p_value"
+
+
 class ExperimentMetricGoal(StrEnum):
     INCREASE = "increase"
     DECREASE = "decrease"
@@ -2279,6 +2289,7 @@ class MetaAdsDefaultSources(StrEnum):
     AUDIENCE_NETWORK = "audience_network"
     FACEBOOK_MARKETPLACE = "facebook_marketplace"
     THREADS = "threads"
+    TH = "th"
 
 
 class MetricsAggregation(StrEnum):
@@ -3056,6 +3067,11 @@ class SlackIntegrationScope(StrEnum):
     TEAM_READ = "team:read"
     USERS_READ = "users:read"
     USERS_READ_EMAIL = "users:read.email"
+
+
+class SlackIntegrationScopeInReview(StrEnum):
+    CANVASES_READ = "canvases:read"
+    CHANNELS_JOIN = "channels:join"
 
 
 class SlashCommandName(StrEnum):
