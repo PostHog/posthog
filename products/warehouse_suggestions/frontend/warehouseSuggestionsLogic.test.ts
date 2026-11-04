@@ -524,6 +524,11 @@ describe('warehouseSuggestionsLogic', () => {
             ],
             ['time-big', 'time-small', 'bytes-big', 'unread-mid'],
         ],
+        [
+            'models',
+            [DEPRECATE, certification('old-table', 'deprecate'), unmaterialize('scan-led', 0, 0)],
+            ['scan-led', DEPRECATE.id],
+        ],
         ['catalog', [certification('old', 'deprecate'), certification('used', 'certify')], ['used', 'old']],
     ])('orders %s suggestions by kind, then by what they are worth', async (surface, results, expectedOrder) => {
         mockList.mockResolvedValue(page(results))

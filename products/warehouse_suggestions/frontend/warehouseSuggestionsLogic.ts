@@ -71,11 +71,15 @@ export interface WarehouseSuggestionsLogicProps {
 }
 
 export const ROW_LEAVE_MS = 150
-const KIND_ORDER: Record<string, number> = { certify: 0, deprecate: 1 }
+const KIND_ORDER: Record<string, number> = {
+    certify: MAIN_SAVING_KINDS.length,
+    deprecate: MAIN_SAVING_KINDS.length + 1,
+}
 
-const SURFACE_KINDS: Record<SuggestionSurface, string[]> = {
-    models: ['materialize', 'unmaterialize'],
-    catalog: ['certify', 'deprecate'],
+const SHOWN_ON_SURFACE: Record<SuggestionSurface, (suggestion: WarehouseSuggestionApi) => boolean> = {
+    models: ({ kind, subject_kind }) =>
+        kind === 'materialize' || kind === 'unmaterialize' || (kind === 'deprecate' && subject_kind === 'saved_query'),
+    catalog: ({ kind }) => kind === 'certify' || kind === 'deprecate',
 }
 const VIEW_ON_MODEL_PAGE_KINDS = ['materialize', 'unmaterialize']
 const CONFLICT_STATUS = 409
@@ -641,7 +645,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                             (suggestion) =>
                                 suggestion.surfaced_at !== null &&
                                 !hiddenIds.includes(suggestion.id) &&
-                                SURFACE_KINDS[surface].includes(suggestion.kind)
+                                SHOWN_ON_SURFACE[surface](suggestion)
                         )
                         .sort(compareSuggestions)
                     return groupedByKind(byWorth).flatMap((group) => group.suggestions)
@@ -803,11 +807,13 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     posthog.capture('warehouse suggestion confirm opened', {
                         suggestion_id: id,
                         kind: values.acceptConfirmSuggestion?.kind,
+                        surface: props.surface,
                     })
                 },
                 closeAcceptConfirm: (_, __, ___, previousState) => {
                     posthog.capture('warehouse suggestion confirm cancelled', {
                         suggestion_id: selectors.acceptConfirmSuggestionId(previousState),
+                        surface: props.surface,
                     })
                 },
                 confirmAccept: () => {
