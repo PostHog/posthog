@@ -51,11 +51,14 @@ class ConsoleEnvironment:
 def _search_teams(query: str) -> list[Team]:
     if not query:
         return []
+    teams = Team.objects.select_related("organization")
     if query.isdigit():
-        return list(Team.objects.filter(pk=int(query)).select_related("organization")[:1])
-    matches = Team.objects.filter(
-        Q(api_token=query) | Q(name__icontains=query) | Q(organization__name__icontains=query)
-    ).select_related("organization")
+        return list(teams.filter(pk=int(query))[:1])
+    # An exact token match uses the unique index. ORing it with the name scans below would scan the table for it too.
+    by_token = list(teams.filter(api_token=query)[:1])
+    if by_token:
+        return by_token
+    matches = teams.filter(Q(name__icontains=query) | Q(organization__name__icontains=query))
     return list(matches.order_by("-id")[:SEARCH_LIMIT])
 
 

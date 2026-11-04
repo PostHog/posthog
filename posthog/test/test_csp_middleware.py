@@ -304,6 +304,8 @@ class TestCSPMiddleware(APIBaseTest):
         policy = response["Content-Security-Policy"]
         # Only the admin policy forbids framing outright; the non-HTML fallback is default-src alone.
         assert "frame-ancestors 'none'" in policy
+        # The admin console serves its fonts from /static/; without 'self' it renders in a fallback font.
+        assert "font-src 'self'" in policy
         assert "Content-Security-Policy-Report-Only" not in response
         assert "report-to" not in policy
 

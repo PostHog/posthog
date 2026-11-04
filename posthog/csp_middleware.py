@@ -246,7 +246,8 @@ class CSPMiddleware:
                 "default-src 'self'",
                 f"style-src 'self' 'unsafe-inline' {admin_bundle_origin}".rstrip(),
                 f"script-src 'self' 'nonce-{nonce}' '{django_loginas_inline_script_hash}' {admin_bundle_origin}".rstrip(),
-                "font-src data: https://fonts.gstatic.com",
+                # The admin console loads its RoundHog faces from /static/admin-console/fonts/.
+                "font-src 'self' data: https://fonts.gstatic.com",
                 # Without this the directive falls back to `default-src 'self'`, which drops the
                 # `data:` icons Django admin and our own admin pages render, and the `blob:` images
                 # the admin tools build client-side. Neither can execute, and this policy is
