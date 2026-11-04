@@ -405,14 +405,16 @@ def _split_by_path(
 
     An alert whose destinations the platform keeps sends every transition to them natively. Its
     stock destinations are `AlertDestination` rows, so any HogFunction listening on the alert is one
-    a person built, and the source also emits every transition for it. No destination is on both
+    a person built, and the source also emits every transition for it. That includes a function
+    from a custom template or one with no `alert_id` filter, which no destination lookup lists, so
+    the source emits without asking who listens, as its own stack did. No destination is on both
     paths, so nothing is sent twice. Moving an existing alert's destinations onto the platform must
     therefore disable the HogFunctions it copies, or each of them hears every transition as well.
     """
     if not request.owned_by_platform or delivery_paths.emitter_for(request.source) is None:
         return announced, ()
     if platform_destinations is not None:
-        return announced, (_emissions(request, announced.transitions) if _has_hog_function_listeners(request) else ())
+        return announced, _emissions(request, announced.transitions)
 
     # Read once per delivery, because the chooser reads every destination of the alert.
     @cache
@@ -458,18 +460,6 @@ def _emissions(
                 )
             )
     return tuple(emissions)
-
-
-def _has_hog_function_listeners(request: AlertDeliveryRequest) -> bool:
-    """Whether any enabled HogFunction listens on the alert's id, so an emitted event reaches someone."""
-    return any(
-        group.receives_emitted_events and group.fully_enabled
-        for group in list_alert_destination_groups(
-            team_id=request.team_id,
-            alert_id=request.destination_alert_id,
-            allowed_event_ids=_all_event_ids(request),
-        )
-    )
 
 
 def _all_event_ids(request: AlertDeliveryRequest) -> list[str]:
