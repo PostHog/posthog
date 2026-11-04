@@ -55,8 +55,10 @@ _AI_EVENTS_MIRRORED_COLUMNS |= {
     subcolumn: _AI_EVENTS_MIRRORED_COLUMNS[source] for subcolumn, source in AI_SUBCOLUMN_TO_SOURCE.items()
 }
 
-# The intent clustering pipeline stores a truncated copy of each `$mcp_intent` value.
-_MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS = {"intent_text": "$mcp_intent"}
+
+# The intent clustering pipeline stores a truncated copy of each `$mcp_intent` value, keyed by its unsalted
+# sha256. Anyone can hash a guessed text and compare, so the hash reveals the text as much as the copy does.
+_MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS = {"intent_text": "$mcp_intent", "intent_hash": "$mcp_intent"}
 
 
 def mirrored_property_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> str | None:
@@ -84,6 +86,14 @@ def mirrored_property_for_column(table_type: ast.Type, column_name: str, context
     if isinstance(table, MCPIntentAssignmentsTable | RawMCPIntentAssignmentsTable):
         return _MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS.get(column_name)
     return None
+
+
+def mirrored_column_is_restricted(table_type: ast.Type, column_name: str, context: HogQLContext) -> bool:
+    """Whether a read of this stored column masks to NULL because the property it copies is restricted."""
+    source_property = mirrored_property_for_column(table_type, column_name, context)
+    return source_property is not None and source_property in restricted_property_keys_for_table_type(
+        table_type, context
+    )
 
 
 def restricted_feature_flag_names(keys: Iterable[str]) -> list[str]:
