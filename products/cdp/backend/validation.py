@@ -1076,9 +1076,13 @@ def _has_value(value: Any) -> bool:
     return value not in (None, "", [], {})
 
 
-def _value_and_templating(item: Any) -> tuple[Any, Any]:
-    # An input item is `{"value": ..., "templating": ...}`, or a bare value in rows saved by hand.
-    return (item.get("value"), item.get("templating")) if isinstance(item, dict) else (item, None)
+# An input item is `{"value": ..., "templating": ...}`, or a bare value in rows saved by hand.
+def _input_value(item: Any) -> Any:
+    return item.get("value") if isinstance(item, dict) else item
+
+
+def _input_templating(item: Any) -> Any:
+    return item.get("templating") if isinstance(item, dict) else None
 
 
 def _comparable_inputs(inputs: Any, skipped_keys: set[str]) -> dict[str, str]:
@@ -1088,10 +1092,10 @@ def _comparable_inputs(inputs: Any, skipped_keys: set[str]) -> dict[str, str]:
     for key, item in inputs.items():
         if str(key) in skipped_keys:
             continue
-        value, templating = _value_and_templating(item)
+        value = _input_value(item)
         # Hog reads a missing input as null, but an empty string or list is a value code can branch on.
         if value is not None:
-            result[str(key)] = json.dumps([value, templating], sort_keys=True, default=str)
+            result[str(key)] = json.dumps([value, _input_templating(item)], sort_keys=True, default=str)
     return result
 
 
@@ -1204,9 +1208,7 @@ def linked_integration_input_keys(binding: SecretBinding) -> set[str]:
     }
     scope_inputs = [inputs for _, inputs in scopes if isinstance(inputs, dict)]
     return {
-        key
-        for key in integration_keys
-        if any(_has_value(_value_and_templating(inputs.get(key))[0]) for inputs in scope_inputs)
+        key for key in integration_keys if any(_has_value(_input_value(inputs.get(key))) for inputs in scope_inputs)
     }
 
 
