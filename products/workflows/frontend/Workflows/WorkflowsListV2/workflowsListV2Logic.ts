@@ -17,6 +17,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { isUUIDLike } from 'lib/utils/guards'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -89,6 +90,7 @@ const LEGACY_FACET_PARAMS: { param: string; facet: string; isValid: (value: stri
     { param: 'created_by', facet: 'createdBy', isValid: isUUIDLike },
 ]
 const LEGACY_PARAMS = [...LEGACY_FACET_PARAMS.map(({ param }) => param), 'tags', 'search', 'page']
+const LIST_PARAMS = ['view', 'q', 'text', 'columns', 'added']
 
 // Parsing only needs facet keys and aliases, which don't depend on the loaded rows.
 const QUERY_FACETS = buildWorkflowListFacets([])
@@ -201,6 +203,7 @@ export interface workflowsListV2LogicValues {
     filteredRows: WorkflowListRow[]
     hasHealthFilter: boolean
     isUnfilteredAutomationView: boolean
+    keptSearch: Record<string, string>
     listLoaded: boolean
     loadErrorDetail: string | null
     loadFailed: boolean
@@ -312,6 +315,9 @@ export interface workflowsListV2LogicActions {
         serverSearch: ServerSearchResult | null
         payload?: string
     }
+    setKeptSearch: (search: Record<string, string>) => {
+        search: Record<string, string>
+    }
     setRowActionPending: (
         id: string,
         action: WorkflowRowAction | null
@@ -382,6 +388,7 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
         toggleColumn: (column: OptionalColumn) => ({ column }),
         resetColumns: true,
         setVisibleColumns: (columns: OptionalColumn[]) => ({ columns }),
+        setKeptSearch: (search: Record<string, string>) => ({ search }),
         patchWorkflow: (id: string, patch: Partial<HogFlowListSummaryApi>) => ({ id, patch }),
         removeWorkflow: (id: string) => ({ id }),
         setRowActionPending: (id: string, action: WorkflowRowAction | null) => ({ id, action }),
@@ -472,6 +479,14 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
             {
                 setValue: (_, { value }) => value,
                 clearFilters: () => EMPTY_VALUE,
+            },
+        ],
+        keptSearch: [
+            {} as Record<string, string>,
+            // The way back also needs the saved view, its additions and its columns, which `value` does not hold.
+            buildUserScopedPersistenceConfig('workflows_list_v2_search__'),
+            {
+                setKeptSearch: (_, { search }) => search,
             },
         ],
         requestedSearchText: [
@@ -765,11 +780,16 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
             if (!cache.legacyChecked) {
                 cache.legacyChecked = true
                 const kept = values.value
-                if (
-                    !('q' in searchParams || 'text' in searchParams) &&
-                    !LEGACY_PARAMS.some((param) => param in searchParams) &&
-                    (kept.filters.length > 0 || kept.text)
-                ) {
+                const opensBare = ![...LIST_PARAMS, ...LEGACY_PARAMS].some((param) => param in searchParams)
+                if (opensBare && Object.keys(values.keptSearch).length > 0) {
+                    router.actions.replace(
+                        router.values.location.pathname,
+                        { ...searchParams, ...values.keptSearch },
+                        hashParams
+                    )
+                    return
+                }
+                if (opensBare && (kept.filters.length > 0 || kept.text)) {
                     router.actions.replace(
                         router.values.location.pathname,
                         withFacetParams(searchParams, kept),
@@ -796,6 +816,13 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 current.text !== values.value.text
             ) {
                 actions.setValue(current, true)
+            }
+            const raw = new URLSearchParams(router.values.location.search)
+            const search = Object.fromEntries(
+                LIST_PARAMS.filter((param) => raw.has(param)).map((param) => [param, raw.get(param) ?? ''])
+            )
+            if (!objectsEqual(search, values.keptSearch)) {
+                actions.setKeptSearch(search)
             }
         }
         return {

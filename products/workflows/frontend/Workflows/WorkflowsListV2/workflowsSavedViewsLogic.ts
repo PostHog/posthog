@@ -578,6 +578,8 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             lemonToast.error(savedViewFailureMessage(action, target?.name ?? 'this view', error))
             if (target && error instanceof ApiError && error.status === 409) {
                 actions.setConflictedViewId(target.id)
+                // Only Reset resolves a conflict, and an open dialog covers it.
+                return null
             }
             if (target && isMissingViewError(error)) {
                 forgetDeletedView(target.id)
@@ -684,6 +686,9 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     const currentViewId = values.activeViewId
                     const startValue = values.value
                     const startColumns = values.shownColumns
+                    // Edits made while the latest version loads stay, as changes to whatever the view resolves to.
+                    const editedWhileLoading = (): boolean =>
+                        values.value !== startValue || values.shownColumns !== startColumns
                     await runMutation(
                         'reset',
                         async (stillCurrent) => {
@@ -697,10 +702,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                                 }
                                 actions.upsertSavedView(latest)
                                 actions.setConflictedViewId(null)
-                                // Edits made while the latest version loaded stay, and show as changes to it.
-                                const editedWhileLoading =
-                                    values.value !== startValue || values.shownColumns !== startColumns
-                                if (values.activeViewId === currentViewId && !editedWhileLoading) {
+                                if (values.activeViewId === currentViewId && !editedWhileLoading()) {
                                     clearAddedFiltersUnless(keepAddedFilters)
                                     actions.applyView(latest)
                                 }
@@ -709,6 +711,10 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                                     throw error
                                 }
                                 if (!stillCurrent()) {
+                                    return
+                                }
+                                if (editedWhileLoading()) {
+                                    forgetDeletedView(currentViewId)
                                     return
                                 }
                                 removeDeletedView(currentViewId)

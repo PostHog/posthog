@@ -538,7 +538,10 @@ describe('workflowsSavedViewsLogic', () => {
         expect(logic.values.isModified).toBe(false)
     })
 
-    it('keeps edits made while reset loads the latest version of a conflicted view', async () => {
+    it.each([
+        ['loads the latest version', 200],
+        ['finds the view deleted', 404],
+    ])('keeps edits made while reset of a conflicted view %s', async (_, resetStatus) => {
         const latest = { ...savedView, state: { filters: [], text: 'remote', columns: ['trigger'] }, version: 2 }
         let release: (() => void) | undefined
         let started: (() => void) | undefined
@@ -553,7 +556,7 @@ describe('workflowsSavedViewsLogic', () => {
                         release = resolve
                         started!()
                     })
-                    return [200, latest]
+                    return resetStatus === 200 ? [200, latest] : [404, { detail: 'Not found.' }]
                 },
             },
         })
@@ -572,7 +575,8 @@ describe('workflowsSavedViewsLogic', () => {
         await reset
 
         expect(workflowsListV2Logic.values.value).toEqual({ filters: [eventTrigger], text: 'typed while loading' })
-        expect(logic.values.activeView.version).toEqual(2)
+        expect(logic.values.activeView.id).toEqual(resetStatus === 200 ? VIEW_ID : 'all')
+        expect(logic.values.activeView.version).toEqual(resetStatus === 200 ? 2 : 0)
         expect(logic.values.activeViewConflicted).toBe(false)
         expect(logic.values.sharedSaveDisabledReason).toBeUndefined()
         expect(logic.values.isModified).toBe(true)
@@ -734,6 +738,51 @@ describe('workflowsSavedViewsLogic', () => {
         expect(workflowsListV2Logic.values.value).toEqual({ filters: [], text: '' })
         expect(workflowsListV2Logic.values.shownColumns).toEqual([])
         expect(logic.values.isModified).toBe(true)
+    })
+
+    it('opens a shared view link as the view, even with filters kept from an earlier visit', async () => {
+        router.actions.push(urls.workflows(), { q: 'status:draft' })
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        logic.unmount()
+
+        router.actions.push(urls.workflows(), { view: VIEW_ID })
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+
+        expect(logic.values.activeViewId).toEqual(VIEW_ID)
+        expect(workflowsListV2Logic.values.value).toEqual({ filters: savedView.state.filters, text: '' })
+        expect(logic.values.isModified).toBe(false)
+    })
+
+    it('comes back to the view, its additions and its columns after leaving the list', async () => {
+        router.actions.push(urls.workflows(), { view: VIEW_ID })
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        workflowsListV2Logic.actions.setValue({ filters: [status('active'), eventTrigger], text: '' })
+        workflowsListV2Logic.actions.toggleColumn('owner')
+        const before = {
+            value: workflowsListV2Logic.values.value,
+            added: logic.values.addedFilters,
+            columns: workflowsListV2Logic.values.shownColumns,
+        }
+        logic.unmount()
+
+        router.actions.push(urls.workflows())
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+
+        expect(logic.values.activeViewId).toEqual(VIEW_ID)
+        expect({
+            value: workflowsListV2Logic.values.value,
+            added: logic.values.addedFilters,
+            columns: workflowsListV2Logic.values.shownColumns,
+        }).toEqual(before)
+        expect(before.added).toEqual([eventTrigger])
     })
 
     it('guards duplicate saves and ignores a late shared update after the feature is disabled and re-enabled', async () => {
@@ -933,6 +982,12 @@ describe('workflowsSavedViewsLogic', () => {
             "Couldn't rename Active flows. This view changed since you opened it. Reset to the latest version and try again.",
         ],
         [
+            'rename',
+            400,
+            { detail: 'Ensure this field has no more than 128 characters.' },
+            "Couldn't rename Active flows. Ensure this field has no more than 128 characters.",
+        ],
+        [
             'delete',
             403,
             { detail: 'Forbidden' },
@@ -951,7 +1006,7 @@ describe('workflowsSavedViewsLogic', () => {
             "Couldn't restore My workflows. PostHog ran into a problem. Try again in a moment.",
         ],
     ])(
-        'explains a failed %s that returns %s, and hands a dialog its failure',
+        'explains a failed %s that returns %s, and hands a dialog a failure it can retry',
         async (action, status, body, message) => {
             const toastError = jest.spyOn(lemonToast, 'error')
             const fail = (): [number, Record<string, string>] => [status, body]
@@ -971,8 +1026,8 @@ describe('workflowsSavedViewsLogic', () => {
             const failure = await runFailingAction(action)
 
             expect(toastError).toHaveBeenLastCalledWith(message)
-            const fromDialog = action === 'save-as' || action === 'rename'
-            expect((failure as { status?: number } | null)?.status).toEqual(fromDialog ? status : undefined)
+            const dialogStaysOpen = (action === 'save-as' || action === 'rename') && status !== 409
+            expect((failure as { status?: number } | null)?.status).toEqual(dialogStaysOpen ? status : undefined)
         }
     )
 
