@@ -80,6 +80,12 @@ from products.warehouse_sources.backend.presentation.views.external_data_source.
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.csv_types import (
     UnsupportedCsvColumnError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    ObjectStorageError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.filesystem import (
+    lookup_s3_bucket_region,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
     SelfManagedCredential,
     SelfManagedLocation,
@@ -206,34 +212,40 @@ class _Evaluation:
 
 
 def resolve_s3_bucket_region(bucket: str, credential: SelfManagedCredential) -> str | None:
-    """Ask S3 for the bucket's region with the table's own key.
+    """Ask S3 for the bucket's region with the table's own key, then without a key.
 
     S3 names the region in the `x-amz-bucket-region` header of a HEAD request, also when it
-    answers with a redirect or a 403, so a key that may only read objects still finds it.
+    answers with a redirect or a 403. A key that can't make the request at all gets no answer, and
+    the anonymous request still finds the region of a bucket that exists.
     """
-    if not credential.access_key.strip() or not credential.access_secret.strip():
-        return None
-    client = boto3.client(
-        "s3",
-        region_name="us-east-1",
-        aws_access_key_id=credential.access_key.strip(),
-        aws_secret_access_key=credential.access_secret.strip(),
-        config=BotoConfig(
-            connect_timeout=CONNECT_TIMEOUT_SECONDS,
-            read_timeout=READ_TIMEOUT_SECONDS,
-            retries={"max_attempts": MAX_REQUEST_ATTEMPTS, "mode": "standard"},
-        ),
-    )
-    response: Mapping[str, Any]
+    if credential.access_key.strip() and credential.access_secret.strip():
+        response: Mapping[str, Any]
+        try:
+            client = boto3.client(
+                "s3",
+                region_name="us-east-1",
+                aws_access_key_id=credential.access_key.strip(),
+                aws_secret_access_key=credential.access_secret.strip(),
+                config=BotoConfig(
+                    connect_timeout=CONNECT_TIMEOUT_SECONDS,
+                    read_timeout=READ_TIMEOUT_SECONDS,
+                    retries={"max_attempts": MAX_REQUEST_ATTEMPTS, "mode": "standard"},
+                ),
+            )
+            response = client.head_bucket(Bucket=bucket)
+        except ClientError as e:
+            response = e.response
+        except BotoCoreError:
+            response = {}
+        headers = response.get("ResponseMetadata", {}).get("HTTPHeaders", {})
+        region = headers.get("x-amz-bucket-region")
+        if isinstance(region, str) and region:
+            return region
+
     try:
-        response = client.head_bucket(Bucket=bucket)
-    except ClientError as e:
-        response = e.response
-    except BotoCoreError:
+        return lookup_s3_bucket_region(bucket)
+    except (ObjectStorageError, ClientError, BotoCoreError):
         return None
-    headers = response.get("ResponseMetadata", {}).get("HTTPHeaders", {})
-    region = headers.get("x-amz-bucket-region")
-    return region if isinstance(region, str) and region else None
 
 
 def _object_storage_sources() -> dict[StorageService, ObjectStorageSource[Any]]:
