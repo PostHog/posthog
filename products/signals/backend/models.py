@@ -4372,6 +4372,8 @@ class PersonalInboxRanking(TeamScopedRootMixin, UUIDModel):
 
     # Covers the candidates with their status, priority, PR state, needs-you facts and score, the summary version, the prompt version and the focus.
     input_hash = models.CharField(max_length=64)
+    # The inputs of `input_hash` as one hash per part, from `input_parts`. Null on rows from before the parts.
+    input_parts = models.JSONField(null=True, blank=True)
     # Report ids in candidate order.
     candidate_ids = models.JSONField(default=list)
     # Every candidate with its rank, tier and reason, and the folded reports. See `PersonalRankingResult.as_json`.
