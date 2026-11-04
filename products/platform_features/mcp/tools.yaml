@@ -355,10 +355,10 @@ tools:
             Create an organization with the caller as its owner. PostHog also creates a default project in it. Use an
             organization to keep separate companies or billing accounts apart. To separate environments such as staging
             and production, use `project-create` in the current organization instead. Always confirm the name with the
-            user before calling this. PostHog makes the new organization the user's current organization in the web
-            app, so tell the user. This session stays in its current organization: call `switch-organization` with the
-            returned ID to work in the new one. If `switch-organization` is unavailable, the connection is pinned to
-            one organization, so ask the user to reconnect. If this call fails with a permission error, do not call it
+            user before calling this. PostHog makes the new organization the user's current organization in the web app,
+            so tell the user. This session stays in its current organization: call `switch-organization` with the
+            returned ID to work in the new one. If `switch-organization` is unavailable, the connection is pinned to one
+            organization, so ask the user to reconnect. If this call fails with a permission error, do not call it
             again: give the user the reason from the error.
         include_params:
             - name
