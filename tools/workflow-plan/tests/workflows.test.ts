@@ -592,6 +592,40 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('CI workflow run plans', () => {
+    it.each([
+        ['ready PR', pullRequest(), true, true],
+        ['merge queue', mergeQueue(), true, false],
+        ['master push', push(), true, false],
+        ['hourly schedule', schedule(), false, false],
+    ])('frontend size comparison runs only when consumed (%s)', (name, github, headBuild, baseBuild) => {
+        const wf = workflow('ci-frontend.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: { ...allFiltersChanged(wf), ...frontendSelectors },
+        })
+        expect(plan.errors).toEqual([])
+        const steps = plan.jobs['frontend-bundle-size']?.steps ?? []
+        expect(steps.find((step) => step.name === 'Build base branch for size comparison')?.runs ?? false).toBe(
+            baseBuild
+        )
+        for (const step of [
+            'Build frontend (bundle-size + eager-graph report)',
+            'Measure PR dist size',
+            'Check toolbar bundle stays under the CloudFront gzip limit',
+            'Check toolbar graph stays inside its module boundary',
+            'Check toolbar for CSP eval violations',
+            'Calculate dist folder size',
+        ]) {
+            expect(steps.find((candidate) => candidate.name === step)?.runs ?? false, step).toBe(headBuild)
+        }
+        expect(
+            steps.find((step) => step.name === 'Check eager graph budgets and forbidden imports')?.runs ?? false
+        ).toBe(headBuild && github.event_name === 'pull_request')
+        expect(steps.find((step) => step.name === 'Post CI report — bundle size')?.runs ?? false).toBe(baseBuild)
+        expect(plan.jobs.frontend_tests?.result).toBe('success')
+    })
+
     it.each(['build', 'quality', 'typecheck', 'test'])('Desktop %s shares the fallback detector filters', (name) => {
         const filters = (file: string): Record<string, string[]> =>
             load(
@@ -1051,6 +1085,136 @@ describe('CI workflow run plans', () => {
         })
         expect(plan.errors).toEqual([])
         expect(plan.jobs.affected?.steps.find((step) => step.name === 'Resolve the changed files')?.runs).toBe(runs)
+    })
+
+    it.each([
+        ['Rust-only PR', pullRequest(), 'true', 'false', true],
+        ['missing Node filter', pullRequest(), 'true', '', true],
+        ['fork', pullRequest({ fork: true }), 'true', 'false', true],
+        ['Rust-only merge queue', mergeQueue(), 'true', 'false', true],
+        ['mixed Node/Rust PR', pullRequest(), 'true', 'true', false],
+        ['mixed Node/Rust fork', pullRequest({ fork: true }), 'true', 'true', false],
+        ['mixed Node/Rust merge queue', mergeQueue(), 'true', 'true', false],
+        ['Node-only PR', pullRequest(), 'false', 'true', false],
+        ['unrelated PR', pullRequest(), 'false', 'false', false],
+        ['push', push(), 'true', 'false', false],
+        ['schedule', schedule(), 'true', 'false', false],
+    ] as const)('Node Rust preparation on %s', (name, github, rust, nodejs, runs) => {
+        const plan = planWorkflow(workflow('ci-nodejs.yml'), {
+            name,
+            github,
+            steps: { changes: { filter: { outputs: { rust, nodejs } } } },
+        })
+        expect(plan.errors).toEqual([])
+        for (const name of [
+            'Check out the Rust tree for affected-crate detection',
+            'Resolve the Rust changed files',
+            'Install rust for affected-crate detection',
+            'Compute affected Rust crates',
+        ]) {
+            expect(plan.jobs.changes?.steps.find((step) => step.name === name)?.runs, name).toBe(runs)
+        }
+    })
+
+    it.each([
+        ['Node-only', pullRequest(), 'true', 'false', '[]', 'false', 'nodejs=true'],
+        ['native addon', pullRequest(), 'true', 'true', '["replay-anonymizer"]', 'false', 'nodejs=true'],
+        ['mixed Node/ingestion', pullRequest(), 'true', 'true', '["ingestion-consumer"]', 'false', 'nodejs=true'],
+        ['mixed Node/personhog', pullRequest(), 'true', 'true', '["personhog-identity"]', 'false', 'nodejs=true'],
+        ['Rust ingestion', pullRequest(), 'false', 'true', '["ingestion-consumer"]', 'false', 'nodejs=true'],
+        [
+            'Rust personhog',
+            pullRequest(),
+            'false',
+            'true',
+            '["personhog-identity"]',
+            'false',
+            'personhog_e2e=true\nnodejs=false',
+        ],
+        ['proto full rebuild', pullRequest(), 'false', 'true', '[]', 'true', 'nodejs=true'],
+        ['unrelated Rust', pullRequest(), 'false', 'true', '["common-types"]', 'false', 'nodejs=false'],
+        ['lockfile', pullRequest(), 'true', 'false', '[]', 'false', 'nodejs=true'],
+        ['unrelated', pullRequest(), 'false', 'false', '[]', 'false', 'nodejs=false'],
+        ['push', push(), '', '', '[]', 'false', 'nodejs=true'],
+        ['schedule', schedule(), '', '', '[]', 'false', 'nodejs=true'],
+    ] as const)(
+        'Node decision preserves coverage for %s',
+        (_name, github, nodejs, rust, crates, rebuildAll, expected) => {
+            const wf = workflow('ci-nodejs.yml')
+            const functions = planFunctions({
+                dependenciesSucceeded: true,
+                dependenciesFailed: false,
+                cancelled: false,
+            })
+            const step = wf.jobs.changes?.steps?.find((step) => step.id === 'nodejs-changes')
+            const context = {
+                github,
+                steps: {
+                    filter: { outputs: { nodejs, rust } },
+                    'rust-affected': { outputs: { crates: String(crates), 'rebuild-all': String(rebuildAll) } },
+                },
+            }
+            const runDecision = (): string => {
+                const env = Object.fromEntries(
+                    Object.entries(step!.env!).map(([key, value]) => [
+                        key,
+                        String(evaluateValue(value, context, functions)),
+                    ])
+                )
+                const script = evaluateValue(step!.run, context, functions)
+                const result = spawnSync(
+                    'bash',
+                    [
+                        '-eu',
+                        '-o',
+                        'pipefail',
+                        '-c',
+                        `
+                export GITHUB_OUTPUT=$(mktemp)
+                trap 'rm -f "$GITHUB_OUTPUT"' EXIT
+                (
+${script}
+)
+                cat "$GITHUB_OUTPUT"
+            `,
+                    ],
+                    {
+                        encoding: 'utf8',
+                        env: { ...process.env, ...env },
+                    }
+                )
+                expect(result.error).toBeUndefined()
+                expect(result.status, result.stderr).toBe(0)
+                return result.stdout.trim()
+            }
+            expect(runDecision()).toBe(expected)
+            const plan = planWorkflow(wf, {
+                name: _name,
+                github,
+                steps: { changes: { filter: { outputs: { nodejs, rust } } } },
+            })
+            if (!plan.jobs.changes?.steps.find((step) => step.id === 'rust-affected')?.runs) {
+                context.steps['rust-affected'].outputs = { crates: '', 'rebuild-all': '' }
+                expect(runDecision()).toBe(expected)
+            }
+        }
+    )
+
+    it.each([
+        ['success', 'true', 'false'],
+        ['success', 'false', 'true'],
+        ['success', '', 'true'],
+        ['failure', 'true', 'true'],
+    ])('Node Rust fallback for resolver %s, resolved=%j', (outcome, resolved, rebuildAll) => {
+        const step = workflow('ci-nodejs.yml').jobs.changes?.steps?.find((step) => step.id === 'rust-affected')
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        expect(
+            evaluateValue(
+                step?.with?.['rebuild-all'],
+                { steps: { 'rust-changed-files': { outcome, outputs: { resolved } } } },
+                functions
+            )
+        ).toBe(rebuildAll)
     })
 
     it.each(['success', 'failure'] as const)(

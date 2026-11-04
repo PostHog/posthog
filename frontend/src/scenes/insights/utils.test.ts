@@ -1,7 +1,6 @@
 import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import {
     compareInsightTopLevelSections,
-    extractObjectDiffKeys,
     formatAggregationValue,
     formatBreakdownLabel,
     formatBreakdownType,
@@ -22,11 +21,11 @@ import {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { BaseMathType, CompareLabelType, Entity, FilterType, InsightType, TeamType } from '~/types'
+import { BaseMathType, CompareLabelType, TeamType } from '~/types'
 
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
-const createEventsNode = (id?: Entity['id'], name?: string, custom_name?: string): EventsNode => {
+const createEventsNode = (id?: string | number | null, name?: string, custom_name?: string): EventsNode => {
     return {
         kind: NodeKind.EventsNode,
         custom_name,
@@ -35,7 +34,7 @@ const createEventsNode = (id?: Entity['id'], name?: string, custom_name?: string
     }
 }
 
-const createActionsNode = (id?: Entity['id'], name?: string, custom_name?: string): ActionsNode => {
+const createActionsNode = (id?: string | number | null, name?: string, custom_name?: string): ActionsNode => {
     return {
         kind: NodeKind.ActionsNode,
         custom_name,
@@ -86,78 +85,6 @@ describe('getDisplayNameFromEntityNode()', () => {
         // Malformed insight records can carry a null entry in query.series; the
         // function must not read `.id` off it (caught rendering the saved insights list).
         expect(getDisplayNameFromEntityNode(null as any)).toBeNull()
-    })
-})
-
-describe('extractObjectDiffKeys()', () => {
-    const testCases: [string, FilterType, FilterType, string, Record<string, any>][] = [
-        [
-            'one value',
-            { insight: InsightType.TRENDS },
-            { insight: InsightType.FUNNELS },
-            '',
-            { changed_insight: InsightType.TRENDS },
-        ],
-        [
-            'multiple values',
-            { insight: InsightType.TRENDS, date_from: '-7d' },
-            { insight: InsightType.FUNNELS, date_from: '-7d' },
-            '',
-            { changed_insight: InsightType.TRENDS },
-        ],
-        [
-            'nested event',
-            { insight: InsightType.TRENDS, events: [{ name: 'pageview', math: 'total' }] },
-            { insight: InsightType.TRENDS, events: [{ name: 'pageview', math: 'dau' }] },
-            '',
-            { changed_event_0_math: 'total' },
-        ],
-        [
-            'nested event multiple',
-            {
-                insight: InsightType.TRENDS,
-                events: [
-                    { name: 'pageview', math: 'dau' },
-                    { name: 'pageview', math: 'total' },
-                ],
-            },
-            {
-                insight: InsightType.TRENDS,
-                events: [
-                    { name: 'pageview', math: 'dau' },
-                    { name: 'pageview', math: 'dau' },
-                ],
-            },
-            '',
-            { changed_event_1_math: 'total' },
-        ],
-        [
-            'nested action',
-            { insight: InsightType.TRENDS, actions: [{ name: 'pageview', math: 'total' }] },
-            { insight: InsightType.TRENDS, actions: [{ name: 'pageview', math: 'dau' }] },
-            '',
-            { changed_action_0_math: 'total' },
-        ],
-        [
-            'nested action',
-            { insight: InsightType.TRENDS, actions: undefined, events: [] },
-            { insight: InsightType.TRENDS, actions: [], events: undefined },
-            '',
-            {},
-        ],
-        [
-            'nested action',
-            { insight: InsightType.TRENDS, actions: undefined, events: [] },
-            { insight: InsightType.TRENDS, actions: [{ name: 'pageview', math: 'dau ' }], events: undefined },
-            '',
-            { changed_actions_length: 0 },
-        ],
-    ]
-
-    testCases.forEach(([testName, oldFilter, newFilter, prefix, expected]) => {
-        it(`expect ${JSON.stringify(expected)} for ${testName}`, () => {
-            expect(extractObjectDiffKeys(oldFilter, newFilter, prefix)).toEqual(expected)
-        })
     })
 })
 

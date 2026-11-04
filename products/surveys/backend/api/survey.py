@@ -41,6 +41,7 @@ from rest_framework.response import Response
 from posthog.schema import ProductKey
 
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
+from posthog.api.pagination import PageLinksSerializer, offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action
@@ -1008,7 +1009,7 @@ class SurveyResponsesQuerySerializer(serializers.Serializer):
     )
 
 
-class SurveyResponsesListSerializer(serializers.Serializer):
+class SurveyResponsesListSerializer(PageLinksSerializer):
     results = SurveyResponseRowSerializer(many=True, help_text="Survey response rows for the requested page.")
     has_more = serializers.BooleanField(
         help_text="True if more rows exist beyond the current page — fetch the next page with offset + limit."
@@ -2093,7 +2094,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 instance.targeting_flag.save()
 
             self._add_user_survey_interacted_filters(instance)
-            self._associate_actions(instance, validated_data.get("conditions"))
+            if "conditions" in validated_data:
+                self._associate_actions(instance, validated_data["conditions"])
             self._add_internal_response_sampling_filters(instance)
 
         log_activity(
@@ -2947,6 +2949,8 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         if cleaned.get("exclude_archived"):
             exclude_uuids = get_archived_response_uuids(str(survey.id), self.team_id)
 
+        limit = cleaned.get("limit", 100)
+        offset = cleaned.get("offset", 0)
         rows, has_more = fetch_response_rows(
             survey=survey,
             team=self.team,
@@ -2955,8 +2959,8 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
             question_id=cleaned.get("question_id"),
             score_lte=cleaned.get("score_lte"),
             score_gte=cleaned.get("score_gte"),
-            limit=cleaned.get("limit", 100),
-            offset=cleaned.get("offset", 0),
+            limit=limit,
+            offset=offset,
             exclude_uuids=exclude_uuids,
         )
 
@@ -2985,11 +2989,14 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
                     for row in rows
                 ],
                 "has_more": has_more,
-                "limit": cleaned.get("limit", 100),
-                "offset": cleaned.get("offset", 0),
+                "limit": limit,
+                "offset": offset,
             }
         )
-        return Response(serialized.data)
+        data = serialized.data
+        next_offset = offset + limit if has_more else None
+        data.update(offset_page_links(request, offset=offset, limit=limit, next_offset=next_offset))
+        return Response(data)
 
     @extend_schema(
         operation_id="surveys_question_labels",

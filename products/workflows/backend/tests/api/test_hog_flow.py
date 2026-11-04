@@ -75,6 +75,10 @@ from products.workflows.backend.tests.api.test_workflow_data_suggestions import 
 
 _AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "x", "operator": "icontains"}
 _WIDER_AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "@", "operator": "icontains"}
+_EVENT_TRIGGER_CONFIG = {
+    "type": "event",
+    "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+}
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -762,12 +766,24 @@ class TestHogFlowAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("draft", {"Draft"}),
-            ("scheduled", {"Scheduled", "Recurring between runs", "Workflow waiting for an API send"}),
+            (
+                "scheduled",
+                {
+                    "Scheduled",
+                    "Recurring between runs",
+                    "Recurring after some sends errored",
+                    "Workflow waiting for an API send",
+                },
+            ),
             ("sending", {"Sending"}),
             ("sent", {"Sent", "Sent after a failed run"}),
+            ("partially_sent", {"Some sends errored"}),
             ("failed", {"Run failed", "Launch never finished"}),
             ("archived", {"Archived"}),
-            ("sent,failed", {"Sent", "Sent after a failed run", "Run failed", "Launch never finished"}),
+            (
+                "sent,failed",
+                {"Sent", "Sent after a failed run", "Run failed", "Launch never finished"},
+            ),
         ]
     )
     @patch(
@@ -807,6 +823,8 @@ class TestHogFlowAPI(APIBaseTest):
         create("Sending", runs=("active",))
         create("Sent", runs=("completed",))
         create("Sent after a failed run", runs=("failed", "completed"))
+        create("Some sends errored", runs=("completed", "partially_failed"))
+        create("Recurring after some sends errored", runs=("partially_failed",), schedule="active")
         create("Run failed", runs=("failed",), schedule="active")
         create("Launch never finished")
         create("Workflow waiting for an API send", origin_product=None)
@@ -5117,38 +5135,48 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "Unsupported dedupe_key" in response.json().get("error", "")
 
+    @parameterized.expand([("completed", True), ("failed", False)])
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    @patch("products.workflows.backend.tasks.batch_jobs.settle_batch_run_outcome.apply_async")
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
-    def test_internal_update_batch_job_status_marks_completed(self, _mock_dispatch):
+    def test_internal_update_batch_job_status_writes_terminal_status(
+        self, new_status, checks_sends, _mock_dispatch, mock_settle
+    ):
         hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
         batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
 
         response = self.client.put(
             f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
-            {"status": "completed"},
+            {"status": new_status},
             content_type="application/json",
             headers={"x-internal-api-secret": "test-secret-123"},
         )
 
         assert response.status_code == 200, response.json()
-        assert response.json()["status"] == "completed"
+        assert response.json()["status"] == new_status
         assert response.json()["no_op"] is False
         batch_job.refresh_from_db()
-        assert batch_job.status == "completed"
+        assert batch_job.status == new_status
+        assert mock_settle.called is checks_sends
+        if checks_sends:
+            assert mock_settle.call_args.kwargs["args"] == (self.team.id, str(batch_job.id))
 
+    @parameterized.expand([("completed", "failed"), ("partially_failed", "completed")])
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
-    def test_internal_update_batch_job_status_is_idempotent_when_already_terminal(self, _mock_dispatch):
+    def test_internal_update_batch_job_status_is_idempotent_when_already_terminal(
+        self, current_status, requested_status, _mock_dispatch
+    ):
         hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
-        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="completed")
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status=current_status)
 
         response = self.client.put(
             f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
-            {"status": "failed"},
+            {"status": requested_status},
             content_type="application/json",
             headers={"x-internal-api-secret": "test-secret-123"},
         )
@@ -5156,9 +5184,9 @@ class TestHogFlowAPI(APIBaseTest):
         # Already terminal → no-op, original status preserved
         assert response.status_code == 200, response.json()
         assert response.json()["no_op"] is True
-        assert response.json()["status"] == "completed"
+        assert response.json()["status"] == current_status
         batch_job.refresh_from_db()
-        assert batch_job.status == "completed"
+        assert batch_job.status == current_status
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     @patch(
@@ -5737,12 +5765,16 @@ class TestHogFlowAPI(APIBaseTest):
                 {"type": "batch", "filters": {"properties": [_AUDIENCE_CONDITION]}},
                 HogFlowSchedule.Status.ACTIVE,
             ),
+            ("schedule_trigger_unchanged", {"type": "schedule"}, {"type": "schedule"}, HogFlowSchedule.Status.ACTIVE),
+            ("trigger_switched_off_schedule", {"type": "schedule"}, _EVENT_TRIGGER_CONFIG, None),
         ]
     )
-    def test_live_audience_change_pauses_schedules(self, _name, before_config, after_config, expected_status):
+    def test_live_trigger_change_updates_schedules(self, _name, before_config, after_config, expected_status):
         # Each firing broadcasts to whatever the trigger says at fire time, not to what was confirmed
         # when the schedule was created, so an edit that moves the audience stops the cadence. A save
         # that leaves the audience alone must not, or every resave would silently kill the schedule.
+        # A trigger that is no longer a scheduled type deletes the schedule, so a switch back cannot
+        # arm it next to a new one.
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
         )
@@ -5764,10 +5796,51 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert edited.status_code == 200, edited.json()
 
-        schedule = HogFlowSchedule.objects.get(id=scheduled.json()["id"])
+        schedule = HogFlowSchedule.objects.filter(id=scheduled.json()["id"]).first()
+        if expected_status is None:
+            assert schedule is None
+            return
+        assert schedule is not None
         assert schedule.status == expected_status
         if expected_status == HogFlowSchedule.Status.PAUSED:
             assert schedule.next_run_at is None
+
+    def test_staged_trigger_change_keeps_schedule_until_publish(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["actions"][0]["config"] = {"type": "schedule"}
+        hog_flow["status"] = "active"
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+        scheduled = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/schedules",
+            {"rrule": "FREQ=WEEKLY;INTERVAL=1;BYDAY=MO", "starts_at": "2026-08-03T09:00:00Z"},
+        )
+        assert scheduled.status_code == 201, scheduled.json()
+
+        hog_flow["actions"][0]["config"] = _EVENT_TRIGGER_CONFIG
+        staged = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"actions": hog_flow["actions"], "stage_draft": True},
+        )
+        assert staged.status_code == 200, staged.json()
+        assert HogFlowSchedule.objects.filter(id=scheduled.json()["id"]).exists()
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+            side_effect=Exception("down"),
+        ):
+            token = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {}).json()[
+                "confirm_token"
+            ]
+        published = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+            {"confirm": True, "confirm_token": token},
+        )
+        assert published.status_code == 200, published.json()
+        assert not HogFlowSchedule.objects.filter(id=scheduled.json()["id"]).exists()
 
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
@@ -6763,12 +6836,15 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
         self._seed("hog_flow", str(self.flow.id), succeeded=7)
         base = f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}"
 
-        version_one = self.client.get(f"{base}/metrics/version?version=1")
+        version_one = self.client.get(f"{base}/metrics/version?version=1&breakdown_by=name&name=succeeded,skipped")
         version_two = self.client.get(f"{base}/metrics/version?version=2")
         whole = self.client.get(f"{base}/metrics")
 
         assert version_one.status_code == 200, version_one.json()
-        assert self._succeeded(version_one) == 3
+        assert {series["name"]: sum(series["values"]) for series in version_one.json()["series"]} == {
+            "succeeded": 3,
+            "skipped": 0,
+        }
         assert self._succeeded(version_two) == 5
         # The unversioned read keys batch runs on the run, so it is its own series rather than a sum.
         assert self._succeeded(whole) == 7

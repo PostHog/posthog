@@ -21,6 +21,10 @@ from products.signals.backend.activity_summary.render import (
     days_text,
 )
 
+# The document key that `summary_text` is embedded under.
+EMBEDDING_DOCUMENT_TYPE = "activity_summary"
+EMBEDDING_RENDERING = "summary_text"
+
 PROMPT_VERSION = 8
 
 MAX_THEMES = 6

@@ -51,6 +51,16 @@ _NOT_ATTACHED_LABELS: dict[Outcome, str] = {
 }
 
 
+# Judges asked whether an answer matches a missing attachment otherwise tend to take the answer's word for it.
+_NOT_ATTACHED_NOTE = "You can't see the attachments marked not attached. Don't guess what they contain."
+
+
+def _names(labels: list[str]) -> str:
+    # Capped: these lines sit outside the transcript's text budget, and a transcript can hold thousands of markers.
+    rest = len(labels) - MAX_ATTACHMENTS
+    return ", ".join(labels[:MAX_ATTACHMENTS]) + (f", and {rest} more" if rest > 0 else "")
+
+
 _NUMBERED_MARKER_RE = re.compile(r"\[(image|file|audio|video) \d+\]")
 
 
@@ -109,7 +119,10 @@ class JudgeAttachments:
         key = pointer.sha256 if pointer else media.base64_data
         kind = _kind(media.modality, mime_type)
         if kind is None or mime_type is None or key is None:
-            return media.marker()
+            if media.url is not None and media.url.startswith(("https://", "http://")):
+                return media.marker()
+            # Covers an SDK placeholder like `[base64 image redacted]`: a bare `[image]` reads as if the judge had it.
+            return f"[{media.modality}, not attached]"
         if (image := self._media_by_key.get(key)) is None:
             self._counts[kind] += 1
             image = self._media_by_key[key] = _Media(
@@ -126,8 +139,9 @@ class JudgeAttachments:
         """The user message content: each referenced attachment under its label, then the transcript."""
         # Line sampling can drop a marker from a long transcript, and then its attachment only costs tokens.
         images = [image for image in self._media if image.marker in user_prompt]
+        unattached = ", not attached]" in user_prompt
         if not images:
-            return user_prompt
+            return f"{_NOT_ATTACHED_NOTE}\n\n{user_prompt}" if unattached else user_prompt
 
         # One lookup per file type: on OpenRouter each one reads the whole model catalogue from the cache.
         transports = {
@@ -173,14 +187,26 @@ class JudgeAttachments:
             else:
                 parts.extend([{"type": "text", "text": f"{image.label}:"}, attachment.part])
         # One line each, not one per attachment: they sit outside the transcript's text budget.
-        if over_limit := len(readable) - len(attachments):
-            outcomes["over_limit"] = over_limit
-            parts.append({"type": "text", "text": f"Not attached, over the judge's attachment limit: {over_limit}."})
-        if unreadable := len(images) - len(readable):
-            outcomes["unreadable"] = unreadable
+        if over_limit := [image.label for image in readable if image.marker not in attachments]:
+            outcomes["over_limit"] = len(over_limit)
             parts.append(
-                {"type": "text", "text": f"Not attached, this judge can't read their file type: {unreadable}."}
+                {"type": "text", "text": f"Not attached, over the judge's attachment limit: {_names(over_limit)}."}
             )
+        if unreadable := [image.label for image in images if transports[image.mime_type] is None]:
+            outcomes["unreadable"] = len(unreadable)
+            parts.append(
+                {
+                    "type": "text",
+                    "text": f"Not attached, this judge can't read their file type: {_names(unreadable)}.",
+                }
+            )
+        if (
+            unattached
+            or over_limit
+            or unreadable
+            or any(attachment.part is None for attachment in attachments.values())
+        ):
+            parts.append({"type": "text", "text": _NOT_ATTACHED_NOTE})
         parts.append({"type": "text", "text": user_prompt})
         logger.info("judge_attachments_attached", provider=provider, model=model, inline_bytes=inline_bytes, **outcomes)
         return parts
@@ -255,6 +281,9 @@ _MIME_ALIASES = {
     "audio/mp3": "audio/mpeg",
     "audio/x-wav": "audio/wav",
     "audio/wave": "audio/wav",
+    "audio/x-aac": "audio/aac",
+    "audio/x-aiff": "audio/aiff",
+    "audio/x-flac": "audio/flac",
     "video/mpg": "video/mpeg",
 }
 
@@ -262,7 +291,8 @@ _MIME_ALIASES = {
 def _normalize_mime_type(mime_type: str | None) -> str | None:
     if mime_type is None:
         return None
-    normalized = mime_type.strip().lower()
+    # Parameters such as `codecs=opus` don't change which file type a provider accepts.
+    normalized = mime_type.split(";", 1)[0].strip().lower()
     return _MIME_ALIASES.get(normalized, normalized)
 
 

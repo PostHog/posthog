@@ -587,6 +587,88 @@ export type PatchedPatchedDashboardOpenApiApiGroups = { [key: string]: Dashboard
  */
 export type PatchedPatchedDashboardOpenApiApiGroupTitles = { [key: string]: string } | null
 
+export type BreakdownTypeApi = (typeof BreakdownTypeApi)[keyof typeof BreakdownTypeApi]
+
+export const BreakdownTypeApi = {
+    Cohort: 'cohort',
+    Person: 'person',
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Element: 'element',
+    Group: 'group',
+    Session: 'session',
+    Hogql: 'hogql',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    RevenueAnalytics: 'revenue_analytics',
+} as const
+
+export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
+
+export const MultipleBreakdownTypeApi = {
+    Person: 'person',
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Element: 'element',
+    Group: 'group',
+    Session: 'session',
+    Hogql: 'hogql',
+    Cohort: 'cohort',
+    RevenueAnalytics: 'revenue_analytics',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+} as const
+
+export interface BreakdownApi {
+    group_type_index?: number | null
+    histogram_bin_count?: number | null
+    normalize_url?: boolean | null
+    property: string | number
+    type?: MultipleBreakdownTypeApi | null
+}
+
+export interface BreakdownFilterApi {
+    breakdown?: string | (string | number)[] | number | null
+    breakdown_group_type_index?: number | null
+    breakdown_hide_other_aggregation?: boolean | null
+    breakdown_histogram_bin_count?: number | null
+    breakdown_limit?: number | null
+    breakdown_normalize_url?: boolean | null
+    breakdown_path_cleaning?: boolean | null
+    breakdown_type?: BreakdownTypeApi | null
+    breakdowns?: BreakdownApi[] | null
+}
+
+/**
+ * * `second` - second
+ * * `minute` - minute
+ * * `hour` - hour
+ * * `day` - day
+ * * `week` - week
+ * * `month` - month
+ * * `quarter` - quarter
+ * * `year` - year
+ */
+export type IntervalTypeEnumApi = (typeof IntervalTypeEnumApi)[keyof typeof IntervalTypeEnumApi]
+
+export const IntervalTypeEnumApi = {
+    Second: 'second',
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Quarter: 'quarter',
+    Year: 'year',
+} as const
+
+export interface CompareFilterApi {
+    /** Whether to compare the current date range to a previous date range. */
+    compare?: boolean | null
+    /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+    compare_to?: string | null
+}
+
 /**
  * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
  *
@@ -607,6 +689,26 @@ export interface DashboardFiltersOpenApiApi {
     date_to?: string | null
     /** Dashboard-level property filters applied to every tile (PostHog property filter group). */
     properties?: unknown
+    /** Dashboard-level breakdown applied to every tile that supports one, replacing the tile's own breakdown. Example: {"breakdown_type": "event", "breakdown": "$browser"}. Null clears it. */
+    breakdown_filter?: BreakdownFilterApi | null
+    /** Time granularity forced onto every tile that supports one. Null means each tile keeps its own.
+     *
+     * * `second` - second
+     * * `minute` - minute
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * * `month` - month
+     * * `quarter` - quarter
+     * * `year` - year */
+    interval?: IntervalTypeEnumApi | null
+    /** Period comparison forced onto every tile that supports one. Null means each tile keeps its own. */
+    compareFilter?: CompareFilterApi | null
+    /**
+     * True forces test accounts out of every tile, false forces them in, null keeps each tile's setting.
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
 }
 
 export interface _DashboardPatchTileLayoutBoxOpenApiApi {
@@ -660,7 +762,6 @@ export const DashboardTileBadgeEnumApi = {
  * * `experiment_results` - Experiment Results
  * * `experiments_list` - Experiments List
  * * `logs_list` - Logs List
- * * `metrics` - Metrics
  * * `metrics_table` - Metrics Table
  * * `notebook_widget` - Notebook Widget
  * * `session_replay_list` - Session Replay List
@@ -676,7 +777,6 @@ export const DashboardWidgetTypeEnumApi = {
     ExperimentResults: 'experiment_results',
     ExperimentsList: 'experiments_list',
     LogsList: 'logs_list',
-    Metrics: 'metrics',
     MetricsTable: 'metrics_table',
     NotebookWidget: 'notebook_widget',
     SessionReplayList: 'session_replay_list',
@@ -1243,270 +1343,6 @@ export interface MetricsTableWidgetConfigApi {
     limit?: number
 }
 
-export type MetricsAggregationApi = (typeof MetricsAggregationApi)[keyof typeof MetricsAggregationApi]
-
-export const MetricsAggregationApi = {
-    Sum: 'sum',
-    Avg: 'avg',
-    Count: 'count',
-    Min: 'min',
-    Max: 'max',
-    Quantile: 'quantile',
-    Rate: 'rate',
-    Increase: 'increase',
-    HistogramQuantile: 'histogram_quantile',
-} as const
-
-export type MetricsFilterOpApi = (typeof MetricsFilterOpApi)[keyof typeof MetricsFilterOpApi]
-
-export const MetricsFilterOpApi = {
-    Eq: 'eq',
-    Neq: 'neq',
-    Regex: 'regex',
-    NotRegex: 'not_regex',
-} as const
-
-export type MetricsAttributeScopeApi = (typeof MetricsAttributeScopeApi)[keyof typeof MetricsAttributeScopeApi]
-
-export const MetricsAttributeScopeApi = {
-    Resource: 'resource',
-    Attribute: 'attribute',
-    Auto: 'auto',
-} as const
-
-export interface MetricsQueryFilterApi {
-    key: string
-    op: MetricsFilterOpApi
-    scope?: MetricsAttributeScopeApi | null
-    value: string
-}
-
-export interface MetricsQueryGroupByApi {
-    key: string
-    scope?: MetricsAttributeScopeApi | null
-}
-
-export type MetricsOtelTypeApi = (typeof MetricsOtelTypeApi)[keyof typeof MetricsOtelTypeApi]
-
-export const MetricsOtelTypeApi = {
-    Gauge: 'gauge',
-    Sum: 'sum',
-    Histogram: 'histogram',
-    ExponentialHistogram: 'exponential_histogram',
-    Summary: 'summary',
-} as const
-
-export type MetricsRangeFunctionApi = (typeof MetricsRangeFunctionApi)[keyof typeof MetricsRangeFunctionApi]
-
-export const MetricsRangeFunctionApi = {
-    Rate: 'rate',
-    Increase: 'increase',
-} as const
-
-export interface MetricsQueryClauseApi {
-    /** Omit to get one line per series (at most 100), without combining them */
-    aggregation?: MetricsAggregationApi | null
-    filters?: MetricsQueryFilterApi[] | null
-    groupBy?: MetricsQueryGroupByApi[] | null
-    metricName: string
-    /** Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series. */
-    metricType?: MetricsOtelTypeApi | null
-    /** Alias a formula refers to (e.g. "a"); must be unique within the query */
-    name: string
-    /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
-    quantile?: number | null
-    /** Applied to each series before `aggregation`, like `rate()` in PromQL */
-    rangeFunction?: MetricsRangeFunctionApi | null
-}
-
-export type DaysOfWeekEnumApi = (typeof DaysOfWeekEnumApi)[keyof typeof DaysOfWeekEnumApi]
-
-export const DaysOfWeekEnumApi = {
-    Number1: 1,
-    Number2: 2,
-    Number3: 3,
-    Number4: 4,
-    Number5: 5,
-    Number6: 6,
-    Number7: 7,
-} as const
-
-export interface DateRangeApi {
-    /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
-     * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
-    date_from?: string | null
-    /** End of the date range. Same format as date_from. Omit or null for "now". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set. */
-    date_to?: string | null
-    /** Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries. */
-    daysOfWeek?: DaysOfWeekEnumApi[] | null
-    /** Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries. */
-    excludeIncompletePeriods?: boolean | null
-    /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
-    explicitDate?: boolean | null
-}
-
-export type CalculationApi = (typeof CalculationApi)[keyof typeof CalculationApi]
-
-export const CalculationApi = {
-    Fixed: 'fixed',
-    Mean: 'mean',
-    Median: 'median',
-    Min: 'min',
-    Max: 'max',
-} as const
-
-export type PositionApi = (typeof PositionApi)[keyof typeof PositionApi]
-
-export const PositionApi = {
-    Start: 'start',
-    End: 'end',
-} as const
-
-export type ScopeApi = (typeof ScopeApi)[keyof typeof ScopeApi]
-
-export const ScopeApi = {
-    All: 'all',
-    Series: 'series',
-} as const
-
-export interface GoalLineApi {
-    borderColor?: string | null
-    /** Recalculate from returned chart marks. An absent calculation uses the fixed value. */
-    calculation?: CalculationApi | null
-    displayIfCrossed?: boolean | null
-    displayLabel?: boolean | null
-    label: string
-    position?: PositionApi | null
-    /** SQL chart calculations use the primary axis, across all series or separately per series. */
-    scope?: ScopeApi | null
-    value: number
-}
-
-export type MetricsReducerApi = (typeof MetricsReducerApi)[keyof typeof MetricsReducerApi]
-
-export const MetricsReducerApi = {
-    Last: 'last',
-    Mean: 'mean',
-    Min: 'min',
-    Max: 'max',
-    Sum: 'sum',
-    Delta: 'delta',
-} as const
-
-export type MetricsNullModeApi = (typeof MetricsNullModeApi)[keyof typeof MetricsNullModeApi]
-
-export const MetricsNullModeApi = {
-    Gap: 'gap',
-    Zero: 'zero',
-    Connect: 'connect',
-} as const
-
-export type MetricsStatSummaryApi = (typeof MetricsStatSummaryApi)[keyof typeof MetricsStatSummaryApi]
-
-export const MetricsStatSummaryApi = {
-    Latest: 'latest',
-    Average: 'average',
-    Total: 'total',
-} as const
-
-export interface MetricsThresholdApi {
-    /** A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work. */
-    color: string
-    /** Lower bound of this band. The lowest step is the base color below every other step. */
-    value: number
-}
-
-export type MetricsDisplayTypeApi = (typeof MetricsDisplayTypeApi)[keyof typeof MetricsDisplayTypeApi]
-
-export const MetricsDisplayTypeApi = {
-    Line: 'line',
-    Area: 'area',
-    Bar: 'bar',
-    Stat: 'stat',
-    Gauge: 'gauge',
-    Bargauge: 'bargauge',
-    Table: 'table',
-    Heatmap: 'heatmap',
-} as const
-
-export type MetricsAxisScaleApi = (typeof MetricsAxisScaleApi)[keyof typeof MetricsAxisScaleApi]
-
-export const MetricsAxisScaleApi = {
-    Linear: 'linear',
-    Log: 'log',
-} as const
-
-export interface MetricsYAxisSettingsApi {
-    /** Pins the top of the axis; unset means automatic. Pinning both ends drops the automatic stretch that keeps an off-scale goal line on-plot. */
-    max?: number | null
-    /** Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on. */
-    min?: number | null
-    scale?: MetricsAxisScaleApi | null
-    /** When false the axis floats to the data range instead of starting at zero. Ignored on a logarithmic scale, and on the bar display, where a bar's length encodes magnitude from zero. */
-    startAtZero?: boolean | null
-}
-
-export interface MetricsDisplaySettingsApi {
-    goalLines?: GoalLineApi[] | null
-    /** Time-series panels only: which reducers the legend table shows. Empty means no legend calcs. */
-    legendCalcs?: MetricsReducerApi[] | null
-    /** How a null bucket renders on a time-series chart. */
-    nullMode?: MetricsNullModeApi | null
-    /** How scalar panels and legend calcs collapse a series to one number. */
-    reduce?: MetricsReducerApi | null
-    /** `stat` display only: which summary the headline value shows. */
-    statSummary?: MetricsStatSummaryApi | null
-    /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
-    thresholds?: MetricsThresholdApi[] | null
-    type?: MetricsDisplayTypeApi | null
-    /** UCUM unit string as OTel writes it, e.g. "By", "ms", "%". Defaults from the response unit. */
-    unit?: string | null
-    yAxis?: MetricsYAxisSettingsApi | null
-}
-
-export type MetricsQueryLanguageApi = (typeof MetricsQueryLanguageApi)[keyof typeof MetricsQueryLanguageApi]
-
-export const MetricsQueryLanguageApi = {
-    Builder: 'builder',
-    Promql: 'promql',
-    Sql: 'sql',
-} as const
-
-/**
- * A `MetricsQuery` as a metrics widget stores it.
- *
- * Response, modifier and tag fields are runtime state, so a stored config can't carry them.
- */
-export interface MetricsWidgetQueryApi {
-    /**
-     * Builder series. Empty when `language` is `promql` or `sql`, or until a metric is picked.
-     * @maxItems 10
-     */
-    clauses?: MetricsQueryClauseApi[]
-    /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
-    dateRange?: DateRangeApi | null
-    /** Chart presentation. A node without it renders as a line chart. */
-    display?: MetricsDisplaySettingsApi | null
-    /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
-    formula?: string | null
-    /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Fixed intervals are coarsened above 500 buckets. A dashboard variable reference such as `$window` pins the interval to its single duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals that exceed 500 buckets require a larger value or shorter date range, so the step stays consistent with PromQL lookbacks using that variable. */
-    interval?: string | null
-    kind?: 'MetricsQuery'
-    /** How the query is written; the builder when unset. */
-    language?: MetricsQueryLanguageApi | null
-    /** PromQL expression, run as a range query. Used when `language` is `promql`. */
-    promql?: string | null
-    /** HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. */
-    sql?: string | null
-    /** version of the node, used for schema migrations */
-    version?: number | null
-}
-
-export interface MetricsWidgetConfigApi {
-    /** Metrics query the tile runs and how it draws it (`display.type`: line, area, bar, stat, gauge, bargauge, table or heatmap). `dateRange` is the default window; the dashboard date filter overrides it. A config update replaces the whole query. */
-    query?: MetricsWidgetQueryApi
-}
-
 export type DashboardWidgetConfigApi =
     | NotebookWidgetConfigApi
     | ActivityEventsListWidgetConfigApi
@@ -1519,7 +1355,6 @@ export type DashboardWidgetConfigApi =
     | ConversationsRecentTicketsWidgetConfigApi
     | CanvasAppWidgetConfigApi
     | MetricsTableWidgetConfigApi
-    | MetricsWidgetConfigApi
 
 export interface DashboardPatchWidgetOpenApiApi {
     /** Existing widget row ID when updating a widget tile via dashboard PATCH. */
@@ -1533,7 +1368,6 @@ export interface DashboardPatchWidgetOpenApiApi {
      * * `experiment_results` - Experiment Results
      * * `experiments_list` - Experiments List
      * * `logs_list` - Logs List
-     * * `metrics` - Metrics
      * * `metrics_table` - Metrics Table
      * * `notebook_widget` - Notebook Widget
      * * `session_replay_list` - Session Replay List
@@ -1587,7 +1421,7 @@ export interface PatchedPatchedDashboardOpenApiApi {
     name?: string | null
     description?: string
     pinned?: boolean
-    /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
+    /** Dashboard-level filters (date range, properties, breakdown, interval, comparison) applied across all tiles as the source of truth. */
     filters?: DashboardFiltersOpenApiApi
     /**
      * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
@@ -1745,68 +1579,9 @@ export const InsightVizNodeApiKind = {
     InsightVizNode: 'InsightVizNode',
 } as const
 
-export type BreakdownTypeApi = (typeof BreakdownTypeApi)[keyof typeof BreakdownTypeApi]
-
-export const BreakdownTypeApi = {
-    Cohort: 'cohort',
-    Person: 'person',
-    Event: 'event',
-    EventMetadata: 'event_metadata',
-    Element: 'element',
-    Group: 'group',
-    Session: 'session',
-    Hogql: 'hogql',
-    DataWarehouse: 'data_warehouse',
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
-    RevenueAnalytics: 'revenue_analytics',
-} as const
-
-export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
-
-export const MultipleBreakdownTypeApi = {
-    Person: 'person',
-    Event: 'event',
-    EventMetadata: 'event_metadata',
-    Element: 'element',
-    Group: 'group',
-    Session: 'session',
-    Hogql: 'hogql',
-    Cohort: 'cohort',
-    RevenueAnalytics: 'revenue_analytics',
-    DataWarehouse: 'data_warehouse',
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
-} as const
-
-export interface BreakdownApi {
-    group_type_index?: number | null
-    histogram_bin_count?: number | null
-    normalize_url?: boolean | null
-    property: string | number
-    type?: MultipleBreakdownTypeApi | null
-}
-
-export interface BreakdownFilterApi {
-    breakdown?: string | (string | number)[] | number | null
-    breakdown_group_type_index?: number | null
-    breakdown_hide_other_aggregation?: boolean | null
-    breakdown_histogram_bin_count?: number | null
-    breakdown_limit?: number | null
-    breakdown_normalize_url?: boolean | null
-    breakdown_path_cleaning?: boolean | null
-    breakdown_type?: BreakdownTypeApi | null
-    breakdowns?: BreakdownApi[] | null
-}
-
 export interface CalendarHeatmapFilterApi {
     /** When true and the series math is `dau`/`unique_users`, each user contributes to the (day-of-week, hour) bucket of their session's first event only — matching the web overview session-start attribution. When false (default), the user contributes to every bucket they have any event in. No effect on `total` math (event counts are unchanged either way). */
     bucketBySessionStart?: boolean | null
-}
-
-export interface CompareFilterApi {
-    /** Whether to compare the current date range to a previous date range. */
-    compare?: boolean | null
-    /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
-    compare_to?: string | null
 }
 
 export interface EventPropertyFilterApi {
@@ -1860,6 +1635,32 @@ export interface CustomEventConversionGoalApi {
     properties?:
         | (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi | CohortPropertyFilterApi)[]
         | null
+}
+
+export type DaysOfWeekEnumApi = (typeof DaysOfWeekEnumApi)[keyof typeof DaysOfWeekEnumApi]
+
+export const DaysOfWeekEnumApi = {
+    Number1: 1,
+    Number2: 2,
+    Number3: 3,
+    Number4: 4,
+    Number5: 5,
+    Number6: 6,
+    Number7: 7,
+} as const
+
+export interface DateRangeApi {
+    /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
+     * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
+    date_from?: string | null
+    /** End of the date range. Same format as date_from. Omit or null for "now". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set. */
+    date_to?: string | null
+    /** Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries. */
+    daysOfWeek?: DaysOfWeekEnumApi[] | null
+    /** Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries. */
+    excludeIncompletePeriods?: boolean | null
+    /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
+    explicitDate?: boolean | null
 }
 
 export type IntervalTypeApi = (typeof IntervalTypeApi)[keyof typeof IntervalTypeApi]
@@ -3335,6 +3136,43 @@ export interface TrendsFormulaNodeApi {
     /** Optional user-defined name for the formula */
     custom_name?: string | null
     formula: string
+}
+
+export type CalculationApi = (typeof CalculationApi)[keyof typeof CalculationApi]
+
+export const CalculationApi = {
+    Fixed: 'fixed',
+    Mean: 'mean',
+    Median: 'median',
+    Min: 'min',
+    Max: 'max',
+} as const
+
+export type PositionApi = (typeof PositionApi)[keyof typeof PositionApi]
+
+export const PositionApi = {
+    Start: 'start',
+    End: 'end',
+} as const
+
+export type ScopeApi = (typeof ScopeApi)[keyof typeof ScopeApi]
+
+export const ScopeApi = {
+    All: 'all',
+    Series: 'series',
+} as const
+
+export interface GoalLineApi {
+    borderColor?: string | null
+    /** Recalculate from returned chart marks. An absent calculation uses the fixed value. */
+    calculation?: CalculationApi | null
+    displayIfCrossed?: boolean | null
+    displayLabel?: boolean | null
+    label: string
+    position?: PositionApi | null
+    /** SQL chart calculations use the primary axis, across all series or separately per series. */
+    scope?: ScopeApi | null
+    value: number
 }
 
 export type LegendPositionApi = (typeof LegendPositionApi)[keyof typeof LegendPositionApi]
@@ -6829,6 +6667,13 @@ export interface ExperimentEventExposureConfigApi {
     version?: number | null
 }
 
+export interface ExperimentWarehouseNativeUnitBindingApi {
+    /** Which ids represent that unit, such as `billing_customer_id`. */
+    id_namespace: string
+    /** What was randomized, as a stable project-scoped label such as `customer` or `account`. */
+    unit_type: string
+}
+
 export type ExperimentWarehouseNativeExposureConfigApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentWarehouseNativeExposureConfigApi {
@@ -6838,6 +6683,7 @@ export interface ExperimentWarehouseNativeExposureConfigApi {
     /** Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling. */
     query: string
     response?: ExperimentWarehouseNativeExposureConfigApiResponse
+    unit: ExperimentWarehouseNativeUnitBindingApi
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -6968,6 +6814,7 @@ export interface ExperimentWarehouseNativeNodeApi {
     /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure. */
     query: string
     response?: ExperimentWarehouseNativeNodeApiResponse
+    unit: ExperimentWarehouseNativeUnitBindingApi
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -9551,6 +9398,7 @@ export const YAxisPositionApi = {
 
 export interface ChartSettingsDisplayApi {
     color?: string | null
+    description?: string | null
     displayType?: DisplayTypeApi | null
     /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
     excludeFromTotal?: boolean | null
@@ -9593,6 +9441,8 @@ export interface ChartAxisApi {
 export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface ChartSettingsApi {
+    /** Shows only the annotations saved at this level. Unset shows every level. */
+    annotationsScope?: AnnotationScopeApi | null
     barGap?: number | null
     boxPlot?: BoxPlotSettingsApi | null
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
@@ -10084,6 +9934,30 @@ export type _InsightQuerySchemaApi =
  */
 export type _InsightResultWarningsApi = (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[]
 
+export type MetricsFilterOpApi = (typeof MetricsFilterOpApi)[keyof typeof MetricsFilterOpApi]
+
+export const MetricsFilterOpApi = {
+    Eq: 'eq',
+    Neq: 'neq',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+export type MetricsAttributeScopeApi = (typeof MetricsAttributeScopeApi)[keyof typeof MetricsAttributeScopeApi]
+
+export const MetricsAttributeScopeApi = {
+    Resource: 'resource',
+    Attribute: 'attribute',
+    Auto: 'auto',
+} as const
+
+export interface MetricsQueryFilterApi {
+    key: string
+    op: MetricsFilterOpApi
+    scope?: MetricsAttributeScopeApi | null
+    value: string
+}
+
 export interface MetricsDashboardVariableSelectionApi {
     all?: boolean | null
     /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
@@ -10565,8 +10439,6 @@ export interface DashboardWidgetRunResultApi {
      * @nullable
      */
     error: string | null
-    /** True when `error` explains the failure to the viewer (for example, no access or an invalid query) and can be shown as is. Other errors are generic. */
-    error_is_user_facing?: boolean
 }
 
 export interface RunWidgetsResponseApi {
@@ -10649,7 +10521,6 @@ export interface AddDashboardWidgetRequestApi {
      * * `experiment_results` - Experiment Results
      * * `experiments_list` - Experiments List
      * * `logs_list` - Logs List
-     * * `metrics` - Metrics
      * * `metrics_table` - Metrics Table
      * * `notebook_widget` - Notebook Widget
      * * `session_replay_list` - Session Replay List
@@ -10664,7 +10535,7 @@ export interface AddDashboardWidgetRequestApi {
  */
 export interface AddDashboardWidgetsBatchRequestOpenApiApi {
     /**
-     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, metrics, metrics_table, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, metrics_table, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
      * @minItems 1
      * @maxItems 10
      */
@@ -10701,7 +10572,6 @@ export interface UpdateDashboardWidgetRequestApi {
      * * `experiment_results` - Experiment Results
      * * `experiments_list` - Experiments List
      * * `logs_list` - Logs List
-     * * `metrics` - Metrics
      * * `metrics_table` - Metrics Table
      * * `notebook_widget` - Notebook Widget
      * * `session_replay_list` - Session Replay List
@@ -11032,27 +10902,6 @@ export interface MetricsTableWidgetCatalogEntryOpenApiApi {
     live: boolean
 }
 
-export type MetricsWidgetCatalogEntryOpenApiApiWidgetType =
-    (typeof MetricsWidgetCatalogEntryOpenApiApiWidgetType)[keyof typeof MetricsWidgetCatalogEntryOpenApiApiWidgetType]
-
-export const MetricsWidgetCatalogEntryOpenApiApiWidgetType = {
-    Metrics: 'metrics',
-} as const
-
-export interface MetricsWidgetCatalogEntryOpenApiApi {
-    widget_type: MetricsWidgetCatalogEntryOpenApiApiWidgetType
-    group_id: string
-    group_label: string
-    label: string
-    description: string
-    /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
-    readonly config_schema: MetricsWidgetConfigApi
-    /** @nullable */
-    required_product_access?: string | null
-    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
-    live: boolean
-}
-
 export type WidgetCatalogEntryApi =
     | NotebookWidgetCatalogEntryOpenApiApi
     | ActivityEventsListWidgetCatalogEntryOpenApiApi
@@ -11065,7 +10914,6 @@ export type WidgetCatalogEntryApi =
     | ConversationsRecentTicketsWidgetCatalogEntryOpenApiApi
     | CanvasAppWidgetCatalogEntryOpenApiApi
     | MetricsTableWidgetCatalogEntryOpenApiApi
-    | MetricsWidgetCatalogEntryOpenApiApi
 
 export interface WidgetCatalogResponseApi {
     /** Registered dashboard widget types. */
@@ -11199,15 +11047,6 @@ export type MetricsTableWidgetTypeEnumApi =
 
 export const MetricsTableWidgetTypeEnumApi = {
     MetricsTable: 'metrics_table',
-} as const
-
-/**
- * * `metrics` - metrics
- */
-export type MetricsWidgetTypeEnumApi = (typeof MetricsWidgetTypeEnumApi)[keyof typeof MetricsWidgetTypeEnumApi]
-
-export const MetricsWidgetTypeEnumApi = {
-    Metrics: 'metrics',
 } as const
 
 export type DashboardTemplatesListParams = {
@@ -11524,15 +11363,7 @@ export const DashboardsRunInsightsRetrieveRefresh = {
 } as const
 
 export type DashboardsRunWidgetsRetrieveParams = {
-    /**
-     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
-     */
-    filters_override?: string
     format?: DashboardsRunWidgetsRetrieveFormat
-    /**
-     * Recompute widgets that follow dashboard filters (such as metrics) instead of serving their query cache, as a manual refresh of an insight tile does.
-     */
-    refresh?: boolean
     /**
      * Comma-separated dashboard tile IDs to run widgets for.
      */
@@ -11690,7 +11521,6 @@ export const DashboardsWidgetCatalogRetrieveWidgetTypeItem = {
     ExperimentResults: 'experiment_results',
     ExperimentsList: 'experiments_list',
     LogsList: 'logs_list',
-    Metrics: 'metrics',
     MetricsTable: 'metrics_table',
     NotebookWidget: 'notebook_widget',
     SessionReplayList: 'session_replay_list',

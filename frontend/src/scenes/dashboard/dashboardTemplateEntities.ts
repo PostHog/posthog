@@ -30,27 +30,40 @@ import {
     MathType,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import {
-    ActionFilter,
-    AnyDataWarehouseFilter,
-    BaseMathType,
-    EntityTypes,
-    FunnelDatawarehouseFilter,
-    LifecycleDatawarehouseFilter,
-    RetentionEntity,
-    TemplateVariableStep,
-    TrendsDataWarehouseFilter,
-    isDataWarehouseFilter,
-    isGroupFilter,
-} from '~/types'
+import { BaseMathType, EntityTypes, FilterLogicalOperator, RetentionEntity, TemplateVariableStep } from '~/types'
 
 type DataWarehouseNodeKind =
     | NodeKind.DataWarehouseNode
     | NodeKind.FunnelsDataWarehouseNode
     | NodeKind.LifecycleDataWarehouseNode
 
+/** A stored template variable default. The template editor writes series fields into it that `TemplateVariableStep` does not declare. */
+type TemplateStep = TemplateVariableStep & {
+    math_property?: string | null
+    math_property_type?: string | null
+    math_hogql?: string | null
+    math_group_type_index?: number | null
+    optionalInFunnel?: boolean
+    operator?: FilterLogicalOperator | null
+    nestedFilters?: TemplateStep[] | null
+    table_name?: string
+    id_field?: string
+    timestamp_field?: string
+    distinct_id_field?: string
+    aggregation_target_field?: string
+    created_at_field?: string
+}
+
+function isDataWarehouseStep(step: TemplateStep): boolean {
+    return step.type === EntityTypes.DATA_WAREHOUSE
+}
+
+function isGroupStep(step: TemplateStep): boolean {
+    return step.type === EntityTypes.GROUPS
+}
+
 export const legacyEntityToNode = (
-    entity: ActionFilter | AnyDataWarehouseFilter,
+    entity: TemplateStep,
     includeProperties: boolean,
     mathAvailability: MathAvailability,
     dataWarehouseNodeKind: DataWarehouseNodeKind = NodeKind.DataWarehouseNode
@@ -62,40 +75,34 @@ export const legacyEntityToNode = (
         custom_name: entity.custom_name || undefined,
     }
 
-    if (isDataWarehouseFilter(entity)) {
+    if (isDataWarehouseStep(entity)) {
         shared = {
             ...shared,
             timestamp_field: entity.timestamp_field || undefined,
             table_name: entity.table_name || undefined,
             ...(dataWarehouseNodeKind === NodeKind.LifecycleDataWarehouseNode
                 ? {
-                      aggregation_target_field: (entity as LifecycleDatawarehouseFilter).aggregation_target_field,
-                      created_at_field: (entity as LifecycleDatawarehouseFilter).created_at_field,
+                      aggregation_target_field: entity.aggregation_target_field,
+                      created_at_field: entity.created_at_field,
                   }
                 : dataWarehouseNodeKind === NodeKind.FunnelsDataWarehouseNode
                   ? {
-                        id_field: (entity as FunnelDatawarehouseFilter).id_field || undefined,
-                        aggregation_target_field:
-                            (entity as FunnelDatawarehouseFilter).aggregation_target_field || undefined,
+                        id_field: entity.id_field || undefined,
+                        aggregation_target_field: entity.aggregation_target_field || undefined,
                     }
                   : {
-                        id_field: (entity as TrendsDataWarehouseFilter).id_field || undefined,
-                        distinct_id_field: (entity as TrendsDataWarehouseFilter).distinct_id_field || undefined,
+                        id_field: entity.id_field || undefined,
+                        distinct_id_field: entity.distinct_id_field || undefined,
                     }),
         } as DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode
     }
 
-    if (isGroupFilter(entity)) {
+    if (isGroupStep(entity)) {
         shared = {
             ...shared,
             operator: entity.operator || undefined,
             nodes: (entity.nestedFilters || []).map((v) =>
-                legacyEntityToNode(
-                    v as ActionFilter | AnyDataWarehouseFilter,
-                    includeProperties,
-                    mathAvailability,
-                    dataWarehouseNodeKind
-                )
+                legacyEntityToNode(v, includeProperties, mathAvailability, dataWarehouseNodeKind)
             ),
         } as GroupNode
     }
@@ -199,8 +206,6 @@ const NODE_IDENTITY_KEYS = ['kind', 'version', 'event', 'id', 'nodes']
 
 /** When the picker holds more than one row, the first row of the earliest type here is the one stored. */
 const TEMPLATE_STEP_TYPES = [EntityTypes.ACTIONS, EntityTypes.EVENTS, EntityTypes.DATA_WAREHOUSE, EntityTypes.GROUPS]
-
-type TemplateStep = TemplateVariableStep & { nestedFilters?: TemplateStep[] }
 
 function omitKeys(source: Record<string, any>, keys: string[]): Record<string, any> {
     return Object.fromEntries(Object.entries(source).filter(([key]) => !keys.includes(key)))

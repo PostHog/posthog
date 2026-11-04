@@ -52,7 +52,7 @@ from posthog.hogql.type_system import infer_tuple_access_constant_type, parse_sq
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.clickhouse.client.escape import substitute_params
-from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN
+from posthog.clickhouse.events_json import NULL_KEYS_COLUMNS, TEMPORARY_PROPERTIES_COLUMN
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
 from posthog.week_start_day import WeekStartDay
@@ -691,16 +691,24 @@ class ClickHousePrinter(BasePrinter):
         if resolved_field is None:
             return None
 
+        prefix = field_sql.removesuffix(self._print_identifier(resolved_field.name))
+        null_keys_sql = f"{prefix}{self._print_identifier(NULL_KEYS_COLUMNS[resolved_field.name])}"
         if resolved_field.name == "properties":
-            prefix = field_sql.removesuffix(self._print_identifier("properties"))
             temporary_properties_sql = f"{prefix}{self._print_identifier(TEMPORARY_PROPERTIES_COLUMN)}"
+            temporary_null_keys_sql = (
+                f"{prefix}{self._print_identifier(NULL_KEYS_COLUMNS[TEMPORARY_PROPERTIES_COLUMN])}"
+            )
             serialized = event_document_sql(
-                field_sql, temporary_properties_sql, self._document_feature_flags_sql(type, field_sql)
+                field_sql,
+                null_keys_sql,
+                temporary_properties_sql,
+                temporary_null_keys_sql,
+                self._document_feature_flags_sql(type, field_sql),
             )
         elif resolved_field.name == "person_properties":
-            serialized = person_document_sql(field_sql)
+            serialized = person_document_sql(field_sql, null_keys_sql)
         else:
-            serialized = json_document_sql(field_sql)
+            serialized = json_document_sql(field_sql, null_keys_sql)
         return serialized
 
     def _document_feature_flags_sql(self, type: ast.FieldType, field_sql: str) -> str | None:
@@ -1054,6 +1062,15 @@ class ClickHousePrinter(BasePrinter):
         if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant) and constant_lambda is not None:
             return "1" if constant_lambda(node.left.value, node.right.value) else "0"
 
+        # In ClickHouse `equals(x, NULL)` is always NULL, so `IS [NOT] NULL` must print as a null check even when
+        # the shortcut below skips the ifNull wrapping (for example on the $ai_* bloom-filter columns).
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq) and not in_join_constraint:
+            null_check = "isNull" if node.op == ast.CompareOperationOp.Eq else "isNotNull"
+            if isinstance(node.right, ast.Constant) and node.right.value is None:
+                return f"{null_check}({left})"
+            if isinstance(node.left, ast.Constant) and node.left.value is None:
+                return f"{null_check}({right})"
+
         # Special cases when we should not add any null checks
         if in_join_constraint or not_nullable or in_index_hint:
             return op
@@ -1299,6 +1316,7 @@ class ClickHousePrinter(BasePrinter):
             and (
                 table.retention_field is not None
                 or table.postgres_pushdown_values
+                or table.push_team_guard_with_predicates
                 or not table.get_predicates(self.context)
             )
             and self.context.team_id is not None

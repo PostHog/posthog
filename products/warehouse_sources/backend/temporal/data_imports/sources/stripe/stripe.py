@@ -123,6 +123,9 @@ if TYPE_CHECKING:
 
 LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
+# Stripe's v2 Money Management list endpoints (V2_LIST_PATHS) cap `limit` at 50, unlike the v1
+# lists' 100 — requesting DEFAULT_LIMIT against one raises "Limit must be between 1 and 50".
+V2_LIST_PAGE_LIMIT = 50
 # Subscriptions are fetched with two levels of `expand` (subscription discounts and per-line-item
 # discounts), so each object is far larger than a typical Stripe resource. A full page of 100 such
 # objects can grow past the size that reliably transfers intact, and the response then arrives
@@ -1035,7 +1038,6 @@ def get_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
     api_version: str,
-    skip_full_listing: bool = False,
     should_use_incremental_field: bool = False,
     warehouse_parent: Optional["ParentTableRef"] = None,
     include_zero_balance_customers: bool = False,
@@ -1073,7 +1075,10 @@ def get_rows(
         # A v2 page token cannot be saved as a v1 `starting_after` cursor, so these full-refresh tables
         # save no resume state. An interrupted sync reads the list again and overwrites the table.
         yield from _batch_and_yield(
-            _iter_cleaning_errors(_call_stripe(resource.method, params=default_params).auto_paging_iter()), batcher
+            _iter_cleaning_errors(
+                _call_stripe(resource.method, params={"limit": V2_LIST_PAGE_LIMIT}).auto_paging_iter()
+            ),
+            batcher,
         )
         return
 
@@ -1089,14 +1094,6 @@ def get_rows(
         or (db_incremental_field_last_value is None and db_incremental_field_earliest_value is None)
         or isinstance(resource, StripeNestedResource)
     ):
-        if skip_full_listing:
-            logger.warning(
-                f"Stripe: skipped the {endpoint} sync. This table uses webhook sync, but the source has no "
-                "active webhook. Set up the webhook on the source's Webhook tab, or change the table to a "
-                "different sync method."
-            )
-            return
-
         logger.debug(f"Stripe: iterating all objects from resource")
         # Set only on the nested warehouse path; the final flush below is shared with flat
         # resources, which have no parent sweep to checkpoint.
@@ -1680,11 +1677,6 @@ def stripe_source(
     # re-enable — a poll could never rebuild the table.
     webhook_only = endpoint in WEBHOOK_ONLY_ENDPOINTS
     webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=webhook_only)
-    # A webhook table with no webhook falls back to a poll. Only a poll that lists the whole table
-    # is skipped: a table that kept its `created` cursor still polls cheaply with `created[gt]`.
-    webhook_unregistered = (
-        not webhook_enabled and not webhook_only and async_to_sync(webhook_source_manager.webhook_unregistered)()
-    )
     warehouse_parent = _resolve_warehouse_parent(endpoint, team_id, source_id, use_warehouse_parent)
     warehouse_table_id: Optional[str] = None
     if not webhook_enabled:
@@ -1728,7 +1720,6 @@ def stripe_source(
             logger=logger,
             should_use_incremental_field=should_use_incremental_field,
             resumable_source_manager=resumable_source_manager,
-            skip_full_listing=webhook_unregistered,
             api_version=api_version,
             warehouse_parent=warehouse_parent,
             include_zero_balance_customers=include_zero_balance_customers,
