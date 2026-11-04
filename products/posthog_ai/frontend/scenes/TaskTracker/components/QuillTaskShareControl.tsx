@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { RefObject, useRef } from 'react'
 
 import { IconChevronDown, IconGlobe, IconLock, IconPeople, IconRefresh, IconShare } from '@posthog/icons'
 import {
@@ -29,7 +30,15 @@ const ICONS: Record<TaskVisibility, JSX.Element> = {
     shared: <IconPeople />,
 }
 
-function ShareTaskDialog({ taskId }: { taskId: string }): JSX.Element {
+function ShareTaskDialog({
+    taskId,
+    open,
+    controlRef,
+}: {
+    taskId: string
+    open: boolean
+    controlRef: RefObject<HTMLDivElement | null>
+}): JSX.Element {
     const logic = taskShareLogic({ taskId })
     const { visibilityChanging } = useValues(logic)
     const { closeShareDialog, setVisibility } = useActions(logic)
@@ -38,14 +47,17 @@ function ShareTaskDialog({ taskId }: { taskId: string }): JSX.Element {
 
     return (
         <AlertDialog
-            open
-            onOpenChange={(open: boolean) => {
-                if (!open && !visibilityChanging) {
+            open={open}
+            onOpenChange={(nextOpen: boolean) => {
+                if (!nextOpen && !visibilityChanging) {
                     closeShareDialog()
                 }
             }}
         >
-            <AlertDialogContent>
+            <AlertDialogContent
+                // A share swaps the Share button for the Public menu, so focus the button that is there now.
+                finalFocus={() => controlRef.current?.querySelector<HTMLElement>('button') ?? true}
+            >
                 <AlertDialogHeader>
                     <AlertDialogTitle>Make this task public?</AlertDialogTitle>
                     <AlertDialogDescription>
@@ -76,93 +88,88 @@ function ShareTaskDialog({ taskId }: { taskId: string }): JSX.Element {
     )
 }
 
-export function QuillTaskShareControl({ taskId }: { taskId: string }): JSX.Element | null {
+function ShareControlButton({ taskId }: { taskId: string }): JSX.Element | null {
     const logic = taskShareLogic({ taskId })
-    const { visibility, isCreator, visibilityChanging, shareDialogOpen, shareStateLoadFailed, shareStateLoading } =
-        useValues(logic)
+    const { visibility, isCreator, visibilityChanging, shareStateLoadFailed, shareStateLoading } = useValues(logic)
     const { openShareDialog, setVisibility, copyLink, loadShareState } = useActions(logic)
 
     if (shareStateLoadFailed) {
         return (
-            <div data-quill className="contents">
-                <Button
-                    variant="outline"
-                    loading={shareStateLoading}
-                    onClick={() => loadShareState()}
-                    title="Could not load who can see this task. Click to try again."
-                    data-attr="task-share-retry"
-                >
-                    <IconRefresh />
-                    Share
-                </Button>
-            </div>
+            <Button
+                variant="outline"
+                loading={shareStateLoading}
+                onClick={() => loadShareState()}
+                title="Could not load who can see this task. Click to try again."
+                data-attr="task-share-retry"
+            >
+                <IconRefresh />
+                Share
+            </Button>
         )
     }
-
-    if (!visibility) {
+    if (!visibility || (visibility === 'private' && !isCreator)) {
         return null
     }
-
     if (visibility === 'private') {
-        if (!isCreator) {
-            return null
-        }
         return (
-            <div data-quill className="contents">
-                <Button
-                    variant="outline"
-                    loading={visibilityChanging}
-                    onClick={() => openShareDialog()}
-                    data-attr="task-share"
-                >
-                    <IconShare />
-                    Share
-                </Button>
-                {shareDialogOpen && <ShareTaskDialog taskId={taskId} />}
-            </div>
+            <Button
+                variant="outline"
+                loading={visibilityChanging}
+                onClick={() => openShareDialog()}
+                data-attr="task-share"
+            >
+                <IconShare />
+                Share
+            </Button>
         )
     }
-
     if (!isCreator) {
         return (
-            <div data-quill className="contents">
-                <Badge aria-label={LABELS[visibility]}>
-                    {ICONS[visibility]}
-                    {LABELS[visibility]}
-                </Badge>
-            </div>
+            <Badge aria-label={LABELS[visibility]}>
+                {ICONS[visibility]}
+                {LABELS[visibility]}
+            </Badge>
         )
     }
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger
+                render={
+                    <Button
+                        variant="outline"
+                        loading={visibilityChanging}
+                        aria-label={`${LABELS[visibility]}. Change who can see this task`}
+                        data-attr="task-visibility"
+                    />
+                }
+            >
+                {ICONS[visibility]}
+                {LABELS[visibility]}
+                <IconChevronDown />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-48">
+                <DropdownMenuItem onClick={() => copyLink()} data-attr="task-copy-link">
+                    <IconLink />
+                    Copy link
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setVisibility('private')} data-attr="task-make-private">
+                    <IconLock />
+                    Make private
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    )
+}
+
+export function QuillTaskShareControl({ taskId }: { taskId: string }): JSX.Element {
+    const { isCreator, shareDialogOpen } = useValues(taskShareLogic({ taskId }))
+    const controlRef = useRef<HTMLDivElement>(null)
 
     return (
-        <div data-quill className="contents">
-            <DropdownMenu>
-                <DropdownMenuTrigger
-                    render={
-                        <Button
-                            variant="outline"
-                            loading={visibilityChanging}
-                            aria-label={`${LABELS[visibility]}. Change who can see this task`}
-                            data-attr="task-visibility"
-                        />
-                    }
-                >
-                    {ICONS[visibility]}
-                    {LABELS[visibility]}
-                    <IconChevronDown />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="min-w-48">
-                    <DropdownMenuItem onClick={() => copyLink()} data-attr="task-copy-link">
-                        <IconLink />
-                        Copy link
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setVisibility('private')} data-attr="task-make-private">
-                        <IconLock />
-                        Make private
-                    </DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu>
+        <div data-quill className="contents" ref={controlRef}>
+            <ShareControlButton taskId={taskId} />
+            {isCreator && <ShareTaskDialog taskId={taskId} open={shareDialogOpen} controlRef={controlRef} />}
         </div>
     )
 }

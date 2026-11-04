@@ -9,6 +9,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
 import type { UserType } from '~/types'
 
 import {
@@ -97,7 +98,10 @@ async function undoMove(projectId: string, taskId: string, previousSpaceId: stri
         posthog.capture('task visibility changed', { task_id: taskId, visibility: 'undo' })
         toast.success({ title: 'The change is undone' })
     } catch {
-        toast.error({ title: 'Could not undo the change', description: 'Try again.' })
+        toast.error({
+            title: 'Could not undo the change',
+            action: { label: 'Retry', onClick: () => void undoMove(projectId, taskId, previousSpaceId) },
+        })
     }
 }
 
@@ -314,6 +318,12 @@ export const taskShareLogic = kea<taskShareLogicType>([
                 })
             } finally {
                 actions.visibilityChanged()
+            }
+        },
+        [todaySessionMenuLogic.actionTypes.sessionUpdated]: ({ sessionId }: { sessionId: string }) => {
+            // A handoff changes the creator, so the controls must load again.
+            if (sessionId === props.taskId) {
+                actions.loadShareState()
             }
         },
         copyLink: async () => {
