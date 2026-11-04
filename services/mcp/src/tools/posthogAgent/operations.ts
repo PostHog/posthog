@@ -46,6 +46,49 @@ export const APPROVAL_REPLIES = {
     deny: 'deny',
 } as const
 
+type AgentViewOperation = Pick<AgentOperation, 'id' | 'project' | 'cursor'>
+
+/**
+ * The analytics SDK adds `context` and `llm_model` to every listed tool as required arguments, and ChatGPT
+ * rejects a call from the view when they are missing. The view is not a model, so it states its own purpose
+ * and sends `unknown` as the model, which analytics records as an unknown model.
+ */
+function withViewAnalytics(purpose: string, args: Record<string, unknown>): Record<string, unknown> {
+    return { ...args, context: purpose, llm_model: 'unknown' }
+}
+
+/** Arguments of the status call that the PostHog Agent view makes to refresh itself. */
+export function agentViewStatusArguments(operation: AgentViewOperation): Record<string, unknown> {
+    return withViewAnalytics('The PostHog Agent view refreshes the progress of a delegated operation.', {
+        operation_id: operation.id,
+        project_id: operation.project.id,
+        cursor: operation.cursor,
+        wait_seconds: 0,
+    })
+}
+
+/** Arguments of the reply call that the PostHog Agent view makes for an answer or an approval. */
+export function agentViewReplyArguments(
+    operation: AgentViewOperation,
+    message: string,
+    clientRequestId: string
+): Record<string, unknown> {
+    return withViewAnalytics('The PostHog Agent view sends the answer or approval of the user.', {
+        operation_id: operation.id,
+        project_id: operation.project.id,
+        message,
+        client_request_id: clientRequestId,
+    })
+}
+
+/** Arguments of the cancel call that the PostHog Agent view makes. */
+export function agentViewCancelArguments(operation: AgentViewOperation): Record<string, unknown> {
+    return withViewAnalytics('The PostHog Agent view cancels a delegated operation for the user.', {
+        operation_id: operation.id,
+        project_id: operation.project.id,
+    })
+}
+
 export interface AgentOperation {
     id: string
     state: AgentOperationState
