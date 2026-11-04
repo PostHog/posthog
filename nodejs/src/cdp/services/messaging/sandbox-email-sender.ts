@@ -64,16 +64,12 @@ function htmlBody(document: DefaultTreeAdapterMap['document']): DefaultTreeAdapt
 
 const BRACKET_CLOSERS: Record<string, string> = { '(': ')', '[': ']', '{': '}' }
 
-// Keeps only the template's complete declarations, so nothing it leaves open (a comment, string or
-// bracket) can swallow the overrides appended after them. Scanning stops at an escape or at a line
-// break inside a string, where a browser could tokenize the rest differently.
 function completeDeclarations(style: string): string[] {
     return scanDeclarations(style).filter((declaration) => declaration.includes(':') && !/[{}]/.test(declaration))
 }
 
 const QUOTES = ['"', "'"]
 
-// Index scans, not regexes: the style is user content, and a backtracking pattern stalls the worker on it.
 function skipSpaces(text: string, index: number): number {
     while (index < text.length && /\s/.test(text[index])) {
         index++
@@ -81,7 +77,6 @@ function skipSpaces(text: string, index: number): number {
     return index
 }
 
-// The index of the `)` that ends an unquoted url(), or -1 when the token is a bad url.
 function unquotedUrlEnd(style: string, start: number): number {
     let index = skipSpaces(style, start)
     while (index < style.length && !/["'()\\\s]/.test(style[index])) {
@@ -109,7 +104,6 @@ function scanDeclarations(style: string): string[] {
             if (end === -1) {
                 return declarations
             }
-            // A comment separates tokens, so it becomes a space: dropping it could join a slash and a star.
             current += ' '
             index = end + 1
         } else if (
@@ -117,8 +111,6 @@ function scanDeclarations(style: string): string[] {
             style.slice(index - 3, index).toLowerCase() === 'url' &&
             !QUOTES.includes(style[skipSpaces(style, index + 1)])
         ) {
-            // An unquoted url() is one token that ends at `)`. A quote, bracket, escape or inner space
-            // makes it a bad url, which a browser reads differently from this scanner.
             const end = unquotedUrlEnd(style, index + 1)
             if (end === -1) {
                 return declarations
@@ -162,8 +154,6 @@ function protectFooterAncestors(
     }
 }
 
-// A plaintext element swallows everything after it, and noscript content parses differently once scripting
-// is on, so neither may reach the delivered email in a form that can hide the footer.
 function neutralizeRawTextElements(roots: DefaultTreeAdapterMap['childNode'][]): void {
     const nodes = [...roots]
     for (const node of nodes) {
@@ -446,6 +436,25 @@ function outlookViews(html: string): DefaultTreeAdapterMap['document'][] {
     return [...views].map((view) => parseBounded(view))
 }
 
+function insertPreheader(body: DefaultTreeAdapterMap['element'], preheaderHtml: string): void {
+    if (!preheaderHtml) {
+        return
+    }
+    const parser = AttributeBoundedParser.getFragmentParser(body, {
+        scriptingEnabled: false,
+        treeAdapter: depthBoundedTreeAdapter,
+    })
+    parser.tokenizer.write(preheaderHtml, true)
+    const firstChild = body.childNodes[0]
+    for (const node of [...parser.getFragment().childNodes]) {
+        if (firstChild) {
+            defaultTreeAdapter.insertBefore(body, node, firstChild)
+        } else {
+            defaultTreeAdapter.appendChild(body, node)
+        }
+    }
+}
+
 function appendHtmlFooter(html: string, footer: string, preheader?: string): string {
     if (Buffer.byteLength(html) + Buffer.byteLength(preheader ?? '') > MAX_TEMPLATE_HTML_BYTES) {
         throw new TooLargeForSandbox()
@@ -457,11 +466,12 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
     preheaderParser.tokenizer.write(preheader ?? '', true)
     const preheaderText = preheaderParser.getFragment()
     neutralizeRawTextElements(preheaderText.childNodes)
-    const document = parseBounded(maybeAddPreheaderToEmail(html, serialize(preheaderText, { scriptingEnabled: false })))
+    const document = parseBounded(html)
     const body = htmlBody(document)
     if (!body) {
         throw new Error('The sandbox email template must have an HTML body. Update the template and try again.')
     }
+    insertPreheader(body, maybeAddPreheaderToEmail('', serialize(preheaderText, { scriptingEnabled: false })))
     neutralizeRawTextElements(document.childNodes)
     protectFooterAncestors(document, body)
     const paragraph = defaultTreeAdapter.createElement('div', body.namespaceURI, [
