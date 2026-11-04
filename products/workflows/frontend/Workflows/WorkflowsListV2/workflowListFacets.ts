@@ -20,6 +20,20 @@ const valueFromLabel =
         Object.keys(labels).find((value) => labels[value].toLowerCase() === typed.toLowerCase()) ?? typed
 
 /** Every word of the text must appear in the name or description. */
+/** The folder view lists everything under Unfiled in one place, so its subfolders are not scopes of their own. */
+export function displayedFolder(folder: string): string {
+    return folder === 'Unfiled' || folder.startsWith('Unfiled/') ? 'Unfiled' : folder
+}
+
+export function folderScopes(parent: string, includeDescendants: boolean): string[] {
+    const folder = displayedFolder(parent)
+    if (folder === 'Unfiled' || !includeDescendants) {
+        return [folder]
+    }
+    const parts = splitPath(folder)
+    return parts.map((_, index) => joinPath(parts.slice(0, index + 1)))
+}
+
 export function matchesWorkflowListText(row: WorkflowListRow, text: string): boolean {
     return text
         .toLowerCase()
@@ -64,15 +78,7 @@ export function buildWorkflowListFacets(
             formatValue: (value) => splitPath(value).join(' / '),
             getValues: (row) => {
                 const entry = itemsByRef[`hog_flow::${row.id}`]
-                if (!entry || entry.shortcut) {
-                    return ['Unfiled/Workflows', 'Unfiled']
-                }
-                const parent = parentPath(entry.path)
-                const parts = splitPath(parent)
-                const folders = includeDescendants
-                    ? parts.map((_, index) => joinPath(parts.slice(0, index + 1)))
-                    : [parent]
-                return parent.startsWith('Unfiled/') ? [...folders, 'Unfiled'] : folders
+                return !entry || entry.shortcut ? ['Unfiled'] : folderScopes(parentPath(entry.path), includeDescendants)
             },
         },
         {

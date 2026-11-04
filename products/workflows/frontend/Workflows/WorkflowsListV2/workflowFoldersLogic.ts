@@ -20,6 +20,7 @@ import type { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { createFacetMatcher, type FacetDefinition, type MatchesText } from './FacetSearchBar/facetQuery'
 import type { FacetSearchValue } from './FacetSearchBar/facetQuery'
+import { displayedFolder, folderScopes } from './workflowListFacets'
 import type { WorkflowListRow } from './workflowListRows'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
 
@@ -274,8 +275,7 @@ function ancestorFolders(path: string): string[] {
 }
 
 function displayedParent(path: string): string {
-    const parent = parentPath(path)
-    return parent === 'Unfiled' || parent.startsWith('Unfiled/') ? 'Unfiled' : parent
+    return displayedFolder(parentPath(path))
 }
 
 function isInScope(parent: string, folder: string | null, searching: boolean): boolean {
@@ -645,12 +645,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         if (facet.key !== 'in') {
                             return []
                         }
-                        const parent = parentPath(item.path)
-                        const parts = splitPath(parent)
-                        const folders = searching
-                            ? parts.map((_, index) => joinPath(parts.slice(0, index + 1)))
-                            : [parent]
-                        return parent.startsWith('Unfiled/') ? [...folders, 'Unfiled'] : folders
+                        return folderScopes(parentPath(item.path), searching)
                     },
                 })),
         ],
@@ -719,8 +714,10 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         ],
         currentFolder: [
             (s) => [s.value],
-            (value: FacetSearchValue): string | null =>
-                value.filters.find((filter) => filter.facet === 'in' && !filter.negated)?.value ?? null,
+            (value: FacetSearchValue): string | null => {
+                const folder = value.filters.find((filter) => filter.facet === 'in' && !filter.negated)?.value
+                return folder ? displayedFolder(folder) : null
+            },
         ],
     }),
     listeners(({ actions, asyncActions, values, cache }) => ({

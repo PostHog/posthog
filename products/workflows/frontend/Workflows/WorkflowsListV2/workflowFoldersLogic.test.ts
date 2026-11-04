@@ -226,6 +226,12 @@ describe('workflowFoldersLogic', () => {
         logic.actions.openFolder('Unfiled')
         expect(logic.values.folderTemplates.map((entry) => entry.ref)).toContain('template-moved')
         expect(logic.values.folderCounts.Unfiled).toBe(logic.values.folderFileRows.length)
+        const unfiledRows = logic.values.folderRows.map((row) => row.id)
+
+        const scope = logic.values.folderFacets.find((facet) => facet.key === 'in')!
+        expect(logic.values.folderFileRows.flatMap((row) => scope.getValues(row))).not.toContain('Unfiled/Workflows')
+        logic.actions.setValue({ filters: [{ facet: 'in', value: 'Unfiled/Workflows', negated: false }], text: '' })
+        expect(logic.values.folderRows.map((row) => row.id)).toEqual(unfiledRows)
     })
 
     it('hides empty folders inside a branch that only holds other products', async () => {
