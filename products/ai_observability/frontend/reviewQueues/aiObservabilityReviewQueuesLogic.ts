@@ -846,7 +846,7 @@ export const aiObservabilityReviewQueuesLogic = kea<aiObservabilityReviewQueuesL
             // Stepping through the drawer keeps the rows it started with. Reviewed traces leave the queue on the
             // server, so the list catches up once the drawer closes.
             if (changedOnlyTraceDrawerParams(previousLocation, { pathname, searchParams })) {
-                if (previousLocation.searchParams.trace && !searchParams.trace) {
+                if ('trace' in previousLocation.searchParams && !('trace' in searchParams)) {
                     actions.loadQueues(false)
                     if (values.selectedQueueId) {
                         actions.loadQueueItems(false)

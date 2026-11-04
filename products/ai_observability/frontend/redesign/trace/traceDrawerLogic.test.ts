@@ -606,6 +606,15 @@ describe('traceDrawerLogic', () => {
         })
     })
 
+    it('links a queue trace to the full page with the back target and queue the legacy page understands', () => {
+        setUp({ url: `${urls.aiObservabilityReviews()}?queue_id=q1&trace=a`, listId: 'review-queue' })
+
+        expect(combineUrl(logic.values.fullPageHref ?? '').searchParams).toMatchObject({
+            back_to: 'reviews',
+            queue_id: 'q1',
+        })
+    })
+
     it('has no full page link while closed', () => {
         setUp()
 

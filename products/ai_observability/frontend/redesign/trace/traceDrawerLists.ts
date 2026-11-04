@@ -47,11 +47,12 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         backLabel: 'Back to reviews',
         rowClick: true,
     },
-    // Shares its path with reviews: the two are tabs of one scene, and only the open tab mounts its list.
+    // Shares its path with reviews: the two are tabs of one scene, and only the open tab mounts its list. It also
+    // shares the back target, because the legacy trace page only keeps queue context for `back_to=reviews`.
     'review-queue': {
         pathMatcher: /^\/ai-observability\/reviews$/,
-        backTo: 'review-queue',
-        backLabel: 'Back to queue',
+        backTo: 'reviews',
+        backLabel: 'Back to reviews',
         rowClick: true,
     },
     'evaluation-runs': {
