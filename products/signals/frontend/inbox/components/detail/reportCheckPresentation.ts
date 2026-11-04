@@ -123,9 +123,26 @@ function joinDetail(parts: (string | null | undefined)[]): string {
 }
 
 const MONITORING_CHECK_ROWS: Record<
-    NonNullable<SignalReportCheckApi['monitoring_timing']>['state'],
+    | NonNullable<SignalReportCheckApi['monitoring_timing']>['state']
+    | NonNullable<NonNullable<SignalReportCheckApi['monitoring_timing']>['final_verification_state']>,
     Pick<ReportCheckRowData, 'tag' | 'detail'>
 > = {
+    monitoring: {
+        tag: { label: 'Monitoring', type: 'primary' },
+        detail: 'Final verification is scheduled for the end of this check’s observation window.',
+    },
+    verifying: {
+        tag: { label: 'Verifying', type: 'primary' },
+        detail: 'The scout is running the final check.',
+    },
+    assessment_required: {
+        tag: { label: 'Inconclusive', type: 'warning' },
+        detail: 'Final verification could not settle this check. Further assessment is needed.',
+    },
+    verification_complete: {
+        tag: { label: 'Verification complete', type: 'info' },
+        detail: 'A final verdict has been recorded for this check.',
+    },
     scheduled: {
         tag: { label: 'Scheduled', type: 'primary' },
         detail: 'Interim measurements collect evidence during this check’s observation window.',
@@ -136,7 +153,7 @@ const MONITORING_CHECK_ROWS: Record<
     },
     window_ended: {
         tag: { label: 'Awaiting verification', type: 'warning' },
-        detail: 'The observation window has ended. Interim measurements have stopped. A final verdict has not been recorded.',
+        detail: 'The observation window has ended. Final verification is pending.',
     },
     no_interim_measurements: {
         tag: { label: 'Observing', type: 'primary' },
@@ -164,6 +181,21 @@ const MONITORING_CHECK_ROWS: Record<
     },
 }
 
+function pendingCheckRow(check: SignalReportCheckApi, lane: string | null): Pick<ReportCheckRowData, 'tag' | 'detail'> {
+    const start = check.soak_minutes
+        ? `${check.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(check.soak_minutes)} after this report is resolved`
+        : 'Starts when this report is resolved'
+    return { tag: { label: 'Waiting', type: 'muted' }, detail: joinDetail([start, lane && `${lane} runs it`]) }
+}
+
+function runningCheckRow(check: SignalReportCheckApi, lane: string | null): Pick<ReportCheckRowData, 'tag' | 'detail'> {
+    const startedAgo = dayjs(check.dispatched_at).fromNow()
+    return {
+        tag: { label: 'Running', type: 'primary' },
+        detail: lane ? `${lane} started ${startedAgo}` : `Started ${startedAgo}`,
+    }
+}
+
 function openCheckRow(
     check: SignalReportCheckApi,
     reportStatus: SignalReportStatusEnumApi
@@ -175,23 +207,16 @@ function openCheckRow(
         }
     }
     if (check.monitoring_timing) {
-        return MONITORING_CHECK_ROWS[check.monitoring_timing.state]
+        return MONITORING_CHECK_ROWS[check.monitoring_timing.final_verification_state ?? check.monitoring_timing.state]
     }
     const lane = laneLabel(check)
 
     if (check.status === 'pending') {
-        const start = check.soak_minutes
-            ? `${check.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(check.soak_minutes)} after this report is resolved`
-            : 'Starts when this report is resolved'
-        return { tag: { label: 'Waiting', type: 'muted' }, detail: joinDetail([start, lane && `${lane} runs it`]) }
+        return pendingCheckRow(check, lane)
     }
 
     if (isRunning(check)) {
-        const startedAgo = dayjs(check.dispatched_at).fromNow()
-        return {
-            tag: { label: 'Running', type: 'primary' },
-            detail: lane ? `${lane} started ${startedAgo}` : `Started ${startedAgo}`,
-        }
+        return runningCheckRow(check, lane)
     }
 
     // An `awaiting_data` verdict keeps the check open, so the row says why it looks again.
@@ -371,23 +396,35 @@ const CHECK_CANCELLED_REASONS: Record<string, string> = {
     monitoring_completed: 'Stopped because this Monitoring attempt ended',
 }
 
+function pendingCheckTiming(content: CheckScheduledContent, monitoringEnabled: boolean): string {
+    if (monitoringEnabled) {
+        if (content.soak_minutes == null) {
+            return 'Final evaluation during monitoring'
+        }
+        return content.soak_minutes === 0
+            ? 'Final evaluation when monitoring starts'
+            : `Final evaluation after ${monitoringPeriodLabel(content.soak_minutes)} of monitoring`
+    }
+    if (!content.soak_minutes) {
+        return 'Starts when this report is resolved'
+    }
+    return `${content.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(content.soak_minutes)} after this report is resolved`
+}
+
 /**
  * The entry written when a check is attached. A check on an open report has no date to give yet,
  * so it says what starts the clock instead of naming a day it cannot keep.
  */
-export function checkScheduledEntry(content: CheckScheduledContent): CheckLifecycleEntry {
+export function checkScheduledEntry(content: CheckScheduledContent, monitoringEnabled = false): CheckLifecycleEntry {
     const lane = laneRunsIt(content.kind, content.skill_name)
     const runs = content.runs && content.runs > 1 ? `${content.runs} runs` : null
 
     if (content.arms_on_resolve) {
-        const start = content.soak_minutes
-            ? `${content.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(content.soak_minutes)} after this report is resolved`
-            : 'Starts when this report is resolved'
         return {
-            tag: { label: 'Waiting for resolve', type: 'muted' },
+            tag: { label: monitoringEnabled ? 'Runs during monitoring' : 'Waiting for resolve', type: 'muted' },
             detail: joinDetail([
-                start,
-                content.kind === 'metric_threshold' ? 'Waits for a full query window' : null,
+                pendingCheckTiming(content, monitoringEnabled),
+                content.kind === 'metric_threshold' && !monitoringEnabled ? 'Waits for a full query window' : null,
                 lane,
                 runs,
             ]),
@@ -426,7 +463,10 @@ export function checkCancelledEntry(content: CheckCancelledContent): CheckLifecy
 }
 
 /** Which builder reads each lifecycle entry, so the renderer needs one arm rather than three. */
-export const CHECK_LIFECYCLE_ENTRIES: Record<string, (content: CheckLifecycleContent) => CheckLifecycleEntry> = {
+export const CHECK_LIFECYCLE_ENTRIES: Record<
+    string,
+    (content: CheckLifecycleContent, monitoringEnabled?: boolean) => CheckLifecycleEntry
+> = {
     check_scheduled: checkScheduledEntry,
     check_expired: checkExpiredEntry,
     check_cancelled: checkCancelledEntry,

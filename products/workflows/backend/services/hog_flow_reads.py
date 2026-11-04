@@ -16,6 +16,8 @@ from django_filters import BooleanFilter, FilterSet
 
 from posthog.api.tagged_item import current_tag_names
 from posthog.models import TaggedItem
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.workflows.backend.facade.contracts import (
     Workflow,
@@ -26,7 +28,6 @@ from products.workflows.backend.facade.contracts import (
     WorkflowListFiltersInvalid,
     WorkflowListQuery,
     WorkflowNotFound,
-    WorkflowPage,
     WorkflowRef,
 )
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus, WorkflowProposalStatus
@@ -214,23 +215,17 @@ def list_workflows(
     query: WorkflowListQuery,
     user_access_control: "UserAccessControl | None",
     include_all_if_admin: bool,
-    offset: int,
-    limit: int,
-) -> WorkflowPage:
+    page: PageRequest,
+) -> Page[Workflow]:
     """One page of the team's workflows that match `query` and that the reader may see. Pass None
     for `user_access_control` to skip the access filter, as a service credential does. Raises
     WorkflowListFiltersInvalid when a field filter does not parse."""
     queryset = _list_queryset(team_id, query, user_access_control, include_all_if_admin)
-    count = queryset.count()
-    # The same bounds LimitOffsetPagination applies to a queryset.
-    flows = [] if count == 0 or offset > count else list(queryset[offset : offset + limit])
-    if user_access_control is not None and flows:
-        user_access_control.preload_object_access_controls(cast("list[models.Model]", flows))
+    flows = select_page(queryset, page)
+    if user_access_control is not None and flows.results:
+        user_access_control.preload_object_access_controls(cast("list[models.Model]", flows.results))
     template_cache: TemplateCache = {}
-    return WorkflowPage(
-        count=count,
-        results=[_to_workflow(flow, user_access_control, template_cache, with_schedules=False) for flow in flows],
-    )
+    return flows.map(lambda flow: _to_workflow(flow, user_access_control, template_cache, with_schedules=False))
 
 
 def _list_queryset(
@@ -241,6 +236,7 @@ def _list_queryset(
 ) -> QuerySet:
     queryset: QuerySet = (
         HogFlow.objects.filter(team_id=team_id)
+        .exclude(origin_product__in=HIDDEN_ORIGIN_PRODUCTS)
         .select_related("created_by")
         # _to_workflow reads prefetched_tags, so a page costs one tag query rather than one per row.
         .prefetch_related(
@@ -422,6 +418,7 @@ OWNED_WORKFLOW_TYPES: Final[dict[str, str]] = {
     "broadcast": HogFlow.OriginProduct.BROADCASTS,
     "transactional_email": HogFlow.OriginProduct.TRANSACTIONAL_EMAILS,
 }
+HIDDEN_ORIGIN_PRODUCTS: Final[tuple[str, ...]] = (HogFlow.OriginProduct.TRANSACTIONAL_EMAIL_KEYS,)
 
 
 def workflow_type_q(requested: set[str]) -> Q:
@@ -433,7 +430,7 @@ def workflow_type_q(requested: set[str]) -> Q:
     messaging = Q()
     for action_type in MESSAGING_ACTION_TYPES:
         messaging |= Q(actions__contains=[{"type": action_type}])
-    unowned = ~Q(origin_product__in=list(OWNED_WORKFLOW_TYPES.values()))
+    unowned = ~Q(origin_product__in=[*OWNED_WORKFLOW_TYPES.values(), *HIDDEN_ORIGIN_PRODUCTS])
     if behavioural == {"messaging", "automation"}:
         return owned | unowned
     return owned | (unowned & (messaging if behavioural == {"messaging"} else ~messaging))
@@ -483,7 +480,7 @@ def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
     )
 
 
-BROADCAST_STATUSES = ("draft", "scheduled", "sending", "sent", "failed", "archived")
+BROADCAST_STATUSES = ("draft", "scheduled", "sending", "sent", "partially_sent", "failed", "archived")
 
 
 class _WorkflowFilterSet(FilterSet):

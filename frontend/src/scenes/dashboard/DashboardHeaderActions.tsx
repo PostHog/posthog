@@ -15,7 +15,13 @@ import { urls } from 'scenes/urls'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, DashboardType } from '~/types'
 
-import { DashboardAddTileHandlers, DashboardAddTileKey, getDashboardAddTileOptions } from './dashboardAddTileOptions'
+import {
+    DashboardAddTileHandlers,
+    DashboardAddTileKey,
+    DashboardAddTileOption,
+    getDashboardAddTileOptions,
+    groupDashboardAddTileOptions,
+} from './dashboardAddTileOptions'
 import { DashboardCustomizeButton } from './DashboardCustomizeButton'
 import { reportDashboardAddMenuOpened } from './dashboardEvents'
 import { DashboardLayoutUndoButton } from './DashboardLayoutUndoButton'
@@ -29,13 +35,14 @@ const ADD_TILE_MENU_DATA_ATTRS: Record<DashboardAddTileKey, string> = {
     image: 'dashboard-add-image-tile',
     button: 'dashboard-add-button-tile',
     widget: 'dashboard-add-widget',
+    group: 'dashboard-add-tile-group',
 }
 
 export function getAddTileMenuItems({
     onBeforeSelect,
     ...handlers
 }: DashboardAddTileHandlers & { onBeforeSelect?: () => void }): LemonMenuItems {
-    const items: LemonMenuItem[] = getDashboardAddTileOptions(handlers).map((option) => ({
+    const toItem = (option: DashboardAddTileOption): LemonMenuItem => ({
         label: option.label,
         tag: option.tag,
         onClick: () => {
@@ -43,13 +50,16 @@ export function getAddTileMenuItems({
             option.onClick()
         },
         'data-attr': ADD_TILE_MENU_DATA_ATTRS[option.key],
-    }))
+    })
 
-    return [{ title: 'Content', items }]
+    return groupDashboardAddTileOptions(getDashboardAddTileOptions(handlers)).map(({ title, options }) => ({
+        title,
+        items: options.map(toItem),
+    }))
 }
 
 export function DashboardAddTileButton(): JSX.Element | null {
-    const { dashboard, tiles } = useValues(dashboardLogic)
+    const { dashboard, tiles, tileGroupSectionsEnabled } = useValues(dashboardLogic)
     const {
         loadDashboard,
         setAddWidgetModalOpen,
@@ -57,6 +67,7 @@ export function DashboardAddTileButton(): JSX.Element | null {
         openTextTileModal,
         openImageTileModal,
         openButtonTileModal,
+        addTileGroup,
     } = useActions(dashboardLogic)
 
     if (!dashboard || tiles.length === 0) {
@@ -95,6 +106,7 @@ export function DashboardAddTileButton(): JSX.Element | null {
                         onAddImage: openImageTileModal,
                         onAddButton: openButtonTileModal,
                         setAddWidgetModalOpen,
+                        onAddGroup: tileGroupSectionsEnabled ? () => addTileGroup() : undefined,
                     })}
                     onVisibilityChange={(visible) => {
                         if (visible) {

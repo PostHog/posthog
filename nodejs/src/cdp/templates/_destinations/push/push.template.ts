@@ -11,13 +11,15 @@ export const template: HogFunctionTemplate = {
     category: ['Communication'],
     code_language: 'hog',
     code: `
-let payload := {
-    'title': inputs.title,
-    'body': inputs.body
+let delivery := inputs.delivery ?? 'notification'
+let payload := {}
+if (delivery != 'notification') payload.delivery := delivery
+
+if (delivery != 'silent') {
+    payload.title := inputs.title ?? ''
+    payload.body := inputs.body
+    if (inputs.image) payload.image := inputs.image
 }
-
-if (inputs.image) payload.image := inputs.image
-
 // The link and group travel as data so an app that draws its own notifications can read them too.
 let data := inputs.data ?? {}
 if (inputs.link) data.link := inputs.link
@@ -89,12 +91,27 @@ if (not res.success) {
                 'Which channels to send through. Each recipient gets the notification on the device they registered.',
         },
         {
+            key: 'delivery',
+            type: 'choice',
+            label: 'Delivery',
+            choices: [
+                { value: 'notification', label: 'Show a notification' },
+                { value: 'android_data_only', label: 'Data only on Android, notification on iOS' },
+                { value: 'silent', label: 'Silent, show nothing' },
+            ],
+            secret: false,
+            required: false,
+            description:
+                "Data only and silent pushes go to your app's code instead of the system tray. Put what the app needs in the custom data.",
+            default: 'notification',
+        },
+        {
             key: 'title',
             type: 'string',
             label: 'Notification title',
             secret: false,
-            required: true,
-            description: 'The title of the push notification.',
+            required: false,
+            description: 'The title of the push notification. Not used when the push is silent.',
             default: 'Notification from {event.event}',
         },
         {

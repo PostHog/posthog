@@ -25,6 +25,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
     ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
+    CUSTOMER_VISIBLE_CREDENTIAL_ID_TYPES,
     ActivityCredential,
     activity_storage,
     is_uncached_reverse_one_to_one,
@@ -102,6 +103,7 @@ ActivityScope = Literal[
     "PersonalAPIKey",
     "ProjectSecretAPIKey",
     "OAuthApplication",
+    "WorkloadTrustPolicy",
     "User",
     "Action",
     "AccountView",
@@ -128,6 +130,7 @@ ActivityScope = Literal[
     "DashboardWidget",
     "ProductTour",
     "Ticket",
+    "TicketMacro",
     "KnowledgeSource",
     "KnowledgeLibrary",
     "InstanceSetting",
@@ -324,6 +327,17 @@ class ActivityLog(UUIDTModel):
             changes.append(change)
         return {**self.detail, "changes": changes}
 
+    @property
+    def customer_visible_credential_id(self) -> Optional[str]:
+        """The `credential_id` that customer-facing surfaces may show, or None when it stays internal."""
+        if self.credential_type not in CUSTOMER_VISIBLE_CREDENTIAL_ID_TYPES:
+            return None
+        # An impersonated change used the staff member's login session. That session is in no list
+        # the customer can read, so its id would point nowhere.
+        if self.was_impersonated or self.impersonated_by_id is not None:
+            return None
+        return self.credential_id
+
 
 # Fields older rows still hold in plaintext although new rows no longer record them.
 read_masked_fields: dict[str, list[str]] = {
@@ -393,6 +407,8 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     "SignalTeamConfig": ["onboarding"],
     "AccountView": ["name", "content", "text_content"],
     "WarehouseSuggestion": ["dismissal_note"],
+    # Macro replies are support content; activity-log readers may lack ticket access.
+    "TicketMacro": ["body"],
     "HogFunction": [
         "inputs",
         "mappings",
@@ -561,6 +577,8 @@ replay_scanner_machine_fields = [
     "estimated_monthly_observations",
     "estimated_at",
     "estimate_attempted_at",
+    "filter_error",
+    "filter_error_at",
     "prompt_question",
     "prompt_question_source",
     "prompt_valence",
@@ -649,6 +667,8 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "last_precheck_outcome",
         "last_precheck_row_count",
     ],
+    # Inserts bump these on every use. They are not a settings edit.
+    "TicketMacro": ["usage_count", "last_used_at"],
 }
 
 # Activity visibility restrictions - controls which users can see certain activity logs
@@ -744,6 +764,7 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 
 field_exclusions: dict[AuditableScope, list[str]] = {
     "AccountView": ["version"],
+    "TicketMacro": ["usage_count", "last_used_at"],
     # Tiles are edited through their own endpoint, so diffing the reverse relation only reads every tile row.
     "CrossProjectDashboard": ["tiles", "organization"],
     # The reverse relations are listed because the diff reads each one in full; a scanner's

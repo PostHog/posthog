@@ -3,8 +3,7 @@ import { IconLive } from '@posthog/icons'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-
-import { hogql } from '~/queries/utils'
+import { hogql } from 'lib/utils/hogql'
 
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 

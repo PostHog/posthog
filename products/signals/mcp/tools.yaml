@@ -23,6 +23,29 @@ tools:
             users. `stale: true` means a newer version will replace it soon. A 404 means activity summaries are not
             available for this project.
         feature_flag: activity-summary
+    activity-summary-search:
+        operation: signals_activity_summary_members_search
+        enabled: true
+        scopes:
+            - signal_scout_internal:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Search member activity summaries
+        description: >
+            Find the project members whose activity summary matches a topic, an object name or a product, to route a
+            report to people connected to the work. It also finds people who only open the work and never edit it, such
+            as product managers, which the activity log cannot show. Search as you search anything: start broad with the
+            object, the topic and other wordings, then narrow with `product` or rephrase, and pass `exclude_user_uuids`
+            to skip people you already checked. Set `include_profile` only for the few people worth reading. `hybrid`
+            (the default) merges keyword and semantic ranking; `matched_on` says why each member matched. A result is a
+            lead, not an owner. Check it against the report before you select the person. If you select someone because
+            they open an object often, the `reason` must say so, such as "opens this dashboard most days", and must not
+            claim ownership. Ownership rules and human reviewer corrections take priority over this search.
+            `not_ready_count` is the number of members with no summary, whom the search cannot find. A 404 means the
+            search is not available for this project.
+        feature_flag: activity-summary-search
     activity-summary-versions-list:
         operation: signals_activity_summary_versions_retrieve
         enabled: true
@@ -85,7 +108,7 @@ tools:
         operation: signals_reports_ranking_outcomes_list
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -102,7 +125,7 @@ tools:
         operation: signals_reports_actions_list
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -128,6 +151,7 @@ tools:
         operation: signals_reports_actions_run_create
         enabled: true
         scopes:
+            - inbox:write
             - task:write
         annotations:
             readOnly: false
@@ -158,6 +182,7 @@ tools:
         operation: signals_report_artefacts_create
         enabled: true
         scopes:
+            - inbox:write
             - task:write
         annotations:
             readOnly: false
@@ -188,6 +213,7 @@ tools:
         operation: signals_report_artefacts_destroy
         enabled: true
         scopes:
+            - inbox:write
             - task:write
         annotations:
             readOnly: false
@@ -205,7 +231,7 @@ tools:
         operation: signals_report_artefacts_list
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -228,7 +254,7 @@ tools:
         operation: signals_report_artefacts_retrieve
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -243,6 +269,7 @@ tools:
         operation: signals_report_artefacts_partial_update
         enabled: true
         scopes:
+            - inbox:write
             - task:write
         annotations:
             readOnly: false
@@ -273,7 +300,7 @@ tools:
         operation: signals_report_checks_list
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -292,7 +319,7 @@ tools:
         operation: signals_report_checks_replace_create
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
             - query:read
         annotations:
             readOnly: false
@@ -313,7 +340,7 @@ tools:
         operation: signals_report_checks_retrieve
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -327,6 +354,7 @@ tools:
         operation: signals_reports_reviewers_update
         enabled: true
         scopes:
+            - inbox:write
             - task:write
         annotations:
             readOnly: false
@@ -346,7 +374,7 @@ tools:
         operation: signals_reports_bulk_state_create
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: true
@@ -363,6 +391,7 @@ tools:
         operation: signals_reports_claim
         enabled: true
         scopes:
+            - inbox:write
             - task:write
         annotations:
             readOnly: false
@@ -381,11 +410,42 @@ tools:
             id:
                 aliases:
                     - report_id
+    inbox-reports-create:
+        operation: signals_reports_create
+        enabled: true
+        scopes:
+            - inbox:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{report_id}'
+        title: File an inbox report
+        description: >
+            File a finding as an inbox report in this project, for example something your own agent found. Search
+            `inbox-reports-list` first and update an existing report rather than filing a near-duplicate. The report
+            passes the same safety judge a scout report passes, then surfaces at the status your `actionability` call
+            implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` →
+            suppressed); an unsafe report is suppressed regardless. `evidence` lists the observations behind the report,
+            at least one. Safe to retry: resending a call returns the first report (`idempotent_replay` true) instead of
+            a second one, keyed on `idempotency_key` or, without one, on the report's content. A filed report never
+            starts an implementation run or opens a pull request on its own, even when it names a `repository`,
+            `priority`, and `suggested_reviewers`: a person starts one from the report's actions. `suggested_reviewers`
+            routes the report to the people who should read it. A `priority` requires a `priority_explanation`. Each
+            person can file 20 reports per project per day; a 429 says when the limit resets, so do not retry before
+            then.
+        exclude_params:
+            - metrics
+        required_when_set:
+            priority:
+                - priority_explanation
+        feature_flag: inbox-reports-create-mcp
+        feature_flag_behavior: enable
     inbox-reports-feedback-create:
         operation: signals_reports_feedback_create
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
             - signal_scout:write
             - llm_skill:write
         annotations:
@@ -409,10 +469,36 @@ tools:
             note:
                 description: The person's context for why the report was or was not useful, up to 4000 characters.
                 input_schema: SignalReportFeedbackNoteSchema
+    inbox-reports-for-me:
+        operation: signals_reports_for_me_retrieve
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get your personal ranked inbox
+        description: >
+            Get the current user's own open inbox reports, ranked for them. One language model call ranks the reports
+            that need them (suggested reviewer, claimed, waiting on their input) and the reports the ranking model rates
+            highest, using their activity summary. Use it for "what should I work on" and "my top N" questions in place
+            of paging inbox-reports-list. Each entry has a rank, a tier, a short reason, a next step for the top entries
+            and a compact report. Read the full report with inbox-reports-retrieve before you act on it. The list is
+            personal: only the user it describes can read it. The call never waits on the model. A current stored list
+            comes back quickly, as is. Otherwise the call reads every candidate report, which can take some seconds,
+            starts a background build and returns the last stored list with `stale: true`, or the reports in inbox order
+            with `fallback_reason: building`, and sets `building: true`. `refresh` and `focus` always start a build, and
+            builds are rate limited. A report created after the stored list joins at the next build. When `building` is
+            true, call again a little later, or pass `wait_seconds` (up to 30, counted from the start of the call) to
+            wait for the new list in the same call. `personalized: false` means the user has no activity summary yet or
+            the list is in inbox order (see `fallback_reason`). `stale: true` without `building` means the build limit
+            was reached and the list may miss recent changes. `status: unavailable` means personal ranking is off for
+            now.
+        feature_flag: personal-inbox-ranking
     inbox-reports-leave-reviewers:
         operation: signals_reports_reviewers_me_create
         enabled: true
         scopes:
+            - inbox:write
             - task:write
         annotations:
             readOnly: false
@@ -435,7 +521,7 @@ tools:
         operation: signals_reports_list
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -506,7 +592,7 @@ tools:
         operation: signals_reports_merge_create
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: true
@@ -532,7 +618,7 @@ tools:
         operation: signals_reports_retrieve
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -570,7 +656,7 @@ tools:
         operation: signals_reports_state_create
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: true
@@ -590,6 +676,7 @@ tools:
         operation: signals_reports_partial_update
         enabled: true
         scopes:
+            - inbox:write
             - task:write
         annotations:
             readOnly: false
@@ -665,7 +752,7 @@ tools:
         operation: signals_source_configs_create
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: false
@@ -684,7 +771,7 @@ tools:
         operation: signals_source_configs_list
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -708,7 +795,7 @@ tools:
         operation: signals_source_configs_partial_update
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: false
@@ -724,7 +811,7 @@ tools:
         operation: signals_source_configs_retrieve
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -737,7 +824,7 @@ tools:
         operation: signals_source_configs_update
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: false
@@ -750,7 +837,7 @@ tools:
         operation: signals_config_list
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         title: Get Self-driving steering instructions
         description: >
             Read the current project's research, implementation, and scout instructions. Returns only the three
@@ -766,6 +853,7 @@ tools:
         operation: signals_config_create
         enabled: true
         scopes:
+            - inbox:write
             - task:write
         annotations:
             readOnly: false
@@ -1418,7 +1506,7 @@ tools:
         enabled: true
         scopes:
             - signal_scout:read
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -1431,7 +1519,7 @@ tools:
             with its `finding_id`, the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`), and the linked
             `report` (`id`, `title`, `status`) or `null` when the finding never matched a report (or the report was
             deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run
-            surfaced (`scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because it
+            surfaced (`scout-runs-emissions-list`). Requires `inbox:read` on top of `signal_scout:read` because it
             exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.
     scout-runs-emissions-list:
         operation: signals_scout_runs_emissions
@@ -1876,7 +1964,7 @@ tools:
         enabled: true
         scopes:
             - signal_scout:read
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false

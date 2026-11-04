@@ -14,6 +14,9 @@ pnpm test
 `pnpm typecheck` includes this compatibility check automatically.
 CI runs typecheck, lint, and tests; see [CI.md](CI.md).
 
+For inbox pagination, check that an invalid next-page response keeps the loaded reports visible and shows the retry footer.
+Retry after the server returns a valid page and confirm that the remaining reports load.
+
 ## Authenticated local checks
 
 Run the setup in [README.md](../README.md#sign-in-to-the-local-backend) first.
@@ -76,6 +79,142 @@ Keep ingestion, ClickHouse, and replay storage running, wait for the returned se
 If a session is missing, inspect local capture, ingestion, and replay storage logs before recording a playback pass.
 The dummy's normal development shortcut can choose the latest project; the explicit command above keeps the SDK on the account's selected project.
 
+## Duo and resizable windows
+
+Use Xcode 27.1 or newer with an iPhone Duo runtime. Simulator checks supplement the required
+physical iOS and Android before-and-after screenshots.
+
+1. Open a report unfolded, scroll it, open Resolve and enter a note. Fold, unfold, rotate and
+   enter Split View on either side. Verify the report, scroll position and note remain.
+2. Change filters in the expanded inbox pane and select another report. Verify its highlight,
+   data and actions. A confirmation sheet must block the inbox and navigation behind its scrim.
+3. Tap Home from a report and switch Chats and Views through horizontal navigation and the rail.
+   Check pinned Errors and Sessions slots, larger text and shorter windows too.
+4. Enter a chat draft, queue a message and open Model. Resize with a streaming reply and the
+   keyboard visible. Keep the conversation, draft and queue without a duplicate send or stream.
+5. Scroll Views to a later chart pin, expand and collapse the window, and verify the same pin
+   stays near the top. Check menus, chart and number pins, and full-screen insights.
+6. Check empty and error states, long titles, and asymmetric safe areas on both sides. No
+   control should overlap system UI, clip, or require a particular fold pose.
+
+### Repeatable screenshot comparisons
+
+Use `.argent/flows/screenshot-capture.yaml` to capture Inbox, Report, Handoff, Chat with the keyboard,
+and Views from repository demo data. It launches the production app identity on either platform:
+`com.posthog.code.mobile` on iOS and `com.posthog.mobile` on Android. It leaves Views open.
+`.argent/flows/screenshot-landscape.yaml` continues from there on iOS and captures the same surfaces after rotation.
+These flows collect review images; they do not perform pixel-diff assertions or replace the smoke flows.
+
+Keep the base captures, then repeat on the same virtual devices after each layout revision.
+Record the source commit, model, OS, pixel dimensions, orientation, posture, theme, and text size beside each set.
+Use separate artifact directories such as `before/iphone-portrait` and `after/duo-inner-landscape`.
+Do not compare portrait-locked base screens with landscape screenshots as though the orientations match.
+
+| Virtual device                                           | Capture matrix                                | Reference native pixels                        |
+| -------------------------------------------------------- | --------------------------------------------- | ---------------------------------------------- |
+| Ordinary iPhone, initially iPhone 17 Pro / iOS 27.0      | Portrait and landscape                        | 1206×2622 and 2622×1206                        |
+| Android, initially Pixel 9 / Android 16 API 36 at 420dpi | Portrait and landscape                        | 1080×2424 and 2424×1080                        |
+| iPhone Duo / iOS 27.1                                    | Closed cover, inner portrait, inner landscape | Cover 1398×2034; inner 2007×2853 and 2853×2007 |
+
+#### Build and prepare
+
+Use bundled Release builds with analytics and OTA updates disabled, so screenshots show the selected checkout.
+For iOS, use `scripts/ci-argent-build.sh` below. For Android, generate the native project in a disposable checkout
+with `CI=1 EXPO_NO_DOTENV=1 APP_VARIANT=production pnpm exec expo prebuild --platform android --no-install`.
+Set `expo.modules.updates.ENABLED` to `false` in the generated `android/app/src/main/AndroidManifest.xml` before building.
+With JDK 17, Android SDK/build tools 36 and the generated project's NDK installed, run:
+
+```sh
+cd android
+CI=1 EXPO_NO_DOTENV=1 EXPO_NO_TELEMETRY=1 DO_NOT_TRACK=1 APP_VARIANT=production \
+EXPO_PUBLIC_POSTHOG_KEY='' EXPO_PUBLIC_POSTHOG_HOST='' \
+./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --max-workers=2 --console=plain
+```
+
+The APK is `android/app/build/outputs/apk/release/app-release.apk`. Use the emulator's architecture if it differs.
+Reinstall the selected build on a dedicated test device before each run to reset demo state; the flow expects **Try the demo**.
+Select explicit device IDs from `xcrun simctl list devices` or `adb devices`. Never reset a person's device or account for these captures.
+Use light appearance and the default text size for matching pairs; record accessibility variants separately.
+
+#### Capture and keep the PNGs
+
+From `products/mobile`, with the pinned private Argent install on PATH:
+
+```sh
+capture_device='<explicit simulator UDID>'
+capture_dir='/tmp/mobile-screenshots/after/iphone-portrait'
+mkdir -p "$capture_dir"
+argent run rotate --udid "$capture_device" --orientation Portrait
+argent e2e run screenshot-capture --platform ios --device "$capture_device" \
+    --output "$capture_dir" --json > "$capture_dir/report.json"
+```
+
+For Android, use its serial and `--platform android`. For Duo, select the posture before the portrait run:
+`argent run fold --udid "$capture_device" --posture closed` for the cover, or `--posture open` for the inner screen.
+An open posture initially turns the UI landscape, so rotate to Portrait again before `screenshot-capture`.
+For iOS landscape, run `screenshot-landscape` immediately after a successful portrait run, with a separate output directory.
+Its explicit `rotation: LandscapeLeft` makes the exported iOS framebuffer upright.
+
+Successful tool screenshots live in temporary Argent storage, even when `--output` is supplied.
+Copy them out before stopping the server. This exports stable names from either flow's JSON report:
+
+```sh
+python3 - "$capture_dir/report.json" "$capture_dir" <<'PY'
+import json
+import shutil
+import sys
+from pathlib import Path
+
+report = json.loads(Path(sys.argv[1]).read_text())
+if not report['ok']:
+    raise SystemExit('Capture failed; inspect the report before using its screenshots.')
+output = Path(sys.argv[2])
+output.mkdir(parents=True, exist_ok=True)
+for step in report['steps']:
+    if step['kind'] == 'echo':
+        name = step['message'].lower()
+    if step.get('tool') == 'screenshot':
+        shutil.copyfile(step['result']['image']['hostPath'], output / f'{name}.png')
+PY
+```
+
+Inspect every PNG, including the fully settled keyboard. Use an invented unsent draft if keyboard suggestions expose clipboard contents.
+Preserve raw images and label matching pairs **before** and **after**. The PR composites resize each portrait capture to 600px wide,
+place the pair on a neutral canvas with padding, and label the model and surface. Compare the native PNGs when checking small details.
+For a bezel view, capture the actual Device Hub window and crop surrounding controls while retaining about 60px of padding.
+Keep that framed presentation separate from the raw app screenshots.
+Upload reviewed images using `hogli pr:upload-image --print-markdown <files...>`; acknowledge its public-upload warning with `--yes`.
+Insert the resulting pinned image URLs into the existing PR description without removing earlier evidence.
+
+#### Capture tooling workarounds
+
+- Keep Argent 0.30.1 in a private install and expose the Android SDK and `adb` on PATH before starting its server.
+  If an emulator is visible to `adb` but absent from Argent, launch that dedicated AVD with `-grpc-use-token`.
+  Keep connection tokens out of screenshots, logs attached to the PR, and source control.
+- A native-devtools launch failure can need one restart of that private server. Retry the capture, then use direct device inspection
+  if it still cannot connect. Do not restart another task's server or report a skipped capture as a pass.
+  `argent run describe --udid "$capture_device"` can still read the iOS accessibility tree when selector flows cannot run.
+  Navigate with its current element coordinates and `gesture-tap`, then capture each state with `argent run screenshot`.
+- On Android, dismiss Gboard's first-run handwriting prompt. For a dedicated emulator, disable stylus handwriting with
+  `adb -s "$capture_device" shell settings put secure stylus_handwriting_enabled 0` and enable its software keyboard with
+  `adb -s "$capture_device" shell settings put secure show_ime_with_hard_keyboard 1`.
+- Android selector taps after rotation mis-targeted controls in the reference run. Inspect the current screenshot or element tree,
+  then use `adb -s "$capture_device" shell input tap <x-pixels> <y-pixels>` and `adb ... exec-out screencap -p` if needed.
+  Recalculate coordinates for each device and posture. Do not reuse the old screen's coordinates.
+- If the dedicated emulator stops answering shell requests, restart that AVD rather than restarting the shared `adb` server.
+- Capture landscape chat with the keyboard open on both platforms. The input, model and mode controls, and Send must remain visible.
+  Gboard must keep the app composer visible rather than opening its full-screen editor.
+  Scroll the empty-state suggestions, send a demo reply, and rotate with an unsent draft to check that the draft survives.
+
+For a complete layout review, also capture sign-in, Settings and its project picker, inbox filters and row actions,
+full report details, handoff options, verdict and decision sheets, saved chats, Views browse and detail screens,
+full-screen charts, and the Errors and Sessions lists and details.
+When demo mode cannot supply a detail screen, use invented diagnostic fixtures and label those captures separately;
+record the provider substitutions and do not claim live data or replay playback coverage.
+Capture every distinct screen on the open Duo, then repeat affected screens in portrait and on the closed cover.
+Keep matching ordinary-phone screenshots for each changed screen. Record unreachable states as missing coverage.
+After returning from chat, rotate a report and check that its footer stays attached to the content with one compose action.
+
 ## Chat navigation and header
 
 On iOS and Android, open an existing chat and start a new chat. Both must fill the screen without a
@@ -83,10 +222,12 @@ sheet grabber or drag-down dismissal. Header Back and platform Back return to th
 a direct link falls back to the configured default page. Scroll a long thread under the title-free
 blurred header and focus the composer to check the keyboard and safe-area spacing.
 
-New chat and the ellipsis share the Inbox's pill control. Open the menu, copy the link, and confirm
+Saved chats show New chat and the ellipsis in a bordered pill beside the labeled Back chip. Open the menu, copy the link, and confirm
 it targets the current project and chat. Archive a saved chat and confirm it disappears from Chats
 only after success. Fail each action and retry; repeated taps must not start duplicate requests.
-An unsaved chat has no link or task to archive, so its ellipsis is disabled.
+An unsaved chat shows only Back, aligned with Settings, until the first message creates a task.
+Open New chat several times and check that the page finishes sliding in before the keyboard rises from the bottom.
+Repeat with the AI access check delayed so the composer mounts after the transition, and check the compact landscape layout.
 
 ## Chat drafts and rich replies
 
@@ -114,6 +255,16 @@ visible while a small spinner beside Previous/Next shows the refresh, then fades
 the navigation controls. Repeat with an unavailable Today page or signals endpoint, and with a failed
 background request. A first load without cached data still shows the full loading state.
 
+## Resolve and dismiss sheets
+
+On Android and iOS, open Resolve and Dismiss for a report with a long title.
+Repeat in portrait and landscape, including a larger text size.
+Include an Android 17 emulator with a Pixel 9 display profile (1080 × 2424 at 420 dpi).
+Scroll through every reason and the optional note. The list must use the available space without clipped rows.
+Select a reason, focus the note, type, and hide the keyboard. The confirm button must stay visible above the keyboard and return to the bottom after it closes.
+Repeat after you open and close the chat keyboard. The sheet must not reserve space for a keyboard that is hidden.
+Confirm the verdict and check that the report leaves the inbox. Close and reopen a sheet to check that its reason and note reset.
+
 ## Notification checks
 
 Run `pnpm test --watchman=false --runInBand src/features/notifications` for foreground delivery sequences
@@ -137,6 +288,40 @@ On a development build with notifications enabled:
    underneath. Also tap New chat, then tap a push for the conversation you just left; it must reopen.
 6. Repeat a delivery with the app backgrounded or terminated. App-side filtering does **not** provide the same
    guarantees there; server consolidation and synchronized snoozes remain follow-ups in [GAPS.md](GAPS.md).
+
+### Android notification taps after process death
+
+Use a rebuilt Android development client. Keep the app's task in Recents when killing its
+process; force-stop and removing the task test different startup paths.
+Send test pushes as described in [Push notifications](PUSH.md#testing) and tap them in the
+system tray. Use different reports in a project the test account can access. To kill the process
+without removing the task, substitute the installed variant's package in these commands.
+
+```sh
+adb shell input keyevent KEYCODE_HOME
+adb shell am kill com.posthog.mobile
+adb shell pidof com.posthog.mobile # must print nothing
+```
+
+Disconnect the debugger if it keeps the development build alive.
+
+Verify these sequences against both base and proposed builds:
+
+1. Open report A, background the app, and tap a notification for report B with the process alive.
+2. Repeat after killing the background process while retaining its task. B must open once.
+3. Start a fresh task by tapping a notification for A, navigate to another report, background
+   and kill the process, then tap a notification for B. B must open without reopening A.
+4. Repeat the notification-launched task sequence but reopen from Recents with no new tap.
+   The original notification must not replay.
+5. Tap a notification to start a fresh task, then kill its process before JavaScript routes it.
+   Reopen from Recents without another tap. The pending target must open once.
+   Repeat while signed out, kill and reopen, then sign in. The pending target must still open.
+6. Background the app and tap a local snooze reminder, then open a report deep link.
+   Both must still reach their targets.
+7. While routing is waiting for sign-in, tap a push for A and then a snooze reminder for B.
+   Sign in and verify only B opens. Repeat with the tap order reversed and verify only A opens.
+
+Also perform real push delivery checks on physical Android and iOS devices before marking the PR ready.
 
 ## Demo walkthrough on the iOS simulator
 

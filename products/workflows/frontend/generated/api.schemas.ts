@@ -66,14 +66,17 @@ export interface AudienceSuggestionApi {
      * @nullable
      */
     min_count: number | null
-    /** People in the audience with an email address, counted when the suggestion was made. */
-    reachable_count: number
+    /**
+     * Roughly how many people in the audience have an email address, counted when the suggestion was made. Null while the count runs, or when it failed.
+     * @nullable
+     */
+    reachable_count: number | null
     /** The audience's cohort filters, in the cohorts endpoint's `filters` format. Saved as a static cohort. */
     cohort_filters: unknown
 }
 
 export interface AudienceSuggestionsResponseApi {
-    /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
+    /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends, the list can already hold cards being counted), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
      *
      * * `ready` - Ready
      * * `generating` - Generating
@@ -412,6 +415,7 @@ export const HogFlowStateEnumApi = {
  * * `loops` - Loops
  * * `broadcasts` - Broadcasts
  * * `transactional_emails` - Transactional emails
+ * * `transactional_email_keys` - Transactional email keys
  */
 export type HogFlowOriginProductEnumApi = (typeof HogFlowOriginProductEnumApi)[keyof typeof HogFlowOriginProductEnumApi]
 
@@ -419,6 +423,7 @@ export const HogFlowOriginProductEnumApi = {
     Loops: 'loops',
     Broadcasts: 'broadcasts',
     TransactionalEmails: 'transactional_emails',
+    TransactionalEmailKeys: 'transactional_email_keys',
 } as const
 
 /**
@@ -765,11 +770,12 @@ export interface HogFlowApi {
      * * `active` - Active
      * * `archived` - Archived */
     status?: HogFlowStateEnumApi
-    /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
+    /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.
      *
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
-     * * `transactional_emails` - Transactional emails */
+     * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys */
     origin_product?: HogFlowOriginProductEnumApi | null
     /**
      * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
@@ -884,7 +890,8 @@ export interface HogFlowUpdateApi {
      *
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
-     * * `transactional_emails` - Transactional emails */
+     * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -992,7 +999,8 @@ export interface PatchedHogFlowUpdateApi {
      *
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
-     * * `transactional_emails` - Transactional emails */
+     * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys */
     readonly origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1153,6 +1161,7 @@ export interface MessageAssetApi {
  * * `queued` - Queued
  * * `active` - Active
  * * `completed` - Completed
+ * * `partially_failed` - Partially failed
  * * `cancelled` - Cancelled
  * * `failed` - Failed
  */
@@ -1163,6 +1172,7 @@ export const HogFlowBatchJobStateEnumApi = {
     Queued: 'queued',
     Active: 'active',
     Completed: 'completed',
+    PartiallyFailed: 'partially_failed',
     Cancelled: 'cancelled',
     Failed: 'failed',
 } as const
@@ -1170,12 +1180,13 @@ export const HogFlowBatchJobStateEnumApi = {
 export interface HogFlowBatchJobApi {
     /** ID of the batch run. */
     readonly id: string
-    /** Not currently tracked — stays at its initial value. Use the workflow logs/metrics endpoints for run outcome.
+    /** Status of the batch run. waiting: the audience's cohort is still calculating. queued and active: the run is enrolling its audience. completed: the whole audience was enrolled. When every enrolled person's run has ended, or a day after the run completed, PostHog checks for errored sends. A completed run stays completed when no send errored, becomes partially_failed when some sends errored, and becomes failed when every send errored. failed also means the run could not enroll its audience. cancelled: someone stopped the run. A send errors when its step throws, for example on a template that does not render. Provider failures such as bounces are not errored sends; read them from the run's metrics.
      *
      * * `waiting` - Waiting
      * * `queued` - Queued
      * * `active` - Active
      * * `completed` - Completed
+     * * `partially_failed` - Partially failed
      * * `cancelled` - Cancelled
      * * `failed` - Failed */
     status?: HogFlowBatchJobStateEnumApi
@@ -1205,6 +1216,7 @@ export interface HogFlowBatchJobCancelResponseApi {
      * * `queued` - Queued
      * * `active` - Active
      * * `completed` - Completed
+     * * `partially_failed` - Partially failed
      * * `cancelled` - Cancelled
      * * `failed` - Failed */
     status: HogFlowBatchJobStateEnumApi
@@ -1223,7 +1235,8 @@ export interface HogFlowConvertedToBroadcastApi {
      *
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
-     * * `transactional_emails` - Transactional emails */
+     * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys */
     readonly origin_product: HogFlowOriginProductEnumApi
 }
 
@@ -2299,12 +2312,13 @@ export type SendCalendarFlowApiAudiencePropertiesItem = { [key: string]: unknown
 export interface SendCalendarBatchJobApi {
     /** ID of the batch run. */
     readonly id: string
-    /** Status of the batch run.
+    /** Status of the batch run. waiting: the audience's cohort is still calculating. queued and active: the run is enrolling its audience. completed: the whole audience was enrolled. When every enrolled person's run has ended, or a day after the run completed, PostHog checks for errored sends. A completed run stays completed when no send errored, becomes partially_failed when some sends errored, and becomes failed when every send errored. failed also means the run could not enroll its audience. cancelled: someone stopped the run. A send errors when its step throws, for example on a template that does not render. Provider failures such as bounces are not errored sends; read them from the run's metrics.
      *
      * * `waiting` - Waiting
      * * `queued` - Queued
      * * `active` - Active
      * * `completed` - Completed
+     * * `partially_failed` - Partially failed
      * * `cancelled` - Cancelled
      * * `failed` - Failed */
     readonly status: HogFlowBatchJobStateEnumApi
@@ -2324,7 +2338,8 @@ export interface SendCalendarFlowApi {
      *
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
-     * * `transactional_emails` - Transactional emails */
+     * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     /** User who created the workflow. */
     readonly created_by: UserBasicApi | null
@@ -2955,6 +2970,13 @@ export interface WorkflowSendingRulesApi {
      * @nullable
      */
     marketing_frequency_cap_window_days?: number | null
+    /**
+     * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away. A held message sends as soon as one of the person's earlier messages leaves the window.
+     * @minimum 1
+     * @maximum 168
+     * @nullable
+     */
+    marketing_frequency_cap_hold_hours?: number | null
     /** Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.
      *
      * * `off` - Off
@@ -2984,6 +3006,13 @@ export interface PatchedWorkflowSendingRulesApi {
      * @nullable
      */
     marketing_frequency_cap_window_days?: number | null
+    /**
+     * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away. A held message sends as soon as one of the person's earlier messages leaves the window.
+     * @minimum 1
+     * @maximum 168
+     * @nullable
+     */
+    marketing_frequency_cap_hold_hours?: number | null
     /** Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.
      *
      * * `off` - Off
@@ -3088,6 +3117,11 @@ export type HogFlowTemplatesLogsRetrieveParams = {
      */
     limit?: number
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -3100,7 +3134,7 @@ export type HogFlowsListParams = {
      */
     broadcast_eligible?: boolean
     /**
-     * Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.
+     * Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, partially_sent, failed, archived. Scheduled, sending, sent, partially_sent and failed come from the latest run and whether a schedule still has sends to come. A latest run that is completed reads as sent, partially_failed as partially_sent, and failed or cancelled as failed. With a schedule still to come, a completed or partially_failed latest run reads as scheduled.
      */
     broadcast_status?: string
     created_at?: string
@@ -3110,11 +3144,12 @@ export type HogFlowsListParams = {
     created_by?: string
     id?: string
     /**
-     * Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last.
+     * Pass `true` to order by when each workflow's newest completed or partially_failed run finished, newest first. Workflows that never finished such a run come last.
      */
     latest_send_first?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
@@ -3324,6 +3359,11 @@ export type HogFlowsLogsRetrieveParams = {
      */
     limit?: number
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -3364,12 +3404,12 @@ export type HogFlowsMetricsRetrieveParams = {
      */
     interval?: HogFlowsMetricsRetrieveInterval
     /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.
      * @minLength 1
      */
     kind?: string
     /**
-     * Comma-separated metric names to filter by.
+     * Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.
      * @minLength 1
      */
     name?: string
@@ -3426,12 +3466,12 @@ export type HogFlowsMetricsTotalsRetrieveParams = {
      */
     interval?: HogFlowsMetricsTotalsRetrieveInterval
     /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.
      * @minLength 1
      */
     kind?: string
     /**
-     * Comma-separated metric names to filter by.
+     * Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.
      * @minLength 1
      */
     name?: string
@@ -3488,12 +3528,12 @@ export type HogFlowsMetricsVersionRetrieveParams = {
      */
     interval?: HogFlowsMetricsVersionRetrieveInterval
     /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.
      * @minLength 1
      */
     kind?: string
     /**
-     * Comma-separated metric names to filter by.
+     * Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.
      * @minLength 1
      */
     name?: string
@@ -3523,6 +3563,7 @@ export const HogFlowsMetricsVersionRetrieveInterval = {
 export type HogFlowsProposalsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
@@ -3547,6 +3588,7 @@ export const HogFlowsProposalsListStatus = {
 export type HogFlowsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**

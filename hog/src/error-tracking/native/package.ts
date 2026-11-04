@@ -3,10 +3,11 @@ import { join } from 'node:path'
 
 import { SymbolDataType, writeSymbolData } from '../container'
 import { MAX_FILE_SIZE, type SymbolSetUpload } from '../upload'
-import { BufferSource, fatArches, openArchive, type NativeObject } from './object'
+import { DwarfError } from './bytes'
+import { archiveObjects, BufferSource, fatArches, openArchive, type NativeObject } from './object'
 import { ZipWriter } from './zip'
 
-export type NativeProblem = 'no_debug_info' | 'no_build_id' | 'missing_uuid' | 'compressed_dwarf'
+export type NativeProblem = 'no_debug_info' | 'no_build_id' | 'missing_uuid' | 'compressed_dwarf' | 'unparseable_slice'
 
 export interface NativeFile {
     path: string
@@ -49,7 +50,11 @@ const isLoadable = (object: NativeObject): boolean =>
 export function nativeCandidates(path: string): NativeCandidate[] {
     const bytes = readFileSync(path)
     const candidates: NativeCandidate[] = []
-    for (const object of openArchive(new BufferSource(bytes))) {
+    for (const object of archiveObjects(new BufferSource(bytes))) {
+        if (object instanceof DwarfError) {
+            candidates.push({ path, problem: 'unparseable_slice' })
+            continue
+        }
         if (!isLoadable(object)) {
             continue
         }

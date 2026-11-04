@@ -26,6 +26,7 @@ PIPELINE_ROOTS = (
 EXTERNAL_PRODUCERS = {
     "frontend/src/lib/agentScopes.generated.ts": "services/mcp/scripts/build-cli-agent-scopes.ts",
     "services/mcp/src/resources/ui-apps.generated.ts": "services/mcp/scripts/generate-ui-apps.ts",
+    "products/webmcp/frontend/execTool.generated.ts": "services/mcp/scripts/generate-webmcp-exec-tool.ts",
     "rust/common/ingestion_warnings/warning_types.generated.json": (
         "nodejs/src/ingestion/common/scripts/generate-ingestion-warning-types.ts"
     ),

@@ -50,33 +50,81 @@ export interface EmailStatusApi {
 }
 
 /**
+ * Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice.
+ */
+export type SetPreferencesApiTopics = { [key: string]: boolean }
+
+export interface SetPreferencesApi {
+    /**
+     * The recipient's email address, exactly as Workflows sends to it. Matching is exact, so `Jane@example.com` and `jane@example.com` are two recipients.
+     * @maxLength 512
+     */
+    identifier: string
+    /** `false` opts the recipient out of every marketing topic. `true` lifts that opt-out. Applied before `topics`. */
+    all_marketing?: boolean
+    /** Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice. */
+    topics?: SetPreferencesApiTopics
+}
+
+/**
+ * Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed.
+ */
+export type TopicPreferencesApiTopics = { [key: string]: boolean }
+
+export interface TopicPreferencesApi {
+    /** The recipient the preferences belong to. */
+    identifier: string
+    /**
+     * `false` when the recipient opted out of all marketing, `true` when they opted back in, `null` when they never chose.
+     * @nullable
+     */
+    all_marketing: boolean | null
+    /** Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed. */
+    topics: TopicPreferencesApiTopics
+}
+
+/**
  * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
  */
 export type SendEmailApiMessageData = { [key: string]: unknown }
 
-export interface TransactionalEmailIdentifiersApi {
+export interface SendEmailApi {
+    /** Email address of the recipient. */
+    to: string
+    /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
+    message_data?: SendEmailApiMessageData
+    /** ID of the email template to send. The template must be made transactional first. Send either `template_id` or `template_key`. */
+    template_id?: string
+    /**
+     * Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.
+     * @maxLength 400
+     * @pattern ^[a-zA-Z0-9_-]+$
+     */
+    template_key?: string
     /**
      * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
      * @maxLength 400
      * @nullable
      */
     distinct_id?: string | null
-}
-
-export interface SendEmailTemplateApi {
-    /** ID of the email template to send. The template must be made transactional first. */
-    id: string
-}
-
-export interface SendEmailApi {
-    /** Email address of the recipient. */
-    to: string
-    /** Who the email is for, used to attribute engagement events. */
-    identifiers?: TransactionalEmailIdentifiersApi
-    /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
-    message_data?: SendEmailApiMessageData
-    /** The transactional email template to send. */
-    template: SendEmailTemplateApi
+    /** Subject of the email your code rendered. */
+    subject?: string
+    /** HTML body of the email your code rendered, at most 5 MiB as UTF-8. */
+    html?: string
+    /** Plain text body of the email your code rendered, at most 5 MiB as UTF-8. Without it, PostHog derives the text from `html`. */
+    text?: string
+    /**
+     * Addresses replies to the email your code rendered go to.
+     * @maxItems 10
+     */
+    reply_to?: string[]
+    /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
+    capture_engagement?: boolean
+    /**
+     * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default.
+     * @maxLength 1024
+     */
+    from?: string
 }
 
 export interface SendTransactionalEmailResponseApi {
@@ -897,13 +945,22 @@ export interface MakeTransactionalApi {
  */
 export type SendTransactionalEmailApiMessageData = { [key: string]: unknown }
 
+export interface TransactionalEmailIdentifiersApi {
+    /**
+     * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
+     * @maxLength 400
+     * @nullable
+     */
+    distinct_id?: string | null
+}
+
 export interface SendTransactionalEmailApi {
     /** Email address of the recipient. */
     to: string
-    /** Who the email is for, used to attribute engagement events. */
-    identifiers?: TransactionalEmailIdentifiersApi
     /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
     message_data?: SendTransactionalEmailApiMessageData
+    /** Who the email is for, used to attribute engagement events. */
+    identifiers?: TransactionalEmailIdentifiersApi
 }
 
 export type MessagingCategoriesListParams = {

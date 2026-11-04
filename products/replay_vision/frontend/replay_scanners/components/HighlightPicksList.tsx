@@ -16,7 +16,7 @@ const LIST_TOP_COUNT = 5
 
 export function HighlightPicksList(): JSX.Element {
     const picksLogic = useMountedLogic(highlightPicksLogic)
-    const { picks, picksLoad, picksLoading, picksFailed, activeSessionId } = useValues(picksLogic)
+    const { picks, picksLoading, picksFailed, activeSessionId } = useValues(picksLogic)
     const { loadPicks, docsOpened } = useActions(picksLogic)
     const { startedScanner, burstDone, burstStalled } = useValues(highlightPicksStarterLogic(picksLogic.props))
     const burstActive = startedScanner !== null && (!burstDone || burstStalled)
@@ -68,7 +68,7 @@ export function HighlightPicksList(): JSX.Element {
                         <div className="flex flex-col gap-0.5 p-1">
                             {picks.map((item, index) => (
                                 <HighlightPickRow
-                                    key={`${picksLoad?.feedLoadId}-${item.observation.id}`}
+                                    key={item.observation.id}
                                     item={item}
                                     position={index}
                                     rank={index < LIST_TOP_COUNT ? index + 1 : undefined}

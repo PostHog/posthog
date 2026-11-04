@@ -1,6 +1,7 @@
 import re
 import json
 import math
+import time
 import uuid
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import ExitStack
@@ -9,19 +10,15 @@ from functools import cached_property, partial
 from typing import Any, Literal, cast
 
 from django.conf import settings
-from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
 from django.db.models import (
     BooleanField,
     Case,
-    CharField,
     Count,
     Exists,
     F,
-    Func,
     IntegerField,
-    JSONField,
     OuterRef,
     Prefetch,
     Q,
@@ -32,7 +29,7 @@ from django.db.models import (
     Window,
 )
 from django.db.models.expressions import OrderBy
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Coalesce
 from django.db.models.lookups import GreaterThanOrEqual
 from django.utils import timezone
 
@@ -46,16 +43,17 @@ from pydantic import ValidationError as PydanticValidationError
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.integration import github_rate_limited_response
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import FacadeLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import (
     InternalAPIAuthentication,
@@ -77,7 +75,13 @@ from posthog.models.integration import GitHubIntegration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.oauth_provenance import is_sandbox_oauth_request, is_sandbox_origin_request
-from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
+from posthog.permissions import (
+    APIScopePermission,
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+    is_service_auth,
+)
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
@@ -152,18 +156,21 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.personal_ranking.config import PERSONAL_INBOX_RANKING_FLAG
+from products.signals.backend.personal_ranking.serve import serve_personal_ranking
 from products.signals.backend.pr_ci_status import pr_ci_statuses_for_references, rollup_ci_status
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
+from products.signals.backend.presentation.spend import ReportSpendSerializer
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
-from products.signals.backend.ranking.access import can_view_inbox_ranking
+from products.signals.backend.ranking.access import can_view_inbox_ranking, user_flag_enabled
 from products.signals.backend.ranking.inbox_sort import (
     PRIORITY_ORDERING,
     RANKER_ORDERINGS,
     InboxRanker,
+    RecommendedArm,
     latest_ranking_value,
-    resolve_recommended_ranker,
-    score_decile,
+    resolve_recommended_arm,
 )
 from products.signals.backend.ranking.public_outcomes import MODEL_HEAD_BY_OUTCOME, PUBLIC_OUTCOME_NAMES
 from products.signals.backend.ranking.served_outcomes import served_outcomes
@@ -215,7 +222,7 @@ from products.signals.backend.report_metric_access import ReportMetricAccessPoli
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.signals.backend.report_plan import report_plan
-from products.signals.backend.report_priority import update_report_priority
+from products.signals.backend.report_priority import latest_priority_rank, update_report_priority
 from products.signals.backend.report_read_state import (
     ReportReadStateRequestSerializer,
     ReportReadStateResponseSerializer,
@@ -238,10 +245,20 @@ from products.signals.backend.reviewer_correction_notes import ReviewerCorrectio
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerWriteError, StaleReviewerProposal
 from products.signals.backend.scout_authorship import inbox_hidden_report_filter
+from products.signals.backend.scout_harness.serializers import EmitReportRequestSerializer, EmitReportResponseSerializer
+from products.signals.backend.scout_harness.tools.report_author import (
+    USER_REPORT_DAILY_LIMIT,
+    USER_REPORT_DAILY_LIMIT_REASON,
+    UserReportAuthor,
+    user_report_limit_resets_at,
+)
 from products.signals.backend.scout_harness.trial_access import trial_state_errors, trial_store_for_request
+from products.signals.backend.scout_harness.views import emit_report_from_validated_data, emit_report_response_data
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
+    PersonalRankingQuerySerializer,
+    PersonalRankingSerializer,
     PullRequestChecksPermissionErrorSerializer,
     PullRequestChecksResponseSerializer,
     PullRequestCiStatusesResponseSerializer,
@@ -283,6 +300,7 @@ from products.signals.backend.serializers import (
     SignalTeamConfigSerializer,
     SignalUserAutonomyConfigCreateSerializer,
     SignalUserAutonomyConfigSerializer,
+    personal_ranking_payload,
 )
 from products.signals.backend.signal_metadata import (
     ReportSignalMeta,
@@ -296,8 +314,13 @@ from products.signals.backend.slack_notification_targets import (
     validate_slack_notification_target,
 )
 from products.signals.backend.source_suggestions import current_source_suggestion
+from products.signals.backend.spend_reporting import SpendReporting
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
-from products.signals.backend.task_attribution import TASK_ID_HEADER, resolve_request_attribution
+from products.signals.backend.task_attribution import (
+    TASK_ID_HEADER,
+    resolve_external_agent_name,
+    resolve_request_attribution,
+)
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications, sync_signals_refund_credit
 from products.signals.backend.temporal.backfill_error_tracking import (
@@ -321,6 +344,7 @@ from products.signals.backend.throttles import (
     ReportMetricRefreshThrottle,
     ReportTaskActionRunBurstThrottle,
     ReportTaskActionRunSustainedThrottle,
+    UserReportCreateBurstThrottle,
 )
 from products.signals.backend.tracker_issues import tracker_issue_completion_lock
 from products.tasks.backend.facade import api as tasks_facade
@@ -515,7 +539,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = SignalSourceConfigSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "task"
+    scope_object = "inbox"
     queryset = SignalSourceConfig.objects.all().order_by("-updated_at")
 
     @tracer.start_as_current_span("signals.source_configs.list")
@@ -671,12 +695,15 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 _SANDBOX_PROTECTED_CONFIG_FIELDS = (*STEERING_FIELDS.values(), "implementation_repositories")
 
 
+def _submitted_config_fields(request: Request) -> set[str]:
+    # A form encoding sends a nested value as `field.key` or `field[0]`, and DRF folds it back into `field`.
+    return {re.split(r"[.\[]", key, maxsplit=1)[0] for key in request.data} if isinstance(request.data, dict) else set()
+
+
 class SignalSteeringPermission(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
-        if (
-            request.method in ("GET", "HEAD", "OPTIONS")
-            or not isinstance(request.data, dict)
-            or not any(field in request.data for field in _SANDBOX_PROTECTED_CONFIG_FIELDS)
+        if request.method in ("GET", "HEAD", "OPTIONS") or _submitted_config_fields(request).isdisjoint(
+            _SANDBOX_PROTECTED_CONFIG_FIELDS
         ):
             return True
         if is_sandbox_oauth_request(request):
@@ -696,14 +723,31 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission, SignalSteeringPermission]
     serializer_class = SignalTeamConfigSerializer
     queryset = SignalTeamConfig.objects.all()
-    scope_object = "task"
+    scope_object = "inbox"
     # The read returns the singleton, so the inherited limit and offset params are noise.
     pagination_class = None
 
+    # These fields start, steer, or shape the output of agent task runs, so an inbox-only credential must not set them.
+    TASK_RUN_FIELDS = (
+        "autostart_enabled",
+        "autostart_base_branches",
+        "default_autostart_priority",
+        "default_open_pull_request_ready",
+        "issue_tracking_integration",
+        "issue_tracking_config",
+        "pull_request_label_enabled",
+        "pull_request_label",
+        "implementation_repositories",
+        "github_issue_writeback_enabled",
+        *STEERING_FIELDS.values(),
+    )
+
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
         if request.method in ("GET", "HEAD", "OPTIONS"):
-            return ["task:read"]
-        return ["task:write"]
+            return ["inbox:read"]
+        if not _submitted_config_fields(request).isdisjoint(self.TASK_RUN_FIELDS):
+            return ["inbox:write", "task:write"]
+        return ["inbox:write"]
 
     def _get_config(self) -> SignalTeamConfig:
         # Singleton per team with safe defaults. A post_save signal creates it on team
@@ -1128,6 +1172,7 @@ class SignalReportFeedbackResponseSerializer(serializers.Serializer):
 # Whole PR-refund feature gate. Checked server-side (not just in the UI) and keyed on the
 # organization, matching the refund window (the org's billing period).
 SIGNALS_PR_REFUNDS_FEATURE_FLAG = "signals-pr-refunds"
+USER_REPORT_CREATE_FEATURE_FLAG = "inbox-reports-create-mcp"
 
 
 # User-facing message for each shared `refund_ineligibility_reason` the refund action rejects on
@@ -1291,7 +1336,7 @@ class SignalReportReingestionStatusSerializer(serializers.Serializer):
     report_id = serializers.UUIDField(help_text="Report being re-ingested.")
 
 
-class SignalReportListPagination(LimitOffsetPagination):
+class SignalReportListPagination(FacadeLimitOffsetPagination):
     def paginate_queryset(self, queryset, request, view=None):
         # Fetch the page before the count. A page that ends before the limit already gives the
         # total, so the second scan is not needed. A `search` filter rechecks the text of every
@@ -1301,10 +1346,9 @@ class SignalReportListPagination(LimitOffsetPagination):
             return None
         self.offset = self.get_offset(request)
         self.request = request
-        if request.query_params.get("search"):
-            page, window_count = self._search_page(queryset, self.offset, self.limit)
-        else:
-            page, window_count = list(queryset[self.offset : self.offset + self.limit]), None
+        page, window_count = self._page_by_ids(
+            queryset, self.offset, self.limit, with_window_count=bool(request.query_params.get("search"))
+        )
         if len(page) < self.limit and (page or self.offset == 0):
             self.count = self.offset + len(page)
         elif window_count is not None:
@@ -1315,17 +1359,27 @@ class SignalReportListPagination(LimitOffsetPagination):
             self.display_page_controls = True
         return page
 
-    def _search_page(self, queryset, offset: int, limit: int) -> tuple[list[SignalReport], int | None]:
-        # Ids only, because COUNT(*) OVER () buffers every match and full report rows spill to disk.
-        rows = list(
-            queryset.annotate(search_total=Window(Count("*"))).values_list("pk", "search_total")[
-                offset : offset + limit
-            ]
-        )
-        if not rows:
+    def _page_by_ids(
+        self, queryset, offset: int, limit: int, *, with_window_count: bool
+    ) -> tuple[list[SignalReport], int | None]:
+        # The sort covers every matching report in the team, so it selects ids only. Full rows would
+        # carry the wide report columns and the refund and tracker issue joins through that sort, and
+        # COUNT(*) OVER () would buffer them and spill to disk. The full rows load for the page alone.
+        if with_window_count:
+            rows = list(
+                queryset.annotate(search_total=Window(Count("*"))).values_list("pk", "search_total")[
+                    offset : offset + limit
+                ]
+            )
+            page_ids = [pk for pk, _ in rows]
+            window_count = rows[0][1] if rows else None
+        else:
+            page_ids = list(queryset.values_list("pk", flat=True)[offset : offset + limit])
+            window_count = None
+        if not page_ids:
             return [], None
-        reports = {report.pk: report for report in queryset.filter(pk__in=[pk for pk, _ in rows]).order_by()}
-        return [reports[pk] for pk, _ in rows if pk in reports], rows[0][1]
+        reports = {report.pk: report for report in queryset.filter(pk__in=page_ids).order_by()}
+        return [reports[pk] for pk in page_ids if pk in reports], window_count
 
     def get_paginated_response_schema(self, schema):
         paginated = super().get_paginated_response_schema(schema)
@@ -1336,6 +1390,14 @@ class SignalReportListPagination(LimitOffsetPagination):
                 "The ranker that ordered the page when sort=recommended: priority, or open, action or fix "
                 "for that outcome of the served ranking model. Null for every other sort. Each row's "
                 "inbox_merge_key belongs to this ranker."
+            ),
+        }
+        paginated["properties"]["ranking_pill"] = {
+            "type": "boolean",
+            "nullable": True,
+            "description": (
+                "Whether the client shows a ranking score pill on each card, when sort=recommended. "
+                "The same flag arm sets this and the ranker. Null for every other sort."
             ),
         }
         return paginated
@@ -1528,8 +1590,9 @@ _REPORT_LIST_PARAMETERS = [
         description=(
             "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when "
             "ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
-            "the open, action or fix outcome of the served ranking model with unscored and stale reports "
-            "in priority order after the scored ones. The response's ranker field names the one used."
+            "the open, action or fix outcome of the served ranking model, highest score first, with "
+            "unscored and stale reports in priority order after the scored ones. The response's ranker "
+            "field names the one used, and its ranking_pill field says whether to show score pills."
         ),
     ),
     OpenApiParameter(
@@ -1650,15 +1713,31 @@ class SignalReportViewSet(
     serializer_class = SignalReportSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "task"
+    scope_object = "inbox"
     queryset = SignalReport.objects.all()
     pagination_class = SignalReportListPagination
+
+    request_dependent_scope_actions = frozenset({"claim", "bulk_claim"})
+
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        # The title and summary become an implementation task's prompt, so editing them is task work.
+        if self.action == "partial_update":
+            return ["inbox:write", "task:write"]
+        if self.action in ("claim", "bulk_claim"):
+            # A linked PR can be in any repo the team's GitHub integration reaches, and `pr_comments` then returns
+            # its private comments and diff hunks. A claim that names a task links the PRs of that task's later runs.
+            # An inbox-only credential can claim for its user, but it cannot link a PR or claim for a task.
+            attaches_pull_requests = not _submitted_config_fields(request).isdisjoint({"pr_url", "pull_requests"})
+            names_a_task = bool(request.headers.get(TASK_ID_HEADER, "").strip())
+            return ["inbox:write", "task:write"] if attaches_pull_requests or names_a_task else ["inbox:write"]
+        return None
+
     # Shared Q for "ready but not actionable" — used in status ranking and suggested-reviewer suppression.
     _Q_READY_NOT_ACTIONABLE = Q(status=SignalReport.Status.READY) & Q(latest_actionability="not_actionable")
     _DEFAULT_SIGNAL_REPORT_ORDERING = "-is_suggested_reviewer,status,-updated_at"
     _INBOX_SORT_ORDERINGS = {
         "priority": PRIORITY_ORDERING,
-        # A feature flag resolves this preset per user. See `_inbox_ranker`.
+        # A feature flag resolves this preset per user. See `_recommended_arm`.
         "recommended": PRIORITY_ORDERING,
         "last_updated": "-updated_at,status",
         "newest": "-created_at,status,-updated_at",
@@ -1707,7 +1786,7 @@ class SignalReportViewSet(
         detail=False,
         methods=["get"],
         url_path="ranking_outcomes",
-        required_scopes=["task:read"],
+        required_scopes=["inbox:read"],
         pagination_class=None,
     )
     def ranking_outcomes(self, request: Request, **kwargs) -> Response:
@@ -1724,6 +1803,69 @@ class SignalReportViewSet(
         )
 
     @validated_request(
+        query_serializer=PersonalRankingQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=PersonalRankingSerializer),
+            404: OpenApiResponse(description="Personal ranking is not available to the caller."),
+        },
+        summary="Get your personal ranked inbox",
+        description=(
+            "Your open inbox reports, ranked for you by one language model call over your activity summary, the "
+            "reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. "
+            "The request never waits on the model. A current stored list returns quickly. Otherwise the request "
+            "reads every candidate report, which can take some seconds, starts a background build and returns the "
+            "last stored list with `stale: true`, or your reports in inbox order with `fallback_reason: building`, "
+            "and `building: true`. Pass `wait_seconds` to wait a short time for the new list. Only the user the list "
+            "is about can read it."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="for_me", required_scopes=["inbox:read"], pagination_class=None)
+    def for_me(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        user = request.user
+        # A list describes one person, so only that person's own credentials can read it.
+        if (
+            is_service_auth(request)
+            or not isinstance(user, User)
+            or trial_store_for_request(request, self.team_id) is not None
+            or not user_flag_enabled(PERSONAL_INBOX_RANKING_FLAG, user, self.team)
+        ):
+            raise NotFound()
+        query = request.validated_query_data
+        started = time.monotonic()
+        served = serve_personal_ranking(
+            self.team,
+            user,
+            limit=query.get("limit"),
+            refresh=query["refresh"],
+            focus=query.get("focus"),
+            wait_seconds=query["wait_seconds"],
+        )
+        report_user_action(
+            user,
+            "personal inbox ranking read",
+            properties={
+                "via_mcp": is_mcp_request(request),
+                "status": served.status,
+                "cached": served.cached,
+                "stale": served.stale,
+                "building": served.building,
+                "personalized": served.personalized,
+                "fallback_reason": served.fallback_reason,
+                "refresh": query["refresh"],
+                "has_focus": bool(query.get("focus")),
+                "wait_seconds": query["wait_seconds"],
+                "result_count": len(served.results),
+                "duration_ms": round((time.monotonic() - started) * 1000),
+                "check_ms": served.timings.check_ms,
+                "gather_ms": served.timings.gather_ms,
+                "wait_ms": served.timings.wait_ms,
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(PersonalRankingSerializer(personal_ranking_payload(served)).data)
+
+    @validated_request(
         query_serializer=SignalReportFilterQuerySerializer,
         responses={200: SignalReportSectionCountsSerializer},
         parameters=_SECTION_COUNTS_PARAMETERS,
@@ -1734,7 +1876,7 @@ class SignalReportViewSet(
             "`has_implementation_pr`, `include_all_statuses` and `view`, because the counts set those."
         ),
     )
-    @action(detail=False, methods=["get"], required_scopes=["task:read"], pagination_class=None)
+    @action(detail=False, methods=["get"], required_scopes=["inbox:read"], pagination_class=None)
     @tracer.start_as_current_span("signals.reports.section_counts")
     def section_counts(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         if trial_store_for_request(request, self.team_id) is not None:
@@ -1757,7 +1899,7 @@ class SignalReportViewSet(
         return Response(SignalReportSectionCountsSerializer(counts).data)
 
     @extend_schema(request=ReportReadStateRequestSerializer, responses=ReportReadStateResponseSerializer)
-    @action(detail=False, methods=["post"], required_scopes=["task:read"])
+    @action(detail=False, methods=["post"], required_scopes=["inbox:read"])
     def read_state(self, request, **kwargs):
         serializer = ReportReadStateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1780,7 +1922,7 @@ class SignalReportViewSet(
     def safely_get_queryset(self, queryset):
         if self.action == "read_state":
             return queryset.filter(team=self.team).exclude(status=SignalReport.Status.DELETED)
-        if self.action in {"viewed", "feedback_state", "feedback", "pr_ci_statuses", "refresh_metrics"}:
+        if self.action in {"viewed", "feedback_state", "feedback", "pr_ci_statuses", "refresh_metrics", "spend"}:
             # None of these actions renders a report, so they skip the rendering annotations and
             # prefetches every other action's serializer needs. `viewed` is passive telemetry fired
             # right after the detail request that already rendered the report, `pr_ci_statuses` only
@@ -1936,6 +2078,7 @@ class SignalReportViewSet(
             "bulk_claim",
             "retrieve",
             "signals",
+            "spend",
             "refund",
             "feedback",
             "feedback_state",
@@ -2405,37 +2548,7 @@ class SignalReportViewSet(
     def _annotate_signal_report_priority(self, queryset):
         # `ordering=priority` sorts by the priority value ("P0"–"P4") from the latest priority_judgment
         # artefact, as its index in `AutonomyPriority.values`. Reports without a priority rank after "P4".
-        # The startswith guard skips non-object content.
-        # The rank is one `array_position` inside the subquery, not a CASE: Django repeats the CASE
-        # operand in each WHEN branch, so a CASE runs the subquery or the JSON parse once per priority.
-        unranked = Value(len(AutonomyPriority.values))
-        priority_value = Func(
-            Cast(F("content"), output_field=JSONField()),
-            Value("priority"),
-            function="jsonb_extract_path_text",
-            output_field=CharField(),
-        )
-        priority_position = Func(
-            Value(list(AutonomyPriority.values), output_field=ArrayField(CharField())),
-            priority_value,
-            function="array_position",
-            output_field=IntegerField(),
-        )
-        latest_priority_rank = Subquery(
-            SignalReportArtefact.objects.filter(
-                report_id=OuterRef("id"),
-                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-                content__startswith="{",
-            )
-            .order_by("-created_at")
-            # `array_position` counts from 1 and returns NULL for a value outside the list.
-            .annotate(_priority_rank=priority_position - 1)
-            .values("_priority_rank")[:1],
-            output_field=IntegerField(),
-        )
-        return queryset.annotate(
-            priority_sort_rank=Coalesce(latest_priority_rank, unranked, output_field=IntegerField())
-        )
+        return queryset.annotate(priority_sort_rank=latest_priority_rank())
 
     def _annotate_signal_report_ranking(self, queryset):
         # `ordering=ranking_<head>` sorts by the served model's probability for that head, read from
@@ -2449,18 +2562,8 @@ class SignalReportViewSet(
             if annotation not in ordered_fields or annotation in annotated:
                 continue
             annotated.add(annotation)
-            latest_score = latest_ranking_value(head, "scores")
-            if self._inbox_ranker is not None:
-                queryset = queryset.annotate(
-                    **{self._ranking_decile_annotation(annotation): score_decile(latest_score)}
-                )
-            else:
-                queryset = queryset.annotate(**{annotation: latest_score})
+            queryset = queryset.annotate(**{annotation: latest_ranking_value(head, "scores")})
         return queryset
-
-    @staticmethod
-    def _ranking_decile_annotation(score_annotation: str) -> str:
-        return f"{score_annotation}_decile"
 
     def _apply_signal_report_ranking_filters(self, queryset):
         # Each named head is one correlated subquery, compared with `>=`. NULL never matches, so
@@ -2640,17 +2743,21 @@ class SignalReportViewSet(
         return self._parse_ordering_string(self._DEFAULT_SIGNAL_REPORT_ORDERING)
 
     @cached_property
-    def _inbox_ranker(self) -> InboxRanker | None:
+    def _recommended_arm(self) -> RecommendedArm | None:
         params = self.request.query_params
         if params.get("ordering") is not None or params.get("sort") != "recommended":
             return None
-        return resolve_recommended_ranker(self.team, cast(User, self.request.user))
+        return resolve_recommended_arm(self.team, cast(User, self.request.user))
+
+    @property
+    def _inbox_ranker(self) -> InboxRanker | None:
+        return self._recommended_arm.ranker if self._recommended_arm is not None else None
 
     def _parse_signal_report_ordering(self) -> list[str]:
-        ranker = self._inbox_ranker
-        if ranker is not None:
-            # The preset exposes only the score decile, through `inbox_merge_key`, so non-staff users may use it.
-            return self._parse_ordering_string(RANKER_ORDERINGS[ranker], allow_ranking=True)
+        arm = self._recommended_arm
+        if arm is not None:
+            # The flag arm picks the ranker, so users without the model sorts may use this preset.
+            return self._parse_ordering_string(RANKER_ORDERINGS[arm.ranker], allow_ranking=True)
         raw = self.request.query_params.get("ordering")
         if raw is None:
             inbox_sort = self.request.query_params.get("sort")
@@ -2676,11 +2783,9 @@ class SignalReportViewSet(
         for clause in clauses:
             name = clause.lstrip("-")
             if name in ranking_annotations:
-                # The recommended preset sorts by the score decile, so the order shows no more than `inbox_merge_key`.
-                expression = F(self._ranking_decile_annotation(name) if self._inbox_ranker is not None else name)
                 # Unscored reports sort after every scored report, in both directions.
                 order_by.append(
-                    expression.desc(nulls_last=True) if clause.startswith("-") else expression.asc(nulls_last=True)
+                    F(name).desc(nulls_last=True) if clause.startswith("-") else F(name).asc(nulls_last=True)
                 )
             else:
                 order_by.append(clause)
@@ -2753,6 +2858,93 @@ class SignalReportViewSet(
             "report_plans_map": {str(report.id): plan},
         }
 
+    @extend_schema(responses=ReportSpendSerializer, operation_id="signals_report_spend")
+    @action(detail=True, methods=["get"], required_scopes=["signal_usage:read"])
+    def spend(self, request: Request, **kwargs: object) -> Response:
+        report = self.get_object()
+        return Response(ReportSpendSerializer(SpendReporting(self.team).report(report)).data)
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action == "create":
+            return [UserReportCreateBurstThrottle()]
+        return super().get_throttles()
+
+    def _user_report_create_enabled(self, user: User) -> bool:
+        # Fails closed: a flag-service error must not open report filing to a member who is not opted in.
+        try:
+            return feature_enabled_or_false(
+                USER_REPORT_CREATE_FEATURE_FLAG,
+                str(user.distinct_id),
+                groups={"organization": str(self.organization.id), "project": str(self.team.uuid)},
+                group_properties={
+                    "organization": {"id": str(self.organization.id)},
+                    "project": {"id": str(self.team.uuid)},
+                },
+                send_feature_flag_events=False,
+            )
+        except Exception:
+            logger.warning("signals.reports.create.flag_check_failed", team_id=self.team.id, exc_info=True)
+            return False
+
+    @validated_request(
+        request_serializer=EmitReportRequestSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=EmitReportResponseSerializer,
+                description="Report filed: READY, PENDING_INPUT, or suppressed by the safety judge.",
+            ),
+            200: OpenApiResponse(
+                response=EmitReportResponseSerializer,
+                description=(
+                    "Nothing new was filed: a retry returned the first report (`idempotent_replay` true), "
+                    "or a preflight gate skipped the call (`skipped_reason` set)."
+                ),
+            ),
+            400: OpenApiResponse(description="Invalid report shape (empty title, summary, or evidence)."),
+            403: OpenApiResponse(
+                description="The caller is not a person, is a task sandbox, or report filing is not enabled."
+            ),
+            429: OpenApiResponse(description="The caller filed the daily maximum of reports for this project."),
+        },
+        summary="File an inbox report",
+        description=(
+            "File a complete inbox report yourself, with the same validation and safety judge a scout report "
+            "passes. The report surfaces at the status `actionability` implies, or is suppressed. It never "
+            "starts an implementation run or opens a pull request on its own, now or after a later edit: "
+            "start one from the report's actions. Safe to retry: a resend returns the first report with "
+            "`idempotent_replay` true. Each person can file a limited number of reports per project per day."
+        ),
+    )
+    def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        user = request.user
+        if not isinstance(user, User) or user.id is None:
+            raise exceptions.PermissionDenied("Only a person can file an inbox report.")
+        # A task-bound token authenticates as its acting member, so the user check above does not refuse it.
+        if is_sandbox_origin_request(request):
+            raise exceptions.PermissionDenied("A task sandbox cannot file an inbox report.")
+        if not self._user_report_create_enabled(user):
+            raise exceptions.PermissionDenied("Filing inbox reports is not enabled for this project.")
+        author = UserReportAuthor(
+            user_id=user.id,
+            user_distinct_id=str(user.distinct_id),
+            request_attribution=resolve_request_attribution(request, self.team.id),
+            client_name=resolve_external_agent_name(request),
+        )
+        result = emit_report_from_validated_data(team=self.team, author=author, data=request.validated_data)
+        if result.skipped_reason == USER_REPORT_DAILY_LIMIT_REASON:
+            resets_at = user_report_limit_resets_at(self.team)
+            raise exceptions.Throttled(
+                wait=max((resets_at - timezone.now()).total_seconds(), 1),
+                detail=(
+                    f"You filed {USER_REPORT_DAILY_LIMIT} reports in this project today, the daily maximum. "
+                    f"The limit resets at {resets_at.isoformat()}."
+                ),
+            )
+        filed = result.report_id is not None and not result.idempotent_replay
+        return Response(
+            emit_report_response_data(result), status=status.HTTP_201_CREATED if filed else status.HTTP_200_OK
+        )
+
     def retrieve(self, request, *args, **kwargs):
         with trial_state_errors():
             store = trial_store_for_request(request, self.team_id)
@@ -2775,11 +2967,12 @@ class SignalReportViewSet(
         description=(
             "Start or update work for the current user, internal task, or external agent. "
             "Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, "
-            "or release=true to end ownership while preserving work history and PR links."
+            "or release=true to end ownership while preserving work history and PR links. "
+            "Adding PRs needs task:write as well as inbox:write."
         ),
         operation_id="signals_reports_claim",
     )
-    @action(detail=True, methods=["post"], url_path="claim", required_scopes=["task:write"])
+    @action(detail=True, methods=["post"], url_path="claim")
     def claim(self, request: Request, *args, **kwargs) -> Response:
         request_serializer = SignalReportClaimSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
@@ -2817,7 +3010,7 @@ class SignalReportViewSet(
         description="Append an attributed priority correction, preserving the previous judgment for future learning.",
         operation_id="signals_reports_priority_update",
     )
-    @action(detail=True, methods=["put"], required_scopes=["task:write"])
+    @action(detail=True, methods=["put"], required_scopes=["inbox:write", "task:write"])
     def priority(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
         report = cast(SignalReport, self.get_object())
         update_report_priority(
@@ -2904,12 +3097,12 @@ class SignalReportViewSet(
         excluded = request.validated_query_data["exclude"]
         if count_only:
             # A count orders nothing, so it must not record a flag exposure for the ranker.
-            self._inbox_ranker = None
+            self._recommended_arm = None
         with trial_state_errors():
             store = trial_store_for_request(request, self.team_id)
             if store is not None:
                 # Private trial reads compare against the priority order, never a flag arm.
-                self._inbox_ranker = None
+                self._recommended_arm = None
                 return TrialInboxReads(self, store).list(
                     count_only=count_only, include_source_metadata=include_source_metadata
                 )
@@ -2962,6 +3155,9 @@ class SignalReportViewSet(
         if page is not None:
             response = self.get_paginated_response(data)
             response.data["ranker"] = self._inbox_ranker
+            response.data["ranking_pill"] = (
+                self._recommended_arm.ranking_pill if self._recommended_arm is not None else None
+            )
             return response
         return Response(data)
 
@@ -3102,7 +3298,7 @@ class SignalReportViewSet(
             )
         },
     )
-    @action(detail=False, methods=["get"], url_path="available_reviewers", required_scopes=["task:read"])
+    @action(detail=False, methods=["get"], url_path="available_reviewers", required_scopes=["inbox:read"])
     def available_reviewers(self, request, **kwargs):
         with tracer.start_as_current_span("signals.available_reviewers") as span:
             # Search all org members, not only the GitHub-linked ones: a reviewer is a PostHog user,
@@ -3134,7 +3330,7 @@ class SignalReportViewSet(
         request=SignalReportArtefactWriteSerializer,
         responses={200: SignalReportSuggestedReviewersArtefactSerializer},
     )
-    @action(detail=True, methods=["put"], url_path="reviewers", required_scopes=["task:write"])
+    @action(detail=True, methods=["put"], url_path="reviewers", required_scopes=["inbox:write", "task:write"])
     def reviewers(self, request, **kwargs):
         """Apply a human reviewer edit, including on reports without a reviewer artefact."""
         report = cast(SignalReport, self.get_object())
@@ -3195,7 +3391,9 @@ class SignalReportViewSet(
             400: OpenApiResponse(description="The reason is invalid, or a reviewer who stays no longer resolves."),
         },
     )
-    @action(detail=True, methods=["delete", "post"], url_path="reviewers/me", required_scopes=["task:write"])
+    @action(
+        detail=True, methods=["delete", "post"], url_path="reviewers/me", required_scopes=["inbox:write", "task:write"]
+    )
     def leave_reviewers(self, request, **kwargs):
         report = cast(SignalReport, self.get_object())
         removal = SignalReportLeaveReviewersSerializer(data=request.data if request.method == "POST" else {})
@@ -3254,7 +3452,7 @@ class SignalReportViewSet(
         description="Fetch all signals for a report from ClickHouse, including full metadata.",
         responses={200: ReportSignalsResponseSerializer},
     )
-    @action(detail=True, methods=["get"], url_path="signals", required_scopes=["task:read"])
+    @action(detail=True, methods=["get"], url_path="signals", required_scopes=["inbox:read"])
     def signals(self, request, pk=None, **kwargs):
         """Fetch all signals for a report from ClickHouse, including full metadata."""
         with trial_state_errors():
@@ -3278,7 +3476,7 @@ class SignalReportViewSet(
         request=SignalReportStateRequestSerializer,
         responses={200: SignalReportSerializer},
     )
-    @action(detail=True, methods=["post"], url_path="state", required_scopes=["task:write"])
+    @action(detail=True, methods=["post"], url_path="state", required_scopes=["inbox:write"])
     def state(self, request, pk=None, **kwargs):
         """
         Transition a report to a new state. The model validates allowed transitions, except that a
@@ -3377,7 +3575,7 @@ class SignalReportViewSet(
         ),
         operation_id="signals_reports_merge_create",
     )
-    @action(detail=True, methods=["post"], url_path="merge", required_scopes=["task:write"])
+    @action(detail=True, methods=["post"], url_path="merge", required_scopes=["inbox:write"])
     def merge(self, request: ValidatedRequest, pk=None, **kwargs):
         survivor = cast(SignalReport, self.get_object())
         data = request.validated_data
@@ -3443,7 +3641,7 @@ class SignalReportViewSet(
         ),
         operation_id="signals_reports_actions_list",
     )
-    @action(detail=True, methods=["get"], url_path="actions", required_scopes=["task:read"])
+    @action(detail=True, methods=["get"], url_path="actions", required_scopes=["inbox:read"])
     def task_actions(self, request: Request, *args, **kwargs) -> Response:
         report = cast(SignalReport, self.get_object())
         context = ReportTaskActionContext(team=self.team, user=cast(User, request.user))
@@ -3510,7 +3708,8 @@ class SignalReportViewSet(
         detail=True,
         methods=["post"],
         url_path="actions/run",
-        required_scopes=["task:write"],
+        # The action starts a task, so an inbox-only credential must not reach it.
+        required_scopes=["inbox:write", "task:write"],
         throttle_classes=[ReportTaskActionRunBurstThrottle, ReportTaskActionRunSustainedThrottle],
     )
     def run_task_action(self, request: ValidatedRequest, *args, **kwargs) -> Response:
@@ -3596,7 +3795,7 @@ class SignalReportViewSet(
         )
 
     @extend_schema(responses=SignalReportFeedbackStateSerializer)
-    @action(detail=True, methods=["get"], required_scopes=["task:read"])
+    @action(detail=True, methods=["get"], required_scopes=["inbox:read"])
     def feedback_state(self, request: Request, pk=None, **kwargs) -> Response:
         report = self.get_object()
         metadata = (
@@ -3625,7 +3824,7 @@ class SignalReportViewSet(
         request=SignalReportFeedbackRequestSerializer,
         responses={200: SignalReportFeedbackResponseSerializer},
     )
-    @action(detail=True, methods=["post"], url_path="feedback", required_scopes=["task:read"])
+    @action(detail=True, methods=["post"], url_path="feedback", required_scopes=["inbox:read"])
     def feedback(self, request, pk=None, **kwargs):
         """Persist a report's thumbs rating and forward its note to the authoring scout.
 
@@ -3689,11 +3888,11 @@ class SignalReportViewSet(
         request=None,
         responses={204: None},
     )
-    # task:read, not task:write: recording that someone read a report is part of reading it.
+    # inbox:read, not inbox:write: recording that someone read a report is part of reading it.
     # Under resource-level RBAC a `:write` scope demands editor access, which would 403 the
     # viewer-level members whose reads this endpoint exists to capture. Token automation is
     # already excluded by the session-authentication gate, not by scope.
-    @action(detail=True, methods=["post"], url_path="viewed", required_scopes=["task:read"])
+    @action(detail=True, methods=["post"], url_path="viewed", required_scopes=["inbox:read"])
     def viewed(self, request, pk=None, **kwargs):
         """Upsert a per-person view record for the report.
 
@@ -3739,13 +3938,13 @@ class SignalReportViewSet(
         ),
         operation_id="signals_reports_refresh_metrics_create",
     )
-    # task:read, like `viewed`: refreshing a number a person is looking at is part of reading it,
+    # inbox:read, like `viewed`: refreshing a number a person is looking at is part of reading it,
     # and the write is a cache of query output rather than report content.
     @action(
         detail=False,
         methods=["post"],
         url_path="refresh_metrics",
-        required_scopes=["task:read"],
+        required_scopes=["inbox:read"],
         throttle_classes=[
             ReportMetricRefreshThrottle,
             ClickHouseBurstRateThrottle,
@@ -3783,7 +3982,7 @@ class SignalReportViewSet(
         detail=False,
         methods=["post"],
         url_path="source_metadata",
-        required_scopes=["task:read"],
+        required_scopes=["inbox:read"],
         throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
     )
     @tracer.start_as_current_span("signals.reports.source_metadata")
@@ -4297,7 +4496,7 @@ class SignalReportViewSet(
         responses={200: SignalReportBulkStateResponseSerializer},
     )
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
-    @action(detail=False, methods=["post"], url_path="bulk-state", required_scopes=["task:write"])
+    @action(detail=False, methods=["post"], url_path="bulk-state", required_scopes=["inbox:write"])
     def bulk_state(self, request, **kwargs):
         """
         Transition many reports to a new state in one call.
@@ -4401,7 +4600,7 @@ class SignalReportViewSet(
         ),
         operation_id="signals_reports_bulk_claim",
     )
-    @action(detail=False, methods=["post"], url_path="bulk_claim", required_scopes=["task:write"])
+    @action(detail=False, methods=["post"], url_path="bulk_claim")
     def bulk_claim(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
         data = request.validated_data
         ordered_ids = list(dict.fromkeys(str(raw_id) for raw_id in data["ids"]))
@@ -4506,7 +4705,7 @@ class SignalReportViewSet(
         ),
         operation_id="signals_reports_refund_create",
     )
-    @action(detail=True, methods=["post"], url_path="refund", required_scopes=["task:write"])
+    @action(detail=True, methods=["post"], url_path="refund", required_scopes=["inbox:write"])
     def refund(self, request: ValidatedRequest, pk=None, **kwargs):
         if not self._signals_pr_refunds_enabled():
             raise NotFound("PR refunds are not enabled for this organization.")
@@ -4673,7 +4872,7 @@ class SignalReportViewSet(
         operation_id="signals_reports_refund_summary_retrieve",
     )
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
-    @action(detail=False, methods=["get"], url_path="refund-summary", required_scopes=["task:read"])
+    @action(detail=False, methods=["get"], url_path="refund-summary", required_scopes=["inbox:read"])
     def refund_summary(self, request: Request, **kwargs):
         # Two independent flags can each make this endpoint matter: refunds (the netting numbers)
         # and quota enforcement (`quota_limited` drives the widget's paused banner, and enforcement
@@ -4713,7 +4912,7 @@ class SignalReportViewSet(
             202: OpenApiResponse(response=SignalReportReingestionStatusSerializer, description="Re-ingestion started."),
         },
     )
-    @action(detail=True, methods=["post"], url_path="reingest", required_scopes=["task:write"])
+    @action(detail=True, methods=["post"], url_path="reingest", required_scopes=["inbox:write"])
     def reingest(self, request, pk=None, **kwargs):
         """Re-ingest a report's signals (same team access as other report actions)."""
         report = cast(SignalReport, self.get_object())
@@ -4783,7 +4982,7 @@ class SignalReportViewSet(
         ),
         operation_id="signals_report_pr_checks",
     )
-    @action(detail=True, methods=["get"], url_path="pr_checks", required_scopes=["task:read"])
+    @action(detail=True, methods=["get"], url_path="pr_checks", required_scopes=["inbox:read"])
     def pr_checks(self, request: Request, *args, **kwargs) -> Response:
         return self._pr_github_passthrough(
             cast(SignalReport, self.get_object()), "get_pull_request_checks", "checks", "checks"
@@ -4820,7 +5019,7 @@ class SignalReportViewSet(
         ),
         operation_id="signals_reports_pr_ci_statuses",
     )
-    @action(detail=False, methods=["get"], url_path="pr_ci_statuses", required_scopes=["task:read"])
+    @action(detail=False, methods=["get"], url_path="pr_ci_statuses", required_scopes=["inbox:read"])
     def pr_ci_statuses(self, request: Request, **kwargs) -> Response:
         requested_ids = parse_pr_ci_status_report_ids(request.query_params.get("report_ids"))
         # Team-scoped via `get_queryset`, so an id belonging to another team resolves to nothing.
@@ -4886,7 +5085,7 @@ class SignalReportViewSet(
         ),
         operation_id="signals_report_pr_comments",
     )
-    @action(detail=True, methods=["get"], url_path="pr_comments", required_scopes=["task:read"])
+    @action(detail=True, methods=["get"], url_path="pr_comments", required_scopes=["inbox:read"])
     def pr_comments(self, request: Request, *args, **kwargs) -> Response:
         return self._pr_github_passthrough(
             cast(SignalReport, self.get_object()), "get_pull_request_comments", "comments", "comments"
@@ -4919,7 +5118,7 @@ class SignalReportViewSet(
         ),
         operation_id="signals_report_pr_review_comments_create",
     )
-    @action(detail=True, methods=["post"], url_path="pr_review_comments", required_scopes=["task:write"])
+    @action(detail=True, methods=["post"], url_path="pr_review_comments", required_scopes=["inbox:write"])
     def pr_review_comments(self, request: Request, *args, **kwargs) -> Response:
         report = cast(SignalReport, self.get_object())
         serializer = PullRequestReviewCommentCreateSerializer(data=request.data)
@@ -5012,7 +5211,7 @@ class SignalReportViewSet(
         detail=True,
         methods=["patch", "delete"],
         url_path=r"pr_review_comments/(?P<comment_id>[0-9]+)",
-        required_scopes=["task:write"],
+        required_scopes=["inbox:write"],
     )
     def pr_review_comment(self, request: Request, *args, **kwargs) -> Response:
         report = cast(SignalReport, self.get_object())
@@ -5063,7 +5262,7 @@ class SignalReportViewSet(
         detail=True,
         methods=["post"],
         url_path=r"pr_review_comments/(?P<comment_id>[0-9]+)/reactions",
-        required_scopes=["task:write"],
+        required_scopes=["inbox:write"],
     )
     def pr_review_comment_reactions(self, request: Request, *args, **kwargs) -> Response:
         report = cast(SignalReport, self.get_object())
@@ -5115,7 +5314,7 @@ class SignalReportViewSet(
         detail=True,
         methods=["delete"],
         url_path=r"pr_review_comments/(?P<comment_id>[0-9]+)/reactions/(?P<reaction_id>[0-9]+)",
-        required_scopes=["task:write"],
+        required_scopes=["inbox:write"],
     )
     def pr_review_comment_reaction(self, request: Request, *args, **kwargs) -> Response:
         report = cast(SignalReport, self.get_object())
@@ -6110,7 +6309,7 @@ class SignalReportCheckViewSet(
     serializer_class = SignalReportCheckSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "task"
+    scope_object = "inbox"
     queryset = SignalReportCheck.objects.unscoped().order_by(
         Case(
             When(status__in=SignalReportCheck.OPEN_STATUSES, then=Value(0)),
@@ -6137,7 +6336,7 @@ class SignalReportCheckViewSet(
         return report
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(report_id=self._validated_report().id, team=self.team).select_related("report")
+        return queryset.filter(report_id=self._validated_report().id, team=self.team).select_related("report__team")
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         check = cast(SignalReportCheck, self.get_object())
@@ -6158,7 +6357,7 @@ class SignalReportCheckViewSet(
         description="Record a person's quality signal. Approval does not affect scheduling or execution.",
         operation_id="signals_report_checks_approve_create",
     )
-    @action(detail=True, methods=["post"], url_path="approve", required_scopes=["task:write"])
+    @action(detail=True, methods=["post"], url_path="approve", required_scopes=["inbox:write"])
     def approve(self, request: Request, *args, **kwargs) -> Response:
         attribution = resolve_request_attribution(request, self.team.id)
         if attribution.kind != "user" or not isinstance(request.successful_authenticator, SessionAuthentication):
@@ -6186,7 +6385,7 @@ class SignalReportCheckViewSet(
         description="Atomically replace an open metric check. The old check stays live if the new one is invalid.",
         operation_id="signals_report_checks_replace_create",
     )
-    @action(detail=True, methods=["post"], url_path="replace", required_scopes=["task:write", "query:read"])
+    @action(detail=True, methods=["post"], url_path="replace", required_scopes=["inbox:write", "query:read"])
     def replace(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         check = cast(SignalReportCheck, self.get_object())
         data = request.validated_data
@@ -6246,7 +6445,8 @@ class SignalReportArtefactViewSet(
 ):
     """Artefacts attached to a signal report.
 
-    Two write surfaces, both gated by the `task:write` scope (already held by the agent tokens):
+    Two write surfaces, both gated by `inbox:write` and `task:write` (already held by the agent tokens).
+    Auto-start and implementation runs read these artefacts, so writing one is task work:
 
     - PUT edits a report's suggested reviewers: it appends a new `suggested_reviewers` status
       artefact (latest-wins, so the new row becomes current) with bespoke reviewer enrichment,
@@ -6267,7 +6467,13 @@ class SignalReportArtefactViewSet(
     serializer_class = SignalReportArtefactSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "task"
+    scope_object = "inbox"
+
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        if self.action in ("create", "update", "partial_update", "destroy"):
+            return ["inbox:write", "task:write"]
+        return None
+
     # select_related: the read serializer renders `created_by` inline.
     queryset = SignalReportArtefact.objects.select_related("created_by").order_by("-created_at", "-id")
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
@@ -6753,7 +6959,7 @@ class SignalReportArtefactViewSet(
         parameters=[_REPORT_ID_PARAMETER],
         operation_id="signals_report_artefacts_diff",
     )
-    @action(detail=True, methods=["get"], url_path="diff", required_scopes=["task:read"])
+    @action(detail=True, methods=["get"], url_path="diff", required_scopes=["inbox:read"])
     def diff(self, request: Request, *args, **kwargs) -> Response:
         artefact = cast(SignalReportArtefact, self.get_object())
         if artefact.type != SignalReportArtefact.ArtefactType.COMMIT:
@@ -7013,7 +7219,7 @@ class SignalProcessingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """View and control signal processing pipeline state for a team."""
 
     # Same scope family as other signals team APIs (SignalSourceConfigViewSet, etc.)
-    scope_object = "task"
+    scope_object = "inbox"
     scope_object_write_actions = [
         "create",
         "update",

@@ -358,6 +358,7 @@ class FunnelAggregateByHogQL(Enum):
 
 
 class AssistantFunnelsMath(StrEnum):
+    TOTAL = "total"
     FIRST_TIME_FOR_USER = "first_time_for_user"
     FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
 
@@ -1472,6 +1473,7 @@ class ExperimentExposureHealthCheckKey(StrEnum):
     SRM = "srm"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+    TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
 
 
 class ExperimentExposureHealthCheckStatus(StrEnum):
@@ -1493,12 +1495,23 @@ class ExperimentExposureHealthFindingCode(StrEnum):
     SRM = "srm"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+    TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
 
 
 class ExperimentExposureHealthFindingSeverity(StrEnum):
     CRITICAL = "critical"
     WARNING = "warning"
     INFO = "info"
+
+
+class ExperimentExposureHealthMeasurementSide(StrEnum):
+    ABOVE = "above"
+    BELOW = "below"
+
+
+class ExperimentExposureHealthMeasurementUnit(StrEnum):
+    PERCENTAGE = "percentage"
+    P_VALUE = "p_value"
 
 
 class ExperimentMetricGoal(StrEnum):
@@ -2147,6 +2160,41 @@ class MarketingAnalyticsOrderByEnum(StrEnum):
     DESC = "DESC"
 
 
+class MarketingAnalyticsRecommendationImpactDirection(StrEnum):
+    SAVE = "save"
+    GAIN = "gain"
+    INVEST = "invest"
+    KEEP = "keep"
+
+
+class MarketingAnalyticsRecommendationImpactType(StrEnum):
+    MEASURED = "measured"
+    ESTIMATED = "estimated"
+
+
+class MarketingAnalyticsRecommendationLevel(StrEnum):
+    CAMPAIGN = "campaign"
+    SEARCH_TERM = "search_term"
+
+
+class MarketingAnalyticsRecommendationRule(StrEnum):
+    BUDGET_CONSTRAINED = "budget_constrained"
+    BRAND_LEAK = "brand_leak"
+    SCALE_CAMPAIGN = "scale_campaign"
+    REVIEW_CAMPAIGN = "review_campaign"
+    POLICY_LIMITED = "policy_limited"
+    BRAND_OVERLAP = "brand_overlap"
+    CONTENT_GAP = "content_gap"
+    KEYWORD_GAP = "keyword_gap"
+    SPEND_WITHOUT_CONVERSIONS = "spend_without_conversions"
+    STRIKING_DISTANCE = "striking_distance"
+
+
+class MarketingAnalyticsRecommendationsSourceType(StrEnum):
+    GOOGLE_ADS = "GoogleAds"
+    GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"
+
+
 class MarketingAnalyticsRetentionInterval(StrEnum):
     DAY = "day"
     WEEK = "week"
@@ -2241,6 +2289,7 @@ class MetaAdsDefaultSources(StrEnum):
     AUDIENCE_NETWORK = "audience_network"
     FACEBOOK_MARKETPLACE = "facebook_marketplace"
     THREADS = "threads"
+    TH = "th"
 
 
 class MetricsAggregation(StrEnum):
@@ -2448,6 +2497,7 @@ class NodeKind(StrEnum):
     MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY = "MarketingAnalyticsAttributionPathsQuery"
     MARKETING_ANALYTICS_RETENTION_QUERY = "MarketingAnalyticsRetentionQuery"
     MARKETING_ANALYTICS_SEARCH_QUERY = "MarketingAnalyticsSearchQuery"
+    MARKETING_ANALYTICS_RECOMMENDATIONS_QUERY = "MarketingAnalyticsRecommendationsQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
@@ -3017,6 +3067,11 @@ class SlackIntegrationScope(StrEnum):
     TEAM_READ = "team:read"
     USERS_READ = "users:read"
     USERS_READ_EMAIL = "users:read.email"
+
+
+class SlackIntegrationScopeInReview(StrEnum):
+    CANVASES_READ = "canvases:read"
+    CHANNELS_JOIN = "channels:join"
 
 
 class SlashCommandName(StrEnum):

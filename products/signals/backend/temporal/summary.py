@@ -37,7 +37,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import NoteArtefact
+from products.signals.backend.artefact_schemas import CheckAuthoringStatus, NoteArtefact
 from products.signals.backend.auto_start import (
     RequestedImplementation,
     maybe_autostart_from_report_artefacts,
@@ -147,6 +147,9 @@ async def _capture_report_event(
         "run_count": run_count,
         "source_products": source_products,
     }
+    if temporalio.activity.in_activity():
+        info = temporalio.activity.info()
+        properties.update(workflow_id=info.workflow_id, workflow_run_id=info.workflow_run_id)
     if result is not None:
         properties["result"] = result
     # Only the two outcomes that write prose carry a chart set, so the property is absent rather
@@ -231,6 +234,7 @@ class ReportDecision:
     checks: list[dict[str, Any]] | None = None
     reconcile_checks: bool = False
     checks_summary: str | None = None
+    checks_error: str | None = None
     checks_snapshot: dict[str, str] | None = None
     checks_monitoring_enabled: bool = False
     layers: list[dict[str, Any]] = field(default_factory=list)
@@ -443,12 +447,20 @@ class SignalReportSummaryWorkflow:
     async def _fetch_signals(
         self, inputs: SignalReportSummaryWorkflowInputs, log: FilteringBoundLogger
     ) -> FetchSignalsForReportOutput:
-        fetch_input = FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id)
+        required_signal_id = inputs.signal_id if workflow.patched("signals-required-refresh-snapshot") else None
+        fetch_input = FetchSignalsForReportInput(
+            team_id=inputs.team_id, report_id=inputs.report_id, required_signal_id=required_signal_id
+        )
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
             fetch_input,
             start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            schedule_to_close_timeout=timedelta(minutes=10) if required_signal_id else None,
+            retry_policy=(
+                RetryPolicy(initial_interval=timedelta(seconds=10), maximum_interval=timedelta(seconds=30))
+                if required_signal_id
+                else RetryPolicy(maximum_attempts=3)
+            ),
         )
         # patched(): histories recorded before the retry loop have no timers to replay.
         if fetch_result.signals or not workflow.patched("signals-empty-fetch-retry"):
@@ -514,13 +526,18 @@ class SignalReportSummaryWorkflow:
             log.info("Report run paused: org over self-driving credits quota", stage="summary_entry")
             return False
         claim_before_fetch = workflow.patched("signals-spend-explicit-owner")
+        signal_count = 0
+        source_products: list[str] = []
         try:
             if claim_before_fetch:
                 # Grouping must reserve arrivals for the next pass before we take the ClickHouse snapshot.
                 await workflow.execute_activity(
                     mark_report_in_progress_activity,
                     MarkReportInProgressInput(
-                        team_id=inputs.team_id, report_id=inputs.report_id, signal_id=inputs.signal_id
+                        team_id=inputs.team_id,
+                        report_id=inputs.report_id,
+                        signal_id=inputs.signal_id,
+                        preserve_pending_refresh=workflow.patched("signals-required-refresh-snapshot"),
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -686,6 +703,7 @@ class SignalReportSummaryWorkflow:
                     checks=agentic_result.checks,
                     reconcile_checks=agentic_result.reconcile_checks,
                     checks_summary=agentic_result.checks_summary,
+                    checks_error=agentic_result.checks_error,
                     checks_snapshot=agentic_result.checks_snapshot,
                     checks_monitoring_enabled=agentic_result.checks_monitoring_enabled,
                     layers=agentic_result.layers or [],
@@ -735,6 +753,7 @@ class SignalReportSummaryWorkflow:
                         checks_monitoring_enabled=decision.checks_monitoring_enabled,
                         reconcile_checks=decision.reconcile_checks,
                         checks_summary=decision.checks_summary,
+                        checks_error=decision.checks_error,
                         checks_task_id=decision.research_task_id,
                         suggested_prompts=decision.suggested_prompts,
                         charts_enabled=decision.charts_enabled,
@@ -758,6 +777,7 @@ class SignalReportSummaryWorkflow:
                     title=decision.title,
                     summary=decision.summary,
                     processed_signal_count=signal_count,
+                    processed_pending_signal_id=fetch_result.processed_pending_signal_id,
                     source_products=source_products,
                     charts=decision.charts,
                     metrics=decision.metrics,
@@ -766,6 +786,7 @@ class SignalReportSummaryWorkflow:
                     checks_monitoring_enabled=decision.checks_monitoring_enabled,
                     reconcile_checks=decision.reconcile_checks,
                     checks_summary=decision.checks_summary,
+                    checks_error=decision.checks_error,
                     checks_task_id=decision.research_task_id,
                     layers=decision.layers,
                     suggested_prompts=decision.suggested_prompts,
@@ -1013,6 +1034,7 @@ class MarkReportInProgressInput:
     signal_count: int | None = None
     source_products: list[str] = field(default_factory=list)
     signal_id: str | None = None
+    preserve_pending_refresh: bool = False
 
 
 @temporalio.activity.defn
@@ -1038,7 +1060,8 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
             updated_fields = report.transition_to(
                 SignalReport.Status.IN_PROGRESS, signals_at_run_increment=SIGNALS_AT_RUN_INCREMENT
             )
-            report.pending_triggering_signal_id = None
+            if not input.preserve_pending_refresh:
+                report.pending_triggering_signal_id = None
             if input.signal_count is None:
                 input.signal_count = report.signal_count
             report.researching_signal_count = input.signal_count
@@ -1099,6 +1122,7 @@ class MarkReportReadyInput:
     title: str
     summary: str
     processed_signal_count: int
+    processed_pending_signal_id: str | None = None
     source_products: list[str] = field(default_factory=list)
     # Chart payload to write alongside title/summary, in the same transaction: the JSON set to store,
     # `[]` to clear, or `None` to leave the column untouched. Defaults to `None` so an older workflow
@@ -1119,6 +1143,7 @@ class MarkReportReadyInput:
 
     reconcile_checks: bool = False
     checks_summary: str | None = None
+    checks_error: str | None = None
     # Task the check rows are attributed to: the research sandbox that authored the specs.
     checks_task_id: str | None = None
     # The research plan of dependent pull requests, as `ReportLayer` dicts. Each becomes a child
@@ -1151,13 +1176,35 @@ def _observation_metrics(report: SignalReport, metrics: list[dict]) -> list[dict
     return observations
 
 
-def _write_research_checks(report: SignalReport, input: "MarkReportReadyInput | MarkReportPendingInput") -> None:
-    """Persist the research run's check specs when its report settles.
+def _write_check_authoring_status(
+    report: SignalReport, input: "MarkReportReadyInput | MarkReportPendingInput", error: str | None
+) -> None:
+    attribution = (
+        ArtefactAttribution.from_task(input.checks_task_id) if input.checks_task_id else ArtefactAttribution.system()
+    )
+    SignalReportArtefact.append_status(
+        team_id=report.team_id,
+        report_id=str(report.id),
+        content=CheckAuthoringStatus(status="failed" if error else "succeeded", reason=error or "checks_saved"),
+        attribution=attribution,
+    )
+    if error:
+        SignalReportArtefact.add_log(
+            team_id=report.team_id,
+            report_id=str(report.id),
+            content=NoteArtefact(
+                note="Could not configure follow-up checks. Existing checks and completed research were preserved. "
+                "Research the report again to configure verification, or verify and resolve it manually. "
+                "Automatic resolution without checks is blocked while Monitoring is enabled."
+            ),
+            attribution=attribution,
+        )
 
-    Best-effort as a whole: the report's prose is what this transition exists to write, so a spec
-    the pipeline cannot store is dropped with a log rather than failing the transition and leaving
-    the report stuck in progress.
-    """
+
+def _write_research_checks(report: SignalReport, input: "MarkReportReadyInput | MarkReportPendingInput") -> None:
+    if input.checks_error is not None:
+        _write_check_authoring_status(report, input, input.checks_error)
+        return
     if input.checks is None or (not input.reconcile_checks and not input.checks):
         return
     # Function-local: the authoring module reaches the alerts facade through the check executor,
@@ -1171,6 +1218,7 @@ def _write_research_checks(report: SignalReport, input: "MarkReportReadyInput | 
             specs.append(CheckSpec.model_validate(raw))
         except Exception:
             logger.warning("signals report check spec did not validate", report_id=str(report.id))
+            _write_check_authoring_status(report, input, "invalid_check_spec")
             return
     result = create_checks_from_specs(
         report=report,
@@ -1184,6 +1232,7 @@ def _write_research_checks(report: SignalReport, input: "MarkReportReadyInput | 
             else ArtefactAttribution.system()
         ),
     )
+    _write_check_authoring_status(report, input, None if result.applied else "check_reconciliation_failed")
     if input.reconcile_checks and result.applied and input.checks_summary is not None:
         report.summary = input.checks_summary
         report.save(update_fields=["summary"])
@@ -1248,9 +1297,13 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
             # to its next bucket. Same predicate as the grouping promotion gate, so a signal landing
             # mid-run is researched on the schedule it would have had if it had landed after. The
             # bucket is strictly above what this run processed, so reaching it also means new
-            # signals arrived.
+            # signals arrived. A pending source refresh needs research even between buckets.
             bucket = next_research_bucket(report.researched_signal_count)
-            has_new_signals = bucket is not None and report.signal_count >= bucket
+            has_pending_refresh = (
+                report.pending_triggering_signal_id is not None
+                and str(report.pending_triggering_signal_id) != input.processed_pending_signal_id
+            )
+            has_new_signals = has_pending_refresh or (bucket is not None and report.signal_count >= bucket)
             if has_new_signals:
                 # If more signals arrived while the report was being processed, we want to
                 # re-promote it back to candidate and loop to also process new signals
@@ -1534,6 +1587,7 @@ class MarkReportPendingInput:
     checks_monitoring_enabled: bool = False
     reconcile_checks: bool = False
     checks_summary: str | None = None
+    checks_error: str | None = None
     checks_task_id: str | None = None
     # See MarkReportReadyInput.suggested_prompts — same transaction, same three states.
     suggested_prompts: list[str] | None = None

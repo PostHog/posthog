@@ -53,7 +53,9 @@ import {
   type FileEnrichmentDeps,
 } from "@posthog/harness/extensions/enrichment";
 import {
+  buildFinishRunUpdate,
   isCloudRun,
+  isFinishReportRequired,
   LOCAL_TOOLS_MCP_NAME,
   type LocalToolCtx,
   resolveGithubToken,
@@ -138,8 +140,10 @@ import {
   resolveInitialModelId,
 } from "./session/model-config";
 import {
-  CONTEXT_WINDOW_1M_BETA,
   CONTEXT_WINDOW_200K_TOKENS,
+  type ContextWindowChoice,
+  contextWindowChoice,
+  contextWindowEnv,
   DEFAULT_EFFORT,
   fastModeStateEnabled,
   getContextWindowOptions,
@@ -147,7 +151,6 @@ import {
   rerootedModelOptions,
   resolveEffortForModel,
   resolveModelPreference,
-  supports1MContext,
   supportsFastMode,
   supportsMcpInjection,
 } from "./session/models";
@@ -443,6 +446,7 @@ export interface ClaudeAcpAgentOptions {
   /** Explicit gateway config — avoids global process.env mutation across concurrent sessions. */
   gatewayEnv?: GatewayEnv;
   machineAuth?: MachineClaudeAuth;
+  modelsGatewayUrl?: string;
   /** Per-session context wiki mount — avoids global process.env mutation across concurrent sessions. */
   contextWiki?: ContextWikiEnv;
 }
@@ -888,9 +892,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
 
     if (this.session.lastContextWindowSize == null) {
-      this.session.lastContextWindowSize = this.getContextWindowForModel(
-        this.session.modelId ?? "",
-      );
+      this.session.lastContextWindowSize = this.contextWindowSize(this.session);
       this.logger.debug("Initial context window size from gateway", {
         modelId: this.session.modelId,
         contextWindowSize: this.session.lastContextWindowSize,
@@ -1104,11 +1106,43 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       cache_creation_input_tokens: 0,
     };
     let stopReason: PromptResponse["stopReason"] = "end_turn";
+    const pendingSubagents = new Map<string, string | undefined>();
+    const completedSubagents = new Map<string, string | undefined>();
+    const endedSubagentRuns = new Map<string, string | undefined>();
+    const trackPendingSubagent = (
+      taskId: string,
+      runId: string | undefined,
+    ): void => {
+      // Snapshot and lifecycle events can overlap; a completed run must not become pending again.
+      if (endedSubagentRuns.has(taskId)) {
+        const endedRun = endedSubagentRuns.get(taskId);
+        if (
+          runId === undefined ||
+          endedRun === undefined ||
+          runId <= endedRun
+        ) {
+          return;
+        }
+      }
+      const pendingRun = pendingSubagents.get(taskId);
+      if (
+        pendingRun !== undefined &&
+        (runId === undefined || runId < pendingRun)
+      ) {
+        return;
+      }
+      pendingSubagents.set(taskId, runId);
+    };
+    const subagentReplyBatches: Set<string>[] = [];
+    const hasPendingSubagents = () =>
+      pendingSubagents.size > 0 ||
+      completedSubagents.size > 0 ||
+      subagentReplyBatches.some((batch) => batch.size > 0);
 
     // Read live: model switches reset session.lastContextWindowSize.
     const windowSize = () =>
       this.session.lastContextWindowSize ??
-      this.getContextWindowForModel(this.session.modelId ?? "");
+      this.contextWindowSize(this.session);
 
     const supportsTerminalOutput =
       (
@@ -1164,6 +1198,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     };
 
     const resetTurnScratch = () => {
+      pendingSubagents.clear();
+      completedSubagents.clear();
+      endedSubagentRuns.clear();
+      subagentReplyBatches.length = 0;
       lastAssistantTotalUsage = null;
       lastRefusalExplanation = null;
       lastRefusalCategory = null;
@@ -1334,11 +1372,20 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           if (refreshed()) {
             return;
           }
-          settleActive(
-            session.cancelled
-              ? this.cancelledResponse()
-              : { stopReason, usage: sessionUsage() },
-          );
+          if (!session.cancelled && session.activeTurn?.waitingForSubagents) {
+            failActive(
+              RequestError.internalError(
+                undefined,
+                "Session ended before sub-agents returned",
+              ),
+            );
+          } else {
+            settleActive(
+              session.cancelled
+                ? this.cancelledResponse()
+                : { stopReason, usage: sessionUsage() },
+            );
+          }
           // Queued turns the SDK never started produced no output; reject
           // them rather than report a success.
           for (const queued of [...session.turnQueue]) {
@@ -1372,6 +1419,31 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
         switch (message.type) {
           case "system":
+            if (session.waitForSubagents && session.activeTurn) {
+              if (
+                message.subtype === "task_started" &&
+                message.is_backgrounded !== false &&
+                !message.ambient &&
+                (message.task_type === "local_agent" || message.subagent_type)
+              ) {
+                trackPendingSubagent(message.task_id, message.run_id);
+              } else if (message.subtype === "background_tasks_changed") {
+                for (const task of message.tasks) {
+                  if (task.task_type === "local_agent" && !task.ambient) {
+                    trackPendingSubagent(task.task_id, task.run_id);
+                  }
+                }
+              } else if (
+                message.subtype === "task_notification" &&
+                pendingSubagents.has(message.task_id) &&
+                pendingSubagents.get(message.task_id) === message.run_id
+              ) {
+                // A completed worker still needs the parent to consume its result.
+                pendingSubagents.delete(message.task_id);
+                endedSubagentRuns.set(message.task_id, message.run_id);
+                completedSubagents.set(message.task_id, message.run_id);
+              }
+            }
             if (message.subtype === "init") {
               await this.syncFastModeState(message.fast_mode_state);
             }
@@ -1531,11 +1603,16 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             break;
 
           case "result": {
-            // Task-notification followups are background work: they must not
-            // touch the user-turn lifecycle, but their cost is still reported.
             const isTaskNotification =
               (message as { origin?: { kind?: string } }).origin?.kind ===
               "task-notification";
+            const subagentReply = isTaskNotification
+              ? subagentReplyBatches.shift()
+              : undefined;
+            const isSubagentContinuation =
+              session.activeTurn != null && (subagentReply?.size ?? 0) > 0;
+            const isBackgroundResult =
+              isTaskNotification && !isSubagentContinuation;
             if (isTaskNotification) {
               session.backgroundTurnActive = false;
               if (hasUnconsumedBackgroundSteers(session)) {
@@ -1561,7 +1638,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               );
             }
 
-            if (!isTaskNotification) {
+            if (!isBackgroundResult) {
               await this.syncFastModeState(
                 (message as { fast_mode_state?: FastModeState })
                   .fast_mode_state,
@@ -1570,7 +1647,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
             // Promote before accumulating usage: activation resets the
             // accumulator.
-            if (!isTaskNotification) {
+            if (!isBackgroundResult) {
               await ensureActiveTurn();
             }
 
@@ -1579,7 +1656,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               break;
             }
 
-            if (!isTaskNotification) {
+            if (!isBackgroundResult) {
               // Accumulate usage from this result (guard against null from SDK)
               session.accumulatedUsage.inputTokens +=
                 message.usage.input_tokens ?? 0;
@@ -1603,7 +1680,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               }
             }
 
-            if (!isTaskNotification && lastAssistantTotalUsage === null) {
+            if (!isBackgroundResult && lastAssistantTotalUsage === null) {
               const usedTokens = await withAbort(
                 fetchContextUsedTokens(query, this.logger),
                 cancelController.signal,
@@ -1671,7 +1748,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 }),
                 ...(lastRefusalCategory && { category: lastRefusalCategory }),
               });
-              if (isTaskNotification) {
+              if (isBackgroundResult) {
                 // Background work never activates a turn, so there is no
                 // settle path to broadcast completion — send it directly so
                 // the UI still closes this reply out as its own turn.
@@ -1691,7 +1768,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               session.activeTurn?.madeProgress === true,
             );
             if (result.error) {
-              if (!isTaskNotification) {
+              if (!isBackgroundResult) {
                 failActive(result.error);
               }
               break;
@@ -1711,7 +1788,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             // For local-only commands, forward the result text to the client
             if (
               session.activeTurn?.isLocalOnlyCommand &&
-              !isTaskNotification &&
+              !isBackgroundResult &&
               message.subtype === "success" &&
               message.result
             ) {
@@ -1724,9 +1801,21 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               });
             }
 
-            // Settle at the terminal result rather than the trailing idle,
-            // which can lag behind background work.
-            if (isTaskNotification) {
+            if (!isBackgroundResult && session.activeTurn) {
+              if (hasPendingSubagents()) {
+                session.activeTurn.waitingForSubagents = true;
+                break;
+              }
+              if (
+                isSubagentContinuation &&
+                !session.activeTurn.waitingForSubagents
+              ) {
+                break;
+              }
+            }
+
+            // Unrelated notifications keep their independent background lifecycle.
+            if (isBackgroundResult) {
               // Background work never activates a turn, so there is no
               // settle path to broadcast completion — send it directly so
               // the UI still closes this reply out as its own turn instead
@@ -1823,6 +1912,29 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 "task-notification"
             ) {
               session.backgroundTurnActive = true;
+              if (session.waitForSubagents && session.activeTurn) {
+                const origin = message.origin as { runId?: string } | undefined;
+                const content = message.message.content;
+                const text =
+                  typeof content === "string"
+                    ? content
+                    : content
+                        .filter((block) => block.type === "text")
+                        .map((block) => block.text)
+                        .join("\n");
+                const batch = new Set<string>();
+                for (const [taskId, runId] of completedSubagents) {
+                  if (
+                    origin?.runId
+                      ? runId === origin.runId
+                      : text.includes(`<task-id>${taskId}</task-id>`)
+                  ) {
+                    batch.add(taskId);
+                    completedSubagents.delete(taskId);
+                  }
+                }
+                subagentReplyBatches.push(batch);
+              }
             }
             // The SDK can echo a task notification before the previous
             // background result, so that result clears the flag first. Model
@@ -2484,8 +2596,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           sessionUpdate: "usage_update",
           used: 0,
           size:
-            session.lastContextWindowSize ??
-            this.getContextWindowForModel(session.modelId ?? ""),
+            session.lastContextWindowSize ?? this.contextWindowSize(session),
         },
       }),
     );
@@ -2870,11 +2981,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     } else if (params.configId === "model") {
       await this.session.query.setModel(resolvedValue);
       this.session.modelId = resolvedValue;
-      this.session.lastContextWindowSize =
-        this.getContextWindowForModel(resolvedValue);
       this.rebuildEffortConfigOption(resolvedValue);
       this.rebuildContextWindowConfigOption(resolvedValue);
       this.rebuildFastModeConfigOption(resolvedValue);
+      this.session.lastContextWindowSize = this.contextWindowSize(this.session);
+      await this.syncContextWindow(this.session);
     } else if (params.configId === "effort") {
       const newEffort = resolvedValue as EffortLevel;
       this.session.effort = newEffort;
@@ -2883,14 +2994,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         toEffortFlagSettings(newEffort),
       );
     } else if (params.configId === "context_window") {
-      const enable1M = resolvedValue === "1m";
-      // queryOptions is read per prompt, so this applies from the next turn.
-      this.session.queryOptions.betas = enable1M
-        ? [CONTEXT_WINDOW_1M_BETA]
-        : undefined;
-      this.session.lastContextWindowSize = enable1M
-        ? this.getContextWindowForModel(this.session.modelId ?? "")
-        : CONTEXT_WINDOW_200K_TOKENS;
+      await this.applyContextWindow(resolvedValue as ContextWindowChoice);
+      this.session.lastContextWindowSize = this.contextWindowSize(this.session);
+      await this.syncContextWindow(this.session);
     } else if (params.configId === "fast") {
       // SDK flag first: a rejected control request leaves state untouched.
       const enabled = resolvedValue === "on";
@@ -3088,13 +3194,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     if (!config || !taskId || !taskRunId) {
       return undefined;
     }
-    return async (status, message) => {
+    return async (status, message, report) => {
       try {
-        await new PostHogAPIClient(config).updateTaskRun(taskId, taskRunId, {
-          status,
-          ...(status === "failed" && message ? { error_message: message } : {}),
-          ...(status === "failed" ? { error_type: "agent_declined" } : {}),
-        });
+        await new PostHogAPIClient(config).updateTaskRun(
+          taskId,
+          taskRunId,
+          buildFinishRunUpdate(status, message, report),
+        );
       } catch (error) {
         this.logger.error("finish tool failed to mark run terminal", error);
         throw error;
@@ -3197,6 +3303,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           taskRunId: meta?.taskRunId,
           baseBranch,
           requestFinish,
+          finishReportRequired: isFinishReportRequired({
+            taskOriginProduct,
+            endRunWhenDone,
+          }),
         },
         {
           environment,
@@ -3205,6 +3315,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           background: meta?.mode === "background",
           taskOriginProduct,
           endRunWhenDone,
+          callerEndsRun: meta?.callerEndsRun === true,
         },
       );
       return server ? { [LOCAL_TOOLS_MCP_NAME]: server } : {};
@@ -3309,6 +3420,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       onProcessExited: this.options?.onProcessExited,
       onStartupOutput: (stdout) => initialization.observe(stdout),
       effort,
+      contextWindow: meta?.contextWindow,
       enrichmentDeps: this.enrichment?.deps,
       enrichedReadCache: this.enrichedReadCache,
       cloudMode: cloudRun,
@@ -3350,6 +3462,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       settingsManager,
       permissionMode,
       cloudMode: cloudRun,
+      waitForSubagents: meta?.mode === "background",
       posthogExecPermissionRegex,
       abortController,
       budgetGuard: budgetGuard ?? undefined,
@@ -3478,7 +3591,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const [rawModelOptions] = await Promise.all([
       this.getModelConfigOptions(
         requestedModel,
-        this.options?.gatewayEnv?.anthropicBaseUrl,
+        this.options?.gatewayEnv?.anthropicBaseUrl ??
+          this.options?.modelsGatewayUrl,
         this.options?.gatewayEnv?.anthropicAuthToken,
         Number(this.options?.gatewayEnv?.posthogProjectId) || undefined,
       ),
@@ -3578,10 +3692,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     );
     modelOptions.currentModelId = resolvedModelId;
     session.modelId = resolvedModelId;
-    session.lastContextWindowSize =
-      meta?.contextWindow === "200k"
-        ? CONTEXT_WINDOW_200K_TOKENS
-        : this.getContextWindowForModel(resolvedModelId);
+    session.lastContextWindowSize = this.contextWindowSize(session);
 
     const startupErrorData = { sessionId, taskId, taskRunId: meta?.taskRunId };
     let startupStep:
@@ -3634,13 +3745,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         );
       }
 
-      if (
-        supports1MContext(resolvedModelId) &&
-        meta?.contextWindow !== "200k"
-      ) {
-        options.betas = [CONTEXT_WINDOW_1M_BETA];
-      }
-
       if (meta?.fastMode && supportsFastMode(resolvedModelId)) {
         this.session.fastModeEnabled = true;
         startupStep = "fast mode update";
@@ -3685,6 +3789,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     if (!creationOpts.skipBackgroundFetches) {
       this.deferBackgroundFetches(q);
     }
+    void this.syncContextWindow(session);
 
     return { sessionId, modes, configOptions };
   }
@@ -3887,17 +3992,52 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   ): SessionConfigOption | null {
     const contextOptions = getContextWindowOptions(modelId);
     if (!contextOptions) return null;
-    const is1M = this.session.queryOptions.betas?.includes(
-      CONTEXT_WINDOW_1M_BETA,
-    );
     return {
       id: "context_window",
       name: "Context Window",
       type: "select",
-      currentValue: is1M ? "1m" : "200k",
+      currentValue: contextWindowChoice(this.session.queryOptions.env),
       options: contextOptions,
       category: "_context_window" as SessionConfigOptionCategory,
       description: "Choose the context window size for this session",
+    };
+  }
+
+  private contextWindowSize(session: Session): number {
+    const window = this.getContextWindowForModel(session.modelId ?? "");
+    return contextWindowChoice(session.queryOptions.env) === "200k"
+      ? Math.min(window, CONTEXT_WINDOW_200K_TOKENS)
+      : window;
+  }
+
+  private async syncContextWindow(session: Session): Promise<void> {
+    const { query, modelId } = session;
+    const choice = contextWindowChoice(session.queryOptions.env);
+    try {
+      const usage = await withTimeout(
+        query.getContextUsage({ detail: "summary" }),
+        CONTEXT_USAGE_TIMEOUT_MS,
+      );
+      if (
+        usage.result === "success" &&
+        usage.value.rawMaxTokens > 0 &&
+        session.query === query &&
+        session.modelId === modelId &&
+        contextWindowChoice(session.queryOptions.env) === choice
+      ) {
+        session.lastContextWindowSize = usage.value.rawMaxTokens;
+      }
+    } catch (error) {
+      this.logger.warn("Failed to read the context window", { error });
+    }
+  }
+
+  private async applyContextWindow(choice: ContextWindowChoice): Promise<void> {
+    const env = contextWindowEnv(choice);
+    await this.session.query.applyFlagSettings({ env });
+    this.session.queryOptions.env = {
+      ...this.session.queryOptions.env,
+      ...env,
     };
   }
 
@@ -3905,13 +4045,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const withoutContext = this.session.configOptions.filter(
       (o) => o.id !== "context_window",
     );
-    if (!supports1MContext(modelId)) {
-      this.session.queryOptions.betas = undefined;
-      this.session.configOptions = withoutContext;
-      return;
-    }
-    // Switching onto a 1M-capable model restores the default 1M window.
-    this.session.queryOptions.betas = [CONTEXT_WINDOW_1M_BETA];
     const contextOption = this.contextWindowConfigOption(modelId);
     this.session.configOptions = contextOption
       ? [...withoutContext, contextOption]

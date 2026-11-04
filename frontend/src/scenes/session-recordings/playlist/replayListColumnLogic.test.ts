@@ -17,6 +17,7 @@ describe('replayListColumnLogic', () => {
         { chosen: null, picksMode: 'picks', expected: 'picks' },
         { chosen: 'recordings', picksMode: 'picks', expected: 'recordings' },
         { chosen: 'picks', picksMode: null, expected: 'recordings' },
+        { chosen: 'collections', picksMode: null, expected: 'collections' },
     ] as const)('chosen $chosen with picks $picksMode shows $expected', ({ chosen, picksMode, expected }) => {
         if (chosen) {
             logic.actions.setSegment(chosen)
@@ -31,6 +32,16 @@ describe('replayListColumnLogic', () => {
         logic.actions.setSegment('picks')
         logic.actions.settleSegment(picksMode)
         expect(logic.values.segment).toBe(kept)
+    })
+
+    it.each([
+        ['closes when the viewer goes back', (l: typeof logic) => l.actions.closeCollection()],
+        ['closes when the segment changes', (l: typeof logic) => l.actions.setSegment('recordings')],
+    ])('an open collection %s', (_, act) => {
+        logic.actions.openCollection('abc')
+        expect(logic.values.openCollectionShortId).toBe('abc')
+        act(logic)
+        expect(logic.values.openCollectionShortId).toBeNull()
     })
 
     it('shows the recordings when its list is filtered to a person', () => {

@@ -4,9 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { ScatterChart } from '@posthog/quill-charts'
 import type { ScatterAreaSelection, ScatterChartConfig, ScatterPointDatum } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartTheme } from 'lib/charts/hooks'
-
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { clusterDetailLogic } from './clusterDetailLogic'
 import { navigateToClusterItem } from './clusterScatter'
