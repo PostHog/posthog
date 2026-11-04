@@ -34,3 +34,14 @@ export const counterTeamIdHeaderMismatch = new Counter({
     name: 'cdp_events_team_id_header_mismatch',
     help: 'An event body named a different team than its header. The event is parked, because the two teams would send one team data to another team destinations.',
 })
+
+export const counterUnmatchedEventName = new Counter({
+    name: 'cdp_events_unmatched_event_name',
+    help: 'Events whose name no destination or workflow of their team admits. "skipped" is false while CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES is off and the consumer still parses them.',
+    labelNames: ['skipped'],
+})
+
+export const counterEventNameHeaderMismatch = new Counter({
+    name: 'cdp_events_event_name_header_mismatch',
+    help: 'An event body named a different event than its header. The consumer uses the body, but a skip on that header may have dropped an event a destination wanted.',
+})

@@ -356,19 +356,14 @@ export function convertToHogFunctionFilterGlobal(
 
 const HOG_FILTERING_TIMEOUT_MS = 100
 
-function preFilterResult(filters: HogFunctionType['filters'], filterGlobals: HogFunctionFilterGlobals): boolean {
-    const eventMatches = filters?.events?.some((eventFilter) => {
-        // We need to test if the id is null (all events) or if it is in the list of event matchers
-        return eventFilter.id === null || eventFilter.id === filterGlobals.event
-    })
+/** Whether these filters reject an event on its name alone: an event list with no actions beside it. */
+export function preFiltersOnEventName(filters: HogFunctionType['filters']): boolean {
+    return !!(filters?.events?.length && !filters?.actions?.length)
+}
 
-    // If none of the event filters match we return false
-    if (!eventMatches) {
-        return false
-    }
-    // If we get here, there is at least one event filter and it checks this event type
-    // hence we say its a match and return true
-    return true
+/** A null id lists all events. */
+export function eventNamePassesPreFilter(filters: HogFunctionType['filters'], eventName: string): boolean {
+    return filters?.events?.some((eventFilter) => eventFilter.id === null || eventFilter.id === eventName) ?? false
 }
 
 /**
@@ -430,9 +425,9 @@ export async function filterFunctionInstrumented(options: {
 
         // check whether we have a match with our pre-filter
         // Only run if we have event filters and NO action filters (as actions are pre-saved event filters)
-        if (filters?.events?.length && !filters?.actions?.length) {
+        if (preFiltersOnEventName(filters)) {
             reason = 'prefilter'
-            preFilterMatch = preFilterResult(filters, filterGlobals)
+            preFilterMatch = eventNamePassesPreFilter(filters, filterGlobals.event)
             if (preFilterMatch === false) {
                 hogFunctionPreFilterCounter.inc({ result: 'bytecode_execution_skipped__pre_filtered_out' })
                 result.match = false

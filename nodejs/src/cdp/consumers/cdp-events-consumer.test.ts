@@ -15,7 +15,7 @@ import {
     getTeam,
     updateOrganizationAvailableFeatures,
 } from '../../../tests/helpers/sql'
-import { Hub, Team } from '../../types'
+import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import {
     HOG_EXAMPLES,
@@ -856,6 +856,99 @@ describe('CdpEventsConsumer', () => {
                 expect(parked).toHaveLength(1)
                 expect(parked[0].headers).toMatchObject({ dlq_step: 'parse' })
                 expect(mockQueueInvocations).not.toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+            })
+
+            describe('events no destination admits by name', () => {
+                let pageviewFunction: HogFunctionType
+
+                const withHeaders = (event: RawClickHouseEvent, offset = 0) =>
+                    createKafkaMessage(event, {
+                        offset,
+                        headers: [{ team_id: String(event.team_id) }, { event: event.event }],
+                    })
+
+                beforeEach(async () => {
+                    pageviewFunction = await insertHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                    })
+                })
+
+                it.each([
+                    [true, 0, 1],
+                    [false, 1, 0],
+                ])(
+                    'with skipping %s, parks %i unreadable bodies of an event no destination admits and records %i filtered',
+                    async (skip, parked, filtered) => {
+                        hub.CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES = skip
+                        const unreadable = {
+                            ...withHeaders(createIncomingEvent(team.id, { event: 'signed_up' })),
+                            value: Buffer.from('{'),
+                        }
+
+                        await handleBatch([unreadable])
+
+                        const dlq = mockProducerObserver
+                            .getProducedMessages()
+                            .filter(({ topic }) => topic === 'cdp_events_dlq_test')
+                        expect(dlq).toHaveLength(parked)
+                        const filteredMetrics = mockProducerObserver
+                            .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                            .filter(({ value }: any) => value.app_source_id === pageviewFunction.id)
+                            .map(({ value }: any) => value.metric_name)
+                        expect(filteredMetrics).toEqual(Array(filtered).fill('filtered'))
+                    }
+                )
+
+                it('queues the same invocations and records the same metrics whether it skips or not', async () => {
+                    const hogFlow = await _insertHogFlow(
+                        hub.postgres,
+                        new FixtureHogFlowBuilder()
+                            .withTeamId(team.id)
+                            .withSimpleWorkflow({
+                                trigger: {
+                                    type: 'event',
+                                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                                },
+                            })
+                            .build()
+                    )
+                    processor['hogFlowManager']['onHogFlowsReloaded'](team.id, [hogFlow.id])
+                    const events = [
+                        createIncomingEvent(team.id, {
+                            properties: JSON.stringify({ $current_url: 'https://posthog.com' }),
+                        }),
+                        createIncomingEvent(team.id, {
+                            properties: JSON.stringify({ $current_url: 'https://other.com' }),
+                        }),
+                        createIncomingEvent(team.id, { event: '$autocapture' }),
+                        createIncomingEvent(team.id, { event: 'signed_up' }),
+                        createIncomingEvent(team.id, { event: '$push_notification_opened' }),
+                    ]
+
+                    const outcome = async (skip: boolean) => {
+                        hub.CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES = skip
+                        mockQueueInvocations.mockClear()
+                        mockProducerObserver.resetKafkaProducer()
+                        await handleBatch(events.map(withHeaders))
+                        const queued = mockQueueInvocations.mock.calls.flatMap(([invocations]: any[]) => invocations)
+                        return {
+                            invocations: queued
+                                .map((x: any) => `${x.functionId} ${x.state.globals?.event.uuid ?? x.state.event.uuid}`)
+                                .sort(),
+                            metrics: mockProducerObserver
+                                .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                                .map(({ value }: any) => `${value.app_source_id} ${value.metric_name} ${value.count}`)
+                                .sort(),
+                        }
+                    }
+
+                    const parsed = await outcome(false)
+                    expect(parsed.invocations).toHaveLength(4)
+                    expect(parsed.metrics).toContain(`${pageviewFunction.id} filtered 3`)
+                    expect(await outcome(true)).toEqual(parsed)
+                })
             })
 
             it('fails the batch when the record cannot be written, so the offsets stay put', async () => {

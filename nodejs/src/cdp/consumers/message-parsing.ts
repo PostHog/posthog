@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { TEAM_ID_HEADER } from '~/common/kafka/headers'
+import { EVENT_NAME_HEADER, TEAM_ID_HEADER } from '~/common/kafka/headers'
 import { logger } from '~/common/utils/logger'
 import { isValidTeamId } from '~/common/utils/team-manager'
 
@@ -26,13 +26,28 @@ export function assertTeamId<T extends { team_id: unknown }>(message: T): T {
  * the body instead, because a value that is not a usable team id must never become one.
  */
 export function readTeamIdHeader(message: Message): number | null {
+    const value = readHeader(message, TEAM_ID_HEADER)
+    if (value === null) {
+        return null
+    }
+    const teamId = Number(value)
+    return isValidTeamId(teamId) ? teamId : null
+}
+
+/**
+ * Reads the event name the producer put in a Kafka header. Like the team id, the body stays
+ * authoritative: a caller may skip the body on this name, but reads the event from the body.
+ */
+export function readEventNameHeader(message: Message): string | null {
+    return readHeader(message, EVENT_NAME_HEADER)
+}
+
+function readHeader(message: Message, name: string): string | null {
     for (const header of message.headers ?? []) {
-        const value = header[TEAM_ID_HEADER]
-        if (value === undefined) {
-            continue
+        const value = header[name]
+        if (value !== undefined) {
+            return value.toString()
         }
-        const teamId = Number(value.toString())
-        return isValidTeamId(teamId) ? teamId : null
     }
     return null
 }
@@ -62,7 +77,8 @@ export function skipIfMalformed<T>(errorLog: string, step: () => T, onError?: (e
 // the team has loaded.
 type ParsedMessage<TLoaded> = {
     teamId: unknown
-    toGlobals: (loaded: TLoaded) => HogFunctionInvocationGlobals
+    /** Returns null to skip a message the loaded team has no use for. */
+    toGlobals: (loaded: TLoaded) => HogFunctionInvocationGlobals | null
 }
 
 export type ParseBatchOptions<TLoaded = Team> = {
