@@ -331,14 +331,15 @@ def test_build_environment_variables_marks_only_an_idle_same_run_resume_as_idle(
 @patch(f"{_PROVISION}.emit_agent_log")
 @patch(f"{_PROVISION}.get_sandbox_class_for_sandbox_id")
 @pytest.mark.parametrize(
-    "used_snapshot, expected_checkout",
+    "branch, used_snapshot, expected_checkout",
     [
-        (False, "git checkout -B new-task-branch HEAD"),
-        (True, "git fetch --depth 1 origin -- HEAD && git checkout -B new-task-branch FETCH_HEAD"),
+        ("new-task-branch", False, "git checkout -B new-task-branch HEAD"),
+        ("new-task-branch", True, "git fetch --depth 1 origin -- HEAD && git checkout -B new-task-branch FETCH_HEAD"),
+        ("a" * 40, False, f"git fetch --depth 1 origin -- {'a' * 40} && git checkout --detach FETCH_HEAD"),
     ],
 )
-def test_checkout_branch_creates_missing_branch_from_current_default_branch(
-    mock_get_sandbox_class, _mock_emit_agent_log, used_snapshot, expected_checkout
+def test_checkout_branch_creates_missing_branch_or_checks_out_pinned_commit(
+    mock_get_sandbox_class, _mock_emit_agent_log, branch, used_snapshot, expected_checkout
 ):
     sandbox = mock_get_sandbox_class.return_value.get_by_id.return_value
 
@@ -357,7 +358,7 @@ def test_checkout_branch_creates_missing_branch_from_current_default_branch(
             context=_context(),
             sandbox_id="sandbox-123",
             repository="posthog/posthog",
-            branch="new-task-branch",
+            branch=branch,
             github_token="token",
             shallow_clone=True,
             used_snapshot=used_snapshot,
