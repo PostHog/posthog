@@ -190,6 +190,7 @@ def create_scout_report(
     emit_signals: bool = True,
     run: SignalScoutRun | None = None,
     idempotency_key: str | None = None,
+    reserved_report_id: uuid.UUID | None = None,
 ) -> PersistedScoutReport:
     """Author a `SignalReport` directly plus its backing signal rows, in one report-owning transaction.
 
@@ -260,7 +261,7 @@ def create_scout_report(
     document_ids = [s.document_id or str(uuid.uuid4()) for s in signals]
     total_weight = sum(s.weight for s in signals)
 
-    report_id = str(uuid.uuid4())
+    report_id = str(reserved_report_id or uuid.uuid4())
     assignment = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
     try:
         with transaction.atomic():
