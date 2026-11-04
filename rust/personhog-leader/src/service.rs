@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use chrono::{TimeZone, Utc};
 use dashmap::DashMap;
 use metrics::{counter, histogram};
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
@@ -829,25 +830,45 @@ impl PersonHogLeaderService {
     }
 }
 
+/// The first instant Postgres accepts in a `timestamptz`: Julian day 0,
+/// which Postgres documents as 4713 BC (Julian calendar) and chrono
+/// renders as -4713-11-24 (proleptic Gregorian). chrono reaches much
+/// further back, so this is the binding bound.
+const PG_TIMESTAMPTZ_MIN_MS: i64 = -210_866_803_200_000;
+
 /// Upper bound on the epoch-millisecond timestamps the leader will put in
-/// a changelog record: the last instant of year 9999. Comfortably inside
-/// both chrono's representable range and Postgres's `timestamptz` range,
-/// so any value under this bound is bindable by the writer.
+/// a changelog record: the last instant of year 9999. Inside both chrono's
+/// and Postgres's ranges; nothing legitimate sits above it.
 const MAX_EPOCH_MS_YEAR_9999: i64 = 253_402_300_799_999;
+
+/// Whether the writer can bind this epoch-millisecond value as a
+/// `timestamptz`: chrono must represent it and Postgres must accept it.
+/// Rows written before personhog carry a client's zero `DateTime` (year 1)
+/// as `created_at`, and those must keep writing.
+fn writeable_epoch_ms(ms: i64) -> bool {
+    (PG_TIMESTAMPTZ_MIN_MS..=MAX_EPOCH_MS_YEAR_9999).contains(&ms)
+        && Utc.timestamp_millis_opt(ms).single().is_some()
+}
 
 /// The granularity `last_seen_at` is stored at. Matches ingestion's own
 /// hourly truncation so both write paths produce identical stored values.
 const MS_PER_HOUR: i64 = 3_600_000;
+
+/// Floors to the hour on either side of the epoch; `%` would round a
+/// negative value up to the next hour instead.
+fn floor_to_hour(ms: i64) -> i64 {
+    ms.div_euclid(MS_PER_HOUR) * MS_PER_HOUR
+}
 
 /// The changelog contract: every produced record must be applyable by the
 /// writer's upsert verbatim. Properties are guaranteed by admission
 /// (NUL sanitization plus the exact size measure); this checks the
 /// remaining writer-bound fields against the writer's bind conversions —
 /// uuid must parse, team_id must fit the column's `integer`, and the
-/// timestamps must sit inside a sanity range ([1970, 9999]) any
-/// legitimate value satisfies. The legacy jsonb columns have no cache
-/// field and are unconditionally empty in `cached_person_into_proto`, so a
-/// record structurally cannot carry values the writer would refuse there.
+/// timestamps must convert to a `timestamptz`. The legacy jsonb columns
+/// have no cache field and are unconditionally empty in
+/// `cached_person_into_proto`, so a record structurally cannot carry
+/// values the writer would refuse there.
 fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
     if Uuid::parse_str(&p.uuid).is_err() {
         return Err("uuid does not parse as a UUID".to_string());
@@ -858,15 +879,17 @@ fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
             p.team_id
         ));
     }
-    if p.created_at < 0 || p.created_at > MAX_EPOCH_MS_YEAR_9999 {
+    if !writeable_epoch_ms(p.created_at) {
         return Err(format!(
-            "created_at epoch {} is outside sane bounds",
+            "created_at epoch {} is not representable as a timestamp",
             p.created_at
         ));
     }
     if let Some(t) = p.last_seen_at {
-        if !(0..=MAX_EPOCH_MS_YEAR_9999).contains(&t) {
-            return Err(format!("last_seen_at epoch {t} is outside sane bounds"));
+        if !writeable_epoch_ms(t) {
+            return Err(format!(
+                "last_seen_at epoch {t} is not representable as a timestamp"
+            ));
         }
     }
     Ok(())
@@ -1209,13 +1232,11 @@ impl PersonHogLeader for PersonHogLeaderService {
         // UTC-normalized timestamps, expressed in epoch terms — so record
         // volume is bounded at one per person-hour by construction, not
         // by trusting callers to coarsen.
-        let requested_last_seen = req
-            .last_seen_at
-            .filter(|t| (0..=MAX_EPOCH_MS_YEAR_9999).contains(t));
+        let requested_last_seen = req.last_seen_at.filter(|t| writeable_epoch_ms(*t));
         if requested_last_seen != req.last_seen_at {
             counter!("personhog_leader_last_seen_discarded_total").increment(1);
         }
-        let requested_last_seen = requested_last_seen.map(|t| t - t % MS_PER_HOUR);
+        let requested_last_seen = requested_last_seen.map(floor_to_hour);
         // Max-merge: the stored value only ever advances, and an advance
         // is a change in its own right — ingestion's direct write path
         // persists a last-seen-only advance, so this path must too.
@@ -1905,6 +1926,7 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
+    use chrono::Datelike;
     use common_kafka::config::KafkaConfig;
     use envconfig::Envconfig;
     use personhog_proto::personhog::types::v1::{LifecycleOpType, ReleaseOutcome};
@@ -1912,6 +1934,70 @@ mod tests {
 
     use super::*;
     use crate::recovery::RecoveryConfig;
+
+    /// A client's zero `DateTime` serialises as year 1, and persons created
+    /// from such events before personhog carry it as `created_at`.
+    const YEAR_ONE_MS: i64 = -62_135_596_800_000;
+
+    #[test]
+    fn writeable_accepts_what_the_writer_binds_and_refuses_the_rest() {
+        let person = CachedPerson {
+            id: 1,
+            uuid: "00000000-0000-0000-0000-000000000001".to_string(),
+            team_id: 7,
+            properties: b"{}".to_vec(),
+            created_at: YEAR_ONE_MS,
+            version: 1,
+            is_identified: false,
+            is_deleted: false,
+            last_seen_at: Some(YEAR_ONE_MS),
+        };
+        assert_eq!(assert_writeable(&person), Ok(()));
+        assert!(
+            Utc.timestamp_millis_opt(YEAR_ONE_MS).single().is_some(),
+            "the writer converts with the same call, so year 1 binds"
+        );
+
+        // The bounds are Postgres's, not chrono's: both ends convert, and
+        // one millisecond past either end is refused.
+        let floor = Utc.timestamp_millis_opt(PG_TIMESTAMPTZ_MIN_MS).unwrap();
+        assert_eq!(
+            (floor.year(), floor.month(), floor.day()),
+            (-4713, 11, 24),
+            "Julian day 0 in the proleptic Gregorian calendar"
+        );
+        assert!(Utc
+            .timestamp_millis_opt(MAX_EPOCH_MS_YEAR_9999)
+            .single()
+            .is_some());
+        assert!(writeable_epoch_ms(PG_TIMESTAMPTZ_MIN_MS));
+        assert!(writeable_epoch_ms(MAX_EPOCH_MS_YEAR_9999));
+        assert!(!writeable_epoch_ms(PG_TIMESTAMPTZ_MIN_MS - 1));
+        assert!(!writeable_epoch_ms(MAX_EPOCH_MS_YEAR_9999 + 1));
+
+        for (field, created_at, last_seen_at) in [
+            ("created_at", i64::MIN, None),
+            ("created_at", PG_TIMESTAMPTZ_MIN_MS - 1, None),
+            ("created_at", i64::MAX, None),
+            ("last_seen_at", YEAR_ONE_MS, Some(-300_000_000_000_000)),
+            ("last_seen_at", YEAR_ONE_MS, Some(i64::MAX)),
+        ] {
+            let refused = CachedPerson {
+                created_at,
+                last_seen_at,
+                ..person.clone()
+            };
+            let reason = assert_writeable(&refused).expect_err(field);
+            assert!(reason.starts_with(field), "{reason}");
+        }
+    }
+
+    #[test]
+    fn last_seen_floors_to_the_hour_on_both_sides_of_the_epoch() {
+        assert_eq!(floor_to_hour(3_600_000 + 1), 3_600_000);
+        assert_eq!(floor_to_hour(YEAR_ONE_MS + 1234), YEAR_ONE_MS);
+        assert_eq!(floor_to_hour(-1), -MS_PER_HOUR);
+    }
 
     fn make_key(team_id: i64, person_id: i64) -> PersonCacheKey {
         PersonCacheKey { team_id, person_id }
