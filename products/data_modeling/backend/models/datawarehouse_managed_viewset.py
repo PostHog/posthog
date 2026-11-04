@@ -1,6 +1,8 @@
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, cast
+from uuid import UUID
 
 from django.db import connection, models, transaction
 
@@ -25,9 +27,11 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTMode
 
 from products.data_modeling.backend.facade.managed_viewset_hooks import get_expected_views_provider
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
-from products.data_modeling.backend.logic.incremental import parse_incremental_config
+from products.data_modeling.backend.logic.incremental import clear_incremental_state, parse_incremental_config
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.edge import Edge
+from products.data_modeling.backend.models.node import Node
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -155,6 +159,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         saved_queries_to_sync: list[DataWarehouseSavedQuery] = []
         frequency_targets: dict[str, timedelta | None] = {}
         orphaned_views_to_revert: list[DataWarehouseSavedQuery] = []
+        redefined_ids: set[UUID] = set()
 
         # Keep this transaction short: persist DB changes only. The post-commit work
         # (schedule_materialization → Temporal RPCs,
@@ -187,6 +192,9 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                         origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET,
                     )
                     created = True
+
+                if not created and saved_query.query != view.query:
+                    redefined_ids.add(saved_query.id)
 
                 # Do NOT use get_columns because it runs the query, and these are possibly heavy
                 saved_query.query = view.query
@@ -252,6 +260,12 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                         view_name=saved_query.name,
                         error=str(e),
                     )
+            try:
+                # Reads the edges the loop above just wrote.
+                self._rebuild_downstream_of(dag, redefined_ids)
+            except Exception as e:
+                capture_exception(e, {"managed_viewset_id": self.id})
+                logger.warning("failed_to_rebuild_downstream_views", team_id=self.team_id, error=str(e))
             try:
                 # After every node exists, so the whole batch lands together.
                 apply_managed_view_frequency_targets(self.team_id, frequency_targets)
@@ -358,6 +372,39 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 None,
             ),
         }
+
+    def _rebuild_downstream_of(self, dag: DAG, redefined_ids: set[UUID]) -> None:
+        """Clear the watermark of every incremental view downstream of a redefined view.
+
+        A view's own definition fingerprint resets its watermark when its query changes, but not when
+        an upstream query changes. Its stored rows came from the old upstream, so it must rebuild.
+        """
+        if not redefined_ids:
+            return
+        children: dict[UUID, list[UUID]] = defaultdict(list)
+        for source_id, target_id in Edge.objects.filter(team_id=self.team_id, dag=dag).values_list(
+            "source_id", "target_id"
+        ):
+            children[source_id].append(target_id)
+        frontier = list(
+            Node.objects.filter(team_id=self.team_id, dag=dag, saved_query_id__in=redefined_ids).values_list(
+                "id", flat=True
+            )
+        )
+        reached: set[UUID] = set()
+        while frontier:
+            for child in children[frontier.pop()]:
+                if child not in reached:
+                    reached.add(child)
+                    frontier.append(child)
+        downstream = DataWarehouseSavedQuery.objects.filter(
+            team_id=self.team_id,
+            id__in=Node.objects.filter(id__in=reached).values("saved_query_id"),
+            deleted=False,
+        )
+        for saved_query in downstream:
+            if saved_query.incremental_state:
+                clear_incremental_state(saved_query)
 
     def _eligible_incremental_config(self, view: ExpectedView, database: "Database") -> dict[str, Any] | None:
         """The provider's incremental config, or None when the query cannot carry it.

@@ -256,6 +256,46 @@ class TestManagedViewSetProviders(BaseTest):
         downstream.refresh_from_db()
         self.assertIsNone(downstream.incremental_config)
 
+    @parameterized.expand(
+        [
+            ("upstream_redefined", "SELECT 2 AS id", False, True),
+            ("upstream_redefined_listed_last", "SELECT 2 AS id", True, True),
+            ("upstream_unchanged", "SELECT 1 AS id", False, False),
+        ]
+    )
+    @patch(SCHEDULE_MATERIALIZATION)
+    def test_resync_rebuilds_every_view_downstream_of_a_redefined_view(
+        self, _name: str, upstream_query: str, downstream_first: bool, rebuilds: bool, _: Mock
+    ) -> None:
+        def incremental(name: str, parent: str) -> ProvidedView:
+            return ProvidedView(
+                name=name,
+                query=f"SELECT id FROM {parent}",
+                fields={"id": IntegerDatabaseField(name="id")},
+                incremental_config=INCREMENTAL_CONFIG,
+            )
+
+        def provided(upstream: ProvidedView) -> list[ProvidedView]:
+            chain = [upstream, incremental("middle", "upstream"), incremental("downstream", "middle")]
+            return chain[::-1] if downstream_first else chain
+
+        views = provided(_fake_view(name="upstream", materialized=False))
+        state = {"watermark": 7, "watermark_type": "int"}
+        with patch.dict(_expected_views_providers, clear=True):
+            register_expected_views_provider(KIND, lambda team: views)
+            viewset = self._viewset()
+            viewset.sync_views()
+            DataWarehouseSavedQuery.objects.filter(team=self.team, name__in=["middle", "downstream"]).update(
+                incremental_state=state
+            )
+
+            views[:] = provided(_fake_view(name="upstream", materialized=False, query=upstream_query))
+            viewset.sync_views()
+
+        for name in ("middle", "downstream"):
+            view = DataWarehouseSavedQuery.objects.get(team=self.team, name=name)
+            self.assertEqual(view.incremental_state, {} if rebuilds else state, name)
+
     @patch(SCHEDULE_MATERIALIZATION)
     def test_an_incremental_key_the_query_does_not_output_is_not_stored(self, _):
         fake_view = _fake_view(incremental_config={**INCREMENTAL_CONFIG, "incremental_key": "missing"})
