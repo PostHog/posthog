@@ -464,3 +464,37 @@ def test_create_redshift_batch_export_validates_copy_integration_ids(
             batch_export["destination"]["config"]["copy_inputs"]["authorization"]
             == destination_data["config"]["copy_inputs"]["authorization"]
         )
+
+
+@pytest.mark.parametrize("field_name", ["bucket_credentials", "authorization"])
+def test_create_redshift_batch_export_rejects_inline_copy_keys_in_insert_mode(
+    client: HttpClient,
+    field_name: str,
+    team: Team,
+    user: User,
+    aws_s3_integration: IntegrationRecord,
+    aws_redshift_integration: IntegrationRecord,
+) -> None:
+    copy_inputs: dict[str, Any] = {
+        "s3_bucket": "my-production-s3-bucket",
+        "region_name": "us-east-1",
+        "s3_key_prefix": "posthog-events/",
+        "bucket_credentials": aws_s3_integration.id,
+        "authorization": aws_s3_integration.id,
+    }
+    copy_inputs[field_name] = {"aws_access_key_id": "test-access-key", "aws_secret_access_key": "test-secret-key"}
+    batch_export_data = {
+        "name": "my-production-redshift-destination",
+        "destination": {
+            "type": "Redshift",
+            "config": {"database": "my-db", "host": "localhost", "mode": "INSERT", "copy_inputs": copy_inputs},
+            "integration": aws_redshift_integration.id,
+        },
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+    response = create_batch_export(client, team.pk, batch_export_data)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert "Inline AWS access keys are no longer accepted" in response.json()["detail"]
