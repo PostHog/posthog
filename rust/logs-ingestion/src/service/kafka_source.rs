@@ -157,20 +157,32 @@ impl ConsumerContext for FencingContext {
 pub type LogsConsumer = StreamConsumer<FencingContext>;
 
 pub struct KafkaBatchSource {
-    consumer: LogsConsumer,
+    consumer: std::mem::ManuallyDrop<LogsConsumer>,
     dispatch_epochs: HashMap<(String, i32), u64>,
 }
 
 impl KafkaBatchSource {
     pub fn new(consumer: LogsConsumer) -> Self {
         Self {
-            consumer,
+            consumer: std::mem::ManuallyDrop::new(consumer),
             dispatch_epochs: HashMap::new(),
         }
     }
 
     pub fn consumer(&self) -> &LogsConsumer {
         &self.consumer
+    }
+}
+
+impl Drop for KafkaBatchSource {
+    fn drop(&mut self) {
+        // librdkafka deadlocks when it destroys a client after a fatal error, so that client leaks and the process exits.
+        if self.consumer.client().fatal_error().is_some() {
+            return;
+        }
+        // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
+        // SAFETY: `consumer` is not used after this point, and `drop` runs once.
+        unsafe { std::mem::ManuallyDrop::drop(&mut self.consumer) }
     }
 }
 
