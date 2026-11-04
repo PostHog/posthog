@@ -1,0 +1,50 @@
+{% extends "admin_console/base.html" %}
+{% block title %}{{ operation.label }} · {{ team.name }} · PostHog Admin{% endblock %}
+{% block content %}
+    <div class="text-xs text-muted-foreground">
+        <a class="text-muted-foreground"
+           href="{% url 'admin_console_team' team_id=team.pk %}">{{ team.name }}</a> / {{ panel.title }} /
+    </div>
+    <h1 class="mt-1.5 mb-4 text-[22px] font-extrabold">{{ operation.label }}</h1>
+    <section class="quill-card group/card flex flex-col max-w-xl{% if operation.danger %} console-danger{% endif %}"
+             data-quill
+             data-slot="card"
+             data-size="default">
+        <form method="post" class="flex flex-col">
+            {% csrf_token %}
+            <div class="quill-card__content flex flex-col gap-4"
+                 data-slot="card-content">
+                {% if operation.description %}
+                    <p class="m-0 text-muted-foreground">{{ operation.description }}</p>
+                {% endif %}
+                {% for field in operation.fields %}
+                    <div class="quill-field flex flex-col gap-1" data-slot="field">
+                        <label class="quill-field__label quill-label font-bold"
+                               for="field-{{ field.name }}">{{ field.label }}</label>
+                        <textarea id="field-{{ field.name }}"
+                                  name="{{ field.name }}"
+                                  class="quill-textarea flex"
+                                  rows="3"
+                                  {% if field.required %} required{% endif %}
+                                  {% if field.name in errors %} aria-invalid="true"{% endif %}></textarea>
+                        {% if field.help_text %}
+                            <p class="quill-field__description m-0">{{ field.help_text }}</p>
+                        {% endif %}
+                        {% for name, error in errors.items %}
+                            {% if name == field.name %}
+                                <p class="quill-field__error m-0" role="alert">{{ error }}</p>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+            </div>
+            <div class="quill-card__footer flex flex-wrap gap-2"
+                 data-slot="card-footer">
+                <button type="submit"
+                        class="quill-button {% if operation.danger %}quill-button--variant-destructive-outline{% else %}quill-button--variant-primary{% endif %} quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">{{ operation.label }}</button>
+                <a href="{% url 'admin_console_team' team_id=team.pk %}"
+                   class="quill-button quill-button--variant-outline quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">Cancel</a>
+            </div>
+        </form>
+    </section>
+{% endblock %}

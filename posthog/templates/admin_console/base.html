@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en" data-env="{{ console_env }}">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>{% block title %}PostHog Admin{% endblock %}</title>
+        {# Not the static tag: production hashes its URLs, and the CDN only serves unhashed names. #}
+        <link rel="stylesheet" href="/static/admin-console/console.css" />
+        <link rel="icon" href="/static/posthog-icon.svg" />
+    </head>
+    <body class="console-body m-0 min-h-screen bg-background text-foreground text-[13px]">
+        <div class="console-env-stripe h-1"></div>
+        <header class="flex flex-wrap items-center gap-4 min-h-12 px-4 py-2 bg-chrome border-b border-border">
+            <a href="{% url 'admin_console_home' %}"
+               class="flex items-center gap-2 font-extrabold text-[15px] whitespace-nowrap text-foreground no-underline">
+                <img src="/static/posthog-icon.svg" class="h-[18px]" alt="" />PostHog Admin
+            </a>
+            <span class="console-env-pill inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide whitespace-nowrap">
+                <span class="console-env-dot size-[7px] rounded-full"></span>{{ console_env_label }}
+            </span>
+            <form method="get"
+                  action="{% url 'admin_console_home' %}"
+                  class="flex-1 min-w-[240px] max-w-[520px]">
+                <input class="quill-input"
+                       type="search"
+                       name="q"
+                       value="{{ query|default:'' }}"
+                       placeholder="Find a team by ID, API token, team or organization name"
+                       aria-label="Search teams" />
+            </form>
+            <div class="ml-auto flex items-center gap-3 text-muted-foreground whitespace-nowrap">
+                <span>{{ request.user.email }}</span>
+                <a class="quill-button quill-button--variant-outline quill-button--size-sm group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap"
+                   href="/admin/">Django admin</a>
+            </div>
+        </header>
+        <main class="px-6 pt-5 pb-20 @container">
+            {% if messages %}
+                <div class="flex flex-col gap-2 mb-4">
+                    {% for message in messages %}
+                        {% include "admin_console/_message.html" %}
+                    {% endfor %}
+                </div>
+            {% endif %}
+            {% block content %}{% endblock %}
+        </main>
+    </body>
+</html>
