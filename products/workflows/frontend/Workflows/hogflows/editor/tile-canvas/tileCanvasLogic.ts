@@ -1073,7 +1073,7 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
         },
     })),
     afterMount(({ actions, values, cache }) => {
-        // The step can be picked before the canvas mounts, from the tree view or a link to the step.
+        // The step can be picked before the canvas mounts, from a link to the step.
         if (values.selectedNodeId) {
             actions.revealStep(values.selectedNodeId)
         }

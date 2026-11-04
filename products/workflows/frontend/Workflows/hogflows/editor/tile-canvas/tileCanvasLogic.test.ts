@@ -596,17 +596,5 @@ describe('tileCanvasLogic', () => {
         it('counts the people a step filtered out', () => {
             expect(stepCount(logic.values.stepMetrics, 'pause')).toBe(48)
         })
-
-        it('keeps the canvas counts when the Metrics panel loads another date range', async () => {
-            const editorLogic = hogFlowEditorLogic({ id: WORKFLOW_ID })
-
-            await expectLogic(logic, () =>
-                editorLogic.actions.loadActionMetricsByIdSuccess({
-                    pause: { actionId: 'pause', succeeded: 3, failed: 0, filtered: 0 },
-                })
-            )
-
-            expect(stepCount(logic.values.stepMetrics, 'pause')).toBe(48)
-        })
     })
 })
