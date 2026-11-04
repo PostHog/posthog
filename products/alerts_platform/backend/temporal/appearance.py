@@ -15,6 +15,8 @@ from products.alerts_platform.backend.temporal.sources import APPEARANCE_WORKFLO
 from products.alerts_platform.backend.temporal.workflows import start_deliveries
 
 with workflow.unsafe.imports_passed_through():
+    from posthog.temporal.common.utils import close_db_connections
+
     from products.alerts_platform.backend.facade.contracts import (
         SourceBatchEvaluation,
         SourceEvaluationInputs,
@@ -29,19 +31,16 @@ RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
 
 
 @activity.defn
-async def evaluate_appearance_alerts_activity(inputs: SourceEvaluationInputs) -> SourceBatchEvaluation:
+@close_db_connections
+def evaluate_appearance_alerts_activity(inputs: SourceEvaluationInputs) -> SourceBatchEvaluation:
+    """Sync, so the thread this blocks is a slot the worker's activity executor accounts for."""
     # Imported in the body, because the workflow below makes this module load inside Temporal's
     # sandbox, which refuses a Django model import.
-    from posthog.sync import database_sync_to_async_pool  # noqa: PLC0415
-
     from products.alerts_platform.backend.logic.appearance import evaluate_appearance_batch  # noqa: PLC0415
 
-    def _evaluate() -> SourceBatchEvaluation:
-        return evaluate_appearance_batch(
-            inputs.source, inputs.batch_key.team_id, inputs.batch_key.slot, dt.datetime.fromisoformat(inputs.cutoff)
-        )
-
-    return await database_sync_to_async_pool(_evaluate)()
+    return evaluate_appearance_batch(
+        inputs.source, inputs.batch_key.team_id, inputs.batch_key.slot, dt.datetime.fromisoformat(inputs.cutoff)
+    )
 
 
 @workflow.defn(name=APPEARANCE_WORKFLOW_NAME)
