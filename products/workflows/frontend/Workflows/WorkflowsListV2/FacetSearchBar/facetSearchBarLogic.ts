@@ -591,9 +591,9 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
             }
         },
         removeFilter: ({ filter }) => {
-            const removed = facetFilterKey(filter)
+            const removed = facetFilterKey(filter, props.facets)
             props.onChange({
-                filters: props.value.filters.filter((f) => facetFilterKey(f) !== removed),
+                filters: props.value.filters.filter((f) => facetFilterKey(f, props.facets) !== removed),
                 text: props.value.text,
             })
             reportFilterChange(props.id, 'removed', filter, 'remove button')

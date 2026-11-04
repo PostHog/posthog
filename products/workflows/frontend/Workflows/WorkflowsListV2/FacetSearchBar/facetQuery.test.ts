@@ -54,6 +54,18 @@ describe('facetQuery', () => {
         expect(parseFacetQuery(query, FACETS)).toEqual(filters)
     })
 
+    it('keeps pills that differ only in case when their facet tells cases apart', () => {
+        const facets = [
+            ...FACETS,
+            { key: 'folder', label: 'Folder', description: 'Exact folder', caseSensitive: true, getValues: () => [] },
+        ]
+        expect(parseFacetQuery('folder:Billing folder:billing status:Active status:active', facets)).toEqual([
+            { facet: 'folder', value: 'Billing', negated: false },
+            { facet: 'folder', value: 'billing', negated: false },
+            { facet: 'status', value: 'Active', negated: false },
+        ])
+    })
+
     it.each([
         'status:active',
         '-status:archived status:draft',

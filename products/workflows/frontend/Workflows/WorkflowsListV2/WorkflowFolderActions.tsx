@@ -53,9 +53,14 @@ export function WorkflowFolderActions({ path, count }: { path: string; count: nu
                                             ? 'Give the folder a name'
                                             : next.includes('/')
                                               ? 'Folder names cannot contain /'
-                                              : next.trim() !== name &&
-                                                  folderPaths.includes(
-                                                      joinPath([...splitPath(parentPath(path)), next.trim()])
+                                              : next.trim().toLowerCase() !== name.toLowerCase() &&
+                                                  folderPaths.some(
+                                                      (folder) =>
+                                                          folder.toLowerCase() ===
+                                                          joinPath([
+                                                              ...splitPath(parentPath(path)),
+                                                              next.trim(),
+                                                          ]).toLowerCase()
                                                   )
                                                 ? 'A folder with this name already exists'
                                                 : undefined,

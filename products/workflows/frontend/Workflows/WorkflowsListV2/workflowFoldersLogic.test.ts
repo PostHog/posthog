@@ -460,6 +460,24 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderRows).toEqual([])
     })
 
+    it('replaces the open folder when a second folder pill is added', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setValue({
+            filters: [
+                { facet: 'in', value: 'Billing', negated: false },
+                { facet: 'status', value: 'archived', negated: true },
+                { facet: 'in', value: 'Billing/Cards', negated: false },
+            ],
+            text: '',
+        })
+        expect(workflowsListV2Logic.values.value.filters).toEqual([
+            { facet: 'status', value: 'archived', negated: true },
+            { facet: 'in', value: 'Billing/Cards', negated: false },
+        ])
+        expect(logic.values.currentFolder).toBe('Billing/Cards')
+        expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[1].id])
+    })
+
     it('groups descendant matches by folder before sorting names', async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.setValue({

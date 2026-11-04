@@ -59,14 +59,16 @@ export function normalizeFacetValue<TItem>(facet: FacetDefinition<TItem>, value:
     return facet.normalizeValue ? facet.normalizeValue(value) : value
 }
 
-export function facetFilterKey(filter: FacetFilter): string {
-    return `${filter.negated ? '-' : ''}${filter.facet}:${filter.facet === 'in' ? filter.value : filter.value.toLowerCase()}`
+/** Identifies a pill, so two pills only differ in case when their facet tells cases apart. */
+export function facetFilterKey<TItem>(filter: FacetFilter, facets: FacetDefinition<TItem>[]): string {
+    const value = findFacet(facets, filter.facet)?.caseSensitive ? filter.value : filter.value.toLowerCase()
+    return `${filter.negated ? '-' : ''}${filter.facet}:${value}`
 }
 
 /** Compares the values the pills match, so a creator name and that creator's uuid are the same pill. */
 export function resolvedFacetFilterKey<TItem>(facets: FacetDefinition<TItem>[], filter: FacetFilter): string {
     const facet = findFacet(facets, filter.facet)
-    return facetFilterKey({ ...filter, value: facet?.resolveValue?.(filter.value) ?? filter.value })
+    return facetFilterKey({ ...filter, value: facet?.resolveValue?.(filter.value) ?? filter.value }, facets)
 }
 
 const TOKEN = /(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"|(\S*))/y
@@ -103,7 +105,7 @@ export function parseFacetQuery<TItem>(query: string, facets: FacetDefinition<TI
             continue
         }
         const filter = { facet: facet.key, value, negated: match[1] === '-' }
-        const key = facetFilterKey(filter)
+        const key = facetFilterKey(filter, facets)
         if (!seen.has(key)) {
             seen.add(key)
             filters.push(filter)

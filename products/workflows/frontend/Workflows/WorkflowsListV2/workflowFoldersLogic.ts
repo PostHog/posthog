@@ -838,6 +838,19 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 actions.loadBrowser()
             }
         },
+        setValue: ({ value }) => {
+            const scopes = value.filters.filter((filter) => filter.facet === 'in' && !filter.negated)
+            if (values.projectFilesEnabled && scopes.length > 1) {
+                // The view opens one folder, so a newer folder pill replaces the older one.
+                const newest = scopes[scopes.length - 1]
+                actions.setValue({
+                    ...value,
+                    filters: value.filters.filter(
+                        (filter) => filter.facet !== 'in' || filter.negated || filter === newest
+                    ),
+                })
+            }
+        },
         openFolder: ({ folder }) => {
             actions.setValue({
                 ...values.value,
