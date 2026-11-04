@@ -338,6 +338,15 @@ def iter_parquet_tables(
             yield parquet_file.schema_arrow.empty_table()
     except pa.ArrowInvalid as e:
         raise ObjectStorageError(f"{FILE_PARSE_ERROR} '{file_path}' as Parquet: {e}") from e
+    except OSError as e:
+        # pyarrow's own Parquet decoder raises a bare OSError (pyarrow.ArrowIOError is an alias for
+        # it) for a corrupt or malformed file, e.g. a data page whose block structure fails its
+        # internal validation. A failure reading the underlying stream keeps its own specific
+        # OSError subclass (ConnectionError, TimeoutError, ...) instead, so only the exact base
+        # type means the file itself is bad rather than a transient read.
+        if type(e) is not OSError:
+            raise
+        raise ObjectStorageError(f"{FILE_PARSE_ERROR} '{file_path}' as Parquet: {e}") from e
 
 
 def with_file_columns(table: pa.Table, stored: StoredObject, first_row_number: int = 0) -> pa.Table:

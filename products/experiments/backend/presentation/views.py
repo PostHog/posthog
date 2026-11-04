@@ -1080,10 +1080,14 @@ class EnterpriseExperimentsViewSet(
         `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
         history gets the warning, because the pause is not read. A draft whose flag is already
         active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
-        An ended experiment whose flag is still active with multiple variants gets
-        `ended_but_multiple_variants_rolled_out` as a warning, or `ended_flag_not_called` as info
-        when the flag's `last_called_at` shows no call in the 3 days after the end. The info waits
-        an extra hour, because `last_called_at` trails a call.
+        An ended experiment whose flag is still active with multiple variants gets no finding when
+        another experiment on the flag is running or launched after the end. Otherwise it gets
+        `ended_flag_shared_with_draft` as info when a draft experiment uses the flag,
+        `ended_but_multiple_variants_rolled_out` as a warning when the flag's `last_called_at` is
+        after the end and within the last 3 days, and `ended_flag_not_called` as info when it is
+        not, from 3 days and an hour after the end, because `last_called_at` trails a call. Until
+        then without such a call, or when the organization's flag calls can't be read, it gets
+        `ended_flag_calls_unknown` as info.
 
         A running experiment whose first primary metric is a funnel gets the info
         `early_significance` (subcode `below_detectable_effect`) when a significant variant's
@@ -1570,10 +1574,11 @@ class EnterpriseExperimentsViewSet(
                 type=str,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Fingerprint of the metric configuration. Available alongside metric_uuid on "
-                    "each metric in the experiment's metrics array."
+                    "Ignored. The server derives the metric's calculation key from the experiment's current "
+                    "settings. Accepted so that existing clients keep working."
                 ),
-                required=True,
+                required=False,
+                deprecated=True,
             ),
         ],
     )
@@ -1581,30 +1586,26 @@ class EnterpriseExperimentsViewSet(
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()
         metric_uuid = request.query_params.get("metric_uuid")
-        fingerprint = request.query_params.get("fingerprint")
 
         if not metric_uuid:
             raise ValidationError("metric_uuid query parameter is required")
-        if not fingerprint:
-            raise ValidationError("fingerprint query parameter is required")
 
         service = ExperimentService(team=self.team, user=request.user)
-        return Response(service.get_timeseries_results(experiment, metric_uuid=metric_uuid, fingerprint=fingerprint))
+        return Response(service.get_timeseries_results(experiment, metric_uuid=metric_uuid))
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def recalculate_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()
 
+        # Only the metric's uuid is read, and a `fingerprint` in the body is ignored: the service derives the
+        # definition and the key from the experiment.
         metric = request.data.get("metric")
-        fingerprint = request.data.get("fingerprint")
 
-        if not metric:
+        if not isinstance(metric, dict) or not metric:
             raise ValidationError("metric is required")
-        if not fingerprint:
-            raise ValidationError("fingerprint is required")
 
         service = ExperimentService(team=self.team, user=request.user)
-        result = service.request_timeseries_recalculation(experiment, metric=metric, fingerprint=fingerprint)
+        result = service.request_timeseries_recalculation(experiment, metric_uuid=metric.get("uuid") or "")
         is_existing = result.pop("is_existing", False)
 
         if not is_existing:

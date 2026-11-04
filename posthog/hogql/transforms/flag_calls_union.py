@@ -312,6 +312,15 @@ _MATCH_PASSES = {
 }
 
 
+def _compares_like_clickhouse(values: list[object]) -> bool:
+    """Whether Python and ClickHouse agree on how these constants compare.
+
+    ClickHouse converts mixed types before it compares (`1 IN ('1')` is true), which Python does not.
+    NULL and floats are neither str nor int, so they never fold.
+    """
+    return any(all(isinstance(value, kind) for value in values) for kind in (str, int))
+
+
 def _fold(expr: ast.Expr) -> ast.Expr:
     """`expr` with comparisons of constants, and the AND, OR, NOT and `if` they decide, replaced by their value."""
     if (parts := boolean_operands(expr, ast.And)) is not None:
@@ -342,12 +351,12 @@ def _fold(expr: ast.Expr) -> ast.Expr:
         return expr
     op, left, right = compared.op, _fold(compared.left), _fold(compared.right)
     values = right.exprs if isinstance(right, (ast.Tuple, ast.Array)) else [right]
-    constants = [value.value for value in values if isinstance(value, ast.Constant) and value.value is not None]
+    constants = [value.value for value in values if isinstance(value, ast.Constant)]
     if (
         op in _MATCH_PASSES
         and isinstance(left, ast.Constant)
-        and left.value is not None
         and len(constants) == len(values)
+        and _compares_like_clickhouse([left.value, *constants])
         and (len(values) == 1 or op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn))
     ):
         return ast.Constant(value=(left.value in constants) == _MATCH_PASSES[op])
@@ -532,11 +541,12 @@ class _UnionChainCollector(SyntaxVisitor):
         if read is not None:
             chain = read[1]
             self.chains.append(chain)
-            if isinstance(node.type, ast.FieldType):
-                # Lazy table resolution names a whole-field read after the field, whichever table the field is on.
-                first = self.exports.setdefault((id(self._select), node.type.name), chain)
-                if first != chain and self.export_collision is None:
-                    self.export_collision = (first, chain)
+            # Lazy table resolution names a whole-field read after the field, whichever table the field is on.
+            # It names a property read by joining the path with `___`, so `a.b` and `a___b` share a name.
+            name = node.type.name if isinstance(node.type, ast.FieldType) else "___".join(str(link) for link in chain)
+            first = self.exports.setdefault((id(self._select), name), chain)
+            if first != chain and self.export_collision is None:
+                self.export_collision = (first, chain)
             return
         field_type = node.type.field_type if isinstance(node.type, ast.PropertyType) else node.type
         if not isinstance(field_type, ast.FieldType):

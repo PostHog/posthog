@@ -26,6 +26,7 @@ from .auth_types import (
     register_kind_auth_types,
 )
 from .aws import (
+    AnyRedshiftIntegration,
     AWSCredentialsIntegration,
     AWSRedshiftIntegration,
     AWSRedshiftRoleBasedIntegration,
@@ -33,8 +34,12 @@ from .aws import (
     AWSS3Integration,
     AWSS3RoleBasedIntegration,
     DuplicateNameError,
+    RedshiftProvisionedCluster,
+    RedshiftServerlessWorkgroup,
     S3CompatibleIntegration,
     is_unique_aws_role_by_organization_id,
+    parse_redshift_host,
+    redshift_integration_from_record,
     validate_aws_credentials,
 )
 from .azure_blob import AzureBlobIntegration, AzureBlobIntegrationError
@@ -81,6 +86,8 @@ from .linear import LinearIntegration, LinearIntegrationError, LinearRateLimited
 from .linkedin_ads import LinkedInAdsIntegration
 from .meta import InstagramIntegration, MetaAdsIntegration, MetaGraphIntegration
 from .model import (
+    PUBLIC_INTEGRATION_KIND_CHOICES,
+    WAREHOUSE_SOURCE_TYPE_CONFIG_KEY,
     Integration,
     IntegrationModelManager,
     IntegrationQuerySet,
@@ -207,6 +214,8 @@ __all__ = [
     "OauthClientCredentials",
     "OauthConfig",
     "POSTHOG_SLACK_SCOPE",
+    "PUBLIC_INTEGRATION_KIND_CHOICES",
+    "WAREHOUSE_SOURCE_TYPE_CONFIG_KEY",
     "OAUTH_CLIENT_CREDENTIAL_KEYS",
     "SALESFORCE_OAUTH_KINDS",
     "POSTHOG_CONNECT_KIND",
@@ -282,6 +291,11 @@ __all__ = [
     "AWSCredentialsIntegration",
     "AWSS3Integration",
     "AWSRedshiftIntegration",
+    "AnyRedshiftIntegration",
+    "RedshiftProvisionedCluster",
+    "RedshiftServerlessWorkgroup",
+    "parse_redshift_host",
+    "redshift_integration_from_record",
     "S3CompatibleIntegration",
     "STRIPE_POSTHOG_SECRET_NAMES",
     "StripeIntegration",

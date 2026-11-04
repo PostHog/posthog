@@ -39,9 +39,9 @@ from products.warehouse_sources.backend.facade.source_management import (
     PostgresSource,
     SQLSource,
     build_default_sync_settings,
+    known_source_key,
     new_source_requires_ssl,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     FULL_REFRESH_TIME_OF_DAY_HELP_TEXT,
     ExternalDataSchemaSerializer,
@@ -124,6 +124,16 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
         allow_null=True,
         allow_empty=True,
         help_text="Columns to sync. Null means sync all columns.",
+    )
+    masked_columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        allow_empty=True,
+        help_text=(
+            "Columns whose values are replaced with a one-way digest at sync time. Null means mask nothing. "
+            "Any change starts a full resync of the table."
+        ),
     )
     row_filters = RowFiltersField(
         required=False,
@@ -223,7 +233,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             )
         source: AnySource | None = None
         try:
-            source_type = ExternalDataSourceType(instance.source_type)
+            source_type = known_source_key(instance.source_type)
             source = base.SourceRegistry.get_source(source_type)
             config = source.parse_config(source_inputs)
             # Explicit user action — bypass any cached schema discovery so newly added
@@ -365,7 +375,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             return secret_ref_response
 
         try:
-            source_type_model = ExternalDataSourceType(source_type)
+            source_type_model = known_source_key(source_type)
         except ValueError:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -508,7 +518,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         names = [source_schemas_by_id[schema_update["id"]].name for schema_update in needing_defaults]
         source_impl: AnySource | None = None
         try:
-            source_impl = base.SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+            source_impl = base.SourceRegistry.get_source(source.source_type)
             config = source_impl.parse_config(SourceInputsStore.load(source))
             discovered = source_impl.get_schemas(
                 config,

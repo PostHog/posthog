@@ -53,6 +53,7 @@ from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
+from posthog.models.workload_trust_policy import WorkloadTrustPolicy
 from posthog.session.activity import session_activity_credential
 from posthog.session.models import Session
 from posthog.utils import get_ip_address, get_short_user_agent
@@ -490,6 +491,35 @@ def handle_oauth_application_scopes_change(
                 is_dcr_client=application.is_dcr_client,
                 is_first_party=application.is_first_party,
             ),
+        ),
+    )
+
+
+@mutable_receiver(model_activity_signal, sender=WorkloadTrustPolicy)
+def handle_workload_trust_policy_change(
+    sender: type[WorkloadTrustPolicy],
+    scope: ActivityScope,
+    before_update: WorkloadTrustPolicy | None,
+    after_update: WorkloadTrustPolicy | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool = False,
+    **kwargs,
+) -> None:
+    policy = after_update or before_update
+    if policy is None:
+        return
+    log_activity(
+        organization_id=policy.team.organization_id,
+        team_id=policy.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=policy.pk,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            name=policy.name,
+            changes=changes_between(scope, previous=before_update, current=after_update),
         ),
     )
 

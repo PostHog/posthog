@@ -29,7 +29,7 @@ export const HogFlowsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.'
+            'Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, partially_sent, failed, archived. Scheduled, sending, sent, partially_sent and failed come from the latest run and whether a schedule still has sends to come. A latest run that is completed reads as sent, partially_failed as partially_sent, and failed or cancelled as failed. With a schedule still to come, a completed or partially_failed latest run reads as scheduled.'
         ),
     created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.string().optional().describe('Filter to workflows created by the user with this uuid.'),
@@ -38,9 +38,15 @@ export const HogFlowsListQueryParams = () => zod.object({
         .boolean()
         .optional()
         .describe(
-            "Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last."
+            "Pass `true` to order by when each workflow's newest completed or partially_failed run finished, newest first. Workflows that never finished such a run come last."
         ),
     limit: zod.number().max(hogFlowsListQueryLimitMax).optional().describe('Number of results to return per page.'),
+    name: zod
+        .string()
+        .optional()
+        .describe(
+            'Only workflows whose name contains this text, ignoring case. Unlike `search`, it never reads descriptions, tags or step content.'
+        ),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     optimization_enabled: zod.boolean().optional().describe('Only workflows someone turned suggestions on for.'),
     origin_product: zod
@@ -139,15 +145,15 @@ export const HogFlowsCreateBody = () => zod
         origin_product: zod
             .union([
                 zod
-                    .enum(['loops', 'broadcasts', 'transactional_emails'])
+                    .enum(['loops', 'broadcasts', 'transactional_emails', 'transactional_email_keys'])
                     .describe(
-                        '\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
+                        '\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys'
             ),
         source_record: zod
             .string()
@@ -1108,8 +1114,20 @@ export const HogFlowsMetricsRetrieveQueryParams = () => zod.object({
         .describe(
             "Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.\n\n\* `hour` - hour\n\* `day` - day\n\* `week` - week"
         ),
-    kind: zod.string().min(1).optional().describe("Comma-separated metric kinds to filter by, e.g. 'success,failure'."),
-    name: zod.string().min(1).optional().describe('Comma-separated metric names to filter by.'),
+    kind: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows."
+        ),
+    name: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.'
+        ),
 })
 
 /**
@@ -1154,8 +1172,20 @@ export const HogFlowsMetricsVersionRetrieveQueryParams = () => zod.object({
         .describe(
             "Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.\n\n\* `hour` - hour\n\* `day` - day\n\* `week` - week"
         ),
-    kind: zod.string().min(1).optional().describe("Comma-separated metric kinds to filter by, e.g. 'success,failure'."),
-    name: zod.string().min(1).optional().describe('Comma-separated metric names to filter by.'),
+    kind: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows."
+        ),
+    name: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.'
+        ),
     version: zod
         .number()
         .describe(
@@ -1631,6 +1661,8 @@ export const workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapMaxMessag
 
 export const workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapWindowDaysMax = 30
 
+export const workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapHoldHoursMax = 168
+
 export const WorkflowSendingRulesPartialUpdateBody = () => zod.object({
     expected_project_id: zod
         .number()
@@ -1653,6 +1685,14 @@ export const WorkflowSendingRulesPartialUpdateBody = () => zod.object({
         .nullish()
         .describe(
             'The length of the rolling frequency cap window, in days. Set it together with marketing_frequency_cap_max_messages, or set both to null to turn the cap off.'
+        ),
+    marketing_frequency_cap_hold_hours: zod
+        .number()
+        .min(1)
+        .max(workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapHoldHoursMax)
+        .nullish()
+        .describe(
+            "How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away. A held message sends as soon as one of the person's earlier messages leaves the window."
         ),
     email_tracking_consent_mode: zod
         .enum(['off', 'opt_out', 'opt_in'])

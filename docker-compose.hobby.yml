@@ -319,10 +319,10 @@ services:
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
-            # Both must resolve to the same values as on the web, worker and temporal-django-worker
-            # services. Those services sign a team-scoped token with RECORDING_API_JWT_SECRET, and
-            # this service verifies it. They also send INTERNAL_API_SECRET as X-Internal-Api-Secret,
-            # which this service still accepts in place of a token.
+            # RECORDING_API_JWT_SECRET must resolve to the same value as on the web, worker and
+            # temporal-django-worker services. Those services sign a team-scoped token with it, and
+            # this service verifies it. The recording routes accept no other credential, so this
+            # service refuses to start without the key.
             RECORDING_API_JWT_SECRET: ${RECORDING_API_JWT_SECRET:-}
             INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
         depends_on:
@@ -532,8 +532,8 @@ services:
             HEATMAP_BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED: ${HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED:-false}
             # This worker runs the recording deletion Temporal activities, which call
-            # recording-api. Without the URL and a credential the calls go out unauthenticated
-            # and recording-api rejects them with a 401.
+            # recording-api. Without the URL and RECORDING_API_JWT_SECRET, those activities fail
+            # with a configuration error.
             RECORDING_API_URL: http://recording-api:6738
             INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
             RECORDING_API_JWT_SECRET: ${RECORDING_API_JWT_SECRET:-}

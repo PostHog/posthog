@@ -63,7 +63,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     EnrichTableSemanticsInputs,
     EnrichTableSemanticsWorkflow,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 
@@ -185,7 +184,7 @@ def _data_quality_gate(gate: PostImportGateContext) -> bool:
 
 def _source_cleanup_gate(gate: PostImportGateContext) -> bool:
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(gate.source_type))
+        source = SourceRegistry.get_source(gate.source_type)
     except (KeyError, ValueError):
         return False
     return source.has_cleanup_after_sync(gate.schema.source) is True
@@ -200,7 +199,7 @@ def cleanup_source_after_sync_activity(inputs: PostImportWorkflowInputs) -> None
     if job is None or job.pipeline.deleted:
         return
     source_model = job.pipeline
-    SourceRegistry.get_source(ExternalDataSourceType(source_model.source_type)).cleanup_after_sync(source_model, job)
+    SourceRegistry.get_source(source_model.source_type).cleanup_after_sync(source_model, job)
 
 
 async def _start_emit_signals(inputs: PostImportWorkflowInputs, ctx: PostImportContext) -> None:

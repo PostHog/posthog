@@ -207,6 +207,7 @@ export interface taskTrackerSceneLogicValues {
     composerOverride: ComposerOverride | null // composerOverrideLogic
     seed: ComposerSeed | null // composerSeedLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    githubIntegrations: IntegrationType[] // integrationsLogic
     integrations: IntegrationType[] | null // integrationsLogic
     catalogue: ModelChoiceApi[] // modelCatalogueLogic
     currentProjectId: number | null // projectLogic
@@ -524,7 +525,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             tasksLogic,
             ['tasks', 'repositories', 'taskListParams'],
             integrationsLogic,
-            ['integrations'],
+            ['integrations', 'githubIntegrations'],
             attachedContextLogic,
             ['contextItems'],
             aiConsentLogic,
@@ -937,7 +938,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             if (values.newTaskData.repositoryConfig.integrationId) {
                 return
             }
-            const githubIntegrations = values.integrations?.filter((integration) => integration.kind === 'github') ?? []
+            const githubIntegrations = values.githubIntegrations
             if (githubIntegrations.length === 0) {
                 return
             }
@@ -1301,6 +1302,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 }
                 if (error instanceof ApiError && error.code === 'warm_run_activation_unavailable') {
                     lemonToast.error("Couldn't start this run yet. Please try again.")
+                }
+                if (error instanceof ApiError && error.code === 'active_session_cap' && error.detail) {
+                    lemonToast.error(error.detail)
                 }
                 if (error instanceof CloudTargetUnresolvedError) {
                     lemonToast.error("Couldn't load your default environment. Please try again.")

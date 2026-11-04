@@ -84,6 +84,26 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "Only the project belonging to the scoped organization should be listed, the other one should be excluded",
         )
 
+    @parameterized.expand([(True,), (False,)])
+    def test_project_scoped_key_reads_organization_ai_consent(self, approved: bool) -> None:
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            secure_value=hash_key_value(personal_api_key),
+            scoped_teams=[self.team.id],
+            scopes=["project:read"],
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.project.id}/", headers={"authorization": f"Bearer {personal_api_key}"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIs(response.json()["is_ai_data_processing_approved"], approved)
+
     @parameterized.expand(
         [
             ("exact_match", "Hedgebox"),

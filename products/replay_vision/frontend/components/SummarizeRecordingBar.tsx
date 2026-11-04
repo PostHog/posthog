@@ -10,7 +10,6 @@ import { playerUsesWatchLayout } from 'scenes/session-recordings/playlist/replay
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { recordingScanBlock } from '../utils/scanEligibility'
 import { SummarizeButton } from './SummarizeButton'
-import { SummarizeExplainer } from './SummarizeExplainer'
 import { useSummarizeBlockedReason } from './useSummarizeBlockedReason'
 
 export function SummarizeRecordingBar({
@@ -61,7 +60,6 @@ function SummarizeRecordingBarContent({
                 scanBlock={scanBlock}
                 inWatchLayout={playerUsesWatchLayout(replayLayout, logicProps)}
             />
-            <SummarizeExplainer />
             {extraActions}
             {/* The inline row has no room for it, and the disabled button already says why on hover. */}
             {!inline && summarizeBlockedReason && (
