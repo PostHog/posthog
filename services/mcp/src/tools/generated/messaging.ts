@@ -201,6 +201,30 @@ const optOutsRemove = (): ToolBase<ReturnType<typeof OptOutsRemoveSchema>, Schem
     },
 })
 
+const SuppressionsAddSchema = () => {
+    const MessagingSuppressionsBulkAddSuppressionsCreateBody =
+        orvalSchemas.MessagingSuppressionsBulkAddSuppressionsCreateBody()
+    return MessagingSuppressionsBulkAddSuppressionsCreateBody
+}
+
+const suppressionsAdd = (): ToolBase<ReturnType<typeof SuppressionsAddSchema>, Schemas.BulkAddSuppressionsResult> => ({
+    name: 'suppressions-add',
+    schema: SuppressionsAddSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SuppressionsAddSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.suppressions !== undefined) {
+            body['suppressions'] = params.suppressions
+        }
+        const result = await context.api.request<Schemas.BulkAddSuppressionsResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_suppressions/bulk_add_suppressions/`,
+            body,
+        })
+        return result
+    },
+})
+
 const SupabaseAuthEmailsSettingsGetSchema = () => z.object({})
 
 const supabaseAuthEmailsSettingsGet = (): ToolBase<
@@ -283,6 +307,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'opt-outs-add': optOutsAdd,
     'opt-outs-list': optOutsList,
     'opt-outs-remove': optOutsRemove,
+    'suppressions-add': suppressionsAdd,
     'supabase-auth-emails-settings-get': supabaseAuthEmailsSettingsGet,
     'supabase-auth-emails-settings-update': supabaseAuthEmailsSettingsUpdate,
     'supabase-auth-emails-starter-templates-create': supabaseAuthEmailsStarterTemplatesCreate,
