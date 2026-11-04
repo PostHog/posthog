@@ -30,6 +30,11 @@ export interface FilterOption<Value extends string = string> {
     hint?: string
 }
 
+export interface FilterMenuOpenTiming {
+    durationMs: number
+    optionCount: number
+}
+
 /** What a filter row shows for several values: the default, up to two labels, or a count, such as "3 tags". */
 export function filterSummary(labels: string[], allLabel: string, pluralNoun: string): string {
     if (labels.length === 0) {
@@ -139,6 +144,71 @@ export function FilterRadioSubMenu<Value extends string>({
     )
 }
 
+/** The row for "all of them", the empty selection. */
+function FilterAllRow({
+    label,
+    icon,
+    checked,
+    onSelect,
+    dataAttr,
+}: {
+    label: string
+    icon?: React.ReactNode
+    checked: boolean
+    onSelect: () => void
+    dataAttr?: string
+}): React.ReactElement {
+    return (
+        <DropdownMenuCheckboxItem
+            label={label}
+            checked={checked}
+            closeOnClick={false}
+            onCheckedChange={onSelect}
+            title={label}
+            data-attr={dataAttr}
+        >
+            {icon}
+            <span className="truncate">{label}</span>
+        </DropdownMenuCheckboxItem>
+    )
+}
+
+function FilterOptionRows<Value extends string>({
+    options,
+    selected,
+    onChange,
+    dataAttr,
+}: {
+    options: readonly FilterOption<Value>[]
+    selected: readonly Value[]
+    onChange: (selected: Value[]) => void
+    dataAttr?: string
+}): React.ReactElement {
+    return (
+        <>
+            {options.map((option) => (
+                <DropdownMenuCheckboxItem
+                    key={option.value}
+                    label={option.label}
+                    checked={selected.includes(option.value)}
+                    closeOnClick={false}
+                    onCheckedChange={(checked) =>
+                        onChange(
+                            checked ? [...selected, option.value] : selected.filter((value) => value !== option.value)
+                        )
+                    }
+                    title={option.label}
+                    data-attr={dataAttr}
+                >
+                    {option.icon}
+                    <span className="truncate">{option.label}</span>
+                    {option.hint && <span className="ml-auto text-xs text-muted-foreground">{option.hint}</span>}
+                </DropdownMenuCheckboxItem>
+            ))}
+        </>
+    )
+}
+
 /** A filter with several choices from a short list. An empty selection means all of them. */
 export function FilterCheckboxSubMenu<Value extends string>({
     label,
@@ -169,32 +239,15 @@ export function FilterCheckboxSubMenu<Value extends string>({
             active={selected.length > 0}
             dataAttr={dataAttr}
         >
-            <DropdownMenuCheckboxItem
+            <FilterAllRow
+                label={allLabel}
+                icon={allIcon}
                 checked={selected.length === 0}
-                closeOnClick={false}
-                onCheckedChange={() => onChange([])}
-                data-attr={optionDataAttr}
-            >
-                {allIcon}
-                {allLabel}
-            </DropdownMenuCheckboxItem>
+                onSelect={() => onChange([])}
+                dataAttr={optionDataAttr}
+            />
             <DropdownMenuSeparator />
-            {options.map((option) => (
-                <DropdownMenuCheckboxItem
-                    key={option.value}
-                    checked={selected.includes(option.value)}
-                    closeOnClick={false}
-                    onCheckedChange={(checked) =>
-                        onChange(
-                            checked ? [...selected, option.value] : selected.filter((value) => value !== option.value)
-                        )
-                    }
-                    data-attr={optionDataAttr}
-                >
-                    {option.icon}
-                    {option.label}
-                </DropdownMenuCheckboxItem>
-            ))}
+            <FilterOptionRows options={options} selected={selected} onChange={onChange} dataAttr={optionDataAttr} />
         </FilterSubMenu>
     )
 }
@@ -226,11 +279,15 @@ export function FilterSearchSubMenu({
     emptyText: string
     /** Called when the submenu opens, to load its options only once someone wants them. */
     onOpen?: () => void
-    /** Called once the open submenu has painted, with how long that took in milliseconds. Every row stays mounted, so this grows with the list. */
-    onOpened?: (durationMs: number) => void
+    /** Called once the open submenu has painted, with how long that took and how many options it listed. */
+    onOpened?: (timing: FilterMenuOpenTiming) => void
     dataAttr?: string
     optionDataAttr?: string
 }): React.ReactElement {
+    // Values the options do not know yet, such as a tag from the URL before the list loads, still count as picked.
+    const unknown = selected.filter((value) => !options.some((option) => option.value === value))
+    const known: FilterOption[] = [...options, ...unknown.map((value) => ({ value, label: value }))]
+    const picked = known.filter((option) => selected.includes(option.value))
     const handleOpenChange = (open: boolean): void => {
         if (!open) {
             return
@@ -239,13 +296,13 @@ export function FilterSearchSubMenu({
         if (onOpened) {
             const startedAt = performance.now()
             // The first frame runs after the rows have rendered, and the second after they have painted.
-            requestAnimationFrame(() => requestAnimationFrame(() => onOpened(performance.now() - startedAt)))
+            requestAnimationFrame(() =>
+                requestAnimationFrame(() =>
+                    onOpened({ durationMs: performance.now() - startedAt, optionCount: known.length })
+                )
+            )
         }
     }
-    // Values the options do not know yet, such as a tag from the URL before the list loads, still count as picked.
-    const unknown = selected.filter((value) => !options.some((option) => option.value === value))
-    const known: FilterOption[] = [...options, ...unknown.map((value) => ({ value, label: value }))]
-    const picked = known.filter((option) => selected.includes(option.value))
     return (
         <DropdownMenuFilterProvider autoHighlight>
             <DropdownMenuSub onOpenChange={handleOpenChange}>
@@ -265,39 +322,18 @@ export function FilterSearchSubMenu({
                     <DropdownMenuInput autoFocus placeholder={searchPlaceholder} aria-label={searchPlaceholder} />
                     <DropdownMenuEmpty>{emptyText}</DropdownMenuEmpty>
                     <DropdownMenuList>
-                        <DropdownMenuCheckboxItem
+                        <FilterAllRow
                             label={allLabel}
                             checked={selected.length === 0}
-                            closeOnClick={false}
-                            onCheckedChange={() => onChange([])}
-                            title={allLabel}
-                            data-attr={optionDataAttr}
-                        >
-                            <span className="truncate">{allLabel}</span>
-                        </DropdownMenuCheckboxItem>
-                        {known.map((option) => (
-                            <DropdownMenuCheckboxItem
-                                key={option.value}
-                                label={option.label}
-                                checked={selected.includes(option.value)}
-                                closeOnClick={false}
-                                onCheckedChange={(checked) =>
-                                    onChange(
-                                        checked
-                                            ? [...selected, option.value]
-                                            : selected.filter((value) => value !== option.value)
-                                    )
-                                }
-                                title={option.label}
-                                data-attr={optionDataAttr}
-                            >
-                                {option.icon}
-                                <span className="truncate">{option.label}</span>
-                                {option.hint && (
-                                    <span className="ml-auto text-xs text-muted-foreground">{option.hint}</span>
-                                )}
-                            </DropdownMenuCheckboxItem>
-                        ))}
+                            onSelect={() => onChange([])}
+                            dataAttr={optionDataAttr}
+                        />
+                        <FilterOptionRows
+                            options={known}
+                            selected={selected}
+                            onChange={onChange}
+                            dataAttr={optionDataAttr}
+                        />
                     </DropdownMenuList>
                     {loading && <div className="p-2 text-xs text-muted-foreground">Loading…</div>}
                 </DropdownMenuSubContent>

@@ -96,7 +96,7 @@ describe('FilterSearchSubMenu', () => {
         })
 
         await waitFor(() => expect(onOpened).toHaveBeenCalledTimes(1))
-        expect(onOpened).toHaveBeenCalledWith(expect.any(Number))
+        expect(onOpened).toHaveBeenCalledWith({ durationMs: expect.any(Number), optionCount: 0 })
     })
 
     it('adds a picked row to the selection and keeps the menu open', async () => {

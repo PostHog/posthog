@@ -87,7 +87,7 @@ Rules:
 
 - One choice → `FilterRadioSubMenu`. Several from a short list → `FilterCheckboxSubMenu`. Several from a long list → `FilterSearchSubMenu`.
 - An empty selection means all of them. Pass `defaultValue` on a radio filter so that a change takes the primary color. Leave it out on a row that isn't a filter, such as a sort.
-- To measure a long list, pass `onOpened` to `FilterSearchSubMenu`. It reports how long the submenu took to paint, because every row stays mounted.
+- To measure a long list, pass `onOpened` to `FilterSearchSubMenu`. It reports how long the submenu took to paint and how many options it listed, because every row stays mounted.
 - `active` covers filters only. A sort, a display choice or the search text never lights the dot.
 
 ## DateTimePicker

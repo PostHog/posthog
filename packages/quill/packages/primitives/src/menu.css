@@ -61,21 +61,22 @@
     }
 
     .quill-menu__content[data-flush] .quill-menu__scroller {
+        display: flex;
+        flex-direction: column;
+        max-height: min(calc(var(--spacing, 0.25rem) * 72), var(--available-height));
         padding: 0;
         overflow: hidden;
     }
 
     .quill-menu__input {
+        flex-shrink: 0;
         padding: 0.25rem;
+        border-bottom: 1px solid var(--border);
     }
 
-    /* A filterable menu's rows scroll under its search field, which takes 2.25rem. */
     .quill-menu__list {
+        flex: 1;
         min-height: 0;
-        max-height: min(
-            calc(var(--spacing, 0.25rem) * 72 - var(--spacing, 0.25rem) * 9),
-            calc(var(--available-height) - var(--spacing, 0.25rem) * 9)
-        );
         padding: 0.25rem;
         overflow-y: auto;
         overscroll-behavior: contain;

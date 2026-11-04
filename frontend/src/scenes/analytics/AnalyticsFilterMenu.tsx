@@ -9,6 +9,7 @@ import {
     DropdownMenuSeparator,
     FilterCheckboxSubMenu,
     FilterClearItem,
+    FilterMenuOpenTiming,
     FilterMenuTrigger,
     FilterOption,
     FilterRadioSubMenu,
@@ -56,7 +57,10 @@ const TYPE_OPTIONS: FilterOption<AnalyticsType>[] = ANALYTICS_TYPES.map((info) =
     ),
 }))
 
-function captureFilterMenuOpened(menu: string, durationMs: number, optionCount: number): void {
+function captureFilterMenuOpened(
+    menu: 'analytics-tags' | 'analytics-created-by',
+    { durationMs, optionCount }: FilterMenuOpenTiming
+): void {
     posthog.capture('filter menu opened', {
         menu,
         duration_ms: Math.round(durationMs),
@@ -133,9 +137,7 @@ export function AnalyticsFilterMenu(): JSX.Element {
                         searchPlaceholder="Search people"
                         emptyText="No one matches"
                         onOpen={ensureAllMembersLoaded}
-                        onOpened={(durationMs) =>
-                            captureFilterMenuOpened('analytics-created-by', durationMs, meFirstMembers.length)
-                        }
+                        onOpened={(timing) => captureFilterMenuOpened('analytics-created-by', timing)}
                         dataAttr="analytics-list-created-by"
                         optionDataAttr="analytics-list-created-by-option"
                     />
@@ -151,7 +153,7 @@ export function AnalyticsFilterMenu(): JSX.Element {
                     searchPlaceholder="Search tags"
                     emptyText="No tag matches"
                     onOpen={loadTagsIfNeeded}
-                    onOpened={(durationMs) => captureFilterMenuOpened('analytics-tags', durationMs, allTags.length)}
+                    onOpened={(timing) => captureFilterMenuOpened('analytics-tags', timing)}
                     dataAttr="analytics-list-tags"
                     optionDataAttr="analytics-list-tags-option"
                 />
