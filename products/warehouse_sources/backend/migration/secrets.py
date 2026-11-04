@@ -18,6 +18,8 @@ _SECRET_KEY_PARTS = (
     "privatekey",
     "keystore",
     "truststore",
+    # `auth`, `dsv_service_auth`, `shard_authorization_id`, `serviceauthentication`.
+    "auth",
 )
 # Secret fields whose names fit no rule above (GitHub personal access tokens, Alchemer's API key,
 # Open Exchange Rates' app id).
@@ -40,13 +42,11 @@ _NOT_IN_PARAM_NAME = re.compile(r"[#\s]")
 
 def is_secret_key(key: str) -> bool:
     normalized = re.sub(r"[_\-]", "", key.lower())
-    tokens = {token.lower() for token in _KEY_TOKEN_SPLIT.split(key)}
-    # A name part that starts with "auth" names a credential: `auth`, `dsv_service_auth`, `shard_authorization_id`.
-    if normalized in _SECRET_KEYS or any(token.startswith("auth") for token in tokens):
+    if normalized in _SECRET_KEYS:
         return True
     if _KEY_SUFFIX.search(normalized) and normalized not in _NON_SECRET_KEYS:
         return True
-    if "cert" in normalized and not _CA_TOKENS & tokens:
+    if "cert" in normalized and not _CA_TOKENS & {token.lower() for token in _KEY_TOKEN_SPLIT.split(key)}:
         return True
     return any(part in normalized for part in _SECRET_KEY_PARTS)
 
