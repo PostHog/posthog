@@ -641,6 +641,8 @@ def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: Snap
         ("toTypeName(user_id)", "TRINO_FUNCTION_UNSUPPORTED"),
         ("bitNot(id)", "TRINO_FUNCTION_UNSUPPORTED"),
         ("range(1, 10, id)", "TRINO_RANGE_STEP_UNSUPPORTED"),
+        ("JSONExtractKeysAndValues(properties, 'Array(Float64)')", "TRINO_JSON_TARGET_TYPE_UNSUPPORTED"),
+        ("JSONExtractKeysAndValues(properties, user_id, 'Float64')", "TRINO_JSON_DYNAMIC_PATH_UNSUPPORTED"),
     ],
 )
 def test_rejects_unsupported_printer_function_variants(expression: str, feature_code: str) -> None:
@@ -2091,7 +2093,21 @@ def test_rejects_with_fill_before_printing_invalid_trino_sql() -> None:
         ("date_part('year', created_at)", 'EXTRACT(YEAR FROM "users"."created_at")'),
         (
             "JSONExtractKeysAndValues(properties, 'Float64')",
-            'map_entries(transform_values(CAST(json_extract("users"."properties", \'$\') AS MAP(VARCHAR, JSON))',
+            'map_entries(CAST(json_parse(CAST("users"."properties" AS VARCHAR)) AS MAP(VARCHAR, JSON)))',
+        ),
+        # ClickHouse reads 'Float' as Float32 and 'Int' as Int32.
+        (
+            "JSONExtractKeysAndValues(properties, 'Float')",
+            "CAST(ARRAY[] AS ARRAY(ROW(VARCHAR, REAL)))",
+        ),
+        (
+            "JSONExtractKeysAndValues(properties, 'metrics', 'Int')",
+            "CAST(ARRAY[] AS ARRAY(ROW(VARCHAR, INTEGER)))",
+        ),
+        # A Nullable type keeps a JSON null as a NULL value instead of dropping the key.
+        (
+            "JSONExtractKeysAndValues(properties, 'Nullable(UInt8)')",
+            "__hogql_json_entry.v IS NOT NULL OR __hogql_json_entry.n",
         ),
         ("['a', 'b'][2:]", "slice(ARRAY[%(hogql_val_0)s, %(hogql_val_1)s], 2, 2147483647)"),
     ],
