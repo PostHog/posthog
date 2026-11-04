@@ -118,6 +118,7 @@ export interface oauthDeviceAuthorizeLogicValues {
     scopeAccessSelections: ScopeAccessSelections
     scopeGroups: OAuthScopeGroup[] | null
     scopeRows: OAuthScopeRow[]
+    scopeSummary: string
     userCode: string
 }
 
@@ -222,14 +223,15 @@ export interface oauthDeviceAuthorizeLogicMeta {
         requiredScopeLevels: (deviceGrant: DeviceGrantDetailsApi | null) => Map<string, RequiredLevel>
         scopeRows: (
             deviceGrant: DeviceGrantDetailsApi | null,
-            consentResourceScopes: any,
-            requiredScopeLevels: any,
+            consentResourceScopes: string[],
+            requiredScopeLevels: Map<string, RequiredLevel>,
             scopeAccessSelections: ScopeAccessSelections
         ) => OAuthScopeRow[]
         requiredScopeRows: (scopeRows: OAuthScopeRow[]) => OAuthScopeRow[]
         adjustableScopeRows: (scopeRows: OAuthScopeRow[]) => OAuthScopeRow[]
         scopeGroups: (adjustableScopeRows: OAuthScopeRow[]) => OAuthScopeGroup[] | null
         allScopesRequired: (scopeRows: OAuthScopeRow[]) => boolean
+        scopeSummary: (scopeRows: OAuthScopeRow[]) => string
         keptScopes: (deviceGrant: DeviceGrantDetailsApi | null, scopeRows: OAuthScopeRow[]) => string[]
     }
 }
@@ -433,7 +435,7 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
             (s) => [s.scopeRows],
             (scopeRows: OAuthScopeRow[]): boolean => scopeRows.length > 0 && scopeRows.every((row) => row.locked),
         ],
-        scopeSummary: [(s) => [s.scopeRows], scopeSummary],
+        scopeSummary: [(s) => [s.scopeRows], (scopeRows: OAuthScopeRow[]): string => scopeSummary(scopeRows)],
         // What approval sends: the required scopes as requested, identity scopes included, and the
         // resource scopes at the level the person picked.
         keptScopes: [

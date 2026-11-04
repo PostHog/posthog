@@ -38,6 +38,7 @@ export function OAuthDeviceAuthorize(): JSX.Element {
         scopeGroups,
         allScopesRequired,
         scopeSummary,
+        keptScopes,
     } = useValues(oauthDeviceAuthorizeLogic)
     const {
         setUserCode,
@@ -229,7 +230,13 @@ export function OAuthDeviceAuthorize(): JSX.Element {
                             size="large"
                             onClick={approve}
                             loading={decisionLoading}
-                            disabledReason={projectId === null ? 'Select a project first' : undefined}
+                            disabledReason={
+                                projectId === null
+                                    ? 'Select a project first'
+                                    : keptScopes.length === 0
+                                      ? 'Give at least one permission first'
+                                      : undefined
+                            }
                         >
                             Approve
                         </LemonButton>
