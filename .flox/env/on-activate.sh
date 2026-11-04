@@ -384,7 +384,7 @@ fi
 WORKTREES_CLEAN_LOCK="$HOME/.config/posthog/worktrees-clean.lock"
 if [[ "${POSTHOG_WORKTREES_AUTOCLEAN:-1}" != "0" ]] && [[ -z "${CI:-}" ]] && [[ -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] \
   && [[ -z "$(find "$WORKTREES_CLEAN_LOCK" -size +0c -mmin -1440 2>/dev/null)" ]]; then
-  "$UV_PROJECT_ENVIRONMENT/bin/python" -m hogli worktrees:clean --unattended >>"$FLOX_ENV_CACHE/worktrees-clean.log" 2>&1 &
+  "$UV_PROJECT_ENVIRONMENT/bin/python" -P -m hogli worktrees:clean --unattended >>"$FLOX_ENV_CACHE/worktrees-clean.log" 2>&1 &
   disown
 fi
 

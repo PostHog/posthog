@@ -640,6 +640,24 @@ class TestReclaimedBytes:
 
 
 class TestExecute:
+    @pytest.fixture(autouse=True)
+    def no_busy_processes(self, monkeypatch) -> None:
+        monkeypatch.setattr(worktrees, "_process_cwds", lambda: set())
+
+    def test_worktree_entered_after_the_first_snapshot_is_kept(self, tmp_path, monkeypatch) -> None:
+        worktree = tmp_path / "wt"
+        (worktree / "src").mkdir(parents=True)
+        monkeypatch.setattr(worktrees, "_process_cwds", lambda: {(worktree / "src").resolve()})
+
+        _, removed, failed = _execute(
+            [Worktree(source="claude", path=worktree, registered=False, locked=False, branch="", last_activity=0.0)],
+            "full",
+            tmp_path,
+        )
+
+        assert (removed, failed) == (0, 0)
+        assert worktree.exists()
+
     @pytest.mark.parametrize("read_only_go_module_cache", [True, False], ids=["read_only_tree", "already_removed"])
     def test_full_mode_counts_worktree_as_removed(self, tmp_path, read_only_go_module_cache) -> None:
         worktree = tmp_path / "wt"
