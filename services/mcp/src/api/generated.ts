@@ -44846,8 +44846,8 @@ export namespace Schemas {
          * @nullable
          */
       not_checked_reason: string | null;
-      /** When the experiment launched. */
-      launched_at: string;
+      /** The experiment's start date. The flag history counts changes from it, as the results count exposures from it. */
+      start_date: string;
       /** The project's time zone, which the findings use for times. */
       team_timezone: string;
       /** Every change since launch that can move exposed people, of every kind, in time order. A bucketing change is one per setting and save. A rollout change alone is no release-condition change. Empty for 'no_history_access', which does not read them. */

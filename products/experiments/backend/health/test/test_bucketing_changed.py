@@ -65,7 +65,7 @@ def _context(
         ),
         flag_history=flag_history(
             bucketing,
-            launched_at=LAUNCHED_AT,
+            start_date=LAUNCHED_AT,
             exposed_before_first=exposed_before_first,
             exposed_between={ExperimentHealthFlagChangeKind.BUCKETING: exposed_between},
             not_checked=not_checked,
@@ -91,7 +91,7 @@ class TestBucketingChangedMidRun(TestCase):
                 _context((KEY, "old-key", "new-key"), exposed_units=4),
                 ("key_changed", ExperimentHealthFindingSeverity.INFO, "The flag key changed after launch"),
                 f'The flag key changed from "old-key" to "new-key" on {FIRST_CHANGE}. The change came 3 hours after '
-                f"launch, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it. "
+                f"the start date, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it. "
                 'Code that still uses "old-key" no longer gets this flag.',
             ),
             (
@@ -112,7 +112,7 @@ class TestBucketingChangedMidRun(TestCase):
                     "The flag's variant assignment changed after launch",
                 ),
                 f"The flag changed from matching by users to matching by groups on {FIRST_CHANGE}. The change came 3 "
-                f"hours after launch, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it.",
+                f"hours after the start date, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it.",
             ),
             (
                 "bucketing_identifier_changed_days_after_launch",
@@ -123,7 +123,7 @@ class TestBucketingChangedMidRun(TestCase):
                     "The flag's variant assignment changed after launch",
                 ),
                 "The flag changed from matching by user ID to matching by device ID on September 20, 2026 at 3:04 PM "
-                "CEST. The change came 8 days after launch. Users whose device ID differs from their user ID got a "
+                "CEST. The change came 8 days after the start date. Users whose device ID differs from their user ID got a "
                 f"new variant draw, so they may have switched variants. {MIXED_ASSIGNMENTS} Reset the experiment, or "
                 "move its start date to September 20, 2026 at 3:04 PM CEST.",
             ),
@@ -136,7 +136,7 @@ class TestBucketingChangedMidRun(TestCase):
                     "The flag's variant assignment changed after launch",
                 ),
                 f'On {FIRST_CHANGE}, "Persist flag across authentication steps" was turned off. The change came 3 '
-                "hours after launch. Users who logged in while it was on no longer keep the variant they got before "
+                "hours after the start date. Users who logged in while it was on no longer keep the variant they got before "
                 f"logging in, so they may have switched variants. {MIXED_ASSIGNMENTS} Reset the experiment, or move "
                 f"its start date to {FIRST_CHANGE}.",
             ),
@@ -220,7 +220,7 @@ class TestBucketingChangedMidRun(TestCase):
                     "The flag's variant assignment changed after launch",
                 ),
                 f'The flag\'s "Match by" setting changed on {FIRST_CHANGE} and was set back on {SECOND_CHANGE}. '
-                "The last change came 3 hours after launch, when 4 people had been exposed. Move the start date to "
+                "The last change came 3 hours after the start date, when 4 people had been exposed. Move the start date to "
                 f"{SECOND_CHANGE} so the results count only exposures after it.",
             ),
             (
