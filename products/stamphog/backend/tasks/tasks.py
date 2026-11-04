@@ -8,7 +8,7 @@ a fresh ReviewRun, and kicks off the Temporal review workflow once the row commi
 
 import re
 import math
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -31,12 +31,14 @@ from posthog.models.team import Team
 from products.stamphog.backend.activity_logging import DISABLED_FIELDS, log_repo_configs_disabled_by_webhook
 from products.stamphog.backend.facade.contracts import ReviewRequestRefusedError, StamphogGitHubError
 from products.stamphog.backend.facade.enums import (
+    ROUTING_ACTIONS,
     TERMINAL_STATUSES,
     ReviewMode,
     ReviewRequestRefusal,
     ReviewRunStatus,
     ReviewTrigger,
     ReviewVerdict,
+    RoutingMode,
 )
 from products.stamphog.backend.facade.inbox_hooks import get_inbox_acting_reviewer_resolver
 from products.stamphog.backend.logic.approval_retention import (
@@ -52,6 +54,14 @@ from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger
+from products.stamphog.backend.logic.routing.service import RoutingBusy
+from products.stamphog.backend.logic.routing.triggers import (
+    ReviewPath,
+    route_after_verdict,
+    route_on_pull_request_event,
+    route_on_safety_net,
+    verdict_outcome,
+)
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import (
     PullRequest,
@@ -1892,3 +1902,167 @@ def request_rereview_after_external_review(*, repository: str, pr_number: int, h
     head is still current. Any other call is a no-op, so a caller may call it for every turn.
     """
     rereview_after_external_review.delay(repository=repository, pr_number=pr_number, head_sha=head_sha)
+
+
+_ROUTING_MAX_RETRIES = 4
+_ROUTING_RETRY_BASE_SECONDS = 30
+# Another task holds the routing claim. It finishes within seconds, so the retry comes soon.
+ROUTING_BUSY_RETRY_SECONDS = 60
+# FALLBACK mode routes in full when no verdict arrived for a waiting head after this long.
+ROUTING_SAFETY_NET_SECONDS = 30 * 60
+
+
+def _stamphog_will_review(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> bool:
+    """Whether the review path is expected to give a verdict on this head.
+
+    Payload facts only, the same ones the review path checks before its GitHub calls. A review
+    that these facts admit but a later gate refuses (author write permission, for example) gives
+    no verdict, and the safety net routes the head instead.
+    """
+    if not repo_config.enabled or _review_skip_reason(pr) is not None:
+        return False
+    label_names = {(label or {}).get("name") for label in pr.get("labels") or []}
+    return repo_config.review_mode != ReviewMode.LABEL or repo_config.trigger_label in label_names
+
+
+def _schedule_routing_safety_net(repo_config: StamphogRepoConfig, pr_number: int) -> None:
+    route_reviewers_safety_net.apply_async(
+        kwargs={"team_id": repo_config.team_id, "repo_config_id": str(repo_config.id), "pr_number": pr_number},
+        countdown=ROUTING_SAFETY_NET_SECONDS,
+    )
+
+
+def _finished_review_outcome(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> str | None:
+    """The routing outcome of stamphog's latest review of this head, or None while it has none.
+
+    A queued or running review counts as none, so the head waits for it. Pinned to the writer, because
+    the answer decides which owners get requested.
+    """
+    run = (
+        ReviewRun.objects.for_team(repo_config.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request__repo_config=repo_config, pull_request__pr_number=pr_number, head_sha=head_sha)
+        .exclude(status=ReviewRunStatus.SUPERSEDED)
+        .order_by("-created_at")
+        .first()
+    )
+    if run is None or run.status not in TERMINAL_STATUSES:
+        return None
+    return verdict_outcome(ReviewRunStatus(run.status), ReviewVerdict(run.verdict))
+
+
+_ROUTING_REVIEW_PATH = ReviewPath(
+    will_review=_stamphog_will_review,
+    schedule_safety_net=_schedule_routing_safety_net,
+    finished_outcome=_finished_review_outcome,
+)
+
+
+def _run_routing_step(task: Task, step: Callable[[], None], **log_fields: Any) -> None:
+    """Run one routing step. GitHub and DB errors retry with backoff, a rate limit after its reset.
+
+    A step that finds another task's routing claim retries soon, so its own work is not lost.
+    """
+    try:
+        step()
+    except RoutingBusy as e:
+        logger.info("stamphog_reviewer_routing_busy", **log_fields)
+        raise task.retry(exc=e, countdown=ROUTING_BUSY_RETRY_SECONDS)
+    except GitHubRateLimitError as e:
+        logger.warning("stamphog_reviewer_routing_rate_limited", **log_fields)
+        raise task.retry(exc=e, countdown=max(e.retry_after or 0, 60))
+    except Exception as e:
+        logger.exception("stamphog_reviewer_routing_failed", error=str(e), **log_fields)
+        raise task.retry(exc=e, countdown=_ROUTING_RETRY_BASE_SECONDS * 2**task.request.retries)
+
+
+def _route_reviewers(payload: dict[str, Any], task_id: str) -> None:
+    action = payload.get("action", "")
+    if action not in ROUTING_ACTIONS:
+        return
+    installation_id = str((payload.get("installation") or {}).get("id", ""))
+    repo = (payload.get("repository") or {}).get("full_name", "")
+    pr_number = (payload.get("pull_request") or {}).get("number")
+    if not installation_id or not repo or not pr_number:
+        return
+    repo_config = _resolve_repo_config(installation_id, repo)
+    if repo_config is None:
+        return
+    route_on_pull_request_event(
+        repo_config, action=action, pr_number=pr_number, task_id=task_id, review_path=_ROUTING_REVIEW_PATH
+    )
+
+
+@shared_task(bind=True, ignore_result=True, max_retries=_ROUTING_MAX_RETRIES)
+def route_pull_request_reviewers(self: Task, payload: dict[str, Any], delivery_id: str) -> None:
+    """Request reviews from the owners of the changed code when a PR opens or becomes ready.
+
+    In FALLBACK mode a head that stamphog will review waits for the verdict instead. GitHub and DB
+    errors retry with backoff. The stored routing record makes a retry or a redelivery for the same
+    head request nobody twice.
+    """
+    _run_routing_step(self, lambda: _route_reviewers(payload, self.request.id or ""), delivery_id=delivery_id)
+
+
+@shared_task(bind=True, ignore_result=True, max_retries=_ROUTING_MAX_RETRIES)
+def route_reviewers_after_verdict(
+    self: Task, team_id: int, repo_config_id: str, pr_number: int, head_sha: str, outcome: str
+) -> None:
+    """Route a FALLBACK pull request once stamphog's review of ``head_sha`` ended.
+
+    An approval requests only the pinned owners that no earlier routing requested. A WAIT keeps the head
+    waiting for the safety net. Any other outcome routes in full, once per pull request. A verdict
+    for a head that is no longer the PR head does nothing.
+    """
+    _run_routing_step(
+        self,
+        lambda: route_after_verdict(
+            team_id=team_id,
+            repo_config_id=repo_config_id,
+            pr_number=pr_number,
+            head_sha=head_sha,
+            outcome=outcome,
+            task_id=self.request.id or "",
+            review_path=_ROUTING_REVIEW_PATH,
+        ),
+        pr_number=pr_number,
+    )
+
+
+@shared_task(bind=True, ignore_result=True, max_retries=_ROUTING_MAX_RETRIES)
+def route_reviewers_safety_net(self: Task, team_id: int, repo_config_id: str, pr_number: int) -> None:
+    """Route a FALLBACK pull request in full on its current head, unless it was already routed.
+
+    A full routing on any head, or a pinned-only routing after an approval of the current head,
+    means nothing is left to do.
+    """
+    _run_routing_step(
+        self,
+        lambda: route_on_safety_net(
+            team_id=team_id,
+            repo_config_id=repo_config_id,
+            pr_number=pr_number,
+            task_id=self.request.id or "",
+            review_path=_ROUTING_REVIEW_PATH,
+        ),
+        pr_number=pr_number,
+    )
+
+
+def queue_routing_after_verdict(
+    repo_config: StamphogRepoConfig, *, pr_number: int, head_sha: str, status: ReviewRunStatus, verdict: ReviewVerdict
+) -> None:
+    """Queue FALLBACK routing for a finished review. Never raises, because the outcome is already saved."""
+    # The loaded config is enough to skip the queue for other modes. The task reads the mode again.
+    if repo_config.routing_mode != RoutingMode.FALLBACK:
+        return
+    try:
+        route_reviewers_after_verdict.delay(
+            team_id=repo_config.team_id,
+            repo_config_id=str(repo_config.id),
+            pr_number=pr_number,
+            head_sha=head_sha,
+            outcome=verdict_outcome(status, verdict),
+        )
+    except Exception:
+        logger.exception("stamphog_reviewer_routing_queue_failed", pr_number=pr_number)
