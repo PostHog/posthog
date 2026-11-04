@@ -13,6 +13,7 @@ import {
     formatFacetValue,
     normalizeFacetValue,
     resolvedFacetFilterKey,
+    tokenValue,
 } from './facetQuery'
 
 const MAX_VALUE_SUGGESTIONS = 50
@@ -71,9 +72,7 @@ function extractCompleteFilters(
         COMPLETE_TOKEN,
         (token: string, lead: string, minus: string, key: string, quoted?: string, bare?: string) => {
             const facet = findFacet(facets, key)
-            const value =
-                facet &&
-                normalizeFacetValue(facet, quoted !== undefined ? quoted.replace(/\\(.)/g, '$1') : (bare ?? ''))
+            const value = facet && normalizeFacetValue(facet, tokenValue(quoted, bare))
             if (!facet || !value) {
                 return token
             }
@@ -97,7 +96,7 @@ function parseFacetDraft(input: string, facets: FacetDefinition<unknown>[]): Fac
         facetKey: facet.key,
         facetLabel: facet.label,
         negated: match[2] === '-',
-        partial: match[4] !== undefined ? match[4].replace(/\\(.)/g, '$1') : match[5],
+        partial: tokenValue(match[4], match[5]),
         openQuote: match[4] !== undefined,
         rest: input.slice(0, match.index + match[1].length),
     }

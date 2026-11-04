@@ -70,6 +70,11 @@ export function resolvedFacetFilterKey<TItem>(facets: FacetDefinition<TItem>[], 
 
 const TOKEN = /(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"|(\S*))/y
 
+/** The value of a token match: a quoted value loses its escapes, a bare one is kept as typed. */
+export function tokenValue(quoted: string | undefined, bare: string | undefined): string {
+    return quoted !== undefined ? quoted.replace(/\\(.)/g, '$1') : (bare ?? '')
+}
+
 /** Reads `facet:value`, `-facet:value` and `facet:"quoted value"`. Unknown facets, empty values and repeats are dropped. */
 export function parseFacetQuery<TItem>(query: string, facets: FacetDefinition<TItem>[]): FacetFilter[] {
     const filters: FacetFilter[] = []
@@ -92,7 +97,7 @@ export function parseFacetQuery<TItem>(query: string, facets: FacetDefinition<TI
         if (!facet) {
             continue
         }
-        const value = normalizeFacetValue(facet, match[3] !== undefined ? match[3].replace(/\\(.)/g, '$1') : match[4])
+        const value = normalizeFacetValue(facet, tokenValue(match[3], match[4]))
         if (!value) {
             continue
         }
