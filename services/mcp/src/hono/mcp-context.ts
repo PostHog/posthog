@@ -32,6 +32,7 @@ export interface MCPRequestContext
             | 'features'
             | 'tools'
             | 'excludeTools'
+            | 'bundledSkills'
         > {
     mode?: McpMode | undefined
     authMethod: McpAuthMethod
@@ -64,6 +65,7 @@ export function buildMCPRequestContext(props: RequestProperties): MCPRequestCont
         features: props.features,
         tools: props.tools,
         excludeTools: props.excludeTools,
+        bundledSkills: props.bundledSkills,
         mcpVendorClient: props.mcpVendorClient,
         authMethod: classifyAuthMethod(props.apiToken),
     }
