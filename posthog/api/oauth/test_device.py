@@ -188,6 +188,26 @@ class TestOAuthDeviceGrant(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], expected)
 
+    def test_revoking_a_refresh_token_rotation_replaced_ends_the_login(self) -> None:
+        with time_machine.travel(START, tick=False) as clock:
+            started = self._start()
+            self._approve(started["user_code"])
+            clock.shift(timedelta(seconds=6))
+            first = self._poll(started["device_code"]).json()
+            refresh_body = {
+                "grant_type": "refresh_token",
+                "refresh_token": first["refresh_token"],
+                "client_id": "hog-device-client",
+            }
+            refreshed = self.client.post("/oauth/token/", urlencode(refresh_body), content_type=FORM).json()
+
+            revoke_body = {"token": first["refresh_token"], "client_id": "hog-device-client"}
+            revoked = self.client.post("/oauth/revoke/", urlencode(revoke_body), content_type=FORM)
+
+        self.assertEqual(revoked.status_code, status.HTTP_200_OK, revoked.content)
+        self.assertFalse(OAuthAccessToken.objects.filter(token=refreshed["access_token"]).exists())
+        self.assertFalse(OAuthRefreshToken.objects.filter(token=refreshed["refresh_token"], revoked=None).exists())
+
     def test_only_the_client_that_started_the_grant_can_redeem_it(self) -> None:
         OAuthApplication.objects.create(
             name="other",

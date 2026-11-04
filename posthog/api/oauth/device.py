@@ -212,10 +212,16 @@ def device_token_response(create_token_response: Any, request: HttpRequest, devi
     if not cache.add(poll_key, True, timeout=1):
         return _error_response(rfc8628_errors.SlowDownError())
     with transaction.atomic():
-        grant = OAuthDeviceGrant.objects.select_for_update().filter(device_code=device_code).first()
-        # Checked before any status answer, so a poll by another client neither learns the status
-        # nor moves `last_checked`. The post-token hook checks the authenticated client again.
-        if grant is None or _presented_client_id(request) != grant.client_id:
+        # Filtered on the presented client too, so a poll that names another client locks nothing,
+        # and varying the client can't get past the per-second limit to pile up locks on the row.
+        # A poll by another client neither learns the status nor moves `last_checked`. The
+        # post-token hook checks the authenticated client again.
+        grant = (
+            OAuthDeviceGrant.objects.select_for_update()
+            .filter(device_code=device_code, client_id=_presented_client_id(request) or "")
+            .first()
+        )
+        if grant is None:
             return _error_response(rfc6749_errors.InvalidGrantError(description="The device code is not valid."))
         if grant.status in (OAuthDeviceGrant.AUTHORIZATION_PENDING, OAuthDeviceGrant.AUTHORIZED) and (
             timezone.now() >= grant.expires
