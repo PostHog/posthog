@@ -406,12 +406,12 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         await api.personalApiKeys.delete(id)
                     } catch (error) {
                         // A 404 means the signed-in user has no key with this id, usually because another tab
-                        // already deleted it. The row is stale, so remove it and reload the list. Otherwise
-                        // every later delete click on the row fails with the same error.
+                        // already deleted it. The row is stale, so remove it. Otherwise every later delete click
+                        // on the row fails with the same error. A list reload here could finish after a later
+                        // delete and put that key back, so only this row changes.
                         if (!(error instanceof ApiError && error.status === 404)) {
                             throw error
                         }
-                        actions.loadKeys()
                     }
                     return values.keys.filter((filteredKey) => filteredKey.id != id)
                 },
