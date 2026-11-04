@@ -16,6 +16,7 @@ const GRANT: DeviceGrantDetailsApi = {
     logo_uri: null,
     is_verified: false,
     scopes: ['openid', 'insight:read', 'insight:write', 'dashboard:write'],
+    required_scopes: ['openid'],
     granted_scopes: [],
     expires_at: '2026-03-02T10:30:00Z',
 }
@@ -45,41 +46,39 @@ describe('oauthDeviceAuthorizeLogic', () => {
         initKeaTests()
     })
 
-    const ALL = ['View your User ID', 'Write access to insights', 'Write access to dashboards']
-
     it.each([
-        ['a first login lists every requested scope', [], ALL, false],
+        ['a first login can lower every scope', [], { dashboard: 'none', insight: 'none' }, false],
         [
-            'a login that adds nothing in the project lists every scope',
+            'a login that adds nothing in the project keeps every scope at its granted level',
             [
                 {
                     project_id: 42,
                     organization_id: null,
-                    scopes: ['openid', 'insight:read', 'insight:write', 'dashboard:write'],
+                    scopes: ['openid', 'dashboard:write', 'insight:read', 'insight:write'],
                 },
             ],
-            ALL,
+            { dashboard: 'write', insight: 'write' },
             false,
         ],
         [
-            'a step-up lists only the scopes it adds in the project',
+            'a step-up keeps what the project already has as the floor',
             [{ project_id: 42, organization_id: null, scopes: ['openid', 'insight:read'] }],
-            ['Write access to insights', 'Write access to dashboards'],
+            { dashboard: 'none', insight: 'read' },
             true,
         ],
         [
-            'scopes granted in another organization count for nothing here',
+            'scopes granted in another organization set no floor here',
             [{ project_id: null, organization_id: 'another-org', scopes: ['openid', 'insight:read'] }],
-            ALL,
+            { dashboard: 'none', insight: 'none' },
             false,
         ],
         [
-            'scopes granted in another project count for nothing here',
+            'scopes granted in another project set no floor here',
             [{ project_id: 7, organization_id: null, scopes: ['openid', 'insight:read'] }],
-            ALL,
+            { dashboard: 'none', insight: 'none' },
             false,
         ],
-    ])('%s', async (_name, grantedScopes, expectedDescriptions, isStepUp) => {
+    ])('%s', async (_name, grantedScopes, floors, isStepUp) => {
         useGrantMocks({ ...GRANT, granted_scopes: grantedScopes })
         const logic = oauthDeviceAuthorizeLogic()
         logic.mount()
@@ -89,7 +88,25 @@ describe('oauthDeviceAuthorizeLogic', () => {
         logic.actions.setProjectId(42)
 
         expect(lookups).toEqual(['BCDF-GHJK'])
-        await expectLogic(logic).toMatchValues({ isStepUp, scopeDescriptions: expectedDescriptions })
+        expect(Object.fromEntries(logic.values.scopeRows.map((row) => [row.key, row.minLevel]))).toEqual(floors)
+        await expectLogic(logic).toMatchValues({ isStepUp, scopeSummary: 'Write access to 2 areas' })
+    })
+
+    it('approves only the scopes the person kept, at the level they picked', async () => {
+        useGrantMocks(GRANT)
+        const logic = oauthDeviceAuthorizeLogic()
+        logic.mount()
+        router.actions.push(urls.oauthDeviceAuthorize(), { code: 'bcdf-ghjk' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setProjectId(42)
+        logic.actions.setScopeAccess('dashboard', 'none')
+        logic.actions.setScopeAccess('insight', 'read')
+        logic.actions.approve()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(approvals).toEqual([{ user_code: 'BCDF-GHJK', project_id: 42, scopes: ['openid', 'insight:read'] }])
+        await expectLogic(logic).toMatchValues({ scopeSummary: 'Read access to 1 area' })
     })
 
     it("drops the previous organization's projects when the next ones fail to load", async () => {
@@ -123,7 +140,13 @@ describe('oauthDeviceAuthorizeLogic', () => {
         logic.actions.approve()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(approvals).toEqual([{ user_code: 'BCDF-GHJK', project_id: 42 }])
+        expect(approvals).toEqual([
+            {
+                user_code: 'BCDF-GHJK',
+                project_id: 42,
+                scopes: ['openid', 'dashboard:write', 'insight:read', 'insight:write'],
+            },
+        ])
         await expectLogic(logic).toMatchValues({ decision: 'authorized' })
     })
 
