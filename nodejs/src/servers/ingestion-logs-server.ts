@@ -32,7 +32,11 @@ import { SamplingRulesCache } from '~/logs/sampling/sampling-rules-cache'
 import { LogsTransformerService } from '~/logs/transformations/logs-transformer.service'
 
 import { HogFunctionManagerService } from '../cdp/services/managers/hog-function-manager.service'
-import { HogFunctionMonitoringService } from '../cdp/services/monitoring/hog-function-monitoring.service'
+import {
+    HogFunctionMonitoringService,
+    TransformationsMonitoringConfig,
+    createTransformationsMonitoringService,
+} from '../cdp/services/monitoring/hog-function-monitoring.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
@@ -52,6 +56,7 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
  */
 export type IngestionLogsServerConfig = BaseServerConfig &
     LogsIngestionConsumerConfig &
+    TransformationsMonitoringConfig &
     LogsIngestionOutputsConfig &
     KafkaWarpstreamLogsProducerEnvConfig &
     KafkaWarpstreamIngestionProducerEnvConfig &
@@ -77,6 +82,7 @@ export class IngestionLogsServer implements NodeServer {
     private posthogRedisPool?: RedisPool
     private producerRegistry?: KafkaProducerRegistry<LogsProducerName>
     private pubsub?: PubSub
+    private hogFunctionMonitoring?: HogFunctionMonitoringService
 
     constructor(config: Partial<IngestionLogsServerConfig> = {}) {
         this.config = {
@@ -145,9 +151,9 @@ export class IngestionLogsServer implements NodeServer {
             this.pubsub,
             new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         )
-        const hogFunctionMonitoring = new HogFunctionMonitoringService(outputs)
+        this.hogFunctionMonitoring = createTransformationsMonitoringService(outputs, this.config, teamManager)
 
-        const logsTransformer = new LogsTransformerService(hogFunctionManager, hogFunctionMonitoring, {
+        const logsTransformer = new LogsTransformerService(hogFunctionManager, this.hogFunctionMonitoring, {
             siteUrl: this.config.SITE_URL,
             hogTimeoutMs: this.config.LOGS_TRANSFORMATIONS_HOG_TIMEOUT_MS,
             messageBudgetMs: this.config.LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS,
@@ -192,6 +198,8 @@ export class IngestionLogsServer implements NodeServer {
             // phase, before the base server drains the pool, or stop() hangs.
             pubsub: this.pubsub,
             additionalCleanup: async () => {
+                // Consumers are stopped by now, so nothing new is queued while the producer drains.
+                await this.hogFunctionMonitoring?.stop()
                 await this.producerRegistry?.disconnectAll()
             },
         }

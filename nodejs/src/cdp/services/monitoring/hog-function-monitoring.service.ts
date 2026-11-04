@@ -6,8 +6,10 @@ import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { safeClickhouseString } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
-import type { InternalLogsProducer } from '~/logs/internal-logs-producer'
+import type { TeamManager } from '~/common/utils/team-manager'
+import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/internal-logs-producer'
 
+import type { CdpConfig } from '../../config'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
@@ -72,6 +74,29 @@ export const isHogFlowResult = (
 
 // Bounded so that shutdown still fits inside the pod's termination grace period.
 const INTERNAL_LOGS_DRAIN_TIMEOUT_MS = 10_000
+
+// A switch token of its own, so ingestion turns on apart from the CDP workers that `hog_function` covers.
+const HOG_FUNCTION_TRANSFORMATIONS_SWITCH = 'hog_function_transformations'
+
+export type TransformationsMonitoringConfig = Pick<CdpConfig, 'CDP_INTERNAL_LOGS_SOURCES'> & InternalLogsProducerConfig
+
+/** Monitoring for hog transformations. Their logs are stored under the `hog_function` source. */
+export function createTransformationsMonitoringService(
+    outputs: IngestionOutputs<MonitoringOutput>,
+    config: TransformationsMonitoringConfig,
+    teamManager: Pick<TeamManager, 'getTeam'>
+): HogFunctionMonitoringService {
+    const enabled = config.CDP_INTERNAL_LOGS_SOURCES.split(',').some(
+        (source) => source.trim() === HOG_FUNCTION_TRANSFORMATIONS_SWITCH
+    )
+    return enabled
+        ? new HogFunctionMonitoringService(
+              outputs,
+              new InternalLogsProducer(config, teamManager),
+              new Set(['hog_function'])
+          )
+        : new HogFunctionMonitoringService(outputs)
+}
 
 export class HogFunctionMonitoringService {
     queuedLogMessages: LogEntrySerialized[] = []

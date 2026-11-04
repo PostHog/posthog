@@ -202,6 +202,7 @@ export class ErrorTrackingServer implements NodeServer {
             encryptedFields,
             integrationManager,
             monitoringOutputs: outputs,
+            teamManager: sharedServices.container.teamManager,
         }
 
         const errorTrackingSharedScope = extend(sharedServicesScope, 'errortracking-shared', (_container, builder) =>
