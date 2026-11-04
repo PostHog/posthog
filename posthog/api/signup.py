@@ -542,8 +542,7 @@ class SignupViewset(generics.CreateAPIView):
     account_created = False
 
     def get_throttles(self) -> list[BaseThrottle]:
-        # DRF builds new throttle instances on every call. `handle_exception` needs the instances that
-        # checked this request, because only they know which slot the request reserved.
+        # DRF builds new instances per call, and only the ones that checked this request know its reserved slot
         if not hasattr(self, "_throttles"):
             self._throttles = super().get_throttles()
         return self._throttles
