@@ -3189,25 +3189,26 @@ describe('exec tool', () => {
                 return formatInputValidationError('experiment-update', result.error!, input, tool.schema)
             }
 
-            it('names the field inside the metrics array, not the null branch', () => {
-                const message = formatFor({
-                    id: 1,
-                    metrics_secondary: [{ kind: 'ExperimentMetric', metric_type: 'bogus' }],
-                })
+            // Two invalid entries, not one: a single bad metric yields one array-branch
+            // issue, which TIES the null branch's single complaint, and the pre-fix
+            // formatter already broke that tie in the array branch's favor. Two bad
+            // metrics make the array branch "noisier" than the null branch, which is
+            // the real production shape the old fewest-issues heuristic got wrong.
+            it.each(['metrics', 'metrics_secondary'] as const)(
+                'names the field inside the %s array, not the null branch',
+                (field) => {
+                    const message = formatFor({
+                        id: 1,
+                        [field]: [
+                            { kind: 'ExperimentMetric', metric_type: 'bogus' },
+                            { kind: 'ExperimentMetric', metric_type: 'bogus' },
+                        ],
+                    })
 
-                expect(message).toContain('metrics_secondary.0.metric_type')
-                expect(message).not.toContain('expected null')
-            })
-
-            it('does the same for the primary metrics field', () => {
-                const message = formatFor({
-                    id: 1,
-                    metrics: [{ kind: 'ExperimentMetric', metric_type: 'bogus' }],
-                })
-
-                expect(message).toContain('metrics.0.metric_type')
-                expect(message).not.toContain('expected null')
-            })
+                    expect(message).toContain(`${field}.0.metric_type`)
+                    expect(message).not.toContain('expected null')
+                }
+            )
 
             it('still accepts an explicit null', () => {
                 const tool = GENERATED_TOOL_MAP['experiment-update']!()
@@ -3224,12 +3225,13 @@ describe('exec tool', () => {
 
             // The synthetic shape pins the mechanism down without the generated
             // schema's size: the null branch's single root complaint must lose to
-            // the branch that engaged with the array's contents.
+            // the branch that engaged with the array's contents, even when the
+            // engaged branch carries MORE issues (two bad entries) than null's one.
             it('prefers the engaged branch on a minimal union([array, null])', () => {
                 const schema = z.object({
                     metrics: z.union([z.array(z.object({ metric_type: z.enum(['mean', 'funnel']) })), z.null()]),
                 })
-                const input = { metrics: [{ metric_type: 'bogus' }] }
+                const input = { metrics: [{ metric_type: 'bogus' }, { metric_type: 'bogus' }] }
                 const result = schema.safeParse(input, { reportInput: true })
                 expect(result.success).toBe(false)
 
