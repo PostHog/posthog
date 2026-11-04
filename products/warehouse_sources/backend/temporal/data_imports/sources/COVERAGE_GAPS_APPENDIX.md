@@ -10353,10 +10353,10 @@ Diffed against: <https://api.corona-zahlen.org/docs/>
 - [x] `GET /vaccinations/history/:days` — daily vaccination time series, the analytical form of the vaccination data (high) → `vaccinations_history`
 - [x] `GET /vaccinations/states/:state` — per-state vaccination breakdown, the standard comparison dimension (high) → `vaccinations_states` (reads `GET /vaccinations/states`, which returns every state in one response)
 - [x] `GET /states/history/cases/:days` — per-state case time series; only Germany-level history is synced, so no state comparison over time is possible (high) → `states_history_cases`
-- [ ] `GET /states/history/deaths/:days` — per-state death time series to match the national germany_history_deaths table (high)
-- [ ] `GET /states/history/incidence/:days` — per-state 7-day incidence, the metric the whole dataset is organized around (high)
-- [ ] `GET /districts/history/cases/:days` — per-district case time series - the finest granularity the API offers and the reason to use it over aggregate sources (high)
-- [ ] `GET /districts/history/incidence/:days` — per-district incidence over time, the main district-level reporting metric (high)
+- [x] `GET /states/history/deaths/:days` — per-state death time series to match the national germany_history_deaths table (high) → `states_history_deaths`
+- [x] `GET /states/history/incidence/:days` — per-state 7-day incidence, the metric the whole dataset is organized around (high) → `states_history_incidence`
+- [x] `GET /districts/history/cases/:days` — per-district case time series - the finest granularity the API offers and the reason to use it over aggregate sources (high) → `districts_history_cases`
+- [x] `GET /districts/history/incidence/:days` — per-district incidence over time, the main district-level reporting metric (high) → `districts_history_incidence`
 - [ ] `GET /germany/history/rValue/:days` — the reproduction number time series, a headline national metric with no equivalent column elsewhere (medium)
 - [ ] `GET /states/age-groups` — age-group breakdown per state; the source has only the Germany-level age groups (medium)
 - [ ] `GET /districts/age-groups` — age-group breakdown per district (medium)
@@ -10433,10 +10433,10 @@ Today (16): `action_items`, `alerts`, `causes`, `environments`, `escalation_poli
 
 Diffed against: <https://docs.rootly.com/api-reference>
 
-- [ ] `incident_events (list-incident-events)` — the incident timeline, the core state/transition history for MTTA and MTTR analysis (high)
-- [ ] `statuses (list-statuses)` — lookup table resolving the status IDs on incidents we already sync (high)
-- [ ] `shifts (list-shifts)` — actual on-call shift records, the basis of on-call load and fairness reporting (high)
-- [ ] `alert_events (list-alert-events)` — alert lifecycle history (ack, escalate, resolve) for the alerts we already sync (high)
+- [x] `incident_events (list-incident-events)` — the incident timeline, the core state/transition history for MTTA and MTTR analysis (high) → `incident_events` (full refresh, fan-out over `incidents`)
+- [x] `statuses (list-statuses)` — lookup table resolving the status IDs on incidents we already sync (high) → `statuses` (full refresh)
+- [ ] `shifts (list-shifts)` — actual on-call shift records, the basis of on-call load and fairness reporting (high); skipped: shifts are computed for a `from`/`to` window that defaults to the next month, with no timestamps to sync on and no documented window limit for past shifts
+- [x] `alert_events (list-alert-events)` — alert lifecycle history (ack, escalate, resolve) for the alerts we already sync (high) → `alert_events` (incremental on `created_at`, from the flat `GET /v1/alert_events` feed)
 - [ ] `incident_roles (list-incident-roles)` — lookup resolving role assignments on incidents (commander, comms lead) (high)
 - [ ] `on_calls (list-on-calls)` — who was on call for a given schedule and window (medium)
 - [ ] `schedule_rotations (list-schedule-rotations)` — resolves the schedules table into rotation structure (medium)
