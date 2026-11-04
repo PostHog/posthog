@@ -488,9 +488,8 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
         .expect("cleanup");
 }
 
-/// Fences and releases the harness person through a delete op whose mark
-/// rows live in PG, leaving its death document cached and its mark
-/// standing. Returns the op and the cached document.
+/// Fences and releases the harness person through a delete op marked in
+/// PG, leaving its death document cached. Returns the op and the document.
 async fn destroy_through_pg(
     harness: &mut FenceHarness,
     pool: &sqlx::PgPool,
@@ -559,10 +558,8 @@ async fn destroy_through_pg(
     (op, death)
 }
 
-/// A death document answers not-found while its mark stands, unless PG
-/// holds a live row above the document's version: that is a revival, and
-/// it is served over the cached document, over one recovered from the
-/// changelog, and it survives the settle.
+/// A live PG row above the death document's version is served over the
+/// cached document, over one recovered from the changelog, and past the settle.
 #[tokio::test]
 async fn a_revival_is_served_over_the_death_document() {
     let pool = common::create_persons_pool().await;
@@ -592,8 +589,6 @@ async fn a_revival_is_served_over_the_death_document() {
             partition,
         )
     };
-    // The persons table is keyed on (team_id, id), so the conflict target
-    // names both.
     let set_row = |version: i64, is_deleted: bool| {
         let pool = pool.clone();
         let person_uuid = person_uuid.clone();
@@ -691,9 +686,8 @@ async fn a_revival_is_served_over_the_death_document() {
         .expect("cleanup person");
 }
 
-/// The write path finds the revival on its own: the first call after the
-/// stub create is a property write, not a read, and it lands. A version
-/// raise on the revived person lands too.
+/// A property write and a version raise land on the revived person with no
+/// read first, the path the persons store takes.
 #[tokio::test]
 async fn a_write_lands_on_the_revival_without_a_prior_read() {
     let pool = common::create_persons_pool().await;
