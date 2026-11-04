@@ -14,7 +14,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { destinationTypeLabel } from '../../shared/components/DestinationIcon'
 import { destinationConnectSceneLogic } from './destinationConnectSceneLogic'
-import { MigrationPrefillConfirm } from './MigrationPrefillConfirm'
+import { DestinationMigrationPrefillConfirm } from './DestinationMigrationPrefillConfirm'
 
 export const scene: SceneExport = {
     component: DestinationConnectScene,
@@ -81,7 +81,7 @@ export function DestinationConnectScene(): JSX.Element {
                 }
             />
             <div className="max-w-200">
-                {showPrefillConfirm && <MigrationPrefillConfirm kind={kind} />}
+                {showPrefillConfirm && <DestinationMigrationPrefillConfirm kind={kind} />}
                 {integrationId !== null ? (
                     <LemonBanner type={handBackStatus === 'sending' ? 'info' : 'success'}>
                         <p className="font-semibold mb-1">{typeLabel} connection saved</p>

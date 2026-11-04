@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import React from 'react'
 
 import { IconQuestion } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -14,6 +13,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { SourceFormComponent } from '../../shared/components/forms/SourceForm'
+import { MigrationPrefillConfirm } from '../../shared/components/MigrationPrefillConfirm'
 import { SourceIcon } from '../../shared/components/SourceIcon'
 import { sourceConnectSceneLogic } from './sourceConnectSceneLogic'
 
@@ -112,7 +112,7 @@ export function SourceConnectScene(): JSX.Element {
                                 )}
                             </div>
                         )}
-                        {migrationPrefill && <MigrationPrefillConfirm sourceName={sourceConfig.name} />}
+                        {migrationPrefill && <SourceMigrationPrefillConfirm sourceName={sourceConfig.name} />}
                         <SourceFormComponent
                             sourceConfig={sourceConfig}
                             lockedValues={migrationPrefill ?? undefined}
@@ -149,39 +149,20 @@ export function SourceConnectScene(): JSX.Element {
     )
 }
 
-function MigrationPrefillConfirm({ sourceName }: { sourceName: string }): JSX.Element {
+function SourceMigrationPrefillConfirm({ sourceName }: { sourceName: string }): JSX.Element {
     const { migrationCreator, prefilledFieldRows, prefillConfirmed } = useValues(sourceConnectSceneLogic)
     const { setPrefillConfirmed } = useActions(sourceConnectSceneLogic)
 
     return (
-        <LemonBanner type="warning">
-            <p className="font-semibold mb-1">Check where your credentials go</p>
-            <p className="m-0 mb-2 text-sm">
-                {migrationCreator
-                    ? `${migrationCreator.first_name || migrationCreator.email} (${migrationCreator.email}) prepared this connection.`
-                    : 'A migration prepared this connection.'}{' '}
-                PostHog checks the credentials you enter against this server, so only continue if you trust it.
-            </p>
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 m-0 mb-2 text-sm">
-                {prefilledFieldRows.map(({ label, value }) => (
-                    <React.Fragment key={label}>
-                        <dt className="text-secondary">{label}</dt>
-                        <dd className="m-0 font-mono break-all">{value}</dd>
-                    </React.Fragment>
-                ))}
-            </dl>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <LemonCheckbox
-                    checked={prefillConfirmed}
-                    onChange={setPrefillConfirmed}
-                    label="I confirm this is the right server"
-                    data-attr="source-connect-confirm-prefill"
-                />
-                <Link to={urls.dataWarehouseSourceConnect(sourceName)} data-attr="source-connect-new-source-instead">
-                    Set up a new source instead
-                </Link>
-            </div>
-        </LemonBanner>
+        <MigrationPrefillConfirm
+            creator={migrationCreator}
+            rows={prefilledFieldRows}
+            confirmed={prefillConfirmed}
+            onConfirmedChange={setPrefillConfirmed}
+            noun="source"
+            trustNote="PostHog checks the credentials you enter against this server, so only continue if you trust it."
+            newSetupUrl={urls.dataWarehouseSourceConnect(sourceName)}
+        />
     )
 }
 
