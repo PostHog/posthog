@@ -3057,6 +3057,12 @@ class TestSavedQueryRun(APIBaseTest):
         )
         source, target = (related_node, node) if direction == "upstream" else (node, related_node)
         Edge.objects.create(team=self.team, dag=dag, source=source, target=target)
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+        )
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
 
