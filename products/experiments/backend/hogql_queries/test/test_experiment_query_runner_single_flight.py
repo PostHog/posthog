@@ -29,9 +29,9 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
             },
             created_by=self.user,
         )
-        experiment = Experiment.objects.create(name="test-experiment", team=self.team, feature_flag=feature_flag)
+        self.experiment = Experiment.objects.create(name="test-experiment", team=self.team, feature_flag=feature_flag)
         self.query = ExperimentQuery(
-            experiment_id=experiment.id,
+            experiment_id=self.experiment.id,
             kind="ExperimentQuery",
             metric=ExperimentMeanMetric(source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL)),
         )
@@ -60,9 +60,9 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
     def test_an_end_date_change_changes_the_cache_key(
         self, _name: str, end_date: datetime | None, new_end_date: datetime
     ) -> None:
-        Experiment.objects.filter(id=self.query.experiment_id).update(end_date=end_date)
+        Experiment.objects.filter(id=self.experiment.id).update(end_date=end_date)
         before = ExperimentQueryRunner(query=self.query, team=self.team).get_cache_key()
 
-        Experiment.objects.filter(id=self.query.experiment_id).update(end_date=new_end_date)
+        Experiment.objects.filter(id=self.experiment.id).update(end_date=new_end_date)
 
         assert ExperimentQueryRunner(query=self.query, team=self.team).get_cache_key() != before
