@@ -19,6 +19,7 @@ chrono = { workspace = true }
 chrono-tz = { workspace = true }
 cohort-core = { path = "../cohort-core" }
 common-alloc = { path = "../common/alloc" }
+common-cohort-team-access = { path = "../common/cohort-team-access" }
 common-database = { path = "../common/database" }
 common-types = { path = "../common/types" }
 # Shadow-topic output producer: `create_kafka_producer` + `send_keyed_iter_to_kafka_*`
@@ -79,6 +80,7 @@ hotpath-prometheus = ["hotpath", "hotpath/hotpath-prometheus"]
 # Integration tests in `tests/` build `TeamFilters` via `freeze(UTC)`, so they name `chrono_tz::UTC`
 # directly (a normal dependency is not in scope for the separate integration-test crates).
 chrono-tz = { workspace = true }
+common-cohort-team-access = { path = "../common/cohort-team-access", features = ["test-util"] }
 # Convergence/idempotency property tests for the seed-tile apply core (`workers::seed_path`).
 proptest = "1"
 serde_json = { workspace = true }

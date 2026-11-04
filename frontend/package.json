@@ -189,6 +189,7 @@
         "@simplewebauthn/browser": "^13.2.2",
         "@stripe/react-stripe-js": "^2.8.0",
         "@stripe/stripe-js": "^4.5.0",
+        "@tanstack/react-table": "^8.21.3",
         "@tanstack/react-virtual": "^3.14.3",
         "@testing-library/dom": ">=9.3.4",
         "@tiptap/core": "3.20.6",
@@ -305,6 +306,7 @@
         "rrule": "^2.8.1",
         "simple-statistics": "^7.8.8",
         "snappy-wasm": "^0.3.0",
+        "sql-formatter": "^15.9.0",
         "tailwind-merge": "^2.2.2",
         "torph": "^0.0.9",
         "ts-pattern": "catalog:",
@@ -402,6 +404,6 @@
         ]
     },
     "engines": {
-        "node": ">=24 <25"
+        "node": ">=26 <27"
     }
 }

@@ -102,6 +102,12 @@ This release uses the updated hosted workflow and includes the report chart, And
 It submits to TestFlight and Google Play internal testing. Add the submitted builds to the existing external testing tracks separately.
 Publish an OTA for the `1.8.0` runtime only after the native release receipt completes.
 
+Version `1.9.0` requests both native builds through `native-190`, following the last completed release, `native-180`.
+The `ota-180-20261102` request failed before claiming a release and remains historical.
+This release includes the connection recovery, offline cache, chat navigation, regional status, iPhone Duo layout and Android notification startup changes already on `master`.
+Native configuration and dependency changes require new binaries and a new runtime.
+It submits to TestFlight and Google Play internal testing; public-store promotion remains manual after testing.
+
 The native receipt records the certificate fingerprint. An OTA request must match it as well as the native fingerprints; a receipt without a certificate fingerprint cannot authorize an OTA.
 Rotate the key and certificate together, retain the old material securely for older runtimes, and raise the app version in a new native release before publishing updates with the new key.
 

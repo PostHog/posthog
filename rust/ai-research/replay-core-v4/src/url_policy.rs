@@ -11,6 +11,7 @@
 //! The fetch lane runs in another language. The registrable domain therefore travels with each
 //! URL as data, so that lane reads the result and never repeats the rule.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::net::IpAddr;
 use std::sync::LazyLock;
@@ -20,7 +21,10 @@ use public_suffix::{EffectiveTLDProvider, DEFAULT_PROVIDER};
 
 use url::Url;
 
+mod redact;
 mod shopify;
+
+pub use redact::{needs_redaction, redaction, without_credentials, Redaction};
 
 const VOLATILE_PARAMS: &[&str] = &["cb", "nocache", "rnd"];
 
@@ -348,6 +352,21 @@ impl Decline {
     }
 }
 
+/// The URL as a reference names it, or why the policy declines it. It checks the host and path again as `Url` serializes them.
+pub fn checked_url(raw: &str) -> Result<CanonicalUrl, Decline> {
+    let url = try_canonicalize(raw)?;
+    let path = Url::parse(&url.fetch)
+        .map(|u| u.path().to_owned())
+        .unwrap_or_default();
+    if !is_public_host(&url.host) {
+        return Err(Decline::NonPublicHost);
+    }
+    if is_tracking_beacon(&url.host, &path) {
+        return Err(Decline::TrackingBeacon);
+    }
+    Ok(url)
+}
+
 /// Canonicalize a remote image URL into its fetch and dedup forms, or say why it was refused.
 pub fn canonicalize(raw: &str) -> Option<CanonicalUrl> {
     try_canonicalize(raw).ok()
@@ -356,7 +375,30 @@ pub fn canonicalize(raw: &str) -> Option<CanonicalUrl> {
 /// Whether the URL names a host but no scheme, such as `//cdn.example.com/a.png`. The browser loads it with the page's
 /// scheme, so it is remote. A browser reads a backslash as a slash in an `https` URL, so `\\host` and `/\host` count too.
 pub fn is_protocol_relative(raw: &str) -> bool {
-    matches!(raw.trim().as_bytes(), [b'/' | b'\\', b'/' | b'\\', ..])
+    matches!(
+        parsed_start(raw, 8).trim_start().as_bytes(),
+        [b'/' | b'\\', b'/' | b'\\', ..]
+    )
+}
+
+/// The first `len` characters of `raw` as [`as_parsed`] reads them, from no more of `raw` than they need, because a
+/// slot can hold a data URI of many megabytes.
+pub fn parsed_start(raw: &str, len: usize) -> String {
+    raw.trim_start_matches(|ch: char| ch <= ' ')
+        .chars()
+        .filter(|ch| !matches!(ch, '\t' | '\n' | '\r'))
+        .take(len)
+        .collect()
+}
+
+/// The URL parser strips C0 controls and spaces from both ends of a URL and drops every ASCII tab and line break anywhere in it, so `\u{1}https://cdn.example.com` and `/\n/cdn.example.com` load from that host.
+pub fn as_parsed(raw: &str) -> Cow<'_, str> {
+    let raw = raw.trim_matches(|c: char| c <= ' ');
+    if raw.contains(['\t', '\n', '\r']) {
+        Cow::Owned(raw.replace(['\t', '\n', '\r'], ""))
+    } else {
+        Cow::Borrowed(raw)
+    }
 }
 
 /// Whether the browser loads the URL from a host. A URL scheme is not case sensitive, so `HTTPS://` loads as
@@ -364,6 +406,8 @@ pub fn is_protocol_relative(raw: &str) -> bool {
 /// all on a page of another scheme, so `https:\\host` and `https:host` can load from the host too. A
 /// protocol-relative URL does as well.
 pub fn is_remote(url: &str) -> bool {
+    let url = parsed_start(url, 7);
+    let url = url.as_str();
     let after_scheme = ["https:", "http:"].iter().find_map(|scheme| {
         url.get(..scheme.len())
             .filter(|start| start.eq_ignore_ascii_case(scheme))
@@ -400,7 +444,7 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
     // check that the same URL with a scheme meets.
     let with_scheme;
     let raw = if is_protocol_relative(raw) {
-        with_scheme = format!("https:{}", raw.trim());
+        with_scheme = format!("https:{}", as_parsed(raw).trim());
         with_scheme.as_str()
     } else {
         raw
@@ -437,7 +481,7 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
         url.set_host(Some(&host)).map_err(|_| Decline::NoHost)?;
     }
     let lowercase_path = decoded_lowercase_path(&url)?;
-    if has_credential_query(&url)? || has_credential_path(&lowercase_path, &host) {
+    if has_credential_query(&url)? || has_credential_path(&lowercase_path, Some(&host)) {
         return Err(Decline::Credential);
     }
     if matches_beacon_list(&host, &collapse_slashes(&lowercase_path)) {
@@ -497,12 +541,9 @@ fn has_credential_query(url: &Url) -> Result<bool, Decline> {
             .decode_utf8()
             .map_err(|_| Decline::InvalidQuery)?;
     }
-    Ok(url.query_pairs().any(|(name, value)| {
-        CREDENTIAL_PARAMS
-            .iter()
-            .any(|credential| credential.eq_ignore_ascii_case(&name))
-            || (name.eq_ignore_ascii_case("s") && value.chars().count() == 32)
-    }))
+    Ok(url
+        .query_pairs()
+        .any(|(name, value)| is_credential_param(&name, &value)))
 }
 
 fn has_valid_percent_encoding(value: &str) -> bool {
@@ -536,40 +577,70 @@ fn decoded_lowercase_path(url: &Url) -> Result<String, Decline> {
         .to_ascii_lowercase())
 }
 
-/// `path` is the decoded lowercase path from [`decoded_lowercase_path`].
-fn has_credential_path(path: &str, host: &str) -> bool {
+/// `path` is the decoded lowercase path from [`decoded_lowercase_path`], and `host` is `None` for a relative URL.
+fn has_credential_path(path: &str, host: Option<&str>) -> bool {
     let segments: Vec<&str> = path.split('/').collect();
+    let has_supabase_signature = path.contains("/storage/v1/object/sign/")
+        || path.contains("/storage/v1/render/image/sign/");
+    has_supabase_signature || !path_tokens(&segments, host).is_empty()
+}
+
+fn is_oracle_object_storage(host: &str) -> bool {
+    host.starts_with("objectstorage.")
+        && host.ends_with(".oraclecloud.com")
+        && host.split('.').count() == 4
+}
+
+/// Where a path holds a token: a whole segment, or a `;jsessionid=` parameter in one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PathToken {
+    Segment(usize),
+    SessionId(usize),
+}
+
+/// `segments` is a decoded lowercase path split at `/`, so the first one is empty. `host` is `None` for a relative URL,
+/// whose host is the page's, so a rule for one host then matches it on any page.
+fn path_tokens(segments: &[&str], host: Option<&str>) -> Vec<PathToken> {
+    let mut tokens = Vec::new();
     let first_segment_has_bunny_token = segments
         .get(1)
         .and_then(|segment| segment.strip_prefix("bcdn_token="))
         .and_then(|value| value.split('&').next())
         .is_some_and(|token| !token.is_empty());
-    let has_oracle_token = host.starts_with("objectstorage.")
-        && host.ends_with(".oraclecloud.com")
-        && host.split('.').count() == 4
+    if first_segment_has_bunny_token {
+        tokens.push(PathToken::Segment(1));
+    }
+    let has_oracle_token = host.is_none_or(is_oracle_object_storage)
         && segments.get(1) == Some(&"p")
         && segments.get(2).is_some_and(|token| !token.is_empty())
         && segments.get(3) == Some(&"n");
-    let has_cloudinary_signature = segments.iter().any(|segment| {
-        segment
+    if has_oracle_token {
+        tokens.push(PathToken::Segment(2));
+    }
+    for (index, segment) in segments.iter().enumerate() {
+        let has_cloudinary_signature = segment
             .strip_prefix("s--")
             .and_then(|value| value.strip_suffix("--"))
-            .is_some_and(|token| !token.is_empty())
-    });
-    let has_supabase_signature = path.contains("/storage/v1/object/sign/")
-        || path.contains("/storage/v1/render/image/sign/");
-    let has_session_token = segments.iter().any(|segment| {
-        segment
+            .is_some_and(|token| !token.is_empty());
+        if has_cloudinary_signature {
+            tokens.push(PathToken::Segment(index));
+        }
+        let has_session_token = segment
             .split_once(";jsessionid=")
             .and_then(|(_, value)| value.split(';').next())
-            .is_some_and(|token| !token.is_empty())
-    });
+            .is_some_and(|token| !token.is_empty());
+        if has_session_token {
+            tokens.push(PathToken::SessionId(index));
+        }
+    }
+    tokens
+}
 
-    first_segment_has_bunny_token
-        || has_oracle_token
-        || has_cloudinary_signature
-        || has_supabase_signature
-        || has_session_token
+fn is_credential_param(name: &str, value: &str) -> bool {
+    CREDENTIAL_PARAMS
+        .iter()
+        .any(|credential| credential.eq_ignore_ascii_case(name))
+        || (name.eq_ignore_ascii_case("s") && value.chars().count() == 32)
 }
 
 fn remove_volatile_params(raw_query: Option<&str>) -> Result<Option<String>, Decline> {

@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
+    _DEADLOCK_VICTIM_ERROR,
     _SSH_HANDSHAKE_EOF_ERROR,
     _TABLE_NOT_FOUND_ERROR,
     MSSQL_METADATA_TIMEOUT_ERROR,
@@ -164,6 +165,13 @@ class MSSQLSource(
             # checkpoint where the read has one, can succeed.
             MSSQL_ROW_READ_TIMEOUT_ERROR,
             _TEMPDB_ALLOCATION_FAILED_ERROR,
+            # SQL Server error 1205. `retry_on_deadlock` already reruns the dispatching query
+            # in-process, but a deadlock chosen mid-stream — while `cursor.fetchmany` is pulling
+            # later batches of an already-executing read — can't be retried the same way: the
+            # cursor's result set is gone, and re-running the query would re-yield rows already
+            # handed to the pipeline. That case surfaces here instead, and a fresh attempt from
+            # the next Temporal retry (or checkpoint, where the read supports one) recovers it.
+            _DEADLOCK_VICTIM_ERROR,
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:

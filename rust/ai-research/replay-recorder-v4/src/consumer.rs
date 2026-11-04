@@ -1232,10 +1232,9 @@ mod tests {
                 moments: Vec::new(),
                 image_urls: Vec::new(),
                 font_urls: Vec::new(),
-                remote_urls: Vec::new(),
                 url_limit: None,
-                srcsets: Vec::new(),
-                css_rewrites: Vec::new(),
+                edits: Vec::new(),
+                unplaced: false,
                 visited_urls: Vec::new(),
                 captured_at_ms: None,
             })

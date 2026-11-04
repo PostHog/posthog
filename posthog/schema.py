@@ -133,6 +133,8 @@ from posthog.schema_enums import (
     ExperimentExposureHealthFindingActionKind as ExperimentExposureHealthFindingActionKind,
     ExperimentExposureHealthFindingCode as ExperimentExposureHealthFindingCode,
     ExperimentExposureHealthFindingSeverity as ExperimentExposureHealthFindingSeverity,
+    ExperimentExposureHealthMeasurementSide as ExperimentExposureHealthMeasurementSide,
+    ExperimentExposureHealthMeasurementUnit as ExperimentExposureHealthMeasurementUnit,
     ExperimentMetricGoal as ExperimentMetricGoal,
     ExperimentMetricMathType as ExperimentMetricMathType,
     ExperimentMetricType as ExperimentMetricType,
@@ -297,6 +299,7 @@ from posthog.schema_enums import (
     SessionTableVersion as SessionTableVersion,
     Shelf as Shelf,
     SlackIntegrationScope as SlackIntegrationScope,
+    SlackIntegrationScopeInReview as SlackIntegrationScopeInReview,
     SlashCommandName as SlashCommandName,
     SliceContent as SliceContent,
     SnapchatAdsConversionFields as SnapchatAdsConversionFields,
@@ -662,9 +665,22 @@ class AssistantDataVisualizationBoxPlotSettings(BaseModel):
     )
 
 
+class AssistantDataVisualizationColumnDisplaySettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = Field(
+        default=None,
+        description="Table column description shown in the header tooltip.",
+    )
+
+
 class AssistantDataVisualizationColumnSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    display: AssistantDataVisualizationColumnDisplaySettings | None = Field(
+        default=None, description="Display settings for this column."
     )
     formatting: AssistantDataVisualizationAxisFormatting | None = Field(
         default=None,
@@ -1226,6 +1242,7 @@ class ChartSettingsDisplay(BaseModel):
         extra="forbid",
     )
     color: str | None = None
+    description: str | None = None
     displayType: DisplayType | None = None
     excludeFromTotal: bool | None = Field(
         default=None,
@@ -2350,7 +2367,7 @@ class MarketingIntegrationConfig3(BaseModel):
     adsetTableName: Literal["adsets"] = "adsets"
     campaignTableName: Literal["campaigns"] = "campaigns"
     conversionActionTypes: ConversionActionTypes
-    defaultSources: list[str] = Field(..., max_length=9, min_length=9)
+    defaultSources: list[str] = Field(..., max_length=10, min_length=10)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
     primarySource: Literal["meta"] = "meta"
@@ -2775,19 +2792,6 @@ class MetricChartSettings(BaseModel):
             " the average of the returned points."
         ),
     )
-
-
-class MetricsAlertConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    check_ongoing_interval: bool | None = Field(
-        default=None,
-        description=(
-            "When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one."
-        ),
-    )
-    type: Literal["MetricsAlertConfig"] = "MetricsAlertConfig"
 
 
 class MetricsDashboardVariableSelection(BaseModel):
@@ -3987,7 +3991,8 @@ class AssistantDataVisualizationColumn(BaseModel):
     )
     column: str = Field(..., description="Name of a column returned by the SQL query.")
     settings: AssistantDataVisualizationColumnSettings | None = Field(
-        default=None, description="Optional number formatting for this column."
+        default=None,
+        description="Optional display and number-formatting settings for this column.",
     )
 
 
@@ -5842,33 +5847,6 @@ class ExperimentApiRetentionStart(BaseModel):
     )
 
 
-class ExperimentExposureHealthCheck(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    key: ExperimentExposureHealthCheckKey = Field(..., description="Stable identifier of the check.")
-    name: str = Field(
-        ...,
-        description="The problem the check looks for, as the health panel lists it.",
-    )
-    reason: str | None = Field(
-        ...,
-        description=(
-            "Why the check did not look, for the statuses not_applicable and"
-            " not_checked, for example 'Runs after launch'. Null for passed and"
-            " finding."
-        ),
-    )
-    status: ExperimentExposureHealthCheckStatus = Field(
-        ...,
-        description=(
-            "passed: no problem found. finding: a finding in `health_findings`."
-            " not_applicable: the check doesn't cover the experiment's state."
-            " not_checked: an input was missing or the check failed."
-        ),
-    )
-
-
 class ExperimentExposureHealthFinding(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5917,32 +5895,21 @@ class ExperimentExposureHealthFinding(BaseModel):
     title: str = Field(..., description="One-line summary of the problem.")
 
 
-class ExperimentExposureQueryResponse(BaseModel):
+class ExperimentExposureHealthMeasurement(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    bias_risk: BiasRisk | None = None
-    date_range: DateRange
-    health_checks: list[ExperimentExposureHealthCheck] | None = Field(
-        default=None,
+    threshold: float = Field(..., description="The value at which the check reports a finding.")
+    unit: ExperimentExposureHealthMeasurementUnit = Field(
+        ...,
         description=(
-            "The result of each check behind `health_findings`, so that a check that did not run is not read as passed."
+            "percentage: a share of the exposed users or groups, on the 0-100 scale."
+            " p_value: the p-value of a statistical test."
         ),
     )
-    health_findings: list[ExperimentExposureHealthFinding] | None = Field(
-        default=None,
-        description=(
-            "Health check diagnostics that read the exposures: zero exposures, a sample"
-            " ratio mismatch, and bias. Empty when every check passed."
-        ),
-    )
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    sample_ratio_mismatch: SampleRatioMismatch | None = None
-    timeseries: list[ExperimentExposureTimeSeries]
-    total_exposures: dict[str, float]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    value: float = Field(..., description="The value that the check measured on the experiment.")
+    warns: ExperimentExposureHealthMeasurementSide = Field(
+        ..., description="The side of the threshold that reports a finding."
     )
 
 
@@ -6969,6 +6936,13 @@ class MarketingAnalyticsRecommendationsSource(BaseModel):
         default=None,
         description="Google Ads search term table for Performance Max campaigns.",
     )
+    queryPageTable: str | None = Field(
+        default=None,
+        description=(
+            "Google Search Console table with one row per query and page, used to find"
+            " the page that ranks for a search."
+        ),
+    )
     queryTable: str | None = Field(
         default=None,
         description=("Google Search Console table with one row per query, or per query and page."),
@@ -7165,6 +7139,23 @@ class MetricPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["metric_attribute"] = "metric_attribute"
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class MetricsAlertConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    check_ongoing_interval: bool | None = Field(
+        default=None,
+        description=(
+            "When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one."
+        ),
+    )
+    type: Literal["MetricsAlertConfig"] = "MetricsAlertConfig"
+    variables: dict[str, MetricsDashboardVariableSelection] | None = Field(
+        default=None,
+        description="Values for the `$name` variables in the insight's query.",
+    )
 
 
 class MetricsDashboardVariable(BaseModel):
@@ -7668,35 +7659,6 @@ class QueryResponseAlternative10(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
-    )
-
-
-class QueryResponseAlternative20(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bias_risk: BiasRisk | None = None
-    date_range: DateRange
-    health_checks: list[ExperimentExposureHealthCheck] | None = Field(
-        default=None,
-        description=(
-            "The result of each check behind `health_findings`, so that a check that did not run is not read as passed."
-        ),
-    )
-    health_findings: list[ExperimentExposureHealthFinding] | None = Field(
-        default=None,
-        description=(
-            "Health check diagnostics that read the exposures: zero exposures, a sample"
-            " ratio mismatch, and bias. Empty when every check passed."
-        ),
-    )
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    sample_ratio_mismatch: SampleRatioMismatch | None = None
-    timeseries: list[ExperimentExposureTimeSeries]
-    total_exposures: dict[str, float]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
     )
 
 
@@ -13023,54 +12985,6 @@ class CachedEventsQueryResponse(BaseModel):
     )
 
 
-class CachedExperimentExposureQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bias_risk: BiasRisk | None = None
-    cache_key: str
-    cache_target_age: AwareDatetime | None = None
-    calculation_trigger: str | None = Field(
-        default=None,
-        description=("What triggered the calculation of the query, leave empty if user/immediate"),
-    )
-    date_range: DateRange
-    health_checks: list[ExperimentExposureHealthCheck] | None = Field(
-        default=None,
-        description=(
-            "The result of each check behind `health_findings`, so that a check that did not run is not read as passed."
-        ),
-    )
-    health_findings: list[ExperimentExposureHealthFinding] | None = Field(
-        default=None,
-        description=(
-            "Health check diagnostics that read the exposures: zero exposures, a sample"
-            " ratio mismatch, and bias. Empty when every check passed."
-        ),
-    )
-    is_cached: bool
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    last_refresh: AwareDatetime
-    next_allowed_client_refresh: AwareDatetime
-    query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = Field(
-        default=None,
-        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
-    )
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    sample_ratio_mismatch: SampleRatioMismatch | None = None
-    timeseries: list[ExperimentExposureTimeSeries]
-    timezone: str
-    total_exposures: dict[str, float]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
 class CachedFunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -17475,6 +17389,10 @@ class ChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    annotationsScope: AnnotationScope | None = Field(
+        default=None,
+        description=("Shows only the annotations saved at this level. Unset shows every level."),
+    )
     barGap: float | None = None
     boxPlot: BoxPlotSettings | None = None
     chartStyle: ChartStyle | None = Field(
@@ -19480,6 +19398,74 @@ class ExperimentBreakdownResult(BaseModel):
     variants: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] = Field(
         ...,
         description=("Test variant results with statistical comparisons for this breakdown"),
+    )
+
+
+class ExperimentExposureHealthCheck(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = Field(
+        default=None,
+        description=(
+            "What the check looks for and why it matters. Missing on an answer cached before the field existed."
+        ),
+    )
+    key: ExperimentExposureHealthCheckKey = Field(..., description="Stable identifier of the check.")
+    measurement: ExperimentExposureHealthMeasurement | None = Field(
+        default=None,
+        description=(
+            "The value that decided a passed check. Null for the other statuses and for a pass without a value."
+        ),
+    )
+    name: str = Field(
+        ...,
+        description="The problem the check looks for, as the health panel lists it.",
+    )
+    reason: str | None = Field(
+        ...,
+        description=(
+            "Why the check did not look, for the statuses not_applicable and"
+            " not_checked, for example 'Runs after launch'. Null for passed and"
+            " finding."
+        ),
+    )
+    status: ExperimentExposureHealthCheckStatus = Field(
+        ...,
+        description=(
+            "passed: no problem found. finding: a finding in `health_findings`."
+            " not_applicable: the check doesn't cover the experiment's state."
+            " not_checked: an input was missing or the check failed."
+        ),
+    )
+
+
+class ExperimentExposureQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bias_risk: BiasRisk | None = None
+    date_range: DateRange
+    health_checks: list[ExperimentExposureHealthCheck] | None = Field(
+        default=None,
+        description=(
+            "The result of each check behind `health_findings`, so that a check that did not run is not read as passed."
+        ),
+    )
+    health_findings: list[ExperimentExposureHealthFinding] | None = Field(
+        default=None,
+        description=(
+            "Health check diagnostics that read the exposures: zero exposures, a sample"
+            " ratio mismatch, and bias. Empty when every check passed."
+        ),
+    )
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    sample_ratio_mismatch: SampleRatioMismatch | None = None
+    timeseries: list[ExperimentExposureTimeSeries]
+    total_exposures: dict[str, float]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
     )
 
 
@@ -22388,6 +22374,35 @@ class QueryResponseAlternative19(BaseModel):
     )
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
+
+
+class QueryResponseAlternative20(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bias_risk: BiasRisk | None = None
+    date_range: DateRange
+    health_checks: list[ExperimentExposureHealthCheck] | None = Field(
+        default=None,
+        description=(
+            "The result of each check behind `health_findings`, so that a check that did not run is not read as passed."
+        ),
+    )
+    health_findings: list[ExperimentExposureHealthFinding] | None = Field(
+        default=None,
+        description=(
+            "Health check diagnostics that read the exposures: zero exposures, a sample"
+            " ratio mismatch, and bias. Empty when every check passed."
+        ),
+    )
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    sample_ratio_mismatch: SampleRatioMismatch | None = None
+    timeseries: list[ExperimentExposureTimeSeries]
+    total_exposures: dict[str, float]
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
@@ -28354,6 +28369,54 @@ class CachedErrorTrackingQueryResponse(BaseModel):
     )
 
 
+class CachedExperimentExposureQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bias_risk: BiasRisk | None = None
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    date_range: DateRange
+    health_checks: list[ExperimentExposureHealthCheck] | None = Field(
+        default=None,
+        description=(
+            "The result of each check behind `health_findings`, so that a check that did not run is not read as passed."
+        ),
+    )
+    health_findings: list[ExperimentExposureHealthFinding] | None = Field(
+        default=None,
+        description=(
+            "Health check diagnostics that read the exposures: zero exposures, a sample"
+            " ratio mismatch, and bias. Empty when every check passed."
+        ),
+    )
+    is_cached: bool
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
+    )
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    sample_ratio_mismatch: SampleRatioMismatch | None = None
+    timeseries: list[ExperimentExposureTimeSeries]
+    timezone: str
+    total_exposures: dict[str, float]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
+
+
 class CachedExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -29745,6 +29808,10 @@ class MCPMissingCapabilitiesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = Field(
+        default=None,
+        description="Exclude reports from the project's internal and test users.",
+    )
     kind: Literal["MCPMissingCapabilitiesQuery"] = "MCPMissingCapabilitiesQuery"
     limit: int | None = Field(default=None, description="Page size; defaults to 100, capped at 500.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -32562,6 +32629,7 @@ class ErrorTrackingQuery(BaseModel):
         default=None,
         description=("Free-text search across exception type, message, and stack frames."),
     )
+    severity: ErrorTrackingQueryIssueSeverity | None = Field(default=None, description="Filter by issue severity.")
     status: ErrorTrackingIssueStatus | str | None = Field(
         default=None,
         description="Filter by issue status.",
