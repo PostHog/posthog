@@ -76,8 +76,12 @@ export interface mcpRecurringReportsLogicActions {
     createWeeklyReport: () => {
         value: true
     }
-    createWeeklyReportFailed: (message: string) => {
+    createWeeklyReportFailed: (
+        message: string,
+        reconciling: boolean
+    ) => {
         message: string
+        reconciling: boolean
     }
     createWeeklyReportStarted: () => {
         value: true
@@ -187,7 +191,7 @@ export const mcpRecurringReportsLogic = kea<mcpRecurringReportsLogicType>([
         createWeeklyReport: true,
         createWeeklyReportStarted: true,
         createWeeklyReportSucceeded: (report: SubscriptionApi) => ({ report }),
-        createWeeklyReportFailed: (message: string) => ({ message }),
+        createWeeklyReportFailed: (message: string, reconciling: boolean) => ({ message, reconciling }),
     }),
     loaders(({ actions, values, cache }) => ({
         reports: [
@@ -250,7 +254,16 @@ export const mcpRecurringReportsLogic = kea<mcpRecurringReportsLogicType>([
             {
                 createWeeklyReportStarted: (): WeeklyReportSubmission => ({ status: 'creating' }),
                 createWeeklyReportSucceeded: (_, { report }): WeeklyReportSubmission => ({ status: 'created', report }),
-                createWeeklyReportFailed: (_, { message }): WeeklyReportSubmission => ({ status: 'failed', message }),
+                createWeeklyReportFailed: (_, { message, reconciling }): WeeklyReportSubmission =>
+                    reconciling ? { status: 'reconciling', message } : { status: 'failed', message },
+                loadReportsSuccess: (submission): WeeklyReportSubmission =>
+                    submission.status === 'reconciling'
+                        ? { status: 'failed', message: submission.message }
+                        : submission,
+                loadReportsFailure: (submission): WeeklyReportSubmission =>
+                    submission.status === 'reconciling'
+                        ? { status: 'failed', message: submission.message }
+                        : submission,
             },
         ],
         // The list loads when the tab mounts; without this the first render would flash the empty state.
@@ -360,15 +373,16 @@ export const mcpRecurringReportsLogic = kea<mcpRecurringReportsLogicType>([
                 )
             } catch (error) {
                 const message = createErrorMessage(error)
-                actions.createWeeklyReportFailed(message)
+                // A request that failed in transit may still have saved the report. Reloading turns
+                // that case into `has-report` instead of offering a retry that would duplicate it.
+                const reconciling = createMayHaveSucceeded(error)
+                actions.createWeeklyReportFailed(message, reconciling)
                 posthog.captureRaw('mcp analytics weekly report failed', {
                     mcp_report_template: TOOL_HEALTH_REPORT.key,
                     error_status: error instanceof ApiError ? (error.status ?? null) : null,
                     error_message: message,
                 })
-                // A request that failed in transit may still have saved the report. Reloading turns
-                // that case into `has-report` instead of offering a retry that would duplicate it.
-                if (createMayHaveSucceeded(error)) {
+                if (reconciling) {
                     actions.loadReports()
                 }
                 return

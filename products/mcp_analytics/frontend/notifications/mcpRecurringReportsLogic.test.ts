@@ -382,13 +382,25 @@ describe('mcpRecurringReportsLogic', () => {
             expect(logic.values.weeklyReportOffer).toEqual({ state: 'created', report: SAVED })
         })
 
-        it('resolves to has-report, not a duplicate retry, when the request landed despite the failure', async () => {
+        it('holds the retry until the reload answers, then resolves to has-report when the request landed despite the failure', async () => {
             await becomeReadyToCreate()
             mockedCreate.mockRejectedValueOnce(new TypeError('Failed to fetch'))
-            listReturns([SAVED])
+            let finishList: (results: SubscriptionApi[]) => void = () => {}
+            mockedList.mockReturnValueOnce(
+                new Promise(
+                    (resolve) => (finishList = (results) => resolve({ next: null, previous: null, results } as any))
+                )
+            )
 
-            await expectLogic(logic, () => logic.actions.createWeeklyReport()).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.createWeeklyReport()).toDispatchActions([
+                'createWeeklyReportFailed',
+            ])
+            logic.actions.createWeeklyReport()
+            expect(mockedCreate).toHaveBeenCalledTimes(1)
+            expect(logic.values.weeklyReportOffer).toEqual({ state: 'creating', email: 'me@example.com' })
 
+            finishList([SAVED])
+            await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.weeklyReportOffer).toEqual({ state: 'hidden', reason: 'has-report' })
         })
 

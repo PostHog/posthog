@@ -24,6 +24,8 @@ export type ActionableWeeklyReportOffer = Exclude<ResolvedWeeklyReportOffer, { s
 export type WeeklyReportSubmission =
     | { status: 'idle' }
     | { status: 'creating' }
+    // The create may have saved the report despite the error, so the reload decides whether a retry is safe.
+    | { status: 'reconciling'; message: string }
     | { status: 'failed'; message: string }
     | { status: 'created'; report: SubscriptionApi }
 
@@ -39,7 +41,7 @@ export interface WeeklyReportOfferInputs {
 
 /**
  * Precedence, top wins:
- * created > creating > loading > self-hosted > not-enabled > has-report / unknown-reports
+ * created > creating (and reconciling) > loading > self-hosted > not-enabled > has-report / unknown-reports
  * > needs-ai-consent > failed > ready.
  *
  * `created` holds only while the new report is still in `reports` and enabled. Once it is deleted or
@@ -61,7 +63,7 @@ export function resolveWeeklyReportOffer(inputs: WeeklyReportOfferInputs): Weekl
             return { state: 'created', report: created }
         }
     }
-    if (submission.status === 'creating' && userEmail) {
+    if ((submission.status === 'creating' || submission.status === 'reconciling') && userEmail) {
         return { state: 'creating', email: userEmail }
     }
     if (
