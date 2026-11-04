@@ -33,28 +33,29 @@ function openedWhen(day: string, today: dayjs.Dayjs): string {
     return `on ${dayjs(day).format('MMM D')}`
 }
 
+function openedSubject(metric: HighlightMetricApi): string {
+    if (metric.reason !== 'dashboard') {
+        return 'this insight'
+    }
+    return metric.dashboard_name ? `the ${metric.dashboard_name} dashboard` : 'its dashboard'
+}
+
+const FIXED_WHY: Partial<Record<NonNullable<HighlightMetricApi['reason']>, string>> = {
+    key_metric: 'It is a key metric for this project, set in Customer analytics.',
+    popular: 'People in this project open this insight often.',
+    watched: 'You get an alert or a subscription for this insight.',
+    built: 'You created or edited this insight recently.',
+}
+
 export function pulseWhy(metric: HighlightMetricApi, today: dayjs.Dayjs = dayjs()): string | null {
-    if (metric.reason === 'key_metric') {
-        return 'It is a key metric for this project, set in Customer analytics.'
-    }
-    if (metric.reason === 'popular') {
-        return 'People in this project open this insight often.'
-    }
-    if (metric.reason === 'watched') {
-        return 'You get an alert or a subscription for this insight.'
-    }
-    if (metric.reason === 'built') {
-        return 'You created or edited this insight recently.'
+    const fixed = metric.reason ? FIXED_WHY[metric.reason] : undefined
+    if (fixed) {
+        return fixed
     }
     if (metric.reason !== 'routine' && metric.reason !== 'dashboard') {
         return null
     }
-    const subject =
-        metric.reason === 'dashboard'
-            ? metric.dashboard_name
-                ? `the ${metric.dashboard_name} dashboard`
-                : 'its dashboard'
-            : 'this insight'
+    const subject = openedSubject(metric)
     const suffix = metric.reason === 'dashboard' ? ' This is the first chart on that dashboard.' : ''
     if (!metric.last_opened) {
         return `You open ${subject} often.${suffix}`
