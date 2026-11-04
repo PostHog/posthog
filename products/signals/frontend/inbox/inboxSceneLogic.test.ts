@@ -195,10 +195,14 @@ describe('inboxSceneLogic routing', () => {
 
         logic.actions.setSelectedReportId('report-2')
         expect(logic.values.breadcrumbs).toEqual(inboxBreadcrumbs)
+        logic.actions.loadSelectedReportSuccess({ id: 'report-1', title: 'Example report' } as SignalReport)
+        expect(logic.values.breadcrumbs).toEqual(inboxBreadcrumbs)
         logic.actions.loadSelectedReportSuccess({ id: 'report-2', title: 'Another report' } as SignalReport)
         expect(logic.values.breadcrumbs.at(-1)?.name).toBe('Another report')
 
         logic.actions.setSelectedReportId(null)
+        expect(logic.values.breadcrumbs).toEqual(inboxBreadcrumbs)
+        logic.actions.loadSelectedReportSuccess({ id: 'report-2', title: 'Another report' } as SignalReport)
         expect(logic.values.breadcrumbs).toEqual(inboxBreadcrumbs)
     })
 
