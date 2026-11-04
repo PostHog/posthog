@@ -569,11 +569,13 @@ class TestSignalSpend(BaseTest):
         stage: str = "research",
         signal_id: str | None = None,
         implementation_kind: str | None = None,
+        mode: str = "background",
     ) -> TaskRun:
         task = task or Task.objects.create(
             team=self.team,
             title="Example research",
             description="",
+            internal=True,
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
             signal_report=report,
         )
@@ -581,6 +583,7 @@ class TestSignalSpend(BaseTest):
             environment=TaskRun.Environment.CLOUD,
             spend_signal_id=signal_id,
             implementation_spend_kind=implementation_kind,
+            mode=mode,
             extra_state={"ai_stage": stage, "unprocessed_request_ids": [], "token_cost": {}},
         )
         run.status = TaskRun.Status.IN_PROGRESS
@@ -744,7 +747,7 @@ class TestSignalSpend(BaseTest):
         self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
         before = SignalSpend.objects.for_team(self.team.id).values().get()
         assert before["finalized_at"] is not None
-        resumed = self._run(task=run.task, stage=stage)
+        resumed = self._run(task=run.task, stage=stage, mode="interactive")
         assert resumed.state["billing_product"] == "posthog_ai"
         self._set_task_cost(resumed, 200)
         resumed.status = TaskRun.Status.COMPLETED
@@ -757,7 +760,7 @@ class TestSignalSpend(BaseTest):
         driver = str(uuid4())
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
         task = Task.objects.create(
-            team=self.team, title="Fails before launch", origin_product=origin, signal_report=report
+            team=self.team, title="Fails before launch", internal=True, origin_product=origin, signal_report=report
         )
         run = task.create_run(
             environment=TaskRun.Environment.CLOUD, extra_state={"ai_stage": stage}, spend_signal_id=driver
