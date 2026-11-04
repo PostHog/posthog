@@ -62,6 +62,12 @@ export function createSesRateLimiterValkeyPool(
     return optional ? withoutOfflineQueue(pool) : pool
 }
 
+// The sandbox daily caps run inside a send, so they always use a bounded pool: a stalled Valkey fails the
+// check instead of holding the worker's whole batch.
+export function createSandboxEmailCapValkeyPool(config: RateLimiterValkeyConfig): RedisV2 | null {
+    return createSesRateLimiterValkeyPool(config, 'sandbox-email-cap', { optional: true })
+}
+
 // A client waits for its first connection in the offline queue, so the queue can only be switched off
 // once the pool hands the client out. After that a dropped connection fails commands at once instead of
 // queueing every caller's work for the whole outage and replaying it on recovery.
