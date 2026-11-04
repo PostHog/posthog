@@ -143,53 +143,6 @@ class TestEventsPersonsTables:
 
 
 @pytest.mark.django_db
-class TestTeamOwnedTables:
-    @parameterized.expand(
-        [
-            ("other_team_on_its_own_tables", {}, {"events", "persons", "groups_cp_schema"}),
-            (
-                "disabled_team_pinned_to_the_same_events",
-                {"events_table_name": "events", "enabled": False, "backfill_enabled": False},
-                {"persons", "groups_cp_schema"},
-            ),
-        ]
-    )
-    def test_excludes_tables_that_another_team_of_the_org_resolves_to(
-        self, _name: str, other_overrides: dict, expected: set[str]
-    ) -> None:
-        org, team = _team()
-        other = Team.objects.create(organization=org)
-        rows = [
-            _cp_row(team, "cp_schema", events_table_name="events", persons_table_name="persons"),
-            _cp_row(other, "other_schema", **other_overrides),
-        ]
-        with _patch_org_rows(rows):
-            assert team_state.team_owned_tables(team.id) == frozenset(expected)
-
-    def test_is_empty_without_a_cp_row(self) -> None:
-        org, team = _team()
-        with _patch_org_rows([]):
-            assert team_state.team_owned_tables(team.id) == frozenset()
-
-    def test_reads_past_a_warm_cache_that_misses_a_new_pin(self) -> None:
-        org, team = _team()
-        other = Team.objects.create(organization=org)
-        own_row = _cp_row(team, "cp_schema", events_table_name="events", persons_table_name="persons")
-        with _patch_org_rows([own_row]):
-            team_state.resolve_events_persons_tables(team.id)
-        with _patch_org_rows([own_row, _cp_row(other, "other_schema", events_table_name="events")]):
-            assert "events" not in team_state.team_owned_tables(team.id)
-
-    def test_raises_when_cp_unreachable_even_with_a_warm_cache(self) -> None:
-        org, team = _team()
-        with _patch_org_rows([_cp_row(team, "cp_schema")]):
-            team_state.resolve_events_persons_tables(team.id)
-        with _patch_org_rows(None):
-            with pytest.raises(team_state.CPUnavailableError):
-                team_state.team_owned_tables(team.id)
-
-
-@pytest.mark.django_db
 class TestTeamBackfillState:
     @parameterized.expand(
         [

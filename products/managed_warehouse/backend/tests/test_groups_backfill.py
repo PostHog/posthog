@@ -340,7 +340,7 @@ def test_groups_backfill_registers_through_trino_without_duckgres(
 ) -> None:
     inserts, catalog, connect_catalog, context = _run_groups_through_trino(partition_key, DucklingBackfillConfig())
 
-    connect_catalog.assert_called_once_with("org", canary=False, owned_tables=frozenset({"groups_team_7"}))
+    connect_catalog.assert_called_once_with("org", canary=False, team_id=7)
     assert catalog.tables == [("groups_team_7", GROUPS_TRINO_COLUMN_TYPES)]
     [(table, files, registered_replacement)] = catalog.registered
     assert (table, registered_replacement) == ("groups_team_7", replacement)
@@ -405,7 +405,6 @@ def _run_groups_through_trino(
         patch("products.managed_warehouse.dags.groups_backfill._resolve_duckling_target", return_value=target),
         patch("products.managed_warehouse.dags.groups_backfill.resolve_groups_table", return_value="groups_team_7"),
         patch("products.managed_warehouse.dags.groups_backfill.backfills_through_trino", return_value=org_on_flag),
-        patch("posthog.dags.events_backfill_to_duckling.team_owned_tables", return_value=frozenset({"groups_team_7"})),
         patch("products.managed_warehouse.dags.groups_backfill._DuckgresSession") as duckgres,
         patch("products.managed_warehouse.dags.groups_backfill.record_duckling_backfill_workload"),
         patch("posthog.dags.events_backfill_to_duckling._get_cluster", return_value=cluster),

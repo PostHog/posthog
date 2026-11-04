@@ -33,9 +33,8 @@ A Trino backfill connects through the normal Trino hostname.
 Set `use_trino_canary: true` in the run config to connect through the canary hostname instead, which needs `MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN` to be set. Without it, the run fails.
 The flag `managed-warehouse-trino-canary` does not apply to backfills.
 A run with `register_through_trino: true` registers through Trino even when the organization is not on the flag, and scheduled runs keep following the flag.
-A replacement refuses the base `events`, `persons` and `groups` tables unless the control plane shows that only this team writes to them.
+Before each statement that removes rows from the base `events`, `persons` or `groups` table, Trino checks that no other team has rows in the range it removes, and the run refuses otherwise.
 A team without a control-plane row cannot fall back to a base table that another team of the organization writes, so its backfill fails instead.
-Rows that such a team wrote before stay in the table, so check that `SELECT DISTINCT team_id` returns only the owner before the first Trino run on a base table.
 
 One `add_files` call registers the files of an export and removes the rows they replace in a single DuckLake snapshot:
 

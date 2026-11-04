@@ -2762,9 +2762,6 @@ class TestBackfillThroughTrino:
         with (
             patch("posthog.dags.events_backfill_to_duckling._resolve_duckling_target", return_value=self.TARGET),
             patch("posthog.dags.events_backfill_to_duckling.backfills_through_trino", return_value=org_on_flag),
-            patch(
-                "posthog.dags.events_backfill_to_duckling.team_owned_tables", return_value=frozenset({"events_team_2"})
-            ),
             patch("posthog.dags.events_backfill_to_duckling.connect_backfill_catalog") as connect_catalog,
             patch("posthog.dags.events_backfill_to_duckling._get_cluster", return_value=cluster),
             patch("posthog.dags.events_backfill_to_duckling._DuckgresSession") as duckgres,
@@ -2816,7 +2813,7 @@ class TestBackfillThroughTrino:
 
         catalog, connect_catalog = self._run(run, partition_key, clickhouse, DucklingBackfillConfig())
 
-        connect_catalog.assert_called_with("org-1", canary=False, owned_tables=frozenset({"events_team_2"}))
+        connect_catalog.assert_called_with("org-1", canary=False, team_id=2)
         assert catalog.tables == [(table, column_types)] * 2
         assert [(t, r) for t, _, _, r in catalog.registered] == [(table, replacement)] * 2
         first, second = catalog.registered
@@ -2936,7 +2933,7 @@ class TestBackfillThroughTrino:
             run, partition_key, _FakeExportClickHouse(files_per_export=1), DucklingBackfillConfig(use_trino_canary=True)
         )
 
-        connect_catalog.assert_called_with("org-1", canary=True, owned_tables=frozenset({"events_team_2"}))
+        connect_catalog.assert_called_with("org-1", canary=True, team_id=2)
 
     @parameterized.expand(
         [
@@ -2954,7 +2951,7 @@ class TestBackfillThroughTrino:
             org_on_flag=False,
         )
 
-        connect_catalog.assert_called_with("org-1", canary=False, owned_tables=frozenset({"events_team_2"}))
+        connect_catalog.assert_called_with("org-1", canary=False, team_id=2)
         assert catalog.registered
 
     @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)

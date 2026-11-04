@@ -15,6 +15,6 @@ def backfills_through_trino(organization_id: str) -> bool:
 
 
 def connect_backfill_catalog(
-    organization_id: str, *, canary: bool = False, owned_tables: frozenset[str] = frozenset()
+    organization_id: str, *, canary: bool = False, team_id: int | None = None
 ) -> AbstractContextManager[DuckLakeBackfillCatalog]:
-    return backfill_trino.TrinoBackfillCatalog.connect(organization_id, canary=canary, owned_tables=owned_tables)
+    return backfill_trino.TrinoBackfillCatalog.connect(organization_id, canary=canary, team_id=team_id)

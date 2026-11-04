@@ -49,10 +49,16 @@ class _Cursor:
 class _FakeTrino:
     catalog = "warehouse"
 
-    def __init__(self, columns: dict[str, str] | None = None, failures: list[Exception] | None = None) -> None:
+    def __init__(
+        self,
+        columns: dict[str, str] | None = None,
+        failures: list[Exception] | None = None,
+        other_team_rows: bool = False,
+    ) -> None:
         self.statements: list[str] = []
         self.failures = failures or []
         self._columns = columns or {}
+        self._other_team_rows = other_team_rows
 
     def cursor(self) -> _Cursor:
         return _Cursor(self)
@@ -62,16 +68,23 @@ class _FakeTrino:
             return [[name, data_type] for name, data_type in self._columns.items()]
         if "EXECUTE add_files" in statement:
             return [["added_data_files", 2]]
+        if statement.startswith("SELECT 1 FROM") and self._other_team_rows:
+            return [[1]]
         return []
 
 
 def _catalog(
     columns: dict[str, str] | None = None,
     failures: list[Exception] | None = None,
-    owned_tables: frozenset[str] = frozenset(),
+    team_id: int | None = None,
+    other_team_rows: bool = False,
 ) -> tuple[TrinoBackfillCatalog, _FakeTrino]:
-    connection = _FakeTrino(columns, failures)
-    return TrinoBackfillCatalog(cast("Connection", connection), owned_tables=owned_tables), connection
+    connection = _FakeTrino(columns, failures, other_team_rows)
+    return TrinoBackfillCatalog(cast("Connection", connection), team_id=team_id), connection
+
+
+def _changes(connection: _FakeTrino) -> list[str]:
+    return [statement for statement in connection.statements if not statement.startswith("SELECT")]
 
 
 @pytest.mark.parametrize("canary", [False, True])
@@ -154,25 +167,44 @@ class TestRegisterFiles:
 
     @parameterized.expand(
         [
-            (
-                "register_table",
-                lambda c: c.register_files(
-                    "persons", ["s3://b/f.parquet"], import_id="i", replacement=DuckLakeTableReplacement()
+            (f"{name}_{'other_team_rows' if other_team_rows else 'own_rows_only'}", action, in_day, other_team_rows)
+            for other_team_rows in (False, True)
+            for name, action, in_day in (
+                (
+                    "register_table",
+                    lambda c: c.register_files(
+                        "persons", ["s3://b/f.parquet"], import_id="i", replacement=DuckLakeTableReplacement()
+                    ),
+                    False,
                 ),
-            ),
-            (
-                "delete_day",
-                lambda c: c.delete_rows("events", DuckLakeDayReplacement(column="timestamp", day=date(2024, 1, 1))),
-            ),
-            ("replace_table", lambda c: c.replace_table("persons", COLUMNS)),
+                (
+                    "delete_day",
+                    lambda c: c.delete_rows("events", DuckLakeDayReplacement(column="timestamp", day=date(2024, 1, 1))),
+                    True,
+                ),
+                ("rebuild", lambda c: c.replace_table("persons", COLUMNS), False),
+                (
+                    "drop",
+                    lambda c: c.ensure_table(
+                        "events", COLUMNS, drop_first=True, create_if_missing=False, validate=False
+                    ),
+                    False,
+                ),
+            )
         ]
     )
-    def test_replaces_rows_in_a_base_table_the_team_owns(self, _name: str, action) -> None:
-        catalog, connection = _catalog(COLUMNS, owned_tables=frozenset({"events", "persons"}))
+    def test_changes_a_base_table_only_when_no_other_team_has_rows_in_the_range(
+        self, _name: str, action, in_day: bool, other_team_rows: bool
+    ) -> None:
+        catalog, connection = _catalog(COLUMNS, team_id=7, other_team_rows=other_team_rows)
 
-        action(catalog)
+        with pytest.raises(ValueError, match="shared") if other_team_rows else nullcontext():
+            action(catalog)
 
-        assert connection.statements
+        [probe] = [statement for statement in connection.statements if statement.startswith("SELECT 1 FROM")]
+        assert '"team_id" <> 7' in probe
+        assert ("TIMESTAMP '2024-01-01 00:00:00 UTC'" in probe) == in_day
+        assert bool(_changes(connection)) != other_team_rows
 
     def test_refuses_more_files_than_one_call_registers(self) -> None:
         catalog, connection = _catalog()
@@ -252,7 +284,7 @@ class TestEnsureTable:
         with pytest.raises(ValueError, match="shared"):
             action(catalog, table)
 
-        assert connection.statements == []
+        assert _changes(connection) == []
 
     @parameterized.expand(
         [

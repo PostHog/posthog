@@ -39,21 +39,15 @@ def _get_cp_row(team_id: int) -> cp_teams.CPTeam | None:
     return next((team for team in teams if team.team_id == team_id), None)
 
 
-def _fresh_org_teams(team_id: int) -> list[cp_teams.CPTeam]:
-    # A cached read can miss a team that started to write a table within the cache TTL.
+def _refuse_base_tables_another_team_writes(team_id: int, tables: tuple[str, ...]) -> None:
+    # Rows of a second team in a base table make every Trino replacement on that table refuse. A cached read can miss
+    # a team that started to write the table within the cache TTL.
     teams = cp_teams.list_org_teams(_get_org_id_for_team(team_id), use_cache=False)
     if teams is None:
         raise CPUnavailableError(f"duckgres control plane unreachable reading team state for team {team_id}")
-    return teams
-
-
-def _resolved_tables(team: cp_teams.CPTeam) -> tuple[str, str, str]:
-    return (team.resolved_events_table, team.resolved_persons_table, team.resolved_groups_table)
-
-
-def _refuse_base_tables_another_team_writes(team_id: int, tables: tuple[str, ...]) -> None:
-    # A Trino replacement on a base table that a team owns has no team filter, so it would remove these rows.
-    claimed = sorted({table for team in _fresh_org_teams(team_id) for table in _resolved_tables(team)} & set(tables))
+    claimed = sorted(
+        {name for team in teams for name in (team.resolved_events_table, team.resolved_persons_table)} & set(tables)
+    )
     if claimed:
         raise ValueError(
             f"Team {team_id} has no control-plane row, so it would write to {claimed}, "
@@ -88,23 +82,6 @@ def resolve_groups_table(team_id: int) -> str:
     table = row.resolved_groups_table if row is not None else "groups"
     validate_duckgres_identifier(table)
     return table
-
-
-def team_owned_tables(team_id: int) -> frozenset[str]:
-    """The events, persons and groups tables that only this team writes.
-
-    A replacement removes rows by time or by table, so it is safe only on a table that no other team of the
-    organization writes. Returns an empty set when the team has no control-plane row, because ownership cannot be
-    proven. A team without a row cannot write a base table that another team resolves to, because
-    :func:`resolve_events_persons_tables` refuses it. Raises :class:`CPUnavailableError` when the control
-    plane can't answer.
-    """
-    teams = _fresh_org_teams(team_id)
-    row = next((team for team in teams if team.team_id == team_id), None)
-    if row is None:
-        return frozenset()
-    others = {table for team in teams if team.team_id != team_id for table in _resolved_tables(team)}
-    return frozenset(_resolved_tables(row)) - others
 
 
 # --- data-imports schema (v3 sink hot path) ---------------------------------------

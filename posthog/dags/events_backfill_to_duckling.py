@@ -115,7 +115,6 @@ from products.managed_warehouse.backend.facade.metrics import record_duckling_ba
 from products.managed_warehouse.backend.facade.team_state import (
     list_enabled_backfill_team_memberships,
     resolve_events_persons_tables,
-    team_owned_tables,
 )
 
 logger = structlog.get_logger(__name__)
@@ -2645,9 +2644,8 @@ def backfill_through_trino(
         and all(isinstance(item.replacement, DuckLakeTableReplacement) for item in exports)
     )
     rebuild = False
-    owned_tables = team_owned_tables(target.team_id) if register else frozenset()
     with (
-        connect_backfill_catalog(target.organization_id, canary=config.use_trino_canary, owned_tables=owned_tables)
+        connect_backfill_catalog(target.organization_id, canary=config.use_trino_canary, team_id=target.team_id)
         if register
         else nullcontext()
     ) as catalog:

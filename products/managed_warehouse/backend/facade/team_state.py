@@ -17,7 +17,6 @@ __all__ = [
     "resolve_groups_table",
     "team_backfill_membership",
     "team_backfill_state",
-    "team_owned_tables",
 ]
 
 
@@ -31,12 +30,6 @@ def resolve_groups_table(team_id: int) -> str:
     from products.managed_warehouse.backend import team_state
 
     return team_state.resolve_groups_table(team_id)
-
-
-def team_owned_tables(team_id: int) -> frozenset[str]:
-    from products.managed_warehouse.backend import team_state
-
-    return team_state.team_owned_tables(team_id)
 
 
 def data_imports_schema(team_id: int) -> str:
