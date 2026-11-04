@@ -28,6 +28,7 @@ describe('workflowFoldersLogic', () => {
         })
 
     beforeEach(() => {
+        localStorage.clear()
         useMocks({
             get: {
                 '/api/projects/:team_id/hog_flows/summaries/': () => [200, paginated(FIXTURE_WORKFLOWS)],
