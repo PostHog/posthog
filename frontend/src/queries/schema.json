@@ -18143,6 +18143,10 @@
         "ChartSettings": {
             "additionalProperties": false,
             "properties": {
+                "annotationsScope": {
+                    "$ref": "#/definitions/AnnotationScope",
+                    "description": "Shows only the annotations saved at this level. Unset shows every level."
+                },
                 "barGap": {
                     "type": "number"
                 },
@@ -32954,6 +32958,10 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "description": "Exclude reports from the project's internal and test users.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPMissingCapabilitiesQuery",
                     "type": "string"
@@ -39726,6 +39734,13 @@
                 "type": {
                     "const": "MetricsAlertConfig",
                     "type": "string"
+                },
+                "variables": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/MetricsDashboardVariableSelection"
+                    },
+                    "description": "Values for the `$name` variables in the insight's query.",
+                    "type": "object"
                 }
             },
             "required": ["type"],

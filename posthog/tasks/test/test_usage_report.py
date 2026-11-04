@@ -765,6 +765,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "ruby_events_count_in_period": 2,
                     "python_events_count_in_period": 1,
                     "php_events_count_in_period": 1,
+                    "laravel_events_count_in_period": 0,
                     "dotnet_events_count_in_period": 2,
                     "elixir_events_count_in_period": 1,
                     "unity_events_count_in_period": 1,
@@ -871,6 +872,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "ruby_events_count_in_period": 2,
                             "python_events_count_in_period": 1,
                             "php_events_count_in_period": 1,
+                            "laravel_events_count_in_period": 0,
                             "dotnet_events_count_in_period": 2,
                             "elixir_events_count_in_period": 1,
                             "unity_events_count_in_period": 1,
@@ -971,6 +973,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "ruby_events_count_in_period": 0,
                             "python_events_count_in_period": 0,
                             "php_events_count_in_period": 0,
+                            "laravel_events_count_in_period": 0,
                             "dotnet_events_count_in_period": 0,
                             "elixir_events_count_in_period": 0,
                             "unity_events_count_in_period": 0,
@@ -1094,6 +1097,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "ruby_events_count_in_period": 0,
                     "python_events_count_in_period": 0,
                     "php_events_count_in_period": 0,
+                    "laravel_events_count_in_period": 0,
                     "dotnet_events_count_in_period": 0,
                     "elixir_events_count_in_period": 0,
                     "unity_events_count_in_period": 0,
@@ -1200,6 +1204,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "ruby_events_count_in_period": 0,
                             "python_events_count_in_period": 0,
                             "php_events_count_in_period": 0,
+                            "laravel_events_count_in_period": 0,
                             "dotnet_events_count_in_period": 0,
                             "elixir_events_count_in_period": 0,
                             "unity_events_count_in_period": 0,
@@ -1851,6 +1856,7 @@ class TestQueryUsageReportSQL:
         assert "'posthog-rails'" in main_query
         assert "'posthog-aspnetcore'" in main_query
         assert "'posthog-rs'" in main_query
+        assert "lib_expr = 'posthog-laravel', 'laravel_events'" in main_query
         assert "lib_expr = 'posthog-rs-mcp', 'rust_mcp_events'" in main_query
         assert "lib_expr = 'posthog-go-mcp', 'go_mcp_events'" in main_query
         assert "lib_expr = 'posthog-ruby-mcp', 'ruby_mcp_events'" in main_query
@@ -1913,7 +1919,14 @@ class TestQueryUsageReportSQL:
     def test_get_all_event_metrics_combines_sdk_counts(
         self, mock_sync_execute: MagicMock, _mock_schema: MagicMock, _mock_property: MagicMock
     ) -> None:
-        sdk_metrics = ["rust_mcp_events", "go_mcp_events", "ruby_mcp_events", "godot_events", "unreal_events"]
+        sdk_metrics = [
+            "rust_mcp_events",
+            "go_mcp_events",
+            "ruby_mcp_events",
+            "godot_events",
+            "unreal_events",
+            "laravel_events",
+        ]
         main_results = iter(
             [
                 [(1, metric, 2) for metric in sdk_metrics],
@@ -6558,15 +6571,16 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
     @parameterized.expand(
         [
-            ("posthog-godot", "godot_events"),
-            ("posthog-unreal", "unreal_events"),
+            ("posthog-godot", "godot_events", "unity_events"),
+            ("posthog-unreal", "unreal_events", "unity_events"),
+            ("posthog-laravel", "laravel_events", "php_events"),
         ]
     )
-    def test_game_sdk_events_have_separate_metrics(self, sdk_type: str, metric_name: str) -> None:
+    def test_sdk_events_have_separate_metrics(self, sdk_type: str, metric_name: str, parent_metric: str) -> None:
         _create_event(
             event="$pageview",
             team=self.team,
-            distinct_id="game_user",
+            distinct_id="sdk_user",
             timestamp=self.begin + relativedelta(hours=1),
             properties={"$lib": sdk_type},
         )
@@ -6575,7 +6589,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         event_metrics = get_all_event_metrics_in_period(self.begin, self.end)
 
         self.assertEqual(dict(event_metrics[metric_name]).get(self.team.id), 1)
-        self.assertIsNone(dict(event_metrics["unity_events"]).get(self.team.id))
+        self.assertIsNone(dict(event_metrics[parent_metric]).get(self.team.id))
 
     @parameterized.expand(
         [

@@ -112,6 +112,7 @@ The service extracts the SDK type from the request's user-agent header and incre
 | `posthog-node`         | Server-side Node.js     |
 | `posthog-python`       | Python SDK              |
 | `posthog-php`          | PHP SDK                 |
+| `posthog-laravel`      | Laravel SDK             |
 | `posthog-ruby`         | Ruby SDK                |
 | `posthog-go`           | Go SDK                  |
 | `posthog-java`         | Java SDK                |
