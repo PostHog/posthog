@@ -345,6 +345,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "MCPRegistryTool",  # tools of an MCPRegistryServer (scoped via the catalog row)
         "MCPRankingRun",  # one scoring pass over the global registry index
         "MCPRankingScore",  # per-server score of an MCPRankingRun (scoped via the run/catalog rows)
+        "EmailHardBounce",  # instance-global email addresses that do not exist, written from hard bounces
         # --- Special (has source_team + destination_team, not a plain team) ---
         "ResourceTransfer",
         # --- Organization-scoped (correctly above team level) ---

@@ -1243,11 +1243,15 @@ export class CdpApi {
                     return reply('invalid_request', 400, { error: parsed.error.message })
                 }
                 stages.start('load')
-                const team = await this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
+                const teamLookup = this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
+                const hogFlowLookup = this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(req.params.id)
+                // A missing team returns before the workflow lookup is awaited, so its failure must not go unhandled.
+                hogFlowLookup.catch(() => undefined)
+                const team = await teamLookup
                 if (!team) {
                     return reply('not_found', 404, { error: 'Team not found' })
                 }
-                const hogFlow = await this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(req.params.id)
+                const hogFlow = await hogFlowLookup
                 if (!hogFlow || hogFlow.team_id !== team.id) {
                     return reply('not_found', 404, { error: 'Workflow not found' })
                 }

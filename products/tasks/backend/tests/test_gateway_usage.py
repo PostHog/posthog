@@ -277,6 +277,10 @@ class TestGatewayUsage(BaseTest):
         run.refresh_from_db()
         assert run.state["compute_cost"] == expected
         assert set(run.state) == {"unprocessed_request_ids", "token_cost", "compute_cost"}
+        SandboxSession.objects.for_team(self.team.id).filter(sandbox_id="claimed").update(
+            compute_settled_at=now, compute_settled_usd=Decimal("1.234567")
+        )
+        assert get_task_run_cost(run_id=run.id, team_id=self.team.id).compute_cost == 123
 
     @patch("aiohttp.ClientSession._request")
     def test_accounting_after_completion_has_no_completion_side_effects(self, get: Mock) -> None:
