@@ -180,6 +180,9 @@ export type SupportEditorAttachment = {
     name: string
 }
 
+// Matches CONVERSATIONS_MAX_IMAGE_BYTES on the backend, which rejects anything larger.
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
+
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
     type: 'doc',
     content: [
@@ -591,6 +594,9 @@ export function SupportEditor({
     } = useUploadFiles({
         uploadFn: onAttachFile
             ? async (file) => {
+                  if (file.size > MAX_ATTACHMENT_BYTES) {
+                      throw new Error('File is larger than 20 MiB')
+                  }
                   const attachment = await onAttachFile(file)
                   return { id: attachment.id, image_location: attachment.url, name: attachment.name }
               }
