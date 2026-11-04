@@ -140,6 +140,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
+            needs_webhook_reconnect?: boolean | null | undefined
         }[],
         payload?: any
     ) => {
@@ -201,6 +202,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
+            needs_webhook_reconnect?: boolean | null | undefined
         }[]
         payload?: any
     }

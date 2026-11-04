@@ -77,7 +77,7 @@ If you commit from a devbox, keep your previous signing key on GitHub.
 A devbox signs through your forwarded SSH agent, which can't hold a Secure Enclave key, so it keeps signing with the previous key.
 Otherwise, once no repository signs with your previous key, remove it from your GitHub settings, so it can't sign verified commits anymore. Commits you already pushed stay verified.
 
-PR evidence uploads (`hogli pr:upload-image` and `hogli pr:upload-video`) prefer your stored GitHub CLI login over `GITHUB_TOKEN` from `.env.local`. Set `GH_TOKEN` to override the account; `GITHUB_TOKEN` remains the fallback when no CLI login exists.
+PR evidence uploads (`hogli pr:upload-image` and `hogli pr:upload-video`) attach to the PR description through `gh pr edit --attach` when the branch has an open PR and your gh supports `--attach`. Otherwise they upload to the public PostHog/pr-assets repo, and prefer your stored GitHub CLI login over `GITHUB_TOKEN` from `.env.local`. Set `GH_TOKEN` to override the account; `GITHUB_TOKEN` remains the fallback when no CLI login exists.
 
 #### macOS
 

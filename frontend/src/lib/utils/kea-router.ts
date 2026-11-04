@@ -18,6 +18,7 @@ const pathsWithoutProjectId = [
     'embedded',
     'interview',
     'cli',
+    'device',
     'render_query',
 ]
 
@@ -122,6 +123,16 @@ export function stripTrailingSlash(path: string): string {
         return path.replace(/\/+$/, '')
     }
     return path
+}
+
+export const urlPatternOptions = {
+    // :TRICKY: What chars to allow in named segment values i.e. ":key"
+    // in "/url/:key". Default: "a-zA-Z0-9-_~ %".
+    segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'|:",
+}
+
+export function pathFromWindowToRoutes(path: string): string {
+    return stripTrailingSlash(removeProjectIdIfPresent(path))
 }
 
 /**

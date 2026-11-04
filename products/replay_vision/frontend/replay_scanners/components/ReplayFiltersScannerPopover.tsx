@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
-import { formatCreditCount } from '../../utils/credits'
+import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { type ReplayFiltersCreditCap, replayFiltersScannerLogic } from '../replayFiltersScannerLogic'
 import type { ScannerHandoffFromFilters } from '../scannerHandoffFromFilters'
 import type { ReplayScanner } from '../types'
@@ -46,8 +46,8 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
                   : null,
           } as unknown as ReplayScanner)
         : []
+    // The date range is never kept either, but "new recordings only" already says so.
     const notKept = [
-        'the date range',
         ...(handoff.pinnedSessionCount > 0 ? [pluralize(handoff.pinnedSessionCount, 'pinned recording')] : []),
         ...(handoff.droppedCommentSearch ? ['the comment search'] : []),
     ].join(', ')
@@ -70,15 +70,12 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
                         : 'Create a Replay vision scanner'}
                 </div>
                 <div className="text-xs text-secondary">
-                    A Replay vision scanner watches new session recordings for you.{' '}
-                    {handoff.narrowsSessions
-                        ? 'It starts from these filters, and PostHog AI can narrow them to fit what you ask.'
-                        : 'With no filters, it starts from every new recording, and PostHog AI can narrow that to fit what you ask.'}
+                    A Replay vision scanner watches new session recordings for you.
                 </div>
             </div>
 
-            <div className="flex flex-col gap-1.5 rounded border border-dashed border-primary p-2">
-                <div className="text-xxs font-semibold uppercase text-secondary">Starts from these recordings</div>
+            <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-semibold">Which recordings it watches</span>
                 <div className="flex flex-wrap gap-1">
                     {filterGroups.length > 0 ? (
                         filterGroups.flatMap((group) =>
@@ -96,13 +93,9 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
                     )}
                 </div>
                 <div className="text-xs text-secondary">
-                    Not kept: {notKept}. The Replay vision scanner starts from now.
+                    New recordings only. PostHog AI can narrow them to fit your goal.
+                    {notKept ? <span> Not kept: {notKept}.</span> : null}
                 </div>
-                {!handoff.narrowsSessions ? (
-                    <div className="text-xs text-secondary">
-                        To watch only some recordings, close this and add a filter.
-                    </div>
-                ) : null}
             </div>
 
             <div className="flex flex-col gap-1">
@@ -145,17 +138,24 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
                         It pauses when they run out, so it never adds to your bill.
                     </div>
                 ) : (
-                    <LemonInput
-                        aria-label="Monthly credit cap"
-                        type="number"
-                        min={1}
-                        value={budget ?? undefined}
-                        onChange={(value) => setBudget(value ?? null)}
-                        suffix={<span className="text-secondary">credits a month</span>}
-                        size="small"
-                        className="w-56"
-                        data-attr="replay-filters-scanner-budget"
-                    />
+                    <div className="flex flex-wrap items-center gap-2">
+                        <LemonInput
+                            aria-label="Monthly credit cap"
+                            type="number"
+                            min={1}
+                            value={budget ?? undefined}
+                            onChange={(value) => setBudget(value ?? null)}
+                            suffix={<span className="text-secondary">credits a month</span>}
+                            size="small"
+                            className="w-56"
+                            data-attr="replay-filters-scanner-budget"
+                        />
+                        {budget != null && budget > 0 ? (
+                            <span className="text-xs text-secondary">
+                                ≈ <span translate="no">{creditsToUsd(budget)}</span> a month
+                            </span>
+                        ) : null}
+                    </div>
                 )}
             </div>
 

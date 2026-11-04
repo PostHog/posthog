@@ -138,6 +138,7 @@ from products.replay_vision.backend.quota import (
 )
 from products.replay_vision.backend.scanner_access import (
     SCANNER_CREATOR_LOST_ACCESS_CODE,
+    UnrunnableReason,
     accessible_experiment_ids,
     accessible_observations,
     can_read_targeted_experiment,
@@ -147,6 +148,7 @@ from products.replay_vision.backend.scanner_access import (
     recording_viewer_access,
     scanner_experiment_scope_q,
     scanners_for_reading_observations,
+    unrunnable_reasons,
 )
 from products.replay_vision.backend.scanner_config import (
     MAX_PROMPT_LENGTH,
@@ -220,6 +222,11 @@ class ScannerCreationMethod(models.TextChoices):
     SCRATCH = "scratch", "From scratch"
 
 
+def _event_source(context: dict[str, Any]) -> EventSource | None:
+    request = context.get("request")
+    return get_event_source(request) if request is not None else context.get("event_source")
+
+
 def _reported_creation_method(context: dict[str, Any], claimed: str | None) -> str | None:
     """What `creation_method` says on the created event.
 
@@ -236,11 +243,22 @@ def _reported_creation_method(context: dict[str, Any], claimed: str | None) -> s
     context the same way it passes `user`. Without that it would fall through as unattributed, which
     is the one gap a request-derived source cannot close.
     """
-    request = context.get("request")
-    source = get_event_source(request) if request is not None else context.get("event_source")
+    source = _event_source(context)
     if source is None:
         return claimed
     return claimed if source == EventSource.WEB else source.value
+
+
+def _reported_entry_point(context: dict[str, Any], claimed: str | None) -> str | None:
+    """What `entry_point` says on the created event: the in-app surface, or the caller for anything else.
+
+    Only the app has in-app surfaces, so any other caller reports its own source, whatever it
+    sends. Otherwise an agent could claim `replay_filters` and count toward that surface.
+    """
+    source = _event_source(context)
+    if source is None or source == EventSource.WEB:
+        return claimed
+    return source.value
 
 
 # Size caps enforced at the write boundary; scanner_config and query are copied into every observation's snapshot.
@@ -521,6 +539,18 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "calling surface instead of whatever it sends here. Ignored on update."
         ),
     )
+    entry_point = serializers.RegexField(
+        r"^[a-z0-9_]{1,64}$",
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "The app surface the creator started from, such as `replay_filters`. Reported to product "
+            "analytics at creation so a scanner can be attributed to its entry point, and not stored "
+            "on the scanner. Only the app's value is kept: any other caller is reported as its own "
+            "source, such as `mcp`. Ignored on update."
+        ),
+    )
     scanner_config = serializers.JSONField(
         help_text=(
             "Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, "
@@ -673,6 +703,14 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "repeat the offer if the user declines."
         ),
     )
+    unrunnable_reason = serializers.SerializerMethodField(
+        help_text=(
+            "Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not "
+            "approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, "
+            "which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. "
+            "The sweep turns an enabled scanner off when either applies."
+        ),
+    )
     last_swept_at = serializers.DateTimeField(
         read_only=True,
         help_text="Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery.",
@@ -693,6 +731,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "scanner_type",
             "goal",
             "creation_method",
+            "entry_point",
             "take_over_as_creator",
             "scanner_config",
             "prompt_question",
@@ -721,6 +760,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "dashboard_suggested",
             "last_swept_at",
             "filter_error",
+            "unrunnable_reason",
             "created_at",
             "created_by",
             "updated_at",
@@ -848,6 +888,16 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     def get_dashboard_suggested(self, scanner: ReplayScanner) -> bool:
         # Readiness is only computed for scanners without a live dashboard.
         return scanner.id in self._page_dashboard_state(scanner)[1]
+
+    @extend_schema_field(serializers.ChoiceField(choices=UnrunnableReason.choices, allow_null=True))
+    def get_unrunnable_reason(self, scanner: ReplayScanner) -> UnrunnableReason | None:
+        # Shared across the list's children, so a page costs one access lookup rather than one per creator.
+        reasons = self.context.get("_scanner_unrunnable_reasons")
+        if reasons is None or scanner.id not in reasons:
+            page = self.root.instance if isinstance(self.root, serializers.ListSerializer) else None
+            reasons = unrunnable_reasons(list(page) if page is not None else [scanner])
+            self.context["_scanner_unrunnable_reasons"] = reasons
+        return reasons[scanner.id]
 
     @extend_schema_field(serializers.BooleanField())
     def get_limit_reached(self, scanner: ReplayScanner) -> bool:
@@ -1168,6 +1218,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         tags = validated_data.pop("tags", None)
         # Telemetry only, so it must not reach the model constructor.
         creation_method = validated_data.pop("creation_method", None)
+        entry_point = validated_data.pop("entry_point", None)
         # A model call, so it runs before the transaction opens.
         validated_data.update(
             question_fields_for_save(
@@ -1194,6 +1245,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             {
                 **scanner_lifecycle_properties(scanner),
                 "creation_method": _reported_creation_method(self.context, creation_method),
+                "entry_point": _reported_entry_point(self.context, entry_point),
             },
             team=team,
             **analytics_source_kwargs(self.context),
@@ -1208,6 +1260,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # A scanner is built once, so this says nothing about an edit. Dropped here because the UI
         # PATCHes the whole form back and would otherwise send it into the getattr diff below.
         validated_data.pop("creation_method", None)
+        validated_data.pop("entry_point", None)
         # The goal records what the scanner was first built for, so an edit never rewrites it.
         validated_data.pop("goal", None)
         # Compared as tagify()d names, since that is what set_tags_on_object stores.
@@ -2396,7 +2449,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # viewset is concerned; its results are read through the observations endpoint instead.
         return (
             queryset.filter(team_id=self.team_id)
-            .select_related("created_by", "team")
+            .select_related("created_by", "team__organization")
             # prefetched_tags feeds the tags in to_representation; without it list serialization is N+1.
             .prefetch_related(
                 Prefetch(
@@ -3066,7 +3119,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         detail=True,
         methods=["get"],
         url_path="self_driving_stats",
-        required_scopes=["replay_scanner:read", "task:read"],
+        required_scopes=["replay_scanner:read", "inbox:read"],
     )
     def self_driving_stats(self, request: Request, **kwargs: Any) -> Response:
         """What self-driving did with this scanner's signals: reports contributed to and PRs opened."""

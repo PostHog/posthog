@@ -1,4 +1,5 @@
 import type { ReplayScannerApi, VisionQuotaApi } from '../generated/api.schemas'
+import type { RecordingsBlock } from '../logics/replayRecordingsLogic'
 
 /**
  * Why the highlight feed came back with nothing. Each value is a different answer for the
@@ -63,10 +64,9 @@ export interface HighlightFeedEmptyInput {
     scanners: ReplayScannerApi[]
     /** Null when the snapshot has not answered, which reads here as "no block seen". */
     quota: VisionQuotaApi | null
-    /** Null while the team has not loaded, which also reads as "no block seen". */
-    sessionRecordingOptIn: boolean | null
+    /** Null when recordings reach the scanners, or when nothing has answered yet. */
+    recordingsBlock: RecordingsBlock | null
     hasFeedFilters: boolean
-    hasRecordings?: boolean | null
 }
 
 /**
@@ -76,15 +76,14 @@ export interface HighlightFeedEmptyInput {
 export function resolveHighlightFeedEmptyReason({
     scanners,
     quota,
-    sessionRecordingOptIn,
+    recordingsBlock,
     hasFeedFilters,
-    hasRecordings = null,
 }: HighlightFeedEmptyInput): HighlightFeedEmptyReason {
-    if (sessionRecordingOptIn === false) {
+    if (recordingsBlock === 'replay-off') {
         return 'replay-off'
     }
     if (scanners.length === 0) {
-        if (hasRecordings === false) {
+        if (recordingsBlock === 'no-recordings') {
             return 'no-recordings'
         }
         // The scene gate answers this one first, so the feed sees it only when the setup probe
@@ -105,5 +104,5 @@ export function resolveHighlightFeedEmptyReason({
     if (hasFeedFilters) {
         return 'filtered'
     }
-    return hasRecordings === false ? 'no-recordings' : 'quiet-window'
+    return recordingsBlock === 'no-recordings' ? 'no-recordings' : 'quiet-window'
 }
