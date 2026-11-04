@@ -195,12 +195,15 @@ def prepare_issue_lifecycle_event(
     )
 
 
-def produce_issue_lifecycle_events_on_commit(events: list[PendingLifecycleEvent]) -> None:
+def produce_issue_lifecycle_events_on_commit(
+    events: list[PendingLifecycleEvent], *, emit_internal_events: bool = True
+) -> None:
     """Publish the internal events and queue alert dispatch once the transaction commits.
 
     One call per transaction: a bulk mutation hands over every transition at once so
     alert dispatch leaves as a handful of Celery tasks instead of one synchronous
-    Temporal start per issue on the web worker.
+    Temporal start per issue on the web worker. `emit_internal_events` is False when
+    the mutation recorded change rows: the change dispatcher emits those events instead.
     """
     if not events:
         return
@@ -210,7 +213,7 @@ def produce_issue_lifecycle_events_on_commit(events: list[PendingLifecycleEvent]
     team_id = events[0].team_id
 
     def _produce() -> None:
-        for pending in events:
+        for pending in events if emit_internal_events else []:
             try:
                 produce_internal_event(team_id=team_id, event=pending.internal_event, person=pending.person)
             except Exception:
@@ -281,11 +284,13 @@ def produce_issue_lifecycle_event_on_commit(
     user: Optional[User],
     status: Optional[str] = None,
     extra_properties: Optional[dict[str, Any]] = None,
+    emit_internal_events: bool = True,
 ) -> None:
     produce_issue_lifecycle_events_on_commit(
         [
             prepare_issue_lifecycle_event(
                 event=event, issue=issue, user=user, status=status, extra_properties=extra_properties
             )
-        ]
+        ],
+        emit_internal_events=emit_internal_events,
     )
