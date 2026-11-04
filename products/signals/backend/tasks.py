@@ -118,12 +118,15 @@ def refresh_report_implementation_pr_cache(
     )
 
 
-@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@shared_task(bind=True, ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
 @with_team_scope()
-def write_pull_request_to_support_tickets(team_id: int, report_id: str, pr_url: str, task_id: str) -> None:
+def write_pull_request_to_support_tickets(self: Task, team_id: int, report_id: str, pr_url: str, task_id: str) -> None:
     if not task_can_write_support_ticket_update(team_id=team_id, report_id=report_id, task_id=task_id, pr_url=pr_url):
         return
-    pr = report_assignments._pull_request_details(team_id, pr_url, raise_on_error=True)
+    try:
+        pr = report_assignments._pull_request_details(team_id, pr_url, raise_on_error=True)
+    except GitHubRateLimitError as error:
+        raise self.retry(exc=error, countdown=max(error.retry_after or 0, 60))
     if pr.state not in {SignalReportPullRequest.State.DRAFT, SignalReportPullRequest.State.OPEN}:
         return
     team = Team.objects.filter(id=team_id).first()

@@ -4,8 +4,10 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from celery.exceptions import Retry
 from parameterized import parameterized
 
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.comment import Comment
 from posthog.models.github_integration_base import GitHubIntegrationError
 
@@ -301,12 +303,20 @@ class TestPostReportFindingsToTickets(BaseTest):
             == expected_replies
         )
 
-    @parameterized.expand([("integration_lookup", True), ("pull_request_fetch", False)])
-    def test_worker_retries_transient_pull_request_lookup_errors(self, _name, integration_lookup_fails):
+    @parameterized.expand(
+        [
+            ("integration_lookup", True, False),
+            ("pull_request_fetch", False, False),
+            ("pull_request_exception", False, True),
+        ]
+    )
+    def test_worker_retries_transient_pull_request_lookup_errors(self, _name, integration_lookup_fails, fetch_raises):
         from products.signals.backend.tasks import write_pull_request_to_support_tickets
 
         github = MagicMock()
         github.get_pull_request.return_value = {"success": False, "error": "Network error fetching pull request"}
+        if fetch_raises:
+            github.get_pull_request.side_effect = TimeoutError("GitHub unavailable")
         with (
             patch("products.signals.backend.tasks.task_can_write_support_ticket_update", return_value=True),
             patch("products.signals.backend.tasks.fetch_signals_for_report_sync", return_value=[self.signal]),
@@ -322,6 +332,25 @@ class TestPostReportFindingsToTickets(BaseTest):
             )
 
         assert not _ticket_notes(self.team, self.ticket).exists()
+
+    @parameterized.expand([(120, 120), (None, 60), (5, 60)])
+    def test_worker_honors_github_retry_delay(self, retry_after, expected_countdown):
+        from products.signals.backend.tasks import write_pull_request_to_support_tickets
+
+        error = GitHubRateLimitError("rate limited", retry_after=retry_after)
+        with (
+            patch("products.signals.backend.tasks.task_can_write_support_ticket_update", return_value=True),
+            patch("products.signals.backend.report_assignments._pull_request_details", side_effect=error),
+            patch("products.signals.backend.tasks.post_pull_request_to_tickets") as post_update,
+            patch.object(write_pull_request_to_support_tickets, "retry", side_effect=Retry()) as retry,
+            pytest.raises(Retry),
+        ):
+            write_pull_request_to_support_tickets._orig_run(
+                self.team.pk, str(self.report.id), "https://github.com/example/app/pull/123", "task-id"
+            )
+
+        retry.assert_called_once_with(exc=error, countdown=expected_countdown)
+        post_update.assert_not_called()
 
     def test_ignores_signals_from_other_products(self):
         error_signal = {"source_product": "error_tracking", "source_id": "issue-1"}
