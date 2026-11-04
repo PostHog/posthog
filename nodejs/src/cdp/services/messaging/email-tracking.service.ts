@@ -6,6 +6,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
+    HogFunctionType,
     LogEntry,
     LogEntryLevel,
     MinimalAppMetric,
@@ -127,6 +128,14 @@ export const resolveEmailSendingVersion = (invocation: CyclotronJobInvocationHog
         : undefined
 }
 
+export const resolveEmailTrackingDistinctId = (
+    invocation: Pick<CyclotronJobInvocationHogFunction, 'state' | 'hogFunction'>
+): string | undefined => {
+    return invocation.state?.send?.tracking.captureEngagement === false
+        ? undefined
+        : resolveEmailEngagementDistinctId(invocation)
+}
+
 // HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
 // percent-encoding for the tracking redirect, otherwise `?a=1&amp;b=2` round-trips
 // through `target=` as a literal `&amp;` and breaks the destination page's query string.
@@ -156,7 +165,7 @@ export const addTrackingToEmail = (
     // record metrics. In production they don't (SES webhooks own open/click attribution via the
     // signed header), so embedding distinct_id in the public `ph_id` would be unused — and worse,
     // a tracked-link click could leak the recipient identifier to the destination via the Referer.
-    const distinctId = isDevEnv() || isTestEnv() ? resolveEmailEngagementDistinctId(invocation) : undefined
+    const distinctId = isDevEnv() || isTestEnv() ? resolveEmailTrackingDistinctId(invocation) : undefined
     // The pixel and redirect codes carry the sending version too. SES-attributed opens and clicks
     // read the version off the signed header instead, but a provider we track ourselves has these
     // URLs as its only carrier, and without the version its engagement cannot split by version.
@@ -338,7 +347,9 @@ export class EmailTrackingService {
         // The function ID could be one or the other so we load both
         const [hogFunction, hogFlow] = await Promise.all([
             this.hogFunctionManager.getHogFunction(functionId).catch(() => null),
-            this.hogFlowManager.getHogFlow(functionId).catch(() => null),
+            this.getFeedbackHogFlows([functionId], source)
+                .then((hogFlows) => hogFlows[functionId])
+                .catch(() => null),
         ])
 
         let teamId = hogFunction?.team_id ?? hogFlow?.team_id
@@ -438,7 +449,7 @@ export class EmailTrackingService {
 
         let hogFlows: Record<string, HogFlow | null> = {}
         try {
-            hogFlows = await this.hogFlowManager.getHogFlows(uniqueFunctionIds)
+            hogFlows = await this.getFeedbackHogFlows(uniqueFunctionIds, 'ses')
         } catch (error) {
             logger.error('[EmailTrackingService] trackLogs: Failed to load hog flows', { error })
             emailTrackingErrorsCounter.inc({ error_type: 'hog_flow_lookup_failed', source: 'ses' })
@@ -568,10 +579,13 @@ export class EmailTrackingService {
             // processed first so a delivery + bounce in the same batch nets out conservatively
             // (count resets, then the fresh bounce re-counts from a clean slate).
             try {
-                for (const { teamId, emailAddresses, timestamp } of deliveredRecipients || []) {
+                for (const { teamId, emailAddresses, timestamp, clearsGlobalHardBounces } of deliveredRecipients ||
+                    []) {
                     const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
                     if (parsedTeamId && !isNaN(parsedTeamId)) {
-                        await this.emailSuppressionService.recordDeliveries(parsedTeamId, emailAddresses, timestamp)
+                        await this.emailSuppressionService.recordDeliveries(parsedTeamId, emailAddresses, timestamp, {
+                            clearGlobal: clearsGlobalHardBounces ?? false,
+                        })
                     }
                 }
                 for (const { teamId, emailAddresses, diagnostic } of transientBounceRecipients || []) {
@@ -584,10 +598,22 @@ export class EmailTrackingService {
                         )
                     }
                 }
-                for (const { teamId, emailAddresses, diagnostic } of hardBounceRecipients || []) {
+                for (const {
+                    teamId,
+                    emailAddresses,
+                    diagnostic,
+                    nonexistentAddresses,
+                    bounceTimestamp,
+                } of hardBounceRecipients ?? []) {
                     const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
                     if (parsedTeamId && !isNaN(parsedTeamId)) {
                         await this.emailSuppressionService.recordHardBounces(parsedTeamId, emailAddresses, diagnostic)
+                        if (nonexistentAddresses) {
+                            await this.emailSuppressionService.recordGlobalHardBounces(
+                                nonexistentAddresses,
+                                bounceTimestamp
+                            )
+                        }
                     }
                 }
                 for (const { teamId, emailAddresses, feedbackType } of complainedRecipients || []) {
@@ -607,6 +633,32 @@ export class EmailTrackingService {
             logger.error('[EmailService] handleWebhook: SES webhook error', { error })
             throw error
         }
+    }
+
+    private async getFeedbackHogFlows(
+        ids: HogFlow['id'][],
+        source: 'direct' | 'ses'
+    ): Promise<Record<HogFlow['id'], HogFlow | null>> {
+        const [onReplica, hogFunctions] = await Promise.all([
+            this.hogFlowManager.getHogFlows(ids),
+            this.hogFunctionManager.getHogFunctions(ids).catch((error): Record<string, HogFunctionType | null> => {
+                logger.warn('[EmailTrackingService] Failed to load hog functions', { error })
+                return {}
+            }),
+        ])
+        const unknown = ids.filter((id) => !onReplica[id] && !hogFunctions[id])
+        const onPrimary: Record<HogFlow['id'], HogFlow | null> =
+            unknown.length > 0
+                ? await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss(unknown).catch((error) => {
+                      logger.error('[EmailTrackingService] Failed to load hog flows from the primary', {
+                          error,
+                          ids: unknown,
+                      })
+                      emailTrackingErrorsCounter.inc({ error_type: 'hog_flow_lookup_failed', source })
+                      return {}
+                  })
+                : {}
+        return Object.fromEntries(ids.map((id) => [id, onReplica[id] ?? onPrimary[id] ?? null]))
     }
 
     private parseTrackingParams(query: Record<string, any>): {
