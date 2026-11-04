@@ -57,7 +57,7 @@ const retentionMocks = ({
         next_deletion_before: null,
         scheduled_pass_on: '2027-02-03',
         first_pass_on: '2027-02-03',
-        default_window_deletes: true,
+        default_period_deletes: true,
     }
     return mswDecorator({
         get: {

@@ -7,17 +7,18 @@ import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import { defaultDeletesMore } from './defaultDeletesMore'
 import { EventsRetentionCustomFields } from './EventsRetentionCustomFields'
 import { EventsPassSchedule, nextPassOn } from './nextPassOn'
 import { retentionPeriodLabel } from './retentionPeriodLabel'
 
 type RetentionChoice = 'default' | 'custom'
 
-export interface EventsRetentionWindowFormProps {
+export interface EventsRetentionPeriodFormProps {
     retentionMonths: number | null
     defaultMonths: number
     defaultSource: 'plan' | 'organization'
-    defaultDeletesMonthly: boolean
+    monthlyDefaultMonths: number | null
     minMonths: number
     maxMonths: number
     planMonths: number
@@ -52,7 +53,7 @@ function retentionChoiceOptions({
     maxMonths,
     restrictionReason,
     dataAttr,
-}: EventsRetentionWindowFormProps): LemonRadioOption<RetentionChoice>[] {
+}: EventsRetentionPeriodFormProps): LemonRadioOption<RetentionChoice>[] {
     const canLengthen = maxMonths > defaultMonths
     const range = canLengthen ? 'shorter or longer' : 'shorter'
     const defaultPeriod = pluralize(defaultMonths, 'month')
@@ -89,11 +90,11 @@ function retentionChoiceOptions({
     ]
 }
 
-export function EventsRetentionWindowForm(props: EventsRetentionWindowFormProps): JSX.Element {
+export function EventsRetentionPeriodForm(props: EventsRetentionPeriodFormProps): JSX.Element {
     const {
         retentionMonths,
         defaultMonths,
-        defaultDeletesMonthly,
+        monthlyDefaultMonths,
         minMonths,
         maxMonths,
         planMonths,
@@ -144,13 +145,12 @@ export function EventsRetentionWindowForm(props: EventsRetentionWindowFormProps)
     }
 
     const saveDefault = (): void => {
-        const savedMonths = retentionMonths === null ? defaultMonths : Math.min(planMonths, retentionMonths)
-        const defaultDeletes = defaultDeletesMonthly || (passSchedule?.default_window_deletes ?? true)
-        if (defaultMonths >= savedMonths || !defaultDeletes) {
+        if (!defaultDeletesMore(props)) {
             onSave(null)
             return
         }
-        const deletesOn = defaultDeletesMonthly ? nextMonthlyCleanupOn : passSchedule && nextPassOn(passSchedule)
+        const deletesOn =
+            monthlyDefaultMonths !== null ? nextMonthlyCleanupOn : passSchedule && nextPassOn(passSchedule)
         const period = pluralize(defaultMonths, 'month')
         confirmDeletion(
             defaultMonths,

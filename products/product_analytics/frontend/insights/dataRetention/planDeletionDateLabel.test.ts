@@ -11,7 +11,7 @@ const RETENTION: EventsRetentionApi = {
     next_deletion_before: '2026-02-01',
     scheduled_pass_on: '2027-02-03',
     first_pass_on: '2027-02-03',
-    default_window_deletes: true,
+    default_period_deletes: true,
     organization_retention_months: null,
     default_retention_months: 12,
     default_is_grandfathered: false,

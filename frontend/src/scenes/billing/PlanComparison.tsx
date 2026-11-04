@@ -112,6 +112,14 @@ const PricingTiers = ({
     )
 }
 
+function featuresToCompare(plan?: BillingPlanType): BillingFeatureType[] {
+    return (
+        plan?.features?.filter(
+            (feature) => feature.key !== AvailableFeature.PRODUCT_ANALYTICS_STANDARD_DATA_RETENTION
+        ) ?? []
+    )
+}
+
 export const PlanComparison = ({
     product,
     includeAddons = false,
@@ -132,10 +140,7 @@ export const PlanComparison = ({
         return null
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
-    const comparedFeatures =
-        fullyFeaturedPlan?.features?.filter(
-            (feature) => feature.key !== AvailableFeature.PRODUCT_ANALYTICS_STANDARD_DATA_RETENTION
-        ) ?? []
+    const comparedFeatures = featuresToCompare(fullyFeaturedPlan)
 
     const productAnalyticsPlans = billing?.products?.find((product) => product.type === 'product_analytics')?.plans
     const eventsRetentionOf = (plan?: BillingPlanType): BillingFeatureType | undefined =>
