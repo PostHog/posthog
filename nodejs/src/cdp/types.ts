@@ -251,6 +251,7 @@ export type MinimalAppMetric = {
         | 'budget_skipped'
         | 'email_queued'
         | 'email_sent'
+        | 'email_sandbox_sent'
         | 'email_delivered'
         | 'email_failed'
         | 'email_opened'
