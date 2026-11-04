@@ -446,6 +446,19 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """
         raise NotImplementedError()
 
+    def describe_pinned_schema(
+        self, config: ConfigType, team_id: int, name: str, schema_metadata: Mapping[str, Any]
+    ) -> SourceSchema | None:
+        """Describe a pinned schema from the definition stored on it, without discovery.
+
+        Discovery can't report a pinned schema (see `SCHEMA_PINNED_METADATA_KEY`), so callers ask
+        this first. A source that can rebuild the schema from `schema_metadata` checks that the
+        credentials can read the schema's own data, raises the errors a sync raises when they
+        can't, and returns the schema. `None` means the caller uses `validate_credentials` and
+        `get_schemas`, as for any other schema.
+        """
+        return None
+
     def _placeholder_config(self) -> ConfigType:
         """Build a credential-free config instance for static, no-network schema listing.
 
@@ -574,6 +587,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         declared = set(_declared_field_names(self.get_source_config.fields))
         declared |= {config_field.name for config_field in dataclasses.fields(self._config_class)}
         return frozenset(self.connection_host_fields) | (GENERIC_IDENTITY_FIELDS & declared)
+
+    @property
+    def integration_id_fields_point_at_integrations(self) -> bool:
+        """True when each ``*_integration_id`` field of the inputs holds the id of a core ``Integration`` row.
+
+        The reconcile command checks that each such id points at a row. Override it to False when the source
+        keeps its OAuth rows in another model."""
+        return True
 
     @property
     def credential_kind(self) -> str | None:

@@ -435,6 +435,7 @@ tools:
             results are kept. A cancelled backfill cannot be resumed; start a new one over the remaining range instead.
         param_overrides:
             evaluation_id:
+                description: UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.
                 aliases:
                     - evaluationId
             id:
@@ -462,6 +463,7 @@ tools:
             with llma-evaluation-backfill-get. Results are '$ai_evaluation' events.
         param_overrides:
             evaluation_id:
+                description: UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.
                 aliases:
                     - evaluationId
     llma-evaluation-backfill-estimate:
@@ -488,6 +490,7 @@ tools:
             filter needs a value, so pass conditions when the evaluation has none or is still a draft.
         param_overrides:
             evaluation_id:
+                description: UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.
                 aliases:
                     - evaluationId
     llma-evaluation-backfill-get:
@@ -507,6 +510,7 @@ tools:
             window still have no result; null means it was not measured. total_count is the count taken at the start.
         param_overrides:
             evaluation_id:
+                description: UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.
                 aliases:
                     - evaluationId
             id:
@@ -525,10 +529,13 @@ tools:
         list: true
         title: List evaluation backfills
         description: >
-            List the backfills of one evaluation, newest first, with status, window, and counts. At most one is running
-            at a time. See llma-evaluation-backfill-get for what each count means.
+            List the backfills of one evaluation, newest first, with status, window, and counts. evaluation_id is
+            required: there is no project-wide list, so to check every evaluation, get their UUIDs from
+            llma-evaluation-list and call this once per evaluation. At most one is running at a time. See
+            llma-evaluation-backfill-get for what each count means.
         param_overrides:
             evaluation_id:
+                description: UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.
                 aliases:
                     - evaluationId
     llma-evaluation-config-get:
@@ -817,9 +824,15 @@ tools:
             idempotent: true
         title: List evaluation report runs
         description: >
-            List the run history for a specific evaluation report config. Each run record includes the generated report
-            content, the evaluation period covered, delivery status ('pending', 'delivered', 'failed'), and any delivery
-            error details.
+            List the run history for a specific evaluation report config. `id` is the report config's UUID, not the
+            evaluation's: to find it from an evaluation, call llma-evaluation-report-list with the evaluation's UUID in
+            `evaluation`. Each run record includes the generated report content, the evaluation period covered, delivery
+            status ('pending', 'delivered', 'failed'), and any delivery error details.
+        param_overrides:
+            id:
+                aliases:
+                    - report_id
+                    - reportId
     llma-evaluation-report-update:
         operation: llm_analytics_evaluation_reports_partial_update
         enabled: true
@@ -847,10 +860,14 @@ tools:
             idempotent: false
         title: Run evaluation
         description: >
-            Manually trigger an evaluation run for a specific $ai_generation event. Enqueues a Temporal workflow that
-            asynchronously executes the evaluation and stores the result as a '$ai_evaluation' event. Returns a
-            workflow_id and status "started". Pair with execute-sql to query results: SELECT * FROM events WHERE event =
-            '$ai_evaluation'.
+            Manually trigger an evaluation run for a specific $ai_generation event. Only works for evaluations whose
+            target is 'generation'; a 'trace' or 'session' evaluation is rejected with evaluation_target_mismatch. To
+            preview hog code on traces or sessions, use llma-evaluation-test-hog. To run an enabled trace or session
+            evaluation on one specific trace or session, use llma-evaluation-backfill-estimate and then
+            llma-evaluation-backfill-create with a condition on $ai_trace_id (or $ai_session_id), a window that contains
+            it, and rerun_existing true. Enqueues a Temporal workflow that asynchronously executes the evaluation and
+            stores the result as a '$ai_evaluation' event. Returns a workflow_id and status "started". Pair with
+            execute-sql to query results: SELECT * FROM events WHERE event = '$ai_evaluation'.
         param_overrides:
             evaluation_id:
                 aliases:

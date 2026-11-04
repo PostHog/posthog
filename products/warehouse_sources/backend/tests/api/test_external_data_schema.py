@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_schema import SCHEMA_PINNED_METADATA_KEY
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     UNREADABLE_SOURCE_CONFIG_ERROR,
     ExternalDataSchemaSerializer,
@@ -62,6 +63,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookCreationResult,
     WebhookSyncResult,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import FILE_MODIFIED_AT_COLUMN
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    ACCESS_DENIED_ERROR,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
+    parse_self_managed_url,
+    table_definition_for,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.tests.fake_source import (
+    PrefixScopedS3Client,
+    bucket_root_store,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
@@ -70,6 +83,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.tests.api.utils import create_external_data_source_ok
+from products.warehouse_sources.sources.amazon_s3.source import AmazonS3Source
 
 _PH_HISTORY_NAMING_FLAG = (
     "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table.is_source_flag_enabled"
@@ -5810,3 +5824,64 @@ class TestExternalDataSchemaIntrospection(SimpleTestCase):
             serializer = view.get_serializer()
         assert isinstance(serializer, ExternalDataSchemaSerializer)
         assert "table_id" in serializer.fields
+
+
+MIGRATED_ORDERS_METADATA = table_definition_for(
+    "orders",
+    parse_self_managed_url("https://example-bucket.s3.us-east-1.amazonaws.com/tables/orders/*.csv"),
+    "CSVWithNames",
+    {},
+    None,
+).schema_metadata()
+
+
+class TestPinnedSchemaIncrementalFields(APIBaseTest):
+    @parameterized.expand(
+        [
+            # The key can list the table's own prefix but not the bucket root.
+            ("pinned_key_scoped_to_the_table", True, "tables/orders/", None),
+            ("pinned_key_denied_the_table", True, "tables/other/", "'example-bucket/tables/orders'"),
+            # A schema without the pin still checks the whole bucket, as before.
+            ("unpinned", False, "tables/orders/", "'example-bucket'"),
+        ]
+    )
+    @mock.patch("products.warehouse_sources.backend.presentation.views.external_data_schema.capture_exception")
+    def test_a_pinned_schema_is_checked_at_its_own_location(
+        self, _name: str, pinned: bool, allowed_prefix: str, denied_location: str | None, mock_capture: mock.MagicMock
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.AMAZONS3,
+            job_inputs={
+                "url_pattern": "https://s3.us-east-1.amazonaws.com/example-bucket/",
+                "access_key_id": "AKIAEXAMPLE",
+                "secret_access_key": "c2VjcmV0",
+                "file_format": "infer",
+            },
+        )
+        metadata = (
+            {**MIGRATED_ORDERS_METADATA, SCHEMA_PINNED_METADATA_KEY: True} if pinned else MIGRATED_ORDERS_METADATA
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="orders",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config={"schema_metadata": metadata},
+        )
+        client = PrefixScopedS3Client(["tables/orders/2024-01.csv", "tables/other/x.csv"], allowed_prefix)
+
+        with mock.patch.object(AmazonS3Source, "open_store", return_value=bucket_root_store(client)):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
+
+        if denied_location is None:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert [field["field"] for field in response.json()["incremental_fields"]] == [FILE_MODIFIED_AT_COLUMN]
+            assert client.listed_prefixes == ["tables/orders/"]
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json()["message"].startswith(f"{ACCESS_DENIED_ERROR} {denied_location}.")
+        mock_capture.assert_not_called()
