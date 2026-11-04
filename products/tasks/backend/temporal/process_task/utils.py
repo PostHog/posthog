@@ -1600,7 +1600,7 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
         gateway_url = settings.SANDBOX_AI_GATEWAY_URL
         if not gateway_url:
             raise GatewayNotConfiguredError("Scout trials require SANDBOX_AI_GATEWAY_URL")
-        token = mint_private_gateway_token(team_id=ctx.team_id, user=ctx.distinct_id)
+        token = mint_private_gateway_token(team_id=ctx.team_id, user=ctx.distinct_id, run_id=str(ctx.run_id))
         try:
             record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=True)
         except Exception:
@@ -1650,6 +1650,7 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             state=ctx.state,
             model=ctx.model,
             runtime=ctx.task_runtime,
+            run_id=str(ctx.run_id),
         )
         pinned = env_vars.pop(_PIN_KEY_ENV, None) or env_vars.get("AI_GATEWAY_PRODUCT")
         if not _record_pinned_gateway_product(ctx.run_id, ctx.state, pinned):
@@ -1754,6 +1755,7 @@ def ai_gateway_env_vars(
     runtime: str | None = None,
     prior_slack_run: bool = False,
     profile_billing_product: str | None = None,
+    run_id: str | None = None,
 ) -> dict[str, str]:
     """Env vars routing listed products to the Go ai-gateway, shared by every
     injection site so the both-or-nothing guard cannot drift per site. Both
@@ -1861,6 +1863,8 @@ def ai_gateway_env_vars(
                 if free_pin is not None:
                     mint_kwargs["allowed_models"] = free_pin
                 mint_kwargs["limit_tier"] = posthog_code_limit_tier(team_id, distinct_id)
+            if run_id:
+                mint_kwargs["run_id"] = run_id
             token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id, **mint_kwargs)
             if token:
                 env_vars["AI_GATEWAY_TOKEN"] = token
