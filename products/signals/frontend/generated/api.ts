@@ -564,6 +564,27 @@ export const signalsReportsList = async (
     })
 }
 
+export const getSignalsReportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/`
+}
+
+/**
+ * File a complete inbox report yourself, with the same validation and safety judge a scout report passes. The report surfaces at the status `actionability` implies, or is suppressed. It never starts an implementation run or opens a pull request on its own, now or after a later edit: start one from the report's actions. Safe to retry: a resend returns the first report with `idempotent_replay` true. Each person can file a limited number of reports per project per day.
+ * @summary File an inbox report
+ */
+export const signalsReportsCreate = async (
+    projectId: string,
+    emitReportRequestApi: EmitReportRequestApi,
+    options?: RequestInit
+): Promise<EmitReportResponseApi> => {
+    return apiMutator<EmitReportResponseApi>(getSignalsReportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(emitReportRequestApi),
+    })
+}
+
 export const getSignalsReportsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/`
 }
