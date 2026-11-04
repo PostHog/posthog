@@ -260,6 +260,18 @@ fn block_counts_do_not_drive_allocation_before_decompression() {
 }
 
 #[test]
+fn empty_array_items_share_one_budget_per_container() {
+    let schema = br#"{"type":"record","name":"R","fields":[{"name":"a","type":{"type":"array","items":"null"}}]}"#;
+    let record = |items: i64| [encode_long(items), encode_long(0)].concat();
+    let block = |items: i64| (1, zstd::bulk::compress(&record(items), 1).unwrap());
+    assert!(decode_container(&zstd_container(schema, &[block(1000)])).is_ok());
+    // Four bytes declare four billion items.
+    assert!(decode_container(&zstd_container(schema, &[block(4_000_000_000)])).is_err());
+    // Each block stays under the cap, and the two together pass it.
+    assert!(decode_container(&zstd_container(schema, &[block(600_000), block(600_000)])).is_err());
+}
+
+#[test]
 fn zstd_frames_above_the_default_window_limit_are_rejected() {
     let mut records = Vec::new();
     for i in 0..300 {

@@ -10,6 +10,8 @@ use super::{AvroError, Container, MAGIC};
 pub(crate) struct Tap<'a> {
     pub buf: &'a [u8],
     pub pos: usize,
+    /// Values that consumed no bytes. A few bytes can declare any number of them, so they share one budget.
+    pub empty_values: u64,
 }
 
 /// avsc's `isSafeLong` bound: one less than 2^53 - 1 on each side, for its rounding.
@@ -17,8 +19,8 @@ const SAFE_LONG: f64 = 9007199254740990.0;
 
 const MAX_ARRAY_LENGTH: f64 = 4_294_967_295.0;
 
-/// Node runs out of memory on a large count of empty records, and this port stops instead.
-const MAX_EMPTY_RECORDS: u64 = 1 << 20;
+/// Node runs out of memory on a large count of empty values, and this port stops instead.
+const MAX_EMPTY_VALUES: u64 = 1 << 20;
 
 fn precision_loss() -> AvroError {
     AvroError::Decode("potential precision loss".to_string())
@@ -26,7 +28,19 @@ fn precision_loss() -> AvroError {
 
 impl<'a> Tap<'a> {
     pub fn new(buf: &'a [u8]) -> Self {
-        Self { buf, pos: 0 }
+        Self {
+            buf,
+            pos: 0,
+            empty_values: 0,
+        }
+    }
+
+    fn count_empty_value(&mut self) -> Result<(), AvroError> {
+        self.empty_values += 1;
+        if self.empty_values > MAX_EMPTY_VALUES {
+            return Err(AvroError::Decode("too many empty records".to_string()));
+        }
+        Ok(())
     }
 
     pub fn is_valid(&self) -> bool {
@@ -213,7 +227,11 @@ pub(crate) fn read_value(tap: &mut Tap<'_>, schema: &Schema) -> Result<AvroValue
                 // A capacity hint only: a count can claim more items than the data holds.
                 out.reserve((n as usize).min(tap.remaining()).min(4096));
                 for _ in 0..n as u64 {
+                    let start = tap.pos;
                     out.push(read_value(tap, items)?);
+                    if tap.pos == start {
+                        tap.count_empty_value()?;
+                    }
                     if !tap.is_valid() {
                         return Ok(AvroValue::Array(out));
                     }
@@ -398,7 +416,7 @@ pub fn decode_container(buf: &[u8]) -> Result<Container, AvroError> {
     }
 
     let mut records = Vec::new();
-    let mut empty_records = 0u64;
+    let mut empty_values = 0u64;
     for (count, data) in blocks {
         let inflated =
             inflate(data).map_err(|_| AvroError::Decompression("zstandard".to_string()))?;
@@ -407,6 +425,7 @@ pub fn decode_container(buf: &[u8]) -> Result<Container, AvroError> {
         // avsc keeps `count | 0`, and a negative count reads records until one fails.
         let mut remaining = i64::from((count as i64) as i32);
         let mut block = Tap::new(&inflated);
+        block.empty_values = empty_values;
         while remaining != 0 {
             remaining -= 1;
             let start = block.pos;
@@ -415,13 +434,14 @@ pub fn decode_container(buf: &[u8]) -> Result<Container, AvroError> {
                 return Err(AvroError::Decode("truncated block".to_string()));
             }
             if block.pos == start {
-                empty_records += 1;
-                if empty_records > MAX_EMPTY_RECORDS || remaining < 0 {
+                block.count_empty_value()?;
+                if remaining < 0 {
                     return Err(AvroError::Decode("too many empty records".to_string()));
                 }
             }
             records.push(value);
         }
+        empty_values = block.empty_values;
     }
 
     Ok(Container {
