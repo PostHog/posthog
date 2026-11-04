@@ -19,7 +19,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.compilation import CompilationLimitExceededError
+from posthog.hogql.compilation import CompilationLimitExceededError, bounded_compilation
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
@@ -390,10 +390,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if not self._reads_events_route() or get_query_tag_value("feature") == Feature.ENDPOINT_EXECUTION:
             return
         try:
-            context = self.build_hogql_context(enable_select_queries=True, modifiers=self.modifiers)
-            missing = reads_events_without_lower_bound(
-                resolve_types(clone_expr(query), context, dialect="hogql"), context
-            )
+            missing = self._reads_events_without_lower_bound(query)
         except CompilationLimitExceededError:
             # Execution would compile the query again with a new budget and then fail with the same error.
             raise
@@ -408,6 +405,11 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             raise EventsLowerBoundRequiredError(EVENTS_LOWER_BOUND_REQUIRED_MESSAGE)
         EVENTS_LOWER_BOUND_CHECK_COUNTER.labels(outcome="warned").inc()
         record_request_query_warning(EVENTS_LOWER_BOUND_REQUIRED_MESSAGE)
+
+    @bounded_compilation
+    def _reads_events_without_lower_bound(self, query: ast.SelectQuery | ast.SelectSetQuery) -> bool:
+        context = self.build_hogql_context(enable_select_queries=True, modifiers=self.modifiers)
+        return reads_events_without_lower_bound(resolve_types(clone_expr(query), context, dialect="hogql"), context)
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         self.query.filters = self.query.filters or HogQLFilters()

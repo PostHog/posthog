@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
+from posthog.hogql.compilation import CompilationBudget, compilation_budget
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.helpers.events_time_bounds import reads_events_without_lower_bound
@@ -196,6 +197,39 @@ class TestReadsEventsWithoutLowerBound(BaseTest):
                 True,
             ),
             (
+                "bound_on_scalar_cte",
+                "with '2026-01-01' as cutoff select count() from events where timestamp >= cutoff",
+                False,
+            ),
+            (
+                "bound_on_select_alias_of_a_constant",
+                "select now() - interval 7 day as cutoff, count() from events where timestamp >= cutoff",
+                False,
+            ),
+            (
+                "bound_on_alias_of_another_column",
+                "select toDateTime(properties.$x) as cutoff, count() from events where timestamp >= cutoff",
+                True,
+            ),
+            (
+                "outer_bound_on_union_column_named_in_the_first_branch",
+                f"select count() from (select timestamp as t from events union all select timestamp from events) "
+                f"where t >= {RECENT}",
+                False,
+            ),
+            (
+                "outer_bound_on_union_column_that_a_later_branch_takes_from_elsewhere",
+                f"select count() from (select timestamp as t from events union all select created_at from persons "
+                f"union all select toDateTime(event) from events) where t >= {RECENT}",
+                True,
+            ),
+            (
+                "outer_bound_across_a_union_limit",
+                "select count() from ((select timestamp from events union all select timestamp from events) limit 10) "
+                f"where timestamp >= {RECENT}",
+                True,
+            ),
+            (
                 "join_bound_on_persons_only",
                 f"select count() from events e join persons p on e.person_id = p.id where p.created_at > {RECENT}",
                 True,
@@ -209,3 +243,22 @@ class TestReadsEventsWithoutLowerBound(BaseTest):
         resolved = resolve_types(parse_select(sql), context, dialect="hogql")
 
         assert reads_events_without_lower_bound(resolved, context) is expected
+
+    def test_chain_of_shared_ctes_stays_within_the_compilation_budget(self) -> None:
+        links = [f"c0 as (select timestamp from events where timestamp > {RECENT})"]
+        for level in range(1, 40):
+            links.append(
+                f"c{level} as (select timestamp from c{level - 1} union all select timestamp from c{level - 1})"
+            )
+        context = HogQLContext(
+            team_id=self.team.pk, database=Database.create_for(team=self.team), enable_select_queries=True
+        )
+        resolved = resolve_types(
+            parse_select(f"with {', '.join(links)} select count() from c39"), context, dialect="hogql"
+        )
+
+        token = compilation_budget.set(CompilationBudget())
+        try:
+            assert reads_events_without_lower_bound(resolved, context) is False
+        finally:
+            compilation_budget.reset(token)

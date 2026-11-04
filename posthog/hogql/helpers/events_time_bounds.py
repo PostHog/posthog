@@ -7,7 +7,7 @@ conjunct of WHERE or PREWHERE, in the select that reads the table or in an enclo
 filters a column taken from that table's `timestamp`. A point lookup by `uuid` also counts.
 
 An enclosing filter does not count across a LIMIT, LIMIT BY or window function in the inner select,
-because moving the filter inside would change the result, so it cannot restrict the read. It also
+or a LIMIT on an inner set query, because moving the filter inside would change the result, so it cannot restrict the read. It also
 does not count for a CTE that the query references more than once, because the filter restricts
 only one of those reads.
 
@@ -66,9 +66,20 @@ class _SelectScan(TraversingVisitor):
         super().__init__()
         self.selects: list[ast.SelectQuery] = []
         self.alias_exprs: dict[int, ast.Expr] = {}
+        self.scalar_ctes: dict[str, list[ast.Expr]] = {}
         self.pushdown_blocked: set[int] = set()
         self._referenced_ctes: set[int] = set()
         self._enclosing_selects: list[ast.SelectQuery] = []
+
+    def visit(self, node: ast.AST | None) -> None:
+        # Types hold no AST nodes and share CTE types, so following them adds only repeated work.
+        if not isinstance(node, ast.Type):
+            super().visit(node)
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        if node.limit is not None:
+            self.pushdown_blocked.add(id(node.type))
+        super().visit_select_set_query(node)
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         self.selects.append(node)
@@ -96,6 +107,11 @@ class _SelectScan(TraversingVisitor):
         self.alias_exprs[id(node.type)] = node.expr
         super().visit_alias(node)
 
+    def visit_cte(self, node: ast.CTE) -> None:
+        if node.cte_type == "column":
+            self.scalar_ctes.setdefault(node.name, []).append(node.expr)
+        super().visit_cte(node)
+
 
 def _is_events_table(table_type: Optional[ast.Type]) -> bool:
     unwrapped = unwrap_table_alias_type(table_type)
@@ -112,18 +128,29 @@ def _events_table_types(select: ast.SelectQuery) -> list[ast.Type]:
     return table_types
 
 
-def _subquery_column_types(table_type: Optional[ast.Type], name: str, blocked: set[int]) -> list[ast.Type]:
+def _subquery_columns(table_type: Optional[ast.Type], blocked: set[int]) -> dict[str, list[ast.Type]]:
     if isinstance(table_type, ast.CTETableAliasType):
-        return _subquery_column_types(table_type.cte_table_type, name, blocked)
+        return _subquery_columns(table_type.cte_table_type, blocked)
     if isinstance(table_type, ast.SelectQueryAliasType | ast.CTETableType | ast.SelectViewType):
-        return _subquery_column_types(table_type.select_query_type, name, blocked)
+        return _subquery_columns(table_type.select_query_type, blocked)
     if id(table_type) in blocked:
-        return []
+        return {}
     if isinstance(table_type, ast.SelectSetQueryType):
-        return [column for branch in table_type.types for column in _subquery_column_types(branch, name, blocked)]
-    if isinstance(table_type, ast.SelectQueryType) and name in table_type.columns:
-        return [table_type.columns[name]]
-    return []
+        return _set_query_columns([_subquery_columns(branch, blocked) for branch in table_type.types])
+    if isinstance(table_type, ast.SelectQueryType):
+        return {name: [column] for name, column in table_type.columns.items()}
+    return {}
+
+
+def _set_query_columns(branches: list[dict[str, list[ast.Type]]]) -> dict[str, list[ast.Type]]:
+    # A set query takes its column names from the first branch and matches the other branches by position.
+    readable = [list(branch.values()) for branch in branches if branch]
+    if not readable or len({len(columns) for columns in readable}) > 1:
+        return {}
+    names = next(iter(branch for branch in branches if branch))
+    return {
+        name: [column for columns in readable for column in columns[position]] for position, name in enumerate(names)
+    }
 
 
 class _EventsTimestampVisitor(IsSimpleTimestampFieldExpressionVisitor):
@@ -156,11 +183,11 @@ class _EventsTimestampVisitor(IsSimpleTimestampFieldExpressionVisitor):
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
         if node.op == ast.ArithmeticOperationOp.Add:
-            return (self.visit(node.left) and _is_constant(node.right)) or (
-                self.visit(node.right) and _is_constant(node.left)
+            return (self.visit(node.left) and _is_constant(node.right, self.scan)) or (
+                self.visit(node.right) and _is_constant(node.left, self.scan)
             )
         if node.op == ast.ArithmeticOperationOp.Sub:
-            return self.visit(node.left) and _is_constant(node.right)
+            return self.visit(node.left) and _is_constant(node.right, self.scan)
         return False
 
     def visit_call(self, node: ast.Call) -> bool:
@@ -184,7 +211,7 @@ class _EventsTimestampVisitor(IsSimpleTimestampFieldExpressionVisitor):
         if field_type.name == _TIMESTAMP_COLUMN and _is_events_table(field_type.table_type):
             self.events_table_types.append(field_type.table_type)
             return True
-        columns = _subquery_column_types(field_type.table_type, field_type.name, self.scan.pushdown_blocked)
+        columns = _subquery_columns(field_type.table_type, self.scan.pushdown_blocked).get(field_type.name, [])
         # Evaluate every column before `any`, so that each union branch records its events table.
         derived = [self._derives_from_events_timestamp(column) for column in columns]
         return any(derived)
@@ -200,10 +227,28 @@ def _timestamp_tables(expr: ast.Expr, context: HogQLContext, scan: _SelectScan) 
 class _ConstantVisitor(IsTimeOrIntervalConstantVisitor):
     """Accepts an expression that reads no column of the row, so that any function of constants counts."""
 
-    def __init__(self) -> None:
+    def __init__(self, scan: _SelectScan) -> None:
         super().__init__(None)
+        self.scan = scan
+        self._followed: set[int] = set()
 
     def visit_unknown(self, node: ast.AST) -> bool:
+        return False
+
+    def visit_alias(self, node: ast.Alias) -> bool:
+        return self.visit(node.expr)
+
+    def visit_field(self, node: ast.Field) -> bool:
+        if id(node.type) in self._followed:
+            return False
+        self._followed.add(id(node.type))
+        alias_expr = self.scan.alias_exprs.get(id(node.type))
+        if alias_expr is not None:
+            return self.visit(alias_expr)
+        if isinstance(node.type, ast.FieldAliasType):
+            # A nested scope can reuse a scalar CTE's name, so every definition of the name must be constant.
+            definitions = self.scan.scalar_ctes.get(node.type.alias, [])
+            return bool(definitions) and all(self.visit(definition) for definition in definitions)
         return False
 
     def visit_select_query(self, node: ast.SelectQuery) -> bool:
@@ -216,8 +261,8 @@ class _ConstantVisitor(IsTimeOrIntervalConstantVisitor):
         return all(self.visit(arg) for arg in node.args)
 
 
-def _is_constant(expr: ast.Expr) -> bool:
-    return _ConstantVisitor().visit(expr)
+def _is_constant(expr: ast.Expr, scan: _SelectScan) -> bool:
+    return _ConstantVisitor(scan).visit(expr)
 
 
 def _restricted_tables(expr: ast.Expr, context: HogQLContext, scan: _SelectScan) -> set[int]:
@@ -234,12 +279,12 @@ def _restricted_tables(expr: ast.Expr, context: HogQLContext, scan: _SelectScan)
 def _lower_bounded_tables(expr: ast.Expr, context: HogQLContext, scan: _SelectScan) -> set[int]:
     if isinstance(expr, ast.CompareOperation):
         bounded: set[int] = set()
-        if expr.op in _LOWER_BOUND_OPS and _is_constant(expr.right):
+        if expr.op in _LOWER_BOUND_OPS and _is_constant(expr.right, scan):
             bounded |= _timestamp_tables(expr.left, context, scan)
-        if expr.op in _FLIPPED_LOWER_BOUND_OPS and _is_constant(expr.left):
+        if expr.op in _FLIPPED_LOWER_BOUND_OPS and _is_constant(expr.left, scan):
             bounded |= _timestamp_tables(expr.right, context, scan)
         return bounded
-    if isinstance(expr, ast.BetweenExpr) and not expr.negated and _is_constant(expr.low):
+    if isinstance(expr, ast.BetweenExpr) and not expr.negated and _is_constant(expr.low, scan):
         return _timestamp_tables(expr.expr, context, scan)
     return set()
 
