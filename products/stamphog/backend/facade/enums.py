@@ -18,6 +18,30 @@ class ReviewMode(LabeledStrEnum):
     LABEL = "label", "Labeled pull requests"
 
 
+class RoutingMode(LabeledStrEnum):
+    """When reviewer routing requests the owners of the changed code."""
+
+    OFF = "off", "Off"
+    # Request owners when a pull request opens ready for review or is marked ready.
+    ALWAYS = "always", "Always"
+    # Request owners only when stamphog does not approve. An approval requests only pinned owners.
+    FALLBACK = "fallback", "When stamphog does not approve"
+
+
+class OwnersFileStatus(LabeledStrEnum):
+    """Whether a repository's default branch has the root owners.yaml that reviewer routing reads."""
+
+    FOUND = "found", "Found"
+    MISSING = "missing", "Missing"
+    # The check could not ask GitHub: no installation to read with, or GitHub answered with an error.
+    UNAVAILABLE = "unavailable", "Unavailable"
+
+
+# The pull_request actions that start a reviewer routing run. The webhook consumer imports this at
+# module level, so it lives in this light module.
+ROUTING_ACTIONS = frozenset({"opened", "ready_for_review"})
+
+
 class ReviewRunStatus(StrEnum):
     QUEUED = "queued"
     GATED = "gated"
