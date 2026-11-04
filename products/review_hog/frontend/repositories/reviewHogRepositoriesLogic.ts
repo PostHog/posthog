@@ -179,13 +179,6 @@ export interface reviewHogRepositoriesLogicActions {
     setFoldOpen: (foldOpen: boolean) => {
         foldOpen: boolean
     }
-    setRepositoryDrafts: (
-        entry: ReviewRepositoryOverviewEntryApi,
-        reviewDrafts: boolean
-    ) => {
-        entry: ReviewRepositoryOverviewEntryApi
-        reviewDrafts: boolean
-    }
     setFoldSummary: (foldSummary: FoldSummary | null) => {
         foldSummary: FoldSummary | null
     }
@@ -201,6 +194,13 @@ export interface reviewHogRepositoriesLogicActions {
     }
     setPage: (page: number) => {
         page: number
+    }
+    setRepositoryDrafts: (
+        entry: ReviewRepositoryOverviewEntryApi,
+        reviewDrafts: boolean
+    ) => {
+        entry: ReviewRepositoryOverviewEntryApi
+        reviewDrafts: boolean
     }
     setSearch: (search: string) => {
         search: string
