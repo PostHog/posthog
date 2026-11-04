@@ -232,7 +232,6 @@ def update_issue(
                 issue=issue,
                 user=user,
                 extra_properties={"previous_status": status_label(status_before)},
-                emit_internal_events=operation is None,
             )
 
     if state_updated:
@@ -342,7 +341,6 @@ def merge_issues(
             issue=issue,
             user=user,
             extra_properties={"merged_issue_ids": merged_id_strings},
-            emit_internal_events=operation is None,
         )
 
         if outcome.reopened and outcome.previous_status is not None:
@@ -372,7 +370,6 @@ def merge_issues(
                 issue=issue,
                 user=user,
                 extra_properties={"previous_status": status_label(outcome.previous_status)},
-                emit_internal_events=operation is None,
             )
 
     return IssueMergeOutcome(result=outcome.result, merged_issue_count=len(outcome.merged_issue_ids))
@@ -422,7 +419,6 @@ def split_issue(
             issue=issue,
             user=user,
             extra_properties={"split_issue_ids": [str(new_issue_id) for new_issue_id in new_issue_ids]},
-            emit_internal_events=operation is None,
         )
 
     return new_issue_ids
@@ -449,7 +445,7 @@ def assign_issue(
         outcome = _assign_one(issue, assignee, issue.team.organization, user, team_id, was_impersonated)
         transition = outcome.transition if outcome is not None else None
         if outcome is not None:
-            produce_issue_lifecycle_events_on_commit([outcome.transition], emit_internal_events=operation is None)
+            produce_issue_lifecycle_events_on_commit([outcome.transition])
             _stamp_issue_state(team_id=team_id, issue_ids=[issue.id])
             record_issue_changes(operation, [outcome.change])
 
@@ -519,7 +515,7 @@ def bulk_update_issues(
                 # The queryset update below writes the same status; the snapshot reads it from this instance.
                 issue.status = new_status
                 issue_changes.append(IssueChange(issue=issue, data=StatusChanged(previous=previous_status)))
-            produce_issue_lifecycle_events_on_commit(transitions, emit_internal_events=operation is None)
+            produce_issue_lifecycle_events_on_commit(transitions)
             if changed_issue_ids:
                 ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=changed_issue_ids).update(
                     status=new_status, state_updated_at=timezone.now()
@@ -534,7 +530,7 @@ def bulk_update_issues(
                     transitions.append(outcome.transition)
                     issue_changes.append(outcome.change)
                     changed_issue_ids.append(issue.id)
-            produce_issue_lifecycle_events_on_commit(transitions, emit_internal_events=operation is None)
+            produce_issue_lifecycle_events_on_commit(transitions)
             _stamp_issue_state(team_id=team_id, issue_ids=changed_issue_ids)
         record_issue_changes(operation, issue_changes)
 

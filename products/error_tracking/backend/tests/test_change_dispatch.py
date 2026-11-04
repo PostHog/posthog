@@ -121,7 +121,7 @@ class TestChangeDispatch(BaseTest):
 
         with (
             patch(FLAG, return_value=True),
-            patch(OLD_PRODUCER) as skipped_producer,
+            patch(OLD_PRODUCER),
             patch(DISPATCHER_PRODUCER, side_effect=lambda **_: _delivered()) as dispatcher_producer,
             patch(FLUSH),
         ):
@@ -129,7 +129,6 @@ class TestChangeDispatch(BaseTest):
                 run(dispatch_team)
             dispatch_pending_changes(time_budget=timedelta(seconds=30))
 
-        skipped_producer.assert_not_called()
         assert _captured(dispatcher_producer) == _captured(old_producer)
         changes = ErrorTrackingIssueChange.objects.for_team(dispatch_team.id)
         emitted_uuids = {call.kwargs["event"].uuid for call in dispatcher_producer.call_args_list}
