@@ -172,6 +172,7 @@ No new run is owed afterwards, so the team never becomes ready until an operator
 `seeder_reconcile_cohorts_withheld_total{reason="team_absent"}` shows that this happened.
 The processor also drops the team's person seeds, which skip the apply fence, and counts them in `cohort_person_seeds_dropped_total{reason="team_absent"}`.
 The membership of each dropped person stays missing until a live event for that person arrives.
+The run can still complete and be stamped ready over that missing membership.
 After a grant, check that counter and each processor pod's `posthog_cohort_team_access_last_success_timestamp_seconds`.
 Two of the switches gate person runs, and they must open in order.
 The processor's `COHORT_SEED_PERSON_APPLY_ENABLED` must be on everywhere before the seeder's `SEEDER_PERSON_SEEDS_ENABLED`, or the processor skips and commits the seeds.
