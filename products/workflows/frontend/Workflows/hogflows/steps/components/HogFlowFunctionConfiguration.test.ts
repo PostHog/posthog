@@ -25,6 +25,13 @@ describe('HogFlowFunctionConfiguration', () => {
                 originProduct: 'broadcasts',
                 expected: false,
             },
+            {
+                step: 'a transactional email key step',
+                actionType: 'function_email',
+                originProduct: 'transactional_email_keys',
+                expected: false,
+            },
+            { step: 'a loops email step', actionType: 'function_email', originProduct: 'loops', expected: false },
             { step: 'a generic function step', actionType: 'function', originProduct: null, expected: false },
             { step: 'a trigger', actionType: 'trigger', originProduct: null, expected: false },
         ])('is $expected for $step', ({ actionType, originProduct, expected }) => {
