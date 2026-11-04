@@ -488,6 +488,17 @@ impl TableHandle {
         }
     }
 
+    /// Bucket ids for splitting a history source by key; see [`crate::history::key_buckets`].
+    /// Uses the loaded snapshot's schema, without a refresh.
+    pub fn key_buckets(
+        &self,
+        batches: &[RecordBatch],
+        key_columns: &[String],
+        n: u32,
+    ) -> Result<arrow_array::UInt32Array> {
+        crate::history::key_buckets(&self.table, batches, key_columns, n)
+    }
+
     /// Compact small files (see [`crate::compact`]) against a refreshed snapshot, then
     /// adopt the committed state so later writes through this handle see it.
     pub async fn compact(

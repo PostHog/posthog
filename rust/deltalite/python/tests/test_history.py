@@ -1,8 +1,3 @@
-"""`DeltaLiteTable.history_upsert` against a pure-pyarrow reference model of its rules,
-over random inputs and several calls in a row, plus the month partition format and
-`key_buckets`.
-"""
-
 from __future__ import annotations
 
 import json
@@ -227,16 +222,46 @@ def test_refuses_a_table_not_partitioned_by_the_history_column(tmp_path, partiti
         history_upsert(uri, [Src("a", 1, INSTANTS[0], "a", 1)])
 
 
-def test_key_buckets_are_null_safe_and_independent_of_batching():
+def test_key_buckets_are_null_safe_and_independent_of_batching(tmp_path):
+    table = deltalite.DeltaLiteTable.open(create(tmp_path))
     data = pa.table(
         {
             "id": pa.array(["a", "b", None, "a", "customer-42"], pa.string()),
             "n": pa.array([1, 1, 1, None, 7], pa.int64()),
         }
     )
-    buckets = deltalite.key_buckets(data, ["id", "n"], 16)
+    buckets = table.key_buckets(data, ["id", "n"], 16)
     assert isinstance(buckets, pa.UInt32Array)
     # Pinned in the Rust suite too, so an encoding change shows up on the upgrade that makes it.
     assert buckets.to_pylist() == [4, 12, 0, 6, 6]
     rechunked = pa.Table.from_batches(data.slice(3).to_batches() + data.slice(0, 3).to_batches())
-    assert deltalite.key_buckets(rechunked, ["id", "n"], 16).to_pylist() == [6, 6, 4, 12, 0]
+    assert table.key_buckets(rechunked, ["id", "n"], 16).to_pylist() == [6, 6, 4, 12, 0]
+
+
+def test_calls_split_by_key_bucket_equal_one_call_when_source_keys_need_a_cast(tmp_path):
+    # "1", "01" and "001" are one integer key in the table, so they must share a bucket.
+    def source(n_values: list[str]) -> pa.Table:
+        rows = len(n_values)
+        return pa.table(
+            {
+                "id": pa.array(["k"] * 3 + [f"other-{i}" for i in range(rows - 3)], pa.string()),
+                "n": pa.array(n_values, pa.string()),
+                "ts": pa.array(INSTANTS[:rows], TS),
+                "payload": pa.array([f"p{i}" for i in range(rows)], pa.string()),
+                "seq": pa.array(range(rows), pa.int64()),
+            }
+        )
+
+    data = source(["1", "01", "001", *(str(i) for i in range(2, 12))])
+    whole_uri, split_uri = create(tmp_path / "whole"), create(tmp_path / "split")
+    args = (["id", "n"], "ts", "ts", "valid_to", "p", CURRENT, "seq")
+    deltalite.DeltaLiteTable.open(whole_uri).history_upsert(data, *args)
+
+    split = deltalite.DeltaLiteTable.open(split_uri)
+    buckets = split.key_buckets(data, ["id", "n"], 8)
+    assert len(set(buckets.to_pylist()[:3])) == 1
+    # Any call order must give the same table; descending is as good as any.
+    for bucket in sorted(set(buckets.to_pylist()), reverse=True):
+        split.history_upsert(data.filter(pc.equal(buckets, bucket)), *args)
+
+    assert read(split_uri) == read(whole_uri)

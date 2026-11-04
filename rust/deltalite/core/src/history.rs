@@ -248,7 +248,8 @@ async fn history_with_relax(
     relax.retain(|c| c != &opts.partition_column);
     if relax.is_empty() {
         let relax_ms = relax_started.elapsed().as_millis() as u64;
-        let (mut stats, state) = history_inner(table, source_batches, source_schema, &opts).await?;
+        let (mut stats, state) =
+            history_inner(table, source_batches, source_schema, &opts, false).await?;
         stats.relax_ms = relax_ms;
         if stats.committed {
             if let Ok(committed) = u64::try_from(stats.version) {
@@ -258,14 +259,27 @@ async fn history_with_relax(
         return Ok((stats, state));
     }
 
+    // Plan first, so a call that keeps no row makes no commit at all, not even the relax.
+    let (planned, _) = history_inner(
+        table,
+        source_batches.clone(),
+        source_schema.clone(),
+        &opts,
+        true,
+    )
+    .await?;
+    if planned.versions_opened == 0 {
+        return Ok((planned, None));
+    }
     relax_columns_to_nullable(table, &relax).await?;
     let mut fresh = table.clone();
     fresh.update_incremental(None).await?;
     let relax_ms = relax_started.elapsed().as_millis() as u64;
-    let (mut stats, state) = history_inner(&fresh, source_batches, source_schema, &opts).await?;
+    let (mut stats, state) =
+        history_inner(&fresh, source_batches, source_schema, &opts, false).await?;
     stats.columns_relaxed = relax.len();
     stats.relax_ms = relax_ms;
-    // The relax commit moved the table even when the data turned out to be a no-op.
+    // A concurrent commit can still make the data a no-op after the relax landed.
     Ok((stats, state.or(fresh.state)))
 }
 
@@ -469,7 +483,7 @@ impl SourcePlan {
         cols: &Columns,
         opts: &HistoryUpsertOptions,
     ) -> Result<Self> {
-        let work_schema = nullable_validity_schema(table_schema, cols);
+        let work_schema = nullable_schema(table_schema);
         let mut batches = Vec::with_capacity(source_batches.len());
         let mut ties = Vec::with_capacity(source_batches.len());
         let mut offsets = Vec::with_capacity(source_batches.len());
@@ -692,21 +706,15 @@ struct Decision {
     chain_rows_closed: usize,
 }
 
-/// The table schema with `valid_to` and the partition column nullable, so a source batch
-/// can be cast to it before the operation sets them.
-fn nullable_validity_schema(table_schema: &SchemaRef, cols: &Columns) -> SchemaRef {
+/// The table schema with every column nullable. Source batches are held in it until they
+/// are written: the operation sets `valid_to` and the partition column later, and a
+/// column the table still marks non-nullable may hold nulls until the relax commits.
+/// Written batches are rebuilt in the table schema, which checks nullability again.
+fn nullable_schema(table_schema: &SchemaRef) -> SchemaRef {
     let fields: Vec<Field> = table_schema
         .fields()
         .iter()
-        .enumerate()
-        .map(|(i, f)| {
-            let f = f.as_ref().clone();
-            if i == cols.valid_to_idx || i == cols.partition_idx {
-                f.with_nullable(true)
-            } else {
-                f
-            }
-        })
+        .map(|f| f.as_ref().clone().with_nullable(true))
         .collect();
     Arc::new(Schema::new_with_metadata(
         fields,
@@ -1125,12 +1133,7 @@ struct SourceWriter<'a> {
 }
 
 impl SourceWriter<'_> {
-    async fn write(
-        &self,
-        rows: &[KeptRow],
-        writer: &mut StreamingWriter,
-        adds: &mut Vec<Add>,
-    ) -> Result<()> {
+    fn stamped(&self, rows: &[KeptRow]) -> Result<RecordBatch> {
         // Hand interleave only the batches this chunk reads; its cost grows with the
         // number of batches it is given.
         let mut batch_slots: HashMap<usize, usize> = HashMap::new();
@@ -1147,14 +1150,24 @@ impl SourceWriter<'_> {
             })
             .collect();
         let closes: UInt32Array = rows.iter().map(|(_, next)| *next).collect();
-        let selected = stamp_validity(
+        stamp_validity(
             &interleave_record_batch(&batch_refs, &located)?,
             &closes,
             self.plan,
             self.cols,
             self.table_schema,
             &self.opts.current_partition,
-        )?;
+        )
+    }
+
+    /// Write newest kept rows, which all stay open in the current partition.
+    async fn write_open(
+        &self,
+        rows: &[KeptRow],
+        writer: &mut StreamingWriter,
+        adds: &mut Vec<Add>,
+    ) -> Result<()> {
+        let selected = self.stamped(rows)?;
         let max_row_group_bytes = self.opts.max_row_group_bytes;
         let slice_rows =
             source_slice_rows(&selected, self.opts.read_batch_size, max_row_group_bytes);
@@ -1174,6 +1187,7 @@ async fn history_inner(
     source_batches: Vec<RecordBatch>,
     source_schema: SchemaRef,
     opts: &HistoryUpsertOptions,
+    plan_only: bool,
 ) -> Result<(HistoryUpsertStats, Option<DeltaTableState>)> {
     // Again here: after a relax the snapshot is reloaded, and a concurrent commit may have
     // enabled a feature that makes a blind rewrite unsafe.
@@ -1278,7 +1292,7 @@ async fn history_inner(
     stats.rows_backwards = decision.rows_backwards;
     stats.versions_opened = decision.versions_opened;
     stats.chain_rows_closed = decision.chain_rows_closed;
-    if decision.writes.is_empty() {
+    if decision.writes.is_empty() || plan_only {
         // Nothing kept means nothing closes either: the table already holds this input.
         stats.files_carried_over += probed.len();
         return Ok((stats, None));
@@ -1410,30 +1424,27 @@ async fn history_inner(
         target_file_size,
     };
     for chunk in opens.chunks(opts.read_batch_size.max(1)) {
-        source.write(chunk, &mut current_writer, &mut adds).await?;
+        source
+            .write_open(chunk, &mut current_writer, &mut adds)
+            .await?;
     }
-    // Chain rows sorted by month, with a flush between months, give one file per month
-    // instead of a small file per month at every flush.
+    // Sorted by month, so the closed-row writer moves through months in order instead of
+    // reopening them; `write_closed` keeps the open month files under the limit.
     let next_rows: UInt32Array = chain.iter().map(|(_, next)| *next).collect();
     let months = format_months(take(plan.valid_from.as_ref(), &next_rows, None)?.as_ref())?;
     let mut by_month: Vec<usize> = (0..chain.len()).collect();
     by_month.sort_by_key(|i| months.value(*i));
     chain = by_month.iter().map(|i| chain[*i]).collect();
-    let mut start = 0usize;
-    while start < chain.len() {
-        let month = months.value(by_month[start]);
-        let end = start
-            + by_month[start..]
-                .iter()
-                .take_while(|i| months.value(**i) == month)
-                .count();
-        if start > 0 {
-            adds.extend(closed_writer.flush().await?);
-        }
-        for chunk in chain[start..end].chunks(opts.read_batch_size.max(1)) {
-            source.write(chunk, &mut closed_writer, &mut adds).await?;
-        }
-        start = end;
+    for chunk in chain.chunks(opts.read_batch_size.max(1)) {
+        write_closed(
+            &mut closed_writer,
+            &source.stamped(chunk)?,
+            partition_idx,
+            &mut adds,
+            target_file_size,
+            max_row_group_bytes,
+        )
+        .await?;
     }
     adds.extend(current_writer.flush().await?);
     adds.extend(closed_writer.flush().await?);
@@ -1477,11 +1488,18 @@ async fn history_inner(
 
 /// A bucket in `0..n` for every row of `batches`, from the values of `key_columns`.
 ///
-/// Each key is encoded with arrow-row (null-safe, so null key parts hash alike) and hashed
-/// with xxHash64 seeded with [`KEY_BUCKET_SEED`], then reduced modulo `n`. The ids are the
-/// same in every process that runs one deltalite build, for keys of the same Arrow types.
-/// arrow-row may change its encoding between arrow releases, so do not persist the ids.
-pub fn key_buckets(batches: &[RecordBatch], key_columns: &[String], n: u32) -> Result<UInt32Array> {
+/// The key columns are cast to their types in `table`, the cast [`history_upsert`] matches
+/// keys after, so source values that become one table key always share a bucket. Each key
+/// is then encoded with arrow-row (null-safe, so null key parts hash alike) and hashed with
+/// xxHash64 seeded with [`KEY_BUCKET_SEED`], reduced modulo `n`. The ids are the same in
+/// every process that runs one deltalite build. arrow-row may change its encoding between
+/// arrow releases, so do not persist the ids.
+pub fn key_buckets(
+    table: &DeltaTable,
+    batches: &[RecordBatch],
+    key_columns: &[String],
+    n: u32,
+) -> Result<UInt32Array> {
     if n == 0 {
         return Err(Error::Generic("key_buckets needs n >= 1".into()));
     }
@@ -1490,24 +1508,31 @@ pub fn key_buckets(batches: &[RecordBatch], key_columns: &[String], n: u32) -> R
             "key_buckets needs at least one key column".into(),
         ));
     }
-    let Some(first) = batches.first() else {
-        return Ok(UInt32Array::from(Vec::<u32>::new()));
-    };
-    let key_column = |batch: &RecordBatch, k: &String| {
-        batch.column_by_name(k).cloned().ok_or_else(|| {
-            Error::SchemaMismatch(format!("key column '{k}' is missing from the data"))
-        })
-    };
-    let fields = key_columns
+    let table_schema = RecordBatchWriter::for_table(table)?.arrow_schema();
+    let key_types = key_columns
         .iter()
-        .map(|k| Ok(SortField::new(key_column(first, k)?.data_type().clone())))
-        .collect::<Result<Vec<_>>>()?;
-    let converter = RowConverter::new(fields)?;
+        .map(|k| {
+            Ok(table_schema
+                .field_with_name(k)
+                .map_err(|_| {
+                    Error::SchemaMismatch(format!("key column '{k}' not found in table schema"))
+                })?
+                .data_type()
+                .clone())
+        })
+        .collect::<Result<Vec<DataType>>>()?;
+    let converter = RowConverter::new(key_types.iter().cloned().map(SortField::new).collect())?;
     let mut out = Vec::with_capacity(batches.iter().map(RecordBatch::num_rows).sum());
     for batch in batches {
         let cols: Vec<ArrayRef> = key_columns
             .iter()
-            .map(|k| key_column(batch, k))
+            .zip(&key_types)
+            .map(|(k, ty)| {
+                let col = batch.column_by_name(k).ok_or_else(|| {
+                    Error::SchemaMismatch(format!("key column '{k}' is missing from the data"))
+                })?;
+                cast_strict(col, ty)
+            })
             .collect::<Result<_>>()?;
         let rows = converter.convert_columns(&cols)?;
         out.extend(rows.iter().map(|row| {
@@ -1553,6 +1578,7 @@ mod tests {
             vec![RecordBatch::new_empty(source.clone())],
             source,
             &opts,
+            false,
         )
         .await
         .unwrap_err();

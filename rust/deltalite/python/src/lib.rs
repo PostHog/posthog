@@ -745,6 +745,23 @@ impl DeltaLiteTable {
         Ok(stats)
     }
 
+    /// A null-safe bucket id in `0..n` (`pyarrow.UInt32Array`) for every row of `data`,
+    /// from `key_columns` cast to this table's types. See the README.
+    fn key_buckets(
+        &mut self,
+        py: Python<'_>,
+        data: &Bound<'_, PyAny>,
+        key_columns: Vec<String>,
+        n: u32,
+    ) -> PyResult<Py<PyAny>> {
+        let (_, batches) = read_pyarrow(data)?;
+        let handle = &mut self.handle;
+        let buckets = py
+            .detach(|| handle.key_buckets(&batches, &key_columns, n))
+            .map_err(to_py_err)?;
+        Ok(buckets.to_data().to_pyarrow(py)?.unbind())
+    }
+
     /// Compact small files the way `DeltaTable.optimize.compact` does, streaming each bin
     /// one file and one byte-bounded batch at a time (see `deltalite_core::compact`).
     ///
@@ -982,22 +999,6 @@ fn limits_snapshot(py: Python<'_>) -> PyResult<Py<PyAny>> {
     Ok(d.into_any().unbind())
 }
 
-/// A null-safe bucket id in `0..n` (`pyarrow.UInt32Array`) for every row of
-/// `data`, from the values of `key_columns`. See the README.
-#[pyfunction]
-fn key_buckets(
-    py: Python<'_>,
-    data: &Bound<'_, PyAny>,
-    key_columns: Vec<String>,
-    n: u32,
-) -> PyResult<Py<PyAny>> {
-    let (_, batches) = read_pyarrow(data)?;
-    let buckets = py
-        .detach(|| deltalite_core::history::key_buckets(&batches, &key_columns, n))
-        .map_err(to_py_err)?;
-    Ok(buckets.to_data().to_pyarrow(py)?.unbind())
-}
-
 #[pymodule]
 fn deltalite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DeltaLiteTable>()?;
@@ -1005,7 +1006,6 @@ fn deltalite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(clear_probe_cache, m)?)?;
     m.add_function(wrap_pyfunction!(probe_cache_stats, m)?)?;
     m.add_function(wrap_pyfunction!(limits_snapshot, m)?)?;
-    m.add_function(wrap_pyfunction!(key_buckets, m)?)?;
     m.add_class::<UpsertStats>()?;
     m.add_class::<HistoryUpsertStats>()?;
     m.add("DeltaLiteError", m.py().get_type::<DeltaLiteError>())?;
