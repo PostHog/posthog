@@ -23,6 +23,7 @@ from posthog.event_usage import groups
 from posthog.models import OrganizationDomain, User
 from posthog.models.identity_provider_config import ConfigScope
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_domain import email_domain
 from posthog.models.scim_request_log import SCIMRequestLog
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 
@@ -192,10 +193,10 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         # the whole organization with them. Mirrors the guard on enabling the setting.
         if instance.is_verified and self.organization.enforce_verified_domains:
             user = cast(User, request.user)
-            email_domain = user.email[user.email.index("@") + 1 :] if "@" in user.email else ""
+            acting_domain = email_domain(user.email) or ""
             still_admitted = (
                 OrganizationDomain.objects.verified_domains()
-                .filter(organization=self.organization, domain__iexact=email_domain)
+                .filter(organization=self.organization, domain__iexact=acting_domain)
                 .exclude(pk=instance.pk)
                 .exists()
             )

@@ -23,6 +23,19 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
+def email_domain(email: str) -> str | None:
+    """The domain of `email`, or None when it carries no domain.
+
+    The domain follows the last `@`. A local part may hold an `@` of its own inside a quoted
+    string, which Django's `EmailValidator` accepts, so reading from the first `@` returns part of
+    the local part and then matches no configured domain.
+    """
+    _, separator, domain = email.rpartition("@")
+    if not separator or not domain:
+        return None
+    return domain
+
+
 def generate_verification_challenge() -> str:
     return secrets.token_urlsafe(32)
 
@@ -41,7 +54,9 @@ class OrganizationDomainManager(models.Manager):
         Returns an `OrganizationDomain` configuration for a specific email address (if it exists and is verified),
         using the domain of the email address
         """
-        domain = email[email.index("@") + 1 :]
+        domain = email_domain(email)
+        if domain is None:
+            return None
         return self.verified_domains().filter(domain__iexact=domain).first()
 
     def get_sso_enforcement_for_email_address(
@@ -51,7 +66,9 @@ class OrganizationDomainManager(models.Manager):
         Returns the specific `sso_enforcement` applicable for an email address or an `OrganizationDomain` objects.
         Validates SSO providers are properly configured and all the proper licenses exist.
         """
-        domain = email[email.index("@") + 1 :]
+        domain = email_domain(email)
+        if domain is None:
+            return None
         queryset = self.verified_domains().filter(domain__iexact=domain).exclude(sso_enforcement="")
 
         if organization is not None:
@@ -108,9 +125,9 @@ class OrganizationDomainManager(models.Manager):
 
     def is_domain_verified_for_organization(self, email: str, organization: Organization) -> bool:
         """Whether the domain of `email` is a verified domain owned by `organization`."""
-        if "@" not in email:
+        domain = email_domain(email)
+        if domain is None:
             return False
-        domain = email[email.index("@") + 1 :]
         return self.verified_domains().filter(organization=organization, domain__iexact=domain).exists()
 
     def is_email_blocked_by_domain_enforcement(self, email: str, organization: Organization) -> bool:
