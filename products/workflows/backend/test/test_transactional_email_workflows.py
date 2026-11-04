@@ -166,6 +166,27 @@ class TestTransactionalEmailWorkflows(BaseTest):
 
         assert HogFlow.objects.get(id=flow_id).version == 1
 
+    def test_an_update_refuses_a_sandbox_sender_set_on_the_workflow_directly(self):
+        flow_id = create_transactional_email_workflow(team_id=self.team.id, user_id=self.user.id, content=_content())
+        sandbox_id = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id=SANDBOX_EMAIL_INTEGRATION_ID,
+            config={"provider": SANDBOX_EMAIL_PROVIDER, "verified": True},
+        ).id
+        flow = HogFlow.objects.get(id=flow_id)
+        for action in flow.actions:
+            if action["type"] == "function_email":
+                action["config"]["inputs"]["email"]["value"]["from"] = {"integrationId": sandbox_id}
+        flow.save()
+
+        with self.assertRaises(TransactionalEmailSandboxSender):
+            update_transactional_email_workflow(
+                team_id=self.team.id, user_id=self.user.id, hog_flow_id=flow_id, content=_content()
+            )
+
+        assert HogFlow.objects.get(id=flow_id).version == 1
+
     @parameterized.expand([("no_subject", {"subject": ""}), ("no_body", {"html": "", "text": ""})])
     def test_content_that_cannot_send_is_refused(self, _name, overrides):
         with self.assertRaises(TransactionalEmailContentInvalid):
