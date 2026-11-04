@@ -729,7 +729,11 @@ const LlmaEvaluationBackfillCancelSchema = () => {
     const EvaluationsBackfillsCancelCreateParams = orvalSchemas.EvaluationsBackfillsCancelCreateParams()
     return z.preprocess(
         normalizeParamAliases({ evaluation_id: ['evaluationId'], id: ['backfillId', 'backfill_id'] }),
-        EvaluationsBackfillsCancelCreateParams.omit({ project_id: true })
+        EvaluationsBackfillsCancelCreateParams.omit({ project_id: true }).extend({
+            evaluation_id: EvaluationsBackfillsCancelCreateParams.shape['evaluation_id'].describe(
+                'UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.'
+            ),
+        })
     )
 }
 
@@ -754,7 +758,13 @@ const LlmaEvaluationBackfillCreateSchema = () => {
     const EvaluationsBackfillsCreateParams = orvalSchemas.EvaluationsBackfillsCreateParams()
     return z.preprocess(
         normalizeParamAliases({ evaluation_id: ['evaluationId'] }),
-        EvaluationsBackfillsCreateParams.omit({ project_id: true }).extend(EvaluationsBackfillsCreateBody.shape)
+        EvaluationsBackfillsCreateParams.omit({ project_id: true })
+            .extend(EvaluationsBackfillsCreateBody.shape)
+            .extend({
+                evaluation_id: EvaluationsBackfillsCreateParams.shape['evaluation_id'].describe(
+                    'UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.'
+                ),
+            })
     )
 }
 
@@ -793,9 +803,13 @@ const LlmaEvaluationBackfillEstimateSchema = () => {
     const EvaluationsBackfillsEstimateCreateParams = orvalSchemas.EvaluationsBackfillsEstimateCreateParams()
     return z.preprocess(
         normalizeParamAliases({ evaluation_id: ['evaluationId'] }),
-        EvaluationsBackfillsEstimateCreateParams.omit({ project_id: true }).extend(
-            EvaluationsBackfillsEstimateCreateBody.shape
-        )
+        EvaluationsBackfillsEstimateCreateParams.omit({ project_id: true })
+            .extend(EvaluationsBackfillsEstimateCreateBody.shape)
+            .extend({
+                evaluation_id: EvaluationsBackfillsEstimateCreateParams.shape['evaluation_id'].describe(
+                    'UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.'
+                ),
+            })
     )
 }
 
@@ -833,7 +847,11 @@ const LlmaEvaluationBackfillGetSchema = () => {
     const EvaluationsBackfillsRetrieveParams = orvalSchemas.EvaluationsBackfillsRetrieveParams()
     return z.preprocess(
         normalizeParamAliases({ evaluation_id: ['evaluationId'], id: ['backfillId', 'backfill_id'] }),
-        EvaluationsBackfillsRetrieveParams.omit({ project_id: true })
+        EvaluationsBackfillsRetrieveParams.omit({ project_id: true }).extend({
+            evaluation_id: EvaluationsBackfillsRetrieveParams.shape['evaluation_id'].describe(
+                'UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.'
+            ),
+        })
     )
 }
 
@@ -858,7 +876,13 @@ const LlmaEvaluationBackfillListSchema = () => {
     const EvaluationsBackfillsListQueryParams = orvalSchemas.EvaluationsBackfillsListQueryParams()
     return z.preprocess(
         normalizeParamAliases({ evaluation_id: ['evaluationId'] }),
-        EvaluationsBackfillsListParams.omit({ project_id: true }).extend(EvaluationsBackfillsListQueryParams.shape)
+        EvaluationsBackfillsListParams.omit({ project_id: true })
+            .extend(EvaluationsBackfillsListQueryParams.shape)
+            .extend({
+                evaluation_id: EvaluationsBackfillsListParams.shape['evaluation_id'].describe(
+                    'UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.'
+                ),
+            })
     )
 }
 
@@ -1324,8 +1348,11 @@ const LlmaEvaluationReportRunListSchema = () => {
     const LlmAnalyticsEvaluationReportsRunsListParams = orvalSchemas.LlmAnalyticsEvaluationReportsRunsListParams()
     const LlmAnalyticsEvaluationReportsRunsListQueryParams =
         orvalSchemas.LlmAnalyticsEvaluationReportsRunsListQueryParams()
-    return LlmAnalyticsEvaluationReportsRunsListParams.omit({ project_id: true }).extend(
-        LlmAnalyticsEvaluationReportsRunsListQueryParams.shape
+    return z.preprocess(
+        normalizeParamAliases({ id: ['report_id', 'reportId'] }),
+        LlmAnalyticsEvaluationReportsRunsListParams.omit({ project_id: true }).extend(
+            LlmAnalyticsEvaluationReportsRunsListQueryParams.shape
+        )
     )
 }
 
