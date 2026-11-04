@@ -144,6 +144,47 @@ describe('GuidanceEngine', () => {
                 expected
             )
         })
+
+        describe('with a notice that fires on the first match', () => {
+            const firstMatchRule: GuidanceRule = { ...rule, threshold: 1 }
+
+            it.each([
+                ['after the caller counters expire', [31]],
+                ['after the first day of a busy conversation', Array.from({ length: 80 }, () => 20)],
+            ])('keeps the per-conversation cap %s', async (_label, gapsInMinutes) => {
+                const redis = makeGuidanceRedis()
+                const engine = new GuidanceEngine(redis, [firstMatchRule])
+                const outcomes = await run(engine, withHandle('minted-1', false), [replayQuery])
+                for (const minutes of gapsInMinutes) {
+                    redis.advance(minutes * 60)
+                    outcomes.push(...(await run(engine, withHandle('minted-1', true), [replayQuery])))
+                }
+                expect(outcomes.filter(Boolean)).toEqual(['test-rule:shown'])
+            })
+
+            it('gives a second conversation its own notice once it echoes its handle', async () => {
+                const engine = new GuidanceEngine(makeGuidanceRedis(), [firstMatchRule])
+                await run(engine, withHandle('minted-1', false), [replayQuery])
+                await expect(run(engine, withHandle('minted-2', false), [replayQuery])).resolves.toEqual([undefined])
+                await expect(run(engine, withHandle('minted-2', true), [replayQuery, replayQuery])).resolves.toEqual([
+                    'test-rule:shown',
+                    undefined,
+                ])
+            })
+
+            it('does not repeat in the conversation that already got the notice from the caller counters', async () => {
+                const engine = new GuidanceEngine(makeGuidanceRedis(), [firstMatchRule])
+                await run(engine, withHandle('minted-1', false), [replayQuery])
+                await run(engine, withHandle('minted-2', false), [replayQuery])
+                await expect(run(engine, withHandle('minted-1', true), [replayQuery])).resolves.toEqual([undefined])
+            })
+
+            it('caps a client that never echoes under the caller', async () => {
+                const engine = new GuidanceEngine(makeGuidanceRedis(), [firstMatchRule])
+                await run(engine, withHandle('minted-1', false), [replayQuery])
+                await expect(run(engine, withHandle('minted-2', false), [replayQuery])).resolves.toEqual([undefined])
+            })
+        })
     })
 
     it('reports a suppressed outcome on a later call when another rule wins the threshold call', async () => {
