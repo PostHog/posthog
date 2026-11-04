@@ -484,7 +484,7 @@ describe('EmailService', () => {
             it.each([false, true])(
                 'sends own-domain email on the team route without member checks (switch on=%s)',
                 async (enabled) => {
-                    const membersPostgres = { transaction: jest.fn() } as unknown as PostgresRouter
+                    const membersPostgres = { connect: jest.fn() } as unknown as PostgresRouter
                     service = createSandboxService(enabled, { membersPostgres })
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },
@@ -495,7 +495,7 @@ describe('EmailService', () => {
 
                     expect(result.error).toBeUndefined()
                     expect(result.skipped).toBeFalsy()
-                    expect(membersPostgres.transaction).not.toHaveBeenCalled()
+                    expect(membersPostgres.connect).not.toHaveBeenCalled()
                     expect(capture).not.toHaveBeenCalled()
                     const input = sendEmailSpy.mock.calls[0][0].input
                     expect(input).toMatchObject({
@@ -808,7 +808,7 @@ describe('EmailService', () => {
 
             it('fails closed instead of waiting when the member lookup stalls', async () => {
                 const stalledPostgres = {
-                    transaction: jest.fn(() => new Promise(() => {})),
+                    connect: jest.fn(() => new Promise(() => {})),
                 } as unknown as PostgresRouter
                 service = createSandboxService(true, { membersPostgres: stalledPostgres })
 
