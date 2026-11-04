@@ -1127,7 +1127,9 @@ def get_rows(
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    if _lists_every_object(
+    # The isinstance check repeats one inside `_lists_every_object` so the type checker narrows
+    # `resource` to a flat resource on the incremental path below.
+    if isinstance(resource, StripeNestedResource) or _lists_every_object(
         resource, should_use_incremental_field, db_incremental_field_last_value, db_incremental_field_earliest_value
     ):
         logger.debug(f"Stripe: iterating all objects from resource")

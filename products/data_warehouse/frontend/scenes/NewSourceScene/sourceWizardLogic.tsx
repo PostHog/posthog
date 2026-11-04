@@ -2509,11 +2509,18 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 const wizardSchemas = new Map(values.databaseSchema.map((schema) => [schema.table, schema]))
                 const updates: ExternalDataSourceBulkUpdateSchemaApi[] = []
                 const switched = new Map<string, PollingSyncSettings>()
+                let webhookOnlyCount = 0
                 for (const item of source.schemas) {
                     const schemaId = typeof item.id === 'string' ? item.id : null
                     const name = typeof item.name === 'string' ? item.name : null
                     const wizardSchema = name ? wizardSchemas.get(name) : undefined
                     if (!schemaId || !name || !wizardSchema || item.sync_type !== 'webhook' || !item.should_sync) {
+                        continue
+                    }
+                    // A webhook-only table (e.g. Stripe Discount) has no list endpoint to poll, and the
+                    // API rejects any other sync type for it, so it stays on webhook sync.
+                    if (wizardSchema.webhook_only) {
+                        webhookOnlyCount += 1
                         continue
                     }
                     const settings = defaultPollingSyncSettings(wizardSchema, selectedConnector.name)
@@ -2548,7 +2555,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     tableCount: updates.length,
                 })
                 lemonToast.success(
-                    `Switched ${updates.length.toLocaleString()} ${updates.length === 1 ? 'table' : 'tables'} to another sync method`
+                    `Switched ${updates.length.toLocaleString()} ${updates.length === 1 ? 'table' : 'tables'} to another sync method` +
+                        (webhookOnlyCount > 0
+                            ? `. ${webhookOnlyCount.toLocaleString()} ${webhookOnlyCount === 1 ? 'table syncs' : 'tables sync'} only by webhook and stayed on webhook sync.`
+                            : '')
                 )
                 actions.setStep(5)
             } catch (e: any) {

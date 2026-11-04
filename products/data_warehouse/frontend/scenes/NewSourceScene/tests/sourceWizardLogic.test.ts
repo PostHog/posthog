@@ -350,7 +350,7 @@ describe('sourceWizardLogic', () => {
             }
         })
 
-        it('switches only the syncing webhook tables to a polling sync method', async () => {
+        it('switches only the syncing, pollable webhook tables to a polling sync method', async () => {
             const schema = (overrides: Partial<ExternalDataSourceSyncSchema>): ExternalDataSourceSyncSchema =>
                 ({
                     table: 'Customer',
@@ -372,6 +372,7 @@ describe('sourceWizardLogic', () => {
                     { id: 's2', name: 'Invoice', sync_type: 'webhook', should_sync: true },
                     { id: 's3', name: 'Charge', sync_type: 'incremental', should_sync: true },
                     { id: 's4', name: 'Payout', sync_type: 'webhook', should_sync: false },
+                    { id: 's5', name: 'Discount', sync_type: 'webhook', should_sync: true },
                 ],
             } as unknown as ExternalDataSourceSerializersApi)
             const bulkUpdate = jest.mocked(externalDataSourcesBulkUpdateSchemasPartialUpdate).mockResolvedValue([])
@@ -391,6 +392,7 @@ describe('sourceWizardLogic', () => {
                     schema({ table: 'Invoice' }),
                     schema({ table: 'Charge', sync_type: 'incremental' }),
                     schema({ table: 'Payout', should_sync: false }),
+                    schema({ table: 'Discount', webhook_only: true }),
                 ])
                 logic.actions.setSourceId('source-1')
                 logic.actions.setStep(4)
@@ -408,7 +410,7 @@ describe('sourceWizardLogic', () => {
                         { id: 's2', sync_type: 'full_refresh', incremental_field: null, incremental_field_type: null },
                     ],
                 })
-                expect(logic.values.hasWebhookSchemas).toBe(false)
+                expect(logic.values.databaseSchema.find((s) => s.table === 'Discount')?.sync_type).toBe('webhook')
                 expect(logic.values.currentStep).toBe(5)
             } finally {
                 unmount()
