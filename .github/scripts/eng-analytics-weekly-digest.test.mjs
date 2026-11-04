@@ -54,17 +54,13 @@ const DEPOT_CI_USAGE = {
 }
 const REPO = { provider: 'github', owner: 'PostHog', name: 'posthog' }
 const WORKFLOW_HEALTH = {
-    [WEEK]: {
-        results: [
-            { repo: REPO, workflow_name: 'Frontend CI', percentile_run_count: 500, p95_seconds: 1000 },
-            { repo: REPO, workflow_name: 'Storybook', percentile_run_count: 500, p95_seconds: 1716 },
-            { repo: REPO, workflow_name: 'E2E <CI>', percentile_run_count: 300, p95_seconds: 2400 },
-            { repo: REPO, workflow_name: 'Rarely run', percentile_run_count: 10, p95_seconds: 3000 },
-        ],
-    },
-    [PRIOR_WEEK]: {
-        results: [{ repo: REPO, workflow_name: 'Storybook', percentile_run_count: 500, p95_seconds: 1500 }],
-    },
+    [WEEK]: [
+        { repo: REPO, workflow_name: 'Frontend CI', percentile_run_count: 500, p95_seconds: 1000 },
+        { repo: REPO, workflow_name: 'Storybook', percentile_run_count: 500, p95_seconds: 1716 },
+        { repo: REPO, workflow_name: 'E2E <CI>', percentile_run_count: 300, p95_seconds: 2400 },
+        { repo: REPO, workflow_name: 'Rarely run', percentile_run_count: 10, p95_seconds: 3000 },
+    ],
+    [PRIOR_WEEK]: [{ repo: REPO, workflow_name: 'Storybook', percentile_run_count: 500, p95_seconds: 1500 }],
 }
 const WORKFLOWS_URL = 'https://example.com/project/1/engineering-analytics/repos/PostHog/posthog/actions/workflows'
 const SLOW_WORKFLOWS_NOTE = [
@@ -185,7 +181,7 @@ describe('weekly engineering analytics digest', () => {
     for (const [name, workflowHealth, expected] of [
         [
             'every PR workflow is under the budget',
-            { [WEEK]: { results: [] }, [PRIOR_WEEK]: { results: [] } },
+            { [WEEK]: [], [PRIOR_WEEK]: [] },
             ['Every PR workflow had a p95 under 20m.'],
         ],
         [
@@ -272,14 +268,14 @@ describe('weekly engineering analytics digest', () => {
 
     it('splits a long list of slow workflows across sections that Slack accepts', async (t) => {
         const names = Array.from({ length: 40 }, (_, i) => `Slow workflow ${i}`)
-        const results = names.map((name) => ({
+        const lastWeek = names.map((name) => ({
             repo: REPO,
             workflow_name: name,
             percentile_run_count: 500,
             p95_seconds: 1800,
         }))
         const { blocks } = await runDigest(t, {
-            workflowHealth: { [WEEK]: { results }, [PRIOR_WEEK]: { results: [] } },
+            workflowHealth: { [WEEK]: lastWeek, [PRIOR_WEEK]: [] },
         })
         const notes = blocks.slice(4).map((block) => block.text.text)
         assert.ok(notes.length > 1)

@@ -179,8 +179,8 @@ async function readSlowWorkflows(weekStart, weekEnd) {
         prWorkflowHealth(new Date(weekStart.getTime() - WEEK_MS), weekStart),
     ])
         .then(([lastWeek, priorWeek]) => {
-            const priorP95 = new Map(priorWeek.results.map((w) => [w.workflow_name, w.p95_seconds]))
-            return lastWeek.results
+            const priorP95 = new Map(priorWeek.map((w) => [w.workflow_name, w.p95_seconds]))
+            return lastWeek
                 .filter(
                     (w) => w.percentile_run_count >= MIN_PERCENTILE_RUNS && w.p95_seconds > PR_DURATION_BUDGET_SECONDS
                 )
