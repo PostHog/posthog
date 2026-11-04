@@ -90,6 +90,7 @@ from products.endpoints.backend.presentation.throttles import (
     EndpointProjectSecretApiKeyTeamBurstThrottle,
     EndpointProjectSecretApiKeyTeamSustainedThrottle,
     EndpointSustainedThrottle,
+    charge_inline_rate,
 )
 
 
@@ -731,7 +732,14 @@ class EndpointViewSet(
                 service.log_rejected_run(endpoint, self._rejection_reason(response))
                 return response
 
-        return service.execute(endpoint, data, version_obj, limit=limit, offset=offset)
+        return service.execute(
+            endpoint,
+            data,
+            version_obj,
+            limit=limit,
+            offset=offset,
+            before_inline_fallback=lambda: charge_inline_rate(request, self),
+        )
 
     @extend_schema(
         description=(

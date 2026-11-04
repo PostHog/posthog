@@ -202,6 +202,53 @@ def test_model_comparison_preserves_settings_and_partial_results(
         assert saved["runs"][1]["report"] is not None
 
 
+def test_comparison_arms_forward_their_own_tier_and_effort(tmp_path: Path) -> None:
+    options = parse_args(
+        [
+            "example/suite",
+            "--comparison-dir",
+            str(tmp_path / "comparison"),
+            "--reasoning-effort",
+            "medium",
+            "--compare-model",
+            "claude:claude-example",
+            "--compare-model",
+            "codex:gpt-example",
+            "--compare-model",
+            "codex:gpt-example,service_tier=flex,reasoning_effort=low",
+        ]
+    )
+    comparison = ModelComparison(options)
+    children = [
+        parse_args(comparison._command(target, tmp_path / "report.json", check=False)[3:])
+        for target in options.comparison_models
+    ]
+
+    assert [(child.agent_model, child.service_tier, child.reasoning_effort) for child in children] == [
+        ("claude-example", None, "medium"),
+        ("gpt-example", None, "medium"),
+        ("gpt-example", "flex", "low"),
+    ]
+    flex_run = comparison.runs[2].model_copy(
+        update={
+            "exit_code": 0,
+            "report": RunReport(
+                runtime="codex",
+                model="gpt-example",
+                reasoning_effort="low",
+                service_tier=None,
+                provider="docker",
+                trials=1,
+                suite_ids=[],
+                suite_kinds=["sandboxed"],
+                exit_code=0,
+                duration_seconds=1,
+            ),
+        }
+    )
+    assert comparison._validate_run(flex_run) == "Run report does not match the requested arm or exit status."
+
+
 @pytest.mark.parametrize("interrupt", [None, "keyboard", "sigterm"])
 def test_comparison_streams_child_output_and_waits_for_interrupt_cleanup(
     interrupt: str | None,

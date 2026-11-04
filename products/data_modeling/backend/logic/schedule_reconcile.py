@@ -54,7 +54,6 @@ from products.data_modeling.backend.logic.freshness import (
     InvalidTarget,
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
-    find_invalid_targets,
     format_cadence,
     is_finer_than,
     validate_declared_target,
@@ -71,6 +70,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     set_declared_anchor,
     set_declared_pin,
     set_declared_target,
+    stage_declared_target,
 )
 from products.data_modeling.backend.logic.refresh_floor import read_plan_refresh_floor
 from products.data_modeling.backend.logic.tier_membership import read_live_tiers
@@ -155,12 +155,7 @@ def _warn_on_invalid_targets(dag: DAG, graph: FrequencyGraph | None = None) -> N
     """Surface declared targets that drifted outside their bounds; never blocks the mutation."""
     if graph is None:
         graph = build_frequency_graph(dag)
-    for invalid in find_invalid_targets(
-        edges=graph.edges,
-        declared_targets=graph.declared_targets,
-        source_intervals=graph.source_intervals,
-        pinned=graph.pinned,
-    ):
+    for invalid in graph.invalid_targets():
         logger.warning(
             "Declared freshness target outside its legal range",
             dag_id=str(dag.id),
@@ -301,6 +296,31 @@ def carry_saved_query_frequency_target(team_id: int, saved_query_id: uuid.UUID, 
     with transaction.atomic():
         for node in Node.objects.select_for_update(of=("self",)).filter(team_id=team_id, saved_query_id=saved_query_id):
             set_declared_target(node, target)
+
+
+def apply_managed_view_frequency_targets(team_id: int, targets: Mapping[str, timedelta | None]) -> None:
+    """Store each managed view's provider cadence on its DAG node(s), keyed by saved query id.
+
+    The provider owns these cadences, so no source floor or consumer ceiling is checked: the
+    scheduler already runs a node no finer than its sources deliver (`clamp_to_source_floor`), and
+    the stored value stays equal to what the provider declares. One atomic write, so a batch that
+    moves an upstream and a downstream view together never lands half-applied. Callers reconcile.
+    """
+    with transaction.atomic():
+        # Ordered so that concurrent syncs of the same viewset take the row locks in the same order.
+        nodes = (
+            Node.objects.select_for_update()
+            .only("id", "saved_query_id", "properties")
+            .filter(team_id=team_id, saved_query_id__in=targets)
+            .order_by("id")
+        )
+        changed = []
+        for node in nodes:
+            target = targets[str(node.saved_query_id)]
+            if get_declared_target(node) != target:
+                stage_declared_target(node, target)
+                changed.append(node)
+        Node.objects.bulk_update(changed, ["properties"])
 
 
 def check_saved_query_frequency_target(
@@ -457,9 +477,7 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
         plan=plan,
         best_effort_source_ids=graph.best_effort_source_ids,
         clamped=clamped,
-        invalid_targets=find_invalid_targets(
-            edges=graph.edges, declared_targets=declared, source_intervals=graph.source_intervals, pinned=graph.pinned
-        ),
+        invalid_targets=graph.invalid_targets(declared),
         unsupported_tiers=sorted({tier.interval for tier in desired_tiers if tier.interval not in SCHEDULABLE_BUCKETS}),
         seeded=seed,
     )

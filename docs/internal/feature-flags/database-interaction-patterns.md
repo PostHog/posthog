@@ -73,6 +73,12 @@ Different pools can have different statement timeouts to match their workload:
 
 Statement timeouts are set via `SET statement_timeout = {ms}` on each new connection using SQLx's `after_connect` hook.
 
+Behind a PgBouncer pooler in transaction mode, that session `SET` lands on whichever server connection the pooler assigns, and later clients on that connection inherit it.
+The pooler sets the timeout itself with `connect_query`.
+List those pools in `POOLER_STATEMENT_TIMEOUT_POOLS`, and they send no `SET`.
+Their statement timeouts still count in the `REQUEST_TIMEOUT_MS` check, so keep each one equal to the pooler's value. For `behavioral_cohorts` that is the fixed 1000ms.
+An aliased pool uses the setting of the pool it aliases. At startup the service logs the pools that send no `SET`, and warns about a listed pool that the service does not create, because it aliases another pool or has no database URL.
+
 The same hook also increments the `db_connection_created_total` counter when `pool_name` is set, providing visibility into connection churn per pool.
 
 ### Persons DB deadline
@@ -436,6 +442,7 @@ Queries exceeding 500ms are logged at WARN level with timing information.
 | `NON_PERSONS_READER_STATEMENT_TIMEOUT_MS`   | 2000     | Statement timeout for non-persons reads                          |
 | `PERSONS_READER_STATEMENT_TIMEOUT_MS`       | 1000     | Statement timeout for persons reads                              |
 | `WRITER_STATEMENT_TIMEOUT_MS`               | 2000     | Statement timeout for writes                                     |
+| `POOLER_STATEMENT_TIMEOUT_POOLS`            | empty    | Comma-separated pool names whose pooler sets statement_timeout   |
 | `BEHAVIORAL_COHORTS_READ_DATABASE_URL`      | empty    | Behavioral cohorts database (enables realtime cohort evaluation) |
 | `BATCH_FLAG_EVAL_SCAN_STATEMENT_TIMEOUT_MS` | 10000    | Statement timeout for the batch evaluation person scan           |
 | `PERSONS_DB_DEADLINE_MS`                    | 2500     | Deadline shared by all persons DB calls in one evaluation        |

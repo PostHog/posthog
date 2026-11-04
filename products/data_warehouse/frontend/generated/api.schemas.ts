@@ -1677,6 +1677,8 @@ export interface DataWarehouseSavedQueryMinimalApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+    readonly is_raw_managed_trino: boolean
 }
 
 export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
@@ -2042,6 +2044,8 @@ export interface DataWarehouseSavedQueryApi {
     readonly user_access_level: string | null
     /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
     readonly suspended: DataWarehouseSavedQueryApiSuspended
+    /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+    readonly is_raw_managed_trino: boolean
 }
 
 export type PatchedDataWarehouseSavedQueryApiQueryKind =
@@ -2166,6 +2170,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly user_access_level?: string | null
     /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
     readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
+    /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+    readonly is_raw_managed_trino?: boolean
 }
 
 /**
