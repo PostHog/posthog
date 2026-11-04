@@ -57,7 +57,9 @@ function TopicRow({ topic, link }: { topic: MCPIntentTopicItem; link: MapLinkCon
                 {topic.label}
             </LinkPrimitive>
             <div className="flex items-center gap-2 text-xs text-secondary">
-                <span className="shrink-0">{topic.share_pct.toFixed(1)}%</span>
+                <span className="shrink-0" translate="no">
+                    {topic.share_pct.toFixed(1)}%
+                </span>
                 <TopicTrend trendPp={topic.trend_pp} />
                 {topic.sparkline?.length ? (
                     // The sparkline sizes itself by bucket count; w-full keeps it inside the card.
@@ -96,8 +98,18 @@ function DriftGroup({
                         className="max-w-full"
                     >
                         <LemonTag className="h-auto max-w-full whitespace-normal">
-                            {ref.label} · {ref.share_pct.toFixed(0)}%
-                            {ref.previous_share_pct !== null ? ` (was ${ref.previous_share_pct.toFixed(0)}%)` : ''}
+                            {/* One inline wrapper so the parts flow as text instead of as separate flex items. */}
+                            <span>
+                                <span>{ref.label}</span>
+                                <span translate="no"> · {ref.share_pct.toFixed(0)}%</span>
+                                {ref.previous_share_pct !== null ? (
+                                    <>
+                                        <span> (was </span>
+                                        <span translate="no">{ref.previous_share_pct.toFixed(0)}%</span>
+                                        <span>)</span>
+                                    </>
+                                ) : null}
+                            </span>
                         </LemonTag>
                     </LinkPrimitive>
                 ))}
@@ -110,7 +122,10 @@ function OutlierRow({ outlier }: { outlier: MCPIntentOutlierItem }): JSX.Element
     return (
         <li className="text-sm">
             <div className="break-words">{outlier.intent_text}</div>
-            <div className="text-xs text-secondary">{formatNumber(outlier.calls)} calls</div>
+            <div className="text-xs text-secondary">
+                <span translate="no">{formatNumber(outlier.calls)}</span>
+                <span> calls</span>
+            </div>
         </li>
     )
 }
@@ -131,7 +146,7 @@ export function ToolIntentProfile({
 }): JSX.Element {
     if (loading && !profile) {
         return (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 @min-[48rem]/main-content:grid-cols-2 @min-[64rem]/main-content:grid-cols-4">
                 {[0, 1, 2, 3].map((i) => (
                     <LemonSkeleton key={i} className="h-40" />
                 ))}
@@ -147,25 +162,42 @@ export function ToolIntentProfile({
         )
     }
     const band = BAND_LABEL[profile.focus.band] ?? BAND_LABEL.mixed
+    // With no call assigned the backend still sends a 0 score, which would read as an even spread.
+    const hasAssignedCalls = profile.coverage.calls_assigned > 0
     const drift = profile.drift
     const hasDrift = drift.new.length + drift.growing.length + drift.shrinking.length + drift.gone.length > 0
     const link: MapLinkContext = { toolName, dateFrom, dateTo }
     const mapUrl = urls.mcpAnalyticsIntentMap({ tool: toolName, dateFrom, dateTo })
 
     return (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4" data-attr="mcp-tool-intent-profile">
+        <div
+            className="grid grid-cols-1 gap-4 @min-[48rem]/main-content:grid-cols-2 @min-[64rem]/main-content:grid-cols-4"
+            data-attr="mcp-tool-intent-profile"
+        >
             <Card
                 title="Focus"
                 help="1 minus the normalised entropy of calls across topics. 1 means every call serves one topic; 0 an even spread."
             >
-                <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-semibold">{profile.focus.score.toFixed(2)}</span>
-                    <LemonTag type={band.tagType}>{band.label}</LemonTag>
-                </div>
+                {hasAssignedCalls ? (
+                    <div className="flex flex-wrap items-baseline gap-2">
+                        <span className="text-3xl font-semibold" translate="no">
+                            {profile.focus.score.toFixed(2)}
+                        </span>
+                        <LemonTag type={band.tagType}>{band.label}</LemonTag>
+                    </div>
+                ) : (
+                    <div className="text-sm text-secondary" data-attr="mcp-tool-intent-profile-unassigned">
+                        No calls have a topic yet, so there's no focus score. The nightly run assigns topics to new
+                        intents.
+                    </div>
+                )}
                 <div className="text-xs text-secondary">
-                    {formatNumber(profile.coverage.calls_assigned)} of{' '}
-                    {formatNumber(profile.coverage.calls_with_intent)} calls with an intent have a topic (
-                    {profile.coverage.assigned_pct.toFixed(0)}%)
+                    <span translate="no">{formatNumber(profile.coverage.calls_assigned)}</span>
+                    <span> of </span>
+                    <span translate="no">{formatNumber(profile.coverage.calls_with_intent)}</span>
+                    <span> calls with an intent have a topic (</span>
+                    <span translate="no">{profile.coverage.assigned_pct.toFixed(0)}%</span>
+                    <span>)</span>
                 </div>
                 <LinkPrimitive to={mapUrl} className="text-xs">
                     Open the intent map for this tool
@@ -175,15 +207,19 @@ export function ToolIntentProfile({
                 title="Top topics"
                 help="Share of this tool's intent-carrying calls, and the change versus the previous window of the same length."
             >
-                <ul className="m-0 flex list-none flex-col gap-2 p-0">
-                    {profile.results.map((topic) => (
-                        <TopicRow key={topic.topic_id} topic={topic} link={link} />
-                    ))}
-                </ul>
+                {profile.results.length === 0 ? (
+                    <div className="text-sm text-secondary">No topics yet for this tool in the selected range.</div>
+                ) : (
+                    <ul className="m-0 flex list-none flex-col gap-2 p-0">
+                        {profile.results.map((topic) => (
+                            <TopicRow key={topic.topic_id} topic={topic} link={link} />
+                        ))}
+                    </ul>
+                )}
             </Card>
             <Card
                 title="Drift"
-                help="Topics whose share moved by at least 1.5 times versus the previous window, with at least 5 calls."
+                help="Topics whose share moved by at least 1.5 times versus the previous window, with at least 5 calls. Shares here count only calls that have a topic, so they can differ from Top topics."
             >
                 {hasDrift ? (
                     <div className="flex flex-col gap-2">

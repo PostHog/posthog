@@ -1,9 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 
-import { McpDashboardCardId } from './dashboardCards'
+import { MCP_DASHBOARD_CARDS, McpDashboardCardId } from './dashboardCards'
 import { mcpDashboardCardsLogic } from './mcpDashboardCardsLogic'
 
 describe('mcpDashboardCardsLogic', () => {
@@ -39,6 +42,31 @@ describe('mcpDashboardCardsLogic', () => {
         expect(logic.values.isCardVisible('kpis')).toBe(!hidden.includes('kpis'))
         expect(logic.values.isCardVisible('model')).toBe(!hidden.includes('model'))
     })
+
+    it.each([
+        { flagOn: true, expectedCount: MCP_DASHBOARD_CARDS.length },
+        { flagOn: false, expectedCount: MCP_DASHBOARD_CARDS.length - 1 },
+    ])(
+        'offers only the cards the intent topics flag allows (flag on: $flagOn) and knows when all of them are hidden',
+        ({ flagOn, expectedCount }) => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(
+                flagOn ? [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS] : [],
+                flagOn ? { [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]: true } : {}
+            )
+            mountLogic()
+            const intentTopicsAvailable = logic.values.availableCards.some(({ id }) => id === 'intent-topics')
+            expect(intentTopicsAvailable).toBe(flagOn)
+            expect(logic.values.availableCards).toHaveLength(expectedCount)
+
+            MCP_DASHBOARD_CARDS.filter(({ id }) => id !== 'intent-topics').forEach(({ id }) =>
+                logic.actions.toggleCard(id)
+            )
+
+            expectLogic(logic).toMatchValues({ allCardsHidden: !flagOn })
+            expect(logic.values.hiddenCards).toHaveLength(MCP_DASHBOARD_CARDS.length - 1)
+        }
+    )
 
     it('showAllCards clears every hidden card', () => {
         mountLogic()
