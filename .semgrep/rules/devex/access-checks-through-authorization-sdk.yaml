@@ -1,0 +1,44 @@
+rules:
+    - id: access-checks-through-authorization-sdk
+      message: |
+          Check access through the authorization SDK, not through `UserAccessControl`:
+
+              from products.authorization.backend.facade import api as authorization
+              from products.authorization.backend.facade.contracts import Resource
+              from products.authorization.backend.facade.enums import Action, ResourceType
+
+              authorization.check(
+                  resource=Resource(type=ResourceType.REPLAY_SCANNER, id=str(scanner.id), project_id=team.id, ...),
+                  action=Action.EDIT,
+              )
+
+          The SDK answers with the current rules today and keeps the same call when the rules move.
+          A check that calls `UserAccessControl` directly skips that move.
+
+          This rule blocks only the calls a pull request adds. The existing calls move to the SDK over time.
+          For a genuine exception, add `# nosemgrep: access-checks-through-authorization-sdk -- <reason>` on the line.
+      severity: WARNING
+      languages: [python]
+      paths:
+          include:
+              - 'common/**/*.py'
+              - 'ee/**/*.py'
+              - 'posthog/**/*.py'
+              - 'products/**/*.py'
+          exclude:
+              # These products own the current rules and the SDK that wraps them.
+              - '**/products/access_control/**'
+              - '**/products/authorization/**'
+              # Tests set up and assert the current rules directly.
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+              - '**/*_test.py'
+              - '**/conftest*.py'
+              - '**/migrations/**'
+      pattern-either:
+          - pattern: $ACCESS.check_access_level_for_object(...)
+          - pattern: $ACCESS.check_access_level_for_resource(...)
+          - pattern: $ACCESS.check_access_level_for_ref(...)
+          - pattern: $ACCESS.check_can_modify_access_levels_for_object(...)
+          - pattern: $ACCESS.check_can_modify_access_levels_for_ref(...)
