@@ -1,0 +1,229 @@
+from typing import TYPE_CHECKING, Optional, cast
+
+from products.warehouse_sources.sources.postmark._config import PostmarkSourceConfig
+from products.warehouse_sources.sources.postmark.postmark import (
+    PostmarkResumeConfig,
+    create_webhook as create_postmark_webhook,
+    delete_webhook as delete_postmark_webhook,
+    get_external_webhook_info as get_postmark_webhook_info,
+    postmark_source,
+    validate_credentials as validate_postmark_credentials,
+)
+from products.warehouse_sources.sources.postmark.settings import ENDPOINTS, WEBHOOK_RESOURCE_MAP, WEBHOOK_SCHEMA_NAMES
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    ExternalWebhookInfo,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    WebhookCreationResult,
+    WebhookDeletionResult,
+    WebhookSource,
+    WebhookSourceManager,
+    detect,
+)
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.sources.sdk import HogFunctionTemplateDC
+
+
+@SourceRegistry.register
+class PostmarkSource(
+    ResumableSource[PostmarkSourceConfig, PostmarkResumeConfig],
+    WebhookSource[PostmarkSourceConfig],
+):
+    codebase_detection = detect(
+        env=("^POSTMARK_",),
+        npm=("postmark",),
+        pypi=("postmarker", "postmark-python"),
+        composer=("wildbit/postmark-php", "wildbit/laravel-postmark-provider", "wildbit/swiftmailer-postmark"),
+        maven=("com.postmarkapp:postmark",),
+        rubygems=("postmark", "postmark-rails"),
+    )
+
+    api_docs_url = "https://postmarkapp.com/developer"
+
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.POSTMARK
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.POSTMARK,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
+            label="Postmark",
+            releaseStatus=ReleaseStatus.GA,
+            caption="""Enter your Postmark **Server API token** to pull your Postmark data into the PostHog Data warehouse.
+
+You can find your server token under **Servers → (your server) → API Tokens** in the Postmark dashboard.
+
+The token grants read access to the following server-level resources:
+- Outbound messages
+- Inbound messages
+- Opens
+- Bounces
+- Templates
+- Message streams
+""",
+            iconPath="/static/services/postmark.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/postmark",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="server_token",
+                        label="Server API token",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="",
+                        secret=True,
+                    ),
+                ],
+            ),
+            webhookSetupCaption="""Postmark pushes bounces and spam complaints as they happen, so the bounces table stays current between syncs.
+
+To set the webhook up manually:
+
+1. In Postmark, go to **Servers → (your server) → Webhooks** and add a webhook
+2. Set the URL to the webhook URL shown below, pick the **outbound** message stream, and enable the **Bounce** and **Spam complaint** triggers
+3. Add a custom HTTP header named `x-posthog-webhook-secret` with a value of your choosing, and paste the same value into the webhook secret field below
+
+Postmark doesn't sign deliveries, so the header is what proves a delivery came from your webhook. Deliveries without it are rejected.""",
+            webhookFields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="signing_secret",
+                        label="Webhook secret",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="",
+                        secret=True,
+                    ),
+                ],
+            ),
+        )
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from products.warehouse_sources.sources.postmark.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
+    def get_schemas(
+        self,
+        config: PostmarkSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        # Postmark's list endpoints accept fromdate/todate filters, but we have not verified
+        # server-side filtering against a live token, so we sync full-refresh only. Within-sync
+        # resumption is handled by ResumableSource.
+        schemas = [
+            SourceSchema(
+                name=endpoint,
+                supports_incremental=False,
+                supports_append=False,
+                incremental_fields=[],
+                supports_webhooks=endpoint in WEBHOOK_SCHEMA_NAMES,
+            )
+            for endpoint in ENDPOINTS
+        ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
+
+    def validate_credentials(
+        self,
+        config: PostmarkSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        is_valid, status = validate_postmark_credentials(config.server_token)
+        if is_valid:
+            return True, None
+
+        if status == 403:
+            return (
+                False,
+                "Your Postmark server API token doesn't have the required permissions. Please check the token and try again.",
+            )
+        if status is None or status == 429 or status >= 500:
+            return (
+                False,
+                "Couldn't reach Postmark to verify your token. Please try again in a moment.",
+            )
+        return False, "Invalid Postmark server API token. Please check the token and try again."
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error: Unauthorized for url: https://api.postmarkapp.com": (
+                "Your Postmark server API token is invalid or expired. Please check the token and reconnect."
+            ),
+            "403 Client Error: Forbidden for url: https://api.postmarkapp.com": (
+                "Your Postmark server API token does not have the required permissions. Please check the token and try again."
+            ),
+        }
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PostmarkResumeConfig]:
+        return ResumableSourceManager[PostmarkResumeConfig](inputs, PostmarkResumeConfig)
+
+    @property
+    def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
+        from products.warehouse_sources.sources.postmark.webhook_template import template  # noqa: PLC0415
+
+        return template
+
+    @property
+    def webhook_resource_map(self) -> dict[str, str]:
+        return dict(WEBHOOK_RESOURCE_MAP)
+
+    def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
+        return WebhookSourceManager(inputs, inputs.logger)
+
+    def create_webhook(
+        self, config: PostmarkSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
+        return create_postmark_webhook(config.server_token, webhook_url)
+
+    def get_external_webhook_info(
+        self, config: PostmarkSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> ExternalWebhookInfo:
+        return get_postmark_webhook_info(config.server_token, webhook_url)
+
+    def delete_webhook(
+        self, config: PostmarkSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
+        return delete_postmark_webhook(config.server_token, webhook_url)
+
+    def source_for_pipeline(
+        self,
+        config: PostmarkSourceConfig,
+        resumable_source_manager: ResumableSourceManager[PostmarkResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        return postmark_source(
+            server_token=config.server_token,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
+            webhook_source_manager=self.get_webhook_source_manager(inputs),
+        )

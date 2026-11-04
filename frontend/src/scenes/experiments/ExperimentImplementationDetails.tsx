@@ -1,3 +1,4 @@
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconServer } from '@posthog/icons'
@@ -7,6 +8,8 @@ import { LemonSelect, LemonTabs, Link } from '@posthog/lemon-ui'
 import { IconAndroidOS, IconAppleIOS, IconNodeJS } from 'lib/lemon-ui/icons'
 
 import { Experiment, MultivariateFlagVariant, SDKKey } from '~/types'
+
+import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
 
 import {
     AndroidSnippet,
@@ -27,8 +30,50 @@ import {
 } from './ExperimentCodeSnippets'
 import { getExperimentVariants } from './utils'
 
+/** Where the snippet is shown: above the tabs while the experiment is a draft, or in the Code tab. */
+export type ImplementationSnippetPlacement = 'draft_header' | 'code_tab'
+
 interface ExperimentImplementationDetailsProps {
     experiment: Partial<Experiment> | null
+    placement: ImplementationSnippetPlacement
+}
+
+interface SnippetCopy {
+    sdk: SDKKey | null
+    variant: string | null
+    /** `test_override` is the "Test that it works" line, which forces a variant in the user's own browser. */
+    snippetKind: 'code' | 'test_override'
+}
+
+type OnSnippetCopied = (copy: SnippetCopy) => void
+
+function reportImplementationSnippetCopied(
+    experiment: Partial<Experiment> | null,
+    placement: ImplementationSnippetPlacement,
+    { sdk, variant, snippetKind }: SnippetCopy
+): void {
+    posthog.capture('experiment implementation snippet copied', {
+        experiment_id: experiment?.id,
+        experiment_status: getExperimentStatus(experiment),
+        placement,
+        sdk,
+        variant,
+        snippet_kind: snippetKind,
+    })
+}
+
+// Agent prompt copies get their own event, so they never count as code copies.
+function reportAgentPromptCopied(
+    experiment: Partial<Experiment> | null,
+    placement: ImplementationSnippetPlacement
+): void {
+    posthog.capture('experiment implementation agent prompt copied', {
+        experiment_id: experiment?.id,
+        experiment_status: getExperimentStatus(experiment),
+        placement,
+        prompt_kind: 'prompt_experiment',
+        source: 'prompt_text',
+    })
 }
 
 const UTM_TAGS = '?utm_medium=in-product&utm_campaign=experiment'
@@ -189,9 +234,13 @@ type PromptImplementationTab = 'agent' | 'python' | 'javascript'
 function PromptExperimentImplementation({
     flagKey,
     promptMetadata,
+    onSnippetCopied,
+    onAgentPromptCopied,
 }: {
     flagKey: string
     promptMetadata: NonNullable<NonNullable<Experiment['parameters']>['prompt_metadata']>
+    onSnippetCopied: OnSnippetCopied
+    onAgentPromptCopied: () => void
 }): JSX.Element {
     const [activeTab, setActiveTab] = useState<PromptImplementationTab>('agent')
     return (
@@ -224,19 +273,36 @@ function PromptExperimentImplementation({
                                         ChatGPT, …) to wire up the experiment in your project's framework and style.
                                         Language-agnostic; the agent figures out the SDK.
                                     </p>
-                                    <PromptExperimentAgentPromptSnippet flagKey={flagKey} />
+                                    <PromptExperimentAgentPromptSnippet
+                                        flagKey={flagKey}
+                                        onCopy={onAgentPromptCopied}
+                                    />
                                 </>
                             ),
                         },
                         {
                             key: 'python',
                             label: 'Python',
-                            content: <PromptExperimentPythonSnippet flagKey={flagKey} />,
+                            content: (
+                                <PromptExperimentPythonSnippet
+                                    flagKey={flagKey}
+                                    onCopy={() =>
+                                        onSnippetCopied({ sdk: SDKKey.PYTHON, variant: null, snippetKind: 'code' })
+                                    }
+                                />
+                            ),
                         },
                         {
                             key: 'javascript',
                             label: 'JavaScript',
-                            content: <PromptExperimentJSSnippet flagKey={flagKey} />,
+                            content: (
+                                <PromptExperimentJSSnippet
+                                    flagKey={flagKey}
+                                    onCopy={() =>
+                                        onSnippetCopied({ sdk: SDKKey.NODE_JS, variant: null, snippetKind: 'code' })
+                                    }
+                                />
+                            ),
                         },
                     ]}
                 />
@@ -248,7 +314,13 @@ function PromptExperimentImplementation({
     )
 }
 
-function GenericExperimentImplementation({ experiment }: ExperimentImplementationDetailsProps): JSX.Element {
+function GenericExperimentImplementation({
+    experiment,
+    onSnippetCopied,
+}: {
+    experiment: Partial<Experiment> | null
+    onSnippetCopied: OnSnippetCopied
+}): JSX.Element {
     const defaultVariant = getExperimentVariants(experiment)[1]?.key ?? 'test'
     const [currentVariant, setCurrentVariant] = useState(defaultVariant)
     const [defaultSelectedOption] = OPTIONS
@@ -285,7 +357,20 @@ function GenericExperimentImplementation({ experiment }: ExperimentImplementatio
             </div>
             <div>
                 <div className="mb-2">
-                    <selectedOption.Snippet variant={currentVariant} flagKey={experiment?.feature_flag?.key ?? ''} />
+                    <selectedOption.Snippet
+                        variant={currentVariant}
+                        flagKey={experiment?.feature_flag?.key ?? ''}
+                        onCopy={() =>
+                            onSnippetCopied({ sdk: selectedOption.key, variant: currentVariant, snippetKind: 'code' })
+                        }
+                        onTestCopy={() =>
+                            onSnippetCopied({
+                                sdk: selectedOption.key,
+                                variant: currentVariant,
+                                snippetKind: 'test_override',
+                            })
+                        }
+                    />
                 </div>
                 <Link subtle to={selectedOption.documentationLink} target="_blank">
                     See the docs for more implementation information.
@@ -295,17 +380,23 @@ function GenericExperimentImplementation({ experiment }: ExperimentImplementatio
     )
 }
 
-export function ExperimentImplementationDetails({ experiment }: ExperimentImplementationDetailsProps): JSX.Element {
+export function ExperimentImplementationDetails({
+    experiment,
+    placement,
+}: ExperimentImplementationDetailsProps): JSX.Element {
     const promptMetadata = experiment?.parameters?.prompt_metadata
+    const onSnippetCopied: OnSnippetCopied = (copy) => reportImplementationSnippetCopied(experiment, placement, copy)
 
     if (promptMetadata) {
         return (
             <PromptExperimentImplementation
                 flagKey={experiment?.feature_flag?.key ?? ''}
                 promptMetadata={promptMetadata}
+                onSnippetCopied={onSnippetCopied}
+                onAgentPromptCopied={() => reportAgentPromptCopied(experiment, placement)}
             />
         )
     }
 
-    return <GenericExperimentImplementation experiment={experiment} />
+    return <GenericExperimentImplementation experiment={experiment} onSnippetCopied={onSnippetCopied} />
 }

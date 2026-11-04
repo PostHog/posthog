@@ -169,7 +169,7 @@ knowledge_base:
               applyTo: 'frontend/src/**,products/**/frontend/**'
 
             # Feature flags in Storybook stories.
-            - files: '.agents/skills/setting-feature-flags-in-storybook/SKILL.md'
+            - files: 'common/storybook/docs/writing-stories.md'
               applyTo: '**/*.stories.tsx'
 
             # The taxonomic filter, which is easy to break from the outside.

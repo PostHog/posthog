@@ -22,7 +22,7 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization
-from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, PersonalAPIKey
+from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, PersonalAPIKey, max_personal_api_keys_for_user
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value, mask_key_value
@@ -128,12 +128,19 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response.status_code == 201
         assert response.json()["description"] is None
 
-    def test_create_too_many_api_keys(self):
-        for i in range(0, 10):
-            self.client.post(
+    @parameterized.expand([(None, 10), (12, 12)])
+    def test_create_too_many_api_keys(self, entitlement_limit: int | None, expected_limit: int):
+        if entitlement_limit is not None:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.PERSONAL_API_KEYS, "name": "Personal API keys", "limit": entitlement_limit}
+            ]
+            self.organization.save()
+        for i in range(0, expected_limit):
+            response = self.client.post(
                 "/api/personal_api_keys",
                 {"label": i, "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
             )
+            assert response.status_code == 201, response.json()
         response = self.client.post(
             "/api/personal_api_keys",
             {"label": i, "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
@@ -142,9 +149,25 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response.json() == {
             "type": "validation_error",
             "code": "invalid_input",
-            "detail": "You can only have 10 personal API keys. Remove an existing key before creating a new one.",
+            "detail": f"You can only have {expected_limit} personal API keys. Remove an existing key before creating a new one.",
             "attr": None,
         }
+
+    def test_personal_api_key_limit_is_the_highest_entitlement_across_organizations(self):
+        other_organization = Organization.objects.create(name="Other organization")
+        other_organization.members.add(self.user)
+
+        other_organization.available_product_features = [
+            {"key": AvailableFeature.PERSONAL_API_KEYS, "name": "Personal API keys", "limit": 3}
+        ]
+        other_organization.save()
+        assert max_personal_api_keys_for_user(self.user) == 10
+
+        other_organization.available_product_features = [
+            {"key": AvailableFeature.PERSONAL_API_KEYS, "name": "Personal API keys", "limit": 25}
+        ]
+        other_organization.save()
+        assert max_personal_api_keys_for_user(self.user) == 25
 
     def test_create_personal_api_key_label_required(self):
         response = self.client.post("/api/personal_api_keys/", {"label": ""})

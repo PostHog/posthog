@@ -54,12 +54,10 @@ from products.feature_flags.evals.seeders import (
     seed_metadata_flag,
     seed_rollout_flag,
 )
-from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import RequiredToolCall
-
-NO_SEND_LOGS = True
 
 # The rename case asks for these two values, so the prompt and the scorer read the same
 # constants: a prompt that changed without the expectation would grade the old request.
@@ -142,8 +140,7 @@ async def eval_flag_tool_selection(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPrivateEval(
-        no_send_logs=NO_SEND_LOGS,
+    await SandboxedEval(
         experiment_name="sandboxed-feature-flags-tool-selection-cli",
         offline_suite=offline_suite(
             "feature_flags/eval_flag_tool_selection::eval_flag_tool_selection",

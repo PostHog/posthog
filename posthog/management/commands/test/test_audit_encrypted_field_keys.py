@@ -260,7 +260,7 @@ class TestAuditCommandEndToEnd(BaseTest):
         # cast to Any: sensitive_config is wrapped in field_access_control, so the django-stubs
         # plugin doesn't see it as a model field and rejects the get_field string literal.
         column = quote(cast(Any, Integration)._meta.get_field("sensitive_config").column)
-        pk_column = quote(Integration._meta.pk.column)
+        pk_column = quote(cast(str, Integration._meta.pk.column))
         with connection.cursor() as cursor:
             cursor.execute(
                 f"UPDATE {table} SET {column} = %s::jsonb WHERE {pk_column} = %s",

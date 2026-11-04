@@ -78,7 +78,7 @@ Cluster topology (shards, replicas, ingestion vs data nodes): [`posthog/clickhou
 
 - **Python:** `execute_hogql_query()` ([`query.py`](../../../posthog/hogql/query.py)) gives `response.clickhouse`. SQL only, no execute: `prepare_and_print_ast(..., dialect="clickhouse")` ([`utils.py`](../../../posthog/hogql/printer/utils.py)); for a prepared AST, `print_prepared_ast`.
 - **Snapshots:** `.ambr` files under `posthog/hogql_queries/test/__snapshots__/` (and per-product test dirs) hold generated ClickHouse SQL for representative inputs.
-- **Production** (most informative): `/querying-production-databases-via-metabase` against `clusterAllReplicas(posthog, system, query_log)` (or `posthog.query_log_archive` for rows older than ~4h; ~22 day retention, typed `lc_*` columns, so prefer it). Filter `is_initial_query`, `type = 'QueryFinish'`, `query_duration_ms > <threshold>`.
+- **Production** (most informative): `/querying-production-databases` against `posthog.query_log_archive` (every node, ~22 day retention, typed `lc_*` columns). The direct-query connections refuse `clusterAllReplicas()`, so use the Metabase skill for live `system.query_log` across the cluster. Filter `is_initial_query`, `query_duration_ms > <threshold>`.
 
 ## Step 2: scan for the common smells
 

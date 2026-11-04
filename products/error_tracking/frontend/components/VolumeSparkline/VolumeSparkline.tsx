@@ -8,6 +8,7 @@ import {
     type Series,
     TimeSeriesBarChart,
     type TimeSeriesBarChartConfig,
+    type TooltipContext,
     useChartHover,
 } from '@posthog/quill-charts'
 
@@ -19,6 +20,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { errorTrackingVolumeSparklineLogic } from './errorTrackingVolumeSparklineLogic'
 import { EVENT_LABEL_BAR_GAP, EVENT_LABEL_HEIGHT, EventMarkers } from './EventMarkers'
 import { SpikeStripes } from './SpikeStripes'
+import { SpikeTooltip } from './SpikeTooltip'
 import type {
     SparklineData,
     SparklineDatum,
@@ -102,6 +104,8 @@ export function VolumeSparkline({
         [data]
     )
 
+    const hasSpikes = useMemo(() => data.some((datum) => datum.isSpike), [data])
+
     const showAxis = xAxis !== 'none'
     const eventLabelReserve = events.length > 0 ? EVENT_LABEL_HEIGHT + EVENT_LABEL_BAR_GAP : undefined
     const config = useChartConfig<TimeSeriesBarChartConfig>(
@@ -117,10 +121,19 @@ export function VolumeSparkline({
             showTickMarks: false,
             showCrosshair: showAxis,
             showGrid: false,
-            // Hover is surfaced as issue metrics beside the chart, not as a tooltip over it.
-            tooltip: { enabled: false },
+            // Only spike bars get a tooltip. Other hovers show as issue metrics beside the chart.
+            // `band` keeps a floored tiny spike bar easy to hit.
+            tooltip: { enabled: hasSpikes, hitArea: 'band' },
         }),
-        [layout, xAxis, showAxis, eventLabelReserve, timezone, maxValue]
+        [layout, xAxis, showAxis, eventLabelReserve, timezone, maxValue, hasSpikes]
+    )
+
+    const renderTooltip = useCallback(
+        ({ dataIndex }: TooltipContext): JSX.Element | null => {
+            const datum = data[dataIndex]
+            return datum?.isSpike ? <SpikeTooltip datum={datum} clickable={!!onSpikeClick} /> : null
+        },
+        [data, onSpikeClick]
     )
 
     const onDateRangeZoom = useMemo(() => {
@@ -143,8 +156,6 @@ export function VolumeSparkline({
             onRangeSelect(start, new Date(end.getTime() + bucketMs))
         }
     }, [data, onRangeSelect])
-
-    const hasSpikes = useMemo(() => data.some((datum) => datum.isSpike), [data])
 
     const isPointClickable = useCallback(
         (dataIndex: number): boolean =>
@@ -183,6 +194,7 @@ export function VolumeSparkline({
                 labels={labels}
                 theme={theme}
                 config={config}
+                tooltip={renderTooltip}
                 onDateRangeZoom={onDateRangeZoom}
                 onPointClick={onPointClick}
                 isPointClickable={isPointClickable}

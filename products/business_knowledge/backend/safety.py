@@ -50,6 +50,9 @@ LLM_MAX_ATTEMPTS = 3
 LLM_CALL_TIMEOUT_SECONDS = 60
 LLM_RETRY_INITIAL_DELAY_SECONDS = 5
 LLM_RETRY_BACKOFF_COEFFICIENT = 2.0
+# classify_pending_documents_activity allows 30 minutes. Five minutes stay for
+# the verdict writes. A window can spend every retry at the call timeout.
+_CLASSIFY_MODEL_BUDGET_SECONDS = 25 * 60
 
 # Instructions live in the system role; the untrusted document is the only
 # thing in the user turn, wrapped in an unguessable per-call nonce fence. The
@@ -206,7 +209,68 @@ async def _classify_window(
     return _WindowVerdict(verdict=SafetyVerdict.UNKNOWN, reason="")
 
 
-async def _classify_one(client: AsyncClient, doc: PendingDocument) -> SafetyResult:
+def _max_sequential_windows() -> int:
+    """How many windows fit one after another inside the activity budget."""
+    per_window = LLM_MAX_ATTEMPTS * LLM_CALL_TIMEOUT_SECONDS
+    return max(1, _CLASSIFY_MODEL_BUDGET_SECONDS // per_window)
+
+
+def _result_from_window(doc: PendingDocument, window_verdict: _WindowVerdict) -> SafetyResult:
+    return SafetyResult(
+        team_id=doc.team_id,
+        document_id=doc.document_id,
+        verdict=window_verdict.verdict,
+        reason=window_verdict.reason,
+        content_hash=doc.content_hash,
+    )
+
+
+async def _classify_windows_together(
+    client: AsyncClient,
+    doc: PendingDocument,
+    windows: list[str],
+    semaphore: asyncio.Semaphore,
+) -> SafetyResult:
+    """Run windows together. Stop at the first window that is not SAFE.
+
+    One document can have more windows than fit in the activity one at a time.
+    The shared semaphore is the only concurrency cap, across documents too.
+    """
+
+    async def _one(index: int, window: str) -> _WindowVerdict:
+        async with semaphore:
+            return await _classify_window(client, window, doc=doc, window_index=index)
+
+    tasks = [asyncio.create_task(_one(index, window)) for index, window in enumerate(windows)]
+    pending = set(tasks)
+    try:
+        while pending:
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            verdicts = [task.result() for task in done]
+            blocked = [item for item in verdicts if item.verdict != SafetyVerdict.SAFE]
+            if not blocked:
+                continue
+            for other in pending:
+                other.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+            chosen = next((item for item in blocked if item.verdict == SafetyVerdict.UNSAFE), blocked[0])
+            return _result_from_window(doc, chosen)
+    except BaseException:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+    return SafetyResult(
+        team_id=doc.team_id,
+        document_id=doc.document_id,
+        verdict=SafetyVerdict.SAFE,
+        reason="",
+        content_hash=doc.content_hash,
+    )
+
+
+async def _classify_one(client: AsyncClient, doc: PendingDocument, semaphore: asyncio.Semaphore) -> SafetyResult:
     """
     Classify a document by inspecting every window of its full content.
 
@@ -231,16 +295,15 @@ async def _classify_one(client: AsyncClient, doc: PendingDocument) -> SafetyResu
             content_hash=doc.content_hash,
         )
 
-    for window_index, window in enumerate(_windows(content)):
-        window_verdict = await _classify_window(client, window, doc=doc, window_index=window_index)
-        if window_verdict.verdict != SafetyVerdict.SAFE:
-            return SafetyResult(
-                team_id=doc.team_id,
-                document_id=doc.document_id,
-                verdict=window_verdict.verdict,
-                reason=window_verdict.reason,
-                content_hash=doc.content_hash,
-            )
+    windows = _windows(content)
+    if len(windows) > _max_sequential_windows():
+        return await _classify_windows_together(client, doc, windows, semaphore)
+
+    async with semaphore:
+        for window_index, window in enumerate(windows):
+            window_verdict = await _classify_window(client, window, doc=doc, window_index=window_index)
+            if window_verdict.verdict != SafetyVerdict.SAFE:
+                return _result_from_window(doc, window_verdict)
     return SafetyResult(
         team_id=doc.team_id,
         document_id=doc.document_id,
@@ -262,8 +325,7 @@ async def classify_documents(docs: list[PendingDocument]) -> list[SafetyResult]:
     semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
 
     async def _bounded(doc: PendingDocument) -> SafetyResult:
-        async with semaphore:
-            return await _classify_one(client, doc)
+        return await _classify_one(client, doc, semaphore)
 
     async with asyncio.TaskGroup() as tg:
         tasks = [tg.create_task(_bounded(doc)) for doc in docs]

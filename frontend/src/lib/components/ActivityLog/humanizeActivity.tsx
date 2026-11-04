@@ -1,9 +1,11 @@
 import { UserNameWithEmail } from 'lib/components/ActivityLog/UserNameWithEmail'
 import { dayjs } from 'lib/dayjs'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LazyLemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LazyLemonMarkdown'
 import { fullName } from 'lib/utils/strings'
 
 import { ActivityScope, InsightShortId, PersonType, UserBasicType } from '~/types'
+
+import type { ActivityLogCredentialTypeEnumApi } from 'products/platform_features/frontend/generated/api.schemas'
 
 export interface ActivityChange {
     type: ActivityScope
@@ -58,6 +60,10 @@ export type ActivityLogItem = {
     client?: string | null
     /** Client IP address captured at request time. Null for non-HTTP activity (system, background jobs). */
     ip_address?: string | null
+    /** Kind of credential that authenticated the request that made the change. Null outside a request and for older entries. */
+    credential_type?: ActivityLogCredentialTypeEnumApi | null
+    /** Login session id or key id of that credential. Both activity log endpoints return it, only for some credential types. */
+    credential_id?: string | null
 }
 
 // the description of a single activity log is a sentence describing one or more changes that makes up the entry
@@ -96,6 +102,8 @@ export type HumanizedActivityLogItem = {
     /** SDK, integration, or scout that triggered this action. Self-reported through the x-posthog-client header, except for a scout, which the server names. */
     client?: string | null
     description: Description
+    /** Markdown the row renders in place of `description`, e.g. a changelog notification's body. */
+    markdownDescription?: string
     summary?: ActivityLogSummary
     extendedDescription?: ExtendedDescription // e.g. an insight's filters summary
     expandedView?: ExpandedView // e.g. a flag's release conditions after the change
@@ -231,6 +239,7 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
         singular: 'Project secret API key',
         plural: 'Project secret API keys',
     },
+    [ActivityScope.REPLAY_OBSERVATION]: { singular: 'Observation', plural: 'Observations' },
     [ActivityScope.TICKET]: { singular: 'Support ticket', plural: 'Support tickets' },
 }
 
@@ -292,7 +301,7 @@ function describeComment(
         ),
         extendedDescription: commentContent ? (
             <div className="border rounded bg-surface-primary p-4">
-                <LemonMarkdown lowKeyHeadings>{commentContent}</LemonMarkdown>
+                <LazyLemonMarkdown lowKeyHeadings>{commentContent}</LazyLemonMarkdown>
             </div>
         ) : undefined,
     }

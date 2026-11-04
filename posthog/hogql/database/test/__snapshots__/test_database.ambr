@@ -68,6 +68,7 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."api_version",
          "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."credentials_integration_id",
          "posthog_externaldatasource"."connection_metadata",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
@@ -261,6 +262,7 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."api_version",
          "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."credentials_integration_id",
          "posthog_externaldatasource"."connection_metadata",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
@@ -2889,6 +2891,26 @@
                   "table": null,
                   "type": "json"
               },
+              "brand_sentiment": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "brand_sentiment",
+                  "id": null,
+                  "name": "brand_sentiment",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "brand_sentiment_score": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "brand_sentiment_score",
+                  "id": null,
+                  "name": "brand_sentiment_score",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
               "cost_usd": {
                   "chain": null,
                   "fields": null,
@@ -3135,6 +3157,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "json"
+              },
+              "credential_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "credential_type",
+                  "id": null,
+                  "name": "credential_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "created_at": {
                   "chain": null,
@@ -6013,6 +6045,68 @@
           },
           "id": "system.data_warehouse_tables",
           "name": "system.data_warehouse_tables",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.event_definitions": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_seen_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_seen_at",
+                  "id": null,
+                  "name": "last_seen_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "tags": {
+                  "chain": null,
+                  "fields": [
+                      "definition_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "definition_tags",
+                  "type": "lazy_table"
+              }
+          },
+          "id": "system.event_definitions",
+          "name": "system.event_definitions",
           "row_count": null,
           "type": "system"
       },
@@ -12047,6 +12141,88 @@
           "row_count": null,
           "type": "system"
       },
+      "system.property_definitions": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "type",
+                  "id": null,
+                  "name": "type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "group_type_index": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "group_type_index",
+                  "id": null,
+                  "name": "group_type_index",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "property_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "property_type",
+                  "id": null,
+                  "name": "property_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "is_numerical": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_numerical",
+                  "id": null,
+                  "name": "is_numerical",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "tags": {
+                  "chain": null,
+                  "fields": [
+                      "definition_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "definition_tags",
+                  "type": "lazy_table"
+              }
+          },
+          "id": "system.property_definitions",
+          "name": "system.property_definitions",
+          "row_count": null,
+          "type": "system"
+      },
       "system.replay_scanners": {
           "certification": null,
           "fields": {
@@ -14173,6 +14349,26 @@
                   "table": null,
                   "type": "integer"
               },
+              "agent_model": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_model",
+                  "id": null,
+                  "name": "agent_model",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "agent_reasoning_effort": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_reasoning_effort",
+                  "id": null,
+                  "name": "agent_reasoning_effort",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "iteration_budget_remaining": {
                   "chain": null,
                   "fields": null,
@@ -14278,6 +14474,46 @@
                   "hogql_value": "status",
                   "id": null,
                   "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "kickoff_reason": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "kickoff_reason",
+                  "id": null,
+                  "name": "kickoff_reason",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "agent_runtime_adapter": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_runtime_adapter",
+                  "id": null,
+                  "name": "agent_runtime_adapter",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "agent_model": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_model",
+                  "id": null,
+                  "name": "agent_model",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "agent_reasoning_effort": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_reasoning_effort",
+                  "id": null,
+                  "name": "agent_reasoning_effort",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -17537,6 +17773,26 @@
                   "table": null,
                   "type": "json"
               },
+              "brand_sentiment": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "brand_sentiment",
+                  "id": null,
+                  "name": "brand_sentiment",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "brand_sentiment_score": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "brand_sentiment_score",
+                  "id": null,
+                  "name": "brand_sentiment_score",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
               "cost_usd": {
                   "chain": null,
                   "fields": null,
@@ -17783,6 +18039,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "json"
+              },
+              "credential_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "credential_type",
+                  "id": null,
+                  "name": "credential_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "created_at": {
                   "chain": null,
@@ -20661,6 +20927,68 @@
           },
           "id": "system.data_warehouse_tables",
           "name": "system.data_warehouse_tables",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.event_definitions": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_seen_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_seen_at",
+                  "id": null,
+                  "name": "last_seen_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "tags": {
+                  "chain": null,
+                  "fields": [
+                      "definition_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "definition_tags",
+                  "type": "lazy_table"
+              }
+          },
+          "id": "system.event_definitions",
+          "name": "system.event_definitions",
           "row_count": null,
           "type": "system"
       },
@@ -26695,6 +27023,88 @@
           "row_count": null,
           "type": "system"
       },
+      "system.property_definitions": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "type",
+                  "id": null,
+                  "name": "type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "group_type_index": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "group_type_index",
+                  "id": null,
+                  "name": "group_type_index",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "property_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "property_type",
+                  "id": null,
+                  "name": "property_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "is_numerical": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_numerical",
+                  "id": null,
+                  "name": "is_numerical",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "tags": {
+                  "chain": null,
+                  "fields": [
+                      "definition_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "definition_tags",
+                  "type": "lazy_table"
+              }
+          },
+          "id": "system.property_definitions",
+          "name": "system.property_definitions",
+          "row_count": null,
+          "type": "system"
+      },
       "system.replay_scanners": {
           "certification": null,
           "fields": {
@@ -28821,6 +29231,26 @@
                   "table": null,
                   "type": "integer"
               },
+              "agent_model": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_model",
+                  "id": null,
+                  "name": "agent_model",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "agent_reasoning_effort": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_reasoning_effort",
+                  "id": null,
+                  "name": "agent_reasoning_effort",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "iteration_budget_remaining": {
                   "chain": null,
                   "fields": null,
@@ -28926,6 +29356,46 @@
                   "hogql_value": "status",
                   "id": null,
                   "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "kickoff_reason": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "kickoff_reason",
+                  "id": null,
+                  "name": "kickoff_reason",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "agent_runtime_adapter": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_runtime_adapter",
+                  "id": null,
+                  "name": "agent_runtime_adapter",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "agent_model": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_model",
+                  "id": null,
+                  "name": "agent_model",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "agent_reasoning_effort": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "agent_reasoning_effort",
+                  "id": null,
+                  "name": "agent_reasoning_effort",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"

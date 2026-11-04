@@ -25,7 +25,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, required=True)
-        parser.add_argument("--limit", type=int, help="Max prompts this run (default 50).")
+        parser.add_argument("--limit", type=int, help="Max prompts this run (default AEO_MAX_PROMPTS_PER_RUN).")
         parser.add_argument(
             "--engines",
             type=str,

@@ -39,7 +39,10 @@ class HogFlowBatchJobState(LabeledStrEnum):
     QUEUED = "queued"
     ACTIVE = "active"
     COMPLETED = "completed"
+    # Set after a completed run settles with some of its sends errored, and the rest sent.
+    PARTIALLY_FAILED = "partially_failed", "Partially failed"
     CANCELLED = "cancelled"
+    # The run could not fan out to its audience, or it settled with every send errored.
     FAILED = "failed"
 
 
@@ -65,6 +68,27 @@ class WorkflowIdeaStatus(LabeledStrEnum):
 class WorkflowIdeaSource(LabeledStrEnum):
     MANUAL = "manual", "Manual"
     SCOUT = "scout", "Scout"
+
+
+class WorkflowImportSource(LabeledStrEnum):
+    CUSTOMERIO = "customerio", "Customer.io"
+
+
+class WorkflowImportNoteLevel(LabeledStrEnum):
+    # The step behaves differently in PostHog, and the note says how.
+    APPROXIMATED = "approximated", "Approximated"
+    # The setting has no PostHog equivalent and was left out.
+    UNSUPPORTED = "unsupported", "Unsupported"
+    # The step is imported but needs a setting only the team can give, like an email sender.
+    NEEDS_INPUT = "needs_input", "Needs input"
+
+
+class WorkflowImportStatus(LabeledStrEnum):
+    PREVIEW = "preview", "Preview"
+    CREATED = "created", "Created"
+    UPDATED = "updated", "Updated"
+    SKIPPED = "skipped", "Skipped"
+    FAILED = "failed", "Failed"
 
 
 class HogFlowState(LabeledStrEnum):
@@ -109,7 +133,6 @@ class EmailDraftOrigin(LabeledStrEnum):
 
 
 class EmailDraftFallbackReason(LabeledStrEnum):
-    FLAG_OFF = "flag_off", "AI drafts are not enabled for this project"
     AI_NOT_APPROVED = "ai_not_approved", "The organization has not approved AI data processing"
     GATEWAY_UNCONFIGURED = "gateway_unconfigured", "The AI gateway is not configured"
     RATE_LIMITED = "rate_limited", "The project used its hourly AI drafts"

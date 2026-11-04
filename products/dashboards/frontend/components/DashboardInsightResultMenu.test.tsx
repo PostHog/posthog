@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { getContext } from 'kea'
 
 import api from 'lib/api'
 import { consumePersonsModalClick } from 'lib/components/ResultMenu/personsModalCapture'
@@ -8,7 +9,7 @@ import { openPersonsModal, OpenPersonsModalProps } from 'scenes/trends/persons-m
 
 import * as queryRunner from '~/queries/query'
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
-import { NodeKind, ActorsQueryResponse, HogQLQuery } from '~/queries/schema/schema-general'
+import { NodeKind, ActorsQueryResponse, DataVisualizationNode, HogQLQuery } from '~/queries/schema/schema-general'
 import { insightOnDashboard } from '~/scenes/dashboard/dashboardLogic.testHelpers'
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, ChartDisplayType, GroupMathType } from '~/types'
@@ -23,6 +24,10 @@ jest.mock('scenes/trends/persons-modal/PersonsModal', () => ({
         }
     },
 }))
+
+// Every dashboard tile renders the menu trigger, so a closed menu must not mount its result logic.
+const resultLogicMounted = (): boolean =>
+    Object.keys(getContext().mount.mounted).some((path) => path.includes('dashboardInsightResultMenuLogic'))
 
 afterEach(() => {
     cleanup()
@@ -59,8 +64,10 @@ describe('dashboard result menu', () => {
                 <button onClick={() => openPersonsModal(request)}>Lifecycle point</button>
             </DashboardInsightResultMenu>
         )
-        fireEvent.click(screen.getByText('Lifecycle point'))
+        expect(resultLogicMounted()).toBe(false)
+        fireEvent.contextMenu(screen.getByText('Lifecycle point'))
         await waitFor(() => expect(screen.getByText('Open in SQL editor').closest('a')).not.toBeNull())
+        expect(resultLogicMounted()).toBe(true)
         expect(screen.queryByText('View recordings')).not.toBeInTheDocument()
         expect(queryRunner.performQuery).toHaveBeenCalledWith(
             expect.objectContaining({ source: request.query, select: ['actor'] }),
@@ -97,7 +104,7 @@ describe('dashboard result menu', () => {
                 <div>Snapshot chart</div>
             </DashboardInsightResultMenu>
         )
-        fireEvent.click(screen.getByText('Snapshot chart'))
+        fireEvent.contextMenu(screen.getByText('Snapshot chart'))
         for (const label of ['View underlying rows', 'Open in SQL editor']) {
             const link = screen.getByText(label).closest('a')!
             expect(JSON.parse(new URL(link.href).searchParams.get('open_query')!)).toEqual({
@@ -107,6 +114,24 @@ describe('dashboard result menu', () => {
             })
         }
         expect(queryRunner.performQuery).not.toHaveBeenCalled()
+    })
+
+    it('opens a SQL chart in the SQL editor with its chart display and its rows as a table', () => {
+        const query: DataVisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: { kind: NodeKind.HogQLQuery, query: 'SELECT day, count() FROM events GROUP BY day' },
+            display: ChartDisplayType.ActionsLineGraph,
+        }
+        render(
+            <DashboardInsightResultMenu insight={{ ...insightOnDashboard(1, [1]), query }}>
+                <div>SQL chart</div>
+            </DashboardInsightResultMenu>
+        )
+        fireEvent.contextMenu(screen.getByText('SQL chart'))
+        const openQuery = (label: string): unknown =>
+            JSON.parse(new URL(screen.getByText(label).closest('a')!.href).searchParams.get('open_query')!)
+        expect(openQuery('Open in SQL editor')).toEqual(query)
+        expect(openQuery('View underlying rows')).toEqual({ ...query, display: ChartDisplayType.ActionsTable })
     })
 
     it.each([undefined, 0] as const)(
@@ -141,7 +166,7 @@ describe('dashboard result menu', () => {
                     <button onClick={() => openPersonsModal(request)}>Chart point</button>
                 </DashboardInsightResultMenu>
             )
-            fireEvent.click(screen.getByText('Chart point'))
+            expect(fireEvent.contextMenu(screen.getByText('Chart point'))).toBe(false)
             expect(openedModal).not.toHaveBeenCalled()
             expect(screen.getByText('Selected country')).toBeInTheDocument()
             expect(screen.queryByText('Explore in new insight')).not.toBeInTheDocument()
@@ -153,7 +178,9 @@ describe('dashboard result menu', () => {
             ])
             fireEvent.click(screen.getByText('Chart point'))
             expect(screen.queryByRole('menu')).not.toBeInTheDocument()
-            fireEvent.click(screen.getByText('Chart point'))
+            expect(openedModal).toHaveBeenCalledWith(request)
+            openedModal.mockClear()
+            fireEvent.contextMenu(screen.getByText('Chart point'))
             const rows = screen.getByText('View people')
             const href = rows.closest('a')!.getAttribute('href')!
             expect(decodeURIComponent(href)).toContain('"kind":"ActorsQuery"')
@@ -200,7 +227,7 @@ describe('dashboard result menu', () => {
                 <button onClick={() => openPersonsModal(request)}>Funnel point</button>
             </DashboardInsightResultMenu>
         )
-        fireEvent.click(screen.getByText('Funnel point'))
+        fireEvent.contextMenu(screen.getByText('Funnel point'))
         await waitFor(() => expect(screen.getByText('Open in SQL editor').closest('a')).not.toBeNull())
         expect(queryRunner.performQuery).toHaveBeenCalledWith(
             expect.objectContaining({ source: request.query }),
@@ -236,9 +263,9 @@ describe('dashboard result menu', () => {
                 <button onClick={() => openPersonsModal(point('2026-01-02'))}>Second point</button>
             </DashboardInsightResultMenu>
         )
-        fireEvent.click(screen.getByText('First point'))
+        fireEvent.contextMenu(screen.getByText('First point'))
         await waitFor(() => expect(queryRunner.performQuery).toHaveBeenCalledTimes(1))
-        fireEvent.click(screen.getByText('Second point'))
+        fireEvent.contextMenu(screen.getByText('Second point'))
         await waitFor(() => expect(queryRunner.performQuery).toHaveBeenCalledTimes(2))
         const firstCall = jest.mocked(queryRunner.performQuery).mock.calls[0]
         const secondCall = jest.mocked(queryRunner.performQuery).mock.calls[1]
@@ -248,8 +275,7 @@ describe('dashboard result menu', () => {
         expect(secondCall[1]?.signal?.aborted).toBe(false)
         await act(async () => resolveFirst({ hogql: 'SELECT 1', results: [] } as unknown as ActorsQueryResponse))
         expect(screen.getByText('Open in SQL editor').closest('a')).toBeNull()
-        fireEvent.click(screen.getByText('Second point'))
-        fireEvent.click(screen.getByText('Second point'))
+        fireEvent.contextMenu(screen.getByText('Second point'))
         await waitFor(() => expect(screen.getByText('Open in SQL editor').closest('a')).not.toBeNull())
         const link = screen.getByText('Open in SQL editor').closest('a')!
         expect(new URL(link.href).searchParams.get('open_query')).toBe('SELECT 2')
@@ -281,7 +307,7 @@ describe('dashboard result menu', () => {
                 </button>
             </DashboardInsightResultMenu>
         )
-        fireEvent.click(screen.getByText('Chart point'))
+        fireEvent.contextMenu(screen.getByText('Chart point'))
         await waitFor(() => expect(queryRunner.performQuery).toHaveBeenCalledTimes(1))
         const call = jest.mocked(queryRunner.performQuery).mock.calls[0]
         if (finish === 'complete') {
@@ -303,6 +329,35 @@ describe('dashboard result menu', () => {
         }
     })
 
+    it.each([
+        [
+            'a context menu that a child handles',
+            (onClick: () => void) => (
+                <div onClick={onClick} onContextMenu={(event) => event.preventDefault()}>
+                    Target
+                </div>
+            ),
+        ],
+        [
+            'a legend row',
+            (onClick: () => void) => (
+                <div data-hog-charts-legend="">
+                    <button onClick={onClick}>Target</button>
+                </div>
+            ),
+        ],
+    ])('leaves %s alone', (_, renderTarget) => {
+        const onClick = jest.fn()
+        render(
+            <DashboardInsightResultMenu insight={insightOnDashboard(1, [1])}>
+                {renderTarget(onClick)}
+            </DashboardInsightResultMenu>
+        )
+        fireEvent.contextMenu(screen.getByText('Target'))
+        expect(onClick).not.toHaveBeenCalled()
+        expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    })
+
     it('does not offer recordings for a drilldown without recording support', () => {
         const request: OpenPersonsModalProps = {
             title: 'Selected people',
@@ -316,7 +371,7 @@ describe('dashboard result menu', () => {
                 <button onClick={() => openPersonsModal(request)}>Chart point</button>
             </DashboardInsightResultMenu>
         )
-        fireEvent.click(screen.getByText('Chart point'))
+        fireEvent.contextMenu(screen.getByText('Chart point'))
         expect(screen.queryByText('View recordings')).not.toBeInTheDocument()
         fireEvent.scroll(window)
         expect(screen.queryByRole('menu')).not.toBeInTheDocument()

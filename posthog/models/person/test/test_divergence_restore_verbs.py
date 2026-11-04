@@ -10,11 +10,13 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+import grpc
 from parameterized import parameterized
 
-from posthog.models.person.divergence import observe, restore_verbs, team_scan, verbs
-from posthog.models.person.test.divergence_fixtures import DivergenceFixturesMixin
+from posthog.models.person.divergence import observe, repairs, restore_verbs, team_scan, verbs
+from posthog.models.person.test.divergence_fixtures import DivergenceFixturesMixin, rpc_error
 from posthog.models.person.util import get_distinct_id_rows, tombstone_persons_in_postgres
+from posthog.personhog_client import fake_client
 from posthog.personhog_client.fake_client import get_active_fake
 
 _CAPTURE = "posthog.models.person.divergence.restore_verbs.capture_internal"
@@ -83,6 +85,62 @@ class TestRestoreVerbs(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         stored = fake.stored_person(self.team.pk, lost)
         assert stored is not None
         assert (stored.version, json.loads(stored.properties)) == (5, {"email": "lost@example.com"})
+        assert self._scan(purged_at=purged_at)[1] == {}
+
+    def test_restore_splits_requests_at_the_distinct_id_cap_and_skips_a_person_over_it(self):
+        widths = {str(uuid4()): width for width in (2, 1, 2, 4)}
+        for person_uuid, width in widths.items():
+            self._ch_person(person_uuid, 4, {"email": "lost@example.com"})
+            for i in range(width):
+                self._ch_mapping(f"{person_uuid}-{i}", person_uuid, 0)
+        purged_at = datetime.now(UTC) + timedelta(hours=1)
+        scan_dir, before = self._scan(purged_at=purged_at)
+        over_cap = list(widths)[-1]
+        over_cap_ids = {f"{over_cap}-{i}" for i in range(4)}
+
+        with (
+            patch.object(restore_verbs, "RESTORE_MAX_DISTINCT_IDS", 3),
+            patch.object(fake_client, "RESTORE_MAX_DISTINCT_IDS", 3),
+        ):
+            outcomes = self._run(scan_dir, "restore", apply=True)
+
+        fake = get_active_fake()
+        assert fake is not None
+        sent = [c.request for c in fake.calls if c.method == "restore_persons"]
+        assert sorted(sum(len(p.distinct_ids) for p in request.persons) for request in sent) == [2, 3]
+        assert outcomes == {
+            **dict.fromkeys(set(before) - over_cap_ids - {over_cap}, "restored"),
+            over_cap: "skipped_too_many_distinct_ids",
+            **dict.fromkeys(over_cap_ids, "skipped_person_not_live"),
+        }
+        assert fake.stored_person(self.team.pk, over_cap) is None
+
+    @parameterized.expand([("restore_persons",), ("write_distinct_ids",)])
+    def test_restore_retries_a_personhog_write_that_failed_transiently(self, method: str):
+        if method == "restore_persons":
+            lost = str(uuid4())
+            self._ch_person(lost, 4, {"email": "lost@example.com"})
+            self._ch_mapping("lost-id", lost, 2)
+        else:
+            owner = self._live_person("own")
+            self._ch_mapping("lost-id", str(owner.uuid), 1)
+        purged_at = datetime.now(UTC) + timedelta(hours=1)
+        scan_dir, before = self._scan(purged_at=purged_at)
+        fake = get_active_fake()
+        assert fake is not None
+        write = getattr(fake, method)
+        failures = [rpc_error(grpc.StatusCode.UNAVAILABLE)]
+
+        def fails_once(*args: Any, **kwargs: Any) -> Any:
+            if failures:
+                raise failures.pop()
+            return write(*args, **kwargs)
+
+        with patch.object(fake, method, side_effect=fails_once) as patched, patch.object(repairs, "_sleep"):
+            outcomes = self._run(scan_dir, "restore", apply=True)
+
+        assert patched.call_count == 2
+        assert outcomes == dict.fromkeys(before, "restored")
         assert self._scan(purged_at=purged_at)[1] == {}
 
     def _lost_person_split_to(

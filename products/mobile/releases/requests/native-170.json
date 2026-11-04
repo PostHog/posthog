@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "native-170",
+    "kind": "native",
+    "runtimeVersion": "1.7.0",
+    "previousRelease": "ota-20261031-report-fixes",
+    "notes": "This store build includes formula charts in report summaries and details, Android scrolling fixes for long verdicts, and inbox cache validation. Verify sign-in, report charts, Android verdict scrolling, inbox refresh, pagination, and chats on iOS and Android."
+}

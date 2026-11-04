@@ -218,6 +218,28 @@ export function resultEvidence(row: EvaluationResultApi): string {
     return parts.join(' · ')
 }
 
+/** True when a bucket has results but neither neighbor does, so the chart draws it as a dot with no line. */
+export function hasIsolatedPoints(row: EvaluationResultApi): boolean {
+    const { values } = row.trend
+    return (
+        values.length > 1 &&
+        values.some((value, index) => value !== null && values[index - 1] == null && values[index + 1] == null)
+    )
+}
+
+/**
+ * Passed and failed runs per bucket for a pass rate. The rate is passed / (passed + failed) and the volume is
+ * passed + failed, so both counts come back exactly.
+ */
+export function passFailCounts(row: EvaluationResultApi): { passed: number[]; failed: number[] } | null {
+    if (row.summary.kind !== 'pass_rate') {
+        return null
+    }
+    const { values, volume } = row.trend
+    const passed = volume.map((graded, index) => Math.round((graded * (values[index] ?? 0)) / 100))
+    return { passed, failed: volume.map((graded, index) => graded - passed[index]) }
+}
+
 /** Whether the row has at least one day the compare chart can draw. */
 export function isChartable(row: EvaluationResultApi): boolean {
     return row.gradedCount > 0 && percentTrend(row).some(Number.isFinite)
@@ -236,4 +258,20 @@ export function hourTick(label: string): string | null {
         return null
     }
     return hour === 0 ? dayjs(label.slice(0, 10)).format('MMM D') : label.slice(11, 16)
+}
+
+/**
+ * The date range that covers one bucket. A day's bucket starts at local midnight, so its first ten characters are that
+ * day in the project's time zone. An hour is exact instants, which the date filters read as given. Its end is the next
+ * hour's start, because the filters exclude the end.
+ */
+export function bucketDateRange(bucket: string, interval: BucketInterval): { dateFrom: string; dateTo: string } {
+    if (interval === 'hour') {
+        const start = dayjs(bucket).utc()
+        return {
+            dateFrom: start.format('YYYY-MM-DDTHH:mm:ss[Z]'),
+            dateTo: start.add(1, 'hour').format('YYYY-MM-DDTHH:mm:ss[Z]'),
+        }
+    }
+    return { dateFrom: bucket.slice(0, 10), dateTo: bucket.slice(0, 10) }
 }

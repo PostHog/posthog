@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel, getReferencedCohortIds } from '~/models/cohortsModel'
 import { Query } from '~/queries/Query/Query'
+import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/schema/node-guards'
 import {
     ArtifactMessage,
     ArtifactSource,
@@ -22,7 +23,6 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
 import { visualizationTypeToQuery } from '../../../utils/visualizationQuery'

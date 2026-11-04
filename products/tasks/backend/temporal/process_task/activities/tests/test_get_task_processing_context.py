@@ -35,6 +35,7 @@ from products.tasks.backend.constants import (
     vm_sandbox_origin_rollout_percentages,
 )
 from products.tasks.backend.exceptions import ProcessTaskFatalError, TaskInvalidStateError, TaskRunNotReadyError
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.services.agent_instructions import AgentInstructionsStore
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox
@@ -123,6 +124,36 @@ def test_snapshot_resume_requires_a_resume_marker_and_snapshot(state: dict[str, 
     )
 
     assert context.is_snapshot_resume is expected
+
+
+@pytest.mark.parametrize(
+    "origin_product,model,expected",
+    [
+        ("posthog_ai", "deepseek-ai/deepseek-v4-flash-0731", None),
+        ("posthog_ai", "zai-org/glm-5.3", None),
+        ("posthog_ai", "claude-opus-5-5", "claude-opus-5-5"),
+        ("posthog_ai", "gpt-6-sol", "gpt-6-sol"),
+        ("user_created", "deepseek-ai/deepseek-v4-flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
+        ("posthog_ai", None, None),
+    ],
+)
+def test_posthog_ai_run_drops_a_model_outside_its_gateway_pin(
+    origin_product: str, model: str | None, expected: str | None
+):
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=None,
+        repository=None,
+        distinct_id="distinct-id",
+        origin_product=origin_product,
+        state={"model": model},
+    )
+
+    assert context.model == expected
 
 
 @pytest.mark.parametrize(
@@ -459,6 +490,57 @@ class TestGetTaskProcessingContextActivity:
             self._cleanup_task(task)
 
     @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "stored_profile,requested,expected",
+        [
+            (None, True, True),
+            (None, False, False),
+            ("business_knowledge", True, False),
+            ("business_knowledge", False, False),
+            ("test.unregistered", True, True),
+        ],
+    )
+    def test_get_task_processing_context_lets_the_profile_turn_off_create_pr(
+        self, activity_environment, test_task, stored_profile, requested, expected
+    ):
+        test_task.profile = stored_profile
+        test_task.save(update_fields=["profile"])
+        task_run = test_task.create_run()
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id), create_pr=requested)
+        )
+
+        assert result.create_pr is expected
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "stored_profile,expected_profile",
+        [
+            (None, None),
+            ("business_knowledge", "business_knowledge"),
+            ("test.unregistered", None),
+        ],
+    )
+    def test_get_task_processing_context_carries_the_stored_profile_timeouts(
+        self, activity_environment, test_task, stored_profile, expected_profile
+    ):
+        test_task.profile = stored_profile
+        test_task.save(update_fields=["profile"])
+        task_run = test_task.create_run()
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
+        )
+
+        profile = get_task_profile(expected_profile) if expected_profile else None
+        assert (result.profile_key, result.profile_idle_minutes, result.profile_max_wake_minutes) == (
+            expected_profile,
+            profile.idle_minutes if profile else None,
+            profile.max_wake_minutes if profile else None,
+        )
+
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_with_create_pr_false(self, activity_environment, test_task):
         task_run = test_task.create_run()
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id), create_pr=False)
@@ -667,6 +749,39 @@ class TestGetTaskProcessingContextActivity:
         assert result.allowed_domains is None
 
     @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "environment,expected",
+        [
+            ("internal", []),
+            ("picked_by_a_person", None),
+            (None, []),
+        ],
+    )
+    def test_a_profiled_task_takes_its_network_from_the_profile_unless_a_person_picked_the_environment(
+        self, activity_environment, test_task, environment, expected
+    ):
+        test_task.profile = "business_knowledge"
+        test_task.save(update_fields=["profile"])
+        extra_state = {}
+        if environment is not None:
+            sandbox_environment = SandboxEnvironment.objects.create(
+                team=test_task.team,
+                created_by=test_task.created_by,
+                name="Full access env",
+                network_access_level=SandboxEnvironment.NetworkAccessLevel.FULL,
+                allowed_domains=[],
+                internal=environment == "internal",
+            )
+            extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
+        task_run = test_task.create_run(extra_state=extra_state)
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
+        )
+
+        assert result.allowed_domains == expected
+
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_rejects_other_users_private_sandbox_environment(
         self, activity_environment, test_task
     ):
@@ -727,17 +842,27 @@ class TestGetTaskProcessingContextActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "flag_value,include_live_context,expected_state",
+        "flag_value,include_live_context,expected_state,disable_skills",
         [
-            (True, None, "resolved"),
-            (False, None, []),
-            (None, None, "untouched"),  # a flag-service outage must not clear stubs a resumed sandbox still has
-            (True, False, []),
-            (None, False, []),
+            (True, None, "resolved", False),
+            (False, None, [], False),
+            (None, None, "untouched", False),  # a flag-service outage must not clear stubs a resumed sandbox still has
+            (True, False, [], False),
+            (None, False, [], False),
+            (True, None, [], True),
+            (None, None, [], True),
         ],
     )
     def test_store_skills_state_follows_the_sandbox_flag(
-        self, activity_environment, test_task, user, mocker, flag_value, include_live_context, expected_state
+        self,
+        activity_environment,
+        test_task,
+        user,
+        mocker,
+        flag_value,
+        include_live_context,
+        expected_state,
+        disable_skills,
     ):
         LLMSkill.objects.create(
             team=test_task.team,
@@ -749,7 +874,7 @@ class TestGetTaskProcessingContextActivity:
             created_by=user,
         )
         task_run = test_task.create_run(
-            extra_state={"include_live_context": include_live_context} if include_live_context is not None else {}
+            extra_state={"include_live_context": include_live_context, "disable_skills": disable_skills}
         )
         TaskRun.update_state_atomic(task_run.id, updates={STORE_SKILLS_STATE_KEY: [{"name": "from-last-session"}]})
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
@@ -767,7 +892,7 @@ class TestGetTaskProcessingContextActivity:
             result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert result.context_layer_enabled is (include_live_context is not False)
-        if include_live_context is False:
+        if include_live_context is False or disable_skills:
             assert result.state is not None
             assert result.state[STORE_SKILLS_STATE_KEY] == []
         for name in ("run_gateway_env_vars", "mcp_exec_skills_env_vars", "get_git_identity_env_vars"):
@@ -1230,19 +1355,6 @@ class TestGetTaskProcessingContextActivity:
         assert _is_burstable_sandbox_resources_enabled(run_id="run-id", state=state) is expected
 
     @pytest.mark.django_db(transaction=True)
-    def test_get_task_processing_context_enables_directory_resume_snapshots(self, activity_environment, test_task):
-        task_run = test_task.create_run()
-        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
-
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            return_value=False,
-        ):
-            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
-
-        assert result.use_modal_resume_snapshots is True
-        assert result.use_modal_directory_resume_snapshots is True
-
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_applies_org_default_custom_image(self, activity_environment, test_task):
         # Wiring guard for the elif chain in the activity body: a VM run with no

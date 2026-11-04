@@ -5,6 +5,7 @@ import { LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TagSelect } from 'lib/components/TagSelect'
+import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -15,17 +16,25 @@ import { urls } from 'scenes/urls'
 
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { EmailMetricsIncidentBanner } from '../EmailMetricsIncidentBanner'
 import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastsEmptyState } from './BroadcastsEmptyState'
-import { BROADCASTS_PAGE_SIZE, BroadcastsStatusFilter, broadcastsLogic, getBroadcastStatus } from './broadcastsLogic'
+import {
+    BROADCASTS_PAGE_SIZE,
+    BroadcastsStatusFilter,
+    broadcastsLogic,
+    getBroadcastChannel,
+    getBroadcastStatus,
+} from './broadcastsLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
 
-const METRIC_COLUMNS: { title: string; metricName: string }[] = [
-    { title: 'Sent', metricName: 'email_sent' },
-    { title: 'Delivered', metricName: 'email_delivered' },
-    { title: 'Opened', metricName: 'email_opened' },
-    { title: 'Clicked', metricName: 'email_link_clicked' },
-    { title: 'Converted', metricName: 'conversion' },
+// Push has no delivery receipts or link tracking, so those columns stay empty for a push broadcast.
+const METRIC_COLUMNS: { title: string; metricName: string; pushMetricName: string | null }[] = [
+    { title: 'Sent', metricName: 'email_sent', pushMetricName: 'push_sent' },
+    { title: 'Delivered', metricName: 'email_delivered', pushMetricName: null },
+    { title: 'Opened', metricName: 'email_opened', pushMetricName: 'push_opened' },
+    { title: 'Clicked', metricName: 'email_link_clicked', pushMetricName: null },
+    { title: 'Converted', metricName: 'conversion', pushMetricName: 'conversion' },
 ]
 
 export function BroadcastsTable(): JSX.Element {
@@ -74,7 +83,8 @@ export function BroadcastsTable(): JSX.Element {
             title: 'Status',
             width: 0,
             render: (_, item) => {
-                return <BroadcastStatusTag status={getBroadcastStatus(item, rowDetailsById[item.id])} />
+                const details = rowDetailsById[item.id]
+                return <BroadcastStatusTag status={getBroadcastStatus(item, details)} />
             },
         },
         {
@@ -105,19 +115,20 @@ export function BroadcastsTable(): JSX.Element {
                 )
             },
         },
-        ...METRIC_COLUMNS.map(({ title, metricName }) => ({
+        ...METRIC_COLUMNS.map(({ title, metricName, pushMetricName }) => ({
             title,
             width: 0,
             align: 'right' as const,
             render: (_: unknown, item: HogFlowMinimalApi) => {
                 const details = rowDetailsById[item.id]
-                if (item.status === 'draft') {
+                const metric = getBroadcastChannel(item.actions as any) === 'push' ? pushMetricName : metricName
+                if (item.status === 'draft' || !metric) {
                     return <span className="text-muted">-</span>
                 }
                 if (!details?.totals) {
                     return <span className="text-muted">…</span>
                 }
-                return <span>{humanFriendlyNumber(details.totals[metricName] ?? 0)}</span>
+                return <span>{humanFriendlyNumber(details.totals[metric] ?? 0)}</span>
             },
         })),
         createdByColumn() as LemonTableColumns<HogFlowMinimalApi>[number],
@@ -171,6 +182,14 @@ export function BroadcastsTable(): JSX.Element {
         },
     ]
 
+    // Each row counts its latest send from the start of that run until now.
+    const earliestEmailRunStart = (hideRows ? [] : broadcasts.results)
+        .filter((item) => getBroadcastChannel(item.actions as any) !== 'push')
+        .map((item) => rowDetailsById[item.id]?.latestBatchJob?.created_at)
+        .filter((createdAt): createdAt is string => !!createdAt)
+        .map((createdAt) => dayjs(createdAt))
+        .sort((a, b) => a.diff(b))[0]
+
     const isEmpty =
         hasLoadedBroadcasts &&
         !broadcastsLoading &&
@@ -185,6 +204,7 @@ export function BroadcastsTable(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
+            {earliestEmailRunStart ? <EmailMetricsIncidentBanner dateFrom={earliestEmailRunStart} /> : null}
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <LemonInput
                     type="search"
@@ -207,6 +227,7 @@ export function BroadcastsTable(): JSX.Element {
                             { label: 'Scheduled', value: 'scheduled' },
                             { label: 'Sending', value: 'sending' },
                             { label: 'Sent', value: 'sent' },
+                            { label: 'Partly failed', value: 'partially_failed' },
                             { label: 'Failed', value: 'failed' },
                             { label: 'Archived', value: 'archived' },
                         ]}

@@ -6,7 +6,7 @@
             "type": "boolean"
         },
         "broadcast_status": {
-            "description": "Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.",
+            "description": "Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, partially_sent, failed, archived. Scheduled, sending, sent, partially_sent and failed come from the latest run and whether a schedule still has sends to come. A latest run that is completed reads as sent, partially_failed as partially_sent, and failed or cancelled as failed. With a schedule still to come, a completed or partially_failed latest run reads as scheduled.",
             "type": "string"
         },
         "created_at": {
@@ -21,8 +21,13 @@
         "id": {
             "type": "string"
         },
+        "latest_send_first": {
+            "description": "Pass `true` to order by when each workflow's newest completed or partially_failed run finished, newest first. Workflows that never finished such a run come last.",
+            "type": "boolean"
+        },
         "limit": {
             "description": "Number of results to return per page.",
+            "maximum": 500,
             "type": "number"
         },
         "offset": {

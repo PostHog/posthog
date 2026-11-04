@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 WAREHOUSE_SUGGESTIONS_WORKFLOW_NAME = "warehouse-suggestions"
 
@@ -12,8 +12,15 @@ class WarehouseSuggestionsInputs:
 
 
 @dataclass(frozen=True, kw_only=True)
+class ViewCostRequest:
+    team_id: int
+    saved_query_id: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class BatchOutcome:
     processed: int = 0
     not_eligible: int = 0
     disabled: int = 0
     failed: int = 0
+    view_costs_to_measure: list[ViewCostRequest] = field(default_factory=list)

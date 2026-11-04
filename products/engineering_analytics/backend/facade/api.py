@@ -11,7 +11,7 @@ costs; the same surfaces also take a broader ``run_scope`` filter (see
 ``WorkflowHealthRunScope``). ``date_from`` / ``date_to`` accept
 relative strings (``-30d``) or ISO8601 and are resolved against the team timezone.
 ``source_id`` selects a specific connected GitHub source when the team has more than
-one; it defaults to the oldest connected source. ``user_access_control`` enforces the
+one; it defaults to the oldest synced source. ``user_access_control`` enforces the
 requesting user's per-source warehouse access (pass the request's; ``None`` for system
 contexts). Each function resolves the team's authorized curated read handle once, here,
 then delegates to the read layer: source selection and access control live in this layer,
@@ -27,6 +27,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     AttentionPullRequestList,
     AuthorFrictionDetail,
     AuthorFrictionList,
+    AuthorLLMSpendList,
     BranchPRMatch,
     BrokenTestsResult,
     CICardSummary,
@@ -40,11 +41,13 @@ from products.engineering_analytics.backend.facade.contracts import (
     CurrentBranchHealth,
     DeliveryComparison,
     DeliverySummary,
+    DepotCIRepoUsage,
     DoraOverview,
     FlakyTestList,
     GitHubSource,
     GitHubTeamRoster,
     JobLogInsights,
+    LLMSpendCoverage,
     MasterFailureGroup,
     MergedPullRequest,
     PRCostSummary,
@@ -89,7 +92,7 @@ def _authorized_source(
     """Resolve this caller's curated read handle: the single place source selection and per-source
     warehouse access control happen. ``user_access_control`` (None for system/Temporal/CLI contexts)
     filters out sources the requesting user can't access; ``source_id`` selects a specific source,
-    else the oldest connected. ``repo`` ('owner/name'), when the caller already scopes to one repo,
+    else the oldest one the sources list reports as synced. ``repo`` ('owner/name'), when the caller already scopes to one repo,
     prefers the source connected for that repo, so a team with one source per repository reads the
     right one. Raises ``GitHubSourceNotConnectedError`` / ``ValueError`` (bad source_id).
     """
@@ -285,6 +288,44 @@ def list_author_workflow_costs(
     return logic.build_author_workflow_costs(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         author=author,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def list_author_llm_spend(
+    *,
+    team: Team,
+    author: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> AuthorLLMSpendList:
+    return logic.build_author_llm_spend(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        author=author,
+        repo=repo,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+    )
+
+
+def get_llm_spend_coverage(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> LLMSpendCoverage:
+    return logic.build_llm_spend_coverage(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        repo=repo,
         date_from=date_from,
         date_to=date_to,
     )
@@ -583,6 +624,9 @@ def list_flaky_tests(
     min_failed_prs: int | None = None,
     limit: int | None = None,
     runner: CITestRunner | None = None,
+    test: str | None = None,
+    branch: str | None = None,
+    pr_number: int | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
@@ -594,6 +638,9 @@ def list_flaky_tests(
         min_failed_prs=min_failed_prs,
         limit=limit,
         runner=runner,
+        test=test,
+        branch=branch,
+        pr_number=pr_number,
     )
 
 
@@ -660,11 +707,15 @@ def get_team_merge_trend(
 def get_broken_tests(
     *,
     team: Team,
+    test: str | None = None,
+    branch: str | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> BrokenTestsResult:
-    return logic.build_broken_tests(curated=_authorized_source(team, source_id, user_access_control, repo=repo))
+    return logic.build_broken_tests(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), test=test, branch=branch
+    )
 
 
 def list_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
@@ -837,3 +888,15 @@ def get_github_team_roster(*, team: Team, user_access_control: "UserAccessContro
     insists on. An unsynced snapshot comes back as ``synced=False``, never an error.
     """
     return logic.build_github_team_roster(team=team, user_access_control=user_access_control)
+
+
+def get_depot_ci_usage(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[DepotCIRepoUsage]:
+    return logic.build_depot_ci_usage(
+        team=team, date_from=date_from, date_to=date_to, user_access_control=user_access_control
+    )
