@@ -1,13 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { AccountAssignmentFilter } from 'lib/components/AccountAssignmentFilter/AccountAssignmentFilter'
 
+import { relationshipDefinitionsLogic } from '../../scenes/CustomerAnalyticsConfigurationScene/account/relationshipDefinitionsLogic'
 import { productUsageGridLogic } from './productUsageGridLogic'
 
 export function ProductUsageFilters(): JSX.Element {
-    const { controls, result, user } = useValues(productUsageGridLogic)
+    const { controls, user } = useValues(productUsageGridLogic)
+    const { definitions, definitionsLoadFailed } = useValues(relationshipDefinitionsLogic)
+    const { loadDefinitions } = useActions(relationshipDefinitionsLogic)
     const { setControls } = useActions(productUsageGridLogic)
     const mine = !!user && controls.assignedTo.length === 1 && controls.assignedTo[0] === user.id
     return (
@@ -32,13 +35,18 @@ export function ProductUsageFilters(): JSX.Element {
                 size="small"
                 options={[
                     { value: null, label: 'All roles' },
-                    ...(result?.accounts.relationshipDefinitions ?? []).map((role) => ({
+                    ...definitions.map((role) => ({
                         value: role.id,
                         label: role.name,
                     })),
                 ]}
                 data-attr="product-activity-role"
             />
+            {definitionsLoadFailed && (
+                <LemonButton size="small" onClick={loadDefinitions}>
+                    Retry roles
+                </LemonButton>
+            )}
             <LemonCheckbox
                 label="My accounts"
                 checked={mine}
