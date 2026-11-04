@@ -74,7 +74,8 @@ def team_owned_tables(team_id: int) -> frozenset[str]:
     proven. Raises :class:`CPUnavailableError` when the control plane can't answer.
     """
     organization_id = _get_org_id_for_team(team_id)
-    teams = cp_teams.list_org_teams(organization_id)
+    # A cached read can miss a team that started to write the table within the cache TTL.
+    teams = cp_teams.list_org_teams(organization_id, use_cache=False)
     if teams is None:
         raise CPUnavailableError(f"duckgres control plane unreachable reading team state for team {team_id}")
     row = next((team for team in teams if team.team_id == team_id), None)

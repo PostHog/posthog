@@ -164,8 +164,19 @@ class TestTeamOwnedTables:
         with _patch_org_rows([]):
             assert team_state.team_owned_tables(team.id) == frozenset()
 
-    def test_raises_when_cp_unreachable_and_cache_cold(self) -> None:
+    def test_reads_past_a_warm_cache_that_misses_a_new_pin(self) -> None:
         org, team = _team()
+        other = Team.objects.create(organization=org)
+        own_row = _cp_row(team, "cp_schema", events_table_name="events", persons_table_name="persons")
+        with _patch_org_rows([own_row]):
+            team_state.resolve_events_persons_tables(team.id)
+        with _patch_org_rows([own_row, _cp_row(other, "other_schema", events_table_name="events")]):
+            assert "events" not in team_state.team_owned_tables(team.id)
+
+    def test_raises_when_cp_unreachable_even_with_a_warm_cache(self) -> None:
+        org, team = _team()
+        with _patch_org_rows([_cp_row(team, "cp_schema")]):
+            team_state.resolve_events_persons_tables(team.id)
         with _patch_org_rows(None):
             with pytest.raises(team_state.CPUnavailableError):
                 team_state.team_owned_tables(team.id)
