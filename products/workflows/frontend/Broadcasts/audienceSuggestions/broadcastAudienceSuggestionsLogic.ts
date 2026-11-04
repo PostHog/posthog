@@ -29,7 +29,7 @@ import { broadcastAudienceSuggestionsCurrent, broadcastAudienceSuggestionsGenera
 import type { AudienceSuggestionApi, AudienceSuggestionsResponseApi } from '../../generated/api.schemas'
 import { urlForNewBroadcastWithAudience } from '../broadcastAudiencePrefill'
 
-const POLL_INTERVAL_MS = 2000
+const POLL_INTERVAL_MS = 1000
 const POLL_DEADLINE_MS = 5 * 60 * 1000
 const REQUEST_TIMEOUT_MS = 10_000
 // A snapshot older than this may hold people who no longer match the idea.
@@ -201,8 +201,7 @@ export const broadcastAudienceSuggestionsLogic = kea<broadcastAudienceSuggestion
     selectors({
         suggestions: [
             (s) => [s.result],
-            (result: AudienceSuggestionsResponseApi | null): AudienceSuggestionApi[] =>
-                result?.status === 'ready' ? result.suggestions : [],
+            (result: AudienceSuggestionsResponseApi | null): AudienceSuggestionApi[] => result?.suggestions ?? [],
         ],
         generating: [
             (s) => [s.result, s.resultLoading, s.pollingTimedOut],
@@ -213,6 +212,15 @@ export const broadcastAudienceSuggestionsLogic = kea<broadcastAudienceSuggestion
     listeners(({ actions, values, cache }) => {
         const handleResult = (result: AudienceSuggestionsResponseApi | null): void => {
             cache.disposables.dispose('poll')
+            // Cards can show before their counts, and a click can leave the page before the run ends.
+            if (result?.suggestions.length && !cache.shownCaptured) {
+                cache.shownCaptured = true
+                // pinned: analytics event name - renaming breaks dashboards
+                posthog.capture('broadcast audience suggestions shown', {
+                    kinds: result.suggestions.map((suggestion) => suggestion.kind),
+                    reachable_counts: result.suggestions.map((suggestion) => suggestion.reachable_count),
+                })
+            }
             if (result?.status === 'generating') {
                 if (Date.now() > cache.pollDeadline) {
                     actions.giveUpPolling()
@@ -223,13 +231,6 @@ export const broadcastAudienceSuggestionsLogic = kea<broadcastAudienceSuggestion
                     return () => window.clearTimeout(timer)
                 }, 'poll')
                 return
-            }
-            if (result?.status === 'ready' && result.suggestions.length > 0) {
-                // pinned: analytics event name - renaming breaks dashboards
-                posthog.capture('broadcast audience suggestions shown', {
-                    kinds: result.suggestions.map((suggestion) => suggestion.kind),
-                    reachable_counts: result.suggestions.map((suggestion) => suggestion.reachable_count),
-                })
             }
         }
         return {
