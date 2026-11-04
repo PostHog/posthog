@@ -7,25 +7,6 @@ feature: signals
 url_prefix: /inbox
 ui_apps: {}
 tools:
-    self-driving-usage-get:
-        operation: signals_monthly_usage
-        enabled: true
-        title: Get monthly Self-driving usage
-        feature_flag: self-driving-usage-mcp
-        description: >
-            Get recorded Self-driving usage for the selected project's UTC calendar month, defaulting to this month.
-            Returns credits by signal source (processing, research, and downstream report implementation) and by scout
-            (execution costs, including runs that produce no report). The two breakdowns are additive: their totals
-            sum to total_credits. Implementation uses the report's current triggering source. Missing source metadata
-            stays in a null-source bucket. Finalized costs belong to the month they finalized, even if work started
-            earlier. Unsettled work created in the month is reported separately, as are missing scout receipts.
-            Fractional credits are decimal strings; multiply by pricing.usd_per_credit to convert to USD. Exempt
-            credits are a subset of recorded usage. This is not an invoice: billing cutovers, grants, discounts and
-            rounding can change billed amounts. Child environments resolve to the parent project, which requires
-            parent-project access; project_id identifies the project whose usage is returned.
-            For daily trends, individual runs or reports, custom filters, or finer breakdowns, use execute-sql with
-            system.signal_spend, system.scout_runs and system.inbox_reports. Report detail can show associated scout
-            costs shared with other reports; do not add those shared amounts to this summary or across reports.
     activity-summary-get:
         operation: signals_activity_summary_list
         enabled: true
@@ -1810,6 +1791,25 @@ tools:
                     Steering instructions shared by every run in this trial, matching the trial UI's "Instructions for
                     every run" field. Up to 1000 characters. Does not edit the saved scout's instructions.
         feature_flag: scout-trials
+    self-driving-usage-get:
+        operation: signals_monthly_usage
+        enabled: true
+        title: Get monthly Self-driving usage
+        description: >
+            Get recorded Self-driving usage for the selected project's UTC calendar month, defaulting to this month.
+            Returns credits by signal source (processing, research, and downstream report implementation) and by scout
+            (execution costs, including runs that produce no report). The two breakdowns are additive: their totals sum
+            to total_credits. Implementation uses the report's current triggering source. Missing source metadata stays
+            in a null-source bucket. Finalized costs belong to the month they finalized, even if work started earlier.
+            Unsettled work created in the month is reported separately, as are missing scout receipts. Fractional
+            credits are decimal strings; multiply by pricing.usd_per_credit to convert to USD. Exempt credits are a
+            subset of recorded usage. This is not an invoice: billing cutovers, grants, discounts and rounding can
+            change billed amounts. Child environments resolve to the parent project, which requires parent-project
+            access; project_id identifies the project whose usage is returned. For daily trends, individual runs or
+            reports, custom filters, or finer breakdowns, use execute-sql with system.signal_spend, system.scout_runs
+            and system.inbox_reports. Report detail can show associated scout costs shared with other reports; do not
+            add those shared amounts to this summary or across reports.
+        feature_flag: self-driving-usage-mcp
     signals-scout-config-create:
         operation: signals_scout_config_create
         enabled: true
