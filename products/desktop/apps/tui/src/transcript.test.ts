@@ -548,15 +548,58 @@ describe("transcriptFrom last turn", () => {
       status: "in_progress",
       entries,
     });
-    expect(readTurn(view(PI_LOG), "pi")).toMatchObject({
+    expect(readTurn(view(PI_LOG), "pi", false)).toMatchObject({
       working: false,
       facts: { turnEndedAt: 6000, shells: 0, wake: false },
       lastUser: { text: "Rename the helper" },
     });
-    expect(readTurn(view(PI_LOG.slice(0, -1)), "pi")).toMatchObject({
+    expect(readTurn(view(PI_LOG.slice(0, -1)), "pi", false)).toMatchObject({
       working: true,
       facts: null,
     });
+  });
+
+  it.each([
+    [
+      "a cloud run still starting, with no turn in its log yet, is working",
+      true,
+      "in_progress",
+      false,
+      true,
+    ],
+    ["a queued cloud run is working", true, "queued", false, true],
+    [
+      "a local agent with no turn yet is idle",
+      false,
+      "in_progress",
+      false,
+      false,
+    ],
+    [
+      "a cloud run that failed before any turn is not working",
+      true,
+      "failed",
+      false,
+      false,
+    ],
+    ["a cloud run whose turn ended is idle", true, "in_progress", true, false],
+    [
+      "a cloud run whose log is cut mid-run may only have lost its finished turn off the top",
+      true,
+      "in_progress",
+      false,
+      false,
+      40,
+    ],
+  ])("%s", (_name, cloud, status, hasTurn, working, windowStart = 0) => {
+    const view: RunView = {
+      ...emptyRunView,
+      loaded: true,
+      status,
+      windowStart,
+      entries: hasTurn ? PI_LOG : [],
+    } as RunView;
+    expect(readTurn(view, "pi", cloud).working).toBe(working);
   });
 
   it("reports the wake-up the agent scheduled at the end of the turn", () => {

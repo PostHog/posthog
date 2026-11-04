@@ -73,6 +73,7 @@ export const echoes = (
 export function readTurn(
   view: RunView,
   runtime: AgentRuntime | undefined,
+  cloud: boolean,
 ): {
   working: boolean;
   facts: TurnFacts | null;
@@ -95,9 +96,16 @@ export function readTurn(
     };
     readings.set(view.entries, reading);
   }
-  const working =
-    (view.status === "queued" || view.status === "in_progress") &&
-    reading.turnOpen;
+  const live = view.status === "queued" || view.status === "in_progress";
+  // A cloud run is up before its log has a turn in it (the sandbox boots and clones first), so one that never
+  // finished a turn is still starting. A local agent is `in_progress` for as long as it lives, so it has no such state,
+  // and a log cut in the middle of a run may only have lost its finished turn off the top.
+  const starting =
+    cloud &&
+    live &&
+    view.windowStart === 0 &&
+    reading.facts.turnEndedAt === null;
+  const working = live && (reading.turnOpen || starting);
   return {
     working,
     facts: working ? null : reading.facts,
@@ -109,6 +117,7 @@ export function readTurn(
 export function midTurn(
   view: RunView,
   runtime: AgentRuntime | undefined,
+  cloud: boolean,
 ): boolean {
-  return readTurn(view, runtime).working;
+  return readTurn(view, runtime, cloud).working;
 }

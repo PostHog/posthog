@@ -71,10 +71,16 @@ export function useTurns({
   const subscriptions = useRef(new Map<string, () => void>());
   // Each watched chat's latest view, until the next check reads it, and the last one read.
   const unread = useRef(
-    new Map<string, { view: RunView; runtime: AgentRuntime | undefined }>(),
+    new Map<
+      string,
+      { view: RunView; runtime: AgentRuntime | undefined; cloud: boolean }
+    >(),
   );
   const latest = useRef(
-    new Map<string, { view: RunView; runtime: AgentRuntime | undefined }>(),
+    new Map<
+      string,
+      { view: RunView; runtime: AgentRuntime | undefined; cloud: boolean }
+    >(),
   );
   // A sent message opens a turn at once; the view says the rest once the run has echoed it. A message that
   // never got through leaves the view as it was, so the chat settles back to what the view says.
@@ -96,7 +102,9 @@ export function useTurns({
         const last = latest.current.get(taskId);
         lastUserBefore.current.set(
           taskId,
-          (last && readTurn(last.view, last.runtime).lastUser?.id) || "",
+          (last &&
+            readTurn(last.view, last.runtime, last.cloud).lastUser?.id) ||
+            "",
         );
         setRepliedAt((current) => new Map(current).set(taskId, Date.now()));
       }
@@ -108,7 +116,7 @@ export function useTurns({
         settle(
           state,
           taskId,
-          last ? midTurn(last.view, last.runtime) : false,
+          last ? midTurn(last.view, last.runtime, last.cloud) : false,
           taskId === focused.current,
         ),
       );
@@ -133,8 +141,8 @@ export function useTurns({
       const local = localSessions.get(taskId);
       const runtime = local?.runtime ?? task?.runtime ?? "pi";
       const onView = (view: RunView): void => {
-        unread.current.set(taskId, { view, runtime });
-        latest.current.set(taskId, { view, runtime });
+        unread.current.set(taskId, { view, runtime, cloud: !local });
+        latest.current.set(taskId, { view, runtime, cloud: !local });
       };
       const run = task?.latest_run;
       if (local) wanted.set(`${taskId}:local`, () => local.watch(onView));
@@ -177,15 +185,15 @@ export function useTurns({
         const view = runs.preview?.(task.id, run.id);
         if (!view) continue;
         const runtime = task.runtime ?? "pi";
-        latest.current.set(task.id, { view, runtime });
-        unread.current.set(task.id, { view, runtime });
+        latest.current.set(task.id, { view, runtime, cloud: true });
+        unread.current.set(task.id, { view, runtime, cloud: true });
       }
     };
     const timer = setInterval(() => {
       readListed();
       const read = new Map<string, TurnFacts>();
-      for (const [taskId, { view, runtime }] of unread.current) {
-        const reading = readTurn(view, runtime);
+      for (const [taskId, { view, runtime, cloud }] of unread.current) {
+        const reading = readTurn(view, runtime, cloud);
         const sent = pendingRef.current.get(taskId);
         if (
           sent !== undefined &&
