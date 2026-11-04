@@ -22,11 +22,19 @@ import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors, useTheme } from '@/ui/theme'
 import { radii, type } from '@/ui/tokens'
+
+import { useChartPreferences } from '../chartPreferencesStore'
 import { DeltaPill, deltaSpoken } from '../DeltaPill'
 import { statusLine } from '../freshness'
 import { type DashboardSnapshot, dashboardQueryKey } from '../items'
 import { type PinData, usePinData } from '../pinHooks'
-import { deltaBasisText, snapshotChartSeries, snapshotFormatter, valueAtText } from '../snapshotChart'
+import {
+    deltaBasisText,
+    snapshotBarLayout,
+    snapshotChartSeries,
+    snapshotFormatter,
+    valueAtText,
+} from '../snapshotChart'
 import { useViewsContext } from '../useViewsContext'
 import { itemErrorMessage } from '../viewHooks'
 import { useSnapshot } from '../viewsCache'
@@ -261,6 +269,7 @@ function NumberPin({ pin, data, onOpen, onMenu, onUnpin }: DataPinProps): ReactE
 function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }: DataPinProps): ReactElement {
     const { colors, chartPalette } = useTheme()
     const styles = useStyles()
+    const preferredLayout = useChartPreferences((state) => state.barLayout)
     const menu = useMenuTrigger(pin, onMenu)
     const legend = useChartLegend()
     const { snapshot } = data
@@ -310,6 +319,7 @@ function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }:
                             series={series}
                             hiddenKeys={legend.state.hiddenKeys}
                             kind={snapshot.chartKind ?? 'line'}
+                            barLayout={snapshotBarLayout(snapshot, preferredLayout)}
                             interval={snapshot.interval}
                             label={snapshot.name}
                             formatValue={format}
