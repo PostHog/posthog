@@ -242,8 +242,6 @@ fn property_value_sql<'a>(
     };
     let literals = values
         .into_iter()
-        .collect::<BTreeSet<_>>()
-        .into_iter()
         .map(clickhouse_string_literal)
         .collect::<Vec<_>>()
         .join(", ");

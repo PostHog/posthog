@@ -1033,9 +1033,7 @@ impl<'a> HogVM<'a> {
     /// `1 == 1.0` holds for every shared-crate consumer (see [`PartialEq for Num`](crate::Num)).
     /// The flag gates only what sits on top: when the context opts into coercing comparisons (the
     /// realtime-cohort evaluator), a temporal pair compares by epoch seconds to match ClickHouse
-    /// (`is_date_exact`); every non-temporal pair is unchanged either way. A second opt-in,
-    /// [`ExecutionContext::with_boolean_text_equality`], compares a boolean with a string as the
-    /// boolean's text ([`boolean_text_equals`]).
+    /// (`is_date_exact`); every non-temporal pair compares through [`Self::values_equal`].
     ///
     /// "Temporal pair" is [`temporal_seconds_pair`] — the same predicate [`compare_values`] uses for
     /// ordering, so `timestamp == toDateTime(...)` and `timestamp > toDateTime(...)` agree on which
@@ -1043,24 +1041,25 @@ impl<'a> HogVM<'a> {
     /// single coercion function, so equality has to cover the bare-field string case too, not just
     /// the both-temporal one.
     fn eq_op(&self, a: &HogValue, b: &HogValue) -> Result<HogLiteral, VmError> {
-        let (lhs, rhs) = (a.deref(&self.heap)?, b.deref(&self.heap)?);
         if self.context.coerce_comparisons {
+            let (lhs, rhs) = (a.deref(&self.heap)?, b.deref(&self.heap)?);
             if let Some((x, y)) = temporal_seconds_pair(lhs, rhs, &self.heap) {
                 return Ok((x == y).into());
             }
         }
-        if self.context.boolean_text_equality {
-            if let Some(equal) = boolean_text_equals(lhs, rhs) {
-                return Ok(equal.into());
-            }
-        }
-        a.equals(b, &self.heap)
+        Ok(self.values_equal(a, b)?.into())
     }
 
-    /// `In`/`NotIn` core: [`HogValue::contains`], except that under
-    /// [`ExecutionContext::with_boolean_text_equality`] an element of an array or tuple compares with
-    /// the needle the way `eq_op` does, so `x in (y)` and `x == y` agree. It skips `eq_op`'s
-    /// temporal equality, because no reference VM coerces temporals in `in`.
+    /// Shared by `==` and every membership test (`in`, `has`, `indexOf`, `in()`) so that they agree.
+    pub(crate) fn values_equal(&self, a: &HogValue, b: &HogValue) -> Result<bool, VmError> {
+        if self.context.boolean_text_equality {
+            if let Some(equal) = boolean_text_equals(a.deref(&self.heap)?, b.deref(&self.heap)?) {
+                return Ok(equal);
+            }
+        }
+        Ok(*a.equals(b, &self.heap)?.try_as::<bool>()?)
+    }
+
     fn in_op(&self, haystack: &HogValue, needle: &HogValue) -> Result<HogLiteral, VmError> {
         if !self.context.boolean_text_equality {
             return haystack.contains(needle, &self.heap);
@@ -1069,13 +1068,8 @@ impl<'a> HogVM<'a> {
         else {
             return haystack.contains(needle, &self.heap);
         };
-        let wanted = needle.deref(&self.heap)?;
         for item in items {
-            let equal = match boolean_text_equals(item.deref(&self.heap)?, wanted) {
-                Some(equal) => equal,
-                None => *item.equals(needle, &self.heap)?.try_as::<bool>()?,
-            };
-            if equal {
+            if self.values_equal(item, needle)? {
                 return Ok(true.into());
             }
         }

@@ -412,7 +412,7 @@ concat('{', '"$current_url":', if(isValidJSON(e.`mat_$current_url`), e.`mat_$cur
 
 That gives back every value except two kinds.
 A string whose text is JSON comes back typed (`"5"` becomes `5`), and an absent key comes back as `""`.
-HogVM equality gives the same answer for both only when the condition compares the key with a literal that is not empty, does not parse as a number, is not JSON text, and is not `true` or `false` in any case.
+HogVM equality gives the same answer for both only when the condition compares the key with a literal that is not empty, does not parse as a number, and is not JSON text.
 
 1. **Deciding per key.**
    The static pass that recognizes row filters also lists the keys each condition reads only through `properties.<key> == <literal>` with such a literal.

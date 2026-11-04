@@ -50,11 +50,6 @@ pub struct ExecutionContext {
     /// by epoch, and `Eq` compare two temporals by epoch — the ClickHouse/Python-TS-aligned semantics
     /// the realtime-cohort evaluator needs. Set via [`ExecutionContext::with_coercing_comparisons`].
     pub(crate) coerce_comparisons: bool,
-    /// Opt-in equality between a boolean and a string, in `Eq`, `NotEq`, `In` and `NotIn`. `false`
-    /// (the default) reads the string as a boolean, as the TS reference VM does, so `false ==
-    /// "variant"` is true. `true` compares the boolean's text, `"true"` or `"false"`, with the
-    /// string, which is how ClickHouse compares a property that it reads as text. Set via
-    /// [`ExecutionContext::with_boolean_text_equality`].
     pub(crate) boolean_text_equality: bool,
     // `Arc`-shared so cloning a default context is a refcount bump, not a deep copy; mutators
     // copy-on-write via `Arc::make_mut`.
@@ -165,8 +160,9 @@ impl ExecutionContext {
         self
     }
 
-    /// Opt into comparing a boolean with a string as the boolean's text. Off by default, because
-    /// the Node shadow binding must keep the TS reference rule. See [`Self::boolean_text_equality`].
+    /// Compare a boolean with a string as the boolean's text, case-sensitively, the way ClickHouse
+    /// compares a property it reads as text. Off by default because the Node shadow binding must
+    /// match the TS VM, where `false == "variant"` is true.
     pub fn with_boolean_text_equality(mut self) -> Self {
         self.boolean_text_equality = true;
         self

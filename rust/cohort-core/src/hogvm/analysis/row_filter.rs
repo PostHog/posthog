@@ -26,10 +26,10 @@ pub struct EventEqualities {
 /// A necessary condition for the program to return true: the row's `event` is [`Self::event`], and
 /// every conjunct has some `(key, value)` with `properties[key] == value` under HogVM equality.
 ///
-/// The cohort evaluator's HogVM equality coerces, so besides the string `value` it also holds for
-/// the JSON boolean whose text is `value` (`"true"` or `"false"`) and for an object carrying a
-/// temporal marker (compared by epoch). A value that parses as a number is never kept, because it
-/// would also equal a JSON number. A consumer that renders a row filter must admit all of these.
+/// HogVM equality coerces, so besides the string `value` it also holds for the JSON boolean whose
+/// text is `value` and for an object carrying a temporal marker (compared by epoch). A value that
+/// parses as a number is never kept, because it would also equal a JSON number. A consumer that
+/// renders a row filter must admit all of these.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventRowFilter {
     pub event: String,
@@ -651,7 +651,7 @@ mod tests {
                     AND,
                     vec![
                         event_is("e"),
-                        fold(OR, vec![property_is("k", "a"), property_is("k", "TRUE")]),
+                        fold(OR, vec![property_is("k", "a"), property_is("k", "true")]),
                         property_is("j", "b"),
                     ],
                 ),
@@ -730,8 +730,7 @@ mod tests {
         }
 
         for literal in [
-            "", "5", "-1", "1e3", "inf", "true", "TRUE", "False", "null", "{}", "[1]", "\"q\"",
-            " 5",
+            "", "5", "-1", "1e3", "inf", "true", "null", "{}", "[1]", "\"q\"", " 5",
         ] {
             let body = fold(AND, vec![event_is("e"), property_is("k", literal)]);
             assert_eq!(exact_keys(body), BTreeSet::new(), "{literal:?}");
@@ -760,6 +759,8 @@ mod tests {
             Just("a\"b\\c\n".to_owned()),
             Just("é😀".to_owned()),
             // Exact, but close to retyped text.
+            Just("True".to_owned()),
+            Just("FALSE".to_owned()),
             Just("True ".to_owned()),
             Just("5a".to_owned()),
             Just("nul".to_owned()),

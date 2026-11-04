@@ -1,7 +1,6 @@
 //! Reference-VM (JS) coercion semantics observed diverging on production transformations:
 //! integer dict keys ({96: 'x'} — a JS Map keyed by the raw scalar), null behaving as 0 in
-//! arithmetic, and toUnixTimestamp parsing ISO strings. Also the JS rule for a boolean against a
-//! string in `==`, which only the cohort evaluator's opt-in replaces.
+//! arithmetic, and toUnixTimestamp parsing ISO strings.
 
 use hogvm::{sync_execute, ExecutionContext, Program};
 use serde_json::{json, Value};
@@ -15,6 +14,7 @@ const OP_STRING: i64 = 32;
 const OP_INTEGER: i64 = 33;
 const OP_RETURN: i64 = 38;
 const OP_DICT: i64 = 42;
+const OP_ARRAY: i64 = 43;
 const OP_GET_PROPERTY: i64 = 45;
 
 fn run(bytecode: Vec<Value>) -> Value {
@@ -153,27 +153,66 @@ fn to_unix_timestamp_non_string_zone_is_null() {
     );
 }
 
-/// The Node shadow binding compares this VM with the TS one, which reads the string as a boolean,
-/// so `false == "variant"` is true there. The cohort evaluator compares the text `"false"` instead,
-/// as ClickHouse does.
+/// The Node shadow binding needs the TS answer by default, and the cohort evaluator opts into
+/// ClickHouse's.
 #[test]
 fn a_boolean_equals_a_string_as_text_only_under_the_opt_in() {
-    let bc = vec![
-        json!("_H"),
-        json!(1),
+    let control_or_test = vec![
         json!(OP_STRING),
-        json!("variant"),
-        json!(OP_FALSE),
-        json!(OP_EQ),
-        json!(OP_RETURN),
+        json!("control"),
+        json!(OP_STRING),
+        json!("test"),
+        json!(OP_ARRAY),
+        json!(2),
     ];
-    let node_binding = || {
-        ExecutionContext::with_defaults(Program::new(bc.clone()).expect("valid program"))
-            .with_coercing_comparisons()
-    };
-    let reference = sync_execute(&node_binding(), false).expect("execution succeeds");
-    assert_eq!(reference, json!(true));
-    let text = sync_execute(&node_binding().with_boolean_text_equality(), false)
-        .expect("execution succeeds");
-    assert_eq!(text, json!(false));
+    let call = |name: &str| vec![json!(OP_CALL_GLOBAL), json!(name), json!(2)];
+    let off = || vec![json!(OP_FALSE)];
+    let cases = [
+        (
+            "==",
+            vec![
+                json!(OP_STRING),
+                json!("variant"),
+                json!(OP_FALSE),
+                json!(OP_EQ),
+            ],
+            json!(true),
+            json!(false),
+        ),
+        (
+            "has",
+            [control_or_test.clone(), off(), call("has")].concat(),
+            json!(true),
+            json!(false),
+        ),
+        (
+            "indexOf",
+            [control_or_test.clone(), off(), call("indexOf")].concat(),
+            json!(1),
+            json!(0),
+        ),
+        (
+            "in()",
+            [off(), control_or_test, call("in")].concat(),
+            json!(true),
+            json!(false),
+        ),
+    ];
+    for (label, body, by_default, as_text) in cases {
+        let context = || {
+            let bytecode = [
+                vec![json!("_H"), json!(1)],
+                body.clone(),
+                vec![json!(OP_RETURN)],
+            ]
+            .concat();
+            ExecutionContext::with_defaults(Program::new(bytecode).expect("valid program"))
+                .with_coercing_comparisons()
+        };
+        let result = sync_execute(&context(), false).expect("execution succeeds");
+        assert_eq!(result, by_default, "{label}");
+        let result = sync_execute(&context().with_boolean_text_equality(), false)
+            .expect("execution succeeds");
+        assert_eq!(result, as_text, "{label}");
+    }
 }

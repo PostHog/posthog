@@ -31,13 +31,13 @@ const COHORT_HOGVM_MAX_STACK_DEPTH: usize = 32_768;
 /// cannot cause a runaway; kept above the stack ceiling so a max-size tuple build can't trip it.
 const COHORT_HOGVM_MAX_STEPS: usize = 131_072;
 
-/// Build the cohort evaluator's [`ExecutionContext`]: coercing comparisons, boolean text equality
-/// and the raised stack/step ceilings. Both construction sites route through this so production and
-/// the parity path share identical limits — a large `IN`-list must not overflow in one and succeed
-/// in the other.
+/// Build the cohort evaluator's [`ExecutionContext`]: coercing comparisons plus the raised
+/// stack/step ceilings. Both construction sites route through this so production and the parity path
+/// share identical limits — a large `IN`-list must not overflow in one and succeed in the other.
 ///
-/// Boolean text equality matches the legacy calculation, which reads an untyped or String-typed
-/// property such as `$feature/<flag>` as its JSON text, so a flag that was off equals no variant.
+/// Boolean text equality matches legacy, which reads an untyped or String-typed property such as
+/// `$feature/<flag>` as text. A change here that can flip a verdict must raise `EVALUATOR_VERSION`
+/// in [`crate::fingerprint`].
 fn cohort_execution_context(program: Program) -> ExecutionContext {
     ExecutionContext::with_defaults(program)
         .with_coercing_comparisons()
@@ -107,8 +107,7 @@ impl VmErrorClass {
 /// per condition, both in place.
 ///
 /// Comparisons are coercing (cross-type ordering + epoch temporal ordering/equality) to match the
-/// Python/TS/ClickHouse reference, and a boolean equals a string only as its text, as ClickHouse
-/// compares; opt-in, so other `hogvm` consumers like cymbal keep strict ones.
+/// Python/TS/ClickHouse reference; opt-in, so other `hogvm` consumers like cymbal keep strict ones.
 pub struct CohortEvaluator {
     context: ExecutionContext,
 }
@@ -365,7 +364,6 @@ mod tests {
         assert!(!evaluate(&[], json!({})));
     }
 
-    /// Build opcodes to read `properties.<key>`, the event's property.
     fn push_event_property(key: &str) -> Vec<Value> {
         vec![
             json!(OP_STRING),
@@ -560,10 +558,8 @@ mod tests {
         assert!(!evaluate(&bc, globals(json!("05"))));
     }
 
-    /// Legacy reads a String-typed property such as `$feature/<flag>` as text, so a flag that was
-    /// off is `'false'` there and equals no variant. It reads a Boolean-typed property through a
-    /// case-sensitive `transform` of that text, so a stored `"True"` does not equal the constant
-    /// `true`, and a bare read stays a boolean.
+    /// The expected answers are legacy ClickHouse's: it reads `$feature/<flag>` as text, and a
+    /// Boolean-typed property through a case-sensitive `transform` of that text.
     #[test]
     fn a_boolean_property_equals_a_string_only_as_its_text() {
         let flag = push_event_property("$feature/flag");
@@ -577,6 +573,12 @@ mod tests {
         let string = |value: &str| vec![json!(OP_STRING), json!(value)];
         let control_or_test = [string("control"), string("test")].concat();
         let tuple = [control_or_test, vec![json!(OP_TUPLE), json!(2)]].concat();
+        let true_or_control = [
+            string("true"),
+            string("control"),
+            vec![json!(OP_TUPLE), json!(2)],
+        ]
+        .concat();
         let true_constant = vec![json!(OP_TRUE)];
         let cases = [
             (
@@ -607,6 +609,13 @@ mod tests {
                 OP_NOT_IN,
                 true,
             ),
+            (
+                "on in (true, control)",
+                json!(true),
+                true_or_control,
+                OP_IN,
+                true,
+            ),
             ("on == 'true'", json!(true), string("true"), OP_EQ, true),
             ("on == 'True'", json!(true), string("True"), OP_EQ, false),
             (
@@ -630,7 +639,7 @@ mod tests {
             assert_eq!(verdict(&bytecode, value), expected, "{label}");
         }
         let bare_read = [header(), flag, vec![json!(OP_RETURN)]].concat();
-        assert!(!verdict(&bare_read, json!(false)));
+        assert!(verdict(&bare_read, json!(true)));
     }
 
     /// `header + N×(OP_INTEGER, i) + OP_TUPLE N` — the exact shape a `person.properties.X IN (...)`
