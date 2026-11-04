@@ -86,7 +86,8 @@ describe('sandboxBlockedEventRedisConfig', () => {
                         name: 'sandbox-blocked-event-stalled-test',
                     })
                 ),
-                null
+                null,
+                { isPaused: () => Promise.resolve(false) }
             )
             const blockEveryProject = (): Promise<void[]> =>
                 Promise.all(
