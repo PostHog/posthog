@@ -16,6 +16,7 @@ class PlatformAlertConfigurationSourceKind(LabeledStrEnum):
     WAREHOUSE_SOURCE = "warehouse_source", "Warehouse source"
     WAREHOUSE_DESTINATION = "warehouse_destination", "Warehouse destination"
     METRICS = "metrics", "Metrics"
+    ERROR_TRACKING = "error_tracking", "Error tracking"
 
 
 class PlatformAlertKind(LabeledStrEnum):

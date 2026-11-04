@@ -89,6 +89,17 @@ def _enabled_hog_functions_triggered_by(
     )
 
 
+def has_enabled_destination_for_internal_event(*, team_id: int, event: str) -> bool:
+    """Whether an enabled destination sends on this internal event, such as `$error_tracking_issue_created`."""
+    return (
+        HogFunction.objects.filter(
+            team_id=team_id, enabled=True, type="internal_destination", filters__events__contains=[{"id": event}]
+        )
+        .exclude(deleted=True)
+        .exists()
+    )
+
+
 def has_enabled_hog_function_for_warehouse_table(*, team_id: int, trigger_source: str, table_name: str) -> bool:
     """Whether an enabled hog function triggers on this warehouse table."""
     return _enabled_hog_functions_triggered_by(team_id, trigger_source, [table_name]).exists()

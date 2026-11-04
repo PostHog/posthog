@@ -524,6 +524,8 @@ depends_on = [
     "products.notifications",
     "products.signals",
     "products.warehouse_sources", "products.access_control",
+    # Facade-only: new and reopened issues register as an occurrence store for appearance alerts.
+    "products.alerts_platform",
     # Facade-only: the built-in bot filter reads the bot user agent patterns.
     "products.web_analytics",
 ]
