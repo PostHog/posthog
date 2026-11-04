@@ -766,12 +766,24 @@ class TestHogFlowAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("draft", {"Draft"}),
-            ("scheduled", {"Scheduled", "Recurring between runs", "Workflow waiting for an API send"}),
+            (
+                "scheduled",
+                {
+                    "Scheduled",
+                    "Recurring between runs",
+                    "Recurring after some sends errored",
+                    "Workflow waiting for an API send",
+                },
+            ),
             ("sending", {"Sending"}),
             ("sent", {"Sent", "Sent after a failed run"}),
+            ("partially_sent", {"Some sends errored"}),
             ("failed", {"Run failed", "Launch never finished"}),
             ("archived", {"Archived"}),
-            ("sent,failed", {"Sent", "Sent after a failed run", "Run failed", "Launch never finished"}),
+            (
+                "sent,failed",
+                {"Sent", "Sent after a failed run", "Run failed", "Launch never finished"},
+            ),
         ]
     )
     @patch(
@@ -811,6 +823,8 @@ class TestHogFlowAPI(APIBaseTest):
         create("Sending", runs=("active",))
         create("Sent", runs=("completed",))
         create("Sent after a failed run", runs=("failed", "completed"))
+        create("Some sends errored", runs=("completed", "partially_failed"))
+        create("Recurring after some sends errored", runs=("partially_failed",), schedule="active")
         create("Run failed", runs=("failed",), schedule="active")
         create("Launch never finished")
         create("Workflow waiting for an API send", origin_product=None)
@@ -5121,38 +5135,48 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "Unsupported dedupe_key" in response.json().get("error", "")
 
+    @parameterized.expand([("completed", True), ("failed", False)])
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    @patch("products.workflows.backend.tasks.batch_jobs.settle_batch_run_outcome.apply_async")
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
-    def test_internal_update_batch_job_status_marks_completed(self, _mock_dispatch):
+    def test_internal_update_batch_job_status_writes_terminal_status(
+        self, new_status, checks_sends, _mock_dispatch, mock_settle
+    ):
         hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
         batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
 
         response = self.client.put(
             f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
-            {"status": "completed"},
+            {"status": new_status},
             content_type="application/json",
             headers={"x-internal-api-secret": "test-secret-123"},
         )
 
         assert response.status_code == 200, response.json()
-        assert response.json()["status"] == "completed"
+        assert response.json()["status"] == new_status
         assert response.json()["no_op"] is False
         batch_job.refresh_from_db()
-        assert batch_job.status == "completed"
+        assert batch_job.status == new_status
+        assert mock_settle.called is checks_sends
+        if checks_sends:
+            assert mock_settle.call_args.kwargs["args"] == (self.team.id, str(batch_job.id))
 
+    @parameterized.expand([("completed", "failed"), ("partially_failed", "completed")])
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
-    def test_internal_update_batch_job_status_is_idempotent_when_already_terminal(self, _mock_dispatch):
+    def test_internal_update_batch_job_status_is_idempotent_when_already_terminal(
+        self, current_status, requested_status, _mock_dispatch
+    ):
         hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
-        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="completed")
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status=current_status)
 
         response = self.client.put(
             f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
-            {"status": "failed"},
+            {"status": requested_status},
             content_type="application/json",
             headers={"x-internal-api-secret": "test-secret-123"},
         )
@@ -5160,9 +5184,9 @@ class TestHogFlowAPI(APIBaseTest):
         # Already terminal → no-op, original status preserved
         assert response.status_code == 200, response.json()
         assert response.json()["no_op"] is True
-        assert response.json()["status"] == "completed"
+        assert response.json()["status"] == current_status
         batch_job.refresh_from_db()
-        assert batch_job.status == "completed"
+        assert batch_job.status == current_status
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     @patch(
@@ -6812,12 +6836,15 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
         self._seed("hog_flow", str(self.flow.id), succeeded=7)
         base = f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}"
 
-        version_one = self.client.get(f"{base}/metrics/version?version=1")
+        version_one = self.client.get(f"{base}/metrics/version?version=1&breakdown_by=name&name=succeeded,skipped")
         version_two = self.client.get(f"{base}/metrics/version?version=2")
         whole = self.client.get(f"{base}/metrics")
 
         assert version_one.status_code == 200, version_one.json()
-        assert self._succeeded(version_one) == 3
+        assert {series["name"]: sum(series["values"]) for series in version_one.json()["series"]} == {
+            "succeeded": 3,
+            "skipped": 0,
+        }
         assert self._succeeded(version_two) == 5
         # The unversioned read keys batch runs on the run, so it is its own series rather than a sum.
         assert self._succeeded(whole) == 7

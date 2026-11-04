@@ -289,6 +289,7 @@ from products.workflows.backend.facade.suggestions_scout import (
     suggestions_scout_status,
     sync_suggestions_scout,
 )
+from products.workflows.backend.facade.tasks import schedule_batch_run_settle
 from products.workflows.backend.facade.templates import get_function_template_schema
 from products.workflows.backend.facade.validation import (
     DURATION_PATTERN,
@@ -347,6 +348,7 @@ from products.workflows.backend.facade.writes import (
 from products.workflows.backend.presentation.views.graph_operations import apply_graph_operations
 from products.workflows.backend.presentation.views.graph_validation import validate_graph
 from products.workflows.backend.presentation.views.hog_flow_batch_job import (
+    BATCH_RUN_STATUS_HELP_TEXT,
     HogFlowBatchJobCancelResponseSerializer,
     HogFlowBatchJobSerializer,
 )
@@ -2688,7 +2690,7 @@ class SendCalendarQuerySerializer(serializers.Serializer):
 class SendCalendarBatchJobSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="ID of the batch run.")
     status = serializers.ChoiceField(
-        choices=HogFlowBatchJobState.choices, read_only=True, help_text="Status of the batch run."
+        choices=HogFlowBatchJobState.choices, read_only=True, help_text=BATCH_RUN_STATUS_HELP_TEXT
     )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the batch run started.")
 
@@ -5020,14 +5022,16 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
                 OpenApiTypes.STR,
                 description=(
                     "Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, "
-                    "sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and "
-                    "whether a schedule still has sends to come."
+                    "sent, partially_sent, failed, archived. Scheduled, sending, sent, partially_sent and failed "
+                    "come from the latest run and whether a schedule still has sends to come. A latest run that is "
+                    "completed reads as sent, partially_failed as partially_sent, and failed or cancelled as failed. "
+                    "With a schedule still to come, a completed or partially_failed latest run reads as scheduled."
                 ),
             ),
             OpenApiParameter(
                 "latest_send_first",
                 OpenApiTypes.BOOL,
-                description="Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last.",
+                description="Pass `true` to order by when each workflow's newest completed or partially_failed run finished, newest first. Workflows that never finished such a run come last.",
             ),
         ]
     ),
@@ -5128,8 +5132,8 @@ class HogFlowViewSet(
             after=after_date,
             before=before_date,
             breakdown_by=params.get("breakdown_by"),
-            name=params["name"].split(",") if params.get("name") else None,
-            kind=params["kind"].split(",") if params.get("kind") else None,
+            name=params.get("name") or None,
+            kind=params.get("kind") or None,
         )
         return Response(AppMetricResponseSerializer(instance=data).data)
 
@@ -7885,7 +7889,8 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         terminal status, returns 200 without re-writing — the resolver retries
         this call via cyclotron retry semantics, so safe repeats are required.
 
-        Accepts: { status: "completed" | "failed" }
+        Accepts: { status: "completed" | "failed" }. A completed run can later move to
+        failed or partially_failed, once its child runs show errored sends.
         """
         if request.method != "PUT":
             return Response({"error": "Method not allowed"}, status=405)
@@ -7910,6 +7915,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         terminal_states = {
             HogFlowBatchJobState.COMPLETED,
+            HogFlowBatchJobState.PARTIALLY_FAILED,
             HogFlowBatchJobState.FAILED,
             HogFlowBatchJobState.CANCELLED,
         }
@@ -7926,6 +7932,10 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             )
 
         try:
+            if new_status == HogFlowBatchJobState.COMPLETED:
+                # The child runs send after completed, so a later check sets failed or partially_failed. It is
+                # queued before the write, so the resolver's retry queues it again if queueing fails.
+                schedule_batch_run_settle(team_id=team.id, batch_job_id=str(batch_job.id))
             set_batch_job_status(team_id=team.id, batch_job_id=batch_job.id, status=HogFlowBatchJobState(new_status))
             return Response(
                 InternalBatchJobStatusSerializer(

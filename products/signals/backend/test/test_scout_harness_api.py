@@ -77,6 +77,7 @@ from products.signals.backend.scout_harness.limits import (
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import (
+    SearchMemoryQuerySerializer,
     SignalScoutConfigUpdateSerializer,
     SignalScoutRunSummarySerializer,
     SignalScoutSlackDestinationSerializer,
@@ -2390,6 +2391,11 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         keys = [row["key"] for row in response.json()]
         assert keys == ["match"]
 
+    def test_search_rejects_text_the_trigram_indexes_cannot_serve(self) -> None:
+        response = self.client.get(self._list_url(), {"text": "ai"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "text"
+
     def test_search_keys_only_blanks_content(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="k1", content="a long body")
         response = self.client.get(f"{self._list_url()}?keys_only=true")
@@ -2626,6 +2632,25 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         sibling_run.refresh_from_db()
         assert (sandbox_run.metadata or {}).get(NOT_IN_USE_WRITES_KEY) == expected
         assert NOT_IN_USE_WRITES_KEY not in (sibling_run.metadata or {})
+
+
+class TestSearchMemoryQuerySerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("blank", "", True),
+            ("word", "checkout", True),
+            ("key_prefix", "pattern:impl:posthog/posthog", True),
+            ("three_digits", "404", True),
+            ("non_ascii_word", "café", True),
+            ("two_chars_before_separator", "ai_", True),
+            ("two_chars_after_separator", ":pr", True),
+            ("two_chars", "ai", False),
+            ("short_words_split_by_separators", "a-b_c d", False),
+            ("punctuation_only", "%%%", False),
+        ]
+    )
+    def test_text_needs_a_trigram(self, _name: str, text: str, valid: bool) -> None:
+        assert SearchMemoryQuerySerializer(data={"text": text}).is_valid() is valid
 
 
 class TestScoutHarnessNotesAPI(APIBaseTest):
