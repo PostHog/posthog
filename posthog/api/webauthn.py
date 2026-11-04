@@ -53,6 +53,12 @@ WEBAUTHN_SIGNUP_EMAIL_KEY = "webauthn_signup_email"
 WEBAUTHN_SIGNUP_CREDENTIAL_KEY = "webauthn_signup_passkey_credential"
 WEBAUTHN_SIGNUP_USER_UUID_KEY = "webauthn_signup_user_uuid"
 WEBAUTHN_LOGIN_CHALLENGE_KEY = "webauthn_login_challenge"
+
+PASSKEY_NOT_REGISTERED_ERROR = (
+    "This passkey isn't registered with PostHog. It may have been removed from your account. "
+    "Choose another passkey, or sign in another way."
+)
+PASSKEY_NOT_VERIFIED_ERROR = "We couldn't verify this passkey. Try again, or sign in another way."
 WEBAUTHN_2FA_CHALLENGE_KEY = "webauthn_2fa_challenge"
 
 
@@ -356,7 +362,9 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             # failures against the claimed identity is acceptable for rate limiting.
             claimed_user = self._extract_user_from_user_handle(user_handle_b64)
             return self._handle_authentication_failure(request, claimed_user) or _login_error(
-                "Authentication failed. Please check your passkey and try again."
+                PASSKEY_NOT_VERIFIED_ERROR
+                if self._is_registered_credential(credential_id)
+                else PASSKEY_NOT_REGISTERED_ERROR
             )
 
         # Cast to our User model — WebauthnBackend.authenticate() always returns
@@ -413,6 +421,15 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             raise EmailVerificationPending(str(verified_user.uuid))
 
         return None
+
+    def _is_registered_credential(self, credential_id: str) -> bool:
+        # Matches the lookup in WebauthnBackend.authenticate. The credential ID is a random value the
+        # authenticator holds, so this tells the caller only whether their own passkey is still known.
+        try:
+            credential_id_bytes = base64url_to_bytes(credential_id)
+        except Exception:
+            return False
+        return WebauthnCredential.objects.filter(credential_id=credential_id_bytes, verified=True).exists()
 
     def _extract_user_from_user_handle(self, user_handle_b64: str) -> User | None:
         """Extract user from base64url-encoded userHandle (UUID bytes)."""

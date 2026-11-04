@@ -21,12 +21,20 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
         passkey2FALoading,
         passkeysAvailable,
         totpAvailable,
+        setPasswordLinkSentTo,
+        setPasswordLinkSentToLoading,
     } = useValues(timeSensitiveAuthenticationLogic)
-    const { submitReauthentication, setDismissedReauthentication, beginPasskey2FA, beginSsoReauthentication } =
-        useActions(timeSensitiveAuthenticationLogic)
+    const {
+        submitReauthentication,
+        setDismissedReauthentication,
+        beginPasskey2FA,
+        beginSsoReauthentication,
+        sendSetPasswordLink,
+    } = useActions(timeSensitiveAuthenticationLogic)
 
     const ssoEnforcement = precheckResponse?.sso_enforcement
     const showPassword = !ssoEnforcement && user?.has_password
+    const showSetPasswordLink = !ssoEnforcement && user?.has_password === false
 
     const extraQueryParams = {
         next: location.href.replace(location.origin, ''),
@@ -172,6 +180,27 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                             onProviderClick={beginSsoReauthentication}
                         />
                     ) : null}
+                </div>
+            ) : null}
+            {showSetPasswordLink ? (
+                <div className="mt-4 flex justify-center text-center text-secondary">
+                    {setPasswordLinkSentTo ? (
+                        <p className="m-0">
+                            We sent a link to <b>{setPasswordLinkSentTo}</b>. Open it to set a password, then sign in
+                            with your new password.
+                        </p>
+                    ) : (
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            htmlType="button"
+                            loading={setPasswordLinkSentToLoading}
+                            onClick={sendSetPasswordLink}
+                            data-attr="reauth-set-password-link"
+                        >
+                            Can't use your passkey? Email me a link to set a password
+                        </LemonButton>
+                    )}
                 </div>
             ) : null}
             {precheckResponseLoading && <SpinnerOverlay />}
