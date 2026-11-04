@@ -191,7 +191,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 SELECT toString(campaign_id), any(campaign_name), any(campaign_advertising_channel_type),
                     any({primary_status}), any(toString({status_reasons})),
                     any(campaign_budget_amount_micros) / 1000000, any({recommended_budget}) / 1000000,
-                    any(toString({budget_id})), any(toString({serving_status}))
+                    any(toString({budget_id})), any(toString({serving_status})), any({target_cpa}) / 1000000
                 FROM {table} GROUP BY campaign_id
                 """,
                 source.campaignTable,
@@ -202,6 +202,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 ),
                 budget_id=self._field(source.campaignTable, "campaign_campaign_budget"),
                 serving_status=self._field(source.campaignTable, "campaign_status"),
+                target_cpa=self._field(source.campaignTable, "campaign_target_cpa_target_cpa_micros"),
             )
         }
         spend = {
@@ -244,6 +245,8 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                     lost_to_budget=share[1],
                     lost_to_rank=share[2],
                     budget_id=definition[7] or None,
+                    # Google Ads bids to the target with primary actions, so it is no benchmark for selected ones.
+                    target_cpa=(definition[9] or None) if selected is None else None,
                 )
             )
         return campaigns

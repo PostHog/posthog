@@ -8633,14 +8633,26 @@ export interface MarketingAnalyticsRecommendationStep {
     linkText?: string | null
 }
 
+/**
+ * The benchmark a recommendation compares a CPA with, in this order of preference:
+ * - `target_cpa`: the campaign's target CPA in Google Ads, when the campaign bids to one.
+ * - `campaign`: the campaign's own non-brand CPA, when it has enough conversions to be stable. Only search terms use
+ *   it, since a campaign is never compared with itself.
+ * - `account`: the non-brand CPA of the ad account. Brand searches convert cheaply, so they stay out of it.
+ */
+export type MarketingAnalyticsRecommendationCpaBenchmarkSource = 'target_cpa' | 'campaign' | 'account'
+
 export interface MarketingAnalyticsRecommendationCpa {
     /**
-     * Cost per conversion of the subject, as the reason states it. Campaigns use their non-brand CPA, except the
-     * Performance Max rank rule, which states the total CPA. Null when it has no conversions or is not bought yet.
+     * Cost per conversion of the subject, as the reason states it. Campaigns use their non-brand CPA, or their total
+     * CPA when the benchmark is a target CPA or the rule is the Performance Max rank rule. Null when it has no
+     * conversions or is not bought yet.
      */
     value: number | null
-    /** The CPA the rule compares the subject with. Null when the account has no conversions. */
+    /** The CPA the rule compares the subject with. Null when the account has no non-brand conversions. */
     benchmark: number | null
+    /** Where the benchmark comes from. Null when there is no benchmark. */
+    benchmarkSource: MarketingAnalyticsRecommendationCpaBenchmarkSource | null
     /** Lowest non-brand CPA of a non-brand Search campaign in the same ad account. */
     bestCampaign: number | null
     /** Highest non-brand CPA of a non-brand Search campaign in the same ad account. */

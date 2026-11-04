@@ -115,12 +115,28 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
 
     @parameterized.expand(
         [
-            ("primary_actions_by_default", None, BOTH_SPLITS, "alpha", 100.0, []),
-            ("selected_secondary_action", [SIGNUP], BOTH_SPLITS, "beta", 200.0, []),
-            ("no_split_tables", [SIGNUP], (), "alpha", 100.0, ["conversion_action_tables_not_synced"]),
-            ("only_campaign_split", [SIGNUP], ("campaign",), "alpha", 100.0, ["conversion_action_tables_not_synced"]),
-            ("another_accounts_action", ["customers/2/conversionActions/20"], BOTH_SPLITS, "alpha", 100.0, []),
-            ("manager_account_action", [MANAGER_SIGNUP], BOTH_SPLITS, "beta", 200.0, [], MANAGER_SIGNUP),
+            ("primary_actions_by_default", None, BOTH_SPLITS, "alpha", 100.0, "target_cpa", []),
+            ("selected_secondary_action", [SIGNUP], BOTH_SPLITS, "beta", 200.0, "account", []),
+            ("no_split_tables", [SIGNUP], (), "alpha", 100.0, "target_cpa", ["conversion_action_tables_not_synced"]),
+            (
+                "only_campaign_split",
+                [SIGNUP],
+                ("campaign",),
+                "alpha",
+                100.0,
+                "target_cpa",
+                ["conversion_action_tables_not_synced"],
+            ),
+            (
+                "another_accounts_action",
+                ["customers/2/conversionActions/20"],
+                BOTH_SPLITS,
+                "alpha",
+                100.0,
+                "target_cpa",
+                [],
+            ),
+            ("manager_account_action", [MANAGER_SIGNUP], BOTH_SPLITS, "beta", 200.0, "account", [], MANAGER_SIGNUP),
         ]
     )
     def test_counts_only_the_selected_conversion_actions(
@@ -130,6 +146,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         split_tables: tuple[str, ...],
         wasted_term: str,
         best_campaign_cpa: float,
+        benchmark_source: str,
         gaps: list[str],
         signup: str = SIGNUP,
     ) -> None:
@@ -141,9 +158,10 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 "campaign_name": "String",
                 "campaign_advertising_channel_type": "String",
                 "campaign_budget_amount_micros": "Int64",
+                "campaign_target_cpa_target_cpa_micros": "Int64",
             },
-            "campaign_id,customer_id,campaign_name,campaign_advertising_channel_type,campaign_budget_amount_micros\n"
-            "1,1,Search,SEARCH,100000000\n",
+            "campaign_id,customer_id,campaign_name,campaign_advertising_channel_type,campaign_budget_amount_micros,"
+            "campaign_target_cpa_target_cpa_micros\n1,1,Search,SEARCH,100000000,150000000\n",
         )
         stats = self._table(
             "campaign_stats",
@@ -210,6 +228,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         wasted = [rec for rec in response.results if rec.rule == "spend_without_conversions"]
         assert [rec.subject for rec in wasted] == [wasted_term]
         assert wasted[0].cpa is not None and wasted[0].cpa.bestCampaign == best_campaign_cpa
+        assert wasted[0].cpa.benchmarkSource == benchmark_source
         assert [gap.kind for gap in response.dataGaps or []] == gaps
 
 

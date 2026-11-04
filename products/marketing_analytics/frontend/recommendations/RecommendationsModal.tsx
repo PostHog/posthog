@@ -21,6 +21,7 @@ import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
 
+import { RecommendationCpa } from './RecommendationCpa'
 import { RecommendationDataGapButton } from './RecommendationDataGapButton'
 import { RecommendationDataGapDescription } from './RecommendationDataGapDescription'
 import {
@@ -119,6 +120,7 @@ function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[]
                             <div className="flex flex-col items-start gap-0.5 py-1">
                                 <span>{row.action}</span>
                                 <span className="text-xs text-secondary">{row.reason}</span>
+                                <RecommendationCpa recommendation={row} />
                                 {!!row.steps?.length && (
                                     <LemonButton
                                         size="xsmall"

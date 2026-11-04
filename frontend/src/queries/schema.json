@@ -36399,15 +36399,26 @@
             "additionalProperties": false,
             "properties": {
                 "benchmark": {
-                    "description": "The CPA the rule compares the subject with. Null when the account has no conversions.",
+                    "description": "The CPA the rule compares the subject with. Null when the account has no non-brand conversions.",
                     "type": ["number", "null"]
+                },
+                "benchmarkSource": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationCpaBenchmarkSource"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Where the benchmark comes from. Null when there is no benchmark."
                 },
                 "bestCampaign": {
                     "description": "Lowest non-brand CPA of a non-brand Search campaign in the same ad account.",
                     "type": ["number", "null"]
                 },
                 "value": {
-                    "description": "Cost per conversion of the subject, as the reason states it. Campaigns use their non-brand CPA, except the Performance Max rank rule, which states the total CPA. Null when it has no conversions or is not bought yet.",
+                    "description": "Cost per conversion of the subject, as the reason states it. Campaigns use their non-brand CPA, or their total CPA when the benchmark is a target CPA or the rule is the Performance Max rank rule. Null when it has no conversions or is not bought yet.",
                     "type": ["number", "null"]
                 },
                 "worstCampaign": {
@@ -36415,8 +36426,13 @@
                     "type": ["number", "null"]
                 }
             },
-            "required": ["value", "benchmark", "bestCampaign", "worstCampaign"],
+            "required": ["value", "benchmark", "benchmarkSource", "bestCampaign", "worstCampaign"],
             "type": "object"
+        },
+        "MarketingAnalyticsRecommendationCpaBenchmarkSource": {
+            "description": "The benchmark a recommendation compares a CPA with, in this order of preference:\n- `target_cpa`: the campaign's target CPA in Google Ads, when the campaign bids to one.\n- `campaign`: the campaign's own non-brand CPA, when it has enough conversions to be stable. Only search terms use   it, since a campaign is never compared with itself.\n- `account`: the non-brand CPA of the ad account. Brand searches convert cheaply, so they stay out of it.",
+            "enum": ["target_cpa", "campaign", "account"],
+            "type": "string"
         },
         "MarketingAnalyticsRecommendationImpactDirection": {
             "enum": ["save", "gain", "invest", "keep"],

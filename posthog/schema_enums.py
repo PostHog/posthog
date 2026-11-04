@@ -2150,6 +2150,12 @@ class MarketingAnalyticsOrderByEnum(StrEnum):
     DESC = "DESC"
 
 
+class MarketingAnalyticsRecommendationCpaBenchmarkSource(StrEnum):
+    TARGET_CPA = "target_cpa"
+    CAMPAIGN = "campaign"
+    ACCOUNT = "account"
+
+
 class MarketingAnalyticsRecommendationImpactDirection(StrEnum):
     SAVE = "save"
     GAIN = "gain"
