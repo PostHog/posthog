@@ -53,11 +53,11 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
         assert body["results"] == [
-            {"name": "env", "value_count": 2},
-            {"name": "service_name", "value_count": 2},
-            {"name": "k8s.pod.name", "value_count": 1},
-            {"name": "region", "value_count": 1},
-            {"name": "stale_key", "value_count": 1},
+            {"name": "env", "value_count": 2, "matchedOn": "key"},
+            {"name": "service_name", "value_count": 2, "matchedOn": "key"},
+            {"name": "k8s.pod.name", "value_count": 1, "matchedOn": "key"},
+            {"name": "region", "value_count": 1, "matchedOn": "key"},
+            {"name": "stale_key", "value_count": 1, "matchedOn": "key"},
         ]
         assert body["count"] == 5
 
@@ -74,6 +74,42 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [r["name"] for r in response.json()["results"]] == expected
 
+    @parameterized.expand(
+        [
+            (
+                "datapoint_value",
+                {"search": "prod", "searchValues": "true"},
+                [{"name": "env", "value_count": 1, "matchedOn": "value", "matchedValue": "prod"}],
+            ),
+            (
+                "resource_value",
+                {"search": "pod-1", "searchValues": "true"},
+                [{"name": "k8s.pod.name", "value_count": 1, "matchedOn": "value", "matchedValue": "pod-1"}],
+            ),
+            (
+                "service_name_value",
+                {"search": "billing", "searchValues": "true"},
+                [{"name": "service_name", "value_count": 1, "matchedOn": "value", "matchedValue": "billing"}],
+            ),
+            (
+                "metric_name_limits_value_matches",
+                {"search": "old", "searchValues": "true", "metricName": "http_requests"},
+                [],
+            ),
+            (
+                "key_match_listed_once_and_first",
+                {"search": "region", "searchValues": "true"},
+                [{"name": "region", "value_count": 1, "matchedOn": "key"}],
+            ),
+            ("search_too_short_for_values", {"search": "us", "searchValues": "true"}, []),
+            ("values_not_searched_without_flag", {"search": "prod"}, []),
+        ]
+    )
+    def test_attributes_search_values(self, _name: str, params: dict, expected: list[dict]) -> None:
+        response = self._get("attributes", params)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"] == expected
+
     @parameterized.expand([("recent", 0), ("historical", 10)])
     def test_attributes_use_recent_metadata_without_enforcing_end_time(self, _name: str, end_minutes_ago: int):
         response = self._get(
@@ -85,26 +121,26 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == [
-            {"name": "env", "value_count": 2},
-            {"name": "service_name", "value_count": 2},
-            {"name": "k8s.pod.name", "value_count": 1},
-            {"name": "region", "value_count": 1},
+            {"name": "env", "value_count": 2, "matchedOn": "key"},
+            {"name": "service_name", "value_count": 2, "matchedOn": "key"},
+            {"name": "k8s.pod.name", "value_count": 1, "matchedOn": "key"},
+            {"name": "region", "value_count": 1, "matchedOn": "key"},
         ]
 
     def test_attributes_metric_name_limits_keys_to_that_metric(self):
         response = self._get("attributes", {"metricName": "http_requests"})
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["results"] == [
-            {"name": "env", "value_count": 2},
-            {"name": "service_name", "value_count": 2},
-            {"name": "k8s.pod.name", "value_count": 1},
-            {"name": "region", "value_count": 1},
+            {"name": "env", "value_count": 2, "matchedOn": "key"},
+            {"name": "service_name", "value_count": 2, "matchedOn": "key"},
+            {"name": "k8s.pod.name", "value_count": 1, "matchedOn": "key"},
+            {"name": "region", "value_count": 1, "matchedOn": "key"},
         ]
 
     def test_attributes_without_recent_series_return_zero_service_values(self):
         response = self._get("attributes", {"metricName": "missing_metric"})
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["results"] == [{"name": "service_name", "value_count": 0}]
+        assert response.json()["results"] == [{"name": "service_name", "value_count": 0, "matchedOn": "key"}]
 
     def test_attribute_values_returns_values_with_aggregated_counts(self):
         response = self._get("attribute_values", {"key": "env"})
@@ -184,10 +220,10 @@ class TestMetricAttributeDistinctValuesAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["results"] == [
-            {"name": "instance", "value_count": 4},
-            {"name": "region", "value_count": 3},
-            {"name": "env", "value_count": 1},
-            {"name": "service_name", "value_count": 1},
+            {"name": "instance", "value_count": 4, "matchedOn": "key"},
+            {"name": "region", "value_count": 3, "matchedOn": "key"},
+            {"name": "env", "value_count": 1, "matchedOn": "key"},
+            {"name": "service_name", "value_count": 1, "matchedOn": "key"},
         ]
 
     @parameterized.expand(
@@ -254,7 +290,7 @@ class TestMetricAttributeDistinctValuesAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["results"] == [
-            {"name": "env", "value_count": 1},
-            {"name": "service.name", "value_count": 1},
-            {"name": "service_name", "value_count": 1},
+            {"name": "env", "value_count": 1, "matchedOn": "key"},
+            {"name": "service.name", "value_count": 1, "matchedOn": "key"},
+            {"name": "service_name", "value_count": 1, "matchedOn": "key"},
         ]

@@ -525,6 +525,7 @@ def list_metric_attribute_keys(
     date_from: dt.datetime | None = None,
     date_to: dt.datetime | None = None,
     limit: int = 100,
+    search_values: bool = False,
 ) -> list[dict[str, Any]]:
     """List attribute keys by distinct value count, from highest to lowest.
 
@@ -532,9 +533,11 @@ def list_metric_attribute_keys(
     recent window supply choices. Datapoint and resource attributes are merged
     into one list (filters run with scope 'auto', so the split doesn't matter
     to callers); `service_name` is always surfaced when it matches the search.
-    The window defaults to the last 24 hours. Returns `{"name": str,
-    "value_count": int}` dicts. Raises `ValueError` for an out-of-range limit
-    or an inverted window.
+    The window defaults to the last 24 hours. With `search_values` and a search
+    of 4 or more characters, keys whose values match follow the keys whose names
+    match. Returns `{"name": str, "value_count": int, "matchedOn": "key" | "value"}`
+    dicts; value matches also carry a sample `matchedValue`. Raises `ValueError`
+    for an out-of-range limit or an inverted window.
     """
     runner = MetricAttributeKeysQueryRunner(
         team=team,
@@ -543,6 +546,7 @@ def list_metric_attribute_keys(
         date_from=date_from,
         date_to=date_to,
         limit=limit,
+        search_values=search_values,
     )
     return runner.run()
 
