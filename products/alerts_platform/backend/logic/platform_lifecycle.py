@@ -1138,17 +1138,19 @@ def give_back_ownership(
         return handback
 
 
-def reset_broken(*, team_id: int, legacy_configuration_id: UUID, at: datetime) -> int | None:
+def reset_broken(*, team_id: int, public_id: UUID, at: datetime) -> int | None:
     """Clears a broken alert the platform owns so the next tick checks it again, from rest.
 
-    Returns the failure count it cleared, or None when the alert is not broken. Discovery skips a
-    broken alert, so without this it never runs again. The caller holds the source's row lock.
+    `public_id` is the alert's `destination_alert_id`. Returns the failure count it cleared, or None
+    when the alert is not broken.
+    Discovery skips a broken alert, so without this it never runs again. The caller holds the source's
+    row lock, when there is one.
     """
     with transaction.atomic():
         configuration = (
             PlatformAlertConfiguration.objects.for_team(team_id)
             .select_for_update()
-            .get(legacy_configuration_id=legacy_configuration_id)
+            .get(PlatformAlertConfiguration.with_destination_alert_ids([public_id]))
         )
         if configuration.owner != PlatformAlertOwner.PLATFORM:
             raise ValueError("the platform does not own this alert, so its source resets it")
