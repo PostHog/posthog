@@ -266,6 +266,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         actor_slack_user_id=target,
         turn_trace_id=input.trace_id,
         turn_person_message=person_message,
+        include_turn_cost=True,
     )
 
     if handler.proactive_notifications_muted() and not is_explicit_slack_reply(task_run, input.message_id):
@@ -329,6 +330,8 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         if has_pending_slack_files and not compose_with_charts:
             deliver_pending_slack_file_artifacts(task_run)
     handler.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
+    if answer_delivered:
+        handler.record_turn_cost_shown()
     if answer_delivered and has_pending_slack_files:
         record_slack_feature_used(mapping.integration_id, target, SlackFeature.FILE_OUTPUTS)
 

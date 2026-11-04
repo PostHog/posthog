@@ -15,7 +15,7 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
-from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_footer_cost_enabled, is_slack_app_forking_enabled
 from products.slack_app.backend.logic.feature_tips.offer import TipRequest, offer_feature_tip
 from products.slack_app.backend.logic.interview_recruitment import FrustrationInviteRequest, offer_frustration_invite
 from products.slack_app.backend.logic.reply_suggestions import (
@@ -28,6 +28,7 @@ from products.slack_app.backend.logic.reply_suggestions import (
     suggest_replies,
 )
 from products.slack_app.backend.services.slack_messages import (
+    FOOTER_COST_BASELINE_STATE_KEY,
     RunFooter,
     app_home_url,
     context_block,
@@ -35,6 +36,7 @@ from products.slack_app.backend.services.slack_messages import (
     fork_menu_element,
     leading_mention_prefix,
     load_run_footer,
+    load_turn_cost,
     normalize_labeled_mentions_to_bare,
     personal_integrations_url,
     post_slack_thread_reply,
@@ -288,11 +290,16 @@ class SlackThreadHandler:
         actor_slack_user_id: str | None = None,
         turn_trace_id: str | None = None,
         turn_person_message: str | None = None,
+        include_turn_cost: bool = False,
     ) -> "SlackThreadHandler":
         """A handler whose footer describes ``run_id``.
 
         The footer's project segment is judged against the install this context posts through,
         so the footer always loads with ``context.integration_id``.
+
+        ``include_turn_cost`` is for the reply that closes a turn. The cost is measured from the
+        previous reply that showed one, so a caller that sets it must call
+        ``record_turn_cost_shown`` after the reply is delivered.
         """
         handler = cls(
             context,
@@ -303,7 +310,42 @@ class SlackThreadHandler:
         )
 
         handler.task_run_id = str(run_id) if run_id is not None else None
+        if include_turn_cost and run_id is not None:
+            handler._load_turn_cost(run_id)
         return handler
+
+    def _load_turn_cost(self, run_id: str | UUID) -> None:
+        # A run on someone's own plan is not paid with PostHog credits, so its cost says nothing.
+        if self.run_footer.plan:
+            return
+        from products.tasks.backend.facade.api import get_task_run  # noqa: PLC0415
+
+        try:
+            run = get_task_run(run_id)
+            if run is None:
+                return
+            if not is_slack_app_footer_cost_enabled(self._get_integration(), run.created_by_distinct_id):
+                return
+        except Exception:
+            logger.warning("slack_app_turn_cost_gate_failed", run_id=str(run_id), exc_info=True)
+            return
+        turn_cost = load_turn_cost(run_id, run.team_id, run.state)
+        if turn_cost is not None:
+            self.run_footer = replace(self.run_footer, turn_cost=turn_cost)
+
+    def record_turn_cost_shown(self) -> None:
+        """Make the run's cost so far the baseline for the next reply's cost."""
+        turn_cost = self.run_footer.turn_cost
+        if turn_cost is None or not self.task_run_id:
+            return
+        from products.tasks.backend.facade.api import update_task_run_state  # noqa: PLC0415
+
+        try:
+            update_task_run_state(
+                self.task_run_id, updates={FOOTER_COST_BASELINE_STATE_KEY: turn_cost.run_total_microusd}
+            )
+        except Exception:
+            logger.warning("slack_app_turn_cost_baseline_save_failed", run_id=self.task_run_id, exc_info=True)
 
     def notification_target(self, slack_user_id: str | None) -> str | None:
         if not self.task_run_id:
@@ -1182,6 +1224,9 @@ class SlackThreadHandler:
                 task_id=self.run_footer.task_id,
                 run_id=self.run_footer.run_id,
                 chart_links=self.run_footer.chart_links,
+                turn_cost_usd=(
+                    self.run_footer.turn_cost.microusd / 1_000_000 if self.run_footer.turn_cost is not None else None
+                ),
             )
         except Exception:
             logger.warning("slack_app_reply_posted_capture_failed", reply_kind=str(reply_kind), exc_info=True)

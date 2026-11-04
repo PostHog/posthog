@@ -694,6 +694,7 @@ class TestReplyPostedCapture(SimpleTestCase):
             "task_id": "task-1",
             "run_id": "run-1",
             "chart_links": True,
+            "turn_cost_usd": None,
         }
 
 

@@ -689,6 +689,22 @@ def invalidate_thread_messages_cache(integration_id: int, channel: str, thread_t
 UNFURL_OPT_OUT_PARAM = "unfurl"
 
 
+# Run-state key for the run's token cost at the last reply that showed a cost. A run serves
+# every turn of a thread and its cost only grows, so one reply's cost is the growth since then.
+FOOTER_COST_BASELINE_STATE_KEY = "slack_footer_cost_microusd"
+
+
+@frozen
+class TurnCost:
+    """What one reply's turn cost, for the footer."""
+
+    microusd: int
+    # The run's whole token cost so far, which the next reply measures its own cost against.
+    run_total_microusd: int
+    # False while some model requests are not priced yet, so the amount can still grow.
+    complete: bool
+
+
 @dataclass(frozen=True)
 class RunFooter:
     """What a reply knows about the run behind it.
@@ -715,6 +731,8 @@ class RunFooter:
     # Whether the run shares charts as insight links instead of images, so reply analytics can
     # compare the two delivery modes. Not rendered.
     chart_links: bool = False
+    # Set only for a reply that closes a turn, and only inside the footer cost rollout.
+    turn_cost: TurnCost | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -724,7 +742,7 @@ class RunFooter:
         keeps meaning "None-coalesce" and cannot silently discard a partial instance.
         The ids are not part of the answer — they say nothing on their own.
         """
-        return any((self.task_url, self.model, self.project, self.plan))
+        return any((self.task_url, self.model, self.project, self.plan, self.turn_cost))
 
 
 def _project_name(team_id: int, *, integration_id: int | None, created_by_id: int | None) -> str | None:
@@ -844,6 +862,44 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
         return RunFooter()
 
 
+def load_turn_cost(run_id: str | UUID, team_id: int, state: dict[str, Any] | None) -> TurnCost | None:
+    """What the run's latest turn cost on PostHog credits, or `None` when that is unknown.
+
+    Model usage is priced after each request, so the requests still waiting are priced
+    first. The wait is short and bounded, because the answer waits for it. Never raises,
+    for the same reason as `load_run_footer`.
+    """
+    from products.tasks.backend.facade.billing import (  # noqa: PLC0415
+        get_task_run_token_usage,
+        process_pending_gateway_usage,
+    )
+
+    try:
+        process_pending_gateway_usage(run_id=UUID(str(run_id)), team_id=team_id, limit=5)
+        usage = get_task_run_token_usage(run_id=UUID(str(run_id)), team_id=team_id)
+        if usage.cost_microusd is None:
+            return None
+        baseline = (state or {}).get(FOOTER_COST_BASELINE_STATE_KEY)
+        baseline = baseline if isinstance(baseline, int) else 0
+        return TurnCost(
+            microusd=max(0, usage.cost_microusd - baseline),
+            run_total_microusd=usage.cost_microusd,
+            complete=usage.complete,
+        )
+    except Exception:
+        logger.warning("slack_app_turn_cost_load_failed", run_id=str(run_id), exc_info=True)
+        return None
+
+
+def describe_turn_cost(cost: TurnCost) -> str:
+    """The cost in dollars to the cent. A tilde marks an amount that can still grow."""
+    if cost.microusd < 10_000:
+        amount = "<$0.01"
+    else:
+        amount = f"${Decimal(cost.microusd) / 1_000_000:.2f}"
+    return f"Cost: {'' if cost.complete else '~'}{amount}"
+
+
 def _run_context_segments(footer: RunFooter) -> list[str]:
     """What the run is, as footer segments: the model, the plan that pays for it, then the
     project it answered from.
@@ -885,7 +941,11 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
     segments: list[str] = []
     if footer.task_url:
         segments.append(f"<{footer.task_url}|View session>")
-    segments.extend(_run_context_segments(footer))
+    context_segments = _run_context_segments(footer)
+    if footer.turn_cost is not None:
+        # Beside the model, because the model is what decides the cost.
+        context_segments.insert(1 if footer.model else 0, describe_turn_cost(footer.turn_cost))
+    segments.extend(context_segments)
     if configure_url:
         segments.append(f"<{configure_url}|Configure>")
     if not segments:
