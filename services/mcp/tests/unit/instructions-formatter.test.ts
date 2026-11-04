@@ -504,7 +504,7 @@ describe('InstructionsFormatter', () => {
 
             expect(result).toContain('**LEARN FIRST: HARD REQUIREMENT**')
             expect(result).toContain('learn <topic...> - load one or more learning topics')
-            expect(result).toContain('Topics are cumulative.')
+            expect(result).toContain('load only the topics this task needs')
             expect(result).toContain('User: create pageviews visualization')
             expect(result).toContain(
                 "Assistant: This needs analytics and visualization guidance, so I'll load both first."
@@ -598,10 +598,21 @@ describe('InstructionsFormatter', () => {
             const entries = formatter.buildExecLearnGuides(fullCtx)
             const analytics = entries.find((entry) => entry.id === 'analytics')
 
-            expect(entries.map(({ id }) => id)).toEqual(['analytics', 'hogql', 'visualizations', 'urls', 'feedback'])
+            expect(entries.map(({ id }) => id)).toEqual([
+                'analytics',
+                'artifacts',
+                'examples',
+                'hogql',
+                'visualizations',
+                'urls',
+                'feedback',
+            ])
             expect(analytics?.content).toContain('### Retrieving data')
-            expect(analytics?.content).toContain('### Examples')
             expect(analytics?.content).toContain('- `query-trends` — time series')
+            expect(analytics?.content).not.toContain('### Where an analysis lands')
+            expect(analytics?.content).not.toContain('### Examples')
+            expect(entries.find((entry) => entry.id === 'artifacts')?.content).toContain('### Where an analysis lands')
+            expect(entries.find((entry) => entry.id === 'examples')?.content).toContain('### Examples')
             expect(entries.find((entry) => entry.id === 'visualizations')?.content).toContain(
                 '### Rendering visualizations'
             )
@@ -620,6 +631,8 @@ describe('InstructionsFormatter', () => {
 
             expect(formatter.buildExecLearnGuides(ctx).map((entry) => entry.id)).toEqual([
                 'analytics',
+                'artifacts',
+                'examples',
                 'hogql',
                 'urls',
                 'feedback',
@@ -720,9 +733,9 @@ describe('InstructionsFormatter', () => {
                 render: (formatter, ctx) => formatter.buildToolsInstructions(ctx),
             },
             {
-                name: 'analytics learn topic content',
+                name: 'artifacts learn topic content',
                 render: (formatter, ctx) =>
-                    formatter.buildExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
+                    formatter.buildExecLearnGuides(ctx).find((entry) => entry.id === 'artifacts')!.content,
             },
             {
                 name: 'buildExecCommandReference',
@@ -794,8 +807,8 @@ describe('InstructionsFormatter', () => {
             { name: 'tools', render: (f, ctx) => f.buildToolsInstructions(ctx), inline: true },
             { name: 'exec', render: (f, ctx) => f.buildExecCommandReference(ctx), inline: true },
             {
-                name: 'Claude analytics guide',
-                render: (f, ctx) => f.buildExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
+                name: 'Claude activity guide',
+                render: (f, ctx) => f.buildExecLearnGuides(ctx).find((entry) => entry.id === 'activity')?.content ?? '',
                 inline: true,
             },
             {
