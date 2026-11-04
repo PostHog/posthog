@@ -145,7 +145,7 @@ export function ExtensionHeatmapMenu(): JSX.Element {
                     onChange={(dateFrom, dateTo) =>
                         sendHeatmapCommand({
                             type: 'set-common-filters',
-                            filters: { date_from: dateFrom, date_to: dateTo },
+                            filters: { ...heatmap.commonFilters, date_from: dateFrom, date_to: dateTo },
                         })
                     }
                     dateOptions={heatmapDateOptions}
