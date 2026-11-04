@@ -478,6 +478,8 @@ class PlatformCheckPage:
 
     total: int
     checks: tuple[PlatformCheckEntry, ...]
+    # The platform configuration the checks belong to, so a source can join its own rows on it.
+    configuration_id: UUID
 
 
 @frozen

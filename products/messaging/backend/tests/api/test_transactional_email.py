@@ -143,6 +143,21 @@ class TestTransactionalEmail(APIBaseTest):
             "variables": {"link": "https://example.com/reset", "nickname": None},
         }
 
+    @parameterized.expand([("template",), ("send_email",)])
+    def test_a_project_secret_api_key_send_reads_the_key_template_and_workflow_once(
+        self, mock_post, _flag, _capture, route
+    ):
+        self._cdp_accepts(mock_post)
+        client = self._psak_client(["hog_flow:write"])
+        # The first send also records when the key was last used.
+        assert self._send(client, route, self.body).status_code == status.HTTP_202_ACCEPTED
+
+        # The key with its team and organization, the template, and the template's workflow.
+        with self.assertNumQueries(3):
+            response = self._send(client, route, self.body)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+
     def test_passes_the_idempotency_key_to_the_pipeline_and_reports_a_replay(self, mock_post, _flag, capture):
         mock_post.return_value = MagicMock(
             status_code=202, json=lambda: {"invocation_id": "first-send", "replayed": True}
@@ -526,7 +541,7 @@ class TestTransactionalEmail(APIBaseTest):
         template.refresh_from_db()
         assert template.transactional_hog_flow_id is None
 
-    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_saving_a_transactional_template_writes_a_new_workflow_version(self, reload, mock_post, _flag, _capture):
         MessageTemplate.objects.filter(id=self.template.id).update(draft_content={"email": {"subject": "Draft"}})
         security = Integration.objects.create(
@@ -545,6 +560,7 @@ class TestTransactionalEmail(APIBaseTest):
                 {"content": {"email": email_content}},
                 format="json",
             )
+            reload.assert_not_called()
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         # Workers reload once the new version is committed, not only from inside the transaction.

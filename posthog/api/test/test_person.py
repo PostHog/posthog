@@ -2264,10 +2264,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # The property-access-control feature check reuses the request's already-loaded team,
         # so listing persons no longer pays a per-request Team lookup (was 16). +1 for the
         # saved-expressions fetch in the HogQL database build. +1 each for the shared-database
-        # kill-switch, projection kill-switch and flag-cache TTL instance settings, cold-cache here
-        # but TTL-cached per worker in production. +1 for the organization's flag_evaluations mode
+        # kill-switch, projection kill-switch, properties-narrowing and flag-cache TTL instance
+        # settings, cold-cache here but TTL-cached per worker in production. +1 for the organization's flag_evaluations mode
         # lookup in the HogQL database build.
-        with self.assertNumQueries(18):
+        with self.assertNumQueries(19):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]

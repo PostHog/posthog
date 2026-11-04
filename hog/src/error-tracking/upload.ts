@@ -1,7 +1,7 @@
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
+import type { AccessKey } from '@/posthog/access-key'
 import { USER_AGENT } from '@/posthog/api'
-import type { Credentials } from '@/posthog/credentials'
 
 import { contentHash } from './container'
 
@@ -145,7 +145,7 @@ export class SymbolSetClient {
 
     constructor(
         private readonly runtime: Runtime,
-        private readonly credentials: Credentials,
+        private readonly key: AccessKey,
         private readonly onFallback: () => void = () => {}
     ) {
         this.throttle = new Throttle(runtime, RATE_LIMIT_PER_MINUTE)
@@ -153,7 +153,7 @@ export class SymbolSetClient {
 
     // Project-scoped API URL, resolved the way posthog-cli's `Url::join` does.
     projectUrl(path: string): URL {
-        return new URL(path, new URL(`api/projects/${this.credentials.projectId}/`, this.credentials.host))
+        return new URL(path, new URL(`api/projects/${this.key.projectId}/`, this.key.host))
     }
 
     async api(method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
@@ -164,7 +164,7 @@ export class SymbolSetClient {
             response = await this.runtime.fetch(url, {
                 method,
                 headers: {
-                    Authorization: `Bearer ${this.credentials.apiKey}`,
+                    Authorization: `Bearer ${this.key.token}`,
                     'Content-Type': 'application/json',
                     'User-Agent': USER_AGENT,
                 },

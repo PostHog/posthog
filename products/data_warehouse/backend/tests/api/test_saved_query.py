@@ -41,6 +41,7 @@ from products.data_modeling.backend.facade.models import (
     Edge,
     Node,
     NodeType,
+    is_raw_managed_trino_query,
 )
 from products.data_modeling.backend.facade.tasks import refresh_downstream_view_columns
 from products.data_tools.backend.facade.models import DataWarehouseJoin
@@ -198,12 +199,21 @@ class TestSavedQuery(APIBaseTest):
                 format="json",
             )
         self.assertEqual(response.status_code, 201, response.content)
+        # The sidebar adds the created view from this response, before any list reload.
+        self.assertTrue(response.json()["is_raw_managed_trino"])
         view = DataWarehouseSavedQuery.objects.get(id=response.json()["id"])
         assert view.query is not None and view.columns is not None
         self.assertEqual(view.query["query"], trino_sql)
         self.assertEqual(view.query["executionTarget"], "managed_trino")
         self.assertEqual(set(view.columns), {"hub_id", "occupied_at"})
         self.assertFalse(Node.objects.filter(saved_query=view).exists())
+
+        # The sidebar lists raw Trino views only under hosted Trino, so the list must mark them.
+        for flag_enabled in (True, False):
+            with patch("posthoganalytics.feature_enabled", return_value=flag_enabled):
+                listed = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/").json()
+            flags = {row["name"]: row["is_raw_managed_trino"] for row in listed["results"]}
+            self.assertEqual(flags["hub_occupancy"], flag_enabled)
 
         # HogQL on ClickHouse cannot expand Trino SQL, so the view stays out of the HogQL database.
         response = self.client.post(
@@ -2964,6 +2974,20 @@ class TestSavedQuery(APIBaseTest):
         view.refresh_from_db()
         assert (response.status_code, response.json()["detail"]) == (400, INCREMENTAL_CONFIG_CHANGED_REFUSAL)
         assert view.query != new_query
+
+
+class TestIsRawManagedTrinoQuery(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("raw", True, True),
+            ("hogql", None, False),
+            ("string_false", "false", False),
+            ("string_true", "true", False),
+        ]
+    )
+    def test_only_a_json_true_marks_a_raw_trino_view(self, _name: str, send_raw: object, expected: bool) -> None:
+        query = {"query": "SELECT 1", "executionTarget": "managed_trino", "sendRawQuery": send_raw}
+        self.assertEqual(is_raw_managed_trino_query(query), expected)
 
 
 class TestSavedQueryNameValidation(SimpleTestCase):

@@ -2,9 +2,17 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconFilter } from '@posthog/icons'
-import { Button, DropdownMenu, DropdownMenuContent, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
+import {
+    Button,
+    DropdownMenu,
+    DropdownMenuContent,
+    FilterMenuTrigger,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+    cn,
+} from '@posthog/quill'
 
-import { TodayFilterMenuTrigger } from './TodayFilterMenuTrigger'
 import { todayListAppearanceLogic } from './todayListAppearanceLogic'
 import { DROPDOWN_PARTS, SHEET_PARTS } from './todayMenuParts'
 import {
@@ -128,10 +136,8 @@ export function TodayRecentFilterMenu(): JSX.Element {
                             <Button
                                 size="icon-lg"
                                 aria-label={label}
-                                className={cn(
-                                    'relative text-muted-foreground',
-                                    active && 'bg-fill-selected text-foreground'
-                                )}
+                                indicator={active ? 'default' : undefined}
+                                className={cn('text-muted-foreground', active && 'bg-fill-selected text-foreground')}
                                 onClick={() => {
                                     setSheetOpen(true)
                                     touchMenuOpened('filter')
@@ -141,9 +147,6 @@ export function TodayRecentFilterMenu(): JSX.Element {
                         }
                     >
                         <IconFilter />
-                        {active && (
-                            <span aria-hidden className="absolute top-1 right-1 size-1.5 rounded-full bg-primary" />
-                        )}
                     </TooltipTrigger>
                     <TooltipContent>{label}</TooltipContent>
                 </Tooltip>
@@ -156,7 +159,7 @@ export function TodayRecentFilterMenu(): JSX.Element {
 
     return (
         <DropdownMenu>
-            <TodayFilterMenuTrigger active={active} dataAttr="today-recent-filter" />
+            <FilterMenuTrigger active={active} dataAttr="today-recent-filter" />
             <DropdownMenuContent align="end" className="min-w-56">
                 {items}
             </DropdownMenuContent>
