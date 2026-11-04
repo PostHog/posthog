@@ -320,15 +320,6 @@ const workflowsSendEmailExecute = (): ToolBase<typeof WorkflowsSendEmailSchemaEx
         if (params.reply_to !== undefined) {
             body['reply_to'] = params.reply_to
         }
-        if (params.cc !== undefined) {
-            body['cc'] = params.cc
-        }
-        if (params.bcc !== undefined) {
-            body['bcc'] = params.bcc
-        }
-        if (params.attachments !== undefined) {
-            body['attachments'] = params.attachments
-        }
         if (params.capture_engagement !== undefined) {
             body['capture_engagement'] = params.capture_engagement
         }
