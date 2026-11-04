@@ -150,6 +150,14 @@ fn a_deep_chain_of_named_records_is_rejected_without_overflow() {
         ));
     }
     assert!(Schema::parse_json(&format!("[{}]", branches.join(","))).is_err());
+
+    // Each redefinition of `R` refers to the previous one, so the chain still grows.
+    let mut redefined = vec![r#"{"type":"record","name":"R","fields":[]}"#.to_string()];
+    redefined.extend(std::iter::repeat_n(
+        r#"{"type":"record","name":"R","fields":[{"name":"a","type":"R"},{"name":"b","type":{"type":"record","name":"R","fields":[]}}]}"#.to_string(),
+        20_000,
+    ));
+    assert!(Schema::parse_json(&format!("[{}]", redefined.join(","))).is_err());
 }
 
 #[test]

@@ -28,6 +28,8 @@ pub enum Schema {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordSchema {
     pub name: String,
+    /// Fixed when the record is built, so a later definition with the same name cannot change it.
+    pub(crate) depth: usize,
     pub fields: Vec<Field>,
     pub aliases: Vec<String>,
     pub doc: Option<String>,
@@ -101,9 +103,18 @@ fn get_strings(object: &JsObject, key: &str) -> Vec<String> {
 /// A name reference reaches past the JSON nesting limit, so resolved depth needs its own bound before any recursive walk.
 const MAX_SCHEMA_DEPTH: usize = crate::js::MAX_BUILT_DEPTH;
 
+/// Anonymous nesting follows the JSON nesting limit, and a record carries its own depth.
+fn schema_depth(schema: &Schema) -> usize {
+    match schema {
+        Schema::Record(record) => record.depth,
+        Schema::Union(branches) => 1 + branches.iter().map(schema_depth).max().unwrap_or(0),
+        Schema::Array(inner) | Schema::Map(inner) => 1 + schema_depth(inner),
+        _ => 1,
+    }
+}
+
 struct Parser {
     named: HashMap<String, Schema>,
-    record_depth: HashMap<String, usize>,
 }
 
 fn qualify(name: &str, namespace: Option<&str>) -> String {
@@ -117,18 +128,6 @@ fn qualify(name: &str, namespace: Option<&str>) -> String {
 }
 
 impl Parser {
-    /// Anonymous nesting follows the JSON nesting limit, and a record reads its stored depth.
-    fn depth(&self, schema: &Schema) -> usize {
-        match schema {
-            Schema::Record(record) => self.record_depth.get(&record.name).copied().unwrap_or(1),
-            Schema::Union(branches) => {
-                1 + branches.iter().map(|b| self.depth(b)).max().unwrap_or(0)
-            }
-            Schema::Array(inner) | Schema::Map(inner) => 1 + self.depth(inner),
-            _ => 1,
-        }
-    }
-
     fn parse(&mut self, value: &JsValue, namespace: Option<&str>) -> Result<Schema, AvroError> {
         match value {
             JsValue::String(name) => self.parse_name(&name.to_string(), namespace),
@@ -206,15 +205,15 @@ impl Parser {
                     .collect();
                 let depth = 1 + fields
                     .iter()
-                    .map(|f| self.depth(&f.schema))
+                    .map(|f| schema_depth(&f.schema))
                     .max()
                     .unwrap_or(0);
                 if depth > MAX_SCHEMA_DEPTH {
                     return Err(schema_error("schema nesting too deep"));
                 }
-                self.record_depth.insert(name.clone(), depth);
                 let schema = Schema::Record(Arc::new(RecordSchema {
                     name: name.clone(),
+                    depth,
                     fields,
                     aliases: get_strings(object, "aliases"),
                     doc: get_str(object, "doc").map(str::to_string),
@@ -283,10 +282,9 @@ impl Schema {
         let value = json_parse(text).map_err(|e| schema_error(e.to_string()))?;
         let mut parser = Parser {
             named: HashMap::new(),
-            record_depth: HashMap::new(),
         };
         let schema = parser.parse(&value, None)?;
-        if parser.depth(&schema) > MAX_SCHEMA_DEPTH {
+        if schema_depth(&schema) > MAX_SCHEMA_DEPTH {
             return Err(schema_error("schema nesting too deep"));
         }
         Ok(schema)
