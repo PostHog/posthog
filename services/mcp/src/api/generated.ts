@@ -100302,6 +100302,8 @@ export namespace Schemas {
        * * `listed` - Automatic Flash for these people
        * * `off` - Automatic Flash opt-in only */
       readonly flash_for: AutomaticFlashForEnum | null;
+      /** Whether draft pull requests in this repository get their automatic review when they open. */
+      readonly review_drafts: boolean;
       /** The people on the exception's two lists. Only the list that matches flash_for has an effect. */
       readonly people: readonly ReviewRepositoryPerson[];
       /** Who added the repository. */
@@ -100409,6 +100411,8 @@ export namespace Schemas {
       repository_id: string | null;
       /** This project's repository exception. Null when the repository follows the project. */
       exception: ReviewRepositoryException | null;
+      /** Whether draft pull requests in this repository get their automatic review when they open. Authors who turned off reviews of their drafts still get none. */
+      review_drafts: boolean;
       /** The requesting user's own choice for this repository: 'flash', 'off', or null.
        *
        * * `flash` - Flash
@@ -100446,7 +100450,7 @@ export namespace Schemas {
          * @nullable
          */
       next_offset: number | null;
-      /** With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out because this project reviews them with no exception and no own choice. 0 otherwise. */
+      /** With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out because this project reviews them with no exception, no draft reviews and no own choice. 0 otherwise. */
       folded: number;
       /** With view 'differs', or 'all' without a search: the names of the first left-out repositories, at most 3. Empty otherwise. */
       folded_preview: string[];
@@ -100490,6 +100494,8 @@ export namespace Schemas {
        * * `listed` - Automatic Flash for these people
        * * `off` - Automatic Flash opt-in only */
       flash_for?: AutomaticFlashForEnum | null;
+      /** True lets draft pull requests in this repository get their automatic review when they open. False waits until they are ready for review. Omit it to keep the current value. */
+      review_drafts?: boolean;
     }
 
     export interface ReviewRepositoryWriteResponse {

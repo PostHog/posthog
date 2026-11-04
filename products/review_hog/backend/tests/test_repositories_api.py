@@ -280,7 +280,9 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("exception_without_ownership", {**WEB, "flash_for": "everyone"}, 400),
+            ("drafts_without_ownership", {**WEB, "review_drafts": True}, 400),
             ("nothing_to_store", {**WEB, "selected": False}, 200),
+            ("drafts_off_is_nothing_to_store", {**WEB, "review_drafts": False}, 200),
             ("unknown_to_the_installation", {**WEB, "full_name": "example-org/secret", "selected": True}, 400),
             ("id_of_another_repository", {**WEB, "github_repo_id": 502, "selected": True}, 400),
             (
@@ -404,6 +406,26 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         searched = self.client.get(f"{url}&search=API").json()
         assert [entry["full_name"] for entry in searched["results"]] == ["example-org/api"]
         assert searched["folded"] == 0
+
+    @patch(
+        "posthog.models.integration.GitHubIntegration.list_all_cached_repositories", return_value=CACHED_REPOSITORIES
+    )
+    def test_draft_reviews_alone_keep_a_repository_row_out_of_the_fold(self, _cached: object) -> None:
+        self._claim(self.team, ReviewInstallationClaim.Scope.ALL)
+        url = self._url(f"repository_overview/?installation_id={INSTALLATION}&view=differs")
+
+        turned_on = self.client.post(self._url("repositories/"), {**WEB, "review_drafts": True}, format="json")
+
+        assert turned_on.status_code == 200, turned_on.json()
+        assert turned_on.json()["repository"]["review_drafts"] is True
+        [entry] = [entry for entry in self.client.get(url).json()["results"] if entry["full_name"] == "example-org/web"]
+        assert entry["review_drafts"] is True
+
+        turned_off = self.client.post(self._url("repositories/"), {**WEB, "review_drafts": False}, format="json")
+
+        assert turned_off.json()["repository"] is None
+        assert not ReviewRepository.objects.for_team(self.team.id).exists()
+        assert "example-org/web" in self.client.get(url).json()["folded_preview"]
 
     def test_overview_needs_a_connected_installation(self) -> None:
         res = self.client.get(self._url("repository_overview/?installation_id=9999"))

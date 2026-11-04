@@ -83,6 +83,8 @@ class TestResolveActingUser(BaseTest):
             # No Flash after Full: a Full review published while the push waited stops it.
             ("full_review_published", True, True, True, True, True, "PostHog", None),
             ("placeholder_account_name", True, True, True, True, False, "installation-1234", "1234"),
+            # Draft reviews are off in the repository, so a queued draft run stops when it starts.
+            ("draft_in_a_repository_without_drafts", True, True, True, True, False, "PostHog", None, True),
         ]
     )
     def test_automatic_trigger_rechecks_eligible_author(
@@ -95,6 +97,7 @@ class TestResolveActingUser(BaseTest):
         full_published: bool,
         account_name: str,
         installation_id: str | None,
+        draft: bool = False,
     ) -> None:
         Integration.objects.create(
             team=self.team, kind="github", integration_id="1234", config={"account": {"name": account_name}}
@@ -133,9 +136,10 @@ class TestResolveActingUser(BaseTest):
                 report_id=str(report.id),
                 repository="posthog/PostHog",
                 installation_id=installation_id,
+                draft=draft,
             )
         )
-        eligible = opted_in and active and member and repository_added and not full_published
+        eligible = opted_in and active and member and repository_added and not full_published and not draft
         assert result.acting_user_id == (self.user.id if eligible else None)
         # The workflow gates the automatic run on this flag after the resolve.
         assert result.review_authored_prs is eligible

@@ -56,7 +56,7 @@ in flight, with the detail in DECISIONS.md.
 ## Status & next
 
 ReviewHog runs end-to-end: label / UI / inbox / automatic authored-PR triggers → the Temporal pipeline → published PR review.
-Automatic Standard reviews run on new PRs and pushes, including drafts unless the owner turns them off (a draft gets one review, and the next one runs when it is marked ready), but never on PRs with the `skip-agent-review` label, in every repository a project reviews, for the authors that the project rule, the repository exceptions, and each person's own choices select (`backend/automatic_review_rules.py`).
+Automatic Standard reviews run on new PRs and pushes, including drafts in repositories that turn draft reviews on, unless the owner turns them off (a draft gets one review, and the next one runs when it is marked ready), but never on PRs with the `skip-agent-review` label, in every repository a project reviews, for the authors that the project rule, the repository exceptions, and each person's own choices select (`backend/automatic_review_rules.py`).
 The per-PR queue serializes reviews and coalesces automatic pushes into a follow-up for the latest head.
 The current focus is productionizing the reviewer-topology eval and tightening the finder/validator balance
 (validator strictness, fewer junk candidates, the coverage gap).
@@ -959,7 +959,7 @@ whoever controls the run, the sandbox agent included), **MCP tools**
 `review-hog` feature flag) that drive the same reviews viewset with a personal API key or OAuth token, and **automatic authored-PR Flash reviews**.
 The automatic trigger consumes signed GitHub `pull_request` deliveries through `review_hog_authored_prs` and queues a Celery task for the ownership, identity, and rule checks.
 It accepts `opened`, `synchronize`, and `ready_for_review` for open PRs whose head and base belong to the delivery's repository, including drafts.
-A draft is skipped (`draft_skipped`) when the PR owner turned `review_drafts` off. Its first automatic review then comes from `ready_for_review`, and `automatic_reviewed_head_sha` keeps a head that was already reviewed as a draft from a second review.
+A draft is skipped (`draft_skipped`) unless its repository turned draft reviews on (`ReviewRepository.review_drafts`, default off) and the PR owner kept `review_drafts` on. A bot or an unmapped author follows the repository alone. The workflow checks both again when a queued run starts. A skipped draft's first automatic review then comes from `ready_for_review`, and `automatic_reviewed_head_sha` keeps a head that was already reviewed as a draft from a second review.
 A draft that is reviewed gets its first automatic review only: the push gate's `draft` rule skips the later pushes, and `ready_for_review` reviews everything since the last reviewed head, also when the author marks it ready without a push.
 A PR with the `skip-agent-review` label gets no automatic review (`label_skipped`). The task checks the payload labels, and the turn checks the labels its fetch reads from GitHub again, because `gh pr create --label` adds labels after the `opened` delivery.
 The turn ends before the status comment, so a skip leaves nothing on the PR. Removing the label does not start a review; comment `@posthog review` for one.

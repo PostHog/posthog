@@ -37,19 +37,17 @@ export function MyDefaultCell({ className }: { className?: string }): JSX.Elemen
                     data-attr="review-hog-default-review-mode"
                 />
             </div>
-            <div className="flex flex-col gap-0.5">
-                <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-secondary">Review my draft pull requests</span>
-                    <LemonSwitch
-                        aria-label="Review my draft pull requests"
-                        checked={reviewDrafts}
-                        onChange={(checked) => updateSettings({ review_drafts: checked })}
-                        disabledReason={disabledReason}
-                        data-attr="review-hog-review-drafts"
-                    />
-                    <YouMark shown={!reviewDrafts} />
-                </div>
-                <span className="text-xs text-secondary">Turn off to wait until your PR is ready for review.</span>
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-secondary">Review my draft pull requests</span>
+                <LemonSwitch
+                    aria-label="Review my draft pull requests"
+                    checked={reviewDrafts}
+                    onChange={(checked) => updateSettings({ review_drafts: checked })}
+                    tooltip="When off, your drafts wait until they are ready for review, in every repository."
+                    disabledReason={disabledReason}
+                    data-attr="review-hog-review-drafts"
+                />
+                <YouMark shown={!reviewDrafts} />
             </div>
             {notice && (
                 <LemonBanner type="info" className="text-xs">

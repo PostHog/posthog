@@ -315,6 +315,8 @@ class ReviewMeta:
     empty_diff: bool = False
     already_completed: bool = False
     pr_open: bool = True
+    # Only forwarded to the acting-user re-check; the workflow does not branch on it.
+    draft: bool = False
     # Decided here so the workflow branches on a recorded result; older histories decode as the pipeline.
     review_design: str = REVIEW_DESIGN_PIPELINE
     # Why the design was chosen, for the started event. Empty on histories from before it existed.
@@ -358,6 +360,9 @@ class ResolveActingUserInput:
     repository: str | None = None
     installation_id: str | None = None
     github_repo_id: int | None = None
+    # Whether the PR was a draft when the turn fetched it, for the automatic trigger's re-check of the draft rules.
+    # False in older payloads, which reviews the draft as before.
+    draft: bool = False
     # The PR's head branch, which links a self-driving PR to its Inbox report. The fetch refuses forks,
     # so the branch is in the base repository. None in older payloads: such a PR then has no owner.
     head_branch: str | None = None
@@ -968,6 +973,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         empty_diff=pr_number is None and not fetched.pr_files,
         already_completed=already_completed,
         pr_open=fetched.pr_metadata.state == "open",
+        draft=fetched.pr_metadata.draft,
         review_design=design_choice.design,
         review_design_reason=design_choice.reason,
         lens_chunk_count=len(lens_plan.chunks) if lens_plan is not None else 0,
@@ -1022,6 +1028,7 @@ def _automatic_review_allowed(input: ResolveActingUserInput, acting_user_id: int
         author_login=input.author_login,
         installation_id=input.installation_id,
         github_repo_id=input.github_repo_id,
+        draft=input.draft,
     )
 
 

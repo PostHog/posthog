@@ -179,6 +179,13 @@ export interface reviewHogRepositoriesLogicActions {
     setFoldOpen: (foldOpen: boolean) => {
         foldOpen: boolean
     }
+    setRepositoryDrafts: (
+        entry: ReviewRepositoryOverviewEntryApi,
+        reviewDrafts: boolean
+    ) => {
+        entry: ReviewRepositoryOverviewEntryApi
+        reviewDrafts: boolean
+    }
     setFoldSummary: (foldSummary: FoldSummary | null) => {
         foldSummary: FoldSummary | null
     }
@@ -271,6 +278,10 @@ export const reviewHogRepositoriesLogic = kea<reviewHogRepositoriesLogicType>([
         setExceptionFlashFor: (entry: ReviewRepositoryOverviewEntryApi, flashFor: AutomaticFlashForEnumApi) => ({
             entry,
             flashFor,
+        }),
+        setRepositoryDrafts: (entry: ReviewRepositoryOverviewEntryApi, reviewDrafts: boolean) => ({
+            entry,
+            reviewDrafts,
         }),
         addExceptionPerson: (
             entry: ReviewRepositoryOverviewEntryApi,
@@ -575,6 +586,21 @@ export const reviewHogRepositoriesLogic = kea<reviewHogRepositoriesLogicType>([
                 )
                 if (saved) {
                     posthog.capture('review hog repository exception changed', { flash_for: flashFor })
+                }
+            },
+            setRepositoryDrafts: async ({ entry, reviewDrafts }) => {
+                const saved = await writeRepository(
+                    entry,
+                    async () => {
+                        await reviewHogRepositoriesCreate(currentProjectId(), {
+                            ...repositoryRef(entry),
+                            review_drafts: reviewDrafts,
+                        })
+                    },
+                    'Could not save the draft setting. Try again.'
+                )
+                if (saved) {
+                    posthog.capture('review hog repository drafts changed', { review_drafts: reviewDrafts })
                 }
             },
             addExceptionPerson: async ({ entry, userId, kind }) => {
