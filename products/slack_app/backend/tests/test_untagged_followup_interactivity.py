@@ -416,6 +416,7 @@ class TestUntaggedQuestionInteractivity(TestCase):
         action_id: str,
         slack_user_id: str = "U_BOB",
         *,
+        thread_flag_on: bool = True,
         start_fails: bool = False,
         ext_shared: bool | None = False,
     ) -> Any:
@@ -443,6 +444,10 @@ class TestUntaggedQuestionInteractivity(TestCase):
                 "products.slack_app.backend.api._start_mention_workflow",
                 side_effect=RuntimeError("temporal down") if start_fails else None,
             ) as mock_start,
+            patch(
+                "products.slack_app.backend.api.is_slack_app_unprompted_thread_answers_enabled",
+                return_value=thread_flag_on,
+            ),
             patch("products.slack_app.backend.api.channel_ext_shared_state", return_value=ext_shared),
         ):
             self.client.post(
@@ -517,3 +522,23 @@ class TestUntaggedQuestionInteractivity(TestCase):
         )
 
         assert not self._click(UNTAGGED_QUESTION_ACTION_RUN).called
+
+    @parameterized.expand(
+        [
+            ("a top-level post with the thread flag off", False, None, True),
+            ("a reply after the thread flag was turned off", False, "1999.0000", False),
+            ("a reply with the thread flag on", True, "1999.0000", True),
+        ]
+    )
+    def test_confirmation_checks_the_thread_flag_again(
+        self, mock_slack_cls, mock_post, _name, thread_flag_on, thread_ts, expect_dispatch
+    ):
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_slack_cls.return_value.missing_scopes.return_value = set()
+        context = cache.get(_picker_context_cache_key(self.context_token))
+        context["event"] = {**self.event, "thread_ts": thread_ts}
+        cache.set(_picker_context_cache_key(self.context_token), context, timeout=900)
+
+        mock_start = self._click(UNTAGGED_QUESTION_ACTION_RUN, thread_flag_on=thread_flag_on)
+
+        assert mock_start.called is expect_dispatch
