@@ -387,7 +387,7 @@ export const loginLogic = kea<loginLogicType>([
             },
         ],
     }),
-    loaders(({ values, cache }) => ({
+    loaders(({ actions, values, cache }) => ({
         precheckResponse: [
             { status: 'pending' } as PrecheckResponseType,
             {
@@ -456,7 +456,9 @@ export const loginLogic = kea<loginLogicType>([
                         return response
                     } catch (e) {
                         const { code, detail } = e as Record<string, any>
-                        if (code === 'too_soon') {
+                        if (code === 'login_code_email_undeliverable') {
+                            actions.setGeneralError(code, detail)
+                        } else if (code === 'too_soon') {
                             lemonToast.error(detail || 'Please wait before requesting another email')
                         } else {
                             lemonToast.error(detail || 'Failed to resend email')
