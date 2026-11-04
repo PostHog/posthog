@@ -1108,6 +1108,31 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     let stopReason: PromptResponse["stopReason"] = "end_turn";
     const pendingSubagents = new Map<string, string | undefined>();
     const completedSubagents = new Map<string, string | undefined>();
+    const endedSubagentRuns = new Map<string, string | undefined>();
+    const trackPendingSubagent = (
+      taskId: string,
+      runId: string | undefined,
+    ): void => {
+      // Snapshot and lifecycle events can overlap; a completed run must not become pending again.
+      if (endedSubagentRuns.has(taskId)) {
+        const endedRun = endedSubagentRuns.get(taskId);
+        if (
+          runId === undefined ||
+          endedRun === undefined ||
+          runId <= endedRun
+        ) {
+          return;
+        }
+      }
+      const pendingRun = pendingSubagents.get(taskId);
+      if (
+        pendingRun !== undefined &&
+        (runId === undefined || runId < pendingRun)
+      ) {
+        return;
+      }
+      pendingSubagents.set(taskId, runId);
+    };
     const subagentReplyBatches: Set<string>[] = [];
     const hasPendingSubagents = () =>
       pendingSubagents.size > 0 ||
@@ -1175,6 +1200,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const resetTurnScratch = () => {
       pendingSubagents.clear();
       completedSubagents.clear();
+      endedSubagentRuns.clear();
       subagentReplyBatches.length = 0;
       lastAssistantTotalUsage = null;
       lastRefusalExplanation = null;
@@ -1400,11 +1426,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 !message.ambient &&
                 (message.task_type === "local_agent" || message.subagent_type)
               ) {
-                pendingSubagents.set(message.task_id, message.run_id);
+                trackPendingSubagent(message.task_id, message.run_id);
               } else if (message.subtype === "background_tasks_changed") {
                 for (const task of message.tasks) {
                   if (task.task_type === "local_agent" && !task.ambient) {
-                    pendingSubagents.set(task.task_id, task.run_id);
+                    trackPendingSubagent(task.task_id, task.run_id);
                   }
                 }
               } else if (
@@ -1414,6 +1440,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               ) {
                 // A completed worker still needs the parent to consume its result.
                 pendingSubagents.delete(message.task_id);
+                endedSubagentRuns.set(message.task_id, message.run_id);
                 completedSubagents.set(message.task_id, message.run_id);
               }
             }

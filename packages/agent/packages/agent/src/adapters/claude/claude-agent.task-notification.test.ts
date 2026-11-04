@@ -294,7 +294,7 @@ describe("ClaudeAcpAgent — task-notification results", () => {
     },
   );
 
-  it.each(["overlapping", "batched"])(
+  it.each(["overlapping", "batched", "late_snapshot", "late_start", "resumed"])(
     "handles %s notifications without accepting an unrelated wakeup",
     async (delivery) => {
       const { agent } = makeAgent();
@@ -375,9 +375,57 @@ describe("ClaudeAcpAgent — task-notification results", () => {
         query,
         assistantMessage(sessionId, "final", "Research complete."),
       );
+      if (delivery === "late_snapshot") {
+        await send(query, {
+          type: "system",
+          subtype: "background_tasks_changed",
+          tasks: [
+            {
+              task_id: "worker-b",
+              task_type: "local_agent",
+              run_id: "worker-b",
+            },
+          ],
+        });
+        await send(query, {
+          type: "system",
+          subtype: "background_tasks_changed",
+          tasks: [],
+        });
+      }
+      if (delivery === "late_start" || delivery === "resumed") {
+        await send(query, {
+          type: "system",
+          subtype: "task_started",
+          task_id: "worker-b",
+          task_type: "local_agent",
+          is_backgrounded: true,
+          run_id: delivery === "resumed" ? "worker-b-2" : "worker-b",
+        });
+      }
       await send(query, taskNotificationResult(sessionId, "final"));
-      await prompt;
+      if (delivery === "resumed") {
+        expect(settled).not.toHaveBeenCalled();
+        await send(query, {
+          type: "system",
+          subtype: "task_notification",
+          task_id: "worker-b",
+          run_id: "worker-b-2",
+          status: "completed",
+          summary: "Worker ended.",
+        });
+        await send(query, {
+          ...taskNotificationUserMessage(sessionId, "worker-b"),
+          origin: { kind: "task-notification", runId: "worker-b-2" },
+        });
+        await send(
+          query,
+          assistantMessage(sessionId, "resumed", "Research complete."),
+        );
+        await send(query, taskNotificationResult(sessionId, "resumed"));
+      }
       expect(settled).toHaveBeenCalledOnce();
+      await prompt;
     },
   );
 
