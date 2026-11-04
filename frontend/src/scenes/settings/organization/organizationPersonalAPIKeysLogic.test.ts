@@ -132,6 +132,19 @@ describe('organizationPersonalAPIKeysLogic', () => {
             event: ['organization personal api key action failed', { action: 'revoke', target: 'all', status: 500 }],
         },
         {
+            name: 'roll all keys that a permission check rejects',
+            run: () => logic.actions.rollAllKeys(),
+            inFlight: 'all',
+            path: '/api/organizations/:organization_id/personal_api_keys/roll_all/',
+            response: [403, { detail: 'You do not have permission to perform this action.' }],
+            finish: 'keyActionFailure',
+            toast: {
+                kind: 'error',
+                text: /^Couldn't roll all keys\. You do not have permission to perform this action\.$/,
+            },
+            event: ['organization personal api key action failed', { action: 'roll', target: 'all', status: 403 }],
+        },
+        {
             name: 'roll one key',
             run: () => logic.actions.rollKey('key-ada'),
             inFlight: 'key-ada',
@@ -151,7 +164,10 @@ describe('organizationPersonalAPIKeysLogic', () => {
             path: '/api/organizations/:organization_id/personal_api_keys/key-alan/revoke/',
             response: [404, { detail: 'Not found.' }],
             finish: 'keyActionFailure',
-            toast: { kind: 'error', text: /no longer works in this organization/ },
+            toast: {
+                kind: 'error',
+                text: /doesn't have access to this organization\. Only its owner can change it\.$/,
+            },
             event: ['organization personal api key action failed', { action: 'revoke', target: 'single', status: 404 }],
         },
     ])(

@@ -48,14 +48,13 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
     }
     const isRunning = (target: string, action: KeyAction): boolean =>
         keyActionInFlight === target && confirmedAction === action
-    const actionInFlightReason = keyActionInFlight !== null ? 'Wait for the current action to finish' : null
+    // A finished action clears its in-flight marker before its reload of the list ends. The loading check keeps the
+    // buttons disabled on the stale list until the reload ends.
+    const actionDisabledReason =
+        keyActionInFlight !== null ? 'Wait for the current action to finish' : keysLoading ? 'Loading keys' : null
     const bulkDisabledReason =
-        actionInFlightReason ??
-        (bulkSummary.total === 0
-            ? keysLoading
-                ? 'Loading keys'
-                : 'No personal API keys have access to this organization'
-            : null)
+        actionDisabledReason ??
+        (bulkSummary.total === 0 ? 'No personal API keys have access to this organization' : null)
 
     const columns: LemonTableColumns<OrganizationPersonalAPIKeyApi> = [
         {
@@ -76,6 +75,7 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
             render: (_, key) => <span className="font-mono">{key.mask_value}</span>,
         },
         {
+            title: 'Actions',
             key: 'actions',
             width: 0,
             render: (_, key) => {
@@ -87,12 +87,13 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
                             type="secondary"
                             size="small"
                             loading={rolling}
-                            disabledReason={rolling ? null : actionInFlightReason}
+                            disabledReason={rolling ? null : actionDisabledReason}
                             onClick={() =>
                                 openRollKeyDialog(key, ownerLabel(key.owner), () =>
                                     runAction('roll', () => rollKey(key.id))
                                 )
                             }
+                            aria-label={`Roll key ${key.mask_value}`}
                             data-attr="organization-personal-api-key-roll"
                         >
                             Roll
@@ -101,12 +102,13 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
                             type="secondary"
                             size="small"
                             loading={revoking}
-                            disabledReason={revoking ? null : actionInFlightReason}
+                            disabledReason={revoking ? null : actionDisabledReason}
                             onClick={() =>
                                 openRevokeKeyDialog(key, ownerLabel(key.owner), () =>
                                     runAction('revoke', () => revokeKey(key.id))
                                 )
                             }
+                            aria-label={`Revoke key ${key.mask_value}`}
                             data-attr="organization-personal-api-key-revoke"
                         >
                             Revoke
@@ -155,7 +157,7 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
                         type="secondary"
                         loading={isRunning(ALL_KEYS, 'roll')}
                         disabledReason={isRunning(ALL_KEYS, 'roll') ? null : bulkDisabledReason}
-                        onClick={() => openRollAllKeysDialog(bulkSummary, () => runAction('roll', rollAllKeys))}
+                        onClick={() => openRollAllKeysDialog(bulkSummary, search, () => runAction('roll', rollAllKeys))}
                         data-attr="organization-personal-api-keys-roll-all"
                     >
                         Roll all keys
@@ -164,7 +166,9 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
                         type="secondary"
                         loading={isRunning(ALL_KEYS, 'revoke')}
                         disabledReason={isRunning(ALL_KEYS, 'revoke') ? null : bulkDisabledReason}
-                        onClick={() => openRevokeAllKeysDialog(bulkSummary, () => runAction('revoke', revokeAllKeys))}
+                        onClick={() =>
+                            openRevokeAllKeysDialog(bulkSummary, search, () => runAction('revoke', revokeAllKeys))
+                        }
                         data-attr="organization-personal-api-keys-revoke-all"
                     >
                         Revoke all keys
@@ -175,7 +179,7 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
                 dataSource={filteredKeys}
                 loading={keysLoading}
                 columns={columns}
-                rowKey={(key) => `${key.owner.email}-${key.mask_value}-${key.created_at}`}
+                rowKey="id"
                 pagination={{ pageSize: 25 }}
                 emptyState={
                     search.trim()

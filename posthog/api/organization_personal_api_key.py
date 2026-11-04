@@ -112,7 +112,9 @@ class OrganizationPersonalAPIKeySerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_reaches_other_organizations(self, key: PersonalAPIKey) -> bool:
-        resolver: KeyReachResolver = self.context["reach_resolver"]
+        # The view puts a shared resolver in the context only for a list, so that a page of keys costs a fixed
+        # number of queries. Any other use resolves the one key on its own.
+        resolver: KeyReachResolver = self.context.get("reach_resolver") or KeyReachResolver.for_keys([key])
         organization_id = str(self.context["get_organization"]().id)
         return bool(resolver.reach(key, organization_id).other_organization_ids)
 
@@ -168,9 +170,11 @@ class OrganizationPersonalAPIKeyViewSet(
         # the way drf-spectacular does for a view that keeps the default `get_serializer`.
         if getattr(self, "swagger_fake_view", False):
             return self.get_serializer_class()(*args, **kwargs)
-        context = kwargs.setdefault("context", self.get_serializer_context())
+        # Copy a passed context, so that adding the resolver does not change the caller's dict.
+        context = dict(kwargs["context"]) if "context" in kwargs else self.get_serializer_context()
         if kwargs.get("many") and args:
             context["reach_resolver"] = KeyReachResolver.for_keys(list(args[0]))
+        kwargs["context"] = context
         return super().get_serializer(*args, **kwargs)
 
     def get_serializer_context(self) -> dict[str, Any]:

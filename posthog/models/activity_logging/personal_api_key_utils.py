@@ -32,7 +32,8 @@ class OrganizationAdminKeyActionContext:
     """Marks key changes an admin of `organization_id` makes to a member's key.
 
     While it is active, rows in the other organizations the key reaches name no actor, and the
-    organizations the key owner left get no row.
+    other organizations that the key owner left get no row. The acting organization always keeps
+    its row, with the admin as the actor.
     """
 
     def __init__(self, organization_id: str) -> None:

@@ -38,8 +38,8 @@ export function openRollKeyDialog(key: OrganizationPersonalAPIKeyApi, owner: str
         description: (
             <>
                 <p>
-                    {keyName(key, owner)} gets a new secret that nobody sees. It keeps its scopes and settings, but
-                    stops working until the owner rolls it again in their own settings.
+                    {keyName(key, owner)} gets a new secret that is not shown to anyone. It keeps its scopes and
+                    settings, but stops working until the owner rolls it again in their own settings.
                 </p>
                 {key.reaches_other_organizations ? (
                     <p>This key also works in other organizations, so it stops working there too.</p>
@@ -72,7 +72,7 @@ export function openRevokeKeyDialog(key: OrganizationPersonalAPIKeyApi, owner: s
                 ) : (
                     <p>
                         {keyName(key, owner)} works only in this organization, so revoking it deletes the key. Anything
-                        that uses it stops working.
+                        that uses it stops working until the owner creates a new key.
                     </p>
                 )}
                 <p>The owner gets an email about this change.</p>
@@ -131,11 +131,15 @@ function openBulkKeyActionDialog({
         ),
         errors: {
             confirmation: (value?: string) =>
-                matchesConfirmationText(value ?? '', phrase) ? undefined : typeToConfirm,
+                matchesConfirmationText(value ?? '', phrase) ? undefined : 'The text does not match.',
         },
         primaryButtonProps: { status: 'danger', children: submitLabel },
         onSubmit: onConfirm,
     })
+}
+
+function searchIgnoredLines(search: string): string[] {
+    return search.trim() ? ['Your search does not limit this. It acts on every key in the organization.'] : []
 }
 
 function ownedByMeLine(ownedByMe: number): string {
@@ -146,15 +150,17 @@ function ownedByMeLine(ownedByMe: number): string {
 
 export function openRollAllKeysDialog(
     { total, alsoInOtherOrganizations, ownedByMe }: BulkKeySummary,
+    search: string,
     onConfirm: () => void
 ): void {
     openBulkKeyActionDialog({
         action: 'roll',
         title: 'Roll all personal API keys?',
         description:
-            'Every personal API key with access to this organization gets a new secret that nobody sees. Each key keeps its scopes and settings, but stops working until its owner rolls it again in their own settings. Each owner gets an email about this change.',
+            'Every personal API key with access to this organization gets a new secret that is not shown to anyone. Each key keeps its scopes and settings, but stops working until its owner rolls it again in their own settings. Each owner gets an email about this change.',
         counts: [
             `This rolls ${pluralize(total, 'key')}.`,
+            ...searchIgnoredLines(search),
             alsoInOtherOrganizations
                 ? `${pluralize(alsoInOtherOrganizations, 'key')} also ${agree(alsoInOtherOrganizations, 'works', 'work')} in other organizations and ${agree(alsoInOtherOrganizations, 'stops', 'stop')} working there too.`
                 : NONE_IN_OTHER_ORGANIZATIONS,
@@ -169,6 +175,7 @@ export function openRollAllKeysDialog(
 
 export function openRevokeAllKeysDialog(
     { total, alsoInOtherOrganizations, ownedByMe }: BulkKeySummary,
+    search: string,
     onConfirm: () => void
 ): void {
     const onlyInThisOrganization = total - alsoInOtherOrganizations
@@ -179,6 +186,7 @@ export function openRevokeAllKeysDialog(
             'Every personal API key with access to this organization loses that access. A key that works only in this organization gets deleted. A key that also works in other organizations keeps working there. Each owner gets an email about this change.',
         counts: [
             `This revokes ${pluralize(total, 'key')}.`,
+            ...searchIgnoredLines(search),
             onlyInThisOrganization
                 ? `${pluralize(onlyInThisOrganization, 'key')} ${agree(onlyInThisOrganization, 'works', 'work')} only in this organization and ${agree(onlyInThisOrganization, 'gets', 'get')} deleted.`
                 : 'None of these keys get deleted.',
