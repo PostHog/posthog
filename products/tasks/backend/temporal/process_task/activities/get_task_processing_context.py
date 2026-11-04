@@ -57,6 +57,7 @@ from products.tasks.backend.logic.services.agentsh import (
     _get_debug_only_ports,
     enforced_egress_domains,
 )
+from products.tasks.backend.logic.services.gateway_model_pin import model_allowed_by_product_pin
 from products.tasks.backend.logic.services.network_policy import (
     EffectiveNetworkPolicy,
     NetworkPolicyValidationError,
@@ -263,7 +264,13 @@ class TaskProcessingContext:
     @property
     def model(self) -> str | None:
         value = (self.state or {}).get("model")
-        return value if isinstance(value, str) else None
+        if not isinstance(value, str):
+            return None
+        if self.origin_product == Task.OriginProduct.POSTHOG_AI and not model_allowed_by_product_pin(
+            "posthog_ai", value
+        ):
+            return None
+        return value
 
     @property
     def reasoning_effort(self) -> str | None:
@@ -1073,7 +1080,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # sandbox needs no extra request on its boot path, and best-effort: a store failure must not
     # stop the run, it only leaves the sandbox without store skills for this session.
     try:
-        if not include_live_context:
+        if not include_live_context or state.get("disable_skills") is True:
             store_skills: list[dict[str, Any]] | None = []
             state[STORE_SKILLS_STATE_KEY] = []
         else:

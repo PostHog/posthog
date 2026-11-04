@@ -1,13 +1,15 @@
 import { type ReactElement, type ReactNode, useState } from 'react'
-import { type LayoutChangeEvent, View } from 'react-native'
+import { type LayoutChangeEvent, useWindowDimensions, View } from 'react-native'
 import { GestureDetector, type NativeGesture } from 'react-native-gesture-handler'
-import Animated, { useAnimatedStyle } from 'react-native-reanimated'
+import Animated, { type SharedValue, useAnimatedStyle } from 'react-native-reanimated'
 
 import { OverlayPortal } from './OverlayPortal'
 import { Scrim } from './Scrim'
 import { createStyles, useTheme } from './theme'
-import { motion, radii } from './tokens'
+import { layout, motion, radii } from './tokens'
+import { useOverlayBack } from './useOverlayBack'
 import { usePresence } from './usePresence'
+import { useSceneDimensions } from './useSceneDimensions'
 import { bottomOffset, useScreenInsets } from './useScreenInsets'
 import { useSheetDrag } from './useSheetDrag'
 
@@ -17,6 +19,7 @@ interface BottomSheetProps {
     children: ReactNode
     paddingHorizontal?: number
     scrollGesture?: NativeGesture
+    keyboardHeight?: SharedValue<number>
     /** Defaults to `surface`. Sheets that hold surface cards use the screen background. */
     backgroundColor?: string
     accessibilityLabel?: string
@@ -29,6 +32,7 @@ export function BottomSheet({
     children,
     paddingHorizontal = 16,
     scrollGesture,
+    keyboardHeight,
     backgroundColor,
     accessibilityLabel,
     testID,
@@ -36,13 +40,27 @@ export function BottomSheet({
     const { colors, shadows } = useTheme()
     const styles = useStyles()
     const insets = useScreenInsets()
+    const { height: sceneHeight } = useSceneDimensions()
+    const { width: windowWidth } = useWindowDimensions()
+    const width = windowWidth - insets.left - insets.right
+    const bottomMargin = width >= 600 ? insets.bottom + 16 : 0
+    const bottomPadding = bottomOffset(insets, 40)
     const { mounted, progress } = usePresence(visible, motion.sheet)
     const [height, setHeight] = useState(480)
     const { drag, pan } = useSheetDrag(visible, onClose, scrollGesture)
+    useOverlayBack(visible, onClose)
 
-    const sheetStyle = useAnimatedStyle(() => ({
-        transform: [{ translateY: (1 - progress.value) * height + drag.value }],
-    }))
+    const sheetStyle = useAnimatedStyle(() => {
+        const keyboard = Math.max(-(keyboardHeight?.value ?? 0), 0)
+        const compactKeyboard = keyboard > 0 && sceneHeight < 480
+        const marginBottom = keyboard > 0 ? Math.max(bottomMargin, keyboard + (compactKeyboard ? 4 : 8)) : bottomMargin
+        return {
+            transform: [{ translateY: (1 - progress.value) * height + drag.value }],
+            marginBottom,
+            maxHeight: Math.max(120, sceneHeight - insets.top - (compactKeyboard ? 4 : 12) - marginBottom),
+            paddingBottom: compactKeyboard ? 8 : keyboard > 0 ? layout.minBottomPadding : bottomPadding,
+        }
+    })
 
     if (!mounted) {
         return null
@@ -64,7 +82,15 @@ export function BottomSheet({
                             shadows.bottomSheet,
                             {
                                 paddingHorizontal,
-                                paddingBottom: bottomOffset(insets, 40),
+                                width: '100%',
+                                maxWidth: 600,
+                                alignSelf: 'center',
+                                ...(width >= 600
+                                    ? {
+                                          borderBottomLeftRadius: radii.sheet,
+                                          borderBottomRightRadius: radii.sheet,
+                                      }
+                                    : {}),
                                 backgroundColor: backgroundColor ?? colors.surface,
                             },
                             sheetStyle,

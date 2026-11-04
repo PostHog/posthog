@@ -73,12 +73,23 @@ def _allow_desktop_access(test_case: APIBaseTest) -> None:
     test_case.addCleanup(access_patcher.stop)
 
 
+def _allow_posthog_ai_access(test_case: APIBaseTest) -> None:
+    for module in ("logic.services.code_usage_gate", "logic.services.warm", "facade.access"):
+        access_patcher = patch(
+            f"products.tasks.backend.{module}.get_posthog_ai_access_decision",
+            return_value=tasks_access.PostHogAIAccessDecision.GRANDFATHERED,
+        )
+        access_patcher.start()
+        test_case.addCleanup(access_patcher.stop)
+
+
 class TestWarmTaskSandbox(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.integration = Integration.objects.create(team=self.team, kind="github", config={})
-        # The warm endpoint gates on Desktop access; these tests cover warm forwarding, not the gate.
+        # The warm endpoint gates on Desktop and PostHog AI access; these tests cover warm forwarding, not the gates.
         _allow_desktop_access(self)
+        _allow_posthog_ai_access(self)
 
     def _warm(self, **overrides):
         kwargs: dict[str, Any] = {
@@ -127,7 +138,7 @@ class TestWarmTaskSandbox(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("posthog_ai_warms_with_every_flag_off", facade.TaskOriginProduct.POSTHOG_AI, False, True),
+            ("posthog_ai_warms_without_a_warm_flag", facade.TaskOriginProduct.POSTHOG_AI, False, True),
             ("code_app_stays_gated_when_off", facade.TaskOriginProduct.USER_CREATED, False, False),
             ("code_app_warms_when_on", facade.TaskOriginProduct.USER_CREATED, True, True),
         ]
@@ -1666,6 +1677,10 @@ class TestWarmRunRelease(APIBaseTest):
 
 
 class TestWarmTaskResumeSandbox(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        _allow_posthog_ai_access(self)
+
     def test_warm_resume_from_an_import_run_marks_the_warm_run(self):
         task = Task.objects.create(
             team=self.team,

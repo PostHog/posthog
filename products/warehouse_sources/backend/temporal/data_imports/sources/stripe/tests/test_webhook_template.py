@@ -5,11 +5,11 @@ import hashlib
 
 from parameterized import parameterized
 
-from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateSimpleTest
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.webhook_template import template
 
 
-class TestStripeWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
+class TestStripeWarehouseWebhookTemplate(BaseHogFunctionTemplateSimpleTest):
     template = template
 
     def createHogGlobals(self, globals=None) -> dict:
