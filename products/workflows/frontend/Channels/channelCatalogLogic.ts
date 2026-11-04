@@ -4,16 +4,16 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { integrationsEmailSandboxSenderCreate } from 'products/integrations/frontend/generated/api'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
-import type { IntegrationType, TeamPublicType, TeamType } from '../../../../frontend/src/types'
+import type { IntegrationType } from '../../../../frontend/src/types'
 import { CATALOG_CHANNELS, ChannelSummary, PUSH_CHANNELS, summarizeChannel } from './channelSummary'
 import { openEmailDomainSetupPage } from './EmailDomain/useStartEmailDomainSetup'
 import type { ChannelType } from './MessageChannels'
@@ -25,7 +25,6 @@ export interface channelCatalogLogicValues {
     sandboxEmailSender: IntegrationType | null // integrationsLogic
     sandboxEmailSenderEnabled: boolean // integrationsLogic
     currentProjectId: number | string // teamLogic
-    currentTeam: TeamType | TeamPublicType | null // teamLogic
     activeCount: number
     channels: ChannelSummary[] | null
     integrationsLoadFailed: boolean
@@ -91,8 +90,7 @@ export interface channelCatalogLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         canSetUpSandboxSender: (
             sandboxEmailSenderEnabled: boolean,
-            sandboxEmailSender: IntegrationType | null,
-            currentTeam: TeamType | TeamPublicType | null
+            sandboxEmailSender: IntegrationType | null
         ) => boolean
         sandboxSetupError: (
             sandboxEmailSenderEnabled: boolean,
@@ -120,7 +118,7 @@ export const channelCatalogLogic = kea<channelCatalogLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             teamLogic,
-            ['currentProjectId', 'currentTeam'],
+            ['currentProjectId'],
         ],
         actions: [
             integrationsLogic,
@@ -163,16 +161,8 @@ export const channelCatalogLogic = kea<channelCatalogLogicType>([
     })),
     selectors({
         canSetUpSandboxSender: [
-            (s) => [s.sandboxEmailSenderEnabled, s.sandboxEmailSender, s.currentTeam],
-            (
-                enabled: boolean,
-                sandboxEmailSender: IntegrationType | null,
-                currentTeam: TeamType | TeamPublicType | null
-            ): boolean =>
-                enabled &&
-                !sandboxEmailSender &&
-                isAuthenticatedTeam(currentTeam) &&
-                (currentTeam.effective_membership_level ?? -1) >= OrganizationMembershipLevel.Admin,
+            (s) => [s.sandboxEmailSenderEnabled, s.sandboxEmailSender],
+            (enabled: boolean, sandboxEmailSender: IntegrationType | null): boolean => enabled && !sandboxEmailSender,
         ],
         sandboxSetupError: [
             (s) => [s.sandboxEmailSenderEnabled, s.integrationsLoadFailed, s.sandboxProvisionError],
