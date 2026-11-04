@@ -14,9 +14,7 @@ from products.messaging.backend.facade.transactional_email import PIPELINE_ADDRE
 MAX_ADDRESSES_PER_FIELD = 10
 MAX_ATTACHMENTS = 10
 MAX_ATTACHMENTS_BYTES = 512 * 1024
-# Gmail's list of blocked file types, https://support.google.com/mail/answer/6590. Gmail refuses an email that
-# carries one of these, so a send with one would bounce for every Gmail recipient.
-BLOCKED_ATTACHMENT_EXTENSIONS = frozenset(
+GMAIL_BLOCKED_ATTACHMENT_EXTENSIONS = frozenset(
     {
         "ade", "adp", "apk", "appx", "appxbundle", "bat", "cab", "chm", "cmd", "com", "cpl", "diagcab", "diagcfg",
         "diagpkg", "dll", "dmg", "ex", "ex_", "exe", "hta", "img", "ins", "iso", "isp", "jar", "jnlp", "js", "jse",
@@ -24,9 +22,9 @@ BLOCKED_ATTACHMENT_EXTENSIONS = frozenset(
         "sct", "shb", "sys", "vb", "vbe", "vbs", "vhd", "vxd", "wsc", "wsf", "wsh", "xll",
     }
 )  # fmt: skip
-# A type and a subtype as RFC 6838 names them. Parameters such as `; charset=utf-8` are refused, so a value can't
-# carry more than the type into the attachment's headers.
-MIME_TYPE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}")
+MIME_TYPE_WITHOUT_PARAMETERS = re.compile(
+    r"[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}"
+)
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 
 ADDRESS_FIELDS = ("cc", "bcc")
@@ -53,6 +51,11 @@ def validate_pipeline_address(address: str) -> None:
         ]
     }
 )
+def _extension_as_windows_saves_it(filename: str) -> str | None:
+    _, dot, extension = filename.rstrip(". ").rpartition(".")
+    return extension.lower() if dot else None
+
+
 class AddressListField(serializers.ListField):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(
@@ -103,11 +106,10 @@ class EmailAttachmentSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "Use a file name with no path separator and no line break.", code="unsafe_filename"
             )
-        # Windows drops trailing dots and spaces from a file name, so `invoice.exe.` saves as an executable.
-        _, dot, extension = filename.rstrip(". ").rpartition(".")
-        if dot and extension.lower() in BLOCKED_ATTACHMENT_EXTENSIONS:
+        extension = _extension_as_windows_saves_it(filename)
+        if extension in GMAIL_BLOCKED_ATTACHMENT_EXTENSIONS:
             raise serializers.ValidationError(
-                f"Mailbox providers block `.{extension.lower()}` files.", code="blocked_file_type"
+                f"Mailbox providers block `.{extension}` files.", code="blocked_file_type"
             )
         return filename
 
@@ -117,7 +119,7 @@ class EmailAttachmentSerializer(serializers.Serializer):
         return content
 
     def validate_content_type(self, content_type: str) -> str:
-        if not MIME_TYPE_PATTERN.fullmatch(content_type):
+        if not MIME_TYPE_WITHOUT_PARAMETERS.fullmatch(content_type):
             raise serializers.ValidationError("Enter a MIME type, such as `application/pdf`.", code="not_mime_type")
         return content_type
 
@@ -236,8 +238,6 @@ def template_send_refusal(field: str) -> serializers.ValidationError:
 
 
 def with_code_send_reason(body: dict[str, Any]) -> dict[str, Any]:
-    """The error body with `why` and `fix` added, when the error is about `cc`, `bcc` or `attachments`, or about a
-    field the pipeline doesn't take."""
     path, code = (body.get("attr") or "").split("__"), str(body.get("code") or "")
     if body.get("type") != "validation_error" or (
         path[0] not in CODE_SEND_EXTRA_FIELDS and code != "field_not_accepted"

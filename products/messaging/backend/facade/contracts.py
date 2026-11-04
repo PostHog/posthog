@@ -103,8 +103,6 @@ class SenderNotVerified(TransactionalEmailError):
 
 
 class FieldNotAccepted(TransactionalEmailError):
-    """The email pipeline doesn't take a field of the send yet, so it refused the whole send."""
-
     code = "field_not_accepted"
 
     def __init__(self, field: str) -> None:
@@ -115,7 +113,6 @@ class FieldNotAccepted(TransactionalEmailError):
 @frozen
 class EmailAttachment:
     filename: str
-    # Base64, as the caller sent it. Kept out of repr so a traceback or log line never carries the file.
     content: str = field(repr=False)
     content_type: str | None = None
     content_id: str | None = None

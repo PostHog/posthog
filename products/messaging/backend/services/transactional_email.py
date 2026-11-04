@@ -595,7 +595,7 @@ def _queue(
         )
     if response.status_code != 202:
         refusal_code = _refusal_code(response)
-        unknown_field = _unknown_send_field(refusal_code) if response.status_code == 400 else None
+        unknown_field = _send_field_an_older_pipeline_refused(refusal_code) if response.status_code == 400 else None
         if unknown_field is not None:
             logger.warning(
                 "transactional_email_field_not_accepted",
@@ -624,9 +624,7 @@ def _queue(
     return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
 
 
-def _unknown_send_field(error: str | None) -> str | None:
-    """The first field of `send` that the CDP service refused as unknown. A CDP service older than this code
-    answers a field it doesn't take yet with its schema issues as JSON in `error`, and queues nothing."""
+def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
     try:
         issues = json.loads(error or "")
     except ValueError:
