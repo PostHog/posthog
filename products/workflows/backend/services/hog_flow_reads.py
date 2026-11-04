@@ -477,7 +477,7 @@ def _to_list_row(
         trigger=masked["trigger"],
         user_access_level=user_access_control.get_user_access_level(flow) if user_access_control is not None else None,
         tags=tuple(sorted(current_tag_names(flow))),
-        workflow_type=annotated.workflow_type,
+        workflow_type=HogFlowType(annotated.workflow_type),
         pending_suggestions=annotated.pending_suggestions,
         suggestions_enabled=annotated.suggestions_enabled,
     )

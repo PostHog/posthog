@@ -21,6 +21,7 @@ from products.workflows.backend.facade.enums import (
     HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
+    HogFlowType,
     PushTokenImportRowFailureReason,
     PushTokenImportStatus,
     SetupStepKey,
@@ -674,8 +675,8 @@ class WorkflowListRow:
     user_access_level: str | None
     # Tag names, sorted.
     tags: tuple[str, ...]
-    # A HogFlowType value, decided by the same rules as the list's ``type`` filter.
-    workflow_type: str
+    # Decided by the same rules as the list's ``type`` filter.
+    workflow_type: HogFlowType
     pending_suggestions: int
     suggestions_enabled: bool
 
