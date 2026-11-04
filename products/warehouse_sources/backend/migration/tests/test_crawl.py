@@ -77,6 +77,9 @@ class TestCrawlMigration(BaseTest):
         items = WarehouseMigrationItem.objects.for_team(self.team.pk).filter(migration=migration)
         return {item.vendor_connection_id: item for item in items}
 
+    def _prefixes(self, migration: WarehouseMigration) -> dict[str, str]:
+        return {cid: (item.proposal or {})["prefix"] for cid, item in self._items(migration).items()}
+
     @parameterized.expand(
         [
             ("applying", WarehouseMigrationItem.Status.APPLYING),
@@ -137,7 +140,7 @@ class TestCrawlMigration(BaseTest):
             )
 
         save_plan(migration, snapshot({"conn_a": "shared", "conn_b": "shared"}), catalog=_HubspotOnly())
-        assert {cid: item.proposal["prefix"] for cid, item in self._items(migration).items()} == {
+        assert self._prefixes(migration) == {
             "conn_a": "shared",
             "conn_b": "shared_2",
         }
@@ -150,7 +153,7 @@ class TestCrawlMigration(BaseTest):
             connection_ids=["conn_a"],
         )
 
-        prefixes = {cid: item.proposal["prefix"] for cid, item in self._items(migration).items()}
+        prefixes = self._prefixes(migration)
         assert prefixes["conn_b"] == "shared_2"
         assert prefixes["conn_a"] != "shared_2"
 
