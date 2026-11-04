@@ -666,12 +666,10 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
     ],
 }
 
-// `?variants=a,b,c` on the new-flag URL. The router JSON-decodes params, so a lone numeric key arrives as a number.
 function variantsFromSearchParam(value: unknown): MultivariateFlagVariant[] {
     const raw = Array.isArray(value) ? value : value == null ? [] : String(value).split(',')
-    const keys = [...new Set(raw.map((key) => String(key).trim()).filter(Boolean))]
+    const keys = [...new Set(raw.map((key) => String(key).trim()))].filter((key) => !validateFeatureFlagVariantKey(key))
     const share = Math.floor(100 / Math.max(keys.length, 1))
-    // The first variants take the remainder so the rollout adds up to 100.
     return keys.map((key, index) => ({
         key,
         name: '',
@@ -3623,9 +3621,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         }
                     }
 
-                    const prefilledKey = router.values.searchParams.key
-                    if (prefilledKey != null && prefilledKey !== '') {
-                        baseFlagConfig = { ...baseFlagConfig, key: String(prefilledKey) }
+                    // Code examples render the key before save-time validation, so an invalid one is never prefilled.
+                    const prefilledKey = String(router.values.searchParams.key ?? '')
+                    if (!validateFeatureFlagKey(prefilledKey)) {
+                        baseFlagConfig = { ...baseFlagConfig, key: prefilledKey }
                     }
 
                     // Apply type-specific configuration

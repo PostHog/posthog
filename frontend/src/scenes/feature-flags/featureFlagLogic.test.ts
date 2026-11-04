@@ -5828,7 +5828,8 @@ describe('a flag in config version 2', () => {
     it.each([
         [
             'splits prefilled variants evenly',
-            { type: 'multivariate' as const, variants: ['control', 'compact', 'wide'] },
+            { key: 'checkout-layout', type: 'multivariate' as const, variants: ['control', 'compact', 'wide'] },
+            'checkout-layout',
             [
                 { key: 'control', name: '', rollout_percentage: 34 },
                 { key: 'compact', name: '', rollout_percentage: 33 },
@@ -5837,24 +5838,40 @@ describe('a flag in config version 2', () => {
         ],
         [
             'keeps the default variants without a variants param',
-            { type: 'multivariate' as const },
+            { key: 'checkout-layout', type: 'multivariate' as const },
+            'checkout-layout',
             [
                 { key: 'control', name: '', rollout_percentage: 50 },
                 { key: 'test', name: '', rollout_percentage: 50 },
             ],
         ],
-        ['ignores variants on a boolean flag', { variants: ['control', 'compact'] }, null],
-    ])('prefills the key from the link and %s', async (_label, params, expectedVariants) => {
+        [
+            'ignores variants on a boolean flag',
+            { key: 'checkout-layout', variants: ['control', 'compact'] },
+            'checkout-layout',
+            null,
+        ],
+        [
+            'drops a key and variants that fail validation',
+            {
+                key: "x' + (globalThis.injected = true) + '",
+                type: 'multivariate' as const,
+                variants: ['control', "a'b"],
+            },
+            '',
+            [{ key: 'control', name: '', rollout_percentage: 100 }],
+        ],
+    ])('prefills from the link and %s', async (_label, params, expectedKey, expectedVariants) => {
         defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
             enabled: false,
             default_groups: [],
         })
-        router.actions.push(urls.featureFlagNew({ key: 'checkout-layout', ...params }))
+        router.actions.push(urls.featureFlagNew(params))
         const newLogic = featureFlagLogic({ id: 'new' })
         newLogic.mount()
         await expectLogic(newLogic).toFinishAllListeners()
 
-        expect(newLogic.values.featureFlag.key).toBe('checkout-layout')
+        expect(newLogic.values.featureFlag.key).toBe(expectedKey)
         expect(newLogic.values.featureFlag.filters.multivariate?.variants ?? null).toEqual(expectedVariants)
         newLogic.unmount()
     })
