@@ -245,8 +245,7 @@ class _ExportedPropertiesNarrower:
         set_name = self.optimizer.set_column_name(set_query, node, name)
         if set_name is None:
             return False
-        branch_position = self.optimizer._select_names(node).index(name)
-        return branch_position == self.optimizer._select_names(set_query).index(set_name)
+        return self.optimizer.select_position(node, name) == self.optimizer.select_position(set_query, set_name)
 
     def _is_events_properties(self, field_type: ast.FieldType) -> bool:
         table_type = field_type.table_type
