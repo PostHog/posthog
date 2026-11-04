@@ -1,5 +1,7 @@
 import { waitFor } from '@testing-library/react'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import type { Mocks } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
@@ -218,12 +220,15 @@ describe('catalogTablesLogic', () => {
         })
 
         it.each([
-            ['a certification proposal', 'table:table-charges', 'certify:cert-charges'],
-            ['a deprecation proposal', 'table:table-refunds', 'deprecate:cert-refunds'],
-        ])('accepting %s applies the proposed status', async (_, rowKey, expectedRequest) => {
+            ['a certification proposal', 'table:table-charges', 'certify:cert-charges', 'Certified stripe.charges'],
+            ['a deprecation proposal', 'table:table-refunds', 'deprecate:cert-refunds', 'Deprecated stripe.refunds'],
+        ])('accepting %s applies the proposed status', async (_, rowKey, expectedRequest, expectedToast) => {
+            const toastSpy = jest.spyOn(lemonToast, 'success')
+
             logic.actions.reviewProposals([rowKey], 'accept', 'inline')
 
-            await waitFor(() => expect(reviewRequests).toEqual([expectedRequest]))
+            await waitFor(() => expect(toastSpy).toHaveBeenCalledWith(expectedToast))
+            expect(reviewRequests).toEqual([expectedRequest])
         })
 
         it('bulk accept reviews only the selected rows that have a pending proposal', async () => {

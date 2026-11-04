@@ -81,6 +81,13 @@ const PROPOSAL_REVIEW_EVENTS: Record<ProposalDecision, string> = {
 const TRUST_URL_FILTERS: TrustFilter[] = ['proposed', 'certified', 'deprecated']
 const ATTENTION_URL_FILTER = 'attention'
 
+function singleReviewMessage(row: CatalogTableRow, decision: ProposalDecision): string {
+    if (decision === 'reject') {
+        return `Rejected the proposal for ${row.name}`
+    }
+    return `${row.certification && proposalAcceptsAsDeprecation(row.certification) ? 'Deprecated' : 'Certified'} ${row.name}`
+}
+
 function projectId(): string {
     return String(ApiConfig.getCurrentTeamId())
 }
@@ -640,7 +647,9 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
                 const done = rows.length - failed
                 if (done > 0) {
                     lemonToast.success(
-                        `${decision === 'accept' ? 'Accepted' : 'Rejected'} ${pluralize(done, 'proposal')}`
+                        source !== 'bulk' && rows.length === 1
+                            ? singleReviewMessage(rows[0], decision)
+                            : `${decision === 'accept' ? 'Accepted' : 'Rejected'} ${pluralize(done, 'proposal')}`
                     )
                     posthog.capture(PROPOSAL_REVIEW_EVENTS[decision], { source, count: done })
                 }
@@ -669,7 +678,11 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
                 })
                 const done = rows.length - failed
                 if (done > 0) {
-                    lemonToast.success(`Certified ${pluralize(done, 'table')}`)
+                    lemonToast.success(
+                        source !== 'bulk' && rows.length === 1
+                            ? `Certified ${rows[0].name}`
+                            : `Certified ${pluralize(done, 'table')}`
+                    )
                 }
                 if (failed > 0) {
                     lemonToast.error(`Could not certify ${pluralize(failed, 'table')}. Try again.`)
