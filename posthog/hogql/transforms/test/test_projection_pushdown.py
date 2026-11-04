@@ -169,6 +169,50 @@ class TestProjectionPushdown(BaseTest):
         second = set_query.subsequent_select_queries[0].select_query.select
         assert len(first) == len(second) > 1
 
+    @parameterized.expand(
+        [
+            (
+                "same_names_in_another_order",
+                "SELECT a, count() FROM (SELECT * FROM (SELECT event AS a, distinct_id AS b FROM events) "
+                "UNION ALL SELECT * FROM (SELECT distinct_id AS b, event AS a FROM events)) AS sub GROUP BY a",
+                [["a"], ["a"]],
+            ),
+            (
+                "explicit_column_after_asterisks_of_different_counts",
+                "SELECT region, sum(n) FROM (SELECT *, 'US' AS region FROM (SELECT 1 AS n, event AS a FROM events) "
+                "UNION ALL SELECT *, 'EU' AS region FROM (SELECT distinct_id AS b, uuid AS c, 1 AS n FROM events)) "
+                "AS sub GROUP BY region",
+                [["n", "region"], ["n", "region"]],
+            ),
+            (
+                "name_past_the_end_of_a_shorter_branch",
+                "SELECT c FROM (SELECT * FROM (SELECT event AS a, distinct_id AS b, uuid AS c FROM events) "
+                "UNION ALL SELECT * FROM (SELECT uuid AS c, event AS a FROM events)) AS sub",
+                [["c"], ["c"]],
+            ),
+            (
+                "branch_without_the_name_keeps_the_position",
+                "SELECT a FROM (SELECT * FROM (SELECT event AS a, distinct_id AS x FROM events) "
+                "UNION ALL SELECT * FROM (SELECT event AS b, distinct_id AS y FROM events)) AS sub",
+                [["a"], ["b"]],
+            ),
+        ]
+    )
+    def test_set_query_branches_keep_the_same_columns(self, _name, query, expected):
+        set_query = self._optimize(query).select_from.table
+        branches = [set_query.initial_select_query, *(s.select_query for s in set_query.subsequent_select_queries)]
+        assert [[self._col_name(col) for col in branch.select] for branch in branches] == expected
+
+    def test_cte_union_branches_keep_the_same_columns(self):
+        optimized = self._optimize(
+            "WITH sources AS (SELECT * FROM (SELECT event AS a, distinct_id AS b FROM events) "
+            "UNION ALL SELECT * FROM (SELECT distinct_id AS b, event AS a FROM events)) "
+            "SELECT a, count() FROM sources GROUP BY a ORDER BY 2 DESC"
+        )
+        set_query = optimized.ctes["sources"].expr
+        branches = [set_query.initial_select_query, *(s.select_query for s in set_query.subsequent_select_queries)]
+        assert [[self._col_name(col) for col in branch.select] for branch in branches] == [["a"], ["a"]]
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_prewhere_clause(self):
         """PREWHERE clause columns should be preserved"""

@@ -119,12 +119,6 @@ class TestExportedProperties(BaseTest):
                 "count()",
             ),
             (
-                "union_branches_matched_by_position",
-                "SELECT a.email FROM (SELECT properties AS a, properties AS b FROM events UNION ALL SELECT properties AS b, properties AS a FROM events)",
-                f"{EMAIL_MAP} AS b",
-                "JSONExtractRaw(a['email'])",
-            ),
-            (
                 "eight_chained_ctes",
                 f"WITH c1 AS {STAR_EVENTS}, "
                 + ", ".join(f"c{n} AS (SELECT * FROM c{n - 1})" for n in range(2, 9))
@@ -186,6 +180,10 @@ class TestExportedProperties(BaseTest):
                 "second_alias_of_the_column_feeds_a_blob_branch",
                 "SELECT x.a.email, x.e FROM (SELECT a, b.email AS e FROM (SELECT properties AS a, properties AS b FROM (SELECT properties FROM events)) "
                 "UNION ALL SELECT DISTINCT properties AS a, '' AS e FROM events) AS x",
+            ),
+            (
+                "union_branch_column_matched_by_name_at_another_position",
+                "SELECT a.email FROM (SELECT properties AS a, properties AS b FROM events UNION ALL SELECT properties AS b, properties AS a FROM events)",
             ),
             ("query_output", "SELECT properties FROM (SELECT properties FROM events)"),
             ("read_by_position", f"SELECT properties.arr[1] FROM {STAR_EVENTS}"),

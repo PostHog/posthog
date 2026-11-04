@@ -196,6 +196,9 @@ class _ExportedPropertiesNarrower:
         reads = self.optimizer.reads.get((id(node), name))
         if reads is not None and reads.whole:
             return False
+        set_query = self.optimizer.union_of.get(id(node))
+        if set_query is not None and not self._lines_up_with_set(set_query, node, name):
+            return False
         if isinstance(node, ast.SelectSetQuery):
             return all(set_node.set_operator.startswith("UNION ALL") for set_node in node.subsequent_select_queries)
         if id(node) in self.optimizer.roots or id(node) in self.optimizer.recursive_cte_exprs:
@@ -221,6 +224,16 @@ class _ExportedPropertiesNarrower:
             return False
         keys = reads.keys if reads is not None else set()
         return all(_key_json_text(source, key, self.context) is not None for key in keys)
+
+    def _lines_up_with_set(self, set_query: ast.SelectSetQuery, node: "SubqueryNode", name: str) -> bool:
+        """Whether the branch column sits at the position of the set query's column it feeds. A set operation pairs
+        columns by position, so a map exported from a column matched by name at another position would meet the blob
+        or another column there."""
+        set_name = self.optimizer.set_column_name(set_query, node, name)
+        if set_name is None:
+            return False
+        branch_position = self.optimizer._select_names(node).index(name)
+        return branch_position == self.optimizer._select_names(set_query).index(set_name)
 
     def _is_events_properties(self, field_type: ast.FieldType) -> bool:
         table_type = field_type.table_type

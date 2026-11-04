@@ -213,22 +213,28 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         return [self._get_column_name(expr) for expr in node.select]
 
     def branch_column_name(self, set_query: ast.SelectSetQuery, branch: SubqueryNode, name: str) -> str | None:
-        """The branch column that feeds the set query's column `name`. A set operation matches columns by position
-        and the first branch names the result; the resolver already reorders BY NAME branches to line up."""
+        """The branch column that feeds the set query's column `name`. The first branch names the result. A branch
+        with a column of that name supplies it from that column: the branches of a `SELECT *` union over tables whose
+        columns differ in order or count only line up once each keeps the same names, and queries rely on that. A
+        branch without the name supplies the column at the same position, as the set operation itself does."""
         set_names = self._select_names(set_query)
         if name not in set_names:
             return None
-        position = set_names.index(name)
         branch_names = self._select_names(branch)
+        if name in branch_names:
+            return name
+        position = set_names.index(name)
         return branch_names[position] if position < len(branch_names) else None
 
     def set_column_name(self, set_query: ast.SelectSetQuery, branch: SubqueryNode, branch_name: str) -> str | None:
-        """The set query's column that the branch column `branch_name` feeds"""
+        """The set query's column that the branch column `branch_name` feeds, the inverse of `branch_column_name`"""
         branch_names = self._select_names(branch)
         if branch_name not in branch_names:
             return None
-        position = branch_names.index(branch_name)
         set_names = self._select_names(set_query)
+        if branch_name in set_names:
+            return branch_name
+        position = branch_names.index(branch_name)
         return set_names[position] if position < len(set_names) else None
 
     def _is_from_asterisk(self, expr: ast.Expr) -> bool:
@@ -379,12 +385,8 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             return False
 
     def _propagate_demands_to_union_branches(self, node: ast.SelectSetQuery) -> None:
-        """
-        Propagate demands from parent to all UNION/INTERSECT/EXCEPT branches.
-
-        Since all branches must have identical column structure, we propagate
-        the same demands to all of them.
-        """
+        """Propagate demands from parent to all UNION/INTERSECT/EXCEPT branches, each to the branch column that feeds
+        the demanded column (`branch_column_name`), so every branch keeps the same columns."""
         demanded_from_this = self.demands.get(id(node))
         if not demanded_from_this:
             return
