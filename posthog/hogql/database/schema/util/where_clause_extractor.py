@@ -630,6 +630,9 @@ def event_field_type(expr: ast.Expr) -> ast.FieldType | None:
 def get_events_session_id_table_type(node: ast.Expr) -> Optional[ast.BaseTableType]:
     """If the expression resolves to $session_id on the events table, return its (possibly aliased) table type."""
     from posthog.hogql.database.schema.events import EventsTable  # noqa: PLC0415 - breaks the schema import cycle
+    from posthog.hogql.database.schema.events_with_flag_calls import (  # noqa: PLC0415 - breaks the schema import cycle
+        EventsWithFlagCallsTable,
+    )
 
     expr_type = _unwrap_field_alias_type(node.type)
 
@@ -654,7 +657,9 @@ def get_events_session_id_table_type(node: ast.Expr) -> Optional[ast.BaseTableTy
         return None
 
     unwrapped = unwrap_table_alias_type(table_type)
-    if isinstance(unwrapped, ast.TableType) and isinstance(unwrapped.table, EventsTable):
+    if isinstance(unwrapped, (ast.TableType, ast.LazyTableType)) and isinstance(
+        unwrapped.table, (EventsTable, EventsWithFlagCallsTable)
+    ):
         return cast(ast.BaseTableType, table_type)
     return None
 
@@ -693,7 +698,7 @@ def build_session_id_literal_pushdown_predicate(
     """
     if outer_node.where is None:
         return None
-    events_join = _find_join_for_alias(outer_node.select_from, join_to_add.from_table)
+    events_join = _events_scan_for_join(outer_node, join_to_add)
     if events_join is None or not isinstance(events_join.table, ast.Field):
         return None
 
@@ -843,6 +848,17 @@ class _CollectTopLevelAliasesVisitor(TraversingVisitor):
     def visit_field(self, node: ast.Field):
         if node.chain:
             self.names.add(str(node.chain[0]))
+
+
+def _events_scan_for_join(outer_node: ast.SelectQuery, join_to_add: LazyJoinToAdd) -> Optional[ast.JoinExpr]:
+    """The FROM entry that the lazy join starts from, as the query wrote it.
+
+    Lazy table resolution replaces the scan of a lazy table, such as the union of events and flag_evaluations, with a
+    subquery, so the entry it recorded stands in for it.
+    """
+    if join_to_add.from_scan is not None:
+        return join_to_add.from_scan.join
+    return _find_join_for_alias(outer_node.select_from, join_to_add.from_table)
 
 
 def _find_join_for_alias(select_from: Optional[ast.JoinExpr], alias: str) -> Optional[ast.JoinExpr]:
@@ -1046,6 +1062,14 @@ class _FieldNodeCollector(TraversingVisitor):
 # columns (not rows), and the clause-level `ARRAY JOIN` lives on the SelectQuery, not in a predicate. Add
 # any future array-expanding function HogQL lowers into WHERE here.
 _ROW_MULTIPLYING_FUNCTIONS = {"arrayJoin"}
+
+# These return a different value on each read, so a copy of a filter that calls one selects other rows than the
+# original. Lowercase, because HogQL accepts some of them in any case, such as RAND().
+_NONDETERMINISTIC_FUNCTIONS = frozenset({"rand", "rownumberinblock", "rownumberinallblocks", "nowinblock"})
+
+
+def is_nondeterministic_function(name: str) -> bool:
+    return name.lower() in _NONDETERMINISTIC_FUNCTIONS
 
 
 class _RowMultiplyingFunctionFinder(TraversingVisitor):
