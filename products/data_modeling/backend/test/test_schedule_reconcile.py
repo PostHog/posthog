@@ -19,6 +19,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     get_declared_anchor,
     get_declared_pin,
     get_declared_target,
+    saved_query_target_bounds,
     set_declared_anchor,
     set_declared_pin,
     set_declared_target,
@@ -41,6 +42,7 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
     reconcile_organization_dags,
 )
 from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
@@ -53,6 +55,7 @@ from products.data_modeling.backend.test.helpers import (
     warehouse_source_node as _warehouse_source_node,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
 REFRESH_FLOOR = "products.data_modeling.backend.logic.refresh_floor"
@@ -791,6 +794,32 @@ class TestMaybeReconcileDag(BaseTest):
 
         view.refresh_from_db()
         self.assertEqual(get_declared_target(view), M15)
+
+    def test_a_user_reader_cannot_be_fresher_than_a_managed_view_slowed_by_the_plan_floor(self):
+        self.organization.has_active_subscription = False
+        self.organization.save(update_fields=["has_active_subscription"])
+        dag = DAG.get_or_create_default(self.team)
+        viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+        )
+        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
+        managed_view = _saved_query_node(self.team, dag, "managed_view", NodeType.MAT_VIEW)
+        assert managed_view.saved_query is not None
+        managed_view.saved_query.managed_viewset = viewset
+        managed_view.saved_query.save(update_fields=["managed_viewset"])
+        set_declared_target(managed_view, M15)
+        reader = _saved_query_node(self.team, dag, "reader", NodeType.MAT_VIEW)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=managed_view)
+        Edge.objects.create(team=self.team, dag=dag, source=managed_view, target=reader)
+        assert reader.saved_query_id is not None
+
+        with mock.patch(FLAG_RESULT, side_effect=_free_plan_floor({"min_interval": "6hour", "clamp_existing": True})):
+            resolved = saved_query_target_bounds(self.team.id, reader.saved_query_id)
+
+        assert resolved is not None
+        assert resolved.bounds.floor is not None
+        self.assertEqual(resolved.bounds.floor.value, H6)
+        self.assertEqual(resolved.bounds.floor.blocker, str(managed_view.id))
 
     def test_saving_a_cadence_finer_than_the_plan_floor_is_refused(self):
         self.organization.has_active_subscription = False
