@@ -105,7 +105,13 @@ export function AccountProductUsageTable({
                         ? [
                               {
                                   key: 'top-users',
-                                  title: 'Top users, latest period',
+                                  title: (
+                                      <span className="block whitespace-normal">
+                                          Top users
+                                          <br />
+                                          Latest period
+                                      </span>
+                                  ),
                                   width: 160,
                                   render: (rowKey) => {
                                       const row = rowByKey.get(rowKey)!

@@ -77,7 +77,7 @@ export interface DotMatrixProps<D extends Record<string, unknown>>
     countScale?: DotMatrixCountBin[]
     onSelectedSeriesChange?: (keys: string[]) => void
     rowHeader?: { title: string; width?: number; render?: (row: DotMatrixAxisItem) => ReactNode }
-    trailingColumns?: { key: string; title: string; width: number; render: (rowKey: string) => ReactNode }[]
+    trailingColumns?: { key: string; title: ReactNode; width: number; render: (rowKey: string) => ReactNode }[]
     // onCellClick wraps the cell in a button, so custom content must be noninteractive in that case.
     renderCell?: (cell: DotMatrixCell<D>) => ReactNode
     renderTooltip?: (cell: DotMatrixCell<D>) => ReactNode
