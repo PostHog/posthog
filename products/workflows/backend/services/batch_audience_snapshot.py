@@ -34,7 +34,12 @@ AUDIENCE_SNAPSHOT_WRITE_CHUNK = 5000
 # The query only reads, so a stale pooled socket or a query a deploy cancelled is safe to run again too.
 AUDIENCE_QUERY_TRANSIENT_ERRORS = (*CH_TRANSIENT_ERRORS, UnknownPacketFromServerError, CHQueryErrorQueryWasCancelled)
 
-TERMINAL_STATES = {HogFlowBatchJobState.COMPLETED, HogFlowBatchJobState.FAILED, HogFlowBatchJobState.CANCELLED}
+TERMINAL_STATES = {
+    HogFlowBatchJobState.COMPLETED,
+    HogFlowBatchJobState.PARTIALLY_FAILED,
+    HogFlowBatchJobState.FAILED,
+    HogFlowBatchJobState.CANCELLED,
+}
 
 
 @frozen

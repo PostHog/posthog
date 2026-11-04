@@ -94,6 +94,7 @@ def set_batch_job_status(
 
 TERMINAL_BATCH_JOB_STATES = {
     HogFlowBatchJobState.COMPLETED,
+    HogFlowBatchJobState.PARTIALLY_FAILED,
     HogFlowBatchJobState.FAILED,
     HogFlowBatchJobState.CANCELLED,
 }
