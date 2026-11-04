@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import uuid4
 
 import pytest
 import time_machine
@@ -16,7 +17,9 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import OrganizationMembership, User
 from posthog.test.persons import create_person
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
+from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_PRODUCT_USAGE_FLAG
 from products.customer_analytics.backend.hogql_queries.book_activity_matrix_query_runner import (
     BookActivityMatrixQueryRunner,
 )
@@ -36,6 +39,15 @@ CY = "33333333-3333-4333-8333-333333333333"
 class TestBookActivityMatrixQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.flag_enabled = True
+        flag_patch = patch(
+            "posthog.permissions.posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *_args, **_kwargs: (
+                self.flag_enabled and flag == CUSTOMER_ANALYTICS_PRODUCT_USAGE_FLAG
+            ),
+        )
+        self.feature_enabled = flag_patch.start()
+        self.addCleanup(flag_patch.stop)
         self.team.customer_analytics_config.account_group_type_index = 0
         self.team.customer_analytics_config.save()
         self.tam = create_account_relationship_definition(team_id=self.team.id, name="TAM")
@@ -156,6 +168,73 @@ class TestBookActivityMatrixQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert [row.key for row in results.rows] == [str(gamma.id)]
         assert [grouping.key for grouping in results.groupings] == ["role", "usecase"]
+
+    def test_returns_up_to_200_accounts_and_flags_the_rest(self) -> None:
+        accounts = [
+            create_account(team_id=self.team.id, name=f"Book {index:03d}", external_id=f"book-{index}")
+            for index in range(201)
+        ]
+        ids = [str(account.id) for account in accounts]
+
+        within = self._run(relationshipDefinitionId=None, userId=None, accountIds=ids[:200], rowLimit=200)
+        over = self._run(relationshipDefinitionId=None, userId=None, accountIds=ids, rowLimit=500)
+
+        assert (len(within.rows), within.truncated) == (200, False)
+        assert (len(over.rows), over.truncated) == (200, True)
+
+    def test_flags_dropped_account_ids_even_when_the_found_accounts_fit(self) -> None:
+        ids = [str(self.alpha.id), str(self.beta.id), *(str(uuid4()) for _ in range(199))]
+
+        results = self._run(relationshipDefinitionId=None, userId=None, accountIds=ids)
+
+        assert [row.key for row in results.rows] == [str(self.alpha.id), str(self.beta.id)]
+        assert results.truncated is True
+
+    def test_flag_is_off_returns_no_data_even_with_a_cached_run(self) -> None:
+        self._event(ANA, "insight created", "2026-10-26T10:00:00Z", self.alpha)
+        flush_persons_and_events()
+        url = f"/api/projects/{self.team.id}/query/"
+        first = self.client.post(url, {"query": self._query(), "refresh": "blocking"}, format="json")
+        assert first.status_code == status.HTTP_200_OK
+        assert [row["key"] for row in first.json()["results"]["rows"]] == [str(self.alpha.id), str(self.beta.id)]
+
+        self.flag_enabled = False
+        denied = self.client.post(url, {"query": self._query(), "refresh": "force_cache"}, format="json")
+
+        assert denied.status_code == status.HTTP_400_BAD_REQUEST
+        assert "results" not in denied.json()
+        assert str(self.alpha.id) not in denied.content.decode()
+
+    def test_flag_is_off_denies_the_runner_for_a_first_use_scan(self) -> None:
+        self.flag_enabled = False
+        query = BookActivityMatrixQuery(**self._query(includeFirstUse=True))
+        runner = BookActivityMatrixQueryRunner(team=self.team, query=query, user=self.user)
+
+        with self.assertRaises(UserAccessControlError), patch.object(runner, "_calculate") as calculate:
+            runner.run(user=self.user)
+
+        calculate.assert_not_called()
+
+    def test_flag_is_evaluated_for_the_caller_with_organization_and_project_context(self) -> None:
+        query = BookActivityMatrixQuery(**self._query())
+        runner = BookActivityMatrixQueryRunner(team=self.team, query=query, user=self.user)
+
+        assert runner.validate_query_runner_access(self.user) is True
+
+        self.feature_enabled.assert_called_once()
+        args, kwargs = self.feature_enabled.call_args
+        assert args == (CUSTOMER_ANALYTICS_PRODUCT_USAGE_FLAG, self.user.distinct_id)
+        assert kwargs["groups"] == {"organization": str(self.team.organization_id), "project": str(self.team.id)}
+
+    def test_force_enabled_flag_allows_the_runner_without_the_sdk(self) -> None:
+        self.flag_enabled = False
+        query = BookActivityMatrixQuery(**self._query())
+        runner = BookActivityMatrixQueryRunner(team=self.team, query=query, user=self.user)
+
+        with patch("posthog.permissions._FORCE_ENABLED_FLAGS", frozenset({CUSTOMER_ANALYTICS_PRODUCT_USAGE_FLAG})):
+            assert runner.validate_query_runner_access(self.user) is True
+
+        self.feature_enabled.assert_not_called()
 
     def test_hides_an_account_the_caller_cannot_see_even_after_a_cached_run(self) -> None:
         self._event(ANA, "insight created", "2026-10-26T10:00:00Z", self.alpha)

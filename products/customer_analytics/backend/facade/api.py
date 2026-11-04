@@ -134,6 +134,7 @@ from products.customer_analytics.backend.logic.account_filters import (
 )
 from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
 from products.customer_analytics.backend.logic.account_member_search import get_account_users_organization_id
+from products.customer_analytics.backend.logic.book_activity_access import validate_book_activity_query_access
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
     coerce_is_big_number,
@@ -411,7 +412,23 @@ def validate_account_activity_access(team: Team, user: "User | None", account_id
 def validate_book_activity_access(team: Team, user: "User | None", labeled_user_id: str) -> None:
     if user is None or str(user.id) != labeled_user_id:
         raise UserAccessControlError("account", "viewer")
-    UserAccessControl(user=user, team=team).assert_access_level_for_resource("account", "viewer")
+    validate_book_activity_query_access(team, user)
+
+
+def validate_book_activity_accounts_access(team: Team, user: "User | None", labeled_account_ids: str) -> None:
+    if user is None:
+        raise UserAccessControlError("account", "viewer")
+    account_ids = set(labeled_account_ids.split(",")) if labeled_account_ids else set()
+    accessible = _accounts_queryset(team.id, UserAccessControl(user=user, team=team)).filter(
+        id__in=account_ids, ignored_at__isnull=True
+    )
+    if accessible.count() != len(account_ids):
+        raise UserAccessControlError("account", "viewer")
+
+
+def validate_book_activity_people_access(team: Team, user: "User | None", labeled_user_id: str) -> None:
+    validate_book_activity_access(team, user, labeled_user_id)
+    UserAccessControl(user=user, team=team).assert_access_level_for_resource("person", "viewer")
 
 
 def get_account(
