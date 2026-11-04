@@ -20,7 +20,7 @@ from posthog.dns_utils import dnssec_resolver
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
 from posthog.models.proxy_record import is_valid_proxy_domain
-from posthog.security.pinned_requests import select_pinned_ip
+from posthog.security.pinned_requests import SSRFBlockedError, pinned_request, select_pinned_ip
 from posthog.security.url_validation import validate_url_and_pin_ips
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
@@ -337,18 +337,20 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
 
     # send dummy event to check the proxy is working
     try:
-        # allow_redirects=False is a security boundary: the domain is attacker-controllable
-        # (an org admin sets it, and controls its DNS), so following redirects would let them
-        # point us at internal targets (ClickHouse's HTTP interface, cloud metadata, management
-        # APIs) - an SSRF. A working proxy answers /i/v0/e/ with a 2xx directly. Same protection
-        # as the on-demand diagnostics probe in posthog/api/proxy_record_diagnostics.py
+        # An org admin sets the domain and controls its DNS, so the request goes through
+        # pinned_request: it refuses a host that resolves to a non-public address, then connects to
+        # the address it validated instead of resolving the name again. The second resolution is
+        # what makes a low-TTL record exploitable, because the name can answer with a public
+        # address when it is checked and an internal one a moment later when it is fetched.
+        # pinned_request also never follows redirects, which would otherwise let the customer's
+        # server point us at an internal target once the connection succeeded. Same protection as
+        # the on-demand diagnostics probe in posthog/api/proxy_record_diagnostics.py
         # (_check_live_event).
-        response = requests.post(
+        response = pinned_request(
+            "POST",
             f"{probe_base}/i/v0/e/",
-            headers={"Content-Type": "application/json"},
-            data=json.dumps({"event": "test", "api_key": "test", "distinct_id": "test"}),
+            json={"event": "test", "api_key": "test", "distinct_id": "test"},
             timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
-            allow_redirects=False,
         )
 
         # Since we don't follow redirects, treat a 3xx as a failed check rather than a live proxy:
@@ -398,6 +400,13 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
                 errors=["Live proxy certificate is expiring soon"],
                 warnings=[],
             )
+    except SSRFBlockedError:
+        # The probe refused the host, so nothing was sent. Not a RequestException, so it needs its
+        # own handler: without one the activity raises and the schedule retries a permanent refusal.
+        return CheckActivityOutput(
+            errors=["Proxy domain does not resolve to a public address"],
+            warnings=[],
+        )
     except requests.exceptions.Timeout:
         return CheckActivityOutput(
             errors=["Proxy did not respond within the timeout"],
