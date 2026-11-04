@@ -10583,11 +10583,11 @@ Today (28): `account_stages`, `account_tiers`, `accounts`, `actions`, `cadence_m
 
 Diffed against: <https://developers.salesloft.com/docs/api/opportunities-index/>
 
-- [ ] `opportunities` — core revenue object synced from the CRM; currently no way to tie cadence activity to pipeline (high)
+- [x] `opportunities` — core revenue object synced from the CRM; currently no way to tie cadence activity to pipeline (high)
 - [ ] `opportunity_stages` — lookup resolving the stage id on every opportunity (high)
-- [ ] `tasks` — the rep work queue — completion rates are a primary Salesloft metric (high)
-- [ ] `activity_histories` — unified transition/activity timeline across people and accounts (high)
-- [ ] `cadence_stats` — the vendor's headline cadence performance metric (opens, replies, conversions) (high)
+- [x] `tasks` — the rep work queue — completion rates are a primary Salesloft metric (high)
+- [x] `activity_histories` — unified transition/activity timeline across people and accounts (high)
+- [x] `cadence_stats` — the vendor's headline cadence performance metric (opens, replies, conversions) (high)
 - [ ] `tags` — lookup resolving tag ids attached to people, accounts and cadences (medium)
 - [ ] `account_types` — lookup resolving the account_type id already carried on accounts (medium)
 - [ ] `opportunity_people` — join table linking people to opportunities (medium)
@@ -10686,12 +10686,12 @@ Diffed against: <https://docs.secoda.co/llms.txt>
 - [x] `schemas (GET /api/v1/database/schemas)` — lookup resolving the schema id carried on every synced table (high)
 - [x] `integrations (GET /api/v1/integration/integrations)` — lookup resolving the integration id present on every resource, i.e. which source system an asset came from (high)
 - [x] `lineage (GET /api/v1/lineage/manual/)` — the dependency graph between resources — the core analytical object of a catalog (high)
-- [ ] `monitors and incidents (/api/v1/monitor/monitors, /monitor/incidents)` — data-quality monitors and the incidents they raise, Secoda's headline reliability metric (high)
-- [ ] `monitor measurements (GET /api/v1/monitor/measurements)` — the time series behind each monitor; required for any quality trend analysis (high)
+- [x] `monitors and incidents (/api/v1/monitor/monitors, /monitor/incidents)` — data-quality monitors and the incidents they raise, Secoda's headline reliability metric (high)
+- [x] `monitor measurements (GET /api/v1/monitor/measurements)` — the time series behind each monitor; required for any quality trend analysis (high)
 - [ ] `queries (GET /api/v1/query/queries)` — query history driving table popularity and usage rankings (medium)
 - [ ] `dashboards (GET /api/v1/dashboard/dashboards)` — BI assets, the downstream consumers in lineage (medium)
-- [ ] `charts (GET /api/v1/dashboard/charts)` — chart-level assets under dashboards, needed for column-to-chart impact analysis (medium)
-- [ ] `events and event properties (/api/v1/event/events, /event/event_properties, /event/category)` — the event taxonomy tracked in the catalog plus its lookup categories (medium)
+- [x] `charts (GET /api/v1/dashboard/charts)` — chart-level assets under dashboards, needed for column-to-chart impact analysis (medium)
+- [x] `events and event properties (/api/v1/event/events, /event/event_properties, /event/category)` — the event taxonomy tracked in the catalog plus its lookup categories (medium)
 - [ ] `audit logs and resource logs (/api/v1/activity_log/audit_logs/, /resource_logs/)` — who touched which asset when — governance and adoption reporting (medium)
 - [ ] `custom properties (GET /api/v1/resource/all_v2/custom_properties/)` — lookup resolving customer-defined property values attached to tables and columns (medium)
 
@@ -10743,10 +10743,10 @@ Today (6): `Columns`, `Dashboards`, `Databases`, `Schemas`, `Tables`, `Tags`
 
 Diffed against: <https://docs.selectstar.com/select-star-api/api-examples.md>
 
-- [ ] `Lineage (GET /v1/lineage/{guid}/)` — analyze table and column dependencies and assess the impact of data changes (high)
-- [ ] `Dashboard Frequent Users (GET /v1/bi/dashboards/{guid}/frequent-dsusers/)` — measure dashboard adoption and query activity by individual user (medium)
-- [ ] `Explore Related Dashboards (GET /v1/bi/explores/{guid}/related-dashboards/)` — connect Looker explores with dependent dashboards and their usage (medium)
-- [ ] `Tagged Items (GET /v1/tags/items/{guid}/)` — analyze asset membership for assigned and suggested tags, including sensitive-data classifications (medium)
+- [x] `Lineage (GET /v1/lineage/{guid}/)` — analyze table and column dependencies and assess the impact of data changes (high)
+- [x] `Dashboard Frequent Users (GET /v1/bi/dashboards/{guid}/frequent-dsusers/)` — measure dashboard adoption and query activity by individual user (medium)
+- [ ] `Explore Related Dashboards (GET /v1/bi/explores/{guid}/related-dashboards/)` — connect Looker explores with dependent dashboards and their usage (medium) — skipped: the API documents no list call for Looker Explores, so there are no explore GUIDs to request it for
+- [x] `Tagged Items (GET /v1/tags/items/{guid}/)` — analyze asset membership for assigned and suggested tags, including sensitive-data classifications (medium)
 
 Note: Official API examples and the API overview were fetched with curl and their documented GET operations were compared with source paths. The live reference and likely Swagger endpoints returned HTTP 503, so findings use explicit official request examples. These resources need requests for each parent, and Looker explore IDs need separate discovery because explores are not imported. SCIM provisioning and metadata writes are excluded.
 
