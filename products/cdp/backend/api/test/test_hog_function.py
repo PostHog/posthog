@@ -1452,10 +1452,16 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
+            # The worker redacts the configured secrets out of logs, so this carries nothing out.
             (
-                "same_url",
-                "fetch('https://example.com', {'method': 'PUT', 'headers': {'Authorization': inputs.secret1}});",
+                "outside_the_fetch",
+                "fetch('https://example.com', {'headers': {'Authorization': inputs.secret1}});\nprint('sent')",
                 200,
+            ),
+            (
+                "inside_the_fetch",
+                "fetch('https://example.com', {'method': 'PUT', 'headers': {'Authorization': inputs.secret1}});",
+                403,
             ),
             ("new_url", "fetch('https://new.example.com', {'body': inputs.secret1});", 403),
         ]

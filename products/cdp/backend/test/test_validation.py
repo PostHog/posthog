@@ -1638,7 +1638,14 @@ class TestSecretBinding(SimpleTestCase):
             ("secret_value_ignored", {}, {"api_key": {"secret": True}}, None, False),
             ("host_change", {}, {"host": {"value": "attacker.example.com"}}, None, True),
             ("host_templates_another_input", {}, {"host": {"value": "{inputs.region}.example.com"}}, None, True),
-            ("code_change_keeps_url", {"code": f"{CODE}\nprint('sent')"}, {}, None, False),
+            ("code_change_keeps_fetch", {"code": f"{CODE}\nprint('sent')"}, {}, None, False),
+            (
+                "code_change_edits_fetch",
+                {"code": "fetch(f'https://{inputs.host}/track', {'body': inputs.body, 'method': 'PUT'})"},
+                {},
+                None,
+                True,
+            ),
             ("code_change_moves_url", {"code": "fetch(inputs.body, {})"}, {}, None, True),
             (
                 "code_change_adds_fetch",
@@ -1680,7 +1687,10 @@ class TestSecretBinding(SimpleTestCase):
             ("unchanged", {}, None, None, False),
             ("body_change", {"body": {"value": "b"}}, None, None, False),
             ("host_change", {"host": {"value": "attacker.example.com"}}, None, None, True),
-            ("code_change", {}, f"{CODE}\nprint(inputs.connection)", None, True),
+            # Logs are redacted, so code that reaches no fetch carries nothing out.
+            ("code_change_keeps_fetch", {}, f"{CODE}\nprint(inputs.connection)", None, False),
+            ("code_change_edits_fetch", {}, "fetch(inputs.host, {'body': inputs.connection})", None, True),
+            ("code_change_adds_fetch", {}, f"{CODE}\nfetch('https://new.example.com', {{}})", None, True),
             ("mapping_overrides_host", {}, None, [{"inputs": {"host": {"value": "attacker.example.com"}}}], True),
             (
                 "linked_in_mapping",

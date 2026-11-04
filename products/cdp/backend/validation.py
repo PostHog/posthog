@@ -1072,6 +1072,7 @@ class _FetchUrlSources(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
         self.url_exprs: list[ast.Expr] = []
+        self.fetch_calls: list[ast.Expr] = []
         self.assigned: dict[str, list[ast.Expr]] = {}
         self.function_params: dict[str, list[str]] = {}
         self.function_returns: dict[str, list[ast.Expr]] = {}
@@ -1089,6 +1090,7 @@ class _FetchUrlSources(TraversingVisitor):
         self.call_args.setdefault(node.name, []).append(node.args)
         if node.name == "fetch" and node.args:
             self.url_exprs.append(node.args[0])
+            self.fetch_calls.append(node)
 
     def visit_field(self, node: ast.Field) -> None:
         super().visit_field(node)
@@ -1188,7 +1190,9 @@ def _trace_fetch_urls(code: str) -> Optional[_FetchUrlTrace]:
         return None
 
     keys: set[str] = set()
-    printed: set[str] = set()
+    # The whole call, so editing a fetch's headers or body counts as much as editing its URL, and
+    # an added fetch cannot hide behind an unchanged one. Code that reaches no fetch adds nothing.
+    printed: set[str] = {repr(clear_locations(call)) for call in sources.fetch_calls}
     followed: set[str] = set()
     pending = list(sources.url_exprs)
     while pending:
@@ -1244,7 +1248,7 @@ def _binding_input_values(binding: SecretBinding, key: str) -> tuple[str, list[s
 def secret_binding_changed(stored: SecretBinding, current: SecretBinding, secret_keys: set[str]) -> bool:
     """Whether a stored secret would now go somewhere other than where it went when it was saved."""
     if stored.code != current.code:
-        # A code edit that leaves every fetch URL as it was, such as a new HTTP method, keeps the binding.
+        # A code edit outside every `fetch` call, such as a new log line, keeps the binding.
         stored_trace = _trace_fetch_urls(stored.code) if stored.code else None
         current_trace = _trace_fetch_urls(current.code) if current.code else None
         if not stored_trace or not current_trace or stored_trace.fingerprint != current_trace.fingerprint:
@@ -1308,14 +1312,14 @@ def _integration_input_keys(inputs_schema: Any, mappings: Any) -> set[str]:
 def integration_link_needs_reauth(stored: Optional[SecretBinding], current: SecretBinding, inputs_schema: Any) -> bool:
     """Whether a save links an integration, or changes where a linked integration's credentials go.
 
-    Code edits count even when every fetch URL stays the same, because code can expose a token in
-    other ways, for example in logs.
+    A code edit counts only when it changes a `fetch` call or adds one. The worker redacts the
+    configured secret values out of logs, so code that reaches no fetch cannot carry a token out.
     """
     keys = _integration_input_keys(inputs_schema, current.mappings)
     linked = {key for key in keys if _binding_input_values(current, key) != (json.dumps(None), [])}
     if not linked:
         return False
-    if stored is None or stored.code != current.code:
+    if stored is None:
         return True
     if any(_binding_input_values(stored, key) != _binding_input_values(current, key) for key in linked):
         return True
