@@ -991,8 +991,8 @@ class AudienceSuggestion:
     window_days: int
     # How many times the event must happen in the window. Set only for regulars.
     min_count: int | None
-    # People in the audience with an email address, counted when the suggestion was made.
-    reachable_count: int
+    # Roughly how many people in the audience have an email address. None until counted, or when the count failed.
+    reachable_count: int | None
     cohort_filters: dict[str, Any]
 
 
