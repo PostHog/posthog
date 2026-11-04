@@ -2725,6 +2725,8 @@ class TestSearchMemoryQuerySerializer(SimpleTestCase):
             ("key_prefix", "pattern:impl:posthog/posthog", True),
             ("three_digits", "404", True),
             ("non_ascii_word", "café", True),
+            ("two_chars_before_separator", "ai_", True),
+            ("two_chars_after_separator", ":pr", True),
             ("two_chars", "ai", False),
             ("short_words_split_by_separators", "a-b_c d", False),
             ("punctuation_only", "%%%", False),
