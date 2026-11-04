@@ -127,6 +127,34 @@ impl FingerprintVersion {
         self.strategy().from_exception_list(exception_list)
     }
 
+    pub fn compute_for_lib(
+        &self,
+        exception_list: &ExceptionList,
+        lib: Option<&str>,
+    ) -> Fingerprint {
+        if *self != Self::V2
+            || lib != Some("posthog-elixir")
+            || !exception_list.iter().any(|exception| {
+                exception.exception_type.starts_with("** (exit) ")
+                    && exception.exception_type.contains("#PID<")
+            })
+        {
+            return self.compute(exception_list);
+        }
+
+        let pid = ELIXIR_PID
+            .get_or_init(|| Regex::new(r"#PID<\d+\.\d+\.\d+>").expect("valid Elixir PID regex"));
+        let mut normalized = exception_list.clone();
+        for exception in normalized.iter_mut() {
+            if exception.exception_type.starts_with("** (exit) ") {
+                exception.exception_type = pid
+                    .replace_all(&exception.exception_type, "#PID<*>")
+                    .into_owned();
+            }
+        }
+        self.compute(&normalized)
+    }
+
     pub fn strategy(&self) -> FingerprintStrategy {
         match self {
             FingerprintVersion::V1 | FingerprintVersion::V1Legacy => FingerprintStrategy::default(),
@@ -191,6 +219,7 @@ pub struct Normalization {
 }
 
 static HASHED_CHUNK_TOKEN: OnceLock<Regex> = OnceLock::new();
+static ELIXIR_PID: OnceLock<Regex> = OnceLock::new();
 
 impl Normalization {
     fn is_noop(&self) -> bool {
@@ -516,6 +545,59 @@ mod test {
             .strategy()
             .from_exception_list(&exceptions.into())
             .value
+    }
+
+    #[test]
+    fn v2_groups_elixir_exits_with_different_pids() {
+        let exit =
+            |first_pid: &str, second_pid: &str, reason: &str, function: &str| -> ExceptionList {
+                vec![exception(
+                    &format!(
+                        "** (exit) {reason}: worker #PID<{first_pid}> called #PID<{second_pid}>"
+                    ),
+                    "details",
+                    resolved_stack(vec![frame(
+                        function,
+                        Some("worker.ex"),
+                        Some(function),
+                        true,
+                        true,
+                        None,
+                    )]),
+                )]
+                .into()
+            };
+        let original = exit("0.1.0", "0.2.0", "timeout", "run");
+        let other_pids = exit("0.3.0", "0.4.0", "timeout", "run");
+        let other_reason = exit("0.3.0", "0.4.0", "rejected", "run");
+        let other_frame = exit("0.3.0", "0.4.0", "timeout", "retry");
+        let fingerprint = |version: FingerprintVersion, lib: &str, list: &ExceptionList| {
+            version.compute_for_lib(list, Some(lib)).value
+        };
+
+        assert_eq!(
+            fingerprint(FingerprintVersion::V2, "posthog-elixir", &original),
+            fingerprint(FingerprintVersion::V2, "posthog-elixir", &other_pids),
+        );
+        assert_ne!(
+            fingerprint(FingerprintVersion::V2, "posthog-elixir", &original),
+            fingerprint(FingerprintVersion::V2, "posthog-elixir", &other_reason),
+        );
+        assert_ne!(
+            fingerprint(FingerprintVersion::V2, "posthog-elixir", &original),
+            fingerprint(FingerprintVersion::V2, "posthog-elixir", &other_frame),
+        );
+        for version in [FingerprintVersion::V1, FingerprintVersion::V2Legacy] {
+            assert_ne!(
+                fingerprint(version, "posthog-elixir", &original),
+                fingerprint(version, "posthog-elixir", &other_pids),
+            );
+        }
+        assert_ne!(
+            fingerprint(FingerprintVersion::V2, "posthog-python", &original),
+            fingerprint(FingerprintVersion::V2, "posthog-python", &other_pids),
+        );
+        assert!(original[0].exception_type.contains("#PID<0.1.0>"));
     }
 
     // ---- V1 invariants (preserved from the original implementation) ----
