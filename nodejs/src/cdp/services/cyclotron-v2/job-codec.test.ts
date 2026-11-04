@@ -13,7 +13,13 @@ const codeSend: CyclotronJobInvocation = {
     queue: 'email',
     queuePriority: 1,
     queueScheduledAt: DateTime.fromISO('2026-11-05T09:30:00.000Z', { zone: 'utc' }),
-    queueParameters: { type: 'email', to: 'ada@example.com' } as any,
+    queueParameters: {
+        type: 'email',
+        to: { email: 'ada@example.com', name: 'Ada' },
+        from: { integrationId: 7, email: 'no-reply@example.com' },
+        subject: 'Hi <b>there</b>',
+        html: '<p>Hello "Ada"</p>\n',
+    },
     queueMetadata: { attempt: 2, note: 'ünïcødé ✉' },
     state: {
         event: {
@@ -44,7 +50,7 @@ const cases = [
     {
         name: 'a code send with lookup columns, parameters and metadata',
         invocation: codeSend,
-        golden: String.raw`{"state":{"event":{"uuid":"e-1","event":"$transactional_email","distinct_id":"user-42","properties":{"to":"ada@example.com"}},"personId":"p-7","currentAction":{"id":"action_email","startedAtTimestamp":1762335000000},"send":{"subject":"Hi <b>there</b>","html":"<p>Hello \"Ada\"</p>\n","from":{"email":"no-reply@example.com"}},"triggerMetricPending":true},"queueParameters":{"type":"email","to":"ada@example.com"},"queueMetadata":{"attempt":2,"note":"ünïcødé ✉"}}`,
+        golden: String.raw`{"state":{"event":{"uuid":"e-1","event":"$transactional_email","distinct_id":"user-42","properties":{"to":"ada@example.com"}},"personId":"p-7","currentAction":{"id":"action_email","startedAtTimestamp":1762335000000},"send":{"subject":"Hi <b>there</b>","html":"<p>Hello \"Ada\"</p>\n","from":{"email":"no-reply@example.com"}},"triggerMetricPending":true},"queueParameters":{"type":"email","to":{"email":"ada@example.com","name":"Ada"},"from":{"integrationId":7,"email":"no-reply@example.com"},"subject":"Hi <b>there</b>","html":"<p>Hello \"Ada\"</p>\n"},"queueMetadata":{"attempt":2,"note":"ünïcødé ✉"}}`,
         columns: {
             id: codeSend.id,
             teamId: 2,

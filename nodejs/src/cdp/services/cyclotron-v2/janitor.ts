@@ -94,11 +94,7 @@ interface PoisonRow {
     created: string
     parent_run_id: string | null
     state: Buffer | null
-    distinct_id: string | null
-    person_id: string | null
-    action_id: string | null
     janitor_touch_count: number
-    transition_count: number
 }
 
 export class CyclotronV2Janitor {
@@ -290,8 +286,7 @@ export class CyclotronV2Janitor {
 
         const result = await this.pool.query<PoisonRow>(
             `SELECT id, team_id, function_id, queue_name, priority, scheduled, created,
-                    parent_run_id, state, distinct_id, person_id, action_id,
-                    janitor_touch_count, transition_count
+                    parent_run_id, state, janitor_touch_count
              FROM cyclotron_jobs
              WHERE status = 'running'
                AND COALESCE(last_heartbeat, $1) <= $1

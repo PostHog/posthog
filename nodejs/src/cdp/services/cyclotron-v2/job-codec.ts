@@ -14,13 +14,29 @@ export type SerializedJobState = {
     queueMetadata?: CyclotronJobInvocation['queueMetadata']
 }
 
-export function serializeState(invocation: CyclotronJobInvocation): Buffer {
+function serializeState(invocation: CyclotronJobInvocation): Buffer {
     const blob: SerializedJobState = {
         state: invocation.state,
         queueParameters: invocation.queueParameters ?? undefined,
         queueMetadata: invocation.queueMetadata ?? undefined,
     }
     return Buffer.from(JSON.stringify(blob))
+}
+
+export type EncodedStateColumns = {
+    state: Buffer
+    distinctId: string | null
+    personId: string | null
+    actionId: string | null
+}
+
+export function encodeStateColumns(invocation: CyclotronJobInvocation): EncodedStateColumns {
+    return {
+        state: serializeState(invocation),
+        distinctId: extractDistinctId(invocation),
+        personId: extractPersonId(invocation),
+        actionId: extractActionId(invocation),
+    }
 }
 
 export function encodeJob(invocation: CyclotronJobInvocation): CyclotronV2JobInit {
@@ -32,10 +48,7 @@ export function encodeJob(invocation: CyclotronJobInvocation): CyclotronV2JobIni
         priority: invocation.queuePriority,
         scheduled: invocation.queueScheduledAt?.toJSDate() ?? new Date(),
         parentRunId: invocation.parentRunId ?? null,
-        state: serializeState(invocation),
-        distinctId: extractDistinctId(invocation),
-        personId: extractPersonId(invocation),
-        actionId: extractActionId(invocation),
+        ...encodeStateColumns(invocation),
     }
 }
 

@@ -8,14 +8,7 @@ import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
-import {
-    encodeJob,
-    extractActionId,
-    extractDistinctId,
-    extractPersonId,
-    serializeState,
-    v2JobToInvocation,
-} from '../cyclotron-v2/job-codec'
+import { encodeJob, encodeStateColumns, v2JobToInvocation } from '../cyclotron-v2/job-codec'
 import { CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { JobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
@@ -223,13 +216,9 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 } else if (result.finished) {
                     await job.ack()
                 } else {
-                    const stateBuffer = serializeState(result.invocation)
                     await job.reschedule({
-                        state: stateBuffer,
+                        ...encodeStateColumns(result.invocation),
                         scheduledAt: result.invocation.queueScheduledAt?.toJSDate(),
-                        distinctId: extractDistinctId(result.invocation),
-                        personId: extractPersonId(result.invocation),
-                        actionId: extractActionId(result.invocation),
                         queueName: result.invocation.queue,
                         // Persisted only across email-queue transitions: entering carries the
                         // class routeEmailToQueue assigned, leaving restores the origin
