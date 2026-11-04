@@ -210,14 +210,15 @@ class TestRunOrchestration:
         clear.assert_awaited_once()
         assert order == ["reconcile", "produce", "snapshot", "compact"]
 
+    @parameterized.expand([("unconfirmed_delivery", False), ("snapshot_write_failure", True)])
     @pytest.mark.asyncio
-    async def test_undelivered_intents_stay_out_of_the_snapshot_and_fail_the_run(self):
+    async def test_undelivered_intents_stay_out_of_the_snapshot_and_fail_the_run(self, _name, snapshot_write_fails):
         team = MagicMock(api_token="tok", project_id=7)
         fake = _FakeS3()
         _stage(fake, "chunk_1_000000", [{"distinct_id": "a", "plan": "pro"}, {"distinct_id": "b", "plan": "free"}])
-        progress: list[pps.PerSourceResult] = []
+        progress: list[pps.PerSourceProgress] = []
 
-        async def _on_progress(increment: pps.PerSourceResult) -> None:
+        async def _on_progress(increment: pps.PerSourceProgress) -> None:
             progress.append(increment)
 
         with (
@@ -225,22 +226,36 @@ class TestRunOrchestration:
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._source()]),
             patch(f"{_MODULE}.Team") as team_cls,
             patch(f"{_MODULE}._filter_existing_ids", return_value={"a", "b"}),
-            patch(f"{_MODULE}._produce_intents", side_effect=({"a"}, {"b"})),
+            patch(
+                f"{_MODULE}._produce_intents",
+                side_effect=({"a", "b"}, {"a", "b"}) if snapshot_write_fails else ({"a"}, {"b"}),
+            ),
             patch(f"{_MODULE}._reconcile_property_definitions"),
             patch(f"{_MODULE}._clear_staged", new=AsyncMock()) as clear,
         ):
             team_cls.objects.get.return_value = team
-            with pytest.raises(pps.PropertyUpdatesNotDeliveredError, match="1 of 2"):
-                await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1", on_progress=_on_progress)
+            if snapshot_write_fails:
+                with (
+                    patch.object(fake, "_pipe_file", side_effect=RuntimeError("snapshot write failed")),
+                    pytest.raises(RuntimeError, match="snapshot write failed"),
+                ):
+                    await pps.run_person_property_sync(
+                        team_id=1, binding=_SCHEMA, job_id="job-1", on_progress=_on_progress
+                    )
+                assert progress == []
+            else:
+                with pytest.raises(pps.PropertyUpdatesNotDeliveredError, match="1 of 2"):
+                    await pps.run_person_property_sync(
+                        team_id=1, binding=_SCHEMA, job_id="job-1", on_progress=_on_progress
+                    )
             result = await pps.run_person_property_sync(
                 team_id=1, binding=_SCHEMA, job_id="job-1", on_progress=_on_progress
             )
             hashes = await pps._read_snapshot_hashes(1, _SCHEMA, "source-1")
 
         assert set(hashes) == {"a", "b"}
-        assert sum(increment.existing for increment in progress) == 2
-        assert sum(increment.produced for increment in progress) == 2
-        assert result.produced == 1
+        assert sum(increment.produced_increment for increment in progress) == 2
+        assert result.produced == (2 if snapshot_write_fails else 1)
         clear.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -248,12 +263,23 @@ class TestRunOrchestration:
         team = MagicMock(api_token="tok", project_id=7)
         fake = _FakeS3()
         _stage(fake, "chunk_1_000000", [{"distinct_id": f"p{n}", "plan": "pro"} for n in range(6)], job_id="job-1")
-        _stage(fake, "chunk_1_000000", [{"distinct_id": "p6", "plan": "pro"}], job_id="job-2")
+        _stage(
+            fake,
+            "chunk_1_000000",
+            [
+                {"distinct_id": "p6", "plan": "pro"},
+                {"distinct_id": "ghost-1", "plan": "pro"},
+                {"distinct_id": "ghost-2", "plan": "pro"},
+            ],
+            job_id="job-2",
+        )
         sent_per_run: dict[str, list[str]] = {"job-1": [], "job-2": []}
-        progress_per_run: dict[str, list[pps.PerSourceResult]] = {"job-1": [], "job-2": []}
+        progress_per_run: dict[str, list[pps.PerSourceProgress]] = {"job-1": [], "job-2": []}
         current_job = "job-1"
 
-        async def _on_progress(increment: pps.PerSourceResult) -> None:
+        async def _on_progress(increment: pps.PerSourceProgress) -> None:
+            hashes = await pps._read_snapshot_hashes(1, _SCHEMA, increment.source_id)
+            assert set(sent_per_run[current_job]) <= set(hashes)
             progress_per_run[current_job].append(increment)
 
         kill_after = 2
@@ -271,7 +297,10 @@ class TestRunOrchestration:
             patch(f"{_MODULE}._PRODUCE_CHUNK_SIZE", 2),
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._source()]),
             patch(f"{_MODULE}.Team") as team_cls,
-            patch(f"{_MODULE}._filter_existing_ids", side_effect=lambda _team_id, _source, ids: set(ids)),
+            patch(
+                f"{_MODULE}._filter_existing_ids",
+                side_effect=lambda _team_id, _source, ids: {key for key in ids if not key.startswith("ghost-")},
+            ),
             patch(f"{_MODULE}._produce_intents", side_effect=_produce),
             patch(f"{_MODULE}._reconcile_property_definitions"),
         ):
@@ -292,9 +321,26 @@ class TestRunOrchestration:
         assert sent_per_run["job-2"] == ["p6"]
         assert result.produced == 1
         # The killed run reports what it delivered before it died, so its run row is not left at zero.
-        assert [(p.source_id, p.existing, p.produced) for p in progress_per_run["job-1"]] == [("source-1", 2, 2)]
-        assert sum(p.produced for p in progress_per_run["job-2"]) == result.produced
-        assert sum(p.existing for p in progress_per_run["job-2"]) == result.per_source[0].existing
+        assert progress_per_run["job-1"] == [
+            pps.PerSourceProgress(
+                source_id="source-1",
+                produced_increment=2,
+                rows_read_total=6,
+                changed_total=6,
+                skipped_missing_person_total=0,
+            )
+        ]
+        assert sum(p.produced_increment for p in progress_per_run["job-2"]) == result.produced
+        assert progress_per_run["job-2"] == [
+            pps.PerSourceProgress(
+                source_id="source-1",
+                produced_increment=produced,
+                rows_read_total=3,
+                changed_total=3,
+                skipped_missing_person_total=skipped,
+            )
+            for produced, skipped in [(1, 1), (0, 2)]
+        ]
         # The completed run folds the killed run's leftover file and its own chunk files into one.
         assert [pps._s3_key(key) for key in snapshot_files] == [f"{prefix}/job-2.parquet"]
         assert set(hashes) == {"p0", "p1", "p6"}
