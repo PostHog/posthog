@@ -3,6 +3,9 @@ import { router } from 'kea-router'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import { ApiConfig } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
@@ -14,19 +17,31 @@ import { audienceCohortIds, audienceCohortLaunchError, toAudienceCohort } from '
 import {
     EMAIL_SENDING_SUSPENDED_MESSAGE,
     NO_EMAIL_SENDER_MESSAGE,
+    SANDBOX_ONLY_SENDER_MESSAGE,
     UNVERIFIED_SENDER_MESSAGE,
 } from '../Channels/emailSendingMessages'
 import { MessageAudience, MessageAudienceDestination, messageAudienceUrl } from './messageAudience'
 
-export function emailSenderWarning(integrations: Pick<IntegrationConfigApi, 'kind' | 'config'>[]): string | null {
-    const senders = integrations.filter((integration) => integration.kind === 'email')
+export function emailSenderWarning(
+    integrations: Pick<IntegrationConfigApi, 'kind' | 'config'>[],
+    sandboxSenderEnabled: boolean
+): string | null {
+    const emailIntegrations = integrations.filter((integration) => integration.kind === 'email')
+    // With the flag off, a sandbox sender kept from earlier counts like any other sender, as it did before the flag.
+    const senders = sandboxSenderEnabled
+        ? emailIntegrations.filter((integration) => !isSandboxEmailSender(integration))
+        : emailIntegrations
     if (senders.length === 0) {
-        return NO_EMAIL_SENDER_MESSAGE
+        return emailIntegrations.length > 0 ? SANDBOX_ONLY_SENDER_MESSAGE : NO_EMAIL_SENDER_MESSAGE
     }
     const verified = senders.some(
         (integration) => (integration.config as { verified?: boolean } | undefined)?.verified === true
     )
     return verified ? null : UNVERIFIED_SENDER_MESSAGE
+}
+
+function sandboxSenderEnabled(): boolean {
+    return !!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]
 }
 
 // The checks only advise, so a slow one must not hold the person on the page.
@@ -62,7 +77,7 @@ export async function loadMessageAudienceWarnings(
     return [
         suspension?.email_sending_suspended ? EMAIL_SENDING_SUSPENDED_MESSAGE : null,
         // A verified sender can sit on a later page, so only a complete list can say none is verified.
-        integrations && !integrations.next ? emailSenderWarning(integrations.results) : null,
+        integrations && !integrations.next ? emailSenderWarning(integrations.results, sandboxSenderEnabled()) : null,
         ...cohorts.map((cohort) => (cohort ? audienceCohortLaunchError(cohort) : null)),
     ].filter((warning): warning is string => !!warning)
 }
@@ -111,10 +126,11 @@ export async function openMessageAudience(
                 onClick: navigate,
                 'data-attr': `message-audience-${audience.source}-continue`,
             },
-            secondaryButton:
-                warnings.includes(NO_EMAIL_SENDER_MESSAGE) || warnings.includes(UNVERIFIED_SENDER_MESSAGE)
-                    ? { children: 'Set up email', onClick: () => router.actions.push(urls.workflows('channels')) }
-                    : { children: 'Cancel' },
+            secondaryButton: [NO_EMAIL_SENDER_MESSAGE, SANDBOX_ONLY_SENDER_MESSAGE, UNVERIFIED_SENDER_MESSAGE].some(
+                (message) => warnings.includes(message)
+            )
+                ? { children: 'Set up email', onClick: () => router.actions.push(urls.workflows('channels')) }
+                : { children: 'Cancel' },
         })
     } finally {
         opening = false
