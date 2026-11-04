@@ -1,12 +1,14 @@
 import { mkdir, readdir, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { isDeepStrictEqual } from 'node:util'
 import { format } from 'oxfmt'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { PostHogMCP } from '@posthog/mcp-analytics'
 
+import { dedupeRepeatedDescriptions, toMcpInputSchema } from '@/hono/tool-catalog'
 import { CLAUDE_REGISTRY_INPUT_SCHEMA_CHAR_LIMIT, OAUTH_SCOPES_HIDDEN } from '@/lib/constants'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
@@ -168,9 +170,29 @@ describe('Tool schema snapshots', () => {
 
     describe('schema budgets', () => {
         // Ratchet: the number of oversized tool schemas may only go down.
-        const OVERSIZED_SCHEMA_COUNT = 41
+        const OVERSIZED_SCHEMA_COUNT = 39
         // Ratchet: the share of nested properties with a description may only go up.
         const NESTED_DESCRIPTION_COVERAGE_FLOOR_PERCENT = 55
+        // About 10k tokens at 4 chars per token. One schema this large costs a tools-mode client as much
+        // context as many ordinary tools together, so a new tool must stay under it.
+        const TOOL_SCHEMA_CHAR_BUDGET = 40_000
+        // Ratchet: the tools already over TOOL_SCHEMA_CHAR_BUDGET, each capped at its size rounded up to the
+        // next 1,000 chars. Lower a ceiling when its schema shrinks, and never add a tool to this list.
+        const OVERSIZED_TOOL_SCHEMA_CEILINGS: Record<string, number> = {
+            'experiment-update': 99_000,
+            'project-settings-update': 75_000,
+            'experiment-create': 65_000,
+            'query-trends-actors': 65_000,
+            'query-trends': 63_000,
+            'query-funnel-actors': 54_000,
+            'query-funnel': 51_000,
+            'query-retention-actors': 47_000,
+            'query-retention': 46_000,
+        }
+        // The sum of every advertised schema, which a tools-mode client receives on each session. It sits about
+        // 1% over the measured total, so small help_text edits pass and a batch of new tools fails until a
+        // reviewer raises it.
+        const TOOLS_MODE_ROSTER_CHAR_BUDGET = 3_920_000
 
         interface DescriptionCoverage {
             described: number
@@ -210,25 +232,95 @@ describe('Tool schema snapshots', () => {
             return total === 0 ? 100 : (described / total) * 100
         }
 
-        it('keeps the number of tool schemas over the claude.ai registry limit from growing', async () => {
-            const tools = await loadSnapshotTools()
-            // The analytics SDK adds a `context` property at registration, so measure the registered shape.
-            const posthog = new PostHogMCP('phc_test', { disabled: true })
-            const registered = posthog.prepareToolList(
-                tools.map((tool) => ({
-                    name: tool.name,
-                    description: tool.description,
-                    inputSchema: z.toJSONSchema(tool.schema, { io: 'input', reused: 'inline' }) as {
-                        type: 'object'
-                        [key: string]: unknown
-                    },
-                }))
-            )
-            const oversized = registered
-                .map((entry) => ({ name: entry.name, size: JSON.stringify(entry.inputSchema).length }))
-                .filter(({ size }) => size >= CLAUDE_REGISTRY_INPUT_SCHEMA_CHAR_LIMIT)
-                .sort((a, b) => b.size - a.size)
+        interface AdvertisedSchemaSize {
+            name: string
+            size: number
+        }
 
+        // The analytics SDK adds a `context` property at registration, so measure the registered shape.
+        async function advertisedSchemaSizes(): Promise<AdvertisedSchemaSize[]> {
+            const tools = await loadSnapshotTools()
+            const posthog = new PostHogMCP('phc_test', { disabled: true })
+            return posthog
+                .prepareToolList(
+                    tools.map((tool) => ({
+                        name: tool.name,
+                        description: tool.description,
+                        inputSchema: toMcpInputSchema(tool.schema),
+                    }))
+                )
+                .map((entry) => ({ name: entry.name, size: JSON.stringify(entry.inputSchema).length }))
+                .sort((a, b) => b.size - a.size)
+        }
+
+        function withoutDescriptions(value: unknown): unknown {
+            if (Array.isArray(value)) {
+                return value.map(withoutDescriptions)
+            }
+            if (value && typeof value === 'object') {
+                return Object.fromEntries(
+                    Object.entries(value)
+                        .filter(([key, nested]) => !(key === 'description' && typeof nested === 'string'))
+                        .map(([key, nested]) => [key, withoutDescriptions(nested)])
+                )
+            }
+            return value
+        }
+
+        it('advertises schemas that differ from the zod rendering only in descriptions', async () => {
+            const tools = await loadSnapshotTools()
+            const changed = tools
+                .filter((tool) => {
+                    const rendered = z.toJSONSchema(tool.schema, { io: 'input', target: 'draft-7' }) as Record<
+                        string,
+                        unknown
+                    >
+                    const advertised = dedupeRepeatedDescriptions({ ...rendered })
+                    return !isDeepStrictEqual(withoutDescriptions(advertised), withoutDescriptions(rendered))
+                })
+                .map((tool) => tool.name)
+
+            expect(changed).toEqual([])
+        })
+
+        it('keeps each advertised tool schema within its size budget', async () => {
+            const sizes = await advertisedSchemaSizes()
+            const overBudget = sizes.filter(
+                ({ name, size }) => size > (OVERSIZED_TOOL_SCHEMA_CEILINGS[name] ?? TOOL_SCHEMA_CHAR_BUDGET)
+            )
+            const belowBudget = Object.keys(OVERSIZED_TOOL_SCHEMA_CEILINGS).filter(
+                (name) => (sizes.find((entry) => entry.name === name)?.size ?? 0) <= TOOL_SCHEMA_CHAR_BUDGET
+            )
+
+            expect(
+                overBudget,
+                `These tool schemas grew past their budget of ${TOOL_SCHEMA_CHAR_BUDGET} chars, or past their ceiling ` +
+                    `in OVERSIZED_TOOL_SCHEMA_CEILINGS. Tools mode sends every schema on each tools/list. Shrink the ` +
+                    `schema with exclude_params, include_params or param_overrides in the product tools.yaml, or ` +
+                    `shorten serializer help_text.`
+            ).toEqual([])
+            expect(
+                belowBudget,
+                `These tools are now within ${TOOL_SCHEMA_CHAR_BUDGET} chars. Remove them from OVERSIZED_TOOL_SCHEMA_CEILINGS.`
+            ).toEqual([])
+        })
+
+        it('keeps the total tools-mode roster within its budget', async () => {
+            const sizes = await advertisedSchemaSizes()
+            const total = sizes.reduce((sum, { size }) => sum + size, 0)
+
+            expect(
+                total,
+                `The advertised tool schemas total ${total} chars, over TOOLS_MODE_ROSTER_CHAR_BUDGET ` +
+                    `(${TOOLS_MODE_ROSTER_CHAR_BUDGET}). Tools-mode clients receive all of them on every session. ` +
+                    `Shrink schemas, or raise the budget in this PR so a reviewer accepts the growth.`
+            ).toBeLessThanOrEqual(TOOLS_MODE_ROSTER_CHAR_BUDGET)
+        })
+
+        it('keeps the number of tool schemas over the claude.ai registry limit from growing', async () => {
+            const oversized = (await advertisedSchemaSizes()).filter(
+                ({ size }) => size >= CLAUDE_REGISTRY_INPUT_SCHEMA_CHAR_LIMIT
+            )
             const offenders = oversized.map(({ name, size }) => `- ${name}: ${size} chars`).join('\n')
 
             expect(

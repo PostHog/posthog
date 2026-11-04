@@ -70,6 +70,75 @@ function flattenTopLevelUnion(variants: JsonSchema[]): JsonSchema | null {
     return { type: 'object', properties, ...(required.length > 0 ? { required } : {}) }
 }
 
+const SUBSCHEMA_KEYWORDS = new Set([
+    'additionalItems',
+    'additionalProperties',
+    'contains',
+    'else',
+    'if',
+    'items',
+    'not',
+    'propertyNames',
+    'then',
+    'unevaluatedItems',
+    'unevaluatedProperties',
+])
+const SUBSCHEMA_LIST_KEYWORDS = new Set(['allOf', 'anyOf', 'items', 'oneOf', 'prefixItems'])
+const SUBSCHEMA_MAP_KEYWORDS = new Set(['$defs', 'definitions', 'dependentSchemas', 'patternProperties', 'properties'])
+
+function isSchemaObject(value: unknown): value is JsonSchema {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Apply `visit` to every direct subschema, leaving data keywords such as `default` and `enum` untouched. */
+function mapSubschemas(schema: JsonSchema, visit: (subschema: JsonSchema) => JsonSchema): JsonSchema {
+    const result: JsonSchema = {}
+    for (const [keyword, value] of Object.entries(schema)) {
+        if (Array.isArray(value) && SUBSCHEMA_LIST_KEYWORDS.has(keyword)) {
+            result[keyword] = value.map((item) => (isSchemaObject(item) ? visit(item) : item))
+        } else if (isSchemaObject(value) && SUBSCHEMA_MAP_KEYWORDS.has(keyword)) {
+            result[keyword] = Object.fromEntries(
+                Object.entries(value).map(([name, item]) => [name, isSchemaObject(item) ? visit(item) : item])
+            )
+        } else if (isSchemaObject(value) && SUBSCHEMA_KEYWORDS.has(keyword)) {
+            result[keyword] = visit(value)
+        } else {
+            result[keyword] = value
+        }
+    }
+    return result
+}
+
+function stripDescriptions(schema: JsonSchema): JsonSchema {
+    const { description, ...rest } = schema
+    return mapSubschemas(typeof description === 'string' ? rest : schema, stripDescriptions)
+}
+
+// Below this size a repeated subschema is a short leaf, such as a described string field, and its
+// description is cheap and still useful where it appears.
+const MIN_DEDUPED_SUBSCHEMA_CHARS = 200
+
+/**
+ * Keep the descriptions of a repeated subschema on its first occurrence only. Inlined query schemas repeat
+ * the same property filter union in every series and filter slot, so most of their size is copies of the
+ * same descriptions. `description` is an annotation, so the result accepts exactly the same inputs. Zod
+ * emits identical key order for identical subschemas, so plain `JSON.stringify` identifies the copies.
+ */
+export function dedupeRepeatedDescriptions(schema: JsonSchema): JsonSchema {
+    const seen = new Set<string>()
+    const visit = (node: JsonSchema): JsonSchema => {
+        const key = JSON.stringify(node)
+        if (key.length >= MIN_DEDUPED_SUBSCHEMA_CHARS) {
+            if (seen.has(key)) {
+                return stripDescriptions(node)
+            }
+            seen.add(key)
+        }
+        return mapSubschemas(node, visit)
+    }
+    return visit(schema)
+}
+
 /**
  * Convert a tool's zod schema to the MCP `inputSchema` wire shape. Single source
  * for every advertised schema (catalog entries and the `render-ui` umbrella entry)
@@ -90,7 +159,7 @@ export function toMcpInputSchema(schema: ZodObjectAny): McpTool['inputSchema'] {
         const variants = (jsonSchema['anyOf'] ?? jsonSchema['oneOf']) as JsonSchema[]
         jsonSchema = flattenTopLevelUnion(variants) ?? { type: 'object', ...jsonSchema }
     }
-    return jsonSchema as McpTool['inputSchema']
+    return dedupeRepeatedDescriptions(jsonSchema) as McpTool['inputSchema']
 }
 
 export class ToolCatalog {
