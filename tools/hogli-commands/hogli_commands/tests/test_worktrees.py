@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 import math
 import time
 import fcntl
@@ -79,7 +78,6 @@ def test_in_use_matches_the_worktree_and_its_subdirectories(cwd: Path, expected:
     assert _in_use(Path("/repo/.claude/worktrees/a"), {cwd}) is expected
 
 
-@pytest.mark.skipif(sys.platform == "linux", reason="linux reads /proc, not lsof")
 @pytest.mark.parametrize(
     "lsof",
     [
@@ -89,7 +87,8 @@ def test_in_use_matches_the_worktree_and_its_subdirectories(cwd: Path, expected:
     ],
     ids=["missing", "timed out", "empty"],
 )
-def test_process_cwds_is_none_when_lsof_gives_nothing(lsof: Mock) -> None:
+def test_process_cwds_is_none_when_lsof_gives_nothing(lsof: Mock, monkeypatch) -> None:
+    monkeypatch.setattr(worktrees.sys, "platform", "darwin")
     with patch.object(worktrees.subprocess, "run", lsof):
         assert worktrees._process_cwds() is None
 

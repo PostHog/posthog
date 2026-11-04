@@ -278,8 +278,10 @@ def worktrees_clean(
     """Find and clean up stale agent worktrees by age and deletion mode."""
 
     if unattended:
-        if before is not None or mode is not None:
-            raise click.UsageError("--unattended chooses --before and --mode itself.")
+        if before is not None or mode is not None or include_dirty or stop_boxes or delete_boxes:
+            raise click.UsageError(
+                "--unattended sets --before, --mode and --include-dirty itself and never touches devboxes."
+            )
         lock = _unattended_lock(dry_run)
         if lock is None:
             click.echo("Skipped: an unattended run is in progress or happened in the last 24 hours.")
@@ -692,7 +694,6 @@ def _resolve_orphan_policy(explicit: str | None, mode: str) -> str:
 
 
 _UNATTENDED_SCHEDULE = (("14d", "full"), ("7d", "deps"))
-_UNATTENDED_INTERVAL_S = 24 * 60 * 60
 # .flox/env/on-activate.sh checks this file's mtime before it spawns hogli.
 _UNATTENDED_LOCK = Path.home() / ".config" / "posthog" / "worktrees-clean.lock"
 
@@ -716,7 +717,7 @@ def _unattended_lock(dry_run: bool) -> IO[str] | None:
         last_run = float(lock.read().strip() or 0)
     except ValueError:
         last_run = 0.0
-    if time.time() - last_run < _UNATTENDED_INTERVAL_S:
+    if time.time() - last_run < 24 * 60 * 60:
         lock.close()
         return None
     if not dry_run:
@@ -937,10 +938,9 @@ def _add_reclaimed_properties(reclaimed_bytes: float, removed: int) -> None:
 
     ctx = click.get_current_context(silent=True)
     so_far = (ctx.meta.get(telemetry.COMMAND_PROPERTIES_META_KEY) if ctx else None) or {}
-    telemetry.add_command_properties(
-        reclaimed_gb=round(so_far.get("reclaimed_gb", 0.0) + max(reclaimed_bytes, 0.0) / 1e9, 2),
-        worktrees_removed=so_far.get("worktrees_removed", 0) + removed,
-    )
+    telemetry.add_command_properties(worktrees_removed=so_far.get("worktrees_removed", 0) + removed)
+    if reclaimed_bytes >= 0:
+        telemetry.add_command_properties(reclaimed_gb=round(so_far.get("reclaimed_gb", 0.0) + reclaimed_bytes / 1e9, 2))
 
 
 def _process_cwds() -> set[Path] | None:
@@ -955,7 +955,7 @@ def _process_cwds() -> set[Path] | None:
     if sys.platform == "linux":
         for proc in Path("/proc").glob("[0-9]*"):
             try:
-                cwds.add(Path(os.readlink(proc / "cwd")))
+                cwds.add((proc / "cwd").readlink())
             except OSError:
                 continue
     else:
@@ -968,7 +968,7 @@ def _process_cwds() -> set[Path] | None:
 
 
 def _in_use(worktree: Path, cwds: set[Path]) -> bool:
-    return any(cwd == worktree or worktree in cwd.parents for cwd in cwds)
+    return any(cwd.is_relative_to(worktree) for cwd in cwds)
 
 
 def _is_under(child: Path, parent: Path) -> bool:

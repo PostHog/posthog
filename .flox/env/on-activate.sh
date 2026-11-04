@@ -201,13 +201,16 @@ export GOTOOLCHAIN=local
 export GOPATH="$HOME/.cache/posthog/go"
 export GOCACHE="$HOME/.cache/posthog/go-build"
 export GOMODCACHE="$GOPATH/pkg/mod"
-# Module caches made without -modcacherw are read-only, and this hook runs under set -e.
-if [[ -d "$FLOX_ENV_CACHE/go" || -d "$FLOX_ENV_CACHE/go-build" ]]; then
-  chmod -R u+w "$FLOX_ENV_CACHE/go" "$FLOX_ENV_CACHE/go-build" 2>/dev/null || true
-  rm -rf "$FLOX_ENV_CACHE/go" "$FLOX_ENV_CACHE/go-build" 2>/dev/null || true
-fi
-# Go creates the module cache read-only by default, and `rm -rf` on a worktree
-# cannot delete a read-only directory tree.
+# Old per-checkout caches hold six-figure file counts, so delete them off the activation path.
+# Module caches made without -modcacherw are read-only.
+for old_go_cache in "$FLOX_ENV_CACHE/go" "$FLOX_ENV_CACHE/go-build"; do
+  if [[ -d "$old_go_cache" ]] && mv "$old_go_cache" "$old_go_cache.old" 2>/dev/null; then
+    (chmod -R u+w "$old_go_cache.old"; rm -rf "$old_go_cache.old") >/dev/null 2>&1 &
+    disown
+  fi
+done
+# Go creates the module cache read-only by default, so `rm -rf` on the shared
+# cache would need a chmod first.
 export GOFLAGS=-modcacherw
 
 # uv-managed venv location (mirrors the [profile] scripts; not in [vars], which
@@ -376,9 +379,8 @@ fi
 # ── Stale worktree cleanup ──────────────────────────────────────────
 # Agent tools create worktrees faster than anyone removes them.
 # POSTHOG_WORKTREES_AUTOCLEAN=0 opts out. hogli writes the lock file on each real run.
-WORKTREES_CLEAN_LOCK="$HOME/.config/posthog/worktrees-clean.lock"
 if [[ "${POSTHOG_WORKTREES_AUTOCLEAN:-1}" != "0" ]] && [[ -z "${CI:-}" ]] && [[ -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] \
-  && [[ -z "$(find "$WORKTREES_CLEAN_LOCK" -size +0c -mmin -1440 2>/dev/null)" ]]; then
+  && [[ -z "$(find "$HOME/.config/posthog/worktrees-clean.lock" -size +0c -mmin -1440 2>/dev/null)" ]]; then
   "$UV_PROJECT_ENVIRONMENT/bin/python" -P -m hogli worktrees:clean --unattended >>"$FLOX_ENV_CACHE/worktrees-clean.log" 2>&1 &
   disown
 fi

@@ -499,7 +499,7 @@ def _worktree_count() -> int | None:
         if git.is_file():
             # "gitdir: <common>/worktrees/<name>" for a linked worktree.
             pointer = git.read_text().strip().removeprefix("gitdir:").strip()
-            common = Path(pointer).parent.parent
+            common = (REPO_ROOT / pointer).parent.parent
         else:
             common = git
         worktrees = common / "worktrees"
