@@ -547,7 +547,10 @@ describe('EmailService', () => {
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + 400)
                 expect(scheduledMs).toBeLessThan(before + 2000)
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
-                expect(result.invocation.queueMetadata).toEqual(invocation.queueMetadata)
+                expect(result.invocation.queueMetadata).toMatchObject({
+                    ...invocation.queueMetadata,
+                    emailWait: expect.objectContaining({ teamCapped: false }),
+                })
                 // No business metric emitted on throttle — the eventual retry
                 // will produce email_sent.
                 expect(result.metrics ?? []).toEqual([])
@@ -637,19 +640,6 @@ describe('EmailService', () => {
             it.each([
                 ['workflow', 'bulk', 'false', 'its rescheduled time', (): void => {}, 5_000, 60_000],
                 ['transactional_api', 'fast', 'false', 'its creation', transactionalSend, 60_000, Infinity],
-                // Alerts leave out a wait that the team sending cap causes on purpose.
-                [
-                    'transactional_api',
-                    'fast',
-                    'true',
-                    'its creation after a team cap delay',
-                    (): void => {
-                        transactionalSend()
-                        invocation.queueMetadata = { teamCapped: true }
-                    },
-                    60_000,
-                    Infinity,
-                ],
             ])(
                 'observes the wait of a retried %s send on the %s lane with team_capped=%s from %s',
                 async (source, priorityClass, teamCapped, _from, setUp, minWaitMs, maxWaitMs) => {
@@ -671,6 +661,133 @@ describe('EmailService', () => {
                     expect(waitMs).toBeLessThan(maxWaitMs)
                 }
             )
+        })
+
+        describe('queue-to-send latency of a rescheduled send', () => {
+            let claimOrReserve: jest.Mock
+            let claimAllOrNothingPair: jest.Mock
+            let pacedService: EmailService
+            let pacedSendSpy: jest.SpyInstance
+
+            beforeEach(() => {
+                claimOrReserve = jest.fn().mockResolvedValue({ granted: 1, retryAfterMs: null, reserved: false })
+                claimAllOrNothingPair = jest.fn().mockResolvedValue({ granted: true })
+                const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
+                jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
+                pacedService = new EmailService(
+                    {
+                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                        sesRegion: hub.SES_REGION,
+                        sesEndpoint: hub.SES_ENDPOINT,
+                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                        teamEmailCapMode: 'enforce',
+                        teamEmailTierHourlyCaps: [100],
+                        teamEmailTierDailyCaps: [200],
+                    },
+                    hub.integrationManager,
+                    configService,
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL,
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                    new RecipientsManagerService(hub.postgres),
+                    null,
+                    { report: jest.fn() },
+                    undefined,
+                    { claimOrReserve } as unknown as RateLimiterService,
+                    { claimAllOrNothingPair } as unknown as RateLimiterService
+                )
+                pacedSendSpy = jest.spyOn(pacedService.sesV2Client!, 'send') as any
+                pacedSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                invocation.queue = 'email'
+                invocation.queueCreatedAt = DateTime.utc().minus({ seconds: 60 })
+                invocation.queueDueAt = DateTime.utc().minus({ seconds: 5 })
+                invocation.queueScheduledAt = undefined
+            })
+
+            afterEach(() => {
+                jest.restoreAllMocks()
+            })
+
+            // The next dequeue of a rescheduled job reads it back from its stored row.
+            const dequeueAgain = (
+                rescheduled: CyclotronJobInvocationHogFunction
+            ): CyclotronJobInvocationHogFunction => ({
+                ...rescheduled,
+                queueDueAt: rescheduled.queueScheduledAt,
+                queueScheduledAt: undefined,
+            })
+
+            it.each([
+                [
+                    'a per-workflow rate limit park',
+                    'false',
+                    (): void => {
+                        invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 60, period: 'minute' } }
+                        claimOrReserve.mockResolvedValueOnce({ granted: 0, retryAfterMs: 1000, reserved: true })
+                    },
+                ],
+                [
+                    'a team cap delay',
+                    'true',
+                    (): void => {
+                        claimAllOrNothingPair.mockResolvedValueOnce({
+                            granted: false,
+                            deniedIndex: 0,
+                            retryAfterMs: 1000,
+                            reserved: true,
+                        })
+                    },
+                ],
+                [
+                    'an SES throttle',
+                    'false',
+                    (): void => {
+                        pacedSendSpy.mockRejectedValueOnce(
+                            new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' })
+                        )
+                    },
+                ],
+            ])(
+                'observes a workflow send rescheduled by %s once, from when it first became due, with team_capped=%s',
+                async (_cause, teamCapped, rescheduleFirstAttempt) => {
+                    rescheduleFirstAttempt()
+                    const name = 'cdp_email_queue_to_send_ms'
+                    const labels = { source: 'workflow', priority_class: 'bulk', team_capped: teamCapped }
+                    const countBefore = await metricValue(name, labels, `${name}_count`)
+                    const sumBefore = await metricValue(name, labels, `${name}_sum`)
+
+                    const rescheduled = await pacedService.executeSendEmail(invocation)
+                    expect(rescheduled.finished).toBe(false)
+                    expect(await metricValue(name, labels, `${name}_count`)).toBe(countBefore)
+                    expect(rescheduled.invocation.queueMetadata).toMatchObject({
+                        originQueue: 'hogflow',
+                        originPriority: 2,
+                    })
+
+                    const sent = await pacedService.executeSendEmail(dequeueAgain(rescheduled.invocation))
+                    expect(sent.emailSendResult).toEqual({ status: 'accepted' })
+
+                    expect(await metricValue(name, labels, `${name}_count`)).toBe(countBefore + 1)
+                    const waitMs = (await metricValue(name, labels, `${name}_sum`)) - sumBefore
+                    expect(waitMs).toBeGreaterThanOrEqual(5_000)
+                    expect(waitMs).toBeLessThan(60_000)
+                }
+            )
+
+            it('observes nothing for a send SES fails', async () => {
+                pacedSendSpy.mockRejectedValueOnce(new MessageRejected({ $metadata: {}, message: 'rejected' }))
+                const name = 'cdp_email_queue_to_send_ms'
+                const labels = { source: 'workflow', priority_class: 'bulk', team_capped: 'false' }
+                const countBefore = await metricValue(name, labels, `${name}_count`)
+
+                const result = await pacedService.executeSendEmail(invocation)
+
+                expect(result.emailSendResult?.status).toBe('failed')
+                expect(await metricValue(name, labels, `${name}_count`)).toBe(countBefore)
+            })
         })
 
         describe('workflow sending rate limit', () => {
@@ -742,7 +859,7 @@ describe('EmailService', () => {
                 // The reschedule must carry the email payload forward: without queueParameters the
                 // retry has nothing to send and the throttled email is dropped rather than delayed.
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
-                expect(result.invocation.queueMetadata).toEqual(invocation.queueMetadata)
+                expect(result.invocation.queueMetadata).toMatchObject(invocation.queueMetadata!)
                 // Bracketed against both ends of the call, so the bounds hold the delay itself
                 // and not the time the call took.
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
@@ -1030,8 +1147,7 @@ describe('EmailService', () => {
                 expect(result.finished).toBe(false)
                 // The reschedule must carry the email payload forward, same as the workflow limit.
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
-                // The flag labels the eventual send's queue wait, so alerts can leave out the cap delay.
-                expect(result.invocation.queueMetadata).toEqual({ ...invocation.queueMetadata, teamCapped: true })
+                expect(result.invocation.queueMetadata).toMatchObject(invocation.queueMetadata!)
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + minMs)
                 expect(scheduledMs).toBeLessThan(before + maxMs + 5000)

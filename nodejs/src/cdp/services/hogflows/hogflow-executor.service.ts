@@ -76,19 +76,6 @@ const TRIGGER_MISMATCH_EXITS: ReadonlySet<string> = new Set([
     'exit_on_trigger_not_matched_or_conversion',
 ])
 
-// The email service sets teamCapped when the team sending cap delays one send, and that send reads it from the
-// job's stored metadata. The actions after it in the same dequeue start from this executor's result, so the
-// flag stays off them. Otherwise their queue waits would also count as cap delays.
-function withoutTeamCapped(
-    metadata: CyclotronJobInvocationHogFlow['queueMetadata']
-): CyclotronJobInvocationHogFlow['queueMetadata'] {
-    if (!metadata || !('teamCapped' in metadata)) {
-        return metadata
-    }
-    const { teamCapped: _teamCapped, ...rest } = metadata
-    return rest
-}
-
 export function createHogFlowInvocation(
     globals: HogFunctionInvocationGlobals,
     hogFlow: HogFlow,
@@ -699,7 +686,7 @@ export class HogFlowExecutorService {
         // run whose email action isn't the first action executed.
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queuePriority: invocation.queuePriority,
-            queueMetadata: invocation.queue === 'email' ? withoutTeamCapped(invocation.queueMetadata) : undefined,
+            queueMetadata: invocation.queue === 'email' ? invocation.queueMetadata : undefined,
         })
         result.finished = false // Typically we are never finished unless we error or exit
 

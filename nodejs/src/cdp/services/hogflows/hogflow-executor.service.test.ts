@@ -12,11 +12,13 @@ import { template as customerTaskTemplate } from '~/cdp/templates/_destinations/
 import { template as setVariableTemplate } from '~/cdp/templates/_destinations/posthog_workflows/posthog-set-variable.template'
 import { compileHog } from '~/cdp/templates/compiler'
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
+import { buildWorkflowStepDispatchKey } from '~/cdp/utils/workflow-step-dispatch-key'
 import { createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchResponse, fetch, internalFetch } from '~/common/utils/request'
+import { getMetricValues } from '~/tests/helpers/metrics'
 import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
@@ -40,6 +42,16 @@ import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import { AcceptedSend } from './transactional-email'
+
+async function histogramCount(name: string, labels: Record<string, string>): Promise<number> {
+    const values: { labels: Record<string, string>; value: number; metricName?: string }[] = await getMetricValues(name)
+    const sample = values.find(
+        (value) =>
+            value.metricName === `${name}_count` &&
+            Object.entries(labels).every(([key, labelValue]) => value.labels[key] === labelValue)
+    )
+    return sample?.value ?? 0
+}
 
 // Mock before importing fetch
 jest.mock('~/common/utils/request', () => {
@@ -3558,13 +3570,13 @@ if (not res.success) { throw Error(res.error) }`,
             expect(mockPushProviderFetch).toHaveBeenCalledTimes(4)
         })
 
-        it('keeps the team cap label on the delayed email only, not on the email after it', async () => {
+        it('labels a fast email after a capped bulk email in the same run team_capped=false', async () => {
             await insertEmailSetup('ses')
-            const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
-            sesSend
-                .mockResolvedValueOnce({ MessageId: 'capped-email' })
-                .mockRejectedValueOnce(new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' }))
-
+            jest.spyOn(SESv2Client.prototype, 'send').mockResolvedValue({ MessageId: 'sent' } as never)
+            const fastEmail = {
+                type: 'function_email',
+                config: { ...emailAction('Fast Email').config, message_category_type: 'transactional' },
+            } as const
             const hogFlow = new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
                 .withExitCondition('exit_only_at_end')
@@ -3574,8 +3586,8 @@ if (not res.success) { throw Error(res.error) }`,
                             type: 'trigger',
                             config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
                         },
-                        email_1: emailAction('Capped Email'),
-                        email_2: emailAction('Next Email'),
+                        email_1: emailAction('Capped Bulk Email'),
+                        email_2: fastEmail,
                     },
                     edges: [
                         { from: 'trigger', to: 'email_1', type: 'continue' },
@@ -3587,15 +3599,35 @@ if (not res.success) { throw Error(res.error) }`,
             const invocation = createExampleHogFlowInvocation(hogFlow, {
                 event: { ...createHogExecutionGlobals().event, event: '$pageview' },
             })
-
             const routed = await executor.execute(invocation)
-            // As if the team sending cap had delayed email_1 on the email queue.
-            routed.invocation.queueMetadata = { ...routed.invocation.queueMetadata, teamCapped: true }
+            // The stored row of email_1 after the team sending cap delayed it.
+            const capped: CyclotronJobInvocationHogFlow = {
+                ...routed.invocation,
+                queueDueAt: DateTime.utc(),
+                queueMetadata: {
+                    ...routed.invocation.queueMetadata,
+                    emailWait: {
+                        sendKey: buildWorkflowStepDispatchKey(
+                            routed.invocation.id,
+                            'email_1',
+                            routed.invocation.state.actionStepCount
+                        ),
+                        firstDueAt: DateTime.utc().toISO(),
+                        teamCapped: true,
+                    },
+                },
+            }
+            const name = 'cdp_email_queue_to_send_ms'
+            const bulkCapped = { source: 'workflow', priority_class: 'bulk', team_capped: 'true' }
+            const fastUncapped = { source: 'workflow', priority_class: 'fast', team_capped: 'false' }
+            const bulkCappedBefore = await histogramCount(name, bulkCapped)
+            const fastUncappedBefore = await histogramCount(name, fastUncapped)
 
-            const result = await executor.execute(routed.invocation)
+            const result = await executor.execute(capped)
 
-            expect(result.invocation.state.currentAction?.id).toBe('email_2')
-            expect(result.invocation.queueMetadata).toEqual({ originQueue: 'hogflow', originPriority: 0 })
+            expect(result.finished).toBe(true)
+            expect(await histogramCount(name, bulkCapped)).toBe(bulkCappedBefore + 1)
+            expect(await histogramCount(name, fastUncapped)).toBe(fastUncappedBefore + 1)
         })
 
         it.each([
