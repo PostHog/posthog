@@ -1,6 +1,6 @@
 id = "posthog.devbox"
 name = "PostHog devbox"
-version = "0.2.0"
+version = "0.2.1"
 min_herdr_version = "0.7.1"
 description = "Give each PostHog worktree that herdr creates its own devbox, and stop the box when herdr removes the worktree"
 platforms = ["linux", "macos"]

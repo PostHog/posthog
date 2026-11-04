@@ -494,12 +494,35 @@ class TestWorktreeBoxes:
             ),
         )
 
-        act_on_box = (lambda path, action: calls.append(f"background:{action}")) if background else None
+        act_on_box = (lambda box, action: calls.append(f"background:{action}")) if background else None
 
         box = worktrees.teardown_worktree_box(worktree, admin, "stop", dry_run=False, act_on_box=act_on_box)
 
         assert (box is not None) is same_worktree
         assert calls == expected_calls
+
+    @pytest.mark.parametrize(
+        ("registered_worktree_id", "expected_cleaned"),
+        [("id-of-the-removed-worktree", True), ("id-of-a-recreated-worktree", False)],
+        ids=["record-unchanged", "worktree-recreated-at-the-path-before-the-worker-ran"],
+    )
+    def test_background_teardown_acts_only_on_the_worktree_it_checked(
+        self, tmp_path, monkeypatch, registered_worktree_id: str, expected_cleaned: bool
+    ) -> None:
+        worktree = tmp_path / "wt"
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        devbox_config.record_worktree_box(worktree, _box("devbox-test-user-wt", worktree_id=registered_worktree_id))
+        cleaned: list[str] = []
+        monkeypatch.setattr(
+            worktrees,
+            "_clean_worktree_boxes",
+            lambda boxes, action, keep_stopped_records=False: cleaned.extend(box.workspace for box in boxes),
+        )
+
+        acted = worktrees.clean_registered_box(worktree, "id-of-the-removed-worktree", "stop")
+
+        assert acted is expected_cleaned
+        assert cleaned == (["devbox-test-user-wt"] if expected_cleaned else [])
 
     @pytest.mark.parametrize(
         ("action", "status", "live_id", "last_used_at", "keep_stopped", "expected_calls"),

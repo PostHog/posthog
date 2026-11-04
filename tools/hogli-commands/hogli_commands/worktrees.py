@@ -481,7 +481,7 @@ def teardown_worktree_box(
     git_dir: Path,
     box_action: str,
     dry_run: bool,
-    act_on_box: Callable[[Path, str], None] | None = None,
+    act_on_box: Callable[[WorktreeBox, str], None] | None = None,
 ) -> WorktreeBox | None:
     """Stop the mirror and act on the box of the worktree at *worktree_path*, which a tool is about to remove.
 
@@ -501,14 +501,19 @@ def teardown_worktree_box(
     if act_on_box is None:
         _clean_worktree_boxes([box], box_action, keep_stopped_records=True)
     else:
-        act_on_box(worktree_path, box_action)
+        act_on_box(box, box_action)
     return box
 
 
-def clean_registered_box(worktree_path: Path, box_action: str) -> bool:
-    """Act on the box registered for *worktree_path*, whose worktree a teardown already checked."""
+def clean_registered_box(worktree_path: Path, worktree_id: str, box_action: str) -> bool:
+    """Act on the box registered for *worktree_path*, if the record still belongs to the worktree with *worktree_id*.
+
+    A teardown checked that worktree before it started this in the background. An
+    app can recreate a worktree at the same path in the meantime, and the record
+    then belongs to the new worktree, so its box is left alone.
+    """
     record = load_worktree_boxes().get(str(worktree_path))
-    if record is None:
+    if record is None or record.worktree_id != worktree_id:
         return False
     _clean_worktree_boxes(
         [WorktreeBox(worktree_path=worktree_path, record=record)], box_action, keep_stopped_records=True

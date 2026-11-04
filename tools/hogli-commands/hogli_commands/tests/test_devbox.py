@@ -1017,11 +1017,12 @@ class TestWorktreeAutoProvision:
         )
 
     @pytest.mark.parametrize(
-        "source_arg, enabled, expected_starts",
+        "source_arg, enabled, first_spawn_fails, expected_starts",
         [
-            pytest.param("t3code", "t3code", 1, id="tool-hook-declares-an-enabled-source"),
-            pytest.param(None, "t3code", 0, id="husky-hook-sees-only-the-folder"),
-            pytest.param("t3code", "claude", 0, id="declared-source-not-enabled"),
+            pytest.param("t3code", "t3code", False, 1, id="tool-hook-declares-an-enabled-source"),
+            pytest.param(None, "t3code", False, 0, id="husky-hook-sees-only-the-folder"),
+            pytest.param("t3code", "claude", False, 0, id="declared-source-not-enabled"),
+            pytest.param("t3code", "t3code", True, 1, id="failed-spawn-releases-the-claim"),
         ],
     )
     def test_auto_starts_at_most_one_box_per_worktree(
@@ -1030,6 +1031,7 @@ class TestWorktreeAutoProvision:
         monkeypatch: pytest.MonkeyPatch,
         source_arg: str | None,
         enabled: str,
+        first_spawn_fails: bool,
         expected_starts: int,
     ) -> None:
         root = tmp_path / "wt"
@@ -1041,20 +1043,24 @@ class TestWorktreeAutoProvision:
         monkeypatch.setattr(devbox_worktree, "_git_dir", lambda root: root / "admin")
         monkeypatch.setattr(devbox_worktree, "worktree_source", lambda root: "other")
         starts: list[list[str]] = []
+        attempts: list[list[str]] = []
         real_popen = subprocess.Popen
 
         def fake_popen(command: list[str], *args: object, **kwargs: object) -> object:
             if "devbox:worktree" not in command:
                 return real_popen(command, *args, **kwargs)
+            attempts.append(command)
+            if first_spawn_fails and len(attempts) == 1:
+                raise OSError("spawn failed")
             starts.append(command)
             return MagicMock()
 
         monkeypatch.setattr(devbox_worktree.subprocess, "Popen", fake_popen)
         args = ["devbox:worktree:auto", *(["--source", source_arg] if source_arg else [])]
 
-        for _ in range(2):
+        for attempt in range(2):
             result = runner.invoke(cli, args)
-            assert result.exit_code == 0, result.output
+            assert result.exit_code == (1 if first_spawn_fails and attempt == 0 else 0), result.output
 
         assert len(starts) == expected_starts
 

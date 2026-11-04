@@ -17,7 +17,13 @@ from typing import Any
 
 import click
 
-from ..worktrees import clean_registered_box, prune_boxes_of_removed_worktrees, teardown_worktree_box, worktree_source
+from ..worktrees import (
+    WorktreeBox,
+    clean_registered_box,
+    prune_boxes_of_removed_worktrees,
+    teardown_worktree_box,
+    worktree_source,
+)
 from . import hogland, mutagen
 from .cli import _preferred_region, devbox_clone, devbox_start, resolve_workspace_name
 from .coder import (
@@ -627,11 +633,15 @@ def devbox_worktree_prune(action: str | None, worktree_path: Path | None, dry_ru
     help="Stop the mirror now and act on the box in a background process, to stay inside a tool's hook time limit",
 )
 @click.option("--box-of", "box_of", type=click.Path(path_type=Path), default=None, hidden=True)
+@click.option("--worktree-id", "worktree_id", default=None, hidden=True)
 @click.option("--dry-run", is_flag=True, help="Print the plan without changing anything")
-def devbox_worktree_teardown(action: str | None, background: bool, box_of: Path | None, dry_run: bool) -> None:
+def devbox_worktree_teardown(
+    action: str | None, background: bool, box_of: Path | None, worktree_id: str | None, dry_run: bool
+) -> None:
     box_action = action or saved_worktree_box_cleanup() or "stop"
     if box_of is not None:
-        clean_registered_box(box_of, box_action)
+        if worktree_id is not None:
+            clean_registered_box(box_of, worktree_id, box_action)
         return
     root = _detect_local_posthog_checkout()
     if not _is_linked_worktree(root):
@@ -641,10 +651,10 @@ def devbox_worktree_teardown(action: str | None, background: bool, box_of: Path 
         click.echo("This worktree has no devbox from `hogli devbox:worktree`.")
 
 
-def _act_on_box_in_background(worktree_path: Path, box_action: str) -> None:
+def _act_on_box_in_background(box: WorktreeBox, box_action: str) -> None:
     # The worktree and its git directory are about to be deleted, so the process runs
     # from the main checkout and logs next to the box records.
-    main_checkout = _git_dir(worktree_path).parent.parent.parent
+    main_checkout = Path(box.record.git_dir).parent.parent.parent
     log_path = get_worktree_boxes_path().with_name(_TEARDOWN_LOG_NAME)
     with log_path.open("ab") as log:
         subprocess.Popen(
@@ -656,7 +666,9 @@ def _act_on_box_in_background(worktree_path: Path, box_action: str) -> None:
                 "devbox:worktree:teardown",
                 f"--{box_action}",
                 "--box-of",
-                str(worktree_path),
+                str(box.worktree_path),
+                "--worktree-id",
+                str(box.record.worktree_id),
             ],
             cwd=main_checkout,
             env={**os.environ, "HOGLI_MANIFEST": str(main_checkout / "hogli.yaml")},
@@ -702,15 +714,19 @@ def devbox_worktree_auto(source: str | None) -> None:
         return
 
     log_path = git_dir / _AUTO_LOG_NAME
-    with log_path.open("ab") as log:
-        subprocess.Popen(
-            # -P keeps the worktree off sys.path, so a `hogli` package committed to the
-            # branch being checked out cannot shadow the installed one and run here.
-            [sys.executable, "-P", "-m", "hogli", "devbox:worktree", "--yes"],
-            cwd=root,
-            stdin=subprocess.DEVNULL,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
+    try:
+        with log_path.open("ab") as log:
+            subprocess.Popen(
+                # -P keeps the worktree off sys.path, so a `hogli` package committed to the
+                # branch being checked out cannot shadow the installed one and run here.
+                [sys.executable, "-P", "-m", "hogli", "devbox:worktree", "--yes"],
+                cwd=root,
+                stdin=subprocess.DEVNULL,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+    except OSError:
+        (git_dir / _AUTO_STARTED_NAME).unlink(missing_ok=True)
+        raise
     click.echo(f"hogli: creating a devbox for this worktree in the background. Log: {log_path}")

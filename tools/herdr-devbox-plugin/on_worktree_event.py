@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 REGISTRY_PATH = Path.home() / ".config" / "posthog" / "hogli_devbox_worktrees.json"
+PLUGIN_CHECKOUT = Path(__file__).resolve().parents[2]
 
 
 def event_worktree_path(event_json: str) -> Path | None:
@@ -35,9 +36,22 @@ def run(command: list[str], cwd: Path) -> int:
     ).returncode
 
 
+def is_worktree_of_plugin_checkout(worktree_path: Path) -> bool:
+    try:
+        line = (worktree_path / ".git").read_text().strip()
+    except OSError:
+        return False
+    if not line.startswith("gitdir: "):
+        return False
+    admin_dir = (worktree_path / line[len("gitdir: ") :]).resolve()
+    return admin_dir.parent.parent == (PLUGIN_CHECKOUT / ".git").resolve()
+
+
 def on_created(worktree_path: Path) -> int:
-    hook = worktree_path / "bin" / "devbox-worktree-hook"
-    if not hook.exists():
+    # herdr runs linked plugins for every repo, and the new worktree's branch may not be trusted.
+    # So only this checkout's worktrees count, and the hook runs from this checkout, not the worktree.
+    hook = PLUGIN_CHECKOUT / "bin" / "devbox-worktree-hook"
+    if not hook.exists() or not is_worktree_of_plugin_checkout(worktree_path):
         return 0
     return run([str(hook), "created", "herdr"], worktree_path)
 
