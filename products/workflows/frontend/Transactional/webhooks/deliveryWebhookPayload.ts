@@ -41,7 +41,6 @@ const DELIVERY_WEBHOOK_BODY = {
     data: {
         created_at: '{event.timestamp}',
         email_id: '{event.properties.$email_message_id}',
-        // The names the send API took: a template ID for a send by template, a key for a send from code.
         template_id: '{event.properties.$email_template_id}',
         template_key: '{event.properties.$email_template_key}',
         to: ['{event.properties.$email_to}'],

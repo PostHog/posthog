@@ -39,11 +39,6 @@ export function AddDeliveryWebhookModal(): JSX.Element {
                         Each request is signed with this secret, following the Standard Webhooks spec. Use it to check
                         the <code>webhook-signature</code> header on your endpoint.
                     </p>
-                    <p className="m-0">
-                        Each request names its email. <code>data.template_id</code> is the template ID of a send by
-                        template, and <code>data.template_key</code> is the key of a send from code. The one that
-                        doesn't apply is null.
-                    </p>
                     <LemonBanner type="warning">
                         Copy the secret now. You can't see it again after you close this.
                     </LemonBanner>

@@ -16,7 +16,9 @@ export function TransactionalWebhooks(): JSX.Element {
         <div className="flex flex-col gap-4">
             <p className="m-0 text-secondary">
                 Get a signed request on your endpoint when a transactional email is sent, delivered, opened, clicked,
-                bounced, or fails. Each request carries the message ID the send API returned.
+                bounced, or fails. Each request carries the message ID the send API returned.{' '}
+                <code>data.template_id</code> and <code>data.template_key</code> hold the <code>template_id</code> or{' '}
+                <code>template_key</code> your send passed. Either one can be null.
             </p>
             {!engagementEventsEnabled ? (
                 <LemonBanner type="info">
