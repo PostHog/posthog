@@ -1067,8 +1067,7 @@ export class EmailService {
                 })
             }
 
-            // Sandbox sends reach only the team's own members, so the sending tier subtracts this from its
-            // promotion volume; reports keep counting them in `email_sent`.
+            // Recorded beside `email_sent` so the sending tier can leave sandbox sends out of its volume.
             if (success && isSandbox) {
                 result.metrics.push({
                     team_id: invocation.teamId,
