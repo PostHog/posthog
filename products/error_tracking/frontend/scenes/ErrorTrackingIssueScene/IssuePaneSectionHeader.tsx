@@ -1,7 +1,9 @@
 import { ReactNode } from 'react'
 
-import { IconChevronDown, IconChevronRight, IconLogomark } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+
+import { IssuePaneSectionName } from './IssuePaneSectionName'
 
 export interface IssuePaneSectionHeaderProps {
     name: string
@@ -14,11 +16,7 @@ export interface IssuePaneSectionHeaderProps {
     dataAttr: string
 }
 
-/**
- * The header strip of a right-pane section, and the toggle that opens and closes it.
- *
- * The name takes the AI color, which is how the app marks the work its own software did.
- */
+/** The header strip of a right-pane section, and the toggle that opens and closes it. */
 export function IssuePaneSectionHeader({
     name,
     open,
@@ -39,10 +37,7 @@ export function IssuePaneSectionHeader({
                 data-attr={dataAttr}
             >
                 <span className="flex min-w-0 items-center gap-2">
-                    <span className="flex shrink-0 items-center gap-1">
-                        <IconLogomark className="text-lg" />
-                        <span className="text-sm font-normal text-ai">{name}</span>
-                    </span>
+                    <IssuePaneSectionName name={name} />
                     {preview ? (
                         <span className="min-w-0 truncate text-xs font-normal text-secondary">{preview}</span>
                     ) : null}

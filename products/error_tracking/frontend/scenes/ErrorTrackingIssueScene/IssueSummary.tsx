@@ -1,15 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import {
-    IconArrowRight,
-    IconBug,
-    IconLogomark,
-    IconPeople,
-    IconSearch,
-    IconThumbsDown,
-    IconThumbsUp,
-} from '@posthog/icons'
+import { IconArrowRight, IconBug, IconPeople, IconSearch, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -19,6 +11,7 @@ import { urls } from 'scenes/urls'
 import type { ErrorTrackingStoredIssueSummaryApi } from '../../generated/api.schemas'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { IssuePaneSectionHeader } from './IssuePaneSectionHeader'
+import { IssuePaneSectionName } from './IssuePaneSectionName'
 import { issuePaneSectionsLogic } from './issuePaneSectionsLogic'
 import { IssueSummaryFeedback, IssueSummaryView, issueSummaryLogic } from './issueSummaryLogic'
 
@@ -106,15 +99,13 @@ export function IssueSummarySection({
     }
     if (view !== 'ready') {
         return (
-            // The left padding puts the name under the name of a section that has a toggle.
+            // The left padding puts the name under the name of a section that has a toggle. It is the header's
+            // pl-0.5 plus the toggle's chevron: an xsmall LemonButton's horizontal padding, icon and gap.
             <div
                 className="flex min-h-[2rem] shrink-0 items-center gap-2 border-b py-1 pl-[1.625rem] pr-2 bg-surface-primary"
                 data-attr="error-tracking-issue-summary"
             >
-                <span className="flex shrink-0 items-center gap-1">
-                    <IconLogomark className="text-lg" />
-                    <span className="text-sm text-ai">Summary</span>
-                </span>
+                <IssuePaneSectionName name="Summary" />
                 <span className="min-w-0 flex-1 text-xs text-secondary leading-snug">
                     <SummaryNote view={view} canManageAiSettings={canManageAiSettings} />
                 </span>
