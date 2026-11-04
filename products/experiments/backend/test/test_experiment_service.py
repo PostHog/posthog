@@ -8239,29 +8239,82 @@ class TestExperimentServiceWarehouseNativeSources(APIBaseTest):
         assert expected_error in str(ctx.exception)
         assert not Experiment.objects.filter(team=self.team).exists()
 
-    @parameterized.expand([("launch_action",), ("patch_start_date",), ("live_create",)])
-    def test_refuses_to_launch_while_nothing_can_run_the_queries(self, path: str) -> None:
+    @parameterized.expand(
+        [("launch_action",), ("patch_start_date",), ("live_create",), ("patch_sources_of_a_launched_experiment",)]
+    )
+    def test_refuses_warehouse_native_sources_on_a_launched_experiment(self, path: str) -> None:
         connection_id = str(self.bigquery.id)
+        exposure_criteria = _warehouse_exposure(connection_id)
+        metrics = [_warehouse_metric(connection_id)]
         with self.assertRaises(ValidationError) as ctx:
             if path == "live_create":
                 self.service.create_experiment(
                     name="Warehouse experiment",
                     feature_flag_key="warehouse-experiment",
-                    exposure_criteria=_warehouse_exposure(connection_id),
-                    metrics=[_warehouse_metric(connection_id)],
+                    exposure_criteria=exposure_criteria,
+                    metrics=metrics,
                     start_date=timezone.now(),
                 )
-            else:
-                experiment = self._create(
-                    exposure_criteria=_warehouse_exposure(connection_id), metrics=[_warehouse_metric(connection_id)]
+            elif path == "patch_sources_of_a_launched_experiment":
+                launched = self.service.create_experiment(
+                    name="Events experiment",
+                    feature_flag_key="events-experiment",
+                    metrics=[_EVENTS_METRIC],
+                    start_date=timezone.now(),
+                    allow_unknown_events=True,
                 )
+                self.service.update_experiment(launched, {"exposure_criteria": exposure_criteria, "metrics": metrics})
+            else:
+                experiment = self._create(exposure_criteria=exposure_criteria, metrics=metrics)
                 if path == "launch_action":
                     self.service.launch_experiment(experiment)
                 else:
                     self.service.update_experiment(experiment, {"start_date": timezone.now()})
 
-        assert "cannot be launched yet" in str(ctx.exception)
-        assert not Experiment.objects.filter(team=self.team, start_date__isnull=False).exists()
+        assert "cannot run yet" in str(ctx.exception)
+        assert not Experiment.objects.filter(
+            team=self.team,
+            start_date__isnull=False,
+            exposure_criteria__exposure_config__kind="ExperimentWarehouseNativeExposureConfig",
+        ).exists()
+
+    def test_refuses_a_raw_query_when_the_user_cannot_read_every_table_on_the_connection(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+        credential = DataWarehouseCredential.objects.create(access_key="x", access_secret="x", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="restricted_payments",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=credential,
+            external_data_source=self.bigquery,
+            url_pattern="s3://bucket/restricted/*",
+            columns={"id": "String"},
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(table.pk),
+            access_level="none",
+            organization_member=membership,
+        )
+        connection_id = str(self.bigquery.id)
+
+        # The flag `hogql-warehouse-access-control` turns on the per-table check of raw queries.
+        with (
+            patch("posthog.hogql.direct_connection.feature_enabled_or_false", return_value=True),
+            self.assertRaises(PermissionDenied),
+        ):
+            self._create(
+                exposure_criteria=_warehouse_exposure(connection_id), metrics=[_warehouse_metric(connection_id)]
+            )
+        assert not Experiment.objects.filter(team=self.team).exists()
 
     @parameterized.expand(
         [

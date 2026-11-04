@@ -17,7 +17,10 @@ from products.experiments.backend.metric_validation import (
 )
 from products.experiments.backend.models.experiment import ExperimentSavedMetric, saved_metric_has_legacy_query
 from products.experiments.backend.warehouse_access_control import validate_warehouse_metrics
-from products.experiments.backend.warehouse_native_sources import validate_metric_warehouse_native_sources
+from products.experiments.backend.warehouse_native_sources import (
+    validate_metric_warehouse_native_sources,
+    validate_saved_metric_query_against_linked_experiments,
+)
 
 
 class ExperimentSavedMetricService:
@@ -71,6 +74,9 @@ class ExperimentSavedMetricService:
                 [update_data["query"]], self.team, user=self.user, known_action_ids=stored_action_ids
             )
             validate_warehouse_metrics([update_data["query"]], team=self.team, user=self.user)
+            validate_saved_metric_query_against_linked_experiments(
+                saved_metric, update_data["query"], team=self.team, user=self.user
+            )
             validate_metric_warehouse_native_sources([update_data["query"]], team=self.team, user=self.user)
 
         for attr, value in update_data.items():

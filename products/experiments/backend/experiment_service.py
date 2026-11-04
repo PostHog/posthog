@@ -1709,9 +1709,7 @@ class ExperimentService:
         """Nothing runs a warehouse-native query yet, so a launched experiment would only fail every
         calculation. The exposure stands for the experiment: a warehouse-native experiment always has one."""
         if warehouse_native_exposure_config(exposure_criteria) is not None:
-            raise ValidationError(
-                "Warehouse-native experiments cannot be launched yet. Keep the experiment as a draft."
-            )
+            raise ValidationError("Warehouse-native sources cannot run yet. Use them on a draft experiment only.")
 
     def _validate_flag_for_launch(self, experiment: Experiment, feature_flag: FeatureFlag) -> None:
         """Flag guards shared by launch_experiment and the PATCH(start_date) launch path.
@@ -3622,6 +3620,10 @@ class ExperimentService:
                 team=self.team,
                 user=self.user,
             )
+        if "start_date" in update_data or _WAREHOUSE_NATIVE_SOURCE_FIELDS & update_data.keys():
+            # Covers a draft that launches and a launched experiment that switches its sources.
+            if update_data.get("start_date", experiment.start_date) is not None:
+                self._reject_warehouse_native_launch(update_data.get("exposure_criteria", experiment.exposure_criteria))
 
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
@@ -4064,7 +4066,6 @@ class ExperimentService:
         # deleted, and a valid variant configuration.
         if experiment.is_draft and update_data.get("start_date") is not None:
             self._validate_flag_for_launch(experiment, feature_flag)
-            self._reject_warehouse_native_launch(update_data.get("exposure_criteria", experiment.exposure_criteria))
 
         # Check for legacy metrics first
         if experiment_has_legacy_metrics(experiment):

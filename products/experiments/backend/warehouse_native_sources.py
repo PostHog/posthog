@@ -1,14 +1,22 @@
 from typing import Any
 
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
-from posthog.hogql.direct_connection import get_direct_connection_source_none_or_raise
+from posthog.hogql.direct_connection import (
+    RAW_QUERY_TABLE_DENIED_ERROR,
+    get_direct_connection_source_none_or_raise,
+    raw_query_denied_by_table_access,
+)
 from posthog.hogql.direct_sql.capability import bigquery_direct_query_enabled
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.experiments.backend.metric_resolution import metric_dict_source_nodes
+from products.experiments.backend.metric_resolution import (
+    metric_dict_source_nodes,
+    metric_dict_uses_warehouse_native_source,
+)
+from products.experiments.backend.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 WAREHOUSE_NATIVE_NODE_KIND = "ExperimentWarehouseNativeNode"
@@ -86,6 +94,43 @@ def validate_warehouse_native_sources(sources: list[dict[str, Any]], *, team: Te
         raise ValidationError("Warehouse-native sources need a connection_id.")
     if connection.source_type != ExternalDataSourceType.BIGQUERY:
         raise ValidationError("Warehouse-native sources support BigQuery connections only.")
+    # The queries are raw SQL, which the runner cannot check table by table, so the same rule as the raw
+    # query path applies: the user must be able to read every table on the connection.
+    if isinstance(user, User) and raw_query_denied_by_table_access(team, connection, user=user):
+        raise PermissionDenied(RAW_QUERY_TABLE_DENIED_ERROR)
+
+
+def validate_saved_metric_query_against_linked_experiments(
+    saved_metric: ExperimentSavedMetric, query: dict[str, Any], *, team: Team, user: Any
+) -> None:
+    """Every experiment that links the shared metric reads the new query on its next calculation, so the
+    query has to fit each of them."""
+    if not metric_dict_uses_warehouse_native_source(query) and not metric_dict_uses_warehouse_native_source(
+        saved_metric.query or {}
+    ):
+        return
+    links = ExperimentToSavedMetric.objects.filter(
+        saved_metric=saved_metric, experiment__team_id=team.id
+    ).select_related("experiment")
+    for link in links:
+        experiment = link.experiment
+        other_queries = [
+            other.saved_metric.query
+            for other in experiment.experimenttosavedmetric_set.exclude(saved_metric=saved_metric).select_related(
+                "saved_metric"
+            )
+            if other.saved_metric.query
+        ]
+        try:
+            validate_experiment_warehouse_native_sources(
+                exposure_criteria=experiment.exposure_criteria,
+                metrics=[*(experiment.metrics or []), *(experiment.metrics_secondary or []), *other_queries, query],
+                team=team,
+                user=user,
+            )
+        except ValidationError as error:
+            detail = error.detail[0] if isinstance(error.detail, list) else error.detail
+            raise ValidationError(f'The experiment "{experiment.name}" uses this metric. {detail}')
 
 
 def _metric_source_nodes(metrics: list[dict[str, Any]]) -> list[dict[str, Any]]:
