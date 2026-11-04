@@ -1891,6 +1891,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
     research_blocked_reason = serializers.CharField(
         read_only=True, allow_null=True, help_text="Machine-readable research access blocker, if any."
     )
+    implementation_blocked_reason = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Machine-readable implementation access blocker, if any."
+    )
 
     startup_failure = ReportStartupFailureSerializer(
         read_only=True,
@@ -2104,6 +2107,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
         model = SignalReport
         fields = [
             "research_blocked_reason",
+            "implementation_blocked_reason",
             "id",
             "title",
             "summary",

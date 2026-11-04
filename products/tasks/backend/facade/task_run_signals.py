@@ -30,6 +30,24 @@ TaskRunStartGuard = Callable[[str, int, int | None], str | None]
 _task_run_start_guards: dict[str, TaskRunStartGuard] = {}
 
 
+class TaskRunPreflightError(Exception):
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+_task_run_preflight_checks: dict[str, Callable[[str, bool], None]] = {}
+
+
+def register_task_run_preflight(check: Callable[[str, bool], None], *, name: str) -> None:
+    _task_run_preflight_checks[name] = check
+
+
+def check_task_run_preflight(run_id: str, create_pr: bool) -> None:
+    for check in _task_run_preflight_checks.values():
+        check(run_id, create_pr)
+
+
 def register_task_run_start_guard(guard: TaskRunStartGuard, *, name: str) -> None:
     _task_run_start_guards[name] = guard
 

@@ -49,6 +49,7 @@ from products.tasks.backend.exceptions import (
 )
 from products.tasks.backend.facade.api import ensure_task_run_session
 from products.tasks.backend.facade.profiles import NetworkAccess, NetworkPolicy
+from products.tasks.backend.facade.task_run_signals import TaskRunPreflightError, check_task_run_preflight
 from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
@@ -957,6 +958,17 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         )
 
     assert task.created_by is not None
+
+    if input.resumed_sandbox_id is None:
+        try:
+            check_task_run_preflight(run_id, input.create_pr)
+        except TaskRunPreflightError as error:
+            raise ProcessTaskFatalError(
+                str(error), {"run_id": run_id}, cause=error, capture=False, type=error.reason
+            ) from error
+        if input.create_pr:
+            # Product preflight can rebind credentials, so this context must reload its cached foreign keys.
+            task.refresh_from_db(fields=["github_integration", "github_user_integration"])
 
     state = task_run.state or {}
     trial_origin = task.is_scout_experiment

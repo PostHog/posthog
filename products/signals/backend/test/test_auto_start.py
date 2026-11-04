@@ -17,6 +17,7 @@ from posthog.models import Integration, Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.temporal.oauth import grants_scratchpad_write
+from posthog.test.project_access import restrict_project
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.agent_runtime import AgentRuntime
@@ -31,6 +32,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.auto_start import (
     NO_SUPERSEDE,
+    ImplementationRecovery,
     ImplementationReportContent,
     ReportChangedDuringAutostart,
     ReportSteering,
@@ -1813,6 +1815,50 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
 
 
 _EXISTING_PR_URL = "https://github.com/PostHog/posthog/pull/1"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("access_revoked", [False, True])
+def test_automated_recovery_rechecks_private_project_access(organization, team, access_revoked):
+    runner = _create_org_member_with_github("recovery-runner@example.com", organization, "recovery-runner")
+    organization.is_ai_data_processing_approved = True
+    organization.save()
+    SignalTeamConfig.objects.update_or_create(team=team, defaults={"autostart_enabled": True})
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.READY, title="Synthetic report", summary="Verified evidence", run_count=2
+    )
+    task = apps.get_model("tasks", "Task").objects.create(
+        team=team, title="Implementation", repository="example/app", signal_report=report, created_by=runner
+    )
+    SignalReportTask.objects.create(
+        team=team,
+        report=report,
+        task=task,
+        relationship="implementation",
+        report_run_count=2,
+        report_content_revision_count=0,
+    )
+    if access_revoked:
+        membership = OrganizationMembership.objects.get(organization=organization, user=runner)
+        restrict_project(team, plain_members=[membership])
+    with patch("products.signals.backend.auto_start.self_driving_free_trial_enabled", return_value=False):
+        result = async_to_sync(maybe_autostart_implementation_task)(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="example/app",
+            title="Synthetic report",
+            summary="Verified evidence",
+            actionability=ActionabilityAssessment(
+                explanation="Verified fix",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            reviewers_content=[],
+            priority=PriorityAssessment(explanation="Core flow", priority=Priority.P2),
+            triggering_user_id=runner.id,
+            recovery=ImplementationRecovery(task_id=str(task.id), user_id=runner.id, repository="example/app"),
+        )
+    assert result.status == ("cancelled" if access_revoked else "queued")
 
 
 @pytest.mark.django_db
