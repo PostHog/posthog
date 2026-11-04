@@ -3158,6 +3158,16 @@
                   "table": null,
                   "type": "json"
               },
+              "credential_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "credential_type",
+                  "id": null,
+                  "name": "credential_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "created_at": {
                   "chain": null,
                   "fields": null,
@@ -18029,6 +18039,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "json"
+              },
+              "credential_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "credential_type",
+                  "id": null,
+                  "name": "credential_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "created_at": {
                   "chain": null,

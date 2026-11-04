@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { HighlightPicksList } from 'products/replay_vision/frontend/replay_scanners/components/HighlightPicksList'
+import { QuillHighlightPicksList } from 'products/replay_vision/frontend/replay_scanners/components/QuillHighlightPicksList'
 import { highlightPicksLogic } from 'products/replay_vision/frontend/replay_scanners/highlightPicksLogic'
 import { highlightPicksStarterLogic } from 'products/replay_vision/frontend/replay_scanners/highlightPicksStarterLogic'
 
@@ -26,7 +26,7 @@ export function ReplayListColumnWithPicks({
             logicKey={logicKey}
             recordingsList={recordingsList}
             collections={collections}
-            picksList={<HighlightPicksList />}
+            picksList={<QuillHighlightPicksList />}
             picksMode={effectiveListMode}
             unwatchedPicksCount={unwatchedCount}
             onPicksSelected={(selected) => setListMode(selected ? 'picks' : 'recordings')}

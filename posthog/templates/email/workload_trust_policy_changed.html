@@ -1,0 +1,24 @@
+{% extends "email/base.html" %}
+{% block heading %}A workload trust policy was {{ change }}{% endblock %}
+{% block section %}
+    <!-- prettier-ignore -->
+    <p>
+        <strong>{{ actor_name }}</strong>{% if actor_email %} (<a href="mailto:{{ actor_email }}">{{ actor_email }}</a>){% endif %}
+        {{ change }} the workload trust policy <strong>{{ policy_name }}</strong> in <strong>{{ team_name }}</strong>.
+    </p>
+    <p>
+        A workload trust policy lets a workload you trust, such as a CI job, get short-lived access to this project. You're getting this
+        email because you're an admin or owner of {{ organization_name }}.
+    </p>
+    <p>If you don't recognize this change, review the project's trusted workloads.</p>
+    <div class="mb mt text-center">
+        <a class="button primary" href="{{ policies_url }}">Review trusted workloads</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{{ policies_url }}">{{ policies_url }}</a>
+        </p>
+    </div>
+{% endblock %}
