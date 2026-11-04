@@ -3,9 +3,6 @@ import base64
 from collections.abc import Mapping
 from typing import Any
 
-from django.core.exceptions import ValidationError as DjangoValidationError
-from django.core.validators import validate_email
-
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.settings import api_settings
@@ -36,19 +33,11 @@ ADDRESS_FIELDS = ("cc", "bcc")
 CODE_SEND_EXTRA_FIELDS = (*ADDRESS_FIELDS, "attachments")
 
 
-def _passes_validate_email(address: str) -> bool:
-    try:
-        validate_email(address)
-    except DjangoValidationError:
-        return False
-    return True
-
-
-def _validate_bare_address(address: str) -> None:
-    # The same checks as `to`, so a copy address gets the verdict the CDP service gives it.
-    if not PIPELINE_ADDRESS_PATTERN.fullmatch(address) or not _passes_validate_email(address):
+def validate_pipeline_address(address: str) -> None:
+    if not PIPELINE_ADDRESS_PATTERN.fullmatch(address):
         raise serializers.ValidationError(
-            "Enter one address, such as `jane@example.com`, with no name, quotes or commas.", code="not_bare_address"
+            "Enter an address PostHog can send to, like jane@example.com. Quoted names, IP addresses and "
+            "non-ASCII domains aren't supported."
         )
 
 
@@ -68,7 +57,7 @@ def _validate_bare_address(address: str) -> None:
 class AddressListField(serializers.ListField):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(
-            child=serializers.CharField(validators=[_validate_bare_address]),
+            child=serializers.EmailField(validators=[validate_pipeline_address]),
             allow_empty=False,
             max_length=MAX_ADDRESSES_PER_FIELD,
             error_messages={"max_length": "Send at most {max_length} addresses."},

@@ -61,7 +61,6 @@ from products.messaging.backend.facade.templates import (
     update_template,
 )
 from products.messaging.backend.facade.transactional_email import (
-    PIPELINE_ADDRESS_PATTERN,
     SENDER_ADDRESS_MAX_LENGTH,
     SENDER_ADDRESS_PATTERN,
     CodeEmail,
@@ -90,6 +89,7 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     code_send_refusal,
     field_not_accepted_refusal,
     template_send_refusal,
+    validate_pipeline_address,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
@@ -432,16 +432,8 @@ class TransactionalEmailIdentifiersSerializer(serializers.Serializer):
     )
 
 
-def _validate_pipeline_address(address: str) -> None:
-    if not PIPELINE_ADDRESS_PATTERN.fullmatch(address):
-        raise serializers.ValidationError(
-            "Enter an address PostHog can send to, like jane@example.com. Quoted names, IP addresses and "
-            "non-ASCII domains aren't supported."
-        )
-
-
 class TransactionalEmailMessageSerializer(serializers.Serializer):
-    to = serializers.EmailField(validators=[_validate_pipeline_address], help_text="Email address of the recipient.")
+    to = serializers.EmailField(validators=[validate_pipeline_address], help_text="Email address of the recipient.")
     message_data = serializers.DictField(
         child=serializers.JSONField(allow_null=True),
         required=False,
@@ -510,7 +502,7 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         "the project's default sender, or from its only verified sender when it has no default.",
     )
     reply_to = serializers.ListField(
-        child=serializers.EmailField(validators=[_validate_pipeline_address]),
+        child=serializers.EmailField(validators=[validate_pipeline_address]),
         required=False,
         allow_empty=False,
         max_length=10,
