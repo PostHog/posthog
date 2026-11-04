@@ -1,11 +1,12 @@
 import json
 import datetime as dt
+from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from posthog.clickhouse.client import sync_execute
 
-from products.logs.backend.pattern_appearance import LOGS_PATTERN_FEED
+from products.logs.backend.pattern_appearance import LOGS_PATTERN_FEED, _logs_url
 
 T0 = dt.datetime(2026, 11, 4, 12, 0, tzinfo=dt.UTC)
 
@@ -36,10 +37,23 @@ class TestLogsPatternFeed(ClickhouseTestMixin, BaseTest):
 
         seen = LOGS_PATTERN_FEED.seen(self.team.id, T0, T0 + dt.timedelta(minutes=30), 10)
 
-        assert [(s.labels["pattern"], s.labels["severity_text"], s.seen_at) for s in seen] == [
-            ("Retry <N> timed out", "error", T0),
-            ("Retry <N> timed out", "warn", T0 + dt.timedelta(minutes=5)),
+        # Dated at the end of each bucket: the first and the last one the identity appeared in.
+        assert [(s.labels["pattern"], s.labels["severity_text"], s.seen_at, s.last_seen_at) for s in seen] == [
+            ("Retry <N> timed out", "error", T0 + dt.timedelta(minutes=5), T0 + dt.timedelta(minutes=15)),
+            ("Retry <N> timed out", "warn", T0 + dt.timedelta(minutes=10), T0 + dt.timedelta(minutes=10)),
         ]
         # The first bucket's environment, not a later one's.
         assert seen[0].labels["environment"] == "prod"
         assert seen[0].identity_key != seen[1].identity_key
+
+
+def test_the_message_links_to_the_announced_pattern_from_before_its_first_sighting() -> None:
+    url = _logs_url(
+        2,
+        {"service_name": "api", "severity_text": "error"},
+        {"pattern": "Retry <N> timed out", "pattern_version": 5, "first_seen_at": T0.isoformat()},
+    )
+
+    query = parse_qs(urlparse(url).query)
+    assert json.loads(query["filterGroup"][0])["values"][0]["values"][0]["value"] == ["Retry <N> timed out"]
+    assert json.loads(query["dateRange"][0])["date_from"] == (T0 - dt.timedelta(minutes=10)).isoformat()
