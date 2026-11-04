@@ -9,6 +9,7 @@ from products.warehouse_sources.sources.aws_cost_explorer.aws_cost_explorer impo
     validate_credentials as validate_aws_cost_explorer_credentials,
 )
 from products.warehouse_sources.sources.aws_cost_explorer.settings import (
+    AWS_SESSION_ACTIONS,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -57,6 +58,7 @@ class AwsCostExplorerSource(ResumableSource[AwsCostExplorerSourceConfig, AwsCost
     api_docs_url = "https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_Operations_AWS_Cost_Explorer_Service.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
     credential_kind = "aws-cost-explorer"
 
     @property
@@ -108,7 +110,7 @@ class AwsCostExplorerSource(ResumableSource[AwsCostExplorerSourceConfig, AwsCost
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return False, str(error)
         return validate_aws_cost_explorer_credentials(credentials)
@@ -123,7 +125,7 @@ class AwsCostExplorerSource(ResumableSource[AwsCostExplorerSourceConfig, AwsCost
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_cost_explorer_source(
-            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             start_date=config.start_date,
             endpoint=inputs.schema_name,
             resumable_source_manager=resumable_source_manager,

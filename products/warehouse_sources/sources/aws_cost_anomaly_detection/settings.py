@@ -95,3 +95,7 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "anomaly_monitors": "Cost monitors that inspect the account's spend, with the dimension and specification each one evaluates.",
     "anomaly_subscriptions": "Alert subscriptions attached to the cost monitors, with their subscribers, frequency and alert threshold.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = ("ce:Get*",)

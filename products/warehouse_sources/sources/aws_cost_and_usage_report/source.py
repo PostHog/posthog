@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.aws_cost_and_usage_report.aws_cost_and_u
     validate_credentials as validate_cost_and_usage_report_credentials,
 )
 from products.warehouse_sources.sources.aws_cost_and_usage_report.settings import (
+    AWS_SESSION_ACTIONS,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -60,6 +61,7 @@ class AwsCostAndUsageReportSource(ResumableSource[AwsCostAndUsageReportSourceCon
     api_docs_url = "https://docs.aws.amazon.com/cur/latest/userguide/dataexports-export-delivery.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
     credential_kind = "aws-cost-and-usage-report"
 
     @property
@@ -125,7 +127,7 @@ class AwsCostAndUsageReportSource(ResumableSource[AwsCostAndUsageReportSourceCon
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return False, str(error)
         return validate_cost_and_usage_report_credentials(
@@ -149,7 +151,7 @@ class AwsCostAndUsageReportSource(ResumableSource[AwsCostAndUsageReportSourceCon
         if inputs.reset_pipeline and inputs.activity_attempt == 1:
             resumable_source_manager.clear_state()
         return aws_cost_and_usage_report_source(
-            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             aws_region=config.aws_region,
             bucket=config.bucket,
             prefix=config.prefix,

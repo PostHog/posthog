@@ -8,6 +8,7 @@ from products.warehouse_sources.sources.aws_cost_anomaly_detection.aws_cost_anom
     validate_credentials as validate_aws_cost_anomaly_detection_credentials,
 )
 from products.warehouse_sources.sources.aws_cost_anomaly_detection.settings import (
+    AWS_SESSION_ACTIONS,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -53,6 +54,7 @@ class AwsCostAnomalyDetectionSource(
     api_docs_url = "https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_Operations_AWS_Cost_Explorer_Service.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
     credential_kind = "aws-cost-anomaly-detection"
 
     @property
@@ -97,7 +99,7 @@ class AwsCostAnomalyDetectionSource(
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return False, str(error)
         return validate_aws_cost_anomaly_detection_credentials(
@@ -113,7 +115,7 @@ class AwsCostAnomalyDetectionSource(
         api_version: str | None = None,
     ) -> dict[str, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return aws_auth_endpoint_reasons(error, endpoints)
         return probe_endpoint_permissions(
@@ -133,7 +135,7 @@ class AwsCostAnomalyDetectionSource(
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_cost_anomaly_detection_source(
-            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             endpoint=inputs.schema_name,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,

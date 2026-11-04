@@ -206,3 +206,10 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "resource_tags": "Tags attached to accounts, roots, organizational units, and policies. One row per tag.",
     "roots": "Roots of the organization, with the policy types enabled on each.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "organizations:Describe*",
+    "organizations:List*",
+)
