@@ -578,6 +578,8 @@ export interface ExternalDataSchemaApi {
      * * `missing_primary_key` - Missing primary key
      * * `duplicate_primary_key` - Duplicate primary key */
     readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnumApi | null
+    /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
+    readonly webhook_not_registered: boolean
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
@@ -787,6 +789,8 @@ export interface PatchedExternalDataSchemaApi {
      * * `missing_primary_key` - Missing primary key
      * * `duplicate_primary_key` - Duplicate primary key */
     readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnumApi | null
+    /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
+    readonly webhook_not_registered?: boolean
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
@@ -976,6 +980,8 @@ export interface ExternalDataSourceSerializersApi {
      */
     readonly user_access_level: string | null
     readonly supports_webhooks: boolean
+    /** Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables. */
+    readonly webhook_not_registered: boolean
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection: boolean
     /**
@@ -1133,6 +1139,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      */
     readonly user_access_level?: string | null
     readonly supports_webhooks?: boolean
+    /** Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables. */
+    readonly webhook_not_registered?: boolean
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection?: boolean
     /**
