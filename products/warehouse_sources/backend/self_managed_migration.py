@@ -27,6 +27,7 @@ import hashlib
 import dataclasses
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal, cast
 
@@ -131,6 +132,7 @@ class TableMigrationState(StrEnum):
 MigrationAction = Literal["none", "would_link", "linked", "link_failed", "limit_reached"]
 AbandonAction = Literal["would_abandon", "abandoned", "refused"]
 MergeAction = Literal["would_merge", "merged", "skipped"]
+SourceBackdateAction = Literal["would_backdate", "backdated", "unchanged"]
 
 
 @frozen
@@ -167,6 +169,15 @@ class SourceMergeOutcome:
     action: MergeAction
     moved_schemas: int = 0
     reason: str | None = None
+
+
+@frozen
+class SourceBackdateOutcome:
+    source_id: str
+    team_id: int
+    old_created_at: datetime
+    new_created_at: datetime | None
+    action: SourceBackdateAction
 
 
 @frozen
@@ -714,7 +725,7 @@ def _ensure_schema(table: DataWarehouseTable, plan: _TablePlan) -> ExternalDataS
         ):
             raise UnmappableTableError(f"another table in this bucket already uses the name '{table.name}'")
         ref = SelfManagedTableRef(table_id=str(table.id), url_pattern=table.url_pattern, format=table.format)
-        return ExternalDataSchema.objects.create(
+        schema = ExternalDataSchema.objects.create(
             name=table.name,
             team_id=table.team_id,
             source=source,
@@ -728,6 +739,13 @@ def _ensure_schema(table: DataWarehouseTable, plan: _TablePlan) -> ExternalDataS
                 }
             },
         )
+        if table.created_at is not None:
+            # Auto-set dates need an update after the rows exist.
+            ExternalDataSchema.objects.filter(team_id=table.team_id, pk=schema.pk).update(created_at=table.created_at)
+            ExternalDataSource.objects.filter(
+                team_id=table.team_id, pk=source.pk, created_at__gt=table.created_at
+            ).update(created_at=table.created_at)
+        return schema
 
 
 def migrate_self_managed_tables(
@@ -885,6 +903,70 @@ def _abandon(evaluation: _Evaluation, reason: str) -> None:
 
 
 _GroupId = tuple[int, str, str, str]
+
+
+def backdate_migration_sources(team_id: int | None, live_run: bool) -> list[SourceBackdateOutcome]:
+    """Use linked table dates for migration sources made by earlier runs."""
+
+    queryset = (
+        ExternalDataSource.objects.filter(connection_metadata__has_key=MIGRATION_MARKER_KEY)
+        .exclude(deleted=True)
+        .order_by("team_id", "id")
+    )
+    if team_id is not None:
+        queryset = queryset.filter(team_id=team_id)
+    sources_by_team: dict[int, list[ExternalDataSource]] = defaultdict(list)
+    for source in queryset:
+        sources_by_team[source.team_id].append(source)
+
+    outcomes: list[SourceBackdateOutcome] = []
+    for source_team_id, sources in sources_by_team.items():
+        schemas_by_source: dict[uuid.UUID, list[ExternalDataSchema]] = defaultdict(list)
+        table_ids: set[str] = set()
+        for schema in ExternalDataSchema.objects.filter(
+            team_id=source_team_id, source_id__in=[source.pk for source in sources], deleted=False
+        ):
+            ref = self_managed_table_ref(schema)
+            if ref is not None:
+                schemas_by_source[schema.source_id].append(schema)
+                table_ids.add(ref.table_id)
+        # Deleted tables still give their migration sources their original dates.
+        table_dates = {
+            str(table.pk): table.created_at
+            for table in DataWarehouseTable.raw_objects.filter(team_id=source_team_id, id__in=table_ids).only(
+                "id", "created_at"
+            )
+        }
+        for source in sources:
+            schema_dates: list[tuple[ExternalDataSchema, datetime]] = []
+            for schema in schemas_by_source[source.pk]:
+                ref = self_managed_table_ref(schema)
+                if ref is not None and (created_at := table_dates.get(ref.table_id)) is not None:
+                    schema_dates.append((schema, created_at))
+            oldest = min((created_at for _, created_at in schema_dates), default=None)
+            action: SourceBackdateAction = "unchanged"
+            if oldest is not None and oldest < source.created_at:
+                action = "would_backdate"
+                if live_run:
+                    with transaction.atomic():
+                        ExternalDataSource.objects.filter(
+                            team_id=source_team_id, pk=source.pk, deleted=False, created_at__gt=oldest
+                        ).update(created_at=oldest)
+                        for schema, created_at in schema_dates:
+                            ExternalDataSchema.objects.filter(
+                                team_id=source_team_id, pk=schema.pk, deleted=False
+                            ).update(created_at=created_at)
+                    action = "backdated"
+            outcomes.append(
+                SourceBackdateOutcome(
+                    source_id=str(source.pk),
+                    team_id=source_team_id,
+                    old_created_at=source.created_at,
+                    new_created_at=oldest if action != "unchanged" else None,
+                    action=action,
+                )
+            )
+    return outcomes
 
 
 def merge_duplicate_sources(team_id: int | None = None, live_run: bool = False) -> list[SourceMergeOutcome]:
