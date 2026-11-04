@@ -1,15 +1,11 @@
 **CORRECT usage pattern:**
 
-<example>
-User: create pageviews visualization
-Assistant: This needs analytics and visualization guidance, so I'll load both first.
-[Runs `posthog:exec({"command":"learn analytics visualizations"})`]
-</example>
+{visualization_example}
 
 <example>
 User: How many weekly active users do we have?
-Assistant: This needs analytics and visualization guidance, so I'll load both before any other command.
-[Runs `posthog:exec({"command":"learn analytics visualizations"})`]
+Assistant: {analytics_learn_intro}
+[Runs `posthog:exec({"command":"learn {analytics_learn_topics}"})`]
 Assistant: A weekly count is a governed shape, so the catalog comes first.
 [Runs `posthog:exec({"command":"call metric-list {\"limit\":100}"})`]
 Assistant: No approved metric matches, so I fall through to the query tools.
@@ -19,9 +15,7 @@ Assistant: I'll inspect both schemas.
 Assistant: The hinted series needs its full schema, and I need the team's events.
 [Runs `posthog:exec({"command":"schema query-trends series"})` and `posthog:exec({"command":"call read-data-schema {\"query\":{\"kind\":\"events\"}}"})` in parallel]
 Assistant: I now have the inputs for the query.
-[Runs `posthog:exec({"command":"call query-trends {...}"})`]
-Assistant: [Briefly summarizes the weekly active user trend.] I'll render it so you can verify the result.
-[Runs `render-ui({ "tool_name": "query-trends", "tool_input": {...} })` with the same query input]
+[Runs `posthog:exec({"command":"call query-trends {...}"})`]{render_step}
 </example>
 
 <example>
@@ -46,7 +40,7 @@ WRONG: Run `info feature-flag-get-all` first.
 
 <bad-example>
 User: Show me a trends chart of signups
-Assistant: [Runs `learn analytics visualizations`, then runs `info query-trends` and guesses the hinted series structure]
+Assistant: [Runs `learn {analytics_learn_topics}`, then runs `info query-trends` and guesses the hinted series structure]
 WRONG: Run `schema query-trends series` before populating a field with a drill-down hint.
 </bad-example>
 

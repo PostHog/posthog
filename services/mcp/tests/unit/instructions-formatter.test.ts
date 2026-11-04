@@ -389,7 +389,7 @@ describe('InstructionsFormatter', () => {
     describe('Claude web/desktop exec guidance', () => {
         it('keeps routine guidance inline and advertises optional topics', () => {
             const formatter = new InstructionsFormatter()
-            const result = formatter.buildClaudeExecCommandReference(fullCtx)
+            const result = formatter.buildCompactExecCommandReference(fullCtx, { claudeChat: true })
 
             // Skills off is the shipped default: the reference must carry no skill syntax.
             expect(result).not.toContain('(posthog|project):<skill>')
@@ -433,7 +433,10 @@ describe('InstructionsFormatter', () => {
 
         it('advertises skill syntax inside the schema budget only when skills are enabled', () => {
             const formatter = new InstructionsFormatter()
-            const result = formatter.buildClaudeExecCommandReference(fullCtx, { skillsEnabled: true })
+            const result = formatter.buildCompactExecCommandReference(fullCtx, {
+                claudeChat: true,
+                skillsEnabled: true,
+            })
 
             expect(result).toContain('**SKILLS FIRST: HARD REQUIREMENT**')
             expect(result).toContain('(posthog|project):<skill> [path...]')
@@ -445,7 +448,8 @@ describe('InstructionsFormatter', () => {
 
         it('keeps URL patterns inline when learn is unavailable', () => {
             const formatter = new InstructionsFormatter()
-            const result = formatter.buildClaudeExecCommandReference(fullCtx, {
+            const result = formatter.buildCompactExecCommandReference(fullCtx, {
+                claudeChat: true,
                 learnEnabled: false,
                 skillsEnabled: false,
             })
@@ -455,19 +459,36 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('learn <topic...>')
         })
 
-        it('adds the full skills-first routing to the uncapped reference only when enabled', () => {
+        // Coding agents are the ones that clone the PostHog repo for answers, so they keep
+        // the full routing paragraph that Claude chat's schema cap cannot afford.
+        it('adds the full skills-first routing to the uncapped cli reference only when enabled', () => {
             const formatter = new InstructionsFormatter()
-            const off = formatter.buildExecCommandReference(fullCtx)
-            const on = formatter.buildExecCommandReference(fullCtx, { learnEnabled: true })
+            const off = formatter.buildCompactExecCommandReference(fullCtx)
+            const on = formatter.buildCompactExecCommandReference(fullCtx, { skillsEnabled: true })
 
             expect(off).not.toContain('SKILLS FIRST')
             expect(on).toContain('**SKILLS FIRST: HARD REQUIREMENT**')
             expect(on).toContain('never clone, grep, or web-search PostHog internals')
         })
 
+        // Claude Code and Codex cannot mount `render-ui`, and read the domain index from
+        // `instructions` or `search`, so neither belongs in their reference.
+        it('keeps visualization steps and the domain index out of a cli reference without render-ui', () => {
+            const result = new InstructionsFormatter().buildCompactExecCommandReference({
+                ...fullCtx,
+                renderUiEnabled: false,
+            })
+
+            expect(result).toContain('posthog:exec({"command":"learn analytics"})')
+            expect(result).not.toContain('visualization')
+            expect(result).not.toContain('render-ui')
+            expect(result).not.toContain(buildToolDomainsCompact(realisticTools))
+            expect(result).not.toMatch(/\{[a-z_]+\}/)
+        })
+
         it('builds optional learning topics from their full guidance', () => {
             const formatter = new InstructionsFormatter()
-            const entries = formatter.buildClaudeExecLearnGuides(fullCtx)
+            const entries = formatter.buildExecLearnGuides(fullCtx)
             const analytics = entries.find((entry) => entry.id === 'analytics')
 
             expect(entries.map(({ id }) => id)).toEqual(['analytics', 'hogql', 'visualizations', 'urls', 'feedback'])
@@ -490,13 +511,13 @@ describe('InstructionsFormatter', () => {
                 renderUiEnabled: false,
             }
 
-            expect(formatter.buildClaudeExecLearnGuides(ctx).map((entry) => entry.id)).toEqual([
+            expect(formatter.buildExecLearnGuides(ctx).map((entry) => entry.id)).toEqual([
                 'analytics',
                 'hogql',
                 'urls',
                 'feedback',
             ])
-            const result = formatter.buildClaudeExecCommandReference(ctx)
+            const result = formatter.buildCompactExecCommandReference(ctx, { claudeChat: true })
             expect(result).toContain('- analytics:')
             expect(result).not.toContain('- visualizations:')
             expect(result).toContain('- urls:')
@@ -552,7 +573,7 @@ describe('InstructionsFormatter', () => {
             {
                 name: 'analytics learn topic content',
                 render: (formatter, ctx) =>
-                    formatter.buildClaudeExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
+                    formatter.buildExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
                 mustPrecede: ['### Retrieving data', '#### Schema-first workflow'],
             },
             {
@@ -577,9 +598,7 @@ describe('InstructionsFormatter', () => {
 
         it('advertises governed metrics in the analytics topic description', () => {
             const formatter = new InstructionsFormatter()
-            const analyticsEntry = formatter
-                .buildClaudeExecLearnGuides(fullCtx)
-                .find((entry) => entry.id === 'analytics')!
+            const analyticsEntry = formatter.buildExecLearnGuides(fullCtx).find((entry) => entry.id === 'analytics')!
             expect(analyticsEntry.description).toContain('governed metrics')
         })
     })
@@ -596,7 +615,7 @@ describe('InstructionsFormatter', () => {
             {
                 name: 'analytics learn topic content',
                 render: (formatter, ctx) =>
-                    formatter.buildClaudeExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
+                    formatter.buildExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
             },
             {
                 name: 'buildExecCommandReference',
@@ -669,18 +688,17 @@ describe('InstructionsFormatter', () => {
             { name: 'exec', render: (f, ctx) => f.buildExecCommandReference(ctx), inline: true },
             {
                 name: 'Claude analytics guide',
-                render: (f, ctx) =>
-                    f.buildClaudeExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
+                render: (f, ctx) => f.buildExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
                 inline: true,
             },
             {
                 name: 'Claude without guides',
-                render: (f, ctx) => f.buildClaudeExecCommandReference(ctx, { learnEnabled: false }),
+                render: (f, ctx) => f.buildCompactExecCommandReference(ctx, { claudeChat: true, learnEnabled: false }),
                 inline: true,
             },
             {
                 name: 'Claude with guides',
-                render: (f, ctx) => f.buildClaudeExecCommandReference(ctx),
+                render: (f, ctx) => f.buildCompactExecCommandReference(ctx, { claudeChat: true }),
                 inline: false,
             },
         ]

@@ -18,7 +18,7 @@ import BUSINESS_KNOWLEDGE_FIRST from '@/templates/sections/business-knowledge-fi
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
-import CLI_EXAMPLES_CLAUDE from '@/templates/sections/cli-examples-claude.md'
+import CLI_EXAMPLES_LEARN from '@/templates/sections/cli-examples-learn.md'
 import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
 import CLI_LEARN_COMPACT from '@/templates/sections/cli-learn-compact.md'
 import CLI_LEARN from '@/templates/sections/cli-learn.md'
@@ -149,6 +149,34 @@ function replayVisionAvailable(ctx: InstructionsContext): boolean {
         REPLAY_VISION_TOOLS.every((tool) => ctx.tools?.some(({ name }) => name === tool)) ??
         false
     )
+}
+
+function learnExampleVars(renderUiEnabled: boolean | undefined): Record<string, string> {
+    if (!renderUiEnabled) {
+        return {
+            visualization_example: '',
+            analytics_learn_intro: "Analytics applies, so I'll load it before any other command.",
+            analytics_learn_topics: 'analytics',
+            render_step: '',
+        }
+    }
+    return {
+        visualization_example: [
+            '<example>',
+            'User: create pageviews visualization',
+            "Assistant: This needs analytics and visualization guidance, so I'll load both first.",
+            '[Runs `posthog:exec({"command":"learn analytics visualizations"})`]',
+            '</example>',
+        ].join('\n'),
+        analytics_learn_intro:
+            "This needs analytics and visualization guidance, so I'll load both before any other command.",
+        analytics_learn_topics: 'analytics visualizations',
+        render_step: [
+            '',
+            "Assistant: [Briefly summarizes the weekly active user trend.] I'll render it so you can verify the result.",
+            '[Runs `render-ui({ "tool_name": "query-trends", "tool_input": {...} })` with the same query input]',
+        ].join('\n'),
+    }
 }
 
 function envContextSections(ctx: InstructionsContext): string[] {
@@ -310,11 +338,11 @@ export class InstructionsFormatter {
     }
 
     /**
-     * Build the optional guidance catalog used by Claude web/desktop. The
-     * existing prompt sections remain the source of truth; only their delivery
-     * moves from the advertised schema to `exec learn`.
+     * Build the guidance catalog served by `exec learn <topic...>`. The existing
+     * prompt sections remain the source of truth; only their delivery moves from
+     * the advertised schema to `learn`.
      */
-    buildClaudeExecLearnGuides(ctx: InstructionsContext): ExecLearnGuide[] {
+    buildExecLearnGuides(ctx: InstructionsContext): ExecLearnGuide[] {
         const entries: ExecLearnGuide[] = [
             {
                 id: 'analytics',
@@ -355,7 +383,7 @@ export class InstructionsFormatter {
             })
         }
 
-        // URL rules are task-specific and load on demand instead of consuming Claude's capped input schema.
+        // URL rules are task-specific, so they load on demand instead of riding in every advertised schema.
         entries.push({
             id: 'urls',
             title: 'URL patterns',
@@ -374,44 +402,45 @@ export class InstructionsFormatter {
     }
 
     /**
-     * claude.ai's registry silently drops a tool whose serialized `inputSchema`
-     * crosses ~16,384 chars. This reference lands in
-     * `inputSchema.properties.command.description`, so keep routine tool-use
-     * guidance inline and move only task-specific sections behind `learn <topic...>`.
-     * Enforced by the budget test in `instructions-formatter-snapshot.test.ts`.
+     * The command reference for clients that can run `learn`: guidance needed for a
+     * correct first call stays inline, and task-specific sections load on demand
+     * through `learn <topic...>`.
+     *
+     * `claudeChat` serves Claude web/desktop. They never show `instructions` to the
+     * model, so the tool-domain index goes inline. Their registry also silently drops
+     * a tool whose serialized `inputSchema` crosses ~16,384 chars, and this reference
+     * lands in `inputSchema.properties.command.description`, so they get the compact
+     * skills section. Enforced by the budget test in `instructions-formatter-snapshot.test.ts`.
      */
-    buildClaudeExecCommandReference(
+    buildCompactExecCommandReference(
         ctx: InstructionsContext,
-        opts: { learnEnabled?: boolean; skillsEnabled?: boolean } = {}
+        opts: { claudeChat?: boolean; learnEnabled?: boolean; skillsEnabled?: boolean } = {}
     ): string {
+        const claudeChat = opts.claudeChat ?? false
         const learnEnabled = opts.learnEnabled ?? true
         const skillsEnabled = opts.skillsEnabled ?? false
-        const learnGuides = this.buildClaudeExecLearnGuides(ctx)
+        const learnGuides = this.buildExecLearnGuides(ctx)
         const learnGuideList = learnGuides.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
         const learnSection = learnEnabled ? formatPrompt(EXEC_LEARN, { help_topics: learnGuideList }) : undefined
-        const renderCtx: InstructionsContext = {
-            guidelines: ctx.guidelines,
-            tools: ctx.tools,
-        }
+        const renderCtx: InstructionsContext = claudeChat
+            ? { guidelines: ctx.guidelines, tools: ctx.tools }
+            : { guidelines: ctx.guidelines, docsSearchEnabled: docsSearchAvailable(ctx) }
 
         return this.compose(
             [
                 CLI_SYNTAX,
-                // Compact skills-first variant: this reference lives inside the
-                // schema-capped `command` description (see the budget test), so the
-                // content-routing paragraph is reserved for the uncapped full reference.
-                ...(skillsEnabled ? [CLI_LEARN_COMPACT] : []),
+                ...(skillsEnabled ? [claudeChat ? CLI_LEARN_COMPACT : CLI_LEARN] : []),
                 ...(learnSection ? [learnSection] : []),
                 METRIC_DISCOVERY_COMPACT,
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
-                CLI_EXAMPLES_CLAUDE,
+                formatPrompt(CLI_EXAMPLES_LEARN, learnExampleVars(ctx.renderUiEnabled)),
                 CLI_ERROR_HANDLING,
                 BASIC_FUNCTIONALITY,
                 TOOL_SEARCH,
                 ...envContextSections(ctx),
-                // URL patterns live behind `learn urls` to protect the schema budget;
-                // with learn unavailable there is no topic to load, so stay inline.
+                // URL patterns and activity history normally load through `learn urls`
+                // and `learn analytics`; with learn unavailable there is no topic to load.
                 ...(learnSection ? [] : [URL_PATTERNS]),
                 ...(learnSection ? [] : this.activityHistorySections(ctx)),
             ],
@@ -425,16 +454,16 @@ export class InstructionsFormatter {
         )
     }
 
-    /** Build the `command` parameter description for the exec tool. The
-     *  query-tool catalog lives here: in single-exec mode `instructions` only
-     *  carries the `query` tool domain.
+    /** Build the full `command` parameter description for the exec tool, with every
+     *  section inline. The query-tool catalog lives here: in single-exec mode
+     *  `instructions` only carries the `query` tool domain.
      *
-     *  Claude web/desktop uses `buildClaudeExecCommandReference` instead because
-     *  its complete JSON schema has a smaller client-enforced size budget. */
-    buildExecCommandReference(ctx: InstructionsContext, opts: { learnEnabled?: boolean } = {}): string {
+     *  It serves clients that cannot run `learn`, such as the plugin and PostHog Code
+     *  consumers, which bundle their own skills. Clients with `learn` get
+     *  `buildCompactExecCommandReference` instead. */
+    buildExecCommandReference(ctx: InstructionsContext): string {
         const sections = [
             CLI_SYNTAX,
-            ...(opts.learnEnabled ? [CLI_LEARN] : []),
             METRIC_DISCOVERY,
             CLI_SCHEMA_DRILLDOWN,
             CLI_DATA_DISCOVERY,

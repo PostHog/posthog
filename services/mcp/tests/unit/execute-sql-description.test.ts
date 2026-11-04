@@ -69,7 +69,6 @@ describe('formatExecuteSqlDescription', () => {
 
     it.each([
         { label: 'tools mode', state: undefined, pointer: undefined },
-        { label: 'cli without learn', state: execState(), pointer: undefined },
         { label: 'posthog-code', state: execState({ consumer: 'posthog-code', skills: true }), pointer: undefined },
         {
             label: 'posthog-code with bundled skills',
@@ -83,11 +82,8 @@ describe('formatExecuteSqlDescription', () => {
             state: execState({ consumer: 'plugin', skills: true }),
             pointer: 'bundled `querying-posthog-data` skill',
         },
-        {
-            label: 'cli with skills',
-            state: execState({ skills: true }),
-            pointer: 'learn posthog:querying-posthog-data references/guidelines.md',
-        },
+        { label: 'cli without skills', state: execState(), pointer: `learn ${HOGQL_GUIDE_ID}` },
+        { label: 'cli with skills', state: execState({ skills: true }), pointer: `learn ${HOGQL_GUIDE_ID}` },
         {
             label: 'claude web',
             state: execState({ vendorClient: 'ClaudeAI', skills: true }),

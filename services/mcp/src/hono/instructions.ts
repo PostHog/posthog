@@ -147,16 +147,18 @@ export class InstructionsBuilder {
     }
 
     buildExecCommandReference(state: ExecToolState): string {
-        // Claude web/desktop never show `instructions` to the model, so their reference carries the domain index.
         const { guidesEnabled, skillsEnabled } = this.getExecLearnCapabilities(state)
         const ctx = this.buildContext(state)
-        if (state.clientProfile.isClaudeChatHost()) {
-            return this.formatter.buildClaudeExecCommandReference(ctx, {
+        const claudeChat = state.clientProfile.isClaudeChatHost()
+        // Claude web/desktop stay on the compact reference without `learn`, because the full one overflows their schema cap.
+        if (claudeChat || guidesEnabled) {
+            return this.formatter.buildCompactExecCommandReference(ctx, {
+                claudeChat,
                 learnEnabled: guidesEnabled || skillsEnabled,
                 skillsEnabled,
             })
         }
-        return this.formatter.buildExecCommandReference(ctx, { learnEnabled: skillsEnabled })
+        return this.formatter.buildExecCommandReference(ctx)
     }
 
     buildExecLearnCatalog(state: ResolvedState, skills: SkillCatalog | undefined): ExecLearnCatalog | undefined {
@@ -164,7 +166,7 @@ export class InstructionsBuilder {
         if (!guidesEnabled && !skillsEnabled) {
             return undefined
         }
-        const guides = guidesEnabled ? this.formatter.buildClaudeExecLearnGuides(this.buildContext(state)) : []
+        const guides = guidesEnabled ? this.formatter.buildExecLearnGuides(this.buildContext(state)) : []
         const canReadProjectSkills = skillsEnabled && hasScope(state.apiKeyScopes, 'llm_skill:read')
         // The catalog (and this closure) is rebuilt per request, so this Set dedupes
         // within one exec command — a 5-file batch of one skill fires a single event,
@@ -239,12 +241,8 @@ export class InstructionsBuilder {
         if (mcpConsumer === 'plugin' || state.requestContext.bundledSkills) {
             return 'The full HogQL reference is in your bundled `querying-posthog-data` skill: read its `references/guidelines.md`, and its `models-*.md` references for `posthog.ai_events`, `logs`, `posthog.trace_spans`, and `posthog.metrics`.'
         }
-        const { guidesEnabled, skillsEnabled } = this.getExecLearnCapabilities(state)
-        if (guidesEnabled) {
+        if (this.getExecLearnCapabilities(state).guidesEnabled) {
             return `Run \`learn ${HOGQL_GUIDE_ID}\` for the full HogQL reference, with examples and the observability and LLM tables.`
-        }
-        if (skillsEnabled) {
-            return "Run `learn posthog:querying-posthog-data references/guidelines.md` for the full HogQL reference. The skill's `models-*.md` references cover `posthog.ai_events`, `logs`, `posthog.trace_spans`, and `posthog.metrics`."
         }
         return undefined
     }
@@ -256,10 +254,8 @@ export class InstructionsBuilder {
         if (clientContext.mcpConsumer === 'plugin' || isPostHogCodeConsumer(clientContext.mcpConsumer)) {
             return { guidesEnabled: false, skillsEnabled: false }
         }
-        // The connector's header-less `tools/list` advertises guides to every surface, so the call serves them too.
-        const { clientProfile } = state
         return {
-            guidesEnabled: clientProfile.isClaudeChatHost() || clientProfile.isAnthropicConnector(),
+            guidesEnabled: true,
             skillsEnabled: state.toolFeatureFlags?.[MCP_EXEC_SKILLS_FEATURE_FLAG] === true,
         }
     }

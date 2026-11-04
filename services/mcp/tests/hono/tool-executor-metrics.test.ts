@@ -751,7 +751,6 @@ describe('ToolExecutor metrics', () => {
                     $mcp_exec_verb: 'learn',
                     exec_learn_kind: 'search',
                     exec_search_query: 'funnel conversion',
-                    $mcp_error_code: 'unknown_command',
                 },
             ],
         ])('stamps the exec verb and target for "%s"', async (command, expected) => {
