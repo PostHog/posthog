@@ -461,8 +461,7 @@ class TestRuleAssignmentNotification(BaseTest):
     def test_sends_nothing(self, expected_outcome: str, cymbal_assignee: str, flag_on: bool) -> None:
         self.flag_enabled.return_value = flag_on
         _, current = self._assign_like_cymbal("user")
-        previous_user = User.objects.create_and_join(self.organization, "previous@example.com", "password")
-        previous = assignee_property({"type": "user", "id": previous_user.id})
+        previous = assignee_property({"type": "user", "id": self.user.id})
 
         self._run_activity({"none": None, "current": current, "previous": previous}[cymbal_assignee], expected_outcome)
 
