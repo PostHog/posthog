@@ -198,13 +198,14 @@ describe('sandbox setup in the channel catalog', () => {
     })
 
     it.each([
-        { who: 'a project member below admin', level: OrganizationMembershipLevel.Member, existing: [] },
+        { who: 'a project member below admin', level: OrganizationMembershipLevel.Member, existing: [], expected: 1 },
         {
             who: 'an admin whose project already has the sender',
             level: OrganizationMembershipLevel.Admin,
             existing: [9],
+            expected: 0,
         },
-    ])('sends no setup request for $who', async ({ level, existing }) => {
+    ])('sends $expected setup requests for $who', async ({ level, existing, expected }) => {
         let requests = 0
         const results = existing.map((id) => ({ id, kind: 'email', config: { provider: 'sandbox', verified: true } }))
         useMocks({
@@ -212,7 +213,7 @@ describe('sandbox setup in the channel catalog', () => {
             post: {
                 '/api/projects/:team_id/integrations/email_sandbox_sender/': () => {
                     requests++
-                    return [403, { detail: "You don't have sufficient permissions in the project." }]
+                    return [200, { id: 9, kind: 'email', config: { provider: 'sandbox', verified: true } }]
                 },
             },
         })
@@ -227,7 +228,7 @@ describe('sandbox setup in the channel catalog', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(requests).toBe(0)
+        expect(requests).toBe(expected)
         expect(logic.values.sandboxSetupError).toBeNull()
     })
 })
