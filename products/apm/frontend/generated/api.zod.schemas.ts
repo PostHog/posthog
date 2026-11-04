@@ -188,7 +188,7 @@ export const ServiceUsageApi = zod.object({
         .describe('Uncompressed size of the stored log records in bytes. Billing counts logs by this size.'),
     spans: zod.number().describe('Spans of every kind stored in the window.'),
     metric_points: zod.number().describe('Metric data points stored in the window.'),
-    metric_series: zod.number().describe('Distinct metric series active in any hour that overlaps the window.'),
+    metric_series: zod.number().describe('Distinct metric series with at least one point in the window.'),
     service_name: zod.string().describe('The service.name resource attribute.'),
 })
 
@@ -202,7 +202,7 @@ export const UsageValuesApi = zod.object({
         .describe('Uncompressed size of the stored log records in bytes. Billing counts logs by this size.'),
     spans: zod.number().describe('Spans of every kind stored in the window.'),
     metric_points: zod.number().describe('Metric data points stored in the window.'),
-    metric_series: zod.number().describe('Distinct metric series active in any hour that overlaps the window.'),
+    metric_series: zod.number().describe('Distinct metric series with at least one point in the window.'),
 })
 
 export type UsageValuesApi = zod.input<typeof UsageValuesApi>
@@ -227,9 +227,7 @@ export const ServiceUsageResponseApi = zod.object({
                     ),
                 spans: zod.number().describe('Spans of every kind stored in the window.'),
                 metric_points: zod.number().describe('Metric data points stored in the window.'),
-                metric_series: zod
-                    .number()
-                    .describe('Distinct metric series active in any hour that overlaps the window.'),
+                metric_series: zod.number().describe('Distinct metric series with at least one point in the window.'),
                 service_name: zod.string().describe('The service.name resource attribute.'),
             })
         )
@@ -242,7 +240,7 @@ export const ServiceUsageResponseApi = zod.object({
                 .describe('Uncompressed size of the stored log records in bytes. Billing counts logs by this size.'),
             spans: zod.number().describe('Spans of every kind stored in the window.'),
             metric_points: zod.number().describe('Metric data points stored in the window.'),
-            metric_series: zod.number().describe('Distinct metric series active in any hour that overlaps the window.'),
+            metric_series: zod.number().describe('Distinct metric series with at least one point in the window.'),
         })
         .describe('Totals for the whole window, including services past the row limit.'),
     unavailable_signals: zod
