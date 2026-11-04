@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Any
 
 from requests import HTTPError
@@ -14,7 +15,9 @@ from products.warehouse_sources.sources.scrunch.settings import (
     NON_RETRYABLE_ERRORS,
     PAGE_SIZE,
     PRIMARY_KEYS,
+    SIGNAL_ANCHOR_LIMIT,
     SITEMAP_METRICS,
+    FanoutParent,
 )
 from products.warehouse_sources.sources.sdk import (
     BearerTokenAuth,
@@ -79,12 +82,18 @@ def _watermark_date(inputs: SourceInputs) -> str | None:
     return watermark.date().isoformat()
 
 
-def _date_window(inputs: SourceInputs) -> tuple[str | None, str | None]:
+@frozen
+class _DateWindow:
+    start_date: str | None
+    end_date: str | None
+
+
+def _date_window(inputs: SourceInputs) -> _DateWindow:
     today = datetime.now(UTC).date()
     start_date = _watermark_date(inputs) if inputs.schema_name in INCREMENTAL_FIELDS else None
     if inputs.schema_name == "responses":
         # Exclude the open UTC day so new responses cannot move offsets during a sync.
-        return start_date, today.isoformat()
+        return _DateWindow(start_date=start_date, end_date=today.isoformat())
     if inputs.schema_name == "agent_traffic":
         if start_date is None:
             history_start = (
@@ -93,13 +102,16 @@ def _date_window(inputs: SourceInputs) -> tuple[str | None, str | None]:
                 else today - timedelta(days=AGENT_TRAFFIC_HISTORY_DAYS)
             )
             start_date = history_start.isoformat()
-        return start_date, today.isoformat()
-    return start_date, None
+        return _DateWindow(start_date=start_date, end_date=today.isoformat())
+    return _DateWindow(start_date=start_date, end_date=None)
+
+
+BRAND_KEY = make_parent_key_name("brands", "id")
 
 
 def _explode_page_metrics(row: dict[str, Any]) -> list[dict[str, Any]]:
     page = {
-        "brand_id": row[make_parent_key_name("sitemap_pages", make_parent_key_name("brands", "id"))],
+        "brand_id": row[make_parent_key_name("sitemap_pages", BRAND_KEY)],
         "page_id": row[make_parent_key_name("sitemap_pages", "id")],
         "page_url": row[make_parent_key_name("sitemap_pages", "url")],
         "granularity": row.get("granularity"),
@@ -113,34 +125,54 @@ def _explode_page_metrics(row: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _child_endpoint(schema_name: str, path: str, start_date: str | None, end_date: str | None) -> Endpoint:
+def _detection_days(start_date: str | None, row: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {"date": day, BRAND_KEY: row[BRAND_KEY]}
+        for day in row.get("dates") or []
+        if start_date is None or day >= start_date
+    ]
+
+
+def _middle_resource(parent: FanoutParent, window: _DateWindow) -> EndpointResource:
+    params: dict[str, Any] = {"brand_id": {"type": "resolve", "resource": "brands", "field": "id"}}
+    endpoint: Endpoint = {"path": parent.path, "params": params}
+    middle: EndpointResource = {"name": parent.name, "include_from_parent": ["id"], "endpoint": endpoint}
+    if parent.name == "sites":
+        # Other sites of the brand return 404 on the agent traffic route.
+        middle["data_map"] = lambda site: site if site.get("agent_traffic_active") else []
+    elif parent.name == "sitemap_pages":
+        # A brand without a completed sitemap crawl answers 404.
+        endpoint["response_actions"] = [{"status_code": 404, "action": "ignore"}]
+    else:
+        params["limit"] = SIGNAL_ANCHOR_LIMIT
+        endpoint |= {"paginator": "single_page", "data_selector": None, "data_selector_required": False}
+        middle["data_map"] = partial(_detection_days, window.start_date)
+    return middle
+
+
+def _child_endpoint(schema_name: str, path: str, window: _DateWindow) -> Endpoint:
     parent = FANOUT_PARENTS.get(schema_name)
     params: dict[str, Any] = {"brand_id": {"type": "resolve", "resource": "brands", "field": "id"}}
     if parent is not None:
-        parent_name, _, id_param = parent
         params = {
-            "brand_id": {
-                "type": "resolve",
-                "resource": parent_name,
-                "field": make_parent_key_name("brands", "id"),
-            },
-            id_param: {"type": "resolve", "resource": parent_name, "field": "id"},
+            "brand_id": {"type": "resolve", "resource": parent.name, "field": BRAND_KEY},
+            parent.param: {"type": "resolve", "resource": parent.name, "field": parent.field},
         }
     endpoint: Endpoint = {"path": path, "params": params}
     if schema_name == "prompts":
         params["status"] = "all"
     elif schema_name == "responses":
-        params["end_date"] = end_date
-        if start_date is not None:
-            params["start_date"] = start_date
+        params["end_date"] = window.end_date
+        if window.start_date is not None:
+            params["start_date"] = window.start_date
     elif schema_name == "signals":
         params["sort"] = "detected_desc"
-        if start_date is not None:
-            params["anchor_from"] = start_date
+        # A path that ends in a placeholder defaults to a single page.
+        endpoint["paginator"] = {"type": "offset", "limit": PAGE_SIZE, "total_path": "total"}
     elif schema_name == "agent_traffic":
         params |= {
-            "start_date": start_date,
-            "end_date": end_date,
+            "start_date": window.start_date,
+            "end_date": window.end_date,
             "fields": ",".join(AGENT_TRAFFIC_DIMENSIONS),
             "time_bucket": "day",
         }
@@ -153,10 +185,8 @@ def _child_endpoint(schema_name: str, path: str, start_date: str | None, end_dat
     return endpoint
 
 
-def _child_resources(
-    schema_name: str, path: str, start_date: str | None, end_date: str | None
-) -> list[EndpointResource]:
-    endpoint = _child_endpoint(schema_name, path, start_date, end_date)
+def _child_resources(schema_name: str, path: str, window: _DateWindow) -> list[EndpointResource]:
+    endpoint = _child_endpoint(schema_name, path, window)
     parent = FANOUT_PARENTS.get(schema_name)
     if parent is None:
         return [
@@ -168,26 +198,17 @@ def _child_resources(
             }
         ]
 
-    parent_name, parent_path, _ = parent
-    brand_key = make_parent_key_name("brands", "id")
-    middle: EndpointResource = {
-        "name": parent_name,
-        "include_from_parent": ["id"],
-        "endpoint": {
-            "path": parent_path,
-            "params": {"brand_id": {"type": "resolve", "resource": "brands", "field": "id"}},
-        },
-    }
     child: EndpointResource = {"name": schema_name, "endpoint": endpoint}
     if schema_name == "agent_traffic":
-        # Other sites of the brand return 404 on the agent traffic route.
-        middle["data_map"] = lambda site: site if site.get("agent_traffic_active") else []
-        child["include_from_parent"] = ["id", brand_key]
-        child["data_map"] = rename_parent_fields(parent_name, {"id": "site_id", brand_key: "brand_id"})
-    else:
-        child["include_from_parent"] = ["id", "url", brand_key]
+        child["include_from_parent"] = ["id", BRAND_KEY]
+        child["data_map"] = rename_parent_fields(parent.name, {"id": "site_id", BRAND_KEY: "brand_id"})
+    elif schema_name == "sitemap_page_metrics":
+        child["include_from_parent"] = ["id", "url", BRAND_KEY]
         child["data_map"] = _explode_page_metrics
-    return [middle, child]
+    else:
+        child["include_from_parent"] = [BRAND_KEY]
+        child["data_map"] = rename_parent_fields(parent.name, {BRAND_KEY: "brand_id"})
+    return [_middle_resource(parent, window), child]
 
 
 def scrunch_source(
@@ -200,17 +221,18 @@ def scrunch_source(
     is_responses = schema_name == "responses"
     is_partitioned = schema_name in ("responses", "signals")
     resume = manager.load_state() if manager.can_resume() else None
-    if resume is not None:
-        start_date, end_date = resume.start_date, resume.end_date
-    else:
-        start_date, end_date = _date_window(inputs)
+    window = (
+        _DateWindow(start_date=resume.start_date, end_date=resume.end_date)
+        if resume is not None
+        else _date_window(inputs)
+    )
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
         manager.save_state(
             ScrunchResumeConfig(
                 paginator_state=state,
-                start_date=start_date,
-                end_date=end_date,
+                start_date=window.start_date,
+                end_date=window.end_date,
                 complete=state is None,
             )
         )
@@ -218,7 +240,7 @@ def scrunch_source(
     parent: EndpointResource = {"name": "brands", "endpoint": {"path": ENDPOINTS["brands"]}}
     resources: list[str | EndpointResource] = [parent]
     if schema_name != "brands":
-        resources.extend(_child_resources(schema_name, path, start_date, end_date))
+        resources.extend(_child_resources(schema_name, path, window))
 
     config: RESTAPIConfig = {
         "client": {

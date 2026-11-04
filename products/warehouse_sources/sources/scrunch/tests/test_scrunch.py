@@ -59,7 +59,6 @@ def test_brand_pagination(terminal: list[dict[str, Any]]) -> None:
         ("competitors", "/v1/brands/11/competitors"),
         ("personas", "/v1/brands/11/personas"),
         ("responses", "/v1/11/responses"),
-        ("signals", "/v1/11/signals"),
     ],
 )
 def test_children_keep_brand_identity_and_reset_offsets(table: str, path: str) -> None:
@@ -87,9 +86,6 @@ def test_children_keep_brand_identity_and_reset_offsets(table: str, path: str) -
         assert "brand_id" not in query(result, index)
         if table == "prompts":
             assert query(result, index)["status"] == ["all"]
-        if table == "signals":
-            assert query(result, index)["sort"] == ["detected_desc"]
-            assert "anchor_from" not in query(result, index)
         if table != "responses":
             assert "start_date" not in query(result, index)
             assert "end_date" not in query(result, index)
@@ -320,7 +316,8 @@ def test_sitemap_page_metrics_explode_into_one_row_per_platform_bucket() -> None
     result = run(
         "sitemap_page_metrics",
         [
-            page([{"id": 11}], 1),
+            page([{"id": 10}, {"id": 11}], 2),
+            ScriptedResponse(status=404, json={"detail": "No completed sitemap crawl found"}),
             page([{"id": 5, "url": "https://example.com/a"}, {"id": 6, "url": "https://example.com/b"}], 2),
             metrics(
                 citations=[{"date": "2026-10-01", "count_by_platform": {"OpenAI": 2, "Gemini": 1}}],
@@ -338,9 +335,14 @@ def test_sitemap_page_metrics_explode_into_one_row_per_platform_bucket() -> None
         {**page_a, "metric": "citations", "date": "2026-10-01", "platform": "Gemini", "count": 1},
         {**page_b, "metric": "agent_traffic", "date": "2026-10-02", "platform": "OpenAI", "count": 7},
     ]
-    assert result.paths[2:] == ["/v1/11/sitemap/pages/5/metrics", "/v1/11/sitemap/pages/6/metrics"]
-    assert query(result, 1) == {"offset": ["0"], "limit": ["2"]}
-    assert query(result, 2) == query(result, 3) == {}
+    assert result.paths[1:] == [
+        "/v1/10/sitemap/pages",
+        "/v1/11/sitemap/pages",
+        "/v1/11/sitemap/pages/5/metrics",
+        "/v1/11/sitemap/pages/6/metrics",
+    ]
+    assert query(result, 2) == {"offset": ["0"], "limit": ["2"]}
+    assert query(result, 3) == query(result, 4) == {}
 
 
 def test_site_audit_score_keeps_one_row_per_audited_brand() -> None:
@@ -358,21 +360,41 @@ def test_site_audit_score_keeps_one_row_per_audited_brand() -> None:
 
 
 @pytest.mark.parametrize(
-    "incremental,watermark,expected_anchor",
+    "inputs,expected_days",
     [
-        (False, "2026-08-01", None),
-        (True, "2026-08-01", "2026-08-01"),
-        (True, date(2026, 8, 1), "2026-08-01"),
+        ({}, ["2026-08-03", "2026-08-02", "2026-08-01"]),
+        (
+            {"incremental_field": "detected_for_date", "db_incremental_field_last_value": "2026-08-02"},
+            ["2026-08-03", "2026-08-02"],
+        ),
+        (
+            {"incremental_field": "detected_for_date", "db_incremental_field_last_value": date(2026, 8, 2)},
+            ["2026-08-03", "2026-08-02"],
+        ),
     ],
 )
-def test_signal_watermark_bounds_the_detection_date(
-    incremental: bool, watermark: str | date, expected_anchor: str | None
-) -> None:
-    inputs: dict[str, Any] = {"db_incremental_field_last_value": watermark}
-    if incremental:
-        inputs["incremental_field"] = "detected_for_date"
+def test_signals_read_each_detection_day_on_its_own(inputs: dict[str, Any], expected_days: list[str]) -> None:
+    detections = {
+        "2026-08-03": [{"id": 3, "fingerprint": "f1"}, {"id": 4, "fingerprint": "f2"}, {"id": 5, "fingerprint": "f3"}],
+        "2026-08-02": [{"id": 2, "fingerprint": "f1"}],
+        "2026-08-01": [{"id": 1, "fingerprint": "f1"}],
+    }
+    script = [
+        page([{"id": 11}], 1),
+        ScriptedResponse(json={"dates": ["2026-08-03", "2026-08-02", "2026-08-01"]}),
+    ]
+    for day in expected_days:
+        rows = detections[day]
+        script += [page(rows[index : index + 2], len(rows)) for index in range(0, len(rows), 2)]
 
-    result = run("signals", [page([{"id": 11}], 1), page([{"id": 1}], 1)], **inputs)
+    result = run("signals", script, **inputs)
 
-    assert result.rows == [{"id": 1, "brand_id": 11}]
-    assert query(result, 1).get("anchor_from") == ([expected_anchor] if expected_anchor else None)
+    assert result.raised is None
+    assert result.rows == [{**row, "brand_id": 11} for day in expected_days for row in detections[day]]
+    assert result.paths[1] == "/v1/11/signals/anchors"
+    assert query(result, 1) == {"limit": ["365"]}
+    signal_queries = [query(result, index) for index in range(2, len(result.requests))]
+    assert [(q["anchor_from"], q["anchor_to"], q["offset"]) for q in signal_queries] == [
+        ([day], [day], [str(offset)]) for day in expected_days for offset in range(0, len(detections[day]), 2)
+    ]
+    assert all(q["sort"] == ["detected_desc"] for q in signal_queries)
