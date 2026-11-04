@@ -204,13 +204,14 @@ def ph_background_capture(region: str = "US") -> ScopedCapture:
             client = _background_clients.get(region)
             if client is None:
                 client = get_client(region)
-                _background_clients[region] = client
-                # The SDK's own atexit hook only joins the consumer mid-batch without
-                # draining the queue. atexit is LIFO, so this flush (registered after
-                # the client's hook) runs first and drains what a graceful shutdown
-                # enqueued last. Bounded (SDK default 10s) so a dead network can't
-                # stall process exit.
-                atexit.register(client.flush)
+                if client is not None:
+                    _background_clients[region] = client
+                    # The SDK's own atexit hook only joins the consumer mid-batch without
+                    # draining the queue. atexit is LIFO, so this flush (registered after
+                    # the client's hook) runs first and drains what a graceful shutdown
+                    # enqueued last. Bounded (SDK default 10s) so a dead network can't
+                    # stall process exit.
+                    atexit.register(client.flush)
     return ScopedCapture(client)
 
 

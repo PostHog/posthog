@@ -122,13 +122,14 @@ class TestScopedCaptureFlush(SimpleTestCase):
     @patch("posthog.ph_client.get_client")
     def test_background_capture_keeps_one_client_per_region(self, get_client_mock: MagicMock, _register) -> None:
         us_client, eu_client = MagicMock(), MagicMock()
-        get_client_mock.side_effect = lambda region: {"US": us_client, "EU": eu_client}[region]
+        get_client_mock.side_effect = {"US": us_client, "EU": eu_client}.get
 
         ph_background_capture()(distinct_id="person", event="us")
         ph_background_capture(region="EU")(distinct_id="person", event="eu")
         ph_background_capture(region="EU")(distinct_id="person", event="eu again")
 
         assert get_client_mock.call_count == 2
+        ph_background_capture(region="DEV")(distinct_id="person", event="no client for this region")
         us_client.capture.assert_called_once_with(distinct_id="person", event="us")
         assert eu_client.capture.call_count == 2
 
