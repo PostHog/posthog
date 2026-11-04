@@ -22,6 +22,7 @@ CONSUMER_GROUP_LOG_ENTRIES = "clickhouse_log_entries_v3" if _US else "clickhouse
 CONSUMER_GROUP_HOG_INVOCATION_RESULTS = "clickhouse_hog_invocation_results"
 CONSUMER_GROUP_MESSAGE_ASSETS = "clickhouse_message_assets"
 CONSUMER_GROUP_EMAIL_STATUS = "clickhouse_email_status"
+CONSUMER_GROUP_EMAIL_STATUS_EVENTS = "clickhouse_email_status_events"
 CONSUMER_GROUP_DOCUMENT_EMBEDDINGS = "clickhouse_document_embeddings2" if _US else "clickhouse_document_embeddings"
 CONSUMER_GROUP_HEATMAPS = "clickhouse_heatmaps" if _US else "group1"
 CONSUMER_GROUP_PRECALCULATED_EVENTS = "clickhouse_precalculated_events2" if _US else "clickhouse_prefiltered_events"

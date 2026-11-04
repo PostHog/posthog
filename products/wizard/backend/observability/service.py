@@ -157,6 +157,31 @@ class WizardObservability:
             level=logging.WARNING,
         )
 
+    def handoff_failed(
+        self,
+        team_id: int,
+        run_id: UUID,
+        *,
+        error_type: str,
+        retryable: bool,
+        stage: str | None = None,
+        exit_code: int | None = None,
+        status_code: int | None = None,
+    ) -> None:
+        self._observe(
+            name="wizard_handoff_failed",
+            context={
+                "team_id": team_id,
+                "run_id": str(run_id),
+                "error_type": error_type,
+                "retryable": retryable,
+                "stage": stage,
+                "exit_code": exit_code,
+                "status_code": status_code,
+            },
+            level=logging.WARNING,
+        )
+
     def git_diff_omitted(self, run: WizardRunDTO, size_bytes: int) -> None:
         self._observe(
             name="wizard_git_diff_omitted",
