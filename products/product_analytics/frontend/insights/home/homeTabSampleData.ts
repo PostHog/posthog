@@ -106,7 +106,7 @@ export function getHomeTabSampleData(
 
     const breakdowns = BREAKDOWNS[option.key]
     if (!breakdowns) {
-        return option.key in METRIC_VALUES
+        return option.key in METRIC_VALUES && source.kind === NodeKind.TrendsQuery
             ? getHomeTabSampleStatData(option.key as HomeTabMetricKey, source)
             : undefined
     }

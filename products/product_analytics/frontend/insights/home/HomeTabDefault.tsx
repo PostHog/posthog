@@ -6,6 +6,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CUSTOM_OPTION_KEY, dateMapping } from 'lib/utils/dateFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -14,7 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 
 import { HomeTabChartCard } from './HomeTabChartCard'
-import { homeTabDefaultLogic } from './homeTabDefaultLogic'
+import { homeTabDefaultLogic, type HomeTabViewKey } from './homeTabDefaultLogic'
 import {
     getHomeTabAudienceOptions,
     getHomeTabBreakdownOptions,
@@ -26,13 +27,24 @@ import { homeTabLoadTimeLogic } from './homeTabLoadTimeLogic'
 import { homeTabChartInsightId, homeTabStatKey, homeTabStatTrendKey } from './homeTabQueryKeys'
 import { HomeTabReloadButton } from './HomeTabReloadButton'
 import { HomeTabStatTiles } from './HomeTabStatTiles'
+import { HomeTabView } from './HomeTabView'
+import { getHomeTabViewRows } from './homeTabViewCharts'
 
 const HOME_DATE_OPTIONS = dateMapping.filter((option) => option.key !== CUSTOM_OPTION_KEY)
 
+const HOME_VIEW_TABS: { key: HomeTabViewKey; label: string }[] = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'onboarding', label: 'Onboarding' },
+    { key: 'feature_engagement', label: 'Feature engagement' },
+    { key: 'retention', label: 'Retention' },
+]
+
 export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactNode }): JSX.Element {
     useAttachedLogic(homeTabDefaultLogic(), savedInsightsLogic)
-    const { dateRange, compare, selectedMetric, selectedContentKey } = useValues(homeTabDefaultLogic)
-    const { setDates, setCompare, setSelectedMetric, setSelectedContentKey } = useActions(homeTabDefaultLogic)
+    const { dateRange, compare, selectedMetric, selectedContentKey, selectedView, showViews } =
+        useValues(homeTabDefaultLogic)
+    const { setDates, setCompare, setSelectedMetric, setSelectedContentKey, setSelectedView } =
+        useActions(homeTabDefaultLogic)
     const { currentTeamId } = useValues(teamLogic)
 
     const metricCharts = getHomeTabChartOptions(dateRange, compare)
@@ -69,8 +81,14 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-primary pb-2 @min-[32rem]/home-overview:pb-3">
                 <div className="flex w-full items-center justify-between gap-2 @min-[48rem]/home-overview:w-auto">
                     <h2 className="m-0 min-w-0 text-lg font-semibold">
-                        <span className="hidden @min-[32rem]/home-overview:inline">Product Analytics </span>
-                        <span>Overview</span>
+                        {showViews ? (
+                            'Product analytics'
+                        ) : (
+                            <>
+                                <span className="hidden @min-[32rem]/home-overview:inline">Product Analytics </span>
+                                <span>Overview</span>
+                            </>
+                        )}
                     </h2>
                     <div className="shrink-0 whitespace-nowrap @min-[48rem]/saved-insights:hidden">
                         {dashboardActions}
@@ -105,70 +123,102 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                 </div>
             </div>
 
-            <HomeTabStatTiles
-                dateRange={dateRange}
-                compare={compare}
-                selectedKey={selectedMetric}
-                onSelect={setSelectedMetric}
-            />
+            {showViews && (
+                <LemonTabs
+                    activeKey={selectedView}
+                    onChange={setSelectedView}
+                    tabs={HOME_VIEW_TABS}
+                    size="small"
+                    data-attr="home-tab-views"
+                />
+            )}
 
-            <HomeTabChartCard
-                key={primaryChart.key}
-                option={primaryChart}
-                size="primary"
-                source="Pageviews and screen views"
-                loadPriority={0}
-            />
-
-            <section className="flex flex-col gap-3" aria-label="What people do">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <h2 className="m-0 text-base font-semibold">What people do</h2>
-                    <span className="text-xs text-secondary">Most common content and events in this period</span>
-                </div>
-                <div className="grid min-w-0 grid-cols-1 gap-3 @min-[44rem]/home-overview:grid-cols-2">
-                    <HomeTabChartCard
-                        key={contentChart.key}
-                        option={contentChart}
-                        size="ranking"
-                        loadPriority={2}
-                        source={selectedContentKey === 'top_pages' ? 'Pageviews' : 'Screen views'}
-                        control={
-                            <LemonSelect
-                                size="small"
-                                value={selectedContentKey}
-                                onChange={(value) => value && setSelectedContentKey(value)}
-                                options={[
-                                    { value: 'top_pages', label: 'Pages' },
-                                    { value: 'top_screens', label: 'Screens' },
-                                ]}
-                                dropdownMatchSelectWidth={false}
-                                data-attr="home-tab-content-chart"
-                            />
-                        }
+            {showViews && selectedView !== 'overview' ? (
+                <HomeTabView
+                    key={selectedView}
+                    rows={getHomeTabViewRows(selectedView, dateRange, compare)}
+                    label={HOME_VIEW_TABS.find(({ key }) => key === selectedView)?.label ?? ''}
+                />
+            ) : (
+                <>
+                    <HomeTabStatTiles
+                        dateRange={dateRange}
+                        compare={compare}
+                        selectedKey={selectedMetric}
+                        onSelect={setSelectedMetric}
                     />
-                    <HomeTabChartCard option={eventsChart} size="ranking" source="Captured events" loadPriority={2} />
-                </div>
-            </section>
 
-            <section className="flex flex-col gap-3" aria-label="Your audience">
-                <h2 className="m-0 text-base font-semibold">Your audience</h2>
-                <div className="grid min-w-0 grid-cols-1 gap-3 @min-[56rem]/home-overview:grid-cols-[2fr_1fr]">
-                    {audienceCharts.map((option) => (
+                    <HomeTabChartCard
+                        key={primaryChart.key}
+                        option={primaryChart}
+                        size="primary"
+                        source="Pageviews and screen views"
+                        loadPriority={0}
+                    />
+
+                    <section className="flex flex-col gap-3" aria-label="What people do">
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                            <h2 className="m-0 text-base font-semibold">What people do</h2>
+                            <span className="text-xs text-secondary">
+                                Most common content and events in this period
+                            </span>
+                        </div>
+                        <div className="grid min-w-0 grid-cols-1 gap-3 @min-[44rem]/home-overview:grid-cols-2">
+                            <HomeTabChartCard
+                                key={contentChart.key}
+                                option={contentChart}
+                                size="ranking"
+                                loadPriority={2}
+                                source={selectedContentKey === 'top_pages' ? 'Pageviews' : 'Screen views'}
+                                control={
+                                    <LemonSelect
+                                        size="small"
+                                        value={selectedContentKey}
+                                        onChange={(value) => value && setSelectedContentKey(value)}
+                                        options={[
+                                            { value: 'top_pages', label: 'Pages' },
+                                            { value: 'top_screens', label: 'Screens' },
+                                        ]}
+                                        dropdownMatchSelectWidth={false}
+                                        data-attr="home-tab-content-chart"
+                                    />
+                                }
+                            />
+                            <HomeTabChartCard
+                                option={eventsChart}
+                                size="ranking"
+                                source="Captured events"
+                                loadPriority={2}
+                            />
+                        </div>
+                    </section>
+
+                    <section className="flex flex-col gap-3" aria-label="Your audience">
+                        <h2 className="m-0 text-base font-semibold">Your audience</h2>
+                        <div className="grid min-w-0 grid-cols-1 gap-3 @min-[56rem]/home-overview:grid-cols-[2fr_1fr]">
+                            {audienceCharts.map((option) => (
+                                <HomeTabChartCard
+                                    key={option.key}
+                                    option={option}
+                                    size="supporting"
+                                    source="Pageviews and screen views"
+                                    loadPriority={3}
+                                />
+                            ))}
+                        </div>
+                    </section>
+
+                    <div className="grid min-w-0 grid-cols-1 gap-3 @min-[44rem]/home-overview:grid-cols-2">
                         <HomeTabChartCard
-                            key={option.key}
-                            option={option}
+                            option={retentionChart}
                             size="supporting"
-                            source="Pageviews and screen views"
-                            loadPriority={3}
+                            source="Pageviews"
+                            loadPriority={4}
                         />
-                    ))}
-                </div>
-            </section>
-
-            <div className="grid min-w-0 grid-cols-1 gap-3 @min-[44rem]/home-overview:grid-cols-2">
-                <HomeTabChartCard option={retentionChart} size="supporting" source="Pageviews" loadPriority={4} />
-                <HomeTabExplore />
-            </div>
+                        <HomeTabExplore />
+                    </div>
+                </>
+            )}
         </div>
     )
 }

@@ -9,9 +9,11 @@ import {
     EventsNode,
     GroupNode,
     InsightVizNode,
+    LifecycleQuery,
     MathType,
     NodeKind,
     RetentionQuery,
+    StickinessQuery,
     TrendsQuery,
     WebAnalyticsItemKind,
 } from '~/queries/schema/schema-general'
@@ -21,12 +23,14 @@ import {
     DashboardTemplateStoredInsightTile,
     DashboardTemplateType,
     FilterLogicalOperator,
+    AnyPropertyFilter,
     IntervalType,
     PropertyMathType,
     PropertyFilterType,
     PropertyOperator,
     RetentionDashboardDisplayType,
     RetentionPeriod,
+    RetentionType,
     TrendResult,
 } from '~/types'
 
@@ -50,12 +54,14 @@ export interface HomeTabChartOption {
     key: string
     title: string
     description: string
-    query: InsightVizNode<TrendsQuery> | InsightVizNode<RetentionQuery>
+    query: InsightVizNode<HomeTabChartSource>
 }
+
+export type HomeTabChartSource = TrendsQuery | RetentionQuery | LifecycleQuery | StickinessQuery
 
 // $pageview covers web, $screen covers mobile apps — combined so the tile works day one
 // regardless of platform, without asking the customer to pick one first.
-function activityEvent(math: MathType, mathProperty?: string): GroupNode {
+export function activityEvent(math: MathType, mathProperty?: string): GroupNode {
     const series: EventsNode[] = [
         { kind: NodeKind.EventsNode, event: '$pageview' },
         { kind: NodeKind.EventsNode, event: '$screen' },
@@ -105,7 +111,7 @@ export function getHomeTabInterval(dateRange: DateRange): IntervalType {
     return 'day'
 }
 
-function getHomeTabRetentionIntervals(dateRange: DateRange): number {
+export function getHomeTabRetentionIntervals(dateRange: DateRange): number {
     const dateFrom = dateRange.date_from
     const relative = dateFrom?.match(/^-(\d+)([hdwm])$/)
     const unitDays: Record<string, number> = { h: 1 / 24, d: 1, w: 7, m: 30 }
@@ -118,7 +124,7 @@ function getHomeTabRetentionIntervals(dateRange: DateRange): number {
     return Math.min(12, Math.max(2, Math.ceil(rangeDays / 7) + 1))
 }
 
-function trendsQuery(series: GroupNode | EventsNode, dateRange: DateRange, compare: boolean): TrendsQuery {
+export function trendsQuery(series: GroupNode | EventsNode, dateRange: DateRange, compare: boolean): TrendsQuery {
     return {
         kind: NodeKind.TrendsQuery,
         series: [series],
@@ -315,47 +321,15 @@ export function getHomeTabChartOptions(dateRange: DateRange, compare: boolean): 
             dateRange,
             compare
         ),
-        {
-            key: 'retention',
-            title: 'New user retention',
-            description: 'Compare weekly cohorts of first-time visitors and see when they return.',
-            query: {
-                kind: NodeKind.InsightVizNode,
-                embedded: true,
-                source: {
-                    kind: NodeKind.RetentionQuery,
-                    dateRange,
-                    retentionFilter: {
-                        period: RetentionPeriod.Week,
-                        totalIntervals: getHomeTabRetentionIntervals(dateRange),
-                        dashboardDisplay: RetentionDashboardDisplayType.TableOnly,
-                        retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
-                        targetEntity: {
-                            type: 'events',
-                            properties: [
-                                {
-                                    type: PropertyFilterType.EventMetadata,
-                                    key: 'event',
-                                    operator: PropertyOperator.In,
-                                    value: ['$pageview', '$screen'],
-                                },
-                            ],
-                        },
-                        returningEntity: {
-                            type: 'events',
-                            properties: [
-                                {
-                                    type: PropertyFilterType.EventMetadata,
-                                    key: 'event',
-                                    operator: PropertyOperator.In,
-                                    value: ['$pageview', '$screen'],
-                                },
-                            ],
-                        },
-                    },
-                },
-            },
-        },
+        retentionChartOption(
+            'retention',
+            'New user retention',
+            'Compare weekly cohorts of first-time visitors and see when they return.',
+            dateRange,
+            RetentionPeriod.Week,
+            getHomeTabRetentionIntervals(dateRange),
+            RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS
+        ),
     ]
 }
 
@@ -405,13 +379,58 @@ export function getHomeTabAudienceOptions(dateRange: DateRange): HomeTabChartOpt
     ]
 }
 
-function rankedBreakdownOption(
+const PAGE_OR_SCREEN_EVENT_FILTER: AnyPropertyFilter = {
+    type: PropertyFilterType.EventMetadata,
+    key: 'event',
+    operator: PropertyOperator.In,
+    value: ['$pageview', '$screen'],
+}
+
+export function retentionChartOption(
     key: string,
     title: string,
     description: string,
-    event: string | null,
-    breakdown: string,
-    breakdownType: 'event' | 'event_metadata',
+    dateRange: DateRange,
+    period: RetentionPeriod,
+    totalIntervals: number,
+    retentionType: RetentionType
+): HomeTabChartOption {
+    return {
+        key,
+        title,
+        description,
+        query: {
+            kind: NodeKind.InsightVizNode,
+            embedded: true,
+            source: {
+                kind: NodeKind.RetentionQuery,
+                dateRange,
+                retentionFilter: {
+                    period,
+                    totalIntervals,
+                    dashboardDisplay: RetentionDashboardDisplayType.TableOnly,
+                    retentionType,
+                    targetEntity: { type: 'events', properties: [PAGE_OR_SCREEN_EVENT_FILTER] },
+                    returningEntity: { type: 'events', properties: [PAGE_OR_SCREEN_EVENT_FILTER] },
+                },
+            },
+        },
+    }
+}
+
+interface RankedBreakdown {
+    event: string | null
+    breakdown: string
+    breakdownType: 'event' | 'event_metadata'
+    math?: MathType
+    properties?: AnyPropertyFilter[]
+}
+
+export function rankedBreakdownOption(
+    key: string,
+    title: string,
+    description: string,
+    { event, breakdown, breakdownType, math = BaseMathType.TotalCount, properties }: RankedBreakdown,
     dateRange: DateRange
 ): HomeTabChartOption {
     return {
@@ -423,7 +442,7 @@ function rankedBreakdownOption(
             embedded: true,
             source: {
                 kind: NodeKind.TrendsQuery,
-                series: [{ kind: NodeKind.EventsNode, event, math: BaseMathType.TotalCount }],
+                series: [{ kind: NodeKind.EventsNode, event, math, ...(properties ? { properties } : {}) }],
                 dateRange,
                 interval: getHomeTabInterval(dateRange),
                 trendsFilter: { display: ChartDisplayType.ActionsBarValue },
@@ -444,27 +463,21 @@ export function getHomeTabBreakdownOptions(dateRange: DateRange): HomeTabChartOp
             'top_pages',
             'Top pages',
             'Pages with the most views.',
-            '$pageview',
-            '$pathname',
-            'event',
+            { event: '$pageview', breakdown: '$pathname', breakdownType: 'event' },
             dateRange
         ),
         rankedBreakdownOption(
             'top_screens',
             'Top screens',
             'Screens with the most views.',
-            '$screen',
-            '$screen_name',
-            'event',
+            { event: '$screen', breakdown: '$screen_name', breakdownType: 'event' },
             dateRange
         ),
         rankedBreakdownOption(
             'top_events',
             'Top events',
             'The most frequent event names in this period.',
-            null,
-            'event',
-            'event_metadata',
+            { event: null, breakdown: 'event', breakdownType: 'event_metadata' },
             dateRange
         ),
     ]
@@ -496,7 +509,7 @@ export function getHomeTabExploreUrl(query: HomeTabChartOption['query']): string
 interface HomeTabDashboardTile {
     name: string
     description: string
-    source: TrendsQuery | RetentionQuery
+    source: HomeTabChartSource
     w: number
     h: number
 }

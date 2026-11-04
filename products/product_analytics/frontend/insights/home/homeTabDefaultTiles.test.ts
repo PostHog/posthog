@@ -27,6 +27,7 @@ import {
     isHomeTabStatBucketInProgress,
 } from './homeTabDefaultTiles'
 import { homeTabStatTrendKey } from './homeTabQueryKeys'
+import { getHomeTabViewRows } from './homeTabViewCharts'
 
 describe('homeTabDefaultTiles', () => {
     const dateRange: DateRange = { date_from: '-14d', date_to: null }
@@ -300,6 +301,18 @@ describe('homeTabDefaultTiles', () => {
             source: { dateRange, compareFilter: { compare: true }, trendsFilter },
         })
     })
+
+    it.each(['onboarding', 'feature_engagement', 'retention'] as const)(
+        'gives every %s chart its own key so charts in the view do not share results',
+        (view) => {
+            const keys = getHomeTabViewRows(view, dateRange, true)
+                .flat()
+                .map(({ option }) => option.key)
+
+            expect(keys.length).toBeGreaterThan(0)
+            expect(new Set(keys).size).toBe(keys.length)
+        }
+    )
 
     it('copies Home into a dashboard template with saved queries and a non-overlapping layout', () => {
         const { tiles } = getHomeTabDashboardTemplate()

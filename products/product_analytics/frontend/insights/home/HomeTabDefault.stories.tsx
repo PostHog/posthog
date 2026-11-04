@@ -1,10 +1,15 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { mswDecorator } from '~/mocks/browser'
+import lifecycle from '~/mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
+import stickiness from '~/mocks/fixtures/api/projects/team_id/insights/stickiness.json'
 import trendsBarBreakdown from '~/mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'
 import trendsLine from '~/mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import trendsNumber from '~/mocks/fixtures/api/projects/team_id/insights/trendsNumber.json'
@@ -55,6 +60,12 @@ async function homeQueryMock({ request }: { request: Request }): Promise<[number
 
     if (query?.kind === NodeKind.RetentionQuery) {
         return [200, { results: realisticRetentionResult }]
+    }
+    if (query?.kind === NodeKind.LifecycleQuery) {
+        return [200, { results: lifecycle.result }]
+    }
+    if (query?.kind === NodeKind.StickinessQuery) {
+        return [200, { results: stickiness.result }]
     }
 
     if (query?.trendsFilter?.display === ChartDisplayType.BoldNumber) {
@@ -166,6 +177,25 @@ export const Populated: Story = {
         </div>
     ),
 }
+
+function viewStory(tabLabel: string): Story {
+    return {
+        render: Populated.render,
+        parameters: {
+            featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_VIEWS],
+            testOptions: { viewport: { width: 1440, height: 1200 }, snapshotBrowsers: [] },
+        },
+        play: async ({ canvasElement }) => {
+            await userEvent.click(await within(canvasElement).findByText(tabLabel))
+        },
+    }
+}
+
+export const OnboardingView: Story = viewStory('Onboarding')
+
+export const FeatureEngagementView: Story = viewStory('Feature engagement')
+
+export const RetentionView: Story = viewStory('Retention')
 
 export const Narrow: Story = {
     // A docked side panel leaves roughly 520px for the scene on a laptop.
