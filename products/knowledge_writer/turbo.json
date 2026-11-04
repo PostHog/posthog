@@ -6,6 +6,7 @@
                 "backend/facade/**",
                 "backend/webhook_consumers.py",
                 "backend/tasks/**",
+                "backend/temporal/**",
                 "backend/migrations/**"
             ],
             "outputs": [],
