@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
 
 import { AccountAssignmentFilter } from 'lib/components/AccountAssignmentFilter/AccountAssignmentFilter'
 
@@ -15,14 +15,6 @@ export function ProductUsageFilters(): JSX.Element {
     const mine = !!user && controls.assignedTo.length === 1 && controls.assignedTo[0] === user.id
     return (
         <div className="flex flex-wrap items-center gap-2" data-attr="product-activity-filters">
-            <LemonInput
-                type="search"
-                value={controls.search}
-                onChange={(search) => setControls({ search })}
-                placeholder="Search accounts"
-                size="small"
-                data-attr="product-activity-search"
-            />
             <AccountAssignmentFilter
                 assignedToUserIds={controls.assignedTo}
                 status={controls.assignmentStatus}

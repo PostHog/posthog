@@ -113,3 +113,15 @@ export function indexProductUsageFirsts(
     }
     return indexed
 }
+
+export function indexProductUsageBreadth(result: BookActivityMatrixResult, selected: string[]): Map<string, number> {
+    const products = new Map<string, Set<string>>()
+    for (const cell of result.data) {
+        if (cell.users > 0 && (!selected.length || selected.includes(cell.series))) {
+            const account = products.get(cell.row) ?? new Set<string>()
+            account.add(cell.series)
+            products.set(cell.row, account)
+        }
+    }
+    return new Map([...products].map(([key, series]) => [key, series.size]))
+}

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonTable } from '@posthog/lemon-ui'
 
 import { CountCell } from 'lib/components/DotMatrix/CountCell'
 import { dayjs } from 'lib/dayjs'
@@ -9,9 +9,10 @@ import { dayjs } from 'lib/dayjs'
 import type { BookActivityMatrixResult } from '~/queries/schema/schema-general'
 
 import type { AccountViewApi } from '../../generated/api.schemas'
-import { getAccountProductActivityUrl } from '../Accounts/accountProductActivityUrl'
+import { ProductUsageAccountCell } from './ProductUsageAccountCell'
 import {
     indexProductUsageCounts,
+    indexProductUsageBreadth,
     indexProductUsagePeople,
     indexProductUsageFirsts,
     productUsageCellKey,
@@ -39,6 +40,7 @@ export function ProductUsageUsersTable({
         'users'
     )
     const counts = useMemo(() => indexProductUsageCounts(matrix, controls.selected), [matrix, controls.selected])
+    const breadth = useMemo(() => indexProductUsageBreadth(matrix, controls.selected), [matrix, controls.selected])
     const totals = useMemo(
         () => new Map(matrix.data.map((cell) => [productUsageCellKey(cell.row, cell.column, cell.series), cell.users])),
         [matrix]
@@ -96,7 +98,13 @@ export function ProductUsageUsersTable({
                             row.productKey ? (
                                 <span className="pl-4 text-secondary">{row.label}</span>
                             ) : (
-                                <Link to={getAccountProductActivityUrl(row.accountId, views)}>{row.label}</Link>
+                                <ProductUsageAccountCell
+                                    accountId={row.accountId}
+                                    name={row.label}
+                                    products={breadth.get(row.accountId) ?? 0}
+                                    truncated={matrix.truncated}
+                                    views={views}
+                                />
                             ),
                     },
                     ...matrix.columns.map((column) => ({

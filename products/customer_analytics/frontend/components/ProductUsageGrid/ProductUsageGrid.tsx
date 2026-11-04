@@ -1,24 +1,50 @@
 import { useActions, useValues } from 'kea'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 
-import { LemonBanner, Link } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { DotMatrix } from 'lib/components/DotMatrix/DotMatrix'
+import { Sparkline } from 'lib/components/Sparkline'
 
 import { accountViewsLogic } from '../../scenes/CustomerAnalyticsAccountScene/accountViewsLogic'
-import { getAccountProductActivityUrl } from '../Accounts/accountProductActivityUrl'
 import { getBookActivityMatrixProps } from '../Accounts/bookActivityMatrix'
 import { getHogQLActivityMatrix, getHogQLLimitNotice } from '../Accounts/hogqlActivityMatrix'
+import { ProductUsageAccountCell } from './ProductUsageAccountCell'
+import { ProductUsageCellTooltip } from './ProductUsageCellTooltip'
+import { indexProductUsageBreadth, indexProductUsageCounts, productUsageCellKey } from './productUsageData'
 import { ProductUsageGlyph } from './ProductUsageGlyph'
 import { productUsageGridLogic } from './productUsageGridLogic'
 import { ProductUsageLegend } from './ProductUsageLegend'
-import { getProductUsageCountScale } from './productUsagePresentation'
+import { getProductUsageCountLabel, getProductUsageCountScale } from './productUsagePresentation'
 import { ProductUsageUsersTable } from './ProductUsageUsersTable'
 
 export function ProductUsageGrid(): JSX.Element | null {
-    const { currentTeamId, result, controls, mappingDraft, editorOpen, details, loading } =
+    const { currentTeamId, result, controls, mappingDraft, editorOpen, details, loading, focusedCell } =
         useValues(productUsageGridLogic)
     const { views } = useValues(accountViewsLogic({ projectId: currentTeamId! }))
     const { setControls, zoomToCell } = useActions(productUsageGridLogic)
+    const [hoveredSeries, setHoveredSeries] = useState<string | null>(null)
+    const counts = useMemo(
+        () => (result?.matrix ? indexProductUsageCounts(result.matrix, controls.selected) : new Map<string, number>()),
+        [result?.matrix, controls.selected]
+    )
+    const breadth = useMemo(
+        () => (result?.matrix ? indexProductUsageBreadth(result.matrix, controls.selected) : new Map<string, number>()),
+        [result?.matrix, controls.selected]
+    )
+    const container = useRef<HTMLDivElement>(null)
+    useLayoutEffect(() => {
+        if (controls.zoom !== 'products' || !focusedCell) {
+            return
+        }
+        const cell = Array.from(
+            container.current?.querySelectorAll<HTMLElement>('[data-attr="dot-matrix-cell"]') ?? []
+        ).find(
+            (node) => node.dataset.rowKey === focusedCell.accountId && node.dataset.columnKey === focusedCell.columnKey
+        )
+        cell?.focus({ preventScroll: true })
+        cell?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    }, [controls.zoom, focusedCell])
     if (!result) {
         return null
     }
@@ -80,7 +106,7 @@ export function ProductUsageGrid(): JSX.Element | null {
     const matrix = result.matrix
     const props = getBookActivityMatrixProps(matrix, controls.selected)
     return (
-        <div className="border rounded p-3 flex flex-col gap-3" data-attr="product-activity-grid">
+        <div ref={container} className="border rounded p-3 flex flex-col gap-3" data-attr="product-activity-grid">
             <ProductUsageLegend
                 series={matrix.series}
                 groupings={matrix.groupings}
@@ -88,7 +114,10 @@ export function ProductUsageGrid(): JSX.Element | null {
                 onGroupingChange={(grouping) => setControls({ grouping })}
                 selectedSeries={controls.selected}
                 onSelectedSeriesChange={(selected) => setControls({ selected })}
-                mode={controls.zoom === 'products' ? 'dots' : 'count'}
+                mode={controls.zoom === 'products' ? 'dots' : controls.zoom}
+                hoveredSeries={hoveredSeries}
+                onHoveredSeriesChange={setHoveredSeries}
+                includeFirstUse={controls.firstUse}
             />
             {matrix.truncated && (
                 <LemonBanner type="warning">
@@ -108,8 +137,54 @@ export function ProductUsageGrid(): JSX.Element | null {
                     rowHeader={{
                         title: 'Account',
                         width: 220,
-                        render: (row) => <Link to={getAccountProductActivityUrl(row.key, views)}>{row.label}</Link>,
+                        render: (row) => (
+                            <ProductUsageAccountCell
+                                accountId={row.key}
+                                name={row.label ?? row.key}
+                                products={breadth.get(row.key) ?? 0}
+                                truncated={matrix.truncated}
+                                views={views}
+                            />
+                        ),
                     }}
+                    trailingColumns={
+                        controls.zoom === 'count'
+                            ? [
+                                  {
+                                      key: 'trend',
+                                      title: 'Trend',
+                                      width: 116,
+                                      render: (rowKey) => (
+                                          <div
+                                              aria-label={`${matrix.rows.find((row) => row.key === rowKey)?.label ?? rowKey}: ${getProductUsageCountLabel(matrix.series, controls.selected)} per period`}
+                                          >
+                                              <Sparkline
+                                                  type="line"
+                                                  className="!w-24 h-8"
+                                                  data={matrix.columns.map(
+                                                      (column) =>
+                                                          counts.get(productUsageCellKey(rowKey, column.key)) ?? 0
+                                                  )}
+                                                  labels={matrix.columns.map((column) => column.key)}
+                                                  name={getProductUsageCountLabel(matrix.series, controls.selected)}
+                                              />
+                                          </div>
+                                      ),
+                                  },
+                              ]
+                            : []
+                    }
+                    renderTooltip={(cell) => (
+                        <ProductUsageCellTooltip
+                            matrix={matrix}
+                            rowKey={cell.rowKey}
+                            columnKey={cell.columnKey}
+                            values={cell.values}
+                            selected={controls.selected}
+                            interval={result.interval ?? controls.interval}
+                            firstUse={controls.firstUse ? details.firsts?.accounts : []}
+                        />
+                    )}
                     renderCell={
                         controls.zoom === 'products'
                             ? (cell) => (
@@ -118,6 +193,7 @@ export function ProductUsageGrid(): JSX.Element | null {
                                       rowKey={cell.rowKey}
                                       columnKey={cell.columnKey}
                                       values={cell.values}
+                                      hoveredSeries={hoveredSeries}
                                       grouping={controls.grouping}
                                       firstUse={controls.firstUse ? details.firsts?.accounts : []}
                                       interval={result.interval ?? controls.interval}

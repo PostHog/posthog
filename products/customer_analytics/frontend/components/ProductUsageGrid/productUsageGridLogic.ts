@@ -847,7 +847,11 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
         cache.disposables.add(() => {
             const onKey = (event: KeyboardEvent): void => {
                 if (
-                    (event.target as HTMLElement)?.closest('input, textarea, [contenteditable="true"], .monaco-editor')
+                    event.ctrlKey ||
+                    event.metaKey ||
+                    event.altKey ||
+                    (event.target instanceof Element &&
+                        event.target.closest('input, textarea, [contenteditable="true"], .monaco-editor'))
                 ) {
                     return
                 }
@@ -861,7 +865,7 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
                             Math.max(
                                 0,
                                 Math.min(
-                                    values.source?.kind === 'product_usage' ? 2 : 1,
+                                    values.result?.source.kind === 'product_usage' ? 2 : 1,
                                     zooms.indexOf(values.controls.zoom) + (event.key === '+' ? 1 : -1)
                                 )
                             )

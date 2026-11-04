@@ -42,6 +42,50 @@ describe('productUsageGridLogic', () => {
         query.mockReset()
         jest.spyOn(posthog, 'capture').mockClear()
     })
+    it('supports zoom and clear shortcuts without stealing editor or browser keys', async () => {
+        const logic = productUsageGridLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setControls({ zoom: 'products', selected: ['logs'] })
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: '-' }))
+        expect(logic.values.controls.zoom).toBe('count')
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: '+' }))
+        expect(logic.values.controls.zoom).toBe('products')
+        const input = document.createElement('input')
+        document.body.append(input)
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: '-', bubbles: true }))
+        expect(logic.values.controls.zoom).toBe('products')
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: '-', ctrlKey: true }))
+        expect(logic.values.controls.zoom).toBe('products')
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        expect(logic.values.controls.selected).toEqual([])
+        input.remove()
+        logic.unmount()
+    })
+    it('bounds keyboard zoom to the displayed preview source, including unsaved queries', async () => {
+        const logic = productUsageGridLogic()
+        logic.mount()
+        logic.actions.finishLoad({
+            accounts,
+            matrix: BOOK_ACTIVITY_MATRIX_MOCK,
+            hogql: null,
+            source: { kind: 'product_usage' },
+        })
+        logic.actions.setControls({ zoom: 'products' })
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: '+' }))
+        expect(logic.values.controls.zoom).toBe('users')
+        logic.actions.setSource({ kind: 'product_usage' })
+        logic.actions.finishLoad({
+            accounts,
+            matrix: null,
+            hogql: { columns: [], results: [] },
+            source: { kind: 'hogql', query: sql, mapping: { row: 'row', column: 'column', value: 'value' } },
+        })
+        logic.actions.setControls({ zoom: 'products' })
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: '+' }))
+        expect(logic.values.controls.zoom).toBe('products')
+        logic.unmount()
+    })
     it('keeps a new book blank until Run, and saves only a successful executed query', async () => {
         const logic = productUsageGridLogic()
         logic.mount()

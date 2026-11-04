@@ -1,24 +1,30 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonMenu, Spinner } from '@posthog/lemon-ui'
-
-import { OverviewGrid } from '~/queries/nodes/OverviewGrid/OverviewGrid'
+import { LemonBanner, LemonButton, LemonDialog, LemonMenu, LemonInput, Spinner } from '@posthog/lemon-ui'
 
 import { ProductUsageControls } from './ProductUsageControls'
 import { ProductUsageFilters } from './ProductUsageFilters'
 import { ProductUsageGrid } from './ProductUsageGrid'
 import { productUsageGridLogic } from './productUsageGridLogic'
+import { ProductUsageOverview } from './ProductUsageOverview'
 import { ProductUsageQueryEditor } from './ProductUsageQueryEditor'
 
 export function ProductUsageTabContent(): JSX.Element {
-    const { source, editorOpen, result, loading, error, saveError, detailsError, details, canUseProducts } =
+    const { source, editorOpen, result, loading, error, saveError, detailsError, details, canUseProducts, controls } =
         useValues(productUsageGridLogic)
-    const { openEditor, refresh, clearSource, loadDetails } = useActions(productUsageGridLogic)
+    const { openEditor, refresh, clearSource, loadDetails, setControls } = useActions(productUsageGridLogic)
     return (
         <div className="flex flex-col gap-3 min-w-0" data-attr="product-activity-tab">
             <div className="flex flex-wrap justify-between items-center gap-2">
-                <ProductUsageFilters />
+                <LemonInput
+                    type="search"
+                    value={controls.search}
+                    onChange={(search) => setControls({ search })}
+                    placeholder="Search accounts"
+                    size="small"
+                    data-attr="product-activity-search"
+                />
                 <div className="flex flex-wrap gap-2">
                     <LemonButton
                         type="secondary"
@@ -70,7 +76,10 @@ export function ProductUsageTabContent(): JSX.Element {
                     )}
                 </div>
             </div>
-            {(source || editorOpen) && <ProductUsageControls />}
+            <div className="flex flex-wrap justify-between items-center gap-3" data-attr="product-activity-toolbar">
+                <ProductUsageFilters />
+                {(source || editorOpen) && <ProductUsageControls />}
+            </div>
             {!source && !editorOpen && (
                 <div className="border rounded p-6 flex flex-col items-start gap-3">
                     <h3 className="m-0">Add a query to show account activity</h3>
@@ -103,41 +112,7 @@ export function ProductUsageTabContent(): JSX.Element {
             {loading && !result && <Spinner />}
             {result && (
                 <>
-                    <OverviewGrid
-                        loading={loading}
-                        numSkeletons={result.matrix ? 3 : 2}
-                        items={[
-                            {
-                                key: 'accounts',
-                                value: result.accounts.results.length,
-                                kind: 'unit',
-                                caption: 'Filtered accounts',
-                            },
-                            {
-                                key: 'linked',
-                                value: result.accounts.results.filter((account) => account.externalId).length,
-                                kind: 'unit',
-                                caption: 'Linked accounts',
-                            },
-                            ...(result.matrix
-                                ? [
-                                      {
-                                          key: 'products',
-                                          value: new Set(
-                                              result.matrix.data
-                                                  .filter((cell) => cell.users > 0)
-                                                  .map((cell) => cell.series)
-                                          ).size,
-                                          kind: 'unit' as const,
-                                          caption: 'Products used',
-                                      },
-                                  ]
-                                : []),
-                        ]}
-                        labelFromKey={(key) =>
-                            ({ accounts: 'Accounts', linked: 'Linked accounts', products: 'Products used' })[key] ?? key
-                        }
-                    />
+                    <ProductUsageOverview />
                     {result.accounts.hasMore && (
                         <LemonBanner type="warning">
                             Showing the first 200 matching accounts. Narrow the filters to include the rest.
