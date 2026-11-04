@@ -21,7 +21,12 @@ import {
 } from '../types'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { inboxFiltersLogic } from './inboxFiltersLogic'
-import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic, shouldDefaultToEntireProject } from './reportListLogic'
+import {
+    INBOX_REPORT_SECTION_LIST_PARAMS,
+    reportListLogic,
+    sectionListLogicProps,
+    shouldDefaultToEntireProject,
+} from './reportListLogic'
 
 const REPORTS_URL = '/api/projects/:team_id/signals/reports/'
 const REFRESH_METRICS_URL = '/api/projects/:team_id/signals/reports/refresh_metrics/'
@@ -278,6 +283,36 @@ describe('reportListLogic', () => {
             expect(logic.values.count).toBe(MINE.length)
         })
 
+        it('takes the count of a loaded section from its reloaded page, not from a count the bulk action outran', async () => {
+            const REMAINING = FIRST_PAGE.slice(0, 4)
+            let releaseOldCount: () => void = () => {}
+            const heldOldCount = new Promise<void>((resolve) => {
+                releaseOldCount = resolve
+            })
+            useMocks({
+                get: {
+                    [REPORTS_URL]: async ({ request }) => {
+                        if (new URL(request.url).searchParams.get('count_only') === 'true') {
+                            await heldOldCount
+                            return [200, { count: FIRST_PAGE.length, next: null, previous: null, results: [] }]
+                        }
+                        return [200, { count: REMAINING.length, next: null, previous: null, results: REMAINING }]
+                    },
+                },
+            })
+            const bulkLogic = inboxBulkActionsLogic()
+            bulkLogic.mount()
+
+            logic.actions.loadCount()
+            bulkLogic.actions.bulkDismissSuccess()
+            await expectLogic(logic).toDispatchActions(['loadReportsSuccess'])
+            releaseOldCount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.count).toBe(REMAINING.length)
+            bulkLogic.unmount()
+        })
+
         it('keeps a claim made while the first page reloads, which the reload read before the claim saved', async () => {
             let releasePage: () => void = () => {}
             const heldPage = new Promise<void>((resolve) => {
@@ -412,6 +447,46 @@ describe('reportListLogic', () => {
                 bulkLogic.unmount()
             }
         )
+    })
+
+    // `InboxStateFilter` hides the Closed state until the project holds a closed report, so this
+    // project-wide check has to keep up with reports that close while the inbox is open.
+    describe('closed state availability', () => {
+        let projectClosedReports: number
+        let logic: ReturnType<typeof reportListLogic.build>
+
+        beforeEach(async () => {
+            projectClosedReports = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    [REPORTS_URL]: ({ request }) => {
+                        const params = new URL(request.url).searchParams
+                        if (params.get('count_only') === 'true') {
+                            return [200, { count: projectClosedReports, next: null, previous: null, results: [] }]
+                        }
+                        return [200, { count: 0, next: null, previous: null, results: [] }]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = reportListLogic(sectionListLogicProps('closed'))
+            logic.mount()
+            logic.actions.ensureLoaded()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it('rechecks the project for closed reports when the loaded section refreshes', async () => {
+            expect(logic.values.hasProjectClosedReports).toBe(false)
+
+            projectClosedReports = 1
+            logic.actions.refresh()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.hasProjectClosedReports).toBe(true)
+        })
     })
 
     // A scope change while a request for the old query is in flight. The old response lands last,
