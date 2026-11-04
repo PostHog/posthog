@@ -97,7 +97,12 @@ export function recalculationMocks(
         rows_read: null,
         estimated_rows_total: null,
     }
-    const latest: ExperimentMetricsRecalculationLatestApi = { ...run, active_run: null, result_source: 'recalculation' }
+    const latest: ExperimentMetricsRecalculationLatestApi = {
+        ...run,
+        active_run: null,
+        result_source: 'recalculation',
+        exceeds_recalculation_age_limit: false,
+    }
     const job: ExperimentMetricsRecalculationJobApi = { ...run, is_existing: true }
     const base = `/api/projects/:team_id/experiments/${experiment.id}/metrics_recalculation`
 

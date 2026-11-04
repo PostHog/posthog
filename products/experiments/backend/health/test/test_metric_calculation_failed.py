@@ -637,14 +637,23 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
             team_id=self.team.id, experiment_id=self.experiment.id, reader_access=NO_QUERIES, user=self.user
         )
 
-    def test_reports_the_failures_that_the_results_page_shows(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "a_rejected_run",
+                {"step": "request", "message": "Too old.", "error_type": "recalculation_window_too_long"},
+            ),
+            ("a_failed_calculation", {"step": "calculation", "message": "Query timed out", "error_type": "timeout"}),
+        ]
+    )
+    def test_reports_the_failures_that_the_results_page_shows(self, _name: str, kept_result_error: dict) -> None:
         self._run(
             status=ExperimentMetricsRecalculation.Status.FAILED,
             created_at=timezone.now() - timedelta(hours=2),
             metric_errors={
                 "primary": {"step": "calculation", "message": "Queries are too busy.", "error_type": "rate_limited"},
-                # A rejected run keeps the earlier results, so its error doesn't show on a metric that has one.
-                "rejected": {"step": "request", "message": "Too old.", "error_type": "recalculation_window_too_long"},
+                # Both keep the completed result, so the error doesn't show on a metric that has one.
+                "rejected": kept_result_error,
                 "removed": {"step": "calculation", "message": "Query timed out", "error_type": "timeout"},
             },
             failed_rows=("secondary",),

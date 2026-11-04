@@ -1702,13 +1702,14 @@ class _ExperimentMetricsRecalculationBaseSerializer(serializers.Serializer):
     total_metrics = serializers.IntegerField(read_only=True, help_text="Total number of metrics to recalculate")
     completed_metrics = serializers.IntegerField(
         read_only=True,
-        help_text="Number of metrics with a COMPLETED result row in this run (derived, not stored)",
+        help_text="Number of metrics with a COMPLETED result row that did not fail in this run (derived, not stored)",
     )
     failed_metrics = serializers.IntegerField(
         read_only=True,
         help_text=(
-            "Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures "
-            "that never made it to a result row"
+            "Number of failed metrics in this run (derived): metrics with a FAILED result row or a metric_errors "
+            "entry. A metric that fails keeps its earlier completed result, so it can count here and still have a "
+            "completed row in results. The error of a rejected run counts only for a metric without a row"
         ),
     )
     # Named metric_errors (not errors) to avoid shadowing DRF's reserved Serializer.errors property.
@@ -1760,7 +1761,10 @@ class ExperimentMetricsRecalculationRunSerializer(_ExperimentMetricsRecalculatio
         many=True,
         read_only=True,
         required=False,
-        help_text="Per-metric results computed by this run, scoped by the run's recalc fingerprint",
+        help_text=(
+            "Per-metric results of this run, scoped by the run's recalc fingerprint. When a metric fails, its earlier "
+            "completed result at the same window stays here and the failure is in metric_errors"
+        ),
     )
     rows_read = serializers.IntegerField(
         required=False,
@@ -1798,6 +1802,14 @@ class ExperimentMetricsRecalculationLatestSerializer(ExperimentMetricsRecalculat
         help_text=(
             "Where these results came from: 'recalculation' for a real metrics-recalculation run, "
             "'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data."
+        ),
+    )
+    exceeds_recalculation_age_limit = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when the experiment started too long ago for its metrics to be recalculated. A recalculation "
+            "request then returns a rejected run with the recalculation_window_too_long error, and the saved "
+            "results stay as they are"
         ),
     )
 

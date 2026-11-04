@@ -31,6 +31,7 @@ from products.experiments.backend.recalculation import (
     RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
     RecalculationRateLimited,
     build_timeseries_cold_start_payload,
+    exceeds_recalculation_age_limit,
     get_active_recalculation,
     get_latest_recalculation,
     get_live_query_progress,
@@ -226,8 +227,9 @@ class TestRecalculationService(BaseTest):
 
     @parameterized.expand(
         [
-            # (name, request function, age-limit flag outcome, experiment age in days, active run age in minutes, expected status)
-            ("flag_off_over_limit_starts_new", request_recalculation, False, 181, None, "pending"),
+            # (name, request function, age-limit flag outcome, experiment age in days, active run age in minutes,
+            # expected status, whether the results page reads the experiment as over the age limit)
+            ("flag_off_over_limit_starts_new", request_recalculation, False, 181, None, "pending", False),
             (
                 "flag_error_over_limit_starts_new",
                 request_recalculation,
@@ -235,13 +237,22 @@ class TestRecalculationService(BaseTest):
                 181,
                 None,
                 "pending",
+                False,
             ),
-            ("under_limit_starts_new", request_recalculation, True, 179, None, "pending"),
-            ("at_limit_starts_new", request_recalculation, True, 180, None, "pending"),
-            ("over_limit_is_rejected", request_recalculation, True, 181, None, "failed"),
-            ("over_limit_reuses_active_run", request_recalculation, True, 181, 5, "pending"),
-            ("over_limit_fails_a_stale_run", request_recalculation, True, 181, 120, "failed"),
-            ("admin_over_limit_starts_new", request_recalculation_without_age_limit, True, 181, None, "pending"),
+            ("under_limit_starts_new", request_recalculation, True, 179, None, "pending", False),
+            ("at_limit_starts_new", request_recalculation, True, 180, None, "pending", False),
+            ("over_limit_is_rejected", request_recalculation, True, 181, None, "failed", True),
+            ("over_limit_reuses_active_run", request_recalculation, True, 181, 5, "pending", True),
+            ("over_limit_fails_a_stale_run", request_recalculation, True, 181, 120, "failed", True),
+            (
+                "admin_over_limit_starts_new",
+                request_recalculation_without_age_limit,
+                True,
+                181,
+                None,
+                "pending",
+                True,
+            ),
         ]
     )
     @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
@@ -253,6 +264,7 @@ class TestRecalculationService(BaseTest):
         age_days: int,
         active_run_minutes: int | None,
         expected_status: str,
+        expected_over_limit: bool,
     ):
         def evaluate_flag(key: str, *args, **kwargs) -> bool:
             if key != RECALCULATION_AGE_LIMIT_FEATURE_FLAG:
@@ -287,8 +299,10 @@ class TestRecalculationService(BaseTest):
             patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
             self.captureOnCommitCallbacks(execute=True),
         ):
+            over_limit = exceeds_recalculation_age_limit(exp)
             result = request(exp, self.user, "manual")
 
+        assert over_limit is expected_over_limit
         assert result["status"] == expected_status
         assert result["is_existing"] is (active_run_minutes is not None and expected_status == "pending")
         if expected_status == "pending":

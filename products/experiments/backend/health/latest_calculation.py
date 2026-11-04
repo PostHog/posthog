@@ -207,10 +207,12 @@ def _shown_failure(
 
     pinned: `resolveErrorByUuid` in experimentMetricsLogic.ts. The run's error entry wins over a failed row,
     because it also covers failures before the query ran. A rejected run carries the rows of the run before it, so
-    its error doesn't show on a metric that has a row.
+    its error doesn't show on a metric that has a row. A failed calculation keeps the completed row that held its
+    window, so its error doesn't show on a metric whose row is completed.
     """
     error: dict[str, Any] = entry if isinstance(entry, dict) else {}
-    if error.get("error_type") == RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE and row is not None:
+    rejected = error.get("error_type") == RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
+    if row is not None and (rejected or row.status == ExperimentMetricResult.Status.COMPLETED):
         error = {}
     message = error.get("message")
     if not isinstance(message, str):

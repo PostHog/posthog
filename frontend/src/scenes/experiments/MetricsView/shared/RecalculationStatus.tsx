@@ -26,6 +26,7 @@ export function RecalculationStatus({ experiment }: { experiment: Experiment }):
         metricRetries,
         nextRetryAt,
         resultConfigurationNotice,
+        recalculationAgeLimitExceeded,
         isRecalculating,
         isManualRefreshBlocked,
     } = useValues(logic)
@@ -39,7 +40,18 @@ export function RecalculationStatus({ experiment }: { experiment: Experiment }):
     const { subscribeToResultsNotification } = useActions(notificationLogic)
 
     if (recalculationDisplayState !== 'cold' && recalculationDisplayState !== 'refreshing') {
-        return resultConfigurationNotice ? (
+        if (!resultConfigurationNotice) {
+            return null
+        }
+        const provenance =
+            resultConfigurationNotice === 'previous'
+                ? 'Some results were calculated with earlier settings.'
+                : 'Some results were saved before their settings were recorded.'
+        return recalculationAgeLimitExceeded ? (
+            <LemonBanner type="info" className="mb-2">
+                {provenance} This experiment started too long ago to recalculate, so the saved results stay as they are.
+            </LemonBanner>
+        ) : (
             <LemonBanner
                 type="info"
                 className="mb-2"
@@ -56,11 +68,10 @@ export function RecalculationStatus({ experiment }: { experiment: Experiment }):
                     disabledReason: isManualRefreshBlocked ? 'Please wait before recalculating again' : undefined,
                 }}
             >
-                {resultConfigurationNotice === 'previous'
-                    ? 'Some results were calculated with earlier settings. Recalculate to use the current settings.'
-                    : 'The settings used for some saved results were not recorded. Recalculate to use the current settings.'}
+                {provenance} You can recalculate the latest results with the current settings, which may change the
+                numbers. Time series points keep their saved values.
             </LemonBanner>
-        ) : null
+        )
     }
     return (
         <InFlightStatus
