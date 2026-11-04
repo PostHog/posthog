@@ -1794,9 +1794,12 @@ def get_stale_queued_task_run_ids(
     if created_hard_cap is not None:
         stale |= Q(created_at__lt=now - created_hard_cap, updated_at__lt=now - hard_cap_min_queued)
     queryset = TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
+    # `has_key` keeps runs without a deadline in the sweep: their missing key compares as NULL,
+    # and NOT (NULL AND TRUE) would drop them from the result.
     queryset = queryset.exclude(
-        state__github_recovery_deadline__gt=now.isoformat(),
-        task__origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        Q(state__has_key="github_recovery_deadline")
+        & Q(state__github_recovery_deadline__gt=now.isoformat())
+        & Q(task__origin_product=Task.OriginProduct.SIGNAL_REPORT)
     )
     if environment is not None:
         queryset = queryset.filter(environment=environment)

@@ -2696,8 +2696,13 @@ def test_discovery_recommendations_require_project_access(team, recommended, acc
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("github_optional", [False, True])
-async def test_unresolved_selection_lets_research_choose_repository(ateam: Team, github_optional: bool) -> None:
+@pytest.mark.parametrize(
+    "github_optional,read_access_lost",
+    [(False, False), (True, False), (False, True)],
+)
+async def test_unresolved_selection_lets_research_choose_repository(
+    ateam: Team, github_optional: bool, read_access_lost: bool
+) -> None:
     report = await SignalReport.objects.acreate(team=ateam, status=SignalReport.Status.IN_PROGRESS)
     await Integration.objects.acreate(
         team=ateam,
@@ -2711,9 +2716,11 @@ async def test_unresolved_selection_lets_research_choose_repository(ateam: Team,
         update={
             "repository_recommendation": RepositoryRecommendation(
                 repository="example/app", reason="This repository contains the affected validation code."
-            )
+            ),
+            "research_run_id": "research-run" if read_access_lost else None,
         }
     )
+    lost_run = Mock(state={"github_read_access_available": False})
 
     async def research(
         signals: list[SignalData], context: CustomPromptSandboxContext, **kwargs: object
@@ -2738,12 +2745,26 @@ async def test_unresolved_selection_lets_research_choose_repository(ateam: Team,
         patch("products.signals.backend.temporal.agentic.report.resolve_acting_user_id_for_team", return_value=1),
         patch("products.signals.backend.temporal.agentic.report.run_multi_turn_research", side_effect=research),
         patch("posthog.models.integration.GitHubIntegration.installation_can_access_repository", return_value=True),
+        patch("products.signals.backend.temporal.agentic.report.tasks_facade.get_task_run", return_value=lost_run),
     ):
         selection = await select_repository_activity(
             SelectRepositoryInput(
                 team_id=ateam.id, report_id=str(report.id), signals=_build_signals(), github_optional=github_optional
             )
         )
+        if read_access_lost:
+            with pytest.raises(ApplicationError) as error:
+                await run_agentic_report_activity(
+                    RunAgenticReportInput(
+                        team_id=ateam.id,
+                        report_id=str(report.id),
+                        signals=_build_signals(),
+                        repo_selection=selection,
+                        github_optional=github_optional,
+                    )
+                )
+            assert error.value.type == RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
+            return
         result = await run_agentic_report_activity(
             RunAgenticReportInput(
                 team_id=ateam.id,
@@ -2760,3 +2781,66 @@ async def test_unresolved_selection_lets_research_choose_repository(ateam: Team,
     assert persisted.repository == "example/app"
     assert persisted.requires_confirmation
     assert not persisted.autostart_eligible
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_discovery_without_candidates_blocks_a_project_that_requires_github(ateam: Team) -> None:
+    with (
+        patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"),
+        patch("products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id", return_value=1),
+        patch(
+            "products.signals.backend.temporal.agentic.select_repository.get_team_github_readiness",
+            return_value=GitHubReadiness(status=GitHubReadinessStatus.READY),
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.select_repository.select_repository_for_report",
+            return_value=RepoSelectionResult(repository=None, reason="No repository could be selected confidently."),
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.select_repository.repository_candidates_for_signals",
+            return_value=[],
+        ),
+    ):
+        selection = await select_repository_activity(
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
+        )
+
+    assert selection.blocked_reason == GitHubReadinessStatus.NO_REPOSITORIES
+    assert selection.research_context is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("confirmation_required,read_only", [(True, True), (False, False)])
+async def test_research_keeps_an_unconfirmed_target_read_only(
+    ateam: Team, confirmation_required: bool, read_only: bool
+) -> None:
+    report = await SignalReport.objects.acreate(team=ateam, status=SignalReport.Status.IN_PROGRESS)
+    contexts: list[CustomPromptSandboxContext] = []
+
+    async def research(
+        signals: list[SignalData], context: CustomPromptSandboxContext, **kwargs: object
+    ) -> ReportResearchOutput:
+        contexts.append(context)
+        return _build_research_output()
+
+    with (
+        patch("products.signals.backend.temporal.agentic.report.Heartbeater"),
+        patch("products.signals.backend.temporal.agentic.report.resolve_user_id_for_team", return_value=1),
+        patch("products.signals.backend.temporal.agentic.report.run_multi_turn_research", side_effect=research),
+    ):
+        await run_agentic_report_activity(
+            RunAgenticReportInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                signals=_build_signals(),
+                repo_selection=RepoSelectionResult(
+                    repository="example/app",
+                    reason="Research recommended this repository.",
+                    confirmation_required=confirmation_required,
+                ),
+            )
+        )
+
+    assert contexts[0].github_read_access is read_only

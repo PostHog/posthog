@@ -10,10 +10,13 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.egress.limiter.policies import Priority
+from posthog.models import OrganizationMembership
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.integration.github_readiness import GitHubReadiness, GitHubReadinessStatus
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.github_recovery import GITHUB_ACCESS_FAILURE
 from products.signals.backend.implementation_github_recovery import (
@@ -101,7 +104,17 @@ class TestImplementationGitHubRecovery(BaseTest):
         self.report.refresh_from_db()
         assert self.report.implementation_blocked_reason == "not_connected"
 
-    def test_reconnect_creates_one_new_run_on_the_same_task(self) -> None:
+    @parameterized.expand(["fresh", "expired_earlier_blocker", "no_named_selection"])
+    def test_reconnect_creates_one_new_run_on_the_same_task(self, case: str) -> None:
+        if case == "expired_earlier_blocker":
+            SignalReport.objects.filter(id=self.report.id).update(
+                implementation_blocked_reason="not_connected",
+                implementation_blocked_at=timezone.now() - timedelta(days=8),
+            )
+        elif case == "no_named_selection":
+            SignalReportArtefact.objects.filter(report=self.report, type="repo_selection").delete()
+        self.task_run.state = {**self.task_run.state, "pending_user_message": "Implement the fix."}
+        self.task_run.save(update_fields=["state"])
         self._block()
         self._fail()
         retry_github_blocked_implementations(self.team.id)
@@ -115,6 +128,7 @@ class TestImplementationGitHubRecovery(BaseTest):
         assert replacement.state["resume_from_run_id"] == str(previous.id)
         assert replacement.state["github_recovery_deadline"] == previous.state["github_recovery_deadline"]
         assert replacement.state["pr_base_branch"] == "release"
+        assert replacement.state["pending_user_message"] == "Implement the fix."
         assert "failure_error_type" not in replacement.state
         self.dispatch.assert_called_once()
 
@@ -153,7 +167,16 @@ class TestImplementationGitHubRecovery(BaseTest):
         assert error.value.reason == ("GitHubRecoveryExpired" if case == "expired" else "GitHubRecoveryIneligible")
 
     @parameterized.expand(
-        ["expired", "revision", "repository", "revoked", "cancelled", "ordinary_failure", "newer_attempt"]
+        [
+            "expired",
+            "revision",
+            "repository",
+            "revoked",
+            "task_access_revoked",
+            "cancelled",
+            "ordinary_failure",
+            "newer_attempt",
+        ]
     )
     def test_reconnect_does_not_retry_ineligible_or_superseded_attempts(self, case: str) -> None:
         self._block()
@@ -169,6 +192,15 @@ class TestImplementationGitHubRecovery(BaseTest):
         elif case == "revoked":
             self.user.is_active = False
             self.user.save(update_fields=["is_active"])
+        elif case == "task_access_revoked":
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save(update_fields=["available_product_features"])
+            OrganizationMembership.objects.filter(organization=self.organization, user=self.user).update(
+                level=OrganizationMembership.Level.MEMBER
+            )
+            AccessControl.objects.create(team=self.team, resource="task", access_level="viewer")
         elif case == "cancelled":
             self.task_run.status = TaskRun.Status.CANCELLED
         elif case == "ordinary_failure":

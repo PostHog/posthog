@@ -1014,6 +1014,27 @@ class TestSignalSpend(BaseTest):
         spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=driver)
         self.assertIsNotNone(spend.finalized_at)
 
+    def test_suspended_research_keeps_its_owner_until_research_resumes(self) -> None:
+        driver, newer = str(uuid4()), str(uuid4())
+        report = SignalReport.objects.create(
+            team=self.team,
+            triggering_signal_id=driver,
+            status=SignalReport.Status.CANDIDATE,
+            research_blocked_reason="not_connected",
+            research_blocked_at=timezone.now(),
+        )
+        begin_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=driver)
+        finish_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=driver)
+
+        assert SignalSpend.objects.for_team(self.team.id).get(signal_id=driver).finalized_at is None
+        assert report_triggering_signal(team_id=self.team.id, report_id=str(report.id)) == driver
+
+        begin_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=newer)
+
+        report.refresh_from_db()
+        assert SignalSpend.objects.for_team(self.team.id).get(signal_id=driver).finalized_at is not None
+        assert str(report.triggering_signal_id) == newer
+
     def test_task_cost_updates_spend_synchronously_without_publishing(self) -> None:
         driver = str(uuid4())
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)

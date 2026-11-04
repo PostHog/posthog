@@ -883,7 +883,23 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             [signalSourcesLogic.actionTypes.loadSourceConfigsSuccess]: sharedListeners.continueQuickActivation,
             [signalSourcesLogic.actionTypes.loadVisionScannersSuccess]: sharedListeners.continueQuickActivation,
             [signalSourcesLogic.actionTypes.loadProductDataEventsSuccess]: sharedListeners.continueQuickActivation,
-            [integrationsLogic.actionTypes.loadIntegrationsSuccess]: sharedListeners.continueQuickActivation,
+            [integrationsLogic.actionTypes.loadIntegrationsSuccess]: [
+                () => {
+                    // The saved readiness predates a connection made on this page, such as linking an
+                    // existing installation, so ask the server again before trusting it.
+                    if (
+                        values.savedState?.github_readiness !== undefined &&
+                        values.savedState.github_readiness !== 'ready' &&
+                        !values.savedStateLoading &&
+                        values.githubIntegrations.some(
+                            (integration) => integration.installation_status !== 'unavailable'
+                        )
+                    ) {
+                        actions.loadSetup()
+                    }
+                },
+                sharedListeners.continueQuickActivation,
+            ],
             [integrationsLogic.actionTypes.loadIntegrationsFailure]: sharedListeners.continueQuickActivation,
             [scoutFleetLogic.actionTypes.loadScoutConfigsSuccess]: sharedListeners.continueQuickActivation,
             [scoutFleetLogic.actionTypes.loadScoutConfigsFailure]: sharedListeners.continueQuickActivation,

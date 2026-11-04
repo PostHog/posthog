@@ -76,7 +76,12 @@ export function ImplementButton({
             surface,
             extra: { has_feedback: trimmed.length > 0 },
         })
-        createPrFromReport(report, trimmed || undefined)
+        // The confirmation popover names the target, so submitting it confirms that repository.
+        createPrFromReport(
+            report,
+            trimmed || undefined,
+            report.repository_confirmation_required ? (report.repo_slug ?? undefined) : undefined
+        )
     }
 
     const runImplementationPrompt = (agentKey: AgentPromptDestination, run: (prompt: string) => void): void => {
@@ -135,8 +140,8 @@ export function ImplementButton({
                             <div className="flex w-128 max-w-full flex-col gap-2 p-2">
                                 {report.repository_confirmation_required && (
                                     <p className="mb-0 text-sm break-words">
-                                        Research recommends {report.repo_slug}. Confirm this target to start
-                                        implementation. Automatic implementation remains unchanged.
+                                        Research recommends <span translate="no">{report.repo_slug}</span>. Confirm this
+                                        target to start implementation. Automatic implementation remains unchanged.
                                     </p>
                                 )}
                                 <span className="text-xs font-semibold text-tertiary">

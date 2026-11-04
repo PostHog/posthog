@@ -22,6 +22,7 @@ from products.signals.backend.recurrence import recurrence_rejects_repository
 from products.signals.backend.report_generation.select_repo import (
     RepoSelectionResult,
     persisted_repo_selection,
+    repository_candidates_for_signals,
     resolve_team_github_integration,
     select_repository_for_report,
 )
@@ -394,6 +395,12 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 )
                 if readiness.status != GitHubReadinessStatus.READY:
                     result.blocked_reason = readiness.status
+                elif not await database_sync_to_async(repository_candidates_for_signals, thread_sensitive=False)(
+                    input.team_id, input.signals
+                ):
+                    # Discovery without candidates falls back to project-data research, which only
+                    # GitHub-optional projects may run.
+                    result.blocked_reason = GitHubReadinessStatus.NO_REPOSITORIES
                 else:
                     result.research_context = ReportResearchContext(
                         mode="repository_discovery", repository_status="selection_unresolved"

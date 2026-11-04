@@ -816,6 +816,9 @@ async def select_repository(
     # carries full autostart authority no matter what the model emitted.
     result.autostart_eligible = True
     result.research_context = None
+    # The server records these after selection. A value the model emitted must not reach the workflow.
+    result.blocked_reason = None
+    result.confirmation_required = False
     try:
         if result.repository is not None:
             result.repository = result.repository.strip().lower()

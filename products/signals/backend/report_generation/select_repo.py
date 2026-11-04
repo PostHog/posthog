@@ -57,6 +57,21 @@ __all__ = [
 ]
 
 
+def with_server_selection_fields(report_id: str, content: RepoSelectionResult) -> RepoSelectionResult:
+    """Keep a pending target confirmation and drop any GitHub blocker: only the research pipeline sets those."""
+    previous = persisted_repo_selection(report_id)
+    confirmation_required = content.confirmation_required or bool(
+        previous and (previous.confirmation_required or previous.requires_confirmation)
+    )
+    return content.model_copy(
+        update={
+            "blocked_reason": None,
+            "confirmation_required": confirmation_required,
+            "autostart_eligible": content.autostart_eligible and not confirmation_required,
+        }
+    )
+
+
 def persisted_repo_selection(report_id: str) -> RepoSelectionResult | None:
     """The report's latest ``repo_selection`` artefact, or ``None`` if it has none yet.
 

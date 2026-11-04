@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from django.db import transaction
-from django.db.models.functions import Coalesce
+from django.db.models import Case, F, Value, When
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -13,6 +13,7 @@ from posthog.models import Team, User
 from posthog.models.integration.github_readiness import GitHubAccessUnavailable, GitHubReadinessStatus
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.free_trial import self_driving_free_trial_enabled
 from products.signals.backend.github_recovery import (
     GITHUB_ACCESS_FAILURE,
@@ -46,6 +47,9 @@ def _manual_implementation_may_retry(team_id: int, report_id: str, task_id: str,
     user = User.objects.filter(pk=user_id, is_active=True).first()
     if user is None or UserPermissions(user=user, team=team).current_team.effective_membership_level is None:
         return False
+    # The retry starts the run without the task API, so it repeats the API's task access check here.
+    if not UserAccessControl(user=user, team=team).check_access_level_for_resource("task", "editor"):
+        return False
     if (
         not team.organization.is_ai_data_processing_approved
         or self_driving_quota_gate(team).enforced
@@ -64,15 +68,16 @@ def _manual_implementation_may_retry(team_id: int, report_id: str, task_id: str,
         .first()
     )
     selection = RepoSelectionResult.model_validate_json(row.content) if row else None
+    # Without a named selection, task creation picked the repository itself. Callers already compare
+    # the task with the repository snapshot taken when GitHub blocked it.
+    named_repository = selection.repository if selection else None
     return bool(
         report
         and link
         and report.status == SignalReport.Status.READY
         and report.run_count == link.report_run_count
         and (report.content_revision_count or 0) == link.report_content_revision_count
-        and selection
-        and selection.repository
-        and selection.repository.casefold() == repository.casefold()
+        and (named_repository is None or named_repository.casefold() == repository.casefold())
     )
 
 
@@ -96,9 +101,16 @@ def implementation_may_retry(
 
 
 def record_implementation_github_blocker(team_id: int, report_id: str, reason: str | None) -> None:
+    now = timezone.now()
+    # A blocker inside the recovery window keeps its start time. An expired one belongs to an earlier
+    # attempt, so the new attempt starts its own window.
+    blocked_at = Case(
+        When(implementation_blocked_at__gte=now - GITHUB_RECOVERY_WINDOW, then=F("implementation_blocked_at")),
+        default=Value(now),
+    )
     SignalReport.objects.filter(team_id=team_id, id=report_id).update(
         implementation_blocked_reason=reason,
-        implementation_blocked_at=Coalesce("implementation_blocked_at", timezone.now()) if reason else None,
+        implementation_blocked_at=blocked_at if reason else None,
     )
 
 
@@ -192,6 +204,10 @@ def _create_replacement_run(
             return
         if integration_id is not None:
             tasks_facade.set_task_project_github_integration(failed.task_id, team_id, integration_id)
+        # Preflight failed before delivery, so the first turn is still undelivered. An interactive run
+        # without it boots idle.
+        message = failed.state.get("pending_user_message")
+        first_turn = {"pending_user_message": message} if isinstance(message, str) and message else {}
         result = tasks_facade.run_task(
             failed.task_id,
             team_id,
@@ -202,6 +218,7 @@ def _create_replacement_run(
                 "mode": failed.mode,
                 "run_source": failed.state.get("run_source", "signal_report"),
                 "resume_from_run_id": str(failed.id),
+                **first_turn,
             },
         )
         if result is not None and result.run_id is not None:

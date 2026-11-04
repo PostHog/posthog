@@ -1242,6 +1242,11 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
             repository_candidates = await database_sync_to_async(
                 repository_candidates_for_signals, thread_sensitive=False
             )(input.team_id, input.signals)
+            if not repository_candidates and not input.github_optional:
+                raise ApplicationError(
+                    "Repository discovery found no candidates for a project that requires GitHub",
+                    non_retryable=True,
+                )
             if not repository_candidates:
                 input = replace(
                     input,
@@ -1294,7 +1299,10 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 team_id=input.team_id,
                 user_id=user_id,
                 repository=repository,
-                github_read_access=bool(repository_candidates) or (input.github_optional and repository is not None),
+                # A target nobody has confirmed stays read-only, even when research reuses it.
+                github_read_access=bool(repository_candidates)
+                or (input.github_optional and repository is not None)
+                or input.repo_selection.requires_confirmation,
                 sandbox_environment_id=sandbox_env_id,
                 # Reads, plus the scratchpad: the research agent queries data/insights and can
                 # list the report's artefacts, but never writes artefacts itself — the pipeline
@@ -1436,6 +1444,13 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                     result.research_run_id, team_id=input.team_id
                 )
                 if run and run.state.get("github_read_access_available") is False:
+                    if not input.github_optional:
+                        # Only GitHub-optional projects may keep project-data research. Retry so the
+                        # next attempt can read the code once GitHub access is back.
+                        raise ApplicationError(
+                            "GitHub read access was unavailable during repository discovery",
+                            type=RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
+                        )
                     input = replace(
                         input,
                         repo_selection=input.repo_selection.model_copy(

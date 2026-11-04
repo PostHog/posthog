@@ -140,7 +140,7 @@ describe('inboxTaskKickoffLogic', () => {
                 }
                 await expectLogic(logic, () => {
                     if (relationship === 'implementation') {
-                        logic.actions.createPrFromReport(discoveredReport)
+                        logic.actions.createPrFromReport(discoveredReport, undefined, 'example/app')
                     } else {
                         logic.actions.discussReport(report, 'https://example.com/report', 'Explain the recommendation')
                     }
@@ -195,6 +195,14 @@ describe('inboxTaskKickoffLogic', () => {
                 expect(startedRuns).toHaveLength(1)
             }
         )
+
+        it('refuses to implement a discovered target that nobody confirmed', async () => {
+            const discoveredReport = { ...report, repo_slug: 'example/app', repository_confirmation_required: true }
+
+            await expectLogic(logic, () => logic.actions.createPrFromReport(discoveredReport)).toFinishAllListeners()
+
+            expect(createdTasks).toHaveLength(0)
+        })
 
         it('sends app-built instructions to the agent but only the reader text as the question', async () => {
             await expectLogic(logic, () =>
