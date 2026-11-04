@@ -168,6 +168,30 @@ class TestWidgetAPI(BaseTest):
         finally:
             cache.clear()
 
+    def test_full_new_session_bucket_does_not_use_the_poll_bucket(self):
+        cache.clear()
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        tickets_url = "/api/conversations/v1/widget/tickets?widget_session_id={}"
+        try:
+            with (
+                patch.object(WidgetTeamPollThrottle, "rate", "2/minute"),
+                patch.object(WidgetTicketsTeamThrottle, "new_session_rate", "1/minute"),
+            ):
+                first_poll = self.client.get(tickets_url.format(self.widget_session_id), **self._get_headers())
+                self.client.get(tickets_url.format(uuid.uuid4()), **self._get_headers())
+                overflow = self.client.get(tickets_url.format(uuid.uuid4()), **self._get_headers())
+                second_poll = self.client.get(tickets_url.format(self.widget_session_id), **self._get_headers())
+            self.assertEqual(first_poll.status_code, status.HTTP_200_OK)
+            self.assertEqual(overflow.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertEqual(second_poll.status_code, status.HTTP_200_OK)
+        finally:
+            cache.clear()
+
     @parameterized.expand([("not_a_uuid", "not-a-uuid"), ("nul_byte", "%00")])
     def test_list_tickets_rejects_invalid_widget_session_id(self, _name, widget_session_id):
         response = self.client.get(

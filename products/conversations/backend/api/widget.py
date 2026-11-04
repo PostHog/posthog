@@ -315,8 +315,6 @@ def _anonymous_widget_session_id(request: Request) -> str | None:
 
 
 def _session_has_tickets(team: Team, widget_session_id: str) -> bool:
-    if get_cached_session_has_tickets(team.id, widget_session_id):
-        return True
     has_tickets = Ticket.objects.filter(team=team, widget_session_id=widget_session_id).exists()
     if has_tickets:
         set_cached_session_has_tickets(team.id, widget_session_id)
@@ -337,14 +335,17 @@ class WidgetTicketsTeamThrottle(WidgetTeamPollThrottle):
     def allow_request(self, request: Request, view: APIView) -> bool:
         team = request.auth
         widget_session_id = _anonymous_widget_session_id(request)
-        if isinstance(team, Team) and widget_session_id is not None:
+        if (
+            isinstance(team, Team)
+            and widget_session_id is not None
+            and not get_cached_session_has_tickets(team.id, widget_session_id)
+        ):
             poll_scope, poll_rate = self.scope, self.rate
-            # DRF makes new throttle instances for each request, so changing the bucket here
-            # does not leak to other requests.
+            # DRF makes new throttle instances for each request, so this change stays in this request.
             self._use_bucket(self.new_session_scope, self.new_session_rate)
-            # Check for room before the ticket lookup. DRF runs every throttle, also after an
-            # earlier one rejected the request, so a full bucket must not cause database queries.
-            if not self._has_room(request, view) or _session_has_tickets(team, widget_session_id):
+            # A full new-session bucket rejects the request without a database query. It must not
+            # fall back to the poll bucket, because overflow traffic would then use up that bucket.
+            if self._has_room(request, view) and _session_has_tickets(team, widget_session_id):
                 self._use_bucket(poll_scope, poll_rate)
         return super().allow_request(request, view)
 
@@ -532,6 +533,7 @@ class WidgetMessageView(APIView):
                 session_context=session_context,
                 identity_verified=verified_distinct_id is not None,
             )
+            set_cached_session_has_tickets(team.id, widget_session_id)
 
             try:
                 report_team_action(team, "support ticket created", {"channel_source": ticket.channel_source})
@@ -802,6 +804,9 @@ class WidgetTicketsView(APIView):
             )
 
         response_data = {"count": total_count, "results": ticket_list}
+
+        if verified_distinct_id is None and cache_key_id is not None and total_count > 0:
+            set_cached_session_has_tickets(team.id, cache_key_id)
 
         # Cache first page (skip empty results to avoid stale cache after restore/migration)
         if cacheable_key is not None and total_count > 0:
