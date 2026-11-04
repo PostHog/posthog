@@ -81,7 +81,6 @@ META_PERMISSION_ERROR_CODE = 10
 # Meta error code 9005, "Video content was not found": a media page asks a video post that Meta can
 # no longer find for one of `MEDIA_REFUSABLE_FIELDS`.
 META_VIDEO_NOT_FOUND_ERROR_CODE = 9005
-# A single post refuses one of `MEDIA_REFUSABLE_FIELDS` with either 9005 or 100, "Invalid parameter".
 META_FIELD_REFUSED_ERROR_CODES = frozenset({META_VIDEO_NOT_FOUND_ERROR_CODE, 100})
 
 
@@ -414,11 +413,6 @@ def _media_page(client: InstagramClient, url: str, logger: FilteringBoundLogger)
 def _media_refusable_fields(
     client: InstagramClient, media_id: str, logger: FilteringBoundLogger
 ) -> Optional[dict[str, Any]]:
-    """Read `MEDIA_REFUSABLE_FIELDS` for one post, or return None when the sync has no request budget left.
-
-    If the post refuses the fields together, each field is read on its own, so only a field Meta
-    cannot serve for this post stays empty.
-    """
     if not client.has_request_budget():
         return None
     try:
