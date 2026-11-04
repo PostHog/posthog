@@ -65,25 +65,6 @@ function RunRecipients({
     )
 }
 
-function runNoSendsMessage({
-    runPastRetention,
-    runFinished,
-    sent,
-}: {
-    runPastRetention: boolean
-    runFinished: boolean
-    sent: number | null
-}): string {
-    if (runPastRetention) {
-        return "Recipient details are kept for 30 days after sending, so this run's list is no longer available."
-    }
-    if (!runFinished) {
-        return 'No sends recorded for this run yet.'
-    }
-    // Metrics can count sends that the recipient list has no record of.
-    return sent === 0 ? "This run didn't send to anyone." : "Recipient details aren't available for this run."
-}
-
 function RunRecipientsTable({
     workflowId,
     runFinished,
@@ -91,7 +72,6 @@ function RunRecipientsTable({
 }: {
     workflowId: string
     runFinished: boolean
-    /** How many sends the run's metrics count. Null until they load. */
     sent: number | null
 }): JSX.Element {
     const {
@@ -110,7 +90,13 @@ function RunRecipientsTable({
         loadSends()
     }, [loadSends])
 
-    const noSendsMessage = runNoSendsMessage({ runPastRetention, runFinished, sent })
+    const noSendsMessage = runPastRetention
+        ? "Recipient details are kept for 30 days after sending, so this run's list is no longer available."
+        : !runFinished
+          ? 'No sends recorded for this run yet.'
+          : sent === 0
+            ? "This run didn't send to anyone."
+            : "Recipient details aren't available for this run."
 
     const columns: LemonTableColumns<MessageAsset> = [
         {
@@ -255,7 +241,6 @@ function RunsTable({
             rowKey="id"
             columns={columns}
             nouns={['run', 'runs']}
-            // Each row's status loads that run's metrics, so a page bounds the queries for a long recurring broadcast.
             expandable={{
                 expandedRowRender: (job) => (
                     <RunRecipients
@@ -279,7 +264,6 @@ function RunsTable({
     )
 }
 
-/** A status with the people the run didn't reach. Mounting the run's metrics here shares them with the Overview. */
 const LATEST_RUN_LABEL: Record<BroadcastRunStatus, string> = {
     sent: 'Sent',
     partially_failed: 'Partly sent',

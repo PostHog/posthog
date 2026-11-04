@@ -29,7 +29,17 @@ describe('broadcastSendError', () => {
                 kind: 'content',
                 reason: "The sender for this email isn't set up",
                 tag: null,
-                nextStep: 'Pick a sender in the email step, then send it again.',
+                nextStep: 'Check the sender in the email step and that its domain is verified, then send it again.',
+            },
+        },
+        {
+            name: 'an SES rejection for an unverified sender address',
+            log: '[Action:email_1] Errored: Error: Failed to send email via SES: Email address is not verified. The following identities failed the check: hello@example.com',
+            expected: {
+                kind: 'content',
+                reason: "The sender for this email isn't set up",
+                tag: null,
+                nextStep: 'Check the sender in the email step and that its domain is verified, then send it again.',
             },
         },
         {

@@ -45,10 +45,8 @@ export type BroadcastStatus =
     | 'archived'
     | 'unknown'
 
-/** A run's status as the Runs tab shows it. A cancelled run is its own outcome there. */
 export type BroadcastRunStatus = Exclude<BroadcastStatus, 'draft' | 'scheduled' | 'archived' | 'unknown'> | 'cancelled'
 
-/** How many people a run reached, and how many it didn't because their send errored before the provider. */
 export interface BroadcastSendCounts {
     sent: number
     notSent: number

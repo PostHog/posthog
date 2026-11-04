@@ -70,10 +70,12 @@ describe('broadcastPerformanceLogic', () => {
     it.each(['email', 'push'] as const)(
         'counts %s sends that stopped at an error before reaching the provider, and says why',
         async (channel) => {
-            const rows: [number, string][] = [
-                [0, 'email_sent'],
-                [0, 'push_sent'],
-                [245, 'failed'],
+            // An aborting step records `failed` at step and run level, so the run-level row must not count twice.
+            const rows: [number, string, string][] = [
+                [0, 'email_sent', 'step_1'],
+                [0, 'push_sent', 'step_1'],
+                [245, 'failed', 'step_1'],
+                [245, 'failed', ''],
             ]
             const errorLog = '[Action:step_1] Errored: Error: invalid value expression: "person.name |", line:3, col:1'
             jest.spyOn(api, 'queryHogQL').mockImplementation(

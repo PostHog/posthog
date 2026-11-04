@@ -7,7 +7,6 @@ export interface BroadcastSendError {
     kind: BroadcastSendErrorKind
     /** Why the sends errored, in plain language and without a trailing period. */
     reason: string
-    /** The merge tag or filter the sender has to find, written as it appears in the editor. */
     tag: string | null
     /** What the sender can do about it, as a full sentence. Null when it depends on how many people got the email. */
     nextStep: string | null
@@ -21,7 +20,7 @@ const TEMPLATE_POSITION = /,\s*line:\d+,\s*col:\d+\s*$/
 const URL_ENCODED = /%[0-9A-Fa-f]{2}/
 const TRUNCATION_MARKER = '...'
 const SENDER_NOT_SET_UP =
-    /^Email integration not found|is not an email channel|email integration is not configured correctly/i
+    /^Email integration not found|is not an email channel|email integration is not configured correctly|not verified/i
 const PROVIDER_FAILED = /^Failed to send email via SES|^SES is not configured|^No messageId returned from SES/i
 const ON_OUR_SIDE =
     /timed? ?out|ECONNRESET|ECONNREFUSED|ETIMEDOUT|socket hang up|rate limit|too many requests|\b5\d\d\b/i
@@ -76,7 +75,7 @@ export function describeSendError(logMessage: string, channel: BroadcastChannel 
             kind: 'content',
             reason: `The sender for this ${noun} isn't set up`,
             tag: null,
-            nextStep: `Pick a sender in the ${noun} step, then send it again.`,
+            nextStep: `Check the sender in the ${noun} step and that its domain is verified, then send it again.`,
         }
     }
     if (PROVIDER_FAILED.test(message) || ON_OUR_SIDE.test(message)) {

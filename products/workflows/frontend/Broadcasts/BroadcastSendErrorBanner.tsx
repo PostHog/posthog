@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
@@ -24,6 +24,17 @@ function sendAgainStep(sent: number, noun: string): string {
     } who got this ${noun}.`
 }
 
+/** Every action here sends to the whole audience again, so the duplicate warning goes with fix instructions too. */
+function nextStepFor(sendError: BroadcastSendError | null, sent: number, noun: string): string {
+    if (!sendError || sendError.kind === 'unknown') {
+        return sendError?.nextStep ?? ''
+    }
+    if (!sendError.nextStep) {
+        return sendAgainStep(sent, noun)
+    }
+    return sent > 0 ? `${sendError.nextStep} ${sendAgainStep(sent, noun)}` : sendError.nextStep
+}
+
 function actionFor(
     sendError: BroadcastSendError | null,
     fixAction: BroadcastSendErrorAction | undefined,
@@ -42,13 +53,29 @@ function SendErrorReason({
     sendError,
     tag,
     nextStep,
+    onRetry,
 }: {
     sendError: BroadcastSendError | null
     tag: string | null
     nextStep: string
+    onRetry: () => void
 }): JSX.Element {
     if (!sendError) {
-        return <span>Sending it hit an error.</span>
+        return (
+            <span>
+                Sending it hit an error, and its details didn't load.{' '}
+                <LemonButton
+                    size="xsmall"
+                    type="tertiary"
+                    noPadding
+                    className="inline-flex"
+                    onClick={onRetry}
+                    data-attr="broadcast-send-error-retry"
+                >
+                    Try again
+                </LemonButton>
+            </span>
+        )
     }
     return (
         <span>
@@ -89,7 +116,6 @@ function ErrorLogDetails({ log }: { log: string }): JSX.Element {
     )
 }
 
-/** Says why people in a run got nothing, for a run whose sends errored before they reached the provider. */
 export function BroadcastSendErrorBanner({
     fixAction,
     resendAction,
@@ -102,6 +128,7 @@ export function BroadcastSendErrorBanner({
     content?: string
 }): JSX.Element | null {
     const { sendCounts, sendError, latestErrorLog } = useValues(broadcastPerformanceLogic(props))
+    const { loadLatestErrorLog } = useActions(broadcastPerformanceLogic(props))
 
     const notSent = sendCounts?.notSent ?? 0
     if (notSent === 0) {
@@ -109,7 +136,7 @@ export function BroadcastSendErrorBanner({
     }
     const noun = props.channel === 'push' ? 'notification' : 'email'
     const tag = sendError?.tag && content ? findMergeTag(sendError.tag, content) : (sendError?.tag ?? null)
-    const nextStep = sendError?.nextStep ?? sendAgainStep(sendCounts?.sent ?? 0, noun)
+    const nextStep = nextStepFor(sendError, sendCounts?.sent ?? 0, noun)
     const action = actionFor(sendError, fixAction, resendAction)
 
     return (
@@ -127,7 +154,7 @@ export function BroadcastSendErrorBanner({
                     <span className="font-semibold">{`${humanFriendlyNumber(notSent)} ${
                         notSent === 1 ? 'person' : 'people'
                     } didn't get this ${noun}.`}</span>{' '}
-                    <SendErrorReason sendError={sendError} tag={tag} nextStep={nextStep} />
+                    <SendErrorReason sendError={sendError} tag={tag} nextStep={nextStep} onRetry={loadLatestErrorLog} />
                 </span>
                 {latestErrorLog ? <ErrorLogDetails log={latestErrorLog} /> : null}
             </div>

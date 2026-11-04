@@ -96,41 +96,39 @@ export function BroadcastPerformance({
                 ))}
             </div>
 
+            {stats.sent > 0 && trackingOff ? (
+                <LemonBanner type="info">
+                    Open and click tracking was off for this send, so opens and clicks weren't recorded. Before the next
+                    send, check the tracking setting on the email and the email tracking consent setting in your
+                    environment settings.
+                </LemonBanner>
+            ) : null}
+
             {/* With nothing sent there is nothing to engage with, so empty bars and charts would only add noise. */}
             {stats.sent > 0 ? (
-                <>
-                    {trackingOff ? (
-                        <LemonBanner type="info">
-                            Open and click tracking was off for this send, so opens and clicks weren't recorded. Before
-                            the next send, check the tracking setting on the email and the email tracking consent
-                            setting in your environment settings.
-                        </LemonBanner>
-                    ) : null}
-
-                    <div className="flex flex-col gap-3">
-                        {engagement.map(({ label, part, whole }) => (
-                            <div key={label} className="grid grid-cols-[9rem_minmax(0,1fr)] items-center gap-3">
-                                <div className="flex flex-col text-right">
-                                    <span className="font-semibold">{share(part, whole)}</span>
-                                    <span className="text-xs text-muted">
-                                        {humanFriendlyNumber(part)} {label.toLowerCase()}
-                                    </span>
-                                </div>
-                                <LemonProgress percent={whole > 0 ? (part / whole) * 100 : 0} size="large" />
+                <div className="flex flex-col gap-3">
+                    {engagement.map(({ label, part, whole }) => (
+                        <div key={label} className="grid grid-cols-[9rem_minmax(0,1fr)] items-center gap-3">
+                            <div className="flex flex-col text-right">
+                                <span className="font-semibold">{share(part, whole)}</span>
+                                <span className="text-xs text-muted">
+                                    {humanFriendlyNumber(part)} {label.toLowerCase()}
+                                </span>
                             </div>
-                        ))}
-                        {footnote ? <span className="text-xs text-muted">{footnote}</span> : null}
-                    </div>
-
-                    <BroadcastSendActivity {...props} />
-
-                    {showLinks ? (
-                        <div className="flex flex-col gap-2">
-                            <h3 className="m-0 text-sm font-semibold">Top clicked links</h3>
-                            <EmailLinksTable links={links} loading={linksLoading} emptyState="No link clicks yet" />
+                            <LemonProgress percent={whole > 0 ? (part / whole) * 100 : 0} size="large" />
                         </div>
-                    ) : null}
-                </>
+                    ))}
+                    {footnote ? <span className="text-xs text-muted">{footnote}</span> : null}
+                </div>
+            ) : null}
+
+            {stats.sent > 0 ? <BroadcastSendActivity {...props} /> : null}
+
+            {showLinks ? (
+                <div className="flex flex-col gap-2">
+                    <h3 className="m-0 text-sm font-semibold">Top clicked links</h3>
+                    <EmailLinksTable links={links} loading={linksLoading} emptyState="No link clicks yet" />
+                </div>
             ) : null}
         </div>
     )

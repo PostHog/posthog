@@ -142,14 +142,10 @@ export interface broadcastPerformanceLogicActions {
         errorObject?: any
     }
     loadTotalsSuccess: (
-        totals: {
-            [k: string]: number
-        },
+        totals: Record<string, number>,
         payload?: any
     ) => {
-        totals: {
-            [k: string]: number
-        }
+        totals: Record<string, number>
         payload?: any
     }
 }
@@ -200,14 +196,22 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                                 appSource: 'hog_flow',
                                 appSourceId: props.runId,
                                 metricName: TOTALS_METRICS,
-                                breakdownBy: ['metric_name'],
+                                breakdownBy: ['metric_name', 'instance_id'],
                                 ...window(),
                             },
                             values.currentTeam?.timezone ?? 'UTC'
                         )
-                        return Object.fromEntries(
-                            Object.values(response).map(({ total, breakdowns }) => [breakdowns[0], total])
-                        )
+                        const totals: Record<string, number> = {}
+                        for (const { total, breakdowns } of Object.values(response)) {
+                            const [metricName, instanceId] = breakdowns
+                            // A step that aborts the run also records a run-level `failed`, which would count each
+                            // person twice, so only step-level failures count people who weren't sent anything.
+                            if (metricName === 'failed' && !instanceId) {
+                                continue
+                            }
+                            totals[metricName] = (totals[metricName] ?? 0) + total
+                        }
+                        return totals
                     },
                 },
             ],
@@ -223,7 +227,7 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                                     AND log_source_id = ${props.runId}
                                     AND lower(level) = 'error'
                                     AND timestamp > {filters.dateRange.from}
-                                ORDER BY timestamp DESC
+                                ORDER BY startsWith(message, '[Action:') DESC, timestamp DESC
                                 LIMIT 1`,
                             {
                                 scene: Scene.Broadcast,
