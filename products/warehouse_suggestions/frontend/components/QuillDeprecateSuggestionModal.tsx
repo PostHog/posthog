@@ -14,9 +14,9 @@ import {
     FieldContent,
     FieldDescription,
     FieldGroup,
+    FieldLabel,
     FieldLegend,
     FieldSet,
-    Label,
     RadioGroup,
     RadioGroupItem,
 } from '@posthog/quill'
@@ -56,15 +56,21 @@ function QuillChoiceGroup<T extends string>({
             <FieldLegend variant="label">{legend}</FieldLegend>
             <RadioGroup aria-label={legend} value={value} onValueChange={(choice) => onChange(choice as T)}>
                 {choices.map((choice) => (
-                    <Field key={choice.value} orientation="horizontal" className="items-start">
+                    <Field
+                        key={choice.value}
+                        orientation="horizontal"
+                        className="items-start"
+                        data-disabled={!!choice.disabledReason}
+                    >
                         <RadioGroupItem
                             value={choice.value}
                             id={`${idPrefix}-${choice.value}`}
                             disabled={!!choice.disabledReason}
+                            className="data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50"
                             data-attr={choice['data-attr']}
                         />
                         <FieldContent>
-                            <Label htmlFor={`${idPrefix}-${choice.value}`}>{choice.label}</Label>
+                            <FieldLabel htmlFor={`${idPrefix}-${choice.value}`}>{choice.label}</FieldLabel>
                             <FieldDescription>{choice.description}</FieldDescription>
                             {choice.disabledReason && <FieldDescription>{choice.disabledReason}</FieldDescription>}
                         </FieldContent>
@@ -136,7 +142,7 @@ export function QuillDeprecateSuggestionModal(): JSX.Element | null {
                         Cancel
                     </Button>
                     <Button
-                        variant={deleteView ? 'destructive' : 'primary'}
+                        variant={deleteView ? 'destructive-outline' : 'primary'}
                         loading={inFlight}
                         onClick={() => confirmAccept()}
                         data-attr={

@@ -228,3 +228,20 @@ export const CatalogDeleteDialog: Story = {
     },
     parameters: catalogDialogSnapshot(1300),
 }
+
+export const CatalogDeprecateDialogPartialReadData: Story = {
+    args: {
+        catalogDialogs: true,
+        confirmSuggestionId: '3',
+        results: [
+            {
+                ...suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup'),
+                evidence: {
+                    ...suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup').evidence,
+                    days_with_data: 12,
+                },
+            },
+        ],
+    },
+    parameters: catalogDialogSnapshot(1300),
+}
