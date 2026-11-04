@@ -42,8 +42,6 @@ def _sandbox_sender_enabled(team: Team) -> bool:
     # and the workflows facade imports this module at startup.
     from posthog.permissions import posthog_feature_flag_enabled  # noqa: PLC0415
 
-    # A flag-service error propagates: answering "unavailable" would hide an outage behind the
-    # response a project gets while the flag is off.
     return posthog_feature_flag_enabled(
         SANDBOX_SENDER_FLAG,
         str(team.uuid),
