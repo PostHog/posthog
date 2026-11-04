@@ -18,7 +18,7 @@ from products.annotations.backend.models.annotation import Annotation
 
 __all__ = [
     "annotation_ids_in_team",
-    "build_annotations_block",
+    "build_snapshot_annotations_block",
     "create_annotation",
     "create_project_annotation",
     "find_dashboard_parent",
@@ -27,7 +27,6 @@ __all__ = [
     "list_annotations",
     "list_changes",
     "list_dated_annotations",
-    "resolve_snapshot_date_range",
     "update_annotation",
 ]
 
@@ -204,24 +203,25 @@ def annotation_ids_in_team(*, team_id: int, annotation_ids: Collection[int]) -> 
     return annotations.annotation_ids_in_team(team_id=team_id, annotation_ids=annotation_ids)
 
 
-def build_annotations_block(
+def build_snapshot_annotations_block(
     team: Team,
-    date_range: tuple[datetime, datetime] | None,
+    content_snapshots: list[dict],
     *,
     dashboard_id: int | None = None,
     insight_ids: list[int] | None = None,
 ) -> str:
-    """The prompt block listing the annotations in the window, or `""` when there is nothing to show.
+    """The prompt block listing the annotations in the window subscription content snapshots cover.
 
-    Project- and organization-scoped annotations always count. Dashboard- and insight-scoped ones
-    count when they are attached to the given dashboard or insights.
+    The window is the widest absolute date range the snapshots' insights were rendered for. Project-
+    and organization-scoped annotations always count, and dashboard- and insight-scoped ones count
+    when they are attached to the given dashboard or insights. Returns `""` when there is nothing to show.
     """
-    return ai_context.build_annotations_block(team, date_range, dashboard_id=dashboard_id, insight_ids=insight_ids)
-
-
-def resolve_snapshot_date_range(content_snapshots: list[dict]) -> tuple[datetime, datetime] | None:
-    """The widest absolute date window the insights of subscription content snapshots were rendered for."""
-    return ai_context.resolve_snapshot_date_range(content_snapshots)
+    return ai_context.build_annotations_block(
+        team,
+        ai_context.resolve_snapshot_date_range(content_snapshots),
+        dashboard_id=dashboard_id,
+        insight_ids=insight_ids,
+    )
 
 
 def list_changes(
