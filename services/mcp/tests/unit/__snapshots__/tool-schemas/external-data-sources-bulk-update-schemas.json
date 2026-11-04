@@ -91,6 +91,20 @@
                         ],
                         "description": "Type of the incremental cursor field."
                     },
+                    "masked_columns": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Columns whose values are replaced with a one-way digest at sync time. Null means mask nothing. Any change starts a full resync of the table."
+                    },
                     "primary_key_columns": {
                         "anyOf": [
                             {

@@ -37,6 +37,9 @@ _ALL_FIRING_ALERTS = "all_firing_alerts"
 # run, and a team with many noisy alerts must not flood its inbox or our spend.
 CAP_BUDGET = Budget(burst=20, per_hour=1)
 
+# `emit_signal` has no time limit of its own, and its guidance check can take about 20 seconds.
+EMISSION_TIMEOUT_SECONDS = 30
+
 # Same margin under the facade's description token limit as the investigation signal.
 _MAX_DESCRIPTION_CHARS = 3000
 _MAX_BREACHES = 20
@@ -88,7 +91,7 @@ def prepare_alert_firing_signal(
 ) -> AlertFiringSignal | None:
     """Run the gates and build the signal, or return None to skip it. Never raises.
 
-    Call it in the evaluation thread, after the check is committed and outside the alert row lock.
+    Call it from a thread, after the check is committed and outside the alert row lock.
     It charges the cap, and `dispatch_alert_firing_signal` refunds the charge when nothing is sent.
     """
     try:
@@ -106,23 +109,29 @@ def prepare_alert_firing_signal(
 async def dispatch_alert_firing_signal(signal: AlertFiringSignal) -> bool:
     """Send a prepared signal. Returns whether it was dispatched. Never raises.
 
-    Await it from the activity's event loop after the evaluation thread returns. `emit_signal` runs
-    sync work on the default executor, so a call that blocks an evaluation thread on it can deadlock
-    once every executor thread waits the same way. A failure never changes the committed check.
+    Await it from the activity's event loop, not from a thread. `emit_signal` runs sync work on the
+    default executor, so a call that blocks an executor thread on it can deadlock once every executor
+    thread waits the same way. A failure never changes the committed check.
     """
     source_id = f"{signal.alert_id}:{signal.alert_check_id}"
     try:
-        dispatched = await emit_signal(
-            team=signal.team,
-            source_product=SIGNAL_SOURCE_PRODUCT,
-            source_type=SIGNAL_SOURCE_TYPE,
-            source_id=source_id,
-            # Same key on a retried evaluation, so one episode starts at most one emission.
-            idempotency_key=source_id,
-            description=signal.description,
-            weight=1,
-            extra=signal.extra,
-        )
+        async with asyncio.timeout(EMISSION_TIMEOUT_SECONDS):
+            dispatched = await emit_signal(
+                team=signal.team,
+                source_product=SIGNAL_SOURCE_PRODUCT,
+                source_type=SIGNAL_SOURCE_TYPE,
+                source_id=source_id,
+                # Same key on a retried attempt, so one episode starts at most one emission.
+                idempotency_key=source_id,
+                description=signal.description,
+                weight=1,
+                extra=signal.extra,
+            )
+    except asyncio.CancelledError:
+        # A cancelled attempt sends nothing, so it gives back its token. The shield lets the refund
+        # finish if a second cancel arrives while it runs.
+        await asyncio.shield(asyncio.to_thread(refund, cap_key(signal.team.id), CAP_BUDGET))
+        raise
     except Exception:
         logger.exception(
             "alert_firing.signal_emission_failed", alert_id=signal.alert_id, alert_check_id=signal.alert_check_id
