@@ -136,6 +136,9 @@ export interface mcpEarlyDataLogicActions {
         payload?: any
     } // mcpAnalyticsNotificationsLogic
     loadSignals: (_?: void | undefined) => void // mcpAnalyticsOnboardingLogic
+    createWeeklyReportReconciled: () => {
+        value: true
+    } // mcpRecurringReportsLogic
     loadReports: () => any // mcpRecurringReportsLogic
     loadReportsFailure: (
         error: string,
@@ -294,7 +297,7 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
             mcpAnalyticsNotificationsLogic,
             ['loadNotifications', 'loadNotificationsSuccess', 'loadNotificationsFailure'],
             mcpRecurringReportsLogic,
-            ['loadReports', 'loadReportsSuccess', 'loadReportsFailure'],
+            ['loadReports', 'loadReportsSuccess', 'loadReportsFailure', 'createWeeklyReportReconciled'],
             dataNodeCollectionLogic({ key: MCP_ACTIVITY_DATA_COLLECTION_ID }),
             ['reloadAll as reloadActivityQuery'],
         ],
@@ -467,6 +470,7 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
         loadNotificationsFailure: sharedListeners.captureNextStepsShown,
         loadReportsSuccess: sharedListeners.captureNextStepsShown,
         loadReportsFailure: sharedListeners.captureNextStepsShown,
+        createWeeklyReportReconciled: sharedListeners.captureNextStepsShown,
         nextStepClicked: ({ stepKey, interaction }) => {
             posthog.captureRaw('mcp analytics next step clicked', {
                 step_key: stepKey,
