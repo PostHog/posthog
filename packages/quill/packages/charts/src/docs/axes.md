@@ -9,7 +9,7 @@ This page covers the behavior that spans several fields.
 A host with its own token reader can layer just that part via `themeDefaultsFromCssVars()`.
 
 The matching config switches are the library default through `DEFAULT_CHART_CONFIG`: grid, axis lines, tick marks, crosshair, monotone curve, rounded bars, and cursor-anchored tooltip.
-`LineChart`, `BarChart`, `ComboChart`, `BoxPlot`, and their time-series variants layer it under `config` via `applyChartDefaults`, so a consumer opts out field by field (`showGrid: false`).
+`LineChart`, `BarChart`, `ComboChart`, their time-series variants, and `BoxPlot` layer it under `config` via `applyChartDefaults`, so a consumer opts out field by field (`showGrid: false`).
 The nested `tooltip` merges key by key, so setting one field keeps `placement: 'cursor'`.
 `ScatterChart` renders the same chrome from its own inline defaults.
 `Sparkline` and `MetricCard` build their own chromeless config.
