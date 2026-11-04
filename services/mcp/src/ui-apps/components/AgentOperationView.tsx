@@ -1,55 +1,184 @@
-import { CheckCircle2, Circle, CircleDot, ExternalLink } from 'lucide-react'
-import { type ReactNode, useEffect, useState } from 'react'
+import './agent-operation.css'
 
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Separator, Spinner, Textarea } from '@posthog/quill'
+import {
+    ArrowUpRight,
+    Bug,
+    ChartLine,
+    CircleCheck,
+    Database,
+    FileText,
+    Flag,
+    FlaskConical,
+    Globe,
+    LayoutDashboard,
+    MessageCircleQuestionMark,
+    MessageSquarePlus,
+    NotebookPen,
+    Play,
+    Search,
+    ShieldQuestionMark,
+    Sparkles,
+    Table2,
+} from 'lucide-react'
+import { type ReactElement, type ReactNode, useEffect, useRef, useState } from 'react'
+
+import {
+    Button,
+    Card,
+    ChatMarker,
+    ChatMarkerContent,
+    ChatMarkerIcon,
+    ChatTask,
+    ChatTaskList,
+    ChatTaskListContent,
+    ChatTaskListCount,
+    ChatTaskListLabel,
+    ChatTaskListProgress,
+    ChatTaskListTrigger,
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+    Dot,
+    Field,
+    Heading,
+    Highlight,
+    Spinner,
+    Text,
+    Textarea,
+} from '@posthog/quill'
 
 import {
     type AgentOperation,
     type AgentOperationApproval,
+    type AgentOperationPlanItem,
     type AgentOperationState,
     APPROVAL_REPLIES,
 } from '../../tools/posthogAgent/operations'
+import { Markdown } from '../lib/Markdown'
+import { PostHogLogo } from './PostHogLogo'
+
+/** `run` is the live view of the whole operation. `update` is the compact card on a status, reply or cancel call. */
+export type AgentOperationVariant = 'run' | 'update'
+
+type Phase = 'starting' | 'working' | 'approval' | 'question' | 'stopping' | 'done' | 'failed' | 'canceled' | 'expired'
 
 const TERMINAL_STATES: ReadonlySet<AgentOperationState> = new Set(['succeeded', 'failed', 'cancelled', 'expired'])
-const ACTIVITY_LIMIT = 8
+const VISIBLE_STEPS = 6
+const MAX_KEPT_STEPS = 200
+const CONFETTI_PIECES = 16
+const CONFETTI_MS = 1800
 
-const STATE_LABELS: Record<AgentOperationState, string> = {
-    queued: 'Queued',
-    running: 'Running',
-    needs_input: 'Needs input',
-    cancelling: 'Cancelling',
-    succeeded: 'Succeeded',
+const PHASE_LABELS: Record<Phase, string> = {
+    starting: 'Starting',
+    working: 'Working',
+    approval: 'Waiting for your approval',
+    question: 'Waiting for your answer',
+    stopping: 'Stopping',
+    done: 'Done',
     failed: 'Failed',
-    cancelled: 'Cancelled',
-    expired: 'Expired',
+    canceled: 'Canceled',
+    expired: 'Timed out',
 }
 
-const REASON_LABELS: Record<string, string> = {
-    deadline: 'Stopped at the 2-hour limit.',
-    no_result: 'PostHog AI ended without a result.',
-    credential_revoked: 'The key that started this operation was revoked.',
-    run_failed: 'The run failed.',
-    run_missing: 'The run no longer exists.',
-    run_cancelled: 'The run was stopped in PostHog.',
-    agent_reported_failure: 'PostHog AI could not complete the goal.',
-    dispatch_failed: 'The task could not start.',
-}
-
-type BadgeVariant = 'default' | 'info' | 'destructive' | 'warning' | 'success'
-
-const STATE_VARIANTS: Record<AgentOperationState, BadgeVariant> = {
-    queued: 'default',
-    running: 'info',
-    needs_input: 'warning',
-    cancelling: 'warning',
-    succeeded: 'success',
+const PHASE_DOTS: Record<Phase, 'default' | 'info' | 'warning' | 'success' | 'destructive'> = {
+    starting: 'info',
+    working: 'info',
+    approval: 'warning',
+    question: 'warning',
+    stopping: 'warning',
+    done: 'success',
     failed: 'destructive',
-    cancelled: 'default',
+    canceled: 'default',
     expired: 'destructive',
 }
 
+const REASON_LABELS: Record<string, string> = {
+    deadline: 'The run stopped at its 2-hour limit.',
+    no_result: 'PostHog AI ended without a result. Open the conversation in PostHog to see what happened.',
+    credential_revoked: 'The key that started this run was revoked.',
+    run_failed: 'The run failed. Open the conversation in PostHog to see what happened.',
+    run_missing: 'The run no longer exists.',
+    run_cancelled: 'Someone stopped the run in PostHog.',
+    agent_reported_failure: 'PostHog AI could not complete the request.',
+    dispatch_failed: 'The run could not start. Try again in a moment.',
+}
+
+const ANSWERED_LABELS: Record<string, string> = {
+    [APPROVAL_REPLIES.allow]: 'You allowed this step. PostHog AI is continuing.',
+    [APPROVAL_REPLIES.allowAll]: 'You allowed steps like this for the rest of the run.',
+    [APPROVAL_REPLIES.deny]: 'You denied this step. PostHog AI will try another way.',
+}
+
+const STEP_ICONS: Array<[RegExp, ReactElement]> = [
+    [/sql|query|hogql/i, <Database key="sql" />],
+    [/dashboard/i, <LayoutDashboard key="dashboard" />],
+    [/insight|trend|funnel|retention|chart/i, <ChartLine key="insight" />],
+    [/schema|propert|event|table|column/i, <Table2 key="schema" />],
+    [/flag/i, <Flag key="flag" />],
+    [/experiment/i, <FlaskConical key="experiment" />],
+    [/error|exception|issue/i, <Bug key="error" />],
+    [/replay|recording|session/i, <Play key="replay" />],
+    [/notebook/i, <NotebookPen key="notebook" />],
+    [/web|search the|fetch/i, <Globe key="web" />],
+    [/search|find|look/i, <Search key="search" />],
+    [/file|code|read/i, <FileText key="file" />],
+]
+
 export function isTerminal(operation: AgentOperation): boolean {
     return TERMINAL_STATES.has(operation.state)
+}
+
+function phaseOf(operation: AgentOperation): Phase {
+    switch (operation.state) {
+        case 'queued':
+            return 'starting'
+        case 'running':
+            return 'working'
+        case 'needs_input':
+            return operation.approval ? 'approval' : 'question'
+        case 'cancelling':
+            return 'stopping'
+        case 'succeeded':
+            return 'done'
+        case 'failed':
+            return 'failed'
+        case 'cancelled':
+            return 'canceled'
+        case 'expired':
+            return 'expired'
+    }
+}
+
+function isWorking(phase: Phase): boolean {
+    return phase === 'starting' || phase === 'working' || phase === 'stopping'
+}
+
+function stepIcon(label: string): ReactElement {
+    return STEP_ICONS.find(([pattern]) => pattern.test(label))?.[1] ?? <Sparkles />
+}
+
+/**
+ * The approval detail is the PostHog command, such as `call execute-sql {"query": "..."}`. Show the SQL
+ * itself, or the input as indented JSON, because that is what the user decides on.
+ */
+function readableDetail(detail: string): string {
+    const match = /^call\s+[\w-]+\s+(\{[\s\S]*\})$/.exec(detail.trim())
+    if (!match?.[1]) {
+        return detail
+    }
+    try {
+        const input = JSON.parse(match[1]) as Record<string, unknown>
+        return typeof input.query === 'string' ? input.query : JSON.stringify(input, null, 2)
+    } catch {
+        return detail
+    }
+}
+
+/** The first sentence of the request, so a long prompt written by the calling agent does not fill the card. */
+function requestTitle(goal: string): string {
+    const firstLine = goal.trim().split('\n')[0] ?? ''
+    const sentence = /^(.+?[.?!])(\s|$)/.exec(firstLine)?.[1] ?? firstLine
+    return sentence.length > 140 ? `${sentence.slice(0, 137).trimEnd()}…` : sentence
 }
 
 function formatElapsed(ms: number): string {
@@ -63,145 +192,150 @@ function formatElapsed(ms: number): string {
     return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`
 }
 
-function useElapsed(operation: AgentOperation): string {
+/** A live timer for the run view. An update card is a snapshot, so its time does not move. */
+function useElapsed(operation: AgentOperation, live: boolean): string {
     const [now, setNow] = useState(() => Date.now())
-    const running = !isTerminal(operation)
+    const ticking = live && !isTerminal(operation)
     useEffect(() => {
-        if (!running) {
+        if (!ticking) {
             return
         }
         const timer = setInterval(() => setNow(Date.now()), 1000)
         return () => clearInterval(timer)
-    }, [running])
+    }, [ticking])
     const start = Date.parse(operation.created_at)
     const end = operation.finished_at ? Date.parse(operation.finished_at) : now
     return Number.isNaN(start) ? '' : formatElapsed(end - start)
 }
 
-/** Keeps the steps of every response, because each response only carries the steps since the last cursor. */
-function useActivityFeed(operation: AgentOperation): string[] {
-    const [feed, setFeed] = useState<{ cursors: Set<string>; steps: string[] }>({ cursors: new Set(), steps: [] })
+/** Keeps the steps of every response, because each response only carries the steps after its cursor. */
+function useStepFeed(operation: AgentOperation): string[] {
+    const [feed, setFeed] = useState<{ cursors: Set<string>; steps: string[] }>(() => ({
+        cursors: new Set([operation.cursor]),
+        steps: operation.new_steps,
+    }))
     useEffect(() => {
         setFeed((prev) => {
             if (prev.cursors.has(operation.cursor) || operation.new_steps.length === 0) {
                 return prev
             }
             const cursors = new Set(prev.cursors).add(operation.cursor)
-            return { cursors, steps: [...prev.steps, ...operation.new_steps].slice(-ACTIVITY_LIMIT) }
+            return { cursors, steps: [...prev.steps, ...operation.new_steps].slice(-MAX_KEPT_STEPS) }
         })
     }, [operation.cursor, operation.new_steps])
     return feed.steps
 }
 
-function LinkText({
-    label,
-    url,
-    onOpenLink,
-}: {
-    label: string
-    url: string | null
-    onOpenLink: (url: string) => void
-}): JSX.Element {
-    if (!url) {
-        return <span>{label}</span>
-    }
-    return (
-        <a
-            href={url}
-            target="_blank"
-            rel="noreferrer"
-            onClick={(e) => {
-                e.preventDefault()
-                onOpenLink(url)
-            }}
-            className="inline-flex items-center gap-1 text-link underline underline-offset-2"
-        >
-            {label}
-            <ExternalLink className="size-3" />
-        </a>
-    )
+/** Plays the confetti once, when this view sees the run finish. A view that opens on a finished run stays calm. */
+function useCelebration(operation: AgentOperation): boolean {
+    const previous = useRef(operation.state)
+    const [celebrating, setCelebrating] = useState(false)
+    useEffect(() => {
+        const finishedNow = operation.state === 'succeeded' && !TERMINAL_STATES.has(previous.current)
+        previous.current = operation.state
+        if (!finishedNow) {
+            return
+        }
+        setCelebrating(true)
+        const timer = setTimeout(() => setCelebrating(false), CONFETTI_MS)
+        return () => clearTimeout(timer)
+    }, [operation.state])
+    return celebrating
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }): JSX.Element {
+function Confetti(): ReactElement {
     return (
-        <section className="flex flex-col gap-1.5">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
-            {children}
-        </section>
-    )
-}
-
-function PlanChecklist({ plan }: { plan: AgentOperation['plan'] }): JSX.Element {
-    return (
-        <ul className="flex flex-col gap-1 text-sm">
-            {plan.map((item, index) => (
-                <li key={index} className="flex items-start gap-2">
-                    {item.status === 'completed' ? (
-                        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success-foreground" />
-                    ) : item.status === 'in_progress' ? (
-                        <CircleDot className="mt-0.5 size-4 shrink-0 text-info-foreground" />
-                    ) : (
-                        <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                    )}
-                    <span className={item.status === 'completed' ? 'text-muted-foreground' : ''}>{item.content}</span>
-                </li>
+        <div className="agent-confetti" aria-hidden>
+            {Array.from({ length: CONFETTI_PIECES }, (_, index) => (
+                <span key={index} className="agent-confetti__piece" />
             ))}
-        </ul>
+        </div>
     )
 }
 
-function ResultView({
-    result,
-    onOpenLink,
-}: {
-    result: NonNullable<AgentOperation['result']>
-    onOpenLink: (url: string) => void
-}): JSX.Element {
+function AgentMark({ active }: { active: boolean }): ReactElement {
     return (
-        <div className="flex flex-col gap-3">
-            <Section title="Answer">
-                <div className="text-sm whitespace-pre-wrap break-words">{result.answer}</div>
-            </Section>
-            {result.assumptions.length > 0 && (
-                <Section title="Assumptions">
-                    <ul className="list-disc pl-5 text-sm">
-                        {result.assumptions.map((item, index) => (
-                            <li key={index}>{item}</li>
-                        ))}
-                    </ul>
-                </Section>
+        <span
+            className={`flex size-8 shrink-0 items-center justify-center rounded-lg border bg-background ${active ? 'agent-mark--active' : ''}`}
+            aria-hidden
+        >
+            <PostHogLogo size={20} />
+        </span>
+    )
+}
+
+function StatusLine({ phase, elapsed }: { phase: Phase; elapsed: string }): ReactElement {
+    return (
+        <span className="flex min-w-0 items-center gap-2">
+            {isWorking(phase) ? (
+                <Spinner className="size-3.5 text-info-foreground" />
+            ) : (
+                <Dot variant={PHASE_DOTS[phase]} pulse={phase === 'approval' || phase === 'question'} />
             )}
-            {result.evidence.length > 0 && (
-                <Section title="Evidence">
-                    <ul className="list-disc pl-5 text-sm">
-                        {result.evidence.map((item, index) => (
-                            <li key={index}>
-                                <LinkText label={item.label} url={item.url} onOpenLink={onOpenLink} />
-                            </li>
-                        ))}
-                    </ul>
-                </Section>
+            <Text size="sm" weight="medium" render={<span />}>
+                {phase === 'done' ? (
+                    <Highlight color="green" animate>
+                        {PHASE_LABELS[phase]}
+                    </Highlight>
+                ) : (
+                    PHASE_LABELS[phase]
+                )}
+            </Text>
+            {elapsed && (
+                <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
+                    {elapsed}
+                </Text>
             )}
-            {result.artifacts.length > 0 && (
-                <Section title="Artifacts">
-                    <ul className="list-disc pl-5 text-sm">
-                        {result.artifacts.map((item, index) => (
-                            <li key={index}>
-                                <span className="text-muted-foreground">{item.type}: </span>
-                                <LinkText label={item.name} url={item.url} onOpenLink={onOpenLink} />
-                            </li>
-                        ))}
-                    </ul>
-                </Section>
-            )}
-            {result.follow_ups.length > 0 && (
-                <Section title="Possible follow-ups">
-                    <ul className="list-disc pl-5 text-sm">
-                        {result.follow_ups.map((item, index) => (
-                            <li key={index}>{item}</li>
-                        ))}
-                    </ul>
-                </Section>
+        </span>
+    )
+}
+
+function Header({
+    operation,
+    phase,
+    elapsed,
+    subtitle,
+    action,
+}: {
+    operation: AgentOperation
+    phase: Phase
+    elapsed: string
+    subtitle: string
+    action?: ReactNode
+}): ReactElement {
+    return (
+        <div className="flex items-center gap-3">
+            <AgentMark active={isWorking(phase)} />
+            <div className="flex min-w-0 flex-1 flex-col">
+                <Text size="xs" variant="muted" className="truncate">
+                    {subtitle} · {operation.project.name}
+                </Text>
+                <StatusLine phase={phase} elapsed={elapsed} />
+            </div>
+            {action}
+        </div>
+    )
+}
+
+function RequestTitle({ goal }: { goal: string }): ReactElement {
+    const title = requestTitle(goal)
+    const hasMore = goal.trim() !== title
+    return (
+        <div className="flex flex-col gap-1">
+            <Heading size="base" render={<h2 />} className="line-clamp-2 break-words">
+                {title}
+            </Heading>
+            {hasMore && (
+                <Collapsible>
+                    <CollapsibleTrigger render={<Button variant="link-muted" size="xs" className="px-0" />}>
+                        Show full request
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                        <Text size="xs" variant="muted" className="mt-1 whitespace-pre-wrap break-words">
+                            {goal}
+                        </Text>
+                    </CollapsibleContent>
+                </Collapsible>
             )}
         </div>
     )
@@ -209,7 +343,7 @@ function ResultView({
 
 const CHAT_HINT = 'Answer in the chat to continue.'
 
-function ApprovalPrompt({
+function ApprovalCard({
     approval,
     canReply,
     onReply,
@@ -219,60 +353,92 @@ function ApprovalPrompt({
     canReply: boolean
     onReply: (message: string) => void
     pendingReply: string | null
-}): JSX.Element {
+}): ReactElement {
     const busy = pendingReply !== null
     const buttons = [
         { message: APPROVAL_REPLIES.allow, label: 'Allow', variant: 'primary' },
-        { message: APPROVAL_REPLIES.allowAll, label: 'Allow all', variant: 'outline' },
+        { message: APPROVAL_REPLIES.allowAll, label: 'Allow for this run', variant: 'outline' },
         { message: APPROVAL_REPLIES.deny, label: 'Deny', variant: 'destructive-outline' },
     ] as const
     return (
-        <div className="flex flex-col gap-2 rounded border border-warning bg-warning/10 p-2 text-sm">
-            <div>
-                <p className="font-semibold">PostHog AI needs your approval</p>
-                <p className="whitespace-pre-wrap break-words">{approval.title}</p>
+        <section
+            aria-label="Approval needed"
+            className="agent-attention flex flex-col gap-3 rounded-lg border border-warning-foreground/30 bg-warning p-3"
+        >
+            <div className="flex items-start gap-2">
+                <ShieldQuestionMark className="mt-0.5 size-4 shrink-0 text-warning-foreground" />
+                <div className="flex min-w-0 flex-col gap-0.5">
+                    <Text size="sm" weight="semibold">
+                        Allow PostHog AI to run this step?
+                    </Text>
+                    <Text size="sm" className="break-words">
+                        {approval.title}
+                    </Text>
+                </div>
             </div>
+            {approval.detail && (
+                <pre className="max-h-40 overflow-auto rounded-md border bg-background p-2 font-mono text-xs whitespace-pre-wrap break-words">
+                    {readableDetail(approval.detail)}
+                </pre>
+            )}
             {canReply ? (
-                <div className="flex flex-wrap gap-2">
-                    {buttons.map((button) => (
-                        <Button
-                            key={button.message}
-                            variant={button.variant}
-                            size="sm"
-                            loading={pendingReply === button.message}
-                            disabled={busy}
-                            onClick={() => onReply(button.message)}
-                        >
-                            {button.label}
-                        </Button>
-                    ))}
+                <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap gap-2">
+                        {buttons.map((button) => (
+                            <Button
+                                key={button.message}
+                                variant={button.variant}
+                                size="sm"
+                                loading={pendingReply === button.message}
+                                disabled={busy}
+                                onClick={() => onReply(button.message)}
+                            >
+                                {button.label}
+                            </Button>
+                        ))}
+                    </div>
+                    <Text size="xs" variant="muted">
+                        Allow for this run lets PostHog AI run steps like this until the run ends.
+                    </Text>
                 </div>
             ) : (
-                <p className="text-xs text-muted-foreground">{CHAT_HINT}</p>
+                <Text size="xs" variant="muted">
+                    {CHAT_HINT}
+                </Text>
             )}
-        </div>
+        </section>
     )
 }
 
-function QuestionPrompt({
+function QuestionCard({
     question,
     canReply,
     onReply,
     pendingReply,
+    onOpenLink,
 }: {
     question: string
     canReply: boolean
     onReply: (message: string) => void
     pendingReply: string | null
-}): JSX.Element {
+    onOpenLink: (url: string) => void
+}): ReactElement {
     const [answer, setAnswer] = useState('')
     const busy = pendingReply !== null
     const trimmed = answer.trim()
     return (
-        <div className="flex flex-col gap-2 rounded border border-warning bg-warning/10 p-2 text-sm">
-            <div>
-                <p className="font-semibold">PostHog AI needs input</p>
-                <p className="whitespace-pre-wrap break-words">{question}</p>
+        <section
+            aria-label="Question from PostHog AI"
+            className="agent-attention flex flex-col gap-3 rounded-lg border border-warning-foreground/30 bg-warning p-3"
+        >
+            <div className="flex items-start gap-2">
+                <MessageCircleQuestionMark className="mt-0.5 size-4 shrink-0 text-warning-foreground" />
+                <div className="flex min-w-0 flex-col gap-1">
+                    <Text size="sm" weight="semibold">
+                        PostHog AI has a question
+                    </Text>
+                    <Markdown source={question} onOpenLink={onOpenLink} />
+                </div>
             </div>
             {canReply ? (
                 <form
@@ -284,40 +450,290 @@ function QuestionPrompt({
                         }
                     }}
                 >
-                    <Textarea
-                        aria-label="Your answer"
-                        placeholder="Type your answer"
-                        rows={3}
-                        value={answer}
-                        disabled={busy}
-                        onChange={(e) => setAnswer(e.target.value)}
-                    />
+                    <Field>
+                        <Textarea
+                            aria-label="Your answer"
+                            placeholder="Type your answer"
+                            rows={3}
+                            value={answer}
+                            disabled={busy}
+                            className="bg-background"
+                            onChange={(e) => setAnswer(e.target.value)}
+                        />
+                    </Field>
                     <div>
                         <Button type="submit" variant="primary" size="sm" loading={busy} disabled={!trimmed}>
-                            Send
+                            Send answer
                         </Button>
                     </div>
                 </form>
             ) : (
-                <p className="text-xs text-muted-foreground">{CHAT_HINT}</p>
+                <Text size="xs" variant="muted">
+                    {CHAT_HINT}
+                </Text>
+            )}
+        </section>
+    )
+}
+
+function planTaskStatus(item: AgentOperationPlanItem, live: boolean): 'pending' | 'active' | 'done' {
+    if (item.status === 'completed') {
+        return 'done'
+    }
+    return item.status === 'in_progress' && live ? 'active' : 'pending'
+}
+
+function PlanList({
+    plan,
+    live,
+    defaultOpen,
+}: {
+    plan: AgentOperationPlanItem[]
+    live: boolean
+    defaultOpen: boolean
+}): ReactElement {
+    const done = plan.filter((item) => item.status === 'completed').length
+    return (
+        <ChatTaskList value={done} total={plan.length} defaultOpen={defaultOpen}>
+            <ChatTaskListTrigger>
+                <ChatTaskListProgress />
+                <ChatTaskListLabel>Plan</ChatTaskListLabel>
+                <ChatTaskListCount />
+            </ChatTaskListTrigger>
+            <ChatTaskListContent>
+                {plan.map((item, index) => (
+                    <ChatTask key={index} status={planTaskStatus(item, live)}>
+                        {item.content}
+                    </ChatTask>
+                ))}
+            </ChatTaskListContent>
+        </ChatTaskList>
+    )
+}
+
+/** Without a plan, the steps themselves are the checklist: each finished step is checked off. */
+function StepList({ steps, total, working }: { steps: string[]; total: number; working: boolean }): ReactElement {
+    const shown = steps.slice(-VISIBLE_STEPS)
+    const earlier = Math.max(0, total - shown.length)
+    const done = working ? Math.max(0, total - 1) : total
+    return (
+        <ChatTaskList value={done} total={total} defaultOpen>
+            <ChatTaskListTrigger>
+                <ChatTaskListLabel>Steps</ChatTaskListLabel>
+                <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
+                    {working ? `${done} done` : `${total} done`}
+                </Text>
+            </ChatTaskListTrigger>
+            <ChatTaskListContent>
+                {earlier > 0 && (
+                    <ChatTask status="done">
+                        <Text size="xs" variant="muted" render={<span />}>
+                            {earlier === 1 ? '1 earlier step' : `${earlier} earlier steps`}
+                        </Text>
+                    </ChatTask>
+                )}
+                {shown.map((step, index) => (
+                    <ChatTask
+                        key={earlier + index}
+                        status={working && index === shown.length - 1 ? 'active' : 'done'}
+                        truncate
+                    >
+                        {step}
+                    </ChatTask>
+                ))}
+            </ChatTaskListContent>
+        </ChatTaskList>
+    )
+}
+
+/** With a plan, the plan is the checklist and the steps behind it fold into one activity row. */
+function ActivityLog({ steps, total, working }: { steps: string[]; total: number; working: boolean }): ReactElement {
+    const latest = steps[steps.length - 1]
+    return (
+        <ChatMarker
+            status={working ? 'running' : 'done'}
+            body={
+                <>
+                    {steps.slice(-VISIBLE_STEPS * 2).map((step, index) => (
+                        <ChatMarker key={index} status="done">
+                            <ChatMarkerIcon>{stepIcon(step)}</ChatMarkerIcon>
+                            <ChatMarkerContent>{step}</ChatMarkerContent>
+                        </ChatMarker>
+                    ))}
+                </>
+            }
+        >
+            <ChatMarkerContent>
+                {working && latest ? `${latest} · ${total} steps so far` : `Ran ${total} steps`}
+            </ChatMarkerContent>
+        </ChatMarker>
+    )
+}
+
+function CurrentStep({ label }: { label: string }): ReactElement {
+    return (
+        <ChatMarker status="running">
+            <ChatMarkerIcon>{stepIcon(label)}</ChatMarkerIcon>
+            <ChatMarkerContent>{label}</ChatMarkerContent>
+        </ChatMarker>
+    )
+}
+
+function LinkRow({
+    label,
+    meta,
+    url,
+    onOpenLink,
+}: {
+    label: string
+    meta?: string
+    url: string | null
+    onOpenLink: (url: string) => void
+}): ReactElement {
+    const content = (
+        <>
+            <span className="min-w-0 truncate">{label}</span>
+            {meta && (
+                <Text size="xs" variant="muted" render={<span />} className="shrink-0">
+                    {meta}
+                </Text>
+            )}
+            {url && <ArrowUpRight className="ms-auto size-3.5 shrink-0 text-muted-foreground" />}
+        </>
+    )
+    if (!url) {
+        return <li className="flex items-center gap-2 px-2 py-1.5 text-sm">{content}</li>
+    }
+    return (
+        <li>
+            <a
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => {
+                    e.preventDefault()
+                    onOpenLink(url)
+                }}
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-fill-hover"
+            >
+                {content}
+            </a>
+        </li>
+    )
+}
+
+function SectionLabel({ children }: { children: ReactNode }): ReactElement {
+    return (
+        <Text size="xs" weight="medium" variant="muted">
+            {children}
+        </Text>
+    )
+}
+
+function ResultSection({
+    result,
+    onOpenLink,
+    onAskFollowUp,
+}: {
+    result: NonNullable<AgentOperation['result']>
+    onOpenLink: (url: string) => void
+    onAskFollowUp?: (text: string) => void
+}): ReactElement {
+    const links = [
+        ...result.artifacts.map((item) => ({ label: item.name, meta: item.type, url: item.url })),
+        ...result.evidence.map((item) => ({ label: item.label, meta: undefined, url: item.url })),
+    ]
+    return (
+        <div className="flex flex-col gap-4">
+            {result.answer && <Markdown source={result.answer} onOpenLink={onOpenLink} />}
+            {result.assumptions.length > 0 && (
+                <Collapsible>
+                    <CollapsibleTrigger render={<Button variant="link-muted" size="xs" className="px-0" />}>
+                        {result.assumptions.length === 1 ? '1 assumption' : `${result.assumptions.length} assumptions`}
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                        <ul className="mt-1 flex list-disc flex-col gap-1 ps-5 text-sm">
+                            {result.assumptions.map((item, index) => (
+                                <li key={index}>{item}</li>
+                            ))}
+                        </ul>
+                    </CollapsibleContent>
+                </Collapsible>
+            )}
+            {links.length > 0 && (
+                <div className="flex flex-col gap-1">
+                    <SectionLabel>Sources and changes</SectionLabel>
+                    <ul className="-mx-2 flex flex-col">
+                        {links.map((link, index) => (
+                            <LinkRow key={index} {...link} onOpenLink={onOpenLink} />
+                        ))}
+                    </ul>
+                </div>
+            )}
+            {result.follow_ups.length > 0 && (
+                <div className="flex flex-col gap-2">
+                    <SectionLabel>Ask next</SectionLabel>
+                    {onAskFollowUp ? (
+                        <div className="flex flex-wrap gap-2">
+                            {result.follow_ups.map((item, index) => (
+                                <Button
+                                    key={index}
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-auto max-w-full py-1 text-left whitespace-normal"
+                                    onClick={() => onAskFollowUp(item)}
+                                >
+                                    <MessageSquarePlus />
+                                    {item}
+                                </Button>
+                            ))}
+                        </div>
+                    ) : (
+                        <ul className="flex list-disc flex-col gap-1 ps-5 text-sm">
+                            {result.follow_ups.map((item, index) => (
+                                <li key={index}>{item}</li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
             )}
         </div>
     )
 }
 
-export function AgentOperationView({
+function Footer({
     operation,
     onOpenLink,
-    canControl,
-    pollError,
-    onCancel,
-    cancelling,
-    cancelError,
-    onReply,
-    pendingReply,
-    replyError,
+    stepsTotal,
 }: {
     operation: AgentOperation
+    onOpenLink: (url: string) => void
+    stepsTotal: number
+}): ReactElement {
+    return (
+        <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+            {stepsTotal > 0 && (
+                <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
+                    {stepsTotal === 1 ? '1 step' : `${stepsTotal} steps`}
+                </Text>
+            )}
+            {operation.repository && (
+                <Text size="xs" variant="muted" render={<span />} className="break-all">
+                    {operation.repository}
+                    {operation.resolved_commit ? `@${operation.resolved_commit.slice(0, 7)}` : ''}
+                </Text>
+            )}
+            <Button variant="default" size="sm" className="ms-auto" onClick={() => onOpenLink(operation.posthog_url)}>
+                Open in PostHog
+                <ArrowUpRight />
+            </Button>
+        </div>
+    )
+}
+
+export interface AgentOperationViewProps {
+    operation: AgentOperation
+    variant?: AgentOperationVariant
     onOpenLink: (url: string) => void
     canControl: boolean
     pollError: string | null
@@ -327,91 +743,135 @@ export function AgentOperationView({
     onReply: (message: string) => void
     pendingReply: string | null
     replyError: string | null
-}): JSX.Element {
-    const elapsed = useElapsed(operation)
-    const activity = useActivityFeed(operation)
+    /** The last reply sent from this view, shown as a confirmation once the run moves on. */
+    answered?: string | null
+    onAskFollowUp?: (text: string) => void
+}
+
+export function AgentOperationView({
+    operation,
+    variant = 'run',
+    onOpenLink,
+    canControl,
+    pollError,
+    onCancel,
+    cancelling,
+    cancelError,
+    onReply,
+    pendingReply,
+    replyError,
+    answered,
+    onAskFollowUp,
+}: AgentOperationViewProps): ReactElement {
+    const phase = phaseOf(operation)
+    const working = isWorking(phase)
     const terminal = isTerminal(operation)
+    const isUpdate = variant === 'update'
+    const elapsed = useElapsed(operation, !isUpdate)
+    const feed = useStepFeed(operation)
+    const celebrating = useCelebration(operation)
+    const steps = isUpdate ? operation.new_steps : feed
+    const stepsTotal = Math.max(operation.steps_total, steps.length)
     const question = operation.result?.question ?? operation.question
     const canReply = canControl && operation.state === 'needs_input'
-    const canCancel = !terminal && operation.state !== 'cancelling'
+    const canCancel = !isUpdate && canControl && !terminal && operation.state !== 'cancelling'
+    const reason = operation.state_reason ? REASON_LABELS[operation.state_reason] : undefined
+    const error = cancelError ?? replyError ?? pollError
+    const latestStep = steps[steps.length - 1] ?? operation.plan.find((item) => item.status === 'in_progress')?.content
 
     return (
-        <Card className="m-3">
-            <CardHeader className="flex flex-col gap-2">
-                <div className="flex w-full flex-wrap items-center gap-2">
-                    <Badge variant={STATE_VARIANTS[operation.state]}>{STATE_LABELS[operation.state]}</Badge>
-                    {!terminal && operation.state !== 'needs_input' && <Spinner className="size-3.5" />}
-                    {elapsed && <span className="text-xs text-muted-foreground">{elapsed}</span>}
-                    {canCancel && (
-                        <div className="ml-auto">
-                            <Button variant="outline" size="sm" onClick={onCancel} disabled={cancelling || !canControl}>
-                                {cancelling ? 'Cancelling…' : 'Cancel'}
-                            </Button>
-                        </div>
-                    )}
-                </div>
-                <CardTitle className="text-base break-words">{operation.goal}</CardTitle>
-                {operation.state_reason && REASON_LABELS[operation.state_reason] && (
-                    <p className="text-xs text-muted-foreground">{REASON_LABELS[operation.state_reason]}</p>
-                )}
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    <span>Project: {operation.project.name}</span>
-                    {operation.repository && (
-                        <span className="break-all">
-                            Repository: {operation.repository}
-                            {operation.resolved_commit ? `@${operation.resolved_commit.slice(0, 12)}` : ''}
-                        </span>
-                    )}
-                </div>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-                {operation.approval ? (
-                    <ApprovalPrompt
-                        approval={operation.approval}
+        <Card className="relative m-2 flex flex-col gap-4 overflow-hidden p-4">
+            {celebrating && <Confetti />}
+            <Header
+                operation={operation}
+                phase={phase}
+                elapsed={elapsed}
+                subtitle={isUpdate ? 'PostHog Agent update' : 'PostHog Agent'}
+                action={
+                    canCancel ? (
+                        <Button variant="default" size="sm" loading={cancelling} onClick={onCancel}>
+                            Cancel
+                        </Button>
+                    ) : undefined
+                }
+            />
+            {!isUpdate && <RequestTitle goal={operation.goal} />}
+
+            {operation.approval ? (
+                <ApprovalCard
+                    approval={operation.approval}
+                    canReply={canReply}
+                    onReply={onReply}
+                    pendingReply={pendingReply}
+                />
+            ) : (
+                operation.state === 'needs_input' &&
+                question && (
+                    <QuestionCard
+                        key={question}
+                        question={question}
                         canReply={canReply}
                         onReply={onReply}
                         pendingReply={pendingReply}
+                        onOpenLink={onOpenLink}
                     />
+                )
+            )}
+
+            {answered && operation.state !== 'needs_input' && (
+                <div className="flex items-center gap-2">
+                    <CircleCheck className="size-4 shrink-0 text-success-foreground" />
+                    <Text size="sm">
+                        {ANSWERED_LABELS[answered] ?? 'PostHog AI got your answer and is continuing.'}
+                    </Text>
+                </div>
+            )}
+
+            {isUpdate && working && (
+                <div className="flex flex-col gap-2">
+                    <CurrentStep label={latestStep ?? 'Getting started'} />
+                    {operation.plan.length > 0 && (
+                        <PlanList plan={operation.plan} live={!terminal} defaultOpen={false} />
+                    )}
+                </div>
+            )}
+
+            {!isUpdate && operation.plan.length > 0 && (
+                <PlanList plan={operation.plan} live={!terminal} defaultOpen={!operation.result} />
+            )}
+            {!isUpdate &&
+                steps.length > 0 &&
+                (operation.plan.length > 0 || operation.result ? (
+                    <ActivityLog steps={steps} total={stepsTotal} working={working} />
                 ) : (
-                    question && (
-                        <QuestionPrompt
-                            key={question}
-                            question={question}
-                            canReply={canReply}
-                            onReply={onReply}
-                            pendingReply={pendingReply}
-                        />
-                    )
-                )}
-                {operation.plan.length > 0 && (
-                    <Section title="Plan">
-                        <PlanChecklist plan={operation.plan} />
-                    </Section>
-                )}
-                {!operation.result && activity.length > 0 && (
-                    <Section title="Activity">
-                        <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
-                            {activity.map((step, index) => (
-                                <li key={index} className="break-words">
-                                    {step}
-                                </li>
-                            ))}
-                        </ul>
-                    </Section>
-                )}
-                {!operation.result && operation.summary && (
-                    <p className="text-sm whitespace-pre-wrap break-words">{operation.summary}</p>
-                )}
-                {operation.result && (
-                    <>
-                        <Separator />
-                        <ResultView result={operation.result} onOpenLink={onOpenLink} />
-                    </>
-                )}
-                {(pollError || cancelError || replyError) && (
-                    <p className="text-xs text-destructive-foreground">{cancelError ?? replyError ?? pollError}</p>
-                )}
-            </CardContent>
+                    <StepList steps={steps} total={stepsTotal} working={working} />
+                ))}
+            {!isUpdate && working && steps.length === 0 && operation.plan.length === 0 && (
+                <CurrentStep label={phase === 'starting' ? 'Starting a sandbox for PostHog AI' : 'Getting started'} />
+            )}
+
+            {!operation.result && operation.summary && working && (
+                <Text size="sm" variant="muted" className="whitespace-pre-wrap break-words">
+                    {operation.summary}
+                </Text>
+            )}
+
+            {operation.result && operation.state !== 'needs_input' && (
+                <ResultSection result={operation.result} onOpenLink={onOpenLink} onAskFollowUp={onAskFollowUp} />
+            )}
+
+            {reason && (
+                <Text size="sm" variant={phase === 'canceled' ? 'muted' : 'destructive'}>
+                    {reason}
+                </Text>
+            )}
+            {error && (
+                <Text size="xs" variant="destructive">
+                    {error}
+                </Text>
+            )}
+
+            <Footer operation={operation} onOpenLink={onOpenLink} stepsTotal={isUpdate ? stepsTotal : 0} />
         </Card>
     )
 }

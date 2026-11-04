@@ -1,0 +1,202 @@
+/* Motion for the PostHog Agent views. Every animation stops when the user asks for reduced motion. */
+
+.agent-mark--active svg {
+    animation: agent-mark-bob 1.6s ease-in-out infinite;
+}
+
+@keyframes agent-mark-bob {
+    0%,
+    100% {
+        transform: translateY(0) rotate(0deg);
+    }
+    50% {
+        transform: translateY(-2px) rotate(-6deg);
+    }
+}
+
+.agent-confetti {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.agent-confetti__piece {
+    position: absolute;
+    top: 3rem;
+    left: 50%;
+    width: 6px;
+    height: 10px;
+    border-radius: 2px;
+    opacity: 0;
+    animation: agent-confetti-burst 1.4s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+
+@keyframes agent-confetti-burst {
+    0% {
+        opacity: 1;
+        transform: translate(0, 0) rotate(0deg);
+    }
+    70% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+        transform: translate(var(--agent-confetti-x), calc(var(--agent-confetti-y) + 90px))
+            rotate(var(--agent-confetti-r));
+    }
+}
+
+.agent-confetti__piece:nth-child(1) {
+    --agent-confetti-x: -120px;
+    --agent-confetti-y: -70px;
+    --agent-confetti-r: 320deg;
+    animation-delay: 0ms;
+    background: var(--primary);
+}
+
+.agent-confetti__piece:nth-child(2) {
+    --agent-confetti-x: -90px;
+    --agent-confetti-y: -110px;
+    --agent-confetti-r: -260deg;
+    animation-delay: 40ms;
+    background: var(--warning-foreground);
+}
+
+.agent-confetti__piece:nth-child(3) {
+    --agent-confetti-x: -60px;
+    --agent-confetti-y: -60px;
+    --agent-confetti-r: 200deg;
+    animation-delay: 90ms;
+    background: var(--success-foreground);
+}
+
+.agent-confetti__piece:nth-child(4) {
+    --agent-confetti-x: -30px;
+    --agent-confetti-y: -120px;
+    --agent-confetti-r: -340deg;
+    animation-delay: 20ms;
+    background: var(--info-foreground);
+}
+
+.agent-confetti__piece:nth-child(5) {
+    --agent-confetti-x: 0px;
+    --agent-confetti-y: -95px;
+    --agent-confetti-r: 280deg;
+    animation-delay: 60ms;
+    background: var(--completed-foreground);
+}
+
+.agent-confetti__piece:nth-child(6) {
+    --agent-confetti-x: 30px;
+    --agent-confetti-y: -125px;
+    --agent-confetti-r: -220deg;
+    animation-delay: 10ms;
+    background: var(--destructive-foreground);
+}
+
+.agent-confetti__piece:nth-child(7) {
+    --agent-confetti-x: 60px;
+    --agent-confetti-y: -70px;
+    --agent-confetti-r: 300deg;
+    animation-delay: 80ms;
+    background: var(--primary);
+}
+
+.agent-confetti__piece:nth-child(8) {
+    --agent-confetti-x: 90px;
+    --agent-confetti-y: -105px;
+    --agent-confetti-r: -300deg;
+    animation-delay: 30ms;
+    background: var(--warning-foreground);
+}
+
+.agent-confetti__piece:nth-child(9) {
+    --agent-confetti-x: 120px;
+    --agent-confetti-y: -65px;
+    --agent-confetti-r: 240deg;
+    animation-delay: 70ms;
+    background: var(--success-foreground);
+}
+
+.agent-confetti__piece:nth-child(10) {
+    --agent-confetti-x: -140px;
+    --agent-confetti-y: -30px;
+    --agent-confetti-r: -200deg;
+    animation-delay: 110ms;
+    background: var(--info-foreground);
+}
+
+.agent-confetti__piece:nth-child(11) {
+    --agent-confetti-x: 140px;
+    --agent-confetti-y: -35px;
+    --agent-confetti-r: 260deg;
+    animation-delay: 100ms;
+    background: var(--completed-foreground);
+}
+
+.agent-confetti__piece:nth-child(12) {
+    --agent-confetti-x: -75px;
+    --agent-confetti-y: -140px;
+    --agent-confetti-r: 180deg;
+    animation-delay: 50ms;
+    background: var(--destructive-foreground);
+}
+
+.agent-confetti__piece:nth-child(13) {
+    --agent-confetti-x: 75px;
+    --agent-confetti-y: -140px;
+    --agent-confetti-r: -180deg;
+    animation-delay: 120ms;
+    background: var(--primary);
+}
+
+.agent-confetti__piece:nth-child(14) {
+    --agent-confetti-x: -15px;
+    --agent-confetti-y: -150px;
+    --agent-confetti-r: 360deg;
+    animation-delay: 140ms;
+    background: var(--warning-foreground);
+}
+
+.agent-confetti__piece:nth-child(15) {
+    --agent-confetti-x: 15px;
+    --agent-confetti-y: -55px;
+    --agent-confetti-r: -120deg;
+    animation-delay: 160ms;
+    background: var(--success-foreground);
+}
+
+.agent-confetti__piece:nth-child(16) {
+    --agent-confetti-x: -105px;
+    --agent-confetti-y: -90px;
+    --agent-confetti-r: 220deg;
+    animation-delay: 180ms;
+    background: var(--info-foreground);
+}
+
+.agent-attention {
+    animation: agent-attention-in 320ms ease-out;
+}
+
+@keyframes agent-attention-in {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .agent-mark--active svg,
+    .agent-attention {
+        animation: none;
+    }
+
+    .agent-confetti {
+        display: none;
+    }
+}
