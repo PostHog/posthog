@@ -40,6 +40,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PYTEST_INI = REPO_ROOT / "pytest.ini"
 BASELINE = Path(__file__).with_name("pytest_module_collisions_baseline.txt")
+LEGACY_PERSON_MODE_PRODUCT_TARGETS = REPO_ROOT / ".github" / "legacy-person-mode-product-targets.txt"
+
+
+def _listed_paths(path: Path) -> tuple[str, ...]:
+    """The paths a CI target list names, read the way turbo-discover.js reads it."""
+    lines = (line.split("#", 1)[0].strip().rstrip("/") for line in path.read_text().splitlines())
+    return tuple(line for line in lines if line)
+
 
 # pytest's default `python_files` and `norecursedirs`; this repo overrides neither.
 TEST_FILE_GLOBS = ("test_*.py", "*_test.py")
@@ -61,11 +69,13 @@ CI_SESSIONS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ),
         (),
     ),
+    # The CorePOE rows add the product suites that turbo-discover reads from this list.
     "core-poe": (
         (
             "posthog/clickhouse",
             "posthog/api/test/dashboards",
             "ee/clickhouse",
+            *_listed_paths(LEGACY_PERSON_MODE_PRODUCT_TARGETS),
         ),
         ("posthog/hogql_queries", "posthog/hogql"),
     ),

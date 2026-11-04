@@ -376,6 +376,7 @@ jobs:
                         # Make sure we run if someone is explicitly changing the workflow
                         - .depot/workflows/ci-backend.yml
                         - .github/new-events-schema-targets.txt
+                        - .github/legacy-person-mode-product-targets.txt
                         - .depot/actions/setup-uv/**
                         - .github/clickhouse-versions.json
                         # We use docker compose for tests, make sure we rerun on
@@ -433,6 +434,7 @@ jobs:
                         - rust/feature-flags/src/properties/property_models.rs
                         - .depot/workflows/ci-backend.yml
                         - .github/new-events-schema-targets.txt
+                        - .github/legacy-person-mode-product-targets.txt
                         - .depot/actions/setup-uv/**
                         - .github/clickhouse-versions.json
                         - docker-compose.dev.yml
@@ -2743,6 +2745,10 @@ jobs:
                   # that takes the whole list.
                   JSON_TARGETS_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_files }}
                   JSON_TARGETS_SHARDS: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_shards }}
+                  # The product query-runner suites the legacy-mode rows run, for the products
+                  # in the product matrix, and their shard count when the Django suite does not run.
+                  POE_PRODUCT_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').poe_product_files }}
+                  POE_PRODUCT_SHARDS: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').poe_product_shards }}
                   RUN_JSON_TARGETS: ${{ github.event_name != 'schedule' || github.event.schedule == '23 */3 * * *' }}
                   # Same rule as the django job's condition: the suite runs for a legacy
                   # edit, for a product change that reaches legacy code, and when discovery
@@ -2776,13 +2782,30 @@ jobs:
                       # rows still run the listed paths of the products in the product matrix.
                       core="[]"
                       core_new_events_schema="[]"
-                      core_persons_on_events="[]"
                       core_persons_on_events_new_schema="[]"
                       temporal="[]"
                       temporal_new_events_schema="[]"
                       compat="[]"
                       json_targets_count=0
                       [[ -n "$JSON_TARGETS_FILES" ]] && json_targets_count="${JSON_TARGETS_SHARDS:-1}"
+                      # The product query-runner suites still take their legacy-mode rows in the
+                      # merge queue and on master, because the product jobs run the default mode
+                      # only. The run step hands these rows POE_PRODUCT_FILES alone.
+                      poe_count=0
+                      [[ "$IS_PR_RUN" != "true" && -n "$POE_PRODUCT_FILES" ]] && poe_count="${POE_PRODUCT_SHARDS:-1}"
+                      core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
+                        [range(1; $n + 1) | {
+                          segment: "Core",
+                          "person-on-events": true,
+                          "new-events-schema": false,
+                          "python-version": "3.14.7",
+                          "clickhouse-server-image": $image,
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("core-poe-" + (.|tostring)),
+                          compat: false
+                        }]
+                      ')
                   elif [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the segments that have selected files. Shard
                       # counts come from turbo-discover, which applies its per-shard budget to
@@ -3096,8 +3119,9 @@ jobs:
         # 1. Legacy code directly changed (ee/, posthog/)
         # 2. OR product changes affect legacy code (turbo-discover outputs run_legacy=true)
         # 3. OR turbo-discover itself failed (conservative: run Django on detection failure)
-        # 4. OR a product-only change has events_json paths to run. build_django_matrix
-        #    then builds only the events_json rows, because the Django suite does not run.
+        # 4. OR a product-only change has events_json paths or product legacy-mode suites to
+        #    run. build_django_matrix then builds only those rows, because the Django suite
+        #    does not run. It builds no legacy-mode rows on an ordinary PR.
         # The non-empty include guard covers drafts in skip mode and selected runs
         # that chose zero files — an empty matrix would otherwise fail the job.
         # A status function is required to inspect dependency results after failures.
@@ -3110,7 +3134,8 @@ jobs:
             (needs.changes.outputs.legacy == 'true' ||
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped') ||
-             fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_files != '')
+             fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_files != '' ||
+             fromJSON(needs.turbo-discover.outputs.selection || '{}').poe_product_files != '')
         # increase for tmate testing
         timeout-minutes: 45
         name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }}${{ matrix.json-targets && ' json-targets' || '' }} (persons-on-events ${{ (matrix.segment == 'Core' && !matrix.person-on-events && !matrix.compat) && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
@@ -3513,6 +3538,11 @@ jobs:
                   JSON_TARGETS: ${{ matrix.json-targets && 'true' || 'false' }}
                   # The narrowed events_json paths. Empty when the row takes the whole list.
                   JSON_TARGETS_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_files }}
+                  # The product query-runner suites the legacy-mode rows add to their allowlist.
+                  # DJANGO_SUITE repeats build_django_matrix's rule. When it is false, those
+                  # rows exist for the product suites alone.
+                  POE_PRODUCT_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').poe_product_files }}
+                  DJANGO_SUITE: ${{ needs.changes.outputs.legacy == 'true' || needs.turbo-discover.outputs.run_legacy != 'false' }}
                   # devex: measure core (posthog/ee) coverage on PRs to size the gap vs products. sysmon = low overhead.
                   COVERAGE_CORE: sysmon
                   # The coverage report skips narrowed runs, so
@@ -3639,6 +3669,14 @@ jobs:
                     elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
                         full_targets="./posthog/clickhouse/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
                         full_ignores+=(--ignore=posthog/hogql_queries --ignore=posthog/hogql)
+                        # The product query-runner suites run here as well: the product jobs
+                        # cover them in the default mode only. Without the Django suite, these
+                        # rows exist for them alone.
+                        if [[ "$DJANGO_SUITE" == "true" ]]; then
+                            full_targets+=" $POE_PRODUCT_FILES"
+                        else
+                            full_targets="$POE_PRODUCT_FILES"
+                        fi
                     fi
                     # shellcheck disable=SC2086
                     pytest -v --tb=short --reuse-db -o junit_duration_report=call $full_targets -m "not async_migrations" \

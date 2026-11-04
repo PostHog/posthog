@@ -1,0 +1,20 @@
+# Product test paths that Backend CI also runs under the legacy joined person mode
+# (PERSON_ON_EVENTS_V2_ENABLED=false), in the CorePOE rows of the Django matrix.
+#
+# The product jobs run every product test under the customer default, persons-on-events v2.
+# The joined mode is still the default for organizations created before 2024-06-14 that the
+# persons-on-events-v2-reads-enabled flag does not list, and for self-hosted instances. These
+# query runners compile different SQL in the two modes, so a change that breaks only the joined
+# mode would otherwise pass CI.
+#
+# The rows run where the core legacy-mode allowlist runs: in the merge queue and on master, never
+# on an ordinary PR. They take the paths of the products in that run's product matrix, so a
+# change to one of these products runs its paths even when the Django suite does not run. The
+# rows pass --snapshot-update, because the default-mode product jobs own the snapshots.
+#
+# One path per line, relative to the repository root, under products/<name>/backend/.
+
+products/error_tracking/backend/hogql_queries
+products/experiments/backend/hogql_queries
+products/product_analytics/backend/hogql_queries
+products/web_analytics/backend/hogql_queries

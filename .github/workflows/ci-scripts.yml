@@ -22,9 +22,10 @@ on:
             - .oxlintrc.json
             - .oxfmtrc*
             # turbo-discover.test.js pins the Django segment table to these, and checks
-            # that every path in the events_json list exists.
+            # that every path in the events_json and legacy person mode lists exists.
             - .depot/workflows/ci-backend.yml
             - .github/new-events-schema-targets.txt
+            - .github/legacy-person-mode-product-targets.txt
             # The backend test selector and its verdict script gate ci-backend.
             - tools/snob_backend_test_selection_shadow.py
             - tools/test_snob_backend_test_selection_shadow.py

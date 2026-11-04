@@ -1062,6 +1062,17 @@ const DJANGO_SEGMENTS = {
     },
 }
 
+// Product suites the CorePOE rows add under the legacy joined person mode. The product jobs
+// already run them in the default mode, so unlike a CorePOE include they need no Core
+// counterpart. The workflow cannot list them, because the rows follow the product matrix.
+const POE_PRODUCT_TARGETS_FILE = '.github/legacy-person-mode-product-targets.txt'
+
+// Following the matrix leaves out a product the diff did not reach, and one that
+// SKIP_PRODUCT_TESTS or the quarantine file dropped.
+function decidePoeProductTargets(products, targets) {
+    return targets.filter((target) => isUnderProduct(target, products))
+}
+
 // ranNodeIds, when given, restricts the sum to node ids a real run recorded.
 // The union keeps entries for tests another segment ran, so the prefix rules
 // alone over-count a segment by more than dead entries do.
@@ -1085,18 +1096,26 @@ const JSON_TARGETS_FILE = '.github/new-events-schema-targets.txt'
 
 // The listed paths without comments, blank lines, or trailing slashes. A checkout that has
 // no list yields no paths, and the leg then runs nothing.
-function loadJsonTargets(file = JSON_TARGETS_FILE) {
+function loadTargetList(file, leg) {
     let text
     try {
         text = fs.readFileSync(file, 'utf-8')
     } catch {
-        console.error(`::warning::${file} is missing, so the events_json leg runs no tests`)
+        console.error(`::warning::${file} is missing, so the ${leg} runs no tests from it`)
         return []
     }
     return text
         .split('\n')
         .map((line) => line.replace(/#.*/, '').trim().replace(/\/+$/, ''))
         .filter(Boolean)
+}
+
+function loadJsonTargets(file = JSON_TARGETS_FILE) {
+    return loadTargetList(file, 'events_json leg')
+}
+
+function loadPoeProductTargets(file = POE_PRODUCT_TARGETS_FILE) {
+    return loadTargetList(file, 'legacy person mode leg')
 }
 
 function isUnderPath(file, target) {
@@ -1434,6 +1453,16 @@ function narrowedJsonTargetsShards(paths, durations) {
     return calculateShards(pathsDuration(paths, durations), DJANGO_OVERHEAD_SECONDS_BY_SEGMENT.JsonTargets, 1)
 }
 
+function poeProductShards(paths, durations) {
+    if (paths.length === 0) {
+        return 0
+    }
+    if (!durations) {
+        return DJANGO_FALLBACK_SHARDS.CorePOE
+    }
+    return calculateShards(pathsDuration(paths, durations), DJANGO_OVERHEAD_SECONDS_BY_SEGMENT.CorePOE, 1)
+}
+
 // The run identity the selection telemetry event carries, from the runner's own env.
 function runContext() {
     let prNumber = null
@@ -1461,11 +1490,14 @@ function sizeDjangoSegment(segment, duration, durations, source) {
     return { duration_seconds: duration, shards, estimated_wall_seconds: wall }
 }
 
-function buildDjangoShards(durations, ranNodeIds = {}, jsonTargets = []) {
+function buildDjangoShards(durations, ranNodeIds = {}, jsonTargets = [], poeProductTargets = []) {
     const result = {}
     for (const [segment] of Object.entries(DJANGO_SEGMENTS)) {
         const ran = ranNodeIds[segment] || null
-        const duration = getSegmentDuration(segment, durations, ran)
+        let duration = getSegmentDuration(segment, durations, ran)
+        if (segment === 'CorePOE') {
+            duration += pathsDuration(poeProductTargets, durations)
+        }
         result[segment] = sizeDjangoSegment(segment, duration, durations, ran ? 'auto, junit-scoped' : 'auto, union')
     }
     // No per-segment file records what the events_json leg ran, so it sizes from the union.
@@ -1592,6 +1624,10 @@ module.exports = {
     DJANGO_OVERHEAD_SECONDS_BY_SEGMENT,
     DJANGO_FALLBACK_SHARDS,
     narrowedJsonTargetsShards,
+    poeProductShards,
+    buildDjangoShards,
+    decidePoeProductTargets,
+    loadPoeProductTargets,
     DJANGO_SEGMENTS,
     getIsolatedProducts,
     collectTestFiles,
@@ -1905,8 +1941,10 @@ const jsonTargetFiles = decideJsonTargets({
     diffProducts,
 })
 
+const poeProductFiles = decidePoeProductTargets(products, loadPoeProductTargets())
+
 console.error('\nDjango shard calculation:')
-const djangoShards = buildDjangoShards(durations, ranNodeIds, fullRunJsonTargets(jsonTargets, skippedProducts))
+const djangoShards = buildDjangoShards(durations, ranNodeIds, fullRunJsonTargets(jsonTargets, skippedProducts), poeProductFiles)
 if (jsonTargetFiles !== null) {
     console.error(`events_json leg runs ${jsonTargetFiles.length} of ${jsonTargets.length} paths: ${JSON.stringify(jsonTargetFiles)}`)
 }
@@ -1933,6 +1971,9 @@ const result = {
         // and build_django_matrix lowers that to json_targets_shards when this list is shorter.
         json_targets_files: jsonTargetFiles === null ? '' : jsonTargetFiles.join(' '),
         json_targets_shards: jsonTargetFiles === null ? '' : narrowedJsonTargetsShards(jsonTargetFiles, durations),
+        // When the Django suite does not run, the CorePOE rows take these alone, at poe_product_shards.
+        poe_product_files: poeProductFiles.join(' '),
+        poe_product_shards: poeProductShards(poeProductFiles, durations),
     },
     // The posthog-ci-test-selection event, ready for the capture-test-selection job.
     telemetry: {

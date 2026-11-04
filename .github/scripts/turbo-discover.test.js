@@ -15,7 +15,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-const { DJANGO_SEGMENTS, getIsolatedProducts, loadJsonTargets } = require('./turbo-discover')
+const { DJANGO_SEGMENTS, getIsolatedProducts, loadJsonTargets, loadPoeProductTargets } = require('./turbo-discover')
 
 const REPO_ROOT = path.join(__dirname, '..', '..')
 const WORKFLOW = '.depot/workflows/ci-backend.yml'
@@ -161,18 +161,28 @@ test('isolation needs both the contract-check script and narrowed contract input
 // The events_json rows skip a listed path that a checkout lacks, and pytest passes a path
 // that collects nothing, so a typo, a moved directory, or a directory of runner modules alone
 // would drop out of the leg without failing anything. The index covers the paths that the
-// sparse checkout of this suite leaves out of the working tree.
-test('every events_json path holds a test module', () => {
-    const targets = loadJsonTargets(path.join(REPO_ROOT, '.github/new-events-schema-targets.txt'))
-    assert.ok(targets.length > 0)
-    for (const target of targets) {
-        const tracked = execFileSync('git', ['ls-files', '-z', '--', target], { cwd: REPO_ROOT })
-            .toString()
-            .split('\0')
-            .filter(Boolean)
-        assert.ok(
-            tracked.some((file) => /(^|\/)(test_[^/]*|[^/]*_test)\.py$/.test(file)),
-            `${target} is listed but holds no test module`
-        )
-    }
-})
+// sparse checkout of this suite leaves out of the working tree. The legacy person mode list
+// feeds pytest the same way. A path of it outside products/<name>/backend/ is one no product
+// job runs, so it would get the legacy mode only.
+for (const [file, load, mustSitUnder] of [
+    ['.github/new-events-schema-targets.txt', loadJsonTargets, null],
+    ['.github/legacy-person-mode-product-targets.txt', loadPoeProductTargets, /^products\/[a-z0-9_]+\/backend\//],
+]) {
+    test(`every path in ${file} holds a test module`, () => {
+        const targets = load(path.join(REPO_ROOT, file))
+        assert.ok(targets.length > 0)
+        for (const target of targets) {
+            if (mustSitUnder) {
+                assert.match(`${target}/`, mustSitUnder, `${target} is not under a product's backend/`)
+            }
+            const tracked = execFileSync('git', ['ls-files', '-z', '--', target], { cwd: REPO_ROOT })
+                .toString()
+                .split('\0')
+                .filter(Boolean)
+            assert.ok(
+                tracked.some((file) => /(^|\/)(test_[^/]*|[^/]*_test)\.py$/.test(file)),
+                `${target} is listed but holds no test module`
+            )
+        }
+    })
+}

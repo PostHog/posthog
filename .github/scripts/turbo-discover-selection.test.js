@@ -8,6 +8,7 @@ const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const {
     decideJsonTargets,
+    decidePoeProductTargets,
     decideSelection,
     isDagsterOnlyLegacyEdit,
     narrowedProducts,
@@ -314,5 +315,20 @@ test('the events_json leg runs the whole list, a narrowed list, or nothing', () 
     ]
     for (const [overrides, expected] of cases) {
         assert.deepEqual(jsonTargets(overrides), expected, JSON.stringify(overrides))
+    }
+})
+
+// Matrix names are dashed and directories underscored. A comparison that skips the
+// conversion keeps no product, so the legacy-mode rows would run nothing and still pass.
+test('the legacy-mode rows take the product suites of the products in the matrix', () => {
+    const targets = ['products/product_analytics/backend/hogql_queries', 'products/web_analytics/backend/hogql_queries']
+    const cases = [
+        [['product-analytics', 'surveys'], ['products/product_analytics/backend/hogql_queries']],
+        [['product-analytics', 'web-analytics'], targets],
+        [['surveys'], []],
+        [[], []],
+    ]
+    for (const [products, expected] of cases) {
+        assert.deepEqual(decidePoeProductTargets(products, targets), expected, JSON.stringify(products))
     }
 })
