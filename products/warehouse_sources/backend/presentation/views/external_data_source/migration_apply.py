@@ -177,6 +177,7 @@ class ExternalDataSourceMigrationApplyMixin(ExternalDataSourceSetupMixin, Extern
                 f"`{name}` syncs only through a webhook. It stays off unless PostHog could register the webhook."
                 for name in planned.webhook_only
             ),
+            *(f"Fivetran syncs none of the columns of `{name}`, so it stays off." for name in planned.no_columns),
         ]
 
     def _apply_schedule(self, source: ExternalDataSource, item: ClaimedWarehouseMigrationItem) -> None:

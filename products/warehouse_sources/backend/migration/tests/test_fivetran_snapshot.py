@@ -277,7 +277,11 @@ class TestStripSecrets(SimpleTestCase):
                 },
                 {},
             ),
-            ("service_specific_credentials", {"service_authentication": "fake", "primary_key": "fake"}, {}),
+            (
+                "service_specific_credentials",
+                {"service_authentication": "fake", "primary_key": "fake", "app_id": "fake"},
+                {},
+            ),
             (
                 "client_certificate_is_secret_but_ca_is_not",
                 {

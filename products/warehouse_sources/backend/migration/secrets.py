@@ -20,8 +20,9 @@ _SECRET_KEY_PARTS = (
     # DSV's `service_authentication` holds `username:password`.
     "authentication",
 )
-# Secret fields whose names fit no rule above (GitHub personal access tokens, Alchemer's API key).
-_SECRET_KEYS = frozenset({"pat", "pats", "pwd", "queryparamvalue"})
+# Secret fields whose names fit no rule above (GitHub personal access tokens, Alchemer's API key,
+# Open Exchange Rates' app id).
+_SECRET_KEYS = frozenset({"appid", "pat", "pats", "pwd", "queryparamvalue"})
 # Any key that ends in "key" or "keys", maybe with a number (`sasl_plain_key`, `api_keys`, `api_key_2`), is a
 # secret, except these. A singular `primary_key` is a credential in some connectors (Care Quality Commission).
 _NON_SECRET_KEYS = frozenset(

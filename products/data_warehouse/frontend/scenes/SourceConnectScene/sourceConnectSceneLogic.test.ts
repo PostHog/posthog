@@ -186,6 +186,27 @@ describe('sourceConnectSceneLogic', () => {
         errorToast.mockRestore()
     })
 
+    it('drops the previous item values when switching items', async () => {
+        await expectLogic(sourceConnectSceneLogic, () =>
+            sourceConnectSceneLogic.actions.loadMigrationPrefill(MIGRATION_ID, ITEM_ID)
+        ).toFinishAllListeners()
+        sourceConnectSceneLogic.actions.setCredentialsFormValue(['payload', 'password'], 'typed-for-item-a')
+        useMocks({
+            get: {
+                '/api/projects/:team_id/warehouse_migrations/:id/items/:item_id/': {
+                    id: OTHER_ITEM_ID,
+                    proposal: { prefill: { host: 'other.example.com' } },
+                },
+            },
+        })
+
+        await expectLogic(sourceConnectSceneLogic, () =>
+            sourceConnectSceneLogic.actions.loadMigrationPrefill(MIGRATION_ID, OTHER_ITEM_ID)
+        ).toFinishAllListeners()
+
+        expect(sourceConnectSceneLogic.values.credentialsForm.payload).toEqual({ host: 'other.example.com' })
+    })
+
     it('keeps the prefill of the latest item when an earlier request finishes last', async () => {
         let releaseFirst: () => void = () => {}
         const firstReleased = new Promise<void>((resolve) => {

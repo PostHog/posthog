@@ -531,6 +531,8 @@ class PlannedMigrationSchemas:
     webhook_only: list[str]
     # Discovered tables the plan covers.
     planned: list[str]
+    # Planned tables whose every column Fivetran skips, so they stay off.
+    no_columns: list[str]
 
 
 @dataclass(frozen=True)
