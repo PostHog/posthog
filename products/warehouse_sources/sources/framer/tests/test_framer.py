@@ -280,15 +280,27 @@ class TestFramer:
         assert exc_info.value.code == "CONNECTION_CLOSED"
         assert exc_info.value.retryable
 
-    def test_client_raises_on_method_error(self) -> None:
+    @parameterized.expand(
+        [
+            ("generic", "Node not found", "METHOD_ERROR", False),
+            # The server reports its own per-call timeout inline on the methodResponse,
+            # not as the generic `{"type": "error"}` message tested below.
+            ("method_timeout", 'Method "getNode" timed out after 120000ms', "TIMEOUT", True),
+        ]
+    )
+    def test_client_raises_on_method_error(
+        self, _name: str, error: str, expected_code: str, expected_retryable: bool
+    ) -> None:
         server = FakeFramerServer()
         client = make_client(server)
-        server.enqueue_raw(devalue.stringify({"type": "methodResponse", "id": 0, "error": "Node not found"}))
+        server.enqueue_raw(devalue.stringify({"type": "methodResponse", "id": 0, "error": error}))
         # Disable the auto-responder so the queued error response is the one consumed.
         server.auto_respond = False
         with pytest.raises(FramerAPIError) as exc_info:
             client.call("getNode")
-        assert "Node not found" in str(exc_info.value)
+        assert error in str(exc_info.value)
+        assert exc_info.value.code == expected_code
+        assert exc_info.value.retryable is expected_retryable
 
     def test_client_reassembles_chunked_messages(self) -> None:
         server = FakeFramerServer()

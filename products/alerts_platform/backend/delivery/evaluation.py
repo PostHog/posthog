@@ -189,6 +189,17 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     )
     if announced is None:
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
+    if stale := delivery_holds.stale_held_triggers(request, announced.transitions):
+        logger.info(
+            "alerts_platform_delivery_stale_trigger_dropped",
+            configuration_id=request.configuration_id,
+            evaluation_key=request.evaluation_key,
+            groups=len(stale),
+        )
+        request = replace(
+            request,
+            incident_actions={key: action for key, action in request.incident_actions.items() if key not in stale},
+        )
     platform_destinations = _platform_destinations(request)
     native_announced, emissions = _split_by_path(request, announced, platform_destinations)
     emitter = delivery_paths.emitter_for(request.source) if emissions else None
@@ -600,7 +611,7 @@ def _platform_subscribers(event_id: str, platform: _PlatformDestinations) -> lis
         _SubscribedDestination(id=str(destination.id), data=destination.data, receives_emitted_events=False)
         for destination in platform.destinations
         if (destination.data["type"] in INCIDENT_DESTINATION_TYPES) == incident
-        and (incident or kind in destination.event_kinds)
+        and (incident or kind.delivered_as in destination.event_kinds)
     ]
     # The source's recipients read messages. An incident edge is for an incident manager only.
     if platform.recipients and not incident:
