@@ -30,11 +30,19 @@ export class OrganizationMembersService {
 
     private async lookupMembers(teamId: number): Promise<MemberRow[]> {
         const tag = 'fetch-sandbox-team-organization-members'
+        let timedOut = false
         let timer: NodeJS.Timeout | undefined
         const deadline = new Promise<never>((_, reject) => {
-            timer = setTimeout(() => reject(new Error('The organization member lookup timed out')), LOOKUP_TIMEOUT_MS)
+            timer = setTimeout(() => {
+                timedOut = true
+                reject(new Error('The organization member lookup timed out'))
+            }, LOOKUP_TIMEOUT_MS)
         })
         const lookup = this.postgres.transaction(PostgresUse.COMMON_WRITE, tag, async (tx) => {
+            // Nobody waits for a lookup that got its connection after its deadline, so it runs no query.
+            if (timedOut) {
+                throw new Error('The organization member lookup was abandoned at its deadline')
+            }
             await this.postgres.query(tx, `SET LOCAL statement_timeout = ${LOOKUP_TIMEOUT_MS}`, undefined, tag)
             // Only an explicit false deactivates an organization, matching the web middleware.
             const result = await this.postgres.query<MemberRow>(
