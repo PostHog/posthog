@@ -47960,7 +47960,7 @@ export namespace Schemas {
       sdk: string;
       /** Number of billable requests in this bucket. */
       request_count: number;
-      /** Estimated billing units. Local evaluation requests count as 10 units each. */
+      /** Estimated billing units. Local evaluation requests count as 10 units each, except 304 Not Modified responses, which count as 1. */
       billing_units: number;
     }
 
