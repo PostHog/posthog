@@ -407,6 +407,12 @@ class _PluginOnlySource(SimpleSource[_PluginOnlySourceConfig]):
 
 
 class TestExternalDataSource(APIBaseTest):
+    def _mock_source_config(self, mock_get_source: MagicMock, source: type[Any] = StripeSource) -> None:
+        # The patch replaces `get_source` for every caller, and the stored-config lookups read the real config class.
+        real = source()
+        mock_get_source.return_value._config_class = real._config_class
+        mock_get_source.return_value.get_source_config = real.get_source_config
+
     def _create_external_data_source(self, created_via: str = ExternalDataSource.CreatedVia.WEB) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -3977,6 +3983,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_creates_new_schemas_and_returns_counts(self, mock_get_source):
+        self._mock_source_config(mock_get_source)
         parsed_config = Mock(spec=["to_dict"])
         parsed_config.to_dict.return_value = {
             "host": "localhost",
@@ -4049,6 +4056,7 @@ class TestExternalDataSource(APIBaseTest):
     @patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_auto_enables_matching_new_schemas(self, mock_get_source, mock_schedule):
+        self._mock_source_config(mock_get_source)
         mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(
@@ -4132,6 +4140,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_creates_new_schemas_and_deletes_missing_schemas(self, mock_get_source):
+        self._mock_source_config(mock_get_source)
         mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(name="new_table", supports_incremental=False, supports_append=False),
@@ -4162,6 +4171,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_adds_only_new_schemas(self, mock_get_source):
+        self._mock_source_config(mock_get_source)
         mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(name="existing", supports_incremental=False, supports_append=False),
@@ -4189,6 +4199,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_idempotent_no_duplicates(self, mock_get_source):
+        self._mock_source_config(mock_get_source)
         mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(name="only_one", supports_incremental=False, supports_append=False),
@@ -4211,6 +4222,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_restores_deleted_schema_instead_of_creating_duplicate(self, mock_get_source):
+        self._mock_source_config(mock_get_source)
         mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(
@@ -4258,6 +4270,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_updates_labels_on_existing_schemas(self, mock_get_source):
+        self._mock_source_config(mock_get_source)
         mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(name="c123", label="general", supports_incremental=False, supports_append=False),
@@ -4277,6 +4290,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_updates_changed_label(self, mock_get_source):
+        self._mock_source_config(mock_get_source)
         mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(name="c123", label="renamed-channel", supports_incremental=False, supports_append=False),
@@ -4296,6 +4310,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_sets_label_on_new_schema(self, mock_get_source):
+        self._mock_source_config(mock_get_source)
         mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(name="c456", label="random", supports_incremental=False, supports_append=False),
@@ -4312,6 +4327,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_sets_label_on_restored_deleted_schema(self, mock_get_source):
+        self._mock_source_config(mock_get_source)
         mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(name="c789", label="announcements", supports_incremental=False, supports_append=False),
@@ -4358,6 +4374,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_returns_zero_total_tables_seen_when_source_returns_nothing(self, mock_get_source):
+        self._mock_source_config(mock_get_source)
         mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_schemas.return_value = []
         source = self._create_external_data_source()
@@ -4471,6 +4488,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_direct_postgres_soft_deletes_live_tables_for_deleted_schemas(self, mock_get_source):
+        self._mock_source_config(mock_get_source, PostgresSource)
         mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_schemas.return_value = []
         source = ExternalDataSource.objects.create(
@@ -4511,6 +4529,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_direct_postgres_keeps_disabled_schema_table_deleted(self, mock_get_source):
+        self._mock_source_config(mock_get_source, PostgresSource)
         mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(
@@ -4562,6 +4581,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_direct_postgres_new_schema_is_opt_in(self, mock_get_source):
+        self._mock_source_config(mock_get_source, PostgresSource)
         mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(
@@ -4595,6 +4615,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_direct_postgres_preserves_disabled_schema_when_it_reappears(self, mock_get_source):
+        self._mock_source_config(mock_get_source, PostgresSource)
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -4645,6 +4666,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_direct_postgres_preserves_enabled_schema_when_it_reappears(self, mock_get_source):
+        self._mock_source_config(mock_get_source, PostgresSource)
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -4719,6 +4741,7 @@ class TestExternalDataSource(APIBaseTest):
     def test_refresh_schemas_direct_postgres_updates_connection_metadata(
         self, _name, access_method, expected_metadata, mock_get_source
     ):
+        self._mock_source_config(mock_get_source, PostgresSource)
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -6025,6 +6048,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_renames_legacy_direct_query_rows(self, mock_get_source):
+        self._mock_source_config(mock_get_source, PostgresSource)
         # Direct-query mode opts in to eager renaming: the live `DataWarehouseTable` is rebuilt
         # from `schema_metadata` on every `refresh_schemas`, so renaming the row never orphans
         # data. This is the long-standing behavior we MUST preserve for direct sources.
