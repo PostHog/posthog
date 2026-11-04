@@ -21,7 +21,6 @@ from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import openai_gateway_configured
 from posthog.models import Team
 from posthog.ph_client import ph_background_capture
-from posthog.schema_enums import EmbeddingModelName
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
@@ -64,6 +63,7 @@ from products.signals.backend.activity_summary.queue import (
 )
 from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RENDER_VERSION, RenderLimits
 from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, PIPELINE_DISTINCT_ID
+from products.signals.backend.constants import SIGNALS_EMBEDDING_MODELS
 from products.signals.backend.models import UserActivitySummary
 from products.signals.backend.report_embeddings import EMBEDDING_PRODUCT
 
@@ -280,7 +280,7 @@ def emit_summary_embedding(
         rendering=rendering,
         document_id=document_id,
         # The models of the report embeddings, so both share one vector space.
-        models=[model.value for model in EmbeddingModelName],
+        models=[model.value for model in SIGNALS_EMBEDDING_MODELS],
         timestamp=timestamp,
         metadata=metadata,
     )
