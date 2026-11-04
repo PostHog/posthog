@@ -1,5 +1,6 @@
 ---
 name: signals-scout-revenue-analytics
+disable-model-invocation: true
 scout-display-name: Revenue analytics
 description: >
   Signals scout for PostHog revenue analytics. Watches for upstream failures (Stripe sync

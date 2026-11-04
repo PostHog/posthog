@@ -1,5 +1,6 @@
 ---
 name: signals-scout-workflows
+disable-model-invocation: true
 scout-display-name: Workflows
 description: >
   Signals scout for PostHog workflows.

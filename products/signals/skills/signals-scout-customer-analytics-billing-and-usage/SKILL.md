@@ -1,5 +1,6 @@
 ---
 name: signals-scout-customer-analytics-billing-and-usage
+disable-model-invocation: true
 scout-display-name: 'Customer analytics: billing and usage'
 description: >
   Signals scout for per-account product-mix shifts. Watches each staked account's usage and
