@@ -21,17 +21,26 @@ QUERY_DEADLINE_SECONDS = 60 * 60
 
 
 # The IAM actions this source calls. A role session can use only these.
+# Athena runs the query as the caller and writes the results to the workgroup's S3 location.
 AWS_SESSION_ACTIONS = (
-    "athena:Get*",
-    "athena:List*",
+    "athena:GetQueryExecution",
+    "athena:GetQueryResults",
+    "athena:GetWorkGroup",
     "athena:StartQueryExecution",
     "athena:StopQueryExecution",
-    "glue:BatchGet*",
-    "glue:Get*",
+    "glue:BatchGetPartition",
+    "glue:GetDatabase",
+    "glue:GetPartition",
+    "glue:GetPartitions",
+    "glue:GetTable",
+    "glue:GetTables",
     "kms:Decrypt",
     "kms:GenerateDataKey",
     "s3:AbortMultipartUpload",
-    "s3:Get*",
-    "s3:List*",
+    "s3:GetBucketLocation",
+    "s3:GetObject",
+    "s3:ListBucket",
+    "s3:ListBucketMultipartUploads",
+    "s3:ListMultipartUploadParts",
     "s3:PutObject",
 )

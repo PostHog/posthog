@@ -58,9 +58,10 @@ NON_RETRYABLE_ERROR_MESSAGES: dict[str, str | None] = {
 
 
 # The IAM actions this source calls. A role session can use only these.
+# kms:Decrypt reads a table encrypted with a customer managed key.
 AWS_SESSION_ACTIONS = (
-    "dynamodb:Describe*",
-    "dynamodb:List*",
+    "dynamodb:DescribeTable",
+    "dynamodb:ListTables",
     "dynamodb:Scan",
     "kms:Decrypt",
 )
