@@ -254,9 +254,8 @@ const CLAIM_ALL_OR_NOTHING_LUA = `
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
 local claimKey = KEYS[#KEYS]
-local previous = redis.call('GET', claimKey)
-if previous then
-    return cjson.decode(previous)
+if redis.call('EXISTS', claimKey) == 1 then
+    return {1}
 end
 if now > tonumber(ARGV[#ARGV - 1]) then
     return {0}
@@ -294,9 +293,8 @@ for i = 1, #KEYS - 1 do
     redis.call('hset', KEYS[i], 'ts', now, 'pool', available[i] - tonumber(ARGV[offset + 1]))
     redis.call('expire', KEYS[i], tonumber(ARGV[offset + 4]))
 end
-local granted = {1}
-redis.call('SET', claimKey, cjson.encode(granted), 'NX', 'PX', replayTtlMs)
-return granted
+redis.call('SET', claimKey, 1, 'NX', 'PX', replayTtlMs)
+return {1}
 `
 
 // ioredis can replay unanswered commands, so returns need deduplication and an expiry.
@@ -319,13 +317,21 @@ return 1
 `
 
 const RETURN_WINDOW_MS = 5 * 60 * 1000
+// A claim that reaches Valkey after its caller gave up, such as one ioredis resends after a reconnect, must not
+// take tokens no send uses. The window covers the optional pool's command timeout plus clock skew with Valkey.
+const CLAIM_ACCEPT_WINDOW_MS = 2000
 
 export interface RateLimiterConfig {
     /** Logical name for metrics/logging only (e.g. 'ses'). */
     name: string
 }
 
-export type IssuedClaim = { granted: true; claimId: string; returnBy: number }
+export type IssuedClaim = {
+    granted: true
+    claimId: string
+    returnBy: number
+    buckets: readonly Pick<ClaimRequest, 'key' | 'requested'>[]
+}
 
 export interface ClaimRequest {
     key: string
@@ -450,10 +456,14 @@ export class RateLimiterService {
     public async claimAllOrNothing(
         buckets: ClaimRequest[]
     ): Promise<IssuedClaim | { granted: false; deniedIndexes: number[] | null }> {
-        const endTimer = claimLatency.startTimer({ limiter: this.config.name })
         const keys = buckets.map((bucket) => bucket.key)
+        // A repeated key is checked against its balance before either write, so it would pass twice and spend once.
+        if (!keys.length || new Set(keys).size !== keys.length) {
+            throw new Error('claimAllOrNothing needs at least one bucket, and every bucket key only once')
+        }
+        const endTimer = claimLatency.startTimer({ limiter: this.config.name })
         const claimId = randomUUID()
-        const deadline = Date.now() + RETURN_WINDOW_MS
+        const issuedAt = Date.now()
         try {
             const result = await this.valkey.useClient(
                 { name: `rate-limiter:${this.config.name}:claimAllOrNothing`, timeout: 1000 },
@@ -468,13 +478,23 @@ export class RateLimiterService {
                                 String
                             )
                         ),
-                        String(deadline),
+                        String(issuedAt + CLAIM_ACCEPT_WINDOW_MS),
                         String(2 * RETURN_WINDOW_MS)
                     )
             )
             if (Array.isArray(result) && result.length === 1 && result[0] === 1) {
                 claimCounter.inc({ limiter: this.config.name, result: 'granted_full' })
-                return { granted: true, claimId, returnBy: deadline }
+                return {
+                    granted: true,
+                    claimId,
+                    returnBy: issuedAt + RETURN_WINDOW_MS,
+                    buckets: buckets.map(({ key, requested }) => ({ key, requested })),
+                }
+            }
+            if (Array.isArray(result) && result.length === 1 && result[0] === 0) {
+                logger.warn('🪙', `RateLimiterService(${this.config.name}) claim reached Valkey too late`, { keys })
+                claimCounter.inc({ limiter: this.config.name, result: 'expired' })
+                return { granted: false, deniedIndexes: null }
             }
             if (
                 Array.isArray(result) &&
@@ -578,10 +598,8 @@ export class RateLimiterService {
         }
     }
 
-    public async returnClaim(
-        claim: Pick<IssuedClaim, 'claimId' | 'returnBy'>,
-        buckets: Pick<ClaimRequest, 'key' | 'requested'>[]
-    ): Promise<void> {
+    public async returnClaim(claim: Pick<IssuedClaim, 'claimId' | 'returnBy' | 'buckets'>): Promise<void> {
+        const { buckets } = claim
         const keys = buckets.map((bucket) => bucket.key)
         try {
             await this.valkey.useClient(

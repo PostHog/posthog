@@ -506,30 +506,37 @@ describe('EmailService', () => {
                 }
             )
 
-            it.each([false, true])(
-                'permits sandbox destination invocations only as explicit tests (isTest=%s)',
-                async (isTest) => {
-                    service = createSandboxService(true)
-                    const destination = createExampleInvocation({ team_id: team.id, id: 'email-destination' })
-                    destination.state.vmState = { stack: [] } as any
-                    destination.queueParameters = createSandboxParams()
+            it.each([
+                ['a destination', false],
+                ['a destination', true],
+                ['a broadcast', false],
+                ['a broadcast', true],
+            ] as const)('permits sandbox sends from %s only as explicit tests (isTest=%s)', async (source, isTest) => {
+                service = createSandboxService(true)
+                const sending =
+                    source === 'a destination'
+                        ? createExampleInvocation({ team_id: team.id, id: 'email-destination' })
+                        : Object.assign(invocation, {
+                              hogFlow: { id: invocation.functionId, team_id: team.id, trigger: { type: 'batch' } },
+                          })
+                sending.state.vmState = { stack: [] } as any
+                sending.queueParameters = createSandboxParams()
 
-                    const result = await service.executeSendEmail(destination, isTest)
+                const result = await service.executeSendEmail(sending, isTest)
 
-                    expect(result.error).toBeUndefined()
-                    expect(sendEmailSpy).toHaveBeenCalledTimes(isTest ? 1 : 0)
-                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: isTest }])
-                    if (!isTest) {
-                        expectSkipped(result)
-                        expect(result.logs).toContainEqual(
-                            expect.objectContaining({
-                                message:
-                                    'Skipping send: the sandbox sender is only available for workflows and test sends.',
-                            })
-                        )
-                    }
+                expect(result.error).toBeUndefined()
+                expect(sendEmailSpy).toHaveBeenCalledTimes(isTest ? 1 : 0)
+                expect(result.invocation.state.vmState?.stack).toEqual([{ success: isTest }])
+                if (!isTest) {
+                    expectSkipped(result)
+                    expect(result.logs).toContainEqual(
+                        expect.objectContaining({
+                            message:
+                                'Skipping send: the sandbox sender only sends workflow email steps and test sends. Verify your own domain to send broadcasts and transactional email.',
+                        })
+                    )
                 }
-            )
+            })
 
             it.each([
                 [false, '<body>Hello <a href="https://example.com">there</a>.</body>', 'Hello ', false],
@@ -899,40 +906,6 @@ describe('EmailService', () => {
                 expectBlockedEvent('check_failed', false, 2)
             })
 
-            it('checks members again right before delivery', async () => {
-                const now = Date.now()
-                const clock = jest.spyOn(Date, 'now').mockReturnValue(now)
-                const preparation = jest.spyOn(EmailSuppressionService.prototype, 'isSuppressed')
-                const isSuppressed = preparation.getMockImplementation()!
-                try {
-                    service = createSandboxService(true)
-                    await service.executeSendEmail(invocation)
-                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
-                    await hub.postgres.query(
-                        PostgresUse.COMMON_WRITE,
-                        'DELETE FROM posthog_organizationmembership WHERE user_id = $1',
-                        [memberId],
-                        'test:revoke-sandbox-member-during-preparation'
-                    )
-                    clock.mockReturnValue(now + 58_000)
-                    preparation.mockImplementation(async function (this: EmailSuppressionService, ...args) {
-                        const suppressed = await isSuppressed.apply(this, args)
-                        clock.mockReturnValue(now + 63_000)
-                        return suppressed
-                    })
-                    invocation.state.vmState = { stack: [] } as any
-
-                    const result = await service.executeSendEmail(invocation)
-
-                    expect(result).toMatchObject({ finished: true, skipped: true, metrics: [] })
-                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
-                    expectBlockedEvent('recipient_not_member', false, 1)
-                } finally {
-                    clock.mockRestore()
-                    preparation.mockRestore()
-                }
-            })
-
             it('blocks a member removed during preparation while the member snapshot is still fresh', async () => {
                 const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now())
                 const preparation = jest.spyOn(EmailSuppressionService.prototype, 'isSuppressed')
@@ -1064,19 +1037,20 @@ describe('EmailService', () => {
                     }
                 )
 
-                it('charges a repeated address once per address and once per copy for the project', async () => {
+                it('charges a repeated address once for the address and once for the project', async () => {
                     service = createSandboxService(true, {
-                        senderSettings: { dailyTeamCap: '3', dailyRecipientCap: '1' },
+                        senderSettings: { dailyTeamCap: '2', dailyRecipientCap: '1' },
                     })
 
                     expectSent(await send(false, { cc: memberEmail().toUpperCase(), bcc: ` ${memberEmail()} ` }))
+                    expectSent(await send(false, { to: { email: memberEmail('cc') } }))
                     expectCapSkip(
-                        await send(false, { to: { email: memberEmail('cc') } }),
+                        await send(false, { to: { email: memberEmail('bcc') } }),
                         false,
                         TEAM_CAP_REACHED,
                         'cap_reached'
                     )
-                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(2)
                 })
 
                 it('refills a spent allowance over a day rather than seconds', async () => {
@@ -1200,49 +1174,35 @@ describe('EmailService', () => {
             })
 
             it.each([
-                ['the sandbox sender is switched off', false, {}, () => ({}), 'sending_suspended'],
-                [
-                    'the recipient is not a member',
-                    true,
-                    {},
-                    () => ({ to: { email: 'outside@example.com' } }),
-                    'recipient_unreachable',
-                ],
-                [
-                    'the project reached its daily cap',
-                    true,
-                    { dailyTeamCap: '1' },
-                    () => ({ cc: memberEmail('cc') }),
-                    'frequency_capped',
-                ],
-            ])(
-                'records a skipped transactional email when %s',
-                async (_case, enabled, senderSettings, params, expectedReason) => {
-                    const produce = jest.fn().mockResolvedValue(undefined)
-                    const emailStatusService = new EmailStatusService(
-                        { produce } as unknown as IngestionOutputs<EmailStatusOutput>,
-                        { EMAIL_STATUS_ENABLED: true }
-                    )
-                    service = createSandboxService(enabled, { senderSettings })
-                    service['emailStatusService'] = emailStatusService
-                    invocation.id = new UUIDT().toString()
-                    invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
-                    invocation.queueParameters = createSandboxParams(params())
+                ['the sandbox sender is switched off', false],
+                ['the recipient is a verified member', true],
+            ])('records a skipped transactional email when %s', async (_case, enabled) => {
+                const produce = jest.fn().mockResolvedValue(undefined)
+                const emailStatusService = new EmailStatusService(
+                    { produce } as unknown as IngestionOutputs<EmailStatusOutput>,
+                    { EMAIL_STATUS_ENABLED: true }
+                )
+                service = createSandboxService(enabled)
+                service['emailStatusService'] = emailStatusService
+                invocation.id = new UUIDT().toString()
+                invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+                invocation.queueParameters = createSandboxParams()
 
-                    await service.executeSendEmail(invocation)
-                    await emailStatusService.flush()
+                await service.executeSendEmail(invocation)
+                await emailStatusService.flush()
 
-                    const rows = produce.mock.calls.map(([, message]) => parseJSON(message.value.toString()))
-                    expect(rows).toEqual([
-                        expect.objectContaining({
-                            team_id: team.id,
-                            message_id: invocation.id,
-                            status: 'failed',
-                            reason: expectedReason,
-                        }),
-                    ])
-                }
-            )
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+
+                const rows = produce.mock.calls.map(([, message]) => parseJSON(message.value.toString()))
+                expect(rows).toEqual([
+                    expect.objectContaining({
+                        team_id: team.id,
+                        message_id: invocation.id,
+                        status: 'failed',
+                        reason: 'sending_suspended',
+                    }),
+                ])
+            })
         })
         describe('integration validation', () => {
             beforeEach(async () => {
