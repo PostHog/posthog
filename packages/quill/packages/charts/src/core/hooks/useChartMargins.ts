@@ -8,7 +8,7 @@ import {
     rotatedTickLabelSize,
 } from '../../utils/axis-labels'
 import { measureLabelWidth } from '../../utils/text-measure'
-import { MAX_Y_TICKS, autoFormatterFor, orderedAxisPositions, seriesValueRange } from '../scales'
+import { autoFormatterFor, orderedAxisPositions, seriesValueRange } from '../scales'
 import { DEFAULT_Y_AXIS_ID } from '../types'
 import type { ChartMargins, Series } from '../types'
 
@@ -145,10 +145,7 @@ function widestValueLabelWidth(
             : floatBaseline
               ? [range.min, range.max]
               : [range.min > 0 ? 0 : range.min, range.max < 0 ? 0 : range.max]
-    // A floated axis can span a narrow range, where denser ticks need more decimals. The real tick count
-    // follows the plot height, so measure the densest ticks to fit the labels at every height.
-    const tickCount = floatBaseline ? MAX_Y_TICKS : 6
-    const ticks = scaleLinear().domain([min, max]).nice(tickCount).ticks(tickCount)
+    const ticks = scaleLinear().domain([min, max]).nice(6).ticks(6)
     if (ticks.length === 0) {
         return 0
     }

@@ -75,28 +75,6 @@ describe('useChartMargins', () => {
         expect(empty.left).toBeGreaterThanOrEqual(fourCharLabelReserve)
     })
 
-    it('reserves room for the longer tick labels of a floated axis', () => {
-        const nearlyFlat: Series[] = [{ key: 'a', label: 'A', data: [99.9995, 99.9999] }]
-        const yTickFormatter = (value: number): string => `${value}%`
-        const floatedTickLabel = '99.9995%'.length * 10 // matches the mocked measureLabelWidth
-
-        expect(render({ series: nearlyFlat, yTickFormatter }).left).toBeLessThan(floatedTickLabel)
-        expect(render({ series: nearlyFlat, yTickFormatter, floatBaseline: true }).left).toBeGreaterThanOrEqual(
-            floatedTickLabel
-        )
-    })
-
-    it('fits the extra decimal that denser ticks need on a floated axis', () => {
-        // Six ticks step by 0.01 over this range. A tall chart draws 11, which step by 0.005.
-        const narrow: Series[] = [{ key: 'a', label: 'A', data: [99.95, 99.995] }]
-        const twoDecimalLabels = (): string => '99.95%'
-        const threeDecimalMax = (value: number): string => `${Number(value.toFixed(3))}%`
-
-        expect(render({ series: narrow, yTickFormatter: threeDecimalMax, floatBaseline: true }).left).toBeGreaterThan(
-            render({ series: narrow, yTickFormatter: twoDecimalLabels, floatBaseline: true }).left
-        )
-    })
-
     it('reserves the left title band for a horizontal chart category-axis title', () => {
         const withoutTitle = render({ axisOrientation: 'horizontal' })
         const withTitle = render({ axisOrientation: 'horizontal', yAxisTitles: { left: 'Series' } })

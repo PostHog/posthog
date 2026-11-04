@@ -119,12 +119,6 @@ function ComboChartInner<Meta = unknown>({
         [defaultSeriesType]
     )
 
-    // An axis that carries bars keeps its zero baseline, so its labels are sized from zero too.
-    const marginFloatsBaseline = useMemo(
-        () => floatBaseline && !series.some((s) => !s.visibility?.excluded && seriesTypeOf(s) === 'bar'),
-        [floatBaseline, series, seriesTypeOf]
-    )
-
     // Stack only bar series together. Lines/areas are explicitly excluded so a line doesn't get a
     // bottom-of-stack offset and bars don't widen the line's drawn baseline.
     const barStackedData = useMemo<Map<string, StackedBand> | undefined>(() => {
@@ -435,7 +429,6 @@ function ComboChartInner<Meta = unknown>({
             onPointClick={onPointClick}
             className={className}
             dataAttr={dataAttr}
-            floatBaseline={marginFloatsBaseline}
             resolveValue={resolveValue}
             resolvePositionValue={resolvePositionValue}
             resolveBottomValue={resolveBottomValue}

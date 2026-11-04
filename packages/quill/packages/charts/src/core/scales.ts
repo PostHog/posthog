@@ -165,7 +165,7 @@ export function createTimeXScale(
 /** Min/max y-axis tick counts. `MIN_Y_TICKS` doubles as the floor for a non-finite/non-positive
  *  plot height, where d3's `ticks()` would otherwise return an empty array. */
 const MIN_Y_TICKS = 2
-export const MAX_Y_TICKS = 11
+const MAX_Y_TICKS = 11
 
 export function yTickCountForHeight(plotHeight: number): number {
     // A non-finite or non-positive plot height (e.g. an unmeasured container) would make d3's

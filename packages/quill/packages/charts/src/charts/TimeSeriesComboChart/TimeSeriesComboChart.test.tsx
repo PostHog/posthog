@@ -132,28 +132,6 @@ describe('TimeSeriesComboChart', () => {
             expect(Math.min(...chart.yTicks().map(Number))).toBe(expectedMinTick)
         })
 
-        it('sizes the y-axis margin for floated labels only on an axis without bars', () => {
-            const plotLeftFor = (type: 'bar' | 'area'): number | undefined => {
-                let plotLeft: number | undefined
-                function Measure(): null {
-                    plotLeft = useChartLayout().dimensions.plotLeft
-                    return null
-                }
-                renderChart(
-                    <TimeSeriesComboChart
-                        series={[{ key: 'rate', label: 'Rate', type, data: [99.95, 99.99, 99.97] }]}
-                        labels={LABELS}
-                        theme={THEME}
-                        config={{ yAxis: { startAtZero: false, format: 'percentage', decimalPlaces: 3 } }}
-                    >
-                        <Measure />
-                    </TimeSeriesComboChart>
-                )
-                return plotLeft
-            }
-            expect(plotLeftFor('area')).toBeGreaterThan(plotLeftFor('bar') ?? Infinity)
-        })
-
         it('hides y-axis ticks when yAxis.hide is true', () => {
             const { chart } = renderChart(
                 <TimeSeriesComboChart
