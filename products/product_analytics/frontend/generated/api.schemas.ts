@@ -9253,8 +9253,14 @@ export interface StoryEvidenceApi {
      */
     query?: StoryEvidenceApiQuery
     /**
-     * An https link to the source when it is not a query, for example a commit, a pull request or a deploy.
-     * @maxLength 2000
+     * The short id of a saved insight that shows the fact. The page links to it.
+     * @nullable
+     * @pattern ^[A-Za-z0-9]{8}$
+     */
+    insightShortId?: string | null
+    /**
+     * A link to the GitHub pull request or commit behind the fact. No other links are accepted.
+     * @maxLength 500
      * @nullable
      */
     url?: string | null

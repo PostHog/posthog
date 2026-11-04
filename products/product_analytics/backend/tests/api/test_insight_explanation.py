@@ -34,7 +34,9 @@ EXPLANATION: dict[str, Any] = {
             "cause": "A link on news.example.com.",
             "confidence": "high",
             "confidenceReason": "One referrer holds the whole rise.",
-            "evidence": [{"text": "Most views came from one referrer.", "url": "https://us.posthog.com/insights/new"}],
+            "evidence": [
+                {"text": "Most views came from one referrer.", "url": "https://github.com/example/app/pull/12"}
+            ],
         }
     ],
 }
@@ -58,7 +60,9 @@ class TestInsightExplanationCreateSerializer(SimpleTestCase):
             ("missing_series", _explanation(seriesIndex=2)),
             ("unknown_shape", _explanation(shape="funnel_steps")),
             ("evidence_longer_than_a_sentence", _with_evidence(text="x" * 401)),
-            ("evidence_link_not_https", _with_evidence(url="http://example.com/commit/1")),
+            ("evidence_link_off_github", _with_evidence(url="https://hackmycomputer.example/pull/1")),
+            ("evidence_link_to_a_github_file", _with_evidence(url="https://github.com/example/app/raw/main/setup.exe")),
+            ("evidence_insight_id_with_a_path", _with_evidence(insightShortId="../admin")),
             ("redraw_tool_for_another_kind", _with_evidence(query={"kind": "HogQLQuery"}, queryTool="query-trends")),
             ("too_large", _explanation(query={"filter": "x" * 300_000})),
         ]
@@ -77,7 +81,7 @@ class TestInsightExplanationCreateSerializer(SimpleTestCase):
         ]
         assert serializer.validated_data["data"]["shape"] == "time_series"
         assert serializer.validated_data["data"]["chapters"][0]["evidence"] == [
-            {"text": "Most views came from one referrer.", "url": "https://us.posthog.com/insights/new"}
+            {"text": "Most views came from one referrer.", "url": "https://github.com/example/app/pull/12"}
         ]
 
 

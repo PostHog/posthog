@@ -1,3 +1,4 @@
+import re
 import json
 from functools import cached_property
 from typing import Any, cast
@@ -28,6 +29,10 @@ from products.product_analytics.backend.facade.models import Insight
 MAX_EXPLANATION_BYTES = 300_000
 MAX_EVIDENCE_QUERY_BYTES = 10_000
 MAX_SERIES_POINTS = 5_000
+# Evidence may only link to GitHub pull requests and commits. Anything else is a query or a saved insight.
+GITHUB_CHANGE_LINK = re.compile(
+    r"https://github\.com/[A-Za-z0-9-]+/[A-Za-z0-9._-]+/(pull/\d+|commit/[0-9a-fA-F]{7,40})/?"
+)
 
 
 class InsightExplanationCreateThrottle(UserRateThrottle):
@@ -103,11 +108,17 @@ class StoryEvidenceSerializer(serializers.Serializer):
         required=False,
         help_text="The query that shows the fact. The page links to it.",
     )
-    url = serializers.URLField(
-        max_length=2_000,
+    insightShortId = serializers.RegexField(
+        r"^[A-Za-z0-9]{8}$",
         allow_null=True,
         required=False,
-        help_text="An https link to the source when it is not a query, for example a commit, a pull request or a deploy.",
+        help_text="The short id of a saved insight that shows the fact. The page links to it.",
+    )
+    url = serializers.CharField(
+        max_length=500,
+        allow_null=True,
+        required=False,
+        help_text="A link to the GitHub pull request or commit behind the fact. No other links are accepted.",
     )
     queryTool = serializers.ChoiceField(
         choices=StoryEvidenceQueryTool.choices,
@@ -125,8 +136,8 @@ class StoryEvidenceSerializer(serializers.Serializer):
         return value
 
     def validate_url(self, value: str | None) -> str | None:
-        if value is not None and not value.startswith("https://"):
-            raise serializers.ValidationError("The link must start with https://.")
+        if value is not None and not GITHUB_CHANGE_LINK.fullmatch(value):
+            raise serializers.ValidationError("Only links to a GitHub pull request or commit are accepted.")
         return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:

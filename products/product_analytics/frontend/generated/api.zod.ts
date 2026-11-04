@@ -253,7 +253,10 @@ export const insightsExplanationsCreateBodyDataOneChaptersItemConfidenceReasonMa
 
 export const insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemTextMax = 400
 
-export const insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemUrlMax = 2000
+export const insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemInsightShortIdRegExp = new RegExp(
+    '^[A-Za-z0-9]{8}$'
+)
+export const insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemUrlMax = 500
 
 export const insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemChartOneLabelsMax = 5000
 
@@ -364,12 +367,21 @@ export const InsightsExplanationsCreateBody = /* @__PURE__ */ zod.object({
                                         .record(zod.string(), zod.unknown())
                                         .nullish()
                                         .describe('The query that shows the fact. The page links to it.'),
+                                    insightShortId: zod
+                                        .string()
+                                        .regex(
+                                            insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemInsightShortIdRegExp
+                                        )
+                                        .nullish()
+                                        .describe(
+                                            'The short id of a saved insight that shows the fact. The page links to it.'
+                                        ),
                                     url: zod
-                                        .url()
+                                        .string()
                                         .max(insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemUrlMax)
                                         .nullish()
                                         .describe(
-                                            'An https link to the source when it is not a query, for example a commit, a pull request or a deploy.'
+                                            'A link to the GitHub pull request or commit behind the fact. No other links are accepted.'
                                         ),
                                     queryTool: zod
                                         .union([
@@ -486,7 +498,10 @@ export const insightsExplanationsUpdateBodyDataOneChaptersItemConfidenceReasonMa
 
 export const insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemTextMax = 400
 
-export const insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemUrlMax = 2000
+export const insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemInsightShortIdRegExp = new RegExp(
+    '^[A-Za-z0-9]{8}$'
+)
+export const insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemUrlMax = 500
 
 export const insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemChartOneLabelsMax = 5000
 
@@ -597,12 +612,21 @@ export const InsightsExplanationsUpdateBody = /* @__PURE__ */ zod.object({
                                         .record(zod.string(), zod.unknown())
                                         .nullish()
                                         .describe('The query that shows the fact. The page links to it.'),
+                                    insightShortId: zod
+                                        .string()
+                                        .regex(
+                                            insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemInsightShortIdRegExp
+                                        )
+                                        .nullish()
+                                        .describe(
+                                            'The short id of a saved insight that shows the fact. The page links to it.'
+                                        ),
                                     url: zod
-                                        .url()
+                                        .string()
                                         .max(insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemUrlMax)
                                         .nullish()
                                         .describe(
-                                            'An https link to the source when it is not a query, for example a commit, a pull request or a deploy.'
+                                            'A link to the GitHub pull request or commit behind the fact. No other links are accepted.'
                                         ),
                                     queryTool: zod
                                         .union([
