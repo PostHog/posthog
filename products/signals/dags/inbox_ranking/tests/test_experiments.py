@@ -346,8 +346,7 @@ def test_vs_baseline_pairs_each_seed_inside_each_team_on_the_same_holdout_rows()
     )
 
     first, _, third = NN_HEAD_NAMES
-    # A report-grain experiment's events keep the fields they had before pair grain existed, and add
-    # the non-dogfood and macro reads and the non-dogfood macro interval.
+    # A report-grain experiment's events keep the fields they had before pair grain existed.
     [event, *_] = experiment_comparison_events({"model_name": "experiment", "vs_baseline": block})
     assert set(event.properties) == {
         "model_name",
@@ -405,9 +404,8 @@ def test_vs_baseline_pairs_each_seed_inside_each_team_on_the_same_holdout_rows()
         for read in ("within_team", "within_team_non_dogfood", "within_team_non_dogfood_macro")
     ] == [0.5, 1.0, 1.0]
 
-    # Customer team 1 has four pairs and ranks them all right, customer team 3 has one pair and ranks
-    # it wrong. The pooled read follows team 1, the macro read weighs both teams the same, and the
-    # perfect dogfood team stays out of both non-dogfood reads.
+    # Customer team 1 ranks its four pairs right and customer team 3 ranks its one pair wrong, so the
+    # pooled read follows team 1 while the macro read weighs both teams the same.
     uneven_labels = np.zeros((8, len(NN_HEAD_NAMES)), dtype=np.float32)
     uneven_labels[:, 0] = [1, 1, 0, 0, 1, 0, 1, 0]
     uneven = ExampleTable(

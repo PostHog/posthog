@@ -108,8 +108,7 @@ NN_WITH_PRIO_CHAMPION_ASSET = "inbox_ranking_nn_with_prio_model_champion"
 
 # The settings the prototype compared against the champion recipe with.
 NETWORK_CONFIG = NetworkConfig()
-# The seeds an experiment and its baseline are both fit with for the paired comparison. An
-# experiment with a `seed_offset` fits its own arm on these seeds moved by the offset.
+# The seeds an experiment and its baseline are both fit with for the paired comparison.
 EXPERIMENT_SEEDS = (0, 1, 2)
 
 NN_ASSET_KWARGS: dict[str, Any] = {**COMMON_ASSET_KWARGS, "group_name": "inbox_ranking_nn"}

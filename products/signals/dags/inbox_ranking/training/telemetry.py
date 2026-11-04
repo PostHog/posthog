@@ -144,8 +144,7 @@ def promotion_event(
 
 _DELTA_KEYS = ("paired_seeds", "mean_delta_auc", "min_delta_auc", "max_delta_auc", "wins")
 _INTERVAL_KEYS = ("low", "high", "teams")
-# A report-grain experiment's paired reads. Saved insights read the first and the last, so their
-# keys stay as they are.
+# Saved insights read `within_team` and `pooled`, so the keys of those two reads never change.
 _REPORT_READS = (
     "within_team",
     "within_team_non_dogfood",
