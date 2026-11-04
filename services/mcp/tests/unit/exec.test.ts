@@ -10,6 +10,7 @@ import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instruction
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { formatResponse } from '@/lib/response'
+import { maxResponseBytes } from '@/lib/response-budget'
 import { SessionManager } from '@/lib/SessionManager'
 import { OrganizationSetActiveSchema, ReadDataSchemaSchema } from '@/schema/tool-inputs'
 import { getToolsFromContext } from '@/tools'
@@ -27,7 +28,7 @@ import {
     rewrapFlattenedArguments,
     parseExecCallInnerToolName,
 } from '@/tools/exec'
-import { ExecLearnCatalog } from '@/tools/exec-learn'
+import { type ExecLearnGuide, ExecLearnCatalog, LEARN_GUIDE_TOKEN_BUDGET } from '@/tools/exec-learn'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { withInformationalResponse } from '@/tools/tool-utils'
 import { getToolDefinition } from '@/tools/toolDefinitions'
@@ -270,6 +271,24 @@ describe('exec tool', () => {
                 exec.handler(mockContext, { command: 'learn visualizations analytics visualizations' })
             ).resolves.toBe(
                 '## Visualizations\n\n### Rendering\n\nRender the chart.\n\n## Analytics\n\n### Retrieving data\n\nUse the analytics tools.'
+            )
+        })
+
+        it('defers whole guides past the response budget to a separate learn command', async () => {
+            const guideOfShare = (id: string, share: number): ExecLearnGuide => ({
+                id,
+                title: id.toUpperCase(),
+                description: id,
+                content: 'x'.repeat(Math.floor(maxResponseBytes(LEARN_GUIDE_TOKEN_BUDGET) * share)),
+            })
+            const [large, larger, small] = [guideOfShare('a', 0.5), guideOfShare('b', 0.6), guideOfShare('c', 0.1)]
+            const exec = createExec(undefined, undefined, {
+                learnCatalog: new ExecLearnCatalog([large, larger, small]),
+            })
+
+            await expect(exec.handler(mockContext, { command: 'learn a b c' })).resolves.toBe(
+                `## A\n\n${large.content}\n\n## C\n\n${small.content}\n\n` +
+                    '[Not loaded, so that this result fits in one tool response: b. Run `learn b` in a separate command.]'
             )
         })
 

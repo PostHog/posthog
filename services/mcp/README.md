@@ -299,6 +299,7 @@ Optional, task-specific guidance is served through the same tool:
 - `learn visualizations` loads rendering guidance when visualizations are available.
 - `learn urls` loads the PostHog app link formatting rules.
 - `learn feedback` loads feedback guidance when feedback is available.
+- `learn <topic> <topic...>` loads several guides in one result. Every guide fits in one tool result on its own, and guides that together would pass the smallest client tool-result limit are named in a notice for a separate `learn` command instead of being cut.
 - `learn skills` lists qualified names from the published PostHog bundle (`posthog:`) and the current project's Skills store (`project:`).
 - `learn -s "<up to 8 keywords>"` searches both sources in names, descriptions, Markdown bodies, and bundled file paths. Longer keywords take priority when a query contains more than eight. Results from both sources are merged into one relevance order.
 - `learn -d <source>:<skill> [...]` prints the one-line description of each named skill without reading its body (up to 20 per call). Unknown names are reported inline without failing the batch.

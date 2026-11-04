@@ -1,4 +1,5 @@
 import { CODEX_TOOL_RESULT_TOKEN_LIMIT } from '@/lib/client-detection'
+import { byteLength, maxResponseBytes } from '@/lib/response-budget'
 import type { ProjectSkillCatalog, ProjectSkillList } from '@/skills/project-skill-catalog'
 import {
     fitLearnOutput,
@@ -14,8 +15,8 @@ import {
 export const LEARN_COMMAND_LINE = 'learn <topic...> - load one or more learning topics\n'
 
 /** The most built-in guide content one `learn` result carries. It sits below the smallest
- *  client tool-result limit, with room for the exec response footers, so no client cuts a
- *  guide mid-text. */
+ *  client tool-result limit, with room for the deferral notice and the exec response
+ *  footers, so no client cuts a guide mid-text. */
 export const LEARN_GUIDE_TOKEN_BUDGET = CODEX_TOOL_RESULT_TOKEN_LIMIT - 1_000
 
 export interface ExecLearnGuide {
@@ -465,7 +466,29 @@ export class ExecLearnCatalog {
         if (resolvedGuides.length === 1) {
             return resolvedGuides[0]!.content
         }
-        return resolvedGuides.map((guide) => `## ${guide.title}\n\n${guide.content}`).join('\n\n')
+
+        // Whole guides that fit load now and the rest are named for a later call, so a
+        // client limit never cuts a guide in the middle.
+        const maxBytes = maxResponseBytes(LEARN_GUIDE_TOKEN_BUDGET)
+        const sections: string[] = []
+        const deferredIds: string[] = []
+        let bytes = 0
+        for (const guide of resolvedGuides) {
+            const section = `## ${guide.title}\n\n${guide.content}`
+            const cost = byteLength(section) + (sections.length > 0 ? 2 : 0)
+            if (sections.length > 0 && bytes + cost > maxBytes) {
+                deferredIds.push(guide.id)
+                continue
+            }
+            sections.push(section)
+            bytes += cost
+        }
+        if (deferredIds.length > 0) {
+            sections.push(
+                `[Not loaded, so that this result fits in one tool response: ${deferredIds.join(', ')}. Run \`learn ${deferredIds.join(' ')}\` in a separate command.]`
+            )
+        }
+        return sections.join('\n\n')
     }
 
     private requirePostHogSkills(): SkillCatalog {
