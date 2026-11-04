@@ -138,10 +138,10 @@ describe('FilterSearchSubMenu', () => {
         await act(async () => {
             fireEvent.change(input, { target: { value: 'rev' } })
         })
-        expect(screen.queryByRole('menuitemcheckbox', { name: 'growth' })).toBeNull()
+        expect(screen.getAllByRole('menuitemcheckbox').map((row) => row.textContent)).toEqual(['revenue'])
 
         await act(async () => {
-            fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'revenue' }))
+            fireEvent.click(screen.getByText('revenue'))
         })
 
         expect(onChange).toHaveBeenCalledWith(['growth', 'revenue'])

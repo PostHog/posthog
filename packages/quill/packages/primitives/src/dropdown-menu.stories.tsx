@@ -7,6 +7,9 @@ import {
     DropdownMenu,
     DropdownMenuGroup,
     DropdownMenuContent,
+    DropdownMenuFilterProvider,
+    DropdownMenuInput,
+    DropdownMenuList,
     DropdownMenuTrigger,
     DropdownMenuItem,
     DropdownMenuSelectAll,
@@ -151,6 +154,28 @@ export const Checkboxes: Story = {
                     </DropdownMenuGroup>
                 </DropdownMenuContent>
             </DropdownMenu>
+        )
+    },
+} satisfies Story
+
+export const Filterable: Story = {
+    render: () => {
+        const [open, setOpen] = useState(true)
+        return (
+            <DropdownMenuFilterProvider autoHighlight>
+                <DropdownMenu open={open} onOpenChange={setOpen}>
+                    <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>Click me</DropdownMenuTrigger>
+                    <DropdownMenuContent className="w-64" flush>
+                        <DropdownMenuInput autoFocus placeholder="Search projects" aria-label="Search projects" />
+                        <DropdownMenuList>
+                            <DropdownMenuItem label="Analytics">Analytics</DropdownMenuItem>
+                            <DropdownMenuItem label="Billing">Billing</DropdownMenuItem>
+                            <DropdownMenuItem label="Marketing site">Marketing site</DropdownMenuItem>
+                            <DropdownMenuItem label="Onboarding">Onboarding</DropdownMenuItem>
+                        </DropdownMenuList>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </DropdownMenuFilterProvider>
         )
     },
 } satisfies Story
