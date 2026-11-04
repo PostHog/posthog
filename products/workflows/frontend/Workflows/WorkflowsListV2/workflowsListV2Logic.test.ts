@@ -30,11 +30,13 @@ const shownIds = (logic: ReturnType<typeof workflowsListV2Logic.build>): string[
 describe('workflowsListV2Logic', () => {
     let logic: ReturnType<typeof workflowsListV2Logic.build>
     let workflowRequests: URLSearchParams[]
+    let searchSignals: AbortSignal[]
     let serverSearch: (search: string) => Promise<string[]>
     let metricsResponse: () => Promise<[number, WorkflowStatsRowApi[] | { detail: string }]>
 
     beforeEach(() => {
         workflowRequests = []
+        searchSignals = []
         serverSearch = async () => []
         metricsResponse = async () => [200, FIXTURE_METRICS]
         const byId = new Map(FIXTURE_WORKFLOWS.map((workflow) => [workflow.id, workflow]))
@@ -50,6 +52,7 @@ describe('workflowsListV2Logic', () => {
                     workflowRequests.push(params)
                     const search = params.get('search')
                     if (search) {
+                        searchSignals.push(request.signal)
                         try {
                             const ids = await serverSearch(search)
                             return [200, paginated(ids.map((id) => byId.get(id)!))]
@@ -74,7 +77,11 @@ describe('workflowsListV2Logic', () => {
         initKeaTests()
     })
 
-    afterEach(() => logic?.unmount())
+    afterEach(() => {
+        if (logic?.isMounted()) {
+            logic.unmount()
+        }
+    })
 
     it.each(['messaging', 'automation'])('opens templates for the active %s facet', (type) => {
         logic = workflowsListV2Logic()
@@ -316,34 +323,50 @@ describe('workflowsListV2Logic', () => {
         toastError.mockRestore()
     })
 
-    it('moves old filter params into q and text once, replacing the history entry', async () => {
-        router.actions.push(urls.workflows(), {
-            status: 'active',
-            type: 'loop',
-            trigger_type: 'schedule',
-            created_by: FIXTURE_USERS.lin.uuid,
-            search: 'renew',
-            page: '3',
-            other: 'kept',
-        })
+    it.each([urls.workflows(), urls.workflows('workflows')])(
+        'moves old filter params on %s into q and text once, replacing the history entry',
+        async (pathname) => {
+            router.actions.push(pathname, {
+                status: 'active',
+                type: 'loop',
+                trigger_type: 'schedule',
+                created_by: FIXTURE_USERS.lin.uuid,
+                tags: '["growth","vip"]',
+                search: 'renew',
+                page: '3',
+                other: 'kept',
+            })
+            logic = workflowsListV2Logic()
+            logic.mount()
+
+            expect(router.values.location.pathname).toEqual(`/project/${MOCK_DEFAULT_TEAM.id}${pathname}`)
+            expect(router.values.searchParams).toEqual({
+                q: `status:active kind:loop trigger:schedule createdBy:${FIXTURE_USERS.lin.uuid} tag:growth tag:vip`,
+                text: 'renew',
+                other: 'kept',
+            })
+            expect(router.values.lastMethod).toEqual('REPLACE')
+            expect(logic.values.value).toEqual({
+                filters: [
+                    { facet: 'status', value: 'active', negated: false },
+                    { facet: 'kind', value: 'loop', negated: false },
+                    { facet: 'trigger', value: 'schedule', negated: false },
+                    { facet: 'createdBy', value: FIXTURE_USERS.lin.uuid, negated: false },
+                    { facet: 'tag', value: 'growth', negated: false },
+                    { facet: 'tag', value: 'vip', negated: false },
+                ],
+                text: 'renew',
+            })
+        }
+    )
+
+    it('filters by tag pills, matching any of them', async () => {
+        router.actions.push(urls.workflows('workflows'), { q: 'tag:growth tag:vip' })
         logic = workflowsListV2Logic()
         logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
 
-        expect(router.values.searchParams).toEqual({
-            q: `status:active kind:loop trigger:schedule createdBy:${FIXTURE_USERS.lin.uuid}`,
-            text: 'renew',
-            other: 'kept',
-        })
-        expect(router.values.lastMethod).toEqual('REPLACE')
-        expect(logic.values.value).toEqual({
-            filters: [
-                { facet: 'status', value: 'active', negated: false },
-                { facet: 'kind', value: 'loop', negated: false },
-                { facet: 'trigger', value: 'schedule', negated: false },
-                { facet: 'createdBy', value: FIXTURE_USERS.lin.uuid, negated: false },
-            ],
-            text: 'renew',
-        })
+        expect(shownIds(logic)).toEqual(['wf-welcome', 'wf-sync'])
     })
 
     it('keeps a later page param, because only the first URL is a bookmarked old link', async () => {
@@ -441,6 +464,44 @@ describe('workflowsListV2Logic', () => {
         answerDetour([])
         await expectLogic(logic).toFinishAllListeners()
         expect(shownIds(logic)).toEqual(['wf-renewal', 'wf-sync'])
+    })
+
+    it('sends no search when the text is cleared before the debounce ends', async () => {
+        router.actions.push(urls.workflows())
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.setValue({ filters: [], text: 'renewal' })
+            logic.actions.setValue({ filters: [], text: '' })
+        }).toFinishAllListeners()
+        expect(workflowRequests.map((params) => params.get('search')).filter(Boolean)).toEqual([])
+    })
+
+    it.each([
+        ['clearing the text', (): void => logic.actions.setValue({ filters: [], text: '' })],
+        ['clearing the filters', (): void => logic.actions.clearFilters()],
+        ['leaving the list', (): void => logic.unmount()],
+    ])('aborts a running search on %s', async (_, leave) => {
+        router.actions.push(urls.workflows())
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
+        let markSent: () => void = () => {}
+        const sent = new Promise<void>((resolve) => {
+            markSent = resolve
+        })
+        serverSearch = () => {
+            markSent()
+            return new Promise(() => {})
+        }
+
+        logic.actions.setValue({ filters: [], text: 'renewal' })
+        await sent
+        leave()
+
+        expect(searchSignals.map((signal) => signal.aborted)).toEqual([true])
     })
 
     it('does not ask the server for text under 3 characters', async () => {

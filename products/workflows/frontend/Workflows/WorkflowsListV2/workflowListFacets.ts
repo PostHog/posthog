@@ -109,5 +109,14 @@ export function buildWorkflowListFacets(rows: WorkflowListRow[]): FacetDefinitio
             resolveValue: (value) => creatorIds.get(value.toLowerCase()) ?? value,
             formatValue: (value) => creatorNames.get(value) ?? value,
         },
+        {
+            key: 'tag',
+            aliases: ['tags'],
+            label: 'Tag',
+            description: 'Tags on the workflow',
+            freeTextValues: true,
+            order: 7,
+            getValues: (row) => [...row.workflow.tags],
+        },
     ]
 }
