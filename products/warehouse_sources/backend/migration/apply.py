@@ -10,7 +10,14 @@ from products.warehouse_sources.backend.facade.source_management import (
     build_default_schemas,
     build_default_sync_settings,
 )
-from products.warehouse_sources.backend.migration.types import ItemProposal, ProposedRowFilter, ProposedSchema
+from products.warehouse_sources.backend.migration.fivetran.planner import plan_table_restrictions
+from products.warehouse_sources.backend.migration.types import (
+    ItemProposal,
+    ProposedRowFilter,
+    ProposedSchema,
+    SourceCapabilities,
+    VendorTable,
+)
 
 _MULTI_VALUE_OPERATORS = ("IN", "NOT IN")
 
@@ -26,8 +33,19 @@ class TableOverride:
     posthog_table: str | None
 
 
-def with_table_overrides(proposal: ItemProposal, overrides: Sequence[TableOverride]) -> ItemProposal:
-    """Apply the mapping the user confirmed: rename a planned table, add an unmatched one, or drop one."""
+def with_table_overrides(
+    proposal: ItemProposal,
+    overrides: Sequence[TableOverride],
+    *,
+    vendor_tables: Mapping[str, VendorTable] | None = None,
+    caps: SourceCapabilities | None = None,
+    caveats: list[str] | None = None,
+) -> ItemProposal:
+    """Apply the mapping the user confirmed: rename a planned table, add an unmatched one, or drop one.
+
+    An unmatched table keeps the column exclusions and row filters it has in `vendor_tables`, and any
+    restriction PostHog cannot keep adds a caveat to `caveats`.
+    """
     if not overrides:
         return proposal
     if proposal.schemas is None:
@@ -45,8 +63,20 @@ def with_table_overrides(proposal: ItemProposal, overrides: Sequence[TableOverri
         if override.posthog_table is None:
             schemas[override.vendor_table] = None
         elif planned is None:
+            disabled_columns: tuple[str, ...] = ()
+            row_filters: tuple[ProposedRowFilter, ...] = ()
+            vendor_table = (vendor_tables or {}).get(override.vendor_table)
+            if vendor_table is not None and caps is not None:
+                disabled_columns, row_filters = plan_table_restrictions(
+                    vendor_table, override.posthog_table, caps, caveats if caveats is not None else []
+                )
             schemas[override.vendor_table] = ProposedSchema(
-                name=override.posthog_table, should_sync=True, sync_type=None, vendor_table=override.vendor_table
+                name=override.posthog_table,
+                should_sync=True,
+                sync_type=None,
+                vendor_table=override.vendor_table,
+                disabled_columns=disabled_columns,
+                row_filters=row_filters,
             )
         else:
             schemas[override.vendor_table] = dataclasses.replace(
@@ -69,6 +99,8 @@ class PlannedSchemas:
     webhook_only: tuple[str, ...]
     # Discovered tables the plan covers, so a webhook may turn on these and no others.
     planned: tuple[str, ...]
+    # Planned tables whose every column Fivetran skips, so they stay off.
+    no_columns: tuple[str, ...] = ()
 
 
 def build_planned_schemas(
@@ -99,6 +131,7 @@ def build_planned_schemas(
 
     payload: list[dict[str, Any]] = []
     webhook_only: list[str] = []
+    no_columns: list[str] = []
     for source_schema in source_schemas:
         table_plan = plans.get(source_schema.name)
         if table_plan is None or source_schema.webhook_only:
@@ -107,15 +140,27 @@ def build_planned_schemas(
                 webhook_only.append(source_schema.name)
             continue
 
+        column_names = [str(column[0]) for column in source_schema.columns or []]
+        disabled = set(table_plan.disabled_columns) if column_names else set()
+        if disabled:
+            # A cursor column is always read, so an excluded column must never be the cursor.
+            source_schema = dataclasses.replace(
+                source_schema,
+                incremental_fields=[f for f in source_schema.incremental_fields if f.get("field") not in disabled],
+            )
         entry: dict[str, Any] = {
             "name": source_schema.name,
             "should_sync": table_plan.should_sync and not proposal.start_paused,
             **build_default_sync_settings(source_schema),
         }
-        column_names = [str(column[0]) for column in source_schema.columns or []]
-        if table_plan.disabled_columns and column_names:
-            disabled = set(table_plan.disabled_columns)
+        if disabled:
             entry["enabled_columns"] = [name for name in column_names if name not in disabled]
+            if not entry["enabled_columns"]:
+                # An empty column list reads every column, so the table stays off instead.
+                payload.append({"name": source_schema.name, "should_sync": False})
+                no_columns.append(source_schema.name)
+                del plans[source_schema.name]
+                continue
         if table_plan.row_filters:
             entry["row_filters"] = [_row_filter_payload(row_filter) for row_filter in table_plan.row_filters]
         payload.append(_with_time_of_day(entry, proposal))
@@ -125,6 +170,7 @@ def build_planned_schemas(
         unavailable=tuple(unavailable),
         webhook_only=tuple(webhook_only),
         planned=tuple(plans) if not proposal.start_paused else (),
+        no_columns=tuple(no_columns),
     )
 
 

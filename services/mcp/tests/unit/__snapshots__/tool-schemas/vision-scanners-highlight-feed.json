@@ -1,0 +1,62 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "as_of": {
+            "description": "The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "categories": {
+            "description": "Comma-separated kinds of moment to include: `failure` (errors, failed requests, dead ends), `struggle` (repeated attempts, rage clicks, abandoned forms), `revenue` (failed payments, cancellations, usage limits). Defaults to all three. A pick keeps its rank within its scanner, so leaving a kind out drops its sessions without promoting weaker ones.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "created_by": {
+            "description": "Comma-separated user IDs. Restrict the feed to observations from scanners those users created.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "date_from": {
+            "default": "-7d",
+            "description": "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone. The window between `date_from` and `date_to` may span at most 90 days.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Only observations created at or before this time. Same formats as `date_from`; omit it to query through the current time.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "limit": {
+            "default": 20,
+            "description": "Ceiling on feed items to return per page, at most 50. A page routinely returns fewer: a window is not padded to this number with clips that carry no finding.",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "number"
+        },
+        "offset": {
+            "default": 0,
+            "description": "How many ranked items to skip. Send `as_of` with every page after the first.",
+            "maximum": 1000,
+            "minimum": 0,
+            "type": "number"
+        },
+        "scanner_ids": {
+            "description": "Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "scanner_type": {
+            "description": "Restrict the feed to observations from scanners of this type.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+            "enum": ["monitor", "classifier", "scorer", "summarizer", "experiment"],
+            "type": "string"
+        },
+        "tags": {
+            "description": "Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

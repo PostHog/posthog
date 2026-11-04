@@ -76,6 +76,14 @@ const AVAILABLE_SOURCES: Record<string, SourceConfigResponseApi> = {
     } as unknown as SourceConfigResponseApi,
 }
 
+const MIGRATION_ID = '01a1a3b0-0000-7000-8000-000000000001'
+const ITEM_ID = '01a1a3b0-0000-7000-8000-000000000002'
+const OTHER_ITEM_ID = '01a1a3b0-0000-7000-8000-000000000003'
+const ITEM = {
+    id: ITEM_ID,
+    proposal: { prefill: { host: 'db.example.com', ssh_tunnel: { host: 'bastion.example.com' } } },
+}
+
 describe('sourceConnectSceneLogic', () => {
     let unmountAvailableSources: () => void
     let unmountLogic: () => void
@@ -84,10 +92,7 @@ describe('sourceConnectSceneLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/external_data_sources/wizard/': AVAILABLE_SOURCES,
-                '/api/projects/:team_id/warehouse_migrations/:id/items/:item_id/': {
-                    id: 'item-1',
-                    proposal: { prefill: { host: 'db.example.com', ssh_tunnel: { host: 'bastion.example.com' } } },
-                },
+                '/api/projects/:team_id/warehouse_migrations/:id/items/:item_id/': ITEM,
             },
             post: {
                 '/api/projects/:team_id/external_data_sources/store_credentials/': () => [
@@ -140,7 +145,7 @@ describe('sourceConnectSceneLogic', () => {
     })
 
     it('prefills a migration item once, without overwriting what the user typed', async () => {
-        const url = '/data-warehouse/connect?kind=Postgres&migration_id=migration-1&migration_item_id=item-1'
+        const url = `/data-warehouse/connect?kind=Postgres&migration_id=${MIGRATION_ID}&migration_item_id=${ITEM_ID}`
         await expectLogic(sourceConnectSceneLogic, () => router.actions.push(url)).toFinishAllListeners()
         expect(sourceConnectSceneLogic.values.migrationPrefillLoading).toBe(false)
         expect(sourceConnectSceneLogic.values.credentialsForm.payload).toEqual({
@@ -150,9 +155,82 @@ describe('sourceConnectSceneLogic', () => {
 
         sourceConnectSceneLogic.actions.setCredentialsFormValue(['payload', 'host'], 'typed.example.com')
         await expectLogic(sourceConnectSceneLogic, () =>
-            sourceConnectSceneLogic.actions.loadMigrationPrefill('migration-1', 'item-1')
+            sourceConnectSceneLogic.actions.loadMigrationPrefill(MIGRATION_ID, ITEM_ID)
         ).toFinishAllListeners()
         expect(sourceConnectSceneLogic.values.credentialsForm.payload.host).toEqual('typed.example.com')
+    })
+
+    it('ignores migration params that are not ids', async () => {
+        const url = `/data-warehouse/connect?kind=Postgres&migration_id=../../other%3F&migration_item_id=${ITEM_ID}`
+        await expectLogic(sourceConnectSceneLogic, () => router.actions.push(url))
+            .toNotHaveDispatchedActions(['loadMigrationPrefill'])
+            .toFinishAllListeners()
+        expect(sourceConnectSceneLogic.values.credentialsForm.payload).toEqual({})
+    })
+
+    it('loads the prefill again after a failed request', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+        useMocks({ get: { '/api/projects/:team_id/warehouse_migrations/:id/items/:item_id/': () => [500, {}] } })
+        await expectLogic(sourceConnectSceneLogic, () =>
+            sourceConnectSceneLogic.actions.loadMigrationPrefill(MIGRATION_ID, ITEM_ID)
+        ).toFinishAllListeners()
+        expect(errorToast).toHaveBeenCalled()
+        expect(sourceConnectSceneLogic.values.migrationPrefillLoading).toBe(false)
+        expect(sourceConnectSceneLogic.values.loadedMigrationItemId).toBeNull()
+
+        useMocks({ get: { '/api/projects/:team_id/warehouse_migrations/:id/items/:item_id/': ITEM } })
+        await expectLogic(sourceConnectSceneLogic, () =>
+            sourceConnectSceneLogic.actions.loadMigrationPrefill(MIGRATION_ID, ITEM_ID)
+        ).toFinishAllListeners()
+        expect(sourceConnectSceneLogic.values.credentialsForm.payload.host).toEqual('db.example.com')
+        errorToast.mockRestore()
+    })
+
+    it('drops the previous item values when switching items', async () => {
+        await expectLogic(sourceConnectSceneLogic, () =>
+            sourceConnectSceneLogic.actions.loadMigrationPrefill(MIGRATION_ID, ITEM_ID)
+        ).toFinishAllListeners()
+        sourceConnectSceneLogic.actions.setCredentialsFormValue(['payload', 'password'], 'typed-for-item-a')
+        useMocks({
+            get: {
+                '/api/projects/:team_id/warehouse_migrations/:id/items/:item_id/': {
+                    id: OTHER_ITEM_ID,
+                    proposal: { prefill: { host: 'other.example.com' } },
+                },
+            },
+        })
+
+        await expectLogic(sourceConnectSceneLogic, () =>
+            sourceConnectSceneLogic.actions.loadMigrationPrefill(MIGRATION_ID, OTHER_ITEM_ID)
+        ).toFinishAllListeners()
+
+        expect(sourceConnectSceneLogic.values.credentialsForm.payload).toEqual({ host: 'other.example.com' })
+    })
+
+    it('keeps the prefill of the latest item when an earlier request finishes last', async () => {
+        let releaseFirst: () => void = () => {}
+        const firstReleased = new Promise<void>((resolve) => {
+            releaseFirst = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/warehouse_migrations/:id/items/:item_id/': async (req) => {
+                    if (req.params.item_id === ITEM_ID) {
+                        await firstReleased
+                        return [200, ITEM]
+                    }
+                    return [200, { id: OTHER_ITEM_ID, proposal: { prefill: { host: 'other.example.com' } } }]
+                },
+            },
+        })
+        sourceConnectSceneLogic.actions.loadMigrationPrefill(MIGRATION_ID, ITEM_ID)
+        await expectLogic(sourceConnectSceneLogic, () =>
+            sourceConnectSceneLogic.actions.loadMigrationPrefill(MIGRATION_ID, OTHER_ITEM_ID)
+        ).toDispatchActions(['migrationPrefillLoaded'])
+        releaseFirst()
+        await expectLogic(sourceConnectSceneLogic).toFinishAllListeners()
+        expect(sourceConnectSceneLogic.values.credentialsForm.payload.host).toEqual('other.example.com')
+        expect(sourceConnectSceneLogic.values.loadedMigrationItemId).toEqual(OTHER_ITEM_ID)
     })
 
     it('shows the rejection message when the credentials fail validation', async () => {

@@ -85,8 +85,12 @@ class ApplyMigrationItemResponseSerializer(serializers.Serializer):
 
 
 class ExternalDataSourceMigrationApplyMixin(ExternalDataSourceSetupMixin, ExternalDataSourceSchemaOperationsMixin):
+    # Declared so an action can turn it on: DRF only accepts action kwargs that name a class attribute.
+    requires_resource_level_access = False
+
     @extend_schema(request=ApplyMigrationItemSerializer, responses={201: ApplyMigrationItemResponseSerializer})
-    @action(methods=["POST"], detail=False)
+    # Creating a source needs project-wide source access, not a grant on one existing source.
+    @action(methods=["POST"], detail=False, requires_resource_level_access=True)
     def apply_migration_item(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Create the planned PostHog source for one migration item, then set its sync schedule."""
         if not migrations.is_migration_import_enabled(self.team, getattr(request.user, "distinct_id", None)):
@@ -173,6 +177,7 @@ class ExternalDataSourceMigrationApplyMixin(ExternalDataSourceSetupMixin, Extern
                 f"`{name}` syncs only through a webhook. It stays off unless PostHog could register the webhook."
                 for name in planned.webhook_only
             ),
+            *(f"Fivetran syncs none of the columns of `{name}`, so it stays off." for name in planned.no_columns),
         ]
 
     def _apply_schedule(self, source: ExternalDataSource, item: ClaimedWarehouseMigrationItem) -> None:

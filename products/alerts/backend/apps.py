@@ -25,6 +25,7 @@ class AlertsConfig(AppConfig):
         from products.alerts.backend.platform_hooks import (  # noqa: PLC0415
             emit_insight_legacy_events,
             insight_chart_image,
+            render_insight_slack_message,
         )
         from products.alerts.backend.platform_source_config import load_insight_source_config  # noqa: PLC0415
         from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
@@ -34,6 +35,7 @@ class AlertsConfig(AppConfig):
             register_image_resolver,
             register_legacy_event_emitter,
             register_source_describer,
+            register_source_slack_renderer,
         )
         from products.alerts_platform.backend.facade.source_configs import register_source_config  # noqa: PLC0415
 
@@ -42,4 +44,5 @@ class AlertsConfig(AppConfig):
         register_legacy_event_emitter(SourceKind.INSIGHT, emit_insight_legacy_events)
         register_source_describer(SourceKind.INSIGHT, describe_insight_transition)
         register_image_resolver(SourceKind.INSIGHT, insight_chart_image)
+        register_source_slack_renderer(SourceKind.INSIGHT, render_insight_slack_message)
         register_source_config(SourceKind.INSIGHT, load_insight_source_config)

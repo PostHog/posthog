@@ -17,7 +17,6 @@ from fsspec.implementations.local import LocalFileSystem
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_s3.source import AmazonS3Source
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import source_base
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     ObjectStoreConfig,
     StoreConfig,
@@ -255,45 +254,22 @@ def test_validate_credentials(
 
 
 @pytest.mark.parametrize(
-    "sync_type, last_value, expected_files, expected_keys, mirrors",
+    "sync_type, last_value, expected_files, expected_keys",
     [
-        (ExternalDataSchemaSyncType.FULL_REFRESH, None, ["a.csv", "b.csv", "c.csv"], None, False),
-        (
-            ExternalDataSchemaSyncType.INCREMENTAL,
-            None,
-            ["c.csv", "b.csv", "a.csv"],
-            ["_file_name", "_file_row_number"],
-            False,
-        ),
-        # The file at the watermark is read again, and the merge key replaces its rows.
-        (
-            ExternalDataSchemaSyncType.INCREMENTAL,
-            FIRST_MODIFIED_AT + timedelta(minutes=1),
-            ["b.csv", "a.csv"],
-            ["_file_name", "_file_row_number"],
-            False,
-        ),
-        # With the flag the run replaces the rows of the files it reads, so it needs no key.
-        (
-            ExternalDataSchemaSyncType.INCREMENTAL,
-            FIRST_MODIFIED_AT + timedelta(minutes=1),
-            ["b.csv", "a.csv"],
-            None,
-            True,
-        ),
+        (ExternalDataSchemaSyncType.FULL_REFRESH, None, ["a.csv", "b.csv", "c.csv"], None),
+        (ExternalDataSchemaSyncType.INCREMENTAL, None, ["c.csv", "b.csv", "a.csv"], None),
+        # The file at the watermark is read again, and the run replaces its rows.
+        (ExternalDataSchemaSyncType.INCREMENTAL, FIRST_MODIFIED_AT + timedelta(minutes=1), ["b.csv", "a.csv"], None),
         # The pipeline can hand the watermark back without a timezone.
         (
             ExternalDataSchemaSyncType.INCREMENTAL,
             (FIRST_MODIFIED_AT + timedelta(minutes=2)).replace(tzinfo=None),
             ["a.csv"],
-            ["_file_name", "_file_row_number"],
-            False,
+            None,
         ),
         # An append has no key, so the file at the watermark must not be read again.
-        (ExternalDataSchemaSyncType.APPEND, FIRST_MODIFIED_AT + timedelta(minutes=1), ["a.csv"], None, False),
-        (ExternalDataSchemaSyncType.APPEND, None, ["c.csv", "b.csv", "a.csv"], None, False),
-        # The flag does not change an append.
-        (ExternalDataSchemaSyncType.APPEND, FIRST_MODIFIED_AT + timedelta(minutes=1), ["a.csv"], None, True),
+        (ExternalDataSchemaSyncType.APPEND, FIRST_MODIFIED_AT + timedelta(minutes=1), ["a.csv"], None),
+        (ExternalDataSchemaSyncType.APPEND, None, ["c.csv", "b.csv", "a.csv"], None),
     ],
 )
 def test_sync_type_decides_which_files_are_read_and_whether_rows_merge(
@@ -302,7 +278,6 @@ def test_sync_type_decides_which_files_are_read_and_whether_rows_merge(
     last_value: datetime | None,
     expected_files: list[str],
     expected_keys: list[str] | None,
-    mirrors: bool,
 ) -> None:
     # Path order is the reverse of age order, so the test tells the two apart.
     for minutes, name in enumerate(["c.csv", "b.csv", "a.csv"]):
@@ -321,22 +296,20 @@ def test_sync_type_decides_which_files_are_read_and_whether_rows_merge(
     inputs.sync_type = sync_type
     inputs.source_cursor = SourceCursorManager.from_sync_type_config(source, {}, structlog.get_logger())
 
-    with patch.object(source_base, "_mirrors_files", return_value=mirrors):
-        response = source.source_for_pipeline(config, inputs)
-        rows = [row for table in cast(Iterable[pa.Table], response.items()) for row in table.to_pylist()]
+    response = source.source_for_pipeline(config, inputs)
+    rows = [row for table in cast(Iterable[pa.Table], response.items()) for row in table.to_pylist()]
 
     assert [(row["_file_name"], row["_file_row_number"]) for row in rows] == [
         (f"orders/{name}", row_number) for name in expected_files for row_number in (0, 1)
     ]
     assert response.primary_keys == expected_keys
-    mirrored = mirrors and sync_type == ExternalDataSchemaSyncType.INCREMENTAL
     assert response.replace_scope == (
         ReplaceScope(
             column="_file_name",
             replaced=frozenset(f"orders/{name}" for name in expected_files),
             retained=frozenset({"orders/a.csv", "orders/b.csv", "orders/c.csv"}),
         )
-        if mirrored
+        if sync_type == ExternalDataSchemaSyncType.INCREMENTAL
         else None
     )
 
@@ -359,9 +332,8 @@ def test_a_mirrored_sync_of_a_bucket_that_did_not_change_reads_nothing(tmp_path:
         inputs.sync_type = ExternalDataSchemaSyncType.INCREMENTAL
         cursor = SourceCursorManager.from_sync_type_config(source, stored, structlog.get_logger())
         inputs.source_cursor = cursor
-        with patch.object(source_base, "_mirrors_files", return_value=True):
-            response = source.source_for_pipeline(config, inputs)
-            rows = sum(table.num_rows for table in cast(Iterable[pa.Table], response.items()))
+        response = source.source_for_pipeline(config, inputs)
+        rows = sum(table.num_rows for table in cast(Iterable[pa.Table], response.items()))
         return response, rows, cursor
 
     first, first_rows, cursor = sync({})
@@ -381,23 +353,20 @@ def test_a_mirrored_sync_of_a_bucket_that_did_not_change_reads_nothing(tmp_path:
 
 
 @pytest.mark.parametrize(
-    "sync_type, has_stored_cursor, mirrors, expected_ids, expected_columns, expected_reset",
+    "sync_type, has_stored_cursor, expected_ids, expected_columns, expected_reset",
     [
-        (ExternalDataSchemaSyncType.APPEND, True, False, [2], {"id", "_delta_version"}, False),
-        (ExternalDataSchemaSyncType.APPEND, False, False, [1, 2], {"id", "_delta_version"}, False),
+        (ExternalDataSchemaSyncType.APPEND, True, [2], {"id", "_delta_version"}, False),
+        (ExternalDataSchemaSyncType.APPEND, False, [1, 2], {"id", "_delta_version"}, False),
         # A full refresh ignores the stored cursor, and still records the version it wrote.
-        (ExternalDataSchemaSyncType.FULL_REFRESH, True, False, [1, 2], {"id"}, False),
+        (ExternalDataSchemaSyncType.FULL_REFRESH, True, [1, 2], {"id"}, False),
         # An incremental sync names each row's data file, so the loader can replace rows by file.
-        (ExternalDataSchemaSyncType.INCREMENTAL, True, True, [2], {"id", "_delta_version", "_file_name"}, False),
-        # Without the flag the loader can't delete by file, so the run rebuilds the table.
-        (ExternalDataSchemaSyncType.INCREMENTAL, True, False, [1, 2], {"id", "_delta_version", "_file_name"}, True),
+        (ExternalDataSchemaSyncType.INCREMENTAL, True, [2], {"id", "_delta_version", "_file_name"}, False),
     ],
 )
 def test_delta_sync_reads_from_the_stored_cursor_and_stages_the_next_one(
     tmp_path: Path,
     sync_type: ExternalDataSchemaSyncType,
     has_stored_cursor: bool,
-    mirrors: bool,
     expected_ids: list[int],
     expected_columns: set[str],
     expected_reset: bool,
@@ -419,9 +388,8 @@ def test_delta_sync_reads_from_the_stored_cursor_and_stages_the_next_one(
         inputs.sync_type = sync_type
         cursor = SourceCursorManager.from_sync_type_config(source, stored, structlog.get_logger())
         inputs.source_cursor = cursor
-        with patch.object(source_base, "_mirrors_files", return_value=mirrors):
-            response = source.source_for_pipeline(config, inputs)
-            rows = [row for table in cast(Iterable[pa.Table], response.items()) for row in table.to_pylist()]
+        response = source.source_for_pipeline(config, inputs)
+        rows = [row for table in cast(Iterable[pa.Table], response.items()) for row in table.to_pylist()]
         return response, rows, cursor
 
     _, _, first_cursor = sync({})

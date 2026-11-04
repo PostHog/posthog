@@ -8,12 +8,14 @@ from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
+from posthog.rate_limit import WarehouseMigrationCrawlThrottle
 
 from products.warehouse_sources.backend.facade import (
     contracts,
@@ -272,6 +274,12 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     lookup_value_regex = _UUID_PATTERN
     pagination_class = PrecountedLimitOffsetPagination
 
+    def get_throttles(self) -> list[BaseThrottle]:
+        # Appended to the global limits, which do not apply to session callers.
+        if self.action in ("create", "refresh"):
+            return [*super().get_throttles(), WarehouseMigrationCrawlThrottle()]
+        return super().get_throttles()
+
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
         if not migrations.is_migration_import_enabled(self.team, getattr(request.user, "distinct_id", None)):
@@ -396,12 +404,22 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         return Response(WarehouseMigrationSerializer(migration).data)
 
     @extend_schema(responses={200: WarehouseMigrationItemSerializer(many=True)})
-    @action(methods=["GET"], detail=True, pagination_class=None)
+    @action(methods=["GET"], detail=True)
     def items(self, request: Request, pk: str, *args: Any, **kwargs: Any) -> Response:
-        items = migrations.list_migration_items(self.team_id, UUID(pk))
-        if items is None:
+        paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
+        result = migrations.list_migration_items(
+            self.team_id,
+            UUID(pk),
+            limit=paginator.get_limit(request) or DEFAULT_PAGE_SIZE,
+            offset=paginator.get_offset(request),
+        )
+        if result is None:
             raise exceptions.NotFound()
-        return Response(WarehouseMigrationItemSerializer(items, many=True).data)
+        page, count = result
+        paginator.set_count(count)
+        return self.get_paginated_response(
+            WarehouseMigrationItemSerializer(self.paginate_queryset(page), many=True).data
+        )
 
     @extend_schema(responses={200: WarehouseMigrationItemSerializer}, parameters=[_ITEM_ID])
     @action(methods=["GET"], detail=True, url_path=rf"items/(?P<item_id>{_UUID_PATTERN})")

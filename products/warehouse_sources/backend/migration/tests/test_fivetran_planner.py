@@ -360,7 +360,13 @@ class TestTables(SimpleTestCase):
                 "column_selection_unsupported",
                 _caps(supports_column_selection=False),
                 (),
-                "syncs every column",
+                "turn columns off after the first sync",
+            ),
+            (
+                "fixed_column_layout",
+                _caps(supports_column_selection=False, fixed_columns=True),
+                (),
+                "always syncs every column",
             ),
         ]
     )
@@ -536,7 +542,7 @@ class TestDestination(SimpleTestCase):
                 "supported",
                 "snowflake",
                 ProposedDestination(type="Snowflake", config={"database": "ANALYTICS"}),
-                None,
+                "`Hubspot-Main` schema",
             ),
             ("unsupported", "oracle_warehouse", None, "PostHog warehouse"),
             ("not_uploaded", None, None, "did not get this connection's Fivetran destination"),

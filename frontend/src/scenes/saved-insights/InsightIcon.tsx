@@ -2,7 +2,7 @@ import { ComponentType } from 'react'
 
 import { isNonEmptyObject } from 'lib/utils/guards'
 
-import { isNodeWithSource } from '~/queries/utils'
+import { isNodeWithSource } from '~/queries/schema/node-guards'
 import { InsightModel } from '~/types'
 
 import { QUERY_TYPES_METADATA } from './insightTypesMetadata'

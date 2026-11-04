@@ -96,16 +96,22 @@ def upload_connections(
 
 
 def refresh_migration(*, team_id: int, migration_id: UUID) -> WarehouseMigration | None:
-    migration = WarehouseMigration.objects.for_team(team_id).filter(id=migration_id).first()
+    migrations = WarehouseMigration.objects.for_team(team_id).filter(id=migration_id)
+    migration = migrations.first()
     if migration is None:
         return None
+    # Checked before the claim below, which would otherwise leave an uploaded migration `pending` for good.
     if not migration.credentials:
         raise WarehouseMigrationUploadedError()
-    if migration.status in (WarehouseMigration.Status.PENDING, WarehouseMigration.Status.CRAWLING):
+    # Conditional, so two refreshes cannot both start a crawl and the second terminate the first.
+    claimed = migrations.exclude(
+        status__in=(WarehouseMigration.Status.PENDING, WarehouseMigration.Status.CRAWLING)
+    ).update(status=WarehouseMigration.Status.PENDING, latest_error="", updated_at=timezone.now())
+    migration = migrations.first()
+    if migration is None:
+        return None
+    if not claimed:
         raise WarehouseMigrationBusyError()
-    migration.status = WarehouseMigration.Status.PENDING
-    migration.latest_error = ""
-    migration.save(update_fields=["status", "latest_error", "updated_at"])
     _start_crawl(migration)
     return migration
 

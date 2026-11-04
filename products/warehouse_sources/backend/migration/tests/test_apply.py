@@ -11,7 +11,16 @@ from products.warehouse_sources.backend.migration.apply import (
     build_planned_schemas,
     with_table_overrides,
 )
-from products.warehouse_sources.backend.migration.types import ItemProposal, ProposedRowFilter, ProposedSchema
+from products.warehouse_sources.backend.migration.types import (
+    ItemProposal,
+    ProposedRowFilter,
+    ProposedSchema,
+    SourceCapabilities,
+    VendorColumn,
+    VendorRowFilter,
+    VendorRowFilterClause,
+    VendorTable,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 
@@ -86,6 +95,32 @@ class TestBuildPlannedSchemas(SimpleTestCase):
         assert audit_log == {"name": "public.audit_log", "should_sync": False}
         assert locked == {"name": "public.locked", "should_sync": False}
         assert planned.unavailable == ("public.gone", "public.locked")
+
+    def test_an_excluded_column_is_never_the_cursor(self) -> None:
+        proposal = _proposal(
+            ProposedSchema(name="public.orders", should_sync=True, sync_type=None, disabled_columns=("updated_at",))
+        )
+
+        (orders,) = build_planned_schemas(proposal, [_table("public.orders")], {}).schemas
+
+        assert orders["sync_type"] == "full_refresh"
+        assert "incremental_field" not in orders
+        assert orders["enabled_columns"] == ["id", "card_number"]
+
+    def test_a_table_with_every_column_excluded_stays_off(self) -> None:
+        proposal = _proposal(
+            ProposedSchema(
+                name="public.orders",
+                should_sync=True,
+                sync_type=None,
+                disabled_columns=("id", "card_number", "updated_at"),
+            )
+        )
+
+        planned = build_planned_schemas(proposal, [_table("public.orders")], {})
+
+        assert planned.schemas == [{"name": "public.orders", "should_sync": False}]
+        assert (planned.no_columns, planned.planned) == (("public.orders",), ())
 
     @parameterized.expand(
         [
@@ -174,3 +209,61 @@ class TestTableOverrides(SimpleTestCase):
         proposal = _proposal(*(schemas or ()), schemas=schemas)
         with self.assertRaisesRegex(TableOverrideError, message):
             with_table_overrides(proposal, [TableOverride(vendor_table=v, posthog_table=p) for v, p in overrides])
+
+
+_CARD_COLUMN = VendorColumn(name="card_number", enabled=False, hashed=False, is_primary_key=False)
+
+
+def _vendor_table(*clauses: tuple[str, str, tuple[str, ...]]) -> VendorTable:
+    return VendorTable(
+        schema_name="hubspot",
+        name="email_event",
+        enabled=True,
+        sync_mode=None,
+        columns=(_CARD_COLUMN,),
+        row_filter=VendorRowFilter(
+            combinator="AND",
+            clauses=tuple(VendorRowFilterClause(column=c, operator=o, values=v) for c, o, v in clauses),
+        ),
+    )
+
+
+class TestUnmatchedTableRestrictions(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "kept",
+                _vendor_table(("status", "EQUALS", ("sent",))),
+                (ProposedRowFilter(column="status", operator="=", values=("sent",)),),
+                None,
+            ),
+            ("untranslatable_filter_is_reported", _vendor_table(("status", "LIKE", ("s%",))), (), "row filter"),
+        ]
+    )
+    def test_mapping_an_unmatched_table_keeps_its_restrictions(
+        self,
+        _name: str,
+        vendor_table: VendorTable,
+        expected_filters: tuple[ProposedRowFilter, ...],
+        expected_caveat: str | None,
+    ) -> None:
+        caps = SourceCapabilities(
+            release_status=None, unreleased=False, supports_column_selection=True, supports_row_filters=True
+        )
+        caveats: list[str] = []
+
+        result = with_table_overrides(
+            _proposal(_CONTACTS, unmatched_tables=("email_event",)),
+            [TableOverride(vendor_table="email_event", posthog_table="email_events")],
+            vendor_tables={"email_event": vendor_table},
+            caps=caps,
+            caveats=caveats,
+        )
+
+        assert result.schemas is not None
+        mapped = result.schemas[-1]
+        assert (mapped.disabled_columns, mapped.row_filters) == (("card_number",), expected_filters)
+        if expected_caveat:
+            assert len(caveats) == 1 and expected_caveat in caveats[0]
+        else:
+            assert caveats == []

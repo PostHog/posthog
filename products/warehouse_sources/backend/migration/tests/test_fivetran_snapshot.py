@@ -191,9 +191,15 @@ class TestParseSchedule(SimpleTestCase):
             ),
             (
                 "cron",
-                {"schedule": {"schedule_type": "CRON", "cron": "0 */6 * * *"}},
+                {"schedule": {"schedule_type": "CRON", "cron": "0 */6 * * *", "time_zone": "Europe/Prague"}},
                 0,
-                VendorSchedule(kind=ScheduleKind.CRON, cron="0 */6 * * *"),
+                VendorSchedule(kind=ScheduleKind.CRON, cron="0 */6 * * *", time_zone="Europe/Prague"),
+            ),
+            (
+                "cron_without_zone_runs_in_destination_offset",
+                {"schedule": {"schedule_type": "CRON", "cron": "0 6 * * *"}},
+                -5,
+                VendorSchedule(kind=ScheduleKind.CRON, cron="0 6 * * *", time_zone="UTC-05:00"),
             ),
             (
                 "time_of_day_negative_offset_wraps",
@@ -261,6 +267,30 @@ class TestStripSecrets(SimpleTestCase):
                 "long_colon_run_is_not_secret",
                 {"host": "https://" + ":" * 100_000},
                 {"host": "https://" + ":" * 100_000},
+            ),
+            ("password_in_url_without_user", {"uri": "redis://:fake@cache.example.com:6379"}, {}),
+            (
+                "credential_in_url_query",
+                {
+                    "jdbc_url": "jdbc:mysql://db.example.com/app?user=reader&password=fake",
+                    "presigned": "https://bucket.example.com/f.csv?X-Amz-Expires=60&X-Amz-Signature=fake",
+                },
+                {},
+            ),
+            (
+                "service_specific_credentials",
+                {"service_authentication": "fake", "primary_key": "fake", "app_id": "fake"},
+                {},
+            ),
+            (
+                "client_certificate_is_secret_but_ca_is_not",
+                {
+                    "client_certificate": "fake",
+                    "sslCert": "fake",
+                    "ca_cert": "-----BEGIN",
+                    "ssl_root_cert": "-----BEGIN",
+                },
+                {"ca_cert": "-----BEGIN", "ssl_root_cert": "-----BEGIN"},
             ),
             (
                 "public_key_is_not_secret",

@@ -1091,28 +1091,40 @@ const warehouseMigrationItemSkip = (): ToolBase<
 
 const WarehouseMigrationItemsListSchema = () => {
     const WarehouseMigrationsItemsListParams = orvalSchemas.WarehouseMigrationsItemsListParams()
-    return WarehouseMigrationsItemsListParams.omit({ project_id: true })
+    const WarehouseMigrationsItemsListQueryParams = orvalSchemas.WarehouseMigrationsItemsListQueryParams()
+    return WarehouseMigrationsItemsListParams.omit({ project_id: true }).extend(
+        WarehouseMigrationsItemsListQueryParams.shape
+    )
 }
 
 const warehouseMigrationItemsList = (): ToolBase<
     ReturnType<typeof WarehouseMigrationItemsListSchema>,
-    Schemas.WarehouseMigrationItem[]
+    WithPostHogUrl<Schemas.PaginatedWarehouseMigrationItemList>
 > => ({
     name: 'warehouse-migration-items-list',
     schema: WarehouseMigrationItemsListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationItemsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.WarehouseMigrationItem[]>({
+        const result = await context.api.request<Schemas.PaginatedWarehouseMigrationItemList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/items/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
         })
-        const filtered = omitResponseFields(result, [
-            '*.proposal.schemas.*.disabled_columns',
-            '*.proposal.schemas.*.row_filters',
-            '*.proposal.schemas.*.alternative_names',
-            '*.proposal.prefill',
-        ]) as typeof result
-        return filtered
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, [
+                    'proposal.schemas.*.disabled_columns',
+                    'proposal.schemas.*.row_filters',
+                    'proposal.schemas.*.alternative_names',
+                    'proposal.prefill',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/data-management/sources')
     },
 })
 

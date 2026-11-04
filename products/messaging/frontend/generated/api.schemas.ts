@@ -8,33 +8,99 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `queued` - Queued
+ * * `failed` - Failed
+ * * `sent` - Sent
+ * * `delivered` - Delivered
+ * * `bounced` - Bounced
+ * * `complained` - Complained
+ */
+export type EmailDeliveryStatusEnumApi = (typeof EmailDeliveryStatusEnumApi)[keyof typeof EmailDeliveryStatusEnumApi]
+
+export const EmailDeliveryStatusEnumApi = {
+    Queued: 'queued',
+    Failed: 'failed',
+    Sent: 'sent',
+    Delivered: 'delivered',
+    Bounced: 'bounced',
+    Complained: 'complained',
+} as const
+
+export interface EmailStatusApi {
+    /** The `message_id` that the send returned. */
+    id: string
+    /** What happened to the email. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
+     *
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained */
+    status: EmailDeliveryStatusEnumApi
+    /** When the send was queued. */
+    created_at: string
+    /** When the email reached its current status. */
+    status_at: string
+    /**
+     * Why a failed email was not sent, or the bounce type of a bounced email. A failed send has `provider_error`, or `provider_rejected` when the provider refused the email after it accepted the send. A skipped send has `recipient_suppressed`, `recipient_unreachable`, `recipient_opted_out`, `missing_recipient`, `sending_paused`, `sending_suspended` or `frequency_capped`. A run that stopped before the send has `canceled`, `workflow_unavailable` or an error kind such as `timeout`, and more error kinds can be added. A bounce has `hard`, `soft` or `unknown`. Null otherwise.
+     * @nullable
+     */
+    reason: string | null
+}
+
+/**
+ * Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice.
+ */
+export type SetPreferencesApiTopics = { [key: string]: boolean }
+
+export interface SetPreferencesApi {
+    /**
+     * The recipient's email address, exactly as Workflows sends to it. Matching is exact, so `Jane@example.com` and `jane@example.com` are two recipients.
+     * @maxLength 512
+     */
+    identifier: string
+    /** `false` opts the recipient out of every marketing topic. `true` lifts that opt-out. Applied before `topics`. */
+    all_marketing?: boolean
+    /** Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice. */
+    topics?: SetPreferencesApiTopics
+}
+
+/**
+ * Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed.
+ */
+export type TopicPreferencesApiTopics = { [key: string]: boolean }
+
+export interface TopicPreferencesApi {
+    /** The recipient the preferences belong to. */
+    identifier: string
+    /**
+     * `false` when the recipient opted out of all marketing, `true` when they opted back in, `null` when they never chose.
+     * @nullable
+     */
+    all_marketing: boolean | null
+    /** Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed. */
+    topics: TopicPreferencesApiTopics
+}
+
+/**
  * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
  */
 export type SendEmailApiMessageData = { [key: string]: unknown }
 
-export interface TransactionalEmailIdentifiersApi {
+export interface SendEmailApi {
+    /** Email address of the recipient. */
+    to: string
+    /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
+    message_data?: SendEmailApiMessageData
+    /** ID of the email template to send. The template must be made transactional first. */
+    template_id: string
     /**
      * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
      * @maxLength 400
      * @nullable
      */
     distinct_id?: string | null
-}
-
-export interface SendEmailTemplateApi {
-    /** ID of the email template to send. The template must be made transactional first. */
-    id: string
-}
-
-export interface SendEmailApi {
-    /** Email address of the recipient. */
-    to: string
-    /** Who the email is for, used to attribute engagement events. */
-    identifiers?: TransactionalEmailIdentifiersApi
-    /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
-    message_data?: SendEmailApiMessageData
-    /** The transactional email template to send. */
-    template: SendEmailTemplateApi
 }
 
 export interface SendTransactionalEmailResponseApi {
@@ -855,13 +921,22 @@ export interface MakeTransactionalApi {
  */
 export type SendTransactionalEmailApiMessageData = { [key: string]: unknown }
 
+export interface TransactionalEmailIdentifiersApi {
+    /**
+     * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
+     * @maxLength 400
+     * @nullable
+     */
+    distinct_id?: string | null
+}
+
 export interface SendTransactionalEmailApi {
     /** Email address of the recipient. */
     to: string
-    /** Who the email is for, used to attribute engagement events. */
-    identifiers?: TransactionalEmailIdentifiersApi
     /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
     message_data?: SendTransactionalEmailApiMessageData
+    /** Who the email is for, used to attribute engagement events. */
+    identifiers?: TransactionalEmailIdentifiersApi
 }
 
 export type MessagingCategoriesListParams = {

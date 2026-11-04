@@ -5,6 +5,7 @@ import { urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { isUUIDLike } from 'lib/utils/guards'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -107,6 +108,9 @@ export interface sourceConnectSceneLogicActions {
         itemId: string
         migrationId: string
     }
+    migrationPrefillFailed: () => {
+        value: true
+    }
     migrationPrefillLoaded: (itemId: string) => {
         itemId: string
     }
@@ -181,6 +185,7 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
         setStoredCredential: (credential: SourceCredentialApi) => ({ credential }),
         loadMigrationPrefill: (migrationId: string, itemId: string) => ({ migrationId, itemId }),
         migrationPrefillLoaded: (itemId: string) => ({ itemId }),
+        migrationPrefillFailed: true,
     }),
     reducers({
         kind: [
@@ -206,6 +211,7 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
             {
                 loadMigrationPrefill: () => true,
                 migrationPrefillLoaded: () => false,
+                migrationPrefillFailed: () => false,
             },
         ],
         loadedMigrationItemId: [
@@ -297,30 +303,37 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
-        loadMigrationPrefill: async ({ migrationId, itemId }) => {
+        loadMigrationPrefill: async ({ migrationId, itemId }, breakpoint) => {
             // Coming back to the same link must not overwrite what the user typed.
             if (values.loadedMigrationItemId === itemId) {
                 actions.migrationPrefillLoaded(itemId)
                 return
             }
+            let item: Awaited<ReturnType<typeof warehouseMigrationsItemsRetrieve>>
             try {
-                const item = await warehouseMigrationsItemsRetrieve(
-                    String(ApiConfig.getCurrentTeamId()),
-                    migrationId,
-                    itemId
-                )
-                const prefill = item.proposal?.prefill
-                if (prefill) {
-                    // Deep, so nested groups keep the defaults the prefill does not set.
-                    actions.setCredentialsFormValues({
-                        payload: mergeDeep(values.credentialsForm.payload ?? {}, prefill),
-                    })
-                }
+                item = await warehouseMigrationsItemsRetrieve(String(ApiConfig.getCurrentTeamId()), migrationId, itemId)
             } catch (e: any) {
+                breakpoint()
                 // The user can still fill the form by hand, so only a server error gets reported.
                 if (e?.status >= 500) {
                     posthog.captureException(e)
                 }
+                actions.migrationPrefillFailed()
+                lemonToast.error("Couldn't load the connection details from Fivetran. You can still fill them in.", {
+                    button: { label: 'Try again', action: () => actions.loadMigrationPrefill(migrationId, itemId) },
+                })
+                return
+            }
+            // A newer link may have replaced this one while the request ran.
+            breakpoint()
+            const prefill = item.proposal?.prefill
+            // Another item's host, tunnel and secrets must not carry over to this one.
+            const switching = values.loadedMigrationItemId !== null && values.loadedMigrationItemId !== itemId
+            if (prefill || switching) {
+                // Deep, so nested groups keep the defaults the prefill does not set.
+                actions.setCredentialsFormValues({
+                    payload: mergeDeep(switching ? {} : (values.credentialsForm.payload ?? {}), prefill ?? {}),
+                })
             }
             actions.migrationPrefillLoaded(itemId)
         },
@@ -328,8 +341,15 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
     urlToAction(({ actions }) => ({
         [urls.dataWarehouseSourceConnect()]: (_, searchParams) => {
             actions.setKind(searchParams.kind ?? null)
-            if (searchParams.migration_id && searchParams.migration_item_id) {
-                actions.loadMigrationPrefill(searchParams.migration_id, searchParams.migration_item_id)
+            const { migration_id: migrationId, migration_item_id: itemId } = searchParams
+            // Both go into a request path, so anything but an id is ignored.
+            if (
+                typeof migrationId === 'string' &&
+                typeof itemId === 'string' &&
+                isUUIDLike(migrationId) &&
+                isUUIDLike(itemId)
+            ) {
+                actions.loadMigrationPrefill(migrationId, itemId)
             }
         },
     })),

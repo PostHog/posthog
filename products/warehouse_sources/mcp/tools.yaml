@@ -651,14 +651,16 @@ tools:
             confirm. 'proposal.unmatched_tables' lists Fivetran tables with no PostHog table; propose one from
             'proposal.unused_posthog_tables' or leave it out. To move an item, get 'data-warehouse-source-connect-link'
             with the proposal's source_type and the item's id as 'migration_item_id', then call
-            'warehouse-migration-item-apply' with the stored credential.
+            'warehouse-migration-item-apply' with the stored credential. Results are paged: follow 'next' until it is
+            null to see every connection.
         feature_flag: warehouse-migration-import
+        list: true
         response:
             exclude:
-                - '*.proposal.schemas.*.disabled_columns'
-                - '*.proposal.schemas.*.row_filters'
-                - '*.proposal.schemas.*.alternative_names'
-                - '*.proposal.prefill'
+                - 'proposal.schemas.*.disabled_columns'
+                - 'proposal.schemas.*.row_filters'
+                - 'proposal.schemas.*.alternative_names'
+                - 'proposal.prefill'
     warehouse-migration-items-skip:
         operation: warehouse_migrations_items_bulk_skip_create
         enabled: true

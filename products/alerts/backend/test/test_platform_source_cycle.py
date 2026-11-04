@@ -1,4 +1,8 @@
+import json
 import time
+from collections.abc import Callable
+from contextlib import AbstractContextManager
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -11,18 +15,25 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 from parameterized import parameterized
+from temporalio.testing import ActivityEnvironment
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
 from posthog.models.scoping import team_scope
+from posthog.query_cache.single_flight import query_single_flight_skipped
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.utils import AlertEvaluationResult, RenderedInsightChart, next_check_time
 from posthog.temporal.alerts.admission import admit_evaluation_slots, inflight_alert_ids, release_evaluation_slot
+from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import (
+    CREATOR_LEFT_DISABLE_REASON,
+    AlertExtractionError,
+    AlertOwnerAccessError,
+)
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
 from products.alerts.backend.judge.contract import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -42,6 +53,7 @@ from products.alerts.backend.platform_source_cycle import (
     MAX_DETECTOR_POINTS,
     MAX_RATIONALE_CHARS,
     QUERY_ID_PREFIX,
+    QUERY_INFLIGHT_KEY,
     ChartRenderPoolFull,
     evaluate_insight_check,
     fail_insight_check,
@@ -59,16 +71,19 @@ from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import list_configurations, record_outcomes, slot_of
 from products.alerts_platform.backend.facade.contracts import (
+    SOURCE_CONDITION_KEY,
     AlertBatchKey,
     AlertEventKind,
     Grouping,
     GroupingMode,
+    IncidentAction,
     PlatformAlertOutcome,
     PlatformConfigurationSnapshot,
     SourceEvaluationInputs,
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 _MODULE = "products.alerts.backend.platform_source_cycle"
 # A Wednesday, so no weekend rule applies.
@@ -78,8 +93,8 @@ CUTOFF = datetime(2026, 9, 16, 10, tzinfo=UTC)
 class TestPlatformInsightEvaluation(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        get_client().delete(INFLIGHT_KEY, CHART_RENDER_INFLIGHT_KEY)
-        self.addCleanup(get_client().delete, INFLIGHT_KEY, CHART_RENDER_INFLIGHT_KEY)
+        get_client().delete(INFLIGHT_KEY, QUERY_INFLIGHT_KEY, CHART_RENDER_INFLIGHT_KEY)
+        self.addCleanup(get_client().delete, INFLIGHT_KEY, QUERY_INFLIGHT_KEY, CHART_RENDER_INFLIGHT_KEY)
         self.organization.available_product_features = [
             {"key": AvailableFeature.HIGH_FREQUENCY_ALERTS, "name": "High-frequency alerts"},
             {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"},
@@ -87,7 +102,10 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         self.organization.save()
 
     def _alert(self, **overrides: Any) -> AlertConfiguration:
-        return create_insight_alert(self.team, **{"next_check_at": CUTOFF - timedelta(minutes=1), **overrides})
+        # Production always writes an owner, and an alert with none counts as one whose owner was deleted.
+        return create_insight_alert(
+            self.team, **{"next_check_at": CUTOFF - timedelta(minutes=1), "created_by": self.user, **overrides}
+        )
 
     def _copy(self, alert: AlertConfiguration | None, **overrides: Any) -> PlatformConfigurationSnapshot:
         with team_scope(self.team.id):
@@ -96,7 +114,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                     "team_id": self.team.id,
                     "name": "alert",
                     "source_kind": SourceKind.INSIGHT,
-                    "source_config": {},
+                    "source_config": {SOURCE_CONDITION_KEY: {"detector": alert.detector_config}} if alert else {},
                     "check_interval_minutes": 60 * 24,
                     "recurrence_unit": "day",
                     "next_check_at": CUTOFF - timedelta(minutes=1),
@@ -158,6 +176,23 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         expected = {"Chrome": "firing"} | ({"Firefox": missing_state} if missing_state else {})
         assert {group.grouping_key: group.new_state for group in resolved.groups} == expected
 
+    def test_a_wide_breakdown_firing_stays_inside_what_temporal_carries(self) -> None:
+        # Every firing group repeats the card fields, so a field added per group multiplies by the
+        # group limit. The whole outcome crosses an activity boundary that refuses ~2 MiB.
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
+        configuration = self._copy(self._alert(), grouping=grouping.to_stored())
+
+        fired = self._evaluate_per_series(
+            configuration, {f"value-{index}": 150.0 for index in range(120)}, breach="x" * 2000
+        )
+
+        assert len(fired.groups) > 1
+        assert len(json.dumps([group.source_detail for group in fired.groups], default=str)) < 1_000_000
+        # Trimming drops the repeated fields, never the group's own identity or its breaches.
+        for group in fired.groups:
+            assert group.source_detail["alert_id"]
+            assert group.source_detail["breaches"]
+
     def test_a_breakdown_value_reported_twice_keeps_the_breach_of_the_row_that_fired(self) -> None:
         grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
         configuration = self._copy(self._alert(), grouping=grouping.to_stored())
@@ -186,7 +221,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         slot = slot_of(configuration.next_check_at, CUTOFF)
         expires_at = time.time() + 3600
         assert plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at) == (str(configuration.id),)
-        side_effect = result if isinstance(result, Exception) else None
+        side_effect = None if isinstance(result, AlertEvaluationResult) else result
         returned = result if isinstance(result, AlertEvaluationResult) else None
         with patch(f"{_MODULE}.check_alert_for_insight", side_effect=side_effect, return_value=returned) as query:
             evaluation = evaluate_insight_check(
@@ -215,6 +250,13 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "insight_name": alert.insight.name,
             "insight_short_id": alert.insight.short_id,
             "alert_id": str(alert.id),
+            # Recorded at trigger time so the card stays a function of the transition.
+            "metric_name": alert.insight.name,
+            "timezone": self.team.timezone,
+            "is_anomaly": False,
+            "insight_interval": "day",
+            "tags": [],
+            "team_name": self.team.name,
             **({CHART_PENDING_KEY: str(alert.id)} if wants_chart else {}),
         }
 
@@ -227,6 +269,28 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert outcome.groups[0].source_detail == expected
         # A render takes up to a minute and a half, so it never runs while the check holds its pool slot.
         render.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("a_wrapped_query", {"kind": "InsightVizNode", "source": {"interval": "week"}}, "week"),
+            # A `.get("source", default)` never replaces an explicit null, so this shape used to
+            # raise inside the check — losing the firing over a label on its card.
+            ("an_explicit_null_source", {"kind": "InsightVizNode", "source": None, "interval": "hour"}, "hour"),
+            ("a_source_that_is_not_a_query", {"source": "trends", "interval": "month"}, "month"),
+        ]
+    )
+    def test_a_firing_records_the_interval_of_any_stored_query_shape(
+        self, _name: str, query: dict[str, Any], interval: str
+    ) -> None:
+        alert = self._alert()
+        alert.insight.query = query
+        alert.insight.save(update_fields=["query"])
+        configuration = self._copy(alert)
+
+        outcome, _ = self._evaluate(configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"]))
+
+        assert outcome is not None
+        assert outcome.groups[0].source_detail["insight_interval"] == interval
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS=1)
     def test_a_chart_render_holds_a_render_slot_only_while_it_runs(self) -> None:
@@ -246,6 +310,40 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 render_firing_chart(self.team.id, str(alert.id), held_until=held_until)
 
         assert render.call_count == 2
+
+    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
+    def test_a_check_holds_a_clickhouse_slot_only_while_its_query_runs(self) -> None:
+        configuration = self._copy(self._alert())
+        slot = slot_of(configuration.next_check_at, CUTOFF)
+        expires_at = time.time() + 3600
+        (admitted,) = plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at)
+        other_query_until = time.time() + 60
+        admit_evaluation_slots(["other-query"], limit=1, expires_at=other_query_until, key=QUERY_INFLIGHT_KEY)
+        held_during_query: list[set[str]] = []
+
+        def query(
+            *args: Any, query_slot: Callable[[], AbstractContextManager[object]], **kwargs: Any
+        ) -> AlertEvaluationResult:
+            with query_slot():
+                held_during_query.append(inflight_alert_ids(QUERY_INFLIGHT_KEY))
+            return AlertEvaluationResult(value=1.0, breaches=[])
+
+        with (
+            patch(f"{_MODULE}.check_alert_for_insight", side_effect=query),
+            patch(f"{_MODULE}._QUERY_LIMIT.retry_timeout", 0),
+        ):
+            starved = evaluate_insight_check(
+                self.team.id, slot, CUTOFF, admitted, held_until=expires_at, evaluation_id="test"
+            )
+            release_evaluation_slot("other-query", held_until=other_query_until, key=QUERY_INFLIGHT_KEY)
+            evaluation = evaluate_insight_check(
+                self.team.id, slot, CUTOFF, admitted, held_until=expires_at, evaluation_id="test"
+            )
+
+        assert starved is None
+        assert evaluation is not None and evaluation.outcomes[0].failure is None
+        assert held_during_query == [{"test:1"}]
+        assert inflight_alert_ids(QUERY_INFLIGHT_KEY) == set()
 
     @parameterized.expand(
         [
@@ -342,9 +440,16 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         before = AlertConfiguration.objects.values("state", "next_check_at", "last_checked_at").get(id=alert.id)
         configuration = self._copy(alert)
 
-        outcome, _ = self._evaluate(configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"]))
+        skipped_during_query: list[bool] = []
+
+        def query(*args: Any, **kwargs: Any) -> AlertEvaluationResult:
+            skipped_during_query.append(query_single_flight_skipped())
+            return AlertEvaluationResult(value=150.0, breaches=["above 100"])
+
+        outcome, _ = self._evaluate(configuration, result=query)
         assert outcome is not None
         assert get_query_tags().ch_user == ClickHouseUser.ALERTS_PLATFORM_INSIGHT
+        assert skipped_during_query == [True]
         record_outcomes(self.team.id, (outcome,), CUTOFF)
 
         assert (outcome.groups[0].kind, outcome.groups[0].value, outcome.evaluation_key) == (
@@ -414,18 +519,44 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("allowlisted", True, False, False),
-            ("not_allowlisted", False, False, False),
-            ("allowlisted_resolve", True, True, False),
-            ("platform_owned", False, False, True),
+            # name, allowlisted, was_firing, owned, paged, breaks, (incident_actions, sends_messages) or no delivery
+            ("allowlisted", True, False, False, False, False, ({}, True)),
+            ("not_allowlisted", False, False, False, False, False, None),
+            ("allowlisted_resolve", True, True, False, False, False, None),
+            ("platform_owned", False, False, True, False, False, ({}, True)),
+            ("paged_firing", False, False, True, True, False, ({"": IncidentAction.TRIGGER}, True)),
+            ("paged_resolve", False, True, True, True, False, ({"": IncidentAction.RESOLVE}, False)),
+            ("paged_firing_that_breaks", False, True, True, True, True, ({}, True)),
+            ("paged_but_not_allowlisted", False, False, False, True, False, None),
         ]
     )
-    def test_only_an_allowlisted_or_platform_owned_firing_or_failure_asks_for_a_delivery(
-        self, _name: str, allowlisted: bool, was_firing: bool, owned: bool
+    def test_only_an_allowlisted_or_platform_owned_firing_failure_or_incident_edge_asks_for_a_delivery(
+        self,
+        _name: str,
+        allowlisted: bool,
+        was_firing: bool,
+        owned: bool,
+        paged: bool,
+        breaks: bool,
+        delivered: tuple[dict[str, IncidentAction], bool] | None,
     ) -> None:
         alert = self._alert()
         configuration = self._copy(alert, **({"owner": PlatformAlertOwner.PLATFORM} if owned else {}))
         allowlist = frozenset({str(alert.id)}) if allowlisted else frozenset()
+        if paged:
+            HogFunction.objects.create(
+                team=self.team,
+                type="internal_destination",
+                name="PagerDuty",
+                template_id="template-pagerduty",
+                hog="return event",
+                enabled=True,
+                filters={
+                    "source": "internal-events",
+                    "events": [{"id": "$insight_alert_incident_closed", "type": "events"}],
+                    "properties": [{"key": "alert_id", "value": str(alert.id), "operator": "exact", "type": "event"}],
+                },
+            )
         if was_firing:
             fired, _ = self._evaluate(configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"]))
             assert fired is not None
@@ -436,26 +567,35 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         with patch(f"{_MODULE}.LIVE_DELIVERY_INSIGHT_ALERT_IDS", allowlist):
             self._evaluate(
                 configuration,
-                result=AlertEvaluationResult(value=50.0, breaches=[] if was_firing else ["above 100"]),
+                result=AlertExtractionError("bad query shape")
+                if breaks
+                else AlertEvaluationResult(value=50.0, breaches=[] if was_firing else ["above 100"]),
             )
 
-        expected = [
-            (
-                str(configuration.id),
-                str(alert.id),
-                {"firing": "$insight_alert_firing", "errored": INSIGHT_ALERT_ERRORED_EVENT_ID},
-                owned,
-            )
-        ]
+        expected = (
+            [
+                (
+                    str(configuration.id),
+                    str(alert.id),
+                    {"firing": "$insight_alert_firing", "errored": INSIGHT_ALERT_ERRORED_EVENT_ID},
+                    owned,
+                    *delivered,
+                )
+            ]
+            if delivered is not None
+            else []
+        )
         assert [
             (
                 delivery.configuration_id,
                 delivery.destination_alert_id,
                 delivery.event_ids_by_kind,
                 delivery.owned_by_platform,
+                delivery.incident_actions,
+                delivery.sends_messages,
             )
             for delivery in self.deliveries
-        ] == (expected if (allowlisted or owned) and not was_firing else [])
+        ] == expected
         # A native message links to the alert on its insight, where the insight stack's messages link.
         assert all(
             delivery.source_alert_url == insight_alert_url(self.team.id, alert.insight.short_id, str(alert.id))
@@ -464,21 +604,28 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("disabled", {"enabled": False}, "not_firing"),
-            ("snoozed", {"snoozed_until": CUTOFF + timedelta(hours=1)}, "snoozed"),
+            ("disabled", {"enabled": False}, None, "not_firing"),
+            ("snoozed", {"snoozed_until": CUTOFF + timedelta(hours=1)}, None, "snoozed"),
+            ("switched_to_ai_after_its_copy", {}, {"type": "llm"}, "not_firing"),
         ]
     )
     def test_a_check_production_would_not_run_is_recorded_without_a_query(
-        self, _name: str, overrides: dict[str, Any], state: str
+        self, _name: str, overrides: dict[str, Any], detector_after_copy: dict[str, str] | None, state: str
     ) -> None:
-        outcome, query = self._evaluate(self._copy(self._alert(**overrides)))
+        alert = self._alert(**overrides)
+        configuration = self._copy(alert)
+        if detector_after_copy is not None:
+            alert.detector_config = detector_after_copy
+            alert.save()
+
+        outcome, query = self._evaluate(configuration, uses_llm_detector=detector_after_copy is not None)
 
         query.assert_not_called()
         assert outcome is not None
         assert (outcome.groups[0].kind, outcome.groups[0].new_state, outcome.disable) == (
             AlertEventKind.CHECK,
             state,
-            False,
+            detector_after_copy is not None,
         )
 
     @parameterized.expand(
@@ -503,12 +650,38 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("too_many_queries", ClickHouseAtCapacity()),
-            ("cluster_memory_full", ClickHouseClusterMemoryLimitExceeded()),
+            ("too_many_queries", ClickHouseAtCapacity(), None, ALERT_EVALUATE_RETRY_POLICY.maximum_attempts),
+            (
+                "cluster_memory_full",
+                ClickHouseClusterMemoryLimitExceeded(),
+                None,
+                ALERT_EVALUATE_RETRY_POLICY.maximum_attempts,
+            ),
+            ("attempt_out_of_time", ClickHouseAtCapacity(), "start_to_close", 1),
+            ("check_out_of_time", ClickHouseAtCapacity(), "schedule_to_close", 1),
         ]
     )
-    def test_a_check_clickhouse_refuses_for_load_leaves_the_alert_as_it_was(self, _name: str, error: Exception) -> None:
-        outcome, _ = self._evaluate(self._copy(self._alert()), result=error)
+    def test_a_check_clickhouse_refuses_on_every_try_leaves_the_alert_as_it_was(
+        self, _name: str, error: Exception, budget_spent: str | None, tries: int
+    ) -> None:
+        configuration = self._copy(self._alert())
+        with patch(f"{_MODULE}.time.sleep"):
+            if budget_spent is None:
+                outcome, query = self._evaluate(configuration, result=error)
+            else:
+                now = datetime.now(UTC)
+                spent = timedelta(minutes=13)
+                environment = ActivityEnvironment()
+                # A later attempt with its own start-to-close left, inside a schedule-to-close that ran out, or the reverse.
+                environment.info = replace(
+                    environment.info,
+                    attempt=2,
+                    scheduled_time=now - spent if budget_spent == "schedule_to_close" else now,
+                    schedule_to_close_timeout=spent,
+                    current_attempt_scheduled_time=now - spent if budget_spent == "start_to_close" else now,
+                    start_to_close_timeout=timedelta(minutes=12),
+                )
+                outcome, query = environment.run(lambda: self._evaluate(configuration, result=error))
 
         assert outcome is not None
         assert (outcome.groups[0].kind, outcome.groups[0].new_state, outcome.error_message, outcome.disable) == (
@@ -517,6 +690,17 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             CAPACITY_REJECTED,
             False,
         )
+        assert query.call_count == tries
+
+    def test_a_check_clickhouse_refuses_once_records_the_retried_query_verdict(self) -> None:
+        with patch(f"{_MODULE}.time.sleep"):
+            outcome, query = self._evaluate(
+                self._copy(self._alert()),
+                result=[ClickHouseAtCapacity(), AlertEvaluationResult(value=150.0, breaches=["above 100"])],
+            )
+
+        assert outcome is not None
+        assert (outcome.groups[0].new_state, outcome.error_message, query.call_count) == ("firing", None, 2)
 
     def test_a_cadence_the_plan_no_longer_includes_errors_and_is_disabled(self) -> None:
         self.organization.available_product_features = []
@@ -534,6 +718,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         [
             ("bad_query_shape", AlertExtractionError("bad query shape")),
             ("ai_consent_withdrawn", LLMDetectorMisconfiguredError("consent withdrawn")),
+            ("owner_left_or_lost_access", AlertOwnerAccessError(CREATOR_LEFT_DISABLE_REASON)),
         ]
     )
     def test_an_alert_production_cannot_evaluate_as_configured_errors_and_is_disabled(
@@ -654,13 +839,14 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             (self.team.id, f"{QUERY_ID_PREFIX}run:1:2"),
         ]
 
-    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
+    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS=1)
     def test_a_retry_stops_the_timed_out_query_and_runs_only_inside_the_pool(self) -> None:
         held = self._copy(self._alert(), id=UUID(int=1))
         waiting = self._copy(self._alert(), id=UUID(int=2))
         slot = slot_of(held.next_check_at, CUTOFF)
         expires_at = time.time() + 3600
         assert plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at) == (str(held.id),)
+        admit_evaluation_slots(["run:1:1"], limit=1, expires_at=expires_at, key=QUERY_INFLIGHT_KEY)
 
         with patch("posthog.clickhouse.cancel.cancel_query_on_cluster") as cancel:
             retried = readmit_retried_check(
@@ -674,9 +860,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         assert retried is not None and over_the_limit is None
         assert inflight_alert_ids(INFLIGHT_KEY) == {str(held.id)}
+        # The kill may not have landed, so the timed-out query stays counted until its thread frees it.
+        assert inflight_alert_ids(QUERY_INFLIGHT_KEY) == {"run:1:1"}
         cancel.assert_any_call(self.team.id, "alerts-platform-insight:run:1:1")
 
-    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
+    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS=1)
     def test_the_pool_defers_what_it_cannot_hold_until_a_check_frees_its_slot(self) -> None:
         first = self._copy(self._alert(), id=UUID(int=1))
         second = self._copy(self._alert(calculation_interval=AlertCalculationInterval.REAL_TIME.value), id=UUID(int=2))

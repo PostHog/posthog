@@ -15,11 +15,12 @@ const forkPr = (overrides = {}) => ({
 })
 
 const MERGED_PR = {
+    merged: true,
     body: '<!-- fork-pr: 1001 @Jane-Doe -->',
     mergeCommit: { authors: { nodes: [{ user: { login: 'Jane-Doe' } }] } },
 }
 
-function fakeGithub(forkPrResult) {
+function fakeGithub(forkPrResult, mergedPr) {
     const calls = []
     return {
         calls,
@@ -30,7 +31,7 @@ function fakeGithub(forkPrResult) {
                 }
                 return { repository: { pullRequest: forkPrResult } }
             }
-            return { repository: { pullRequest: MERGED_PR } }
+            return { repository: { pullRequest: mergedPr } }
         },
         rest: {
             issues: { createComment: async (args) => calls.push(['comment', args.issue_number]) },
@@ -39,7 +40,7 @@ function fakeGithub(forkPrResult) {
     }
 }
 
-const context = { repo: { owner: 'PostHog', repo: 'posthog' }, payload: { pull_request: { number: 1002 } } }
+const context = { repo: { owner: 'PostHog', repo: 'posthog' } }
 const core = { info: () => {}, warning: () => {} }
 
 test.describe('thank-fork-contributor', () => {
@@ -75,7 +76,7 @@ test.describe('thank-fork-contributor', () => {
     })
 
     const notFound = Object.assign(new Error('not found'), { errors: [{ type: 'NOT_FOUND' }] })
-    for (const [name, forkPrResult, expectedCalls] of [
+    for (const [name, forkPrResult, expectedCalls, mergedPr = MERGED_PR] of [
         [
             'open fork PR gets a comment and is closed',
             forkPr(),
@@ -91,10 +92,10 @@ test.describe('thank-fork-contributor', () => {
         ],
         ['a closed fork PR only gets the comment', forkPr({ state: 'CLOSED' }), [['comment', 1001]]],
         ['a PR number that does not exist is skipped', notFound, []],
-    ]) {
+        ['a dispatch naming an unmerged PR is skipped', forkPr(), [], { ...MERGED_PR, merged: false }],    ]) {
         test(name, async () => {
-            const github = fakeGithub(forkPrResult)
-            await thankForkContributor({ github, context, core })
+            const github = fakeGithub(forkPrResult, mergedPr)
+            await thankForkContributor({ github, context, core, mergedPrNumber: 1002 })
             assert.deepEqual(github.calls, expectedCalls)
         })
     }

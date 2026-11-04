@@ -6,7 +6,9 @@ import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -205,6 +207,20 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
         assert res.status_code == status.HTTP_200_OK
         assert len(res.json()["results"]) == 39
+
+    def test_list_query_count_does_not_grow_with_page_size(self) -> None:
+        def query_count(page_size: int) -> int:
+            with CaptureQueriesContext(connection) as ctx:
+                res = self.client.get(f"/api/projects/{self.team.id}/activity_log?page_size={page_size}")
+            assert res.status_code == status.HTTP_200_OK
+            assert len(res.json()["results"]) == page_size
+            return len(ctx)
+
+        query_count(1)
+        few = query_count(2)
+        many = query_count(8)
+
+        assert few == many, f"listing 8 entries cost {many} queries vs {few} for 2, so something N+1s"
 
     def test_can_list_all_activity_filtered_by_scope(self) -> None:
         res = self.client.get(f"/api/projects/{self.team.id}/activity_log?scope=FeatureFlag")

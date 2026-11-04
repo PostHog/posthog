@@ -240,6 +240,123 @@ export namespace Schemas {
       count: number;
     }
 
+    export interface AEOPromptSetCounts {
+      /**
+         * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly citation_rate: number | null;
+      /**
+         * Share of answered checks whose answer names the brand. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly mention_rate: number | null;
+      /** Checks in the window, failed ones included. */
+      checks: number;
+      /** Checks in the window where the engine did not answer. */
+      failed: number;
+      /** Checks in the window whose answer cited a target domain. */
+      cited: number;
+      /** Checks in the window whose answer names the brand. Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+      mentioned: number;
+      /** Distinct prompts that ran at least once in the window. */
+      prompts: number;
+      /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
+      prompts_cited: number;
+    }
+
+    export interface AEOPromptSetDomain {
+      /** Host of the cited URLs, for example 'docs.example.com'. */
+      domain: string;
+      /** Answers in the window that cited at least one URL on this domain. */
+      answers: number;
+      /** Share (0-1) of all answered checks in the window that cited the domain. */
+      share_of_answers: number;
+      /** Whether the domain is one of the project's target domains (the project's own site). */
+      is_target: boolean;
+    }
+
+    export interface AEOPromptSetEngineCounts {
+      /**
+         * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly citation_rate: number | null;
+      /**
+         * Share of answered checks whose answer names the brand. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly mention_rate: number | null;
+      /** Checks in the window, failed ones included. */
+      checks: number;
+      /** Checks in the window where the engine did not answer. */
+      failed: number;
+      /** Checks in the window whose answer cited a target domain. */
+      cited: number;
+      /** Checks in the window whose answer names the brand. Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+      mentioned: number;
+      /** Distinct prompts that ran at least once in the window. */
+      prompts: number;
+      /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
+      prompts_cited: number;
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      engine: string;
+    }
+
+    export interface AEOPromptSetTopicCounts {
+      /**
+         * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly citation_rate: number | null;
+      /**
+         * Share of answered checks whose answer names the brand. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly mention_rate: number | null;
+      /** Checks in the window, failed ones included. */
+      checks: number;
+      /** Checks in the window where the engine did not answer. */
+      failed: number;
+      /** Checks in the window whose answer cited a target domain. */
+      cited: number;
+      /** Checks in the window whose answer names the brand. Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+      mentioned: number;
+      /** Distinct prompts that ran at least once in the window. */
+      prompts: number;
+      /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
+      prompts_cited: number;
+      /** Topic the checks ran with. Empty for prompts that have no topic. A prompt moved to another topic keeps its past checks under the old one. */
+      topic: string;
+      /** Prompts that are on, not archived, and have this topic now. */
+      active_prompts: number;
+    }
+
+    export interface AEOPromptSetOverview {
+      /** Checks across the prompt set in the last 'days' days. */
+      current: AEOPromptSetCounts;
+      /** The same counts for the 'days' days before 'window_from'. */
+      previous: AEOPromptSetCounts;
+      /** The current window split per answer engine, ordered by engine. Engines that did not run are left out. */
+      engines: AEOPromptSetEngineCounts[];
+      /** The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks. */
+      topics: AEOPromptSetTopicCounts[];
+      /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
+      top_domains: AEOPromptSetDomain[];
+      /** Length of each window in days. */
+      days: number;
+      /** First day of the current window, in the project's timezone. */
+      window_from: string;
+      /** Last day of the current window (today), in the project's timezone. */
+      window_to: string;
+      /** Prompts that are on and not archived: the ones the next daily run takes. */
+      prompts_tracked: number;
+      /** Domains that count as the project's own site in citations. */
+      target_domains: string[];
+      /** Lower-cased brand names, derived from the target domains. An answer that contains one of them as a word counts as a mention. */
+      brand_names: string[];
+    }
+
     export interface AEOPromptStats {
       /** Totals per answer engine over the prompt's whole history. */
       engines: AEOPromptEngineStats[];
@@ -577,6 +694,8 @@ export namespace Schemas {
       lookback_seconds?: number;
       /** Deprecate only: true to keep a materialized view refreshing after it is deprecated. By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its stored table, unless other views or syncs depend on it. */
       keep_materialized?: boolean;
+      /** Deprecate only: true to delete the view instead of marking it deprecated. Deleting also drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it, or when it feeds person properties, account properties, a destination or a workflow. Refused with a 400 when any day in the read window has no read data, because a view read only on those days would look unread. */
+      delete_view?: boolean;
     }
 
     export interface AccessControlResourceDefault {
@@ -667,6 +786,7 @@ export namespace Schemas {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -688,6 +808,7 @@ export namespace Schemas {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
+     * * `signal_usage` - signal_usage
      * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
@@ -699,6 +820,7 @@ export namespace Schemas {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
@@ -789,6 +911,7 @@ export namespace Schemas {
       MarketingAnalytics: 'marketing_analytics',
       McpAnalytics: 'mcp_analytics',
       McpRegistry: 'mcp_registry',
+      MessagingPreference: 'messaging_preference',
       Metrics: 'metrics',
       Notebook: 'notebook',
       OfflineEvaluationIngestion: 'offline_evaluation_ingestion',
@@ -810,6 +933,7 @@ export namespace Schemas {
       SessionRecordingPlaylist: 'session_recording_playlist',
       SharingConfiguration: 'sharing_configuration',
       SignalScout: 'signal_scout',
+      SignalUsage: 'signal_usage',
       Stamphog: 'stamphog',
       StreamlitApp: 'streamlit_app',
       Subscription: 'subscription',
@@ -821,6 +945,7 @@ export namespace Schemas {
       Today: 'today',
       Toolbar: 'toolbar',
       Tracing: 'tracing',
+      TransactionalEmail: 'transactional_email',
       FieldNote: 'field_note',
       UploadedMedia: 'uploaded_media',
       UsageMetric: 'usage_metric',
@@ -911,6 +1036,7 @@ export namespace Schemas {
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
        * * `mcp_registry` - mcp_registry
+       * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -932,6 +1058,7 @@ export namespace Schemas {
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
+       * * `signal_usage` - signal_usage
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
@@ -943,6 +1070,7 @@ export namespace Schemas {
        * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
+       * * `transactional_email` - transactional_email
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -1156,6 +1284,7 @@ export namespace Schemas {
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
        * * `mcp_registry` - mcp_registry
+       * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -1177,6 +1306,7 @@ export namespace Schemas {
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
+       * * `signal_usage` - signal_usage
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
@@ -1188,6 +1318,7 @@ export namespace Schemas {
        * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
+       * * `transactional_email` - transactional_email
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -1312,6 +1443,7 @@ export namespace Schemas {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
@@ -1371,6 +1503,7 @@ export namespace Schemas {
       FeatureFlag: 'feature_flag',
       Heatmap: 'heatmap',
       HogFlow: 'hog_flow',
+      Inbox: 'inbox',
       Insight: 'insight',
       LlmAnalytics: 'llm_analytics',
       LlmPlayground: 'llm_playground',
@@ -1433,6 +1566,7 @@ export namespace Schemas {
        * * `feature_flag` - feature_flag
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
+       * * `inbox` - inbox
        * * `insight` - insight
        * * `llm_analytics` - llm_analytics
        * * `llm_playground` - llm_playground
@@ -1564,6 +1698,7 @@ export namespace Schemas {
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
        * * `mcp_registry` - mcp_registry
+       * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -1585,6 +1720,7 @@ export namespace Schemas {
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
+       * * `signal_usage` - signal_usage
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
@@ -1596,6 +1732,7 @@ export namespace Schemas {
        * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
+       * * `transactional_email` - transactional_email
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -1699,6 +1836,7 @@ export namespace Schemas {
        * * `feature_flag` - feature_flag
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
+       * * `inbox` - inbox
        * * `insight` - insight
        * * `llm_analytics` - llm_analytics
        * * `llm_playground` - llm_playground
@@ -1786,6 +1924,7 @@ export namespace Schemas {
        * * `feature_flag` - feature_flag
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
+       * * `inbox` - inbox
        * * `insight` - insight
        * * `llm_analytics` - llm_analytics
        * * `llm_playground` - llm_playground
@@ -2983,6 +3122,8 @@ export namespace Schemas {
     export interface ResolvedDateRangeResponse {
       date_from: string;
       date_to: string;
+      /** The earliest timestamp the query reads, when only its first interval depends on rows from before date_from. Lifecycle sets it to the start of the interval before the range. */
+      read_from?: string | null;
     }
 
     export interface QueryTiming {
@@ -3371,6 +3512,43 @@ export namespace Schemas {
       value: number;
     }
 
+    export type AccountsTableCustomPropertyDisplayType = typeof AccountsTableCustomPropertyDisplayType[keyof typeof AccountsTableCustomPropertyDisplayType];
+
+
+    export const AccountsTableCustomPropertyDisplayType = {
+      Text: 'text',
+      Link: 'link',
+      Number: 'number',
+      Currency: 'currency',
+      Percent: 'percent',
+      Date: 'date',
+      Datetime: 'datetime',
+      Boolean: 'boolean',
+      Select: 'select',
+    } as const;
+
+    export interface AccountsTableCustomPropertyOption {
+      color: string;
+      id?: string | null;
+      label: string;
+    }
+
+    export interface AccountsTableCustomPropertySource {
+      id: string;
+    }
+
+    export interface AccountsTableCustomPropertyDefinition {
+      description?: string | null;
+      display_type: AccountsTableCustomPropertyDisplayType;
+      has_workflow_reference: boolean;
+      id: string;
+      is_big_number?: boolean | null;
+      is_canonical: boolean;
+      name: string;
+      options?: AccountsTableCustomPropertyOption[] | null;
+      source?: AccountsTableCustomPropertySource | null;
+    }
+
     export type AccountsTableCustomPropertyOperator = typeof AccountsTableCustomPropertyOperator[keyof typeof AccountsTableCustomPropertyOperator];
 
 
@@ -3472,6 +3650,14 @@ export namespace Schemas {
     } as const;
     export type AccountsTableUnassignedFilter = typeof AccountsTableUnassignedFilterValue;
 
+    export interface AccountsTableRelationshipDefinition {
+      description?: string | null;
+      id: string;
+      is_controlled: boolean;
+      is_single_holder?: boolean | null;
+      name: string;
+    }
+
     /**
      * Requested direct Account fields, keyed by their typed field reference.
      */
@@ -3513,6 +3699,8 @@ export namespace Schemas {
     }
 
     export interface AccountsTableQueryResponse {
+      columns?: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[] | null;
+      customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore: boolean;
@@ -3527,6 +3715,7 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      relationshipDefinitions?: AccountsTableRelationshipDefinition[] | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
@@ -3561,6 +3750,8 @@ export namespace Schemas {
       filterGroups?: ((AccountsTableAccountFieldFilter | AccountsTableRelationshipFilter | AccountsTableCustomPropertyFilter)[])[] | null;
       /** Filters are combined with AND. Values within tag and assignment filters use OR. */
       filters?: (AccountsTableSearchFilter | AccountsTableTagsFilter | AccountsTableAssignedToFilter | AccountsTableAssignedFilter | AccountsTableUnassignedFilter | AccountsTableRelationshipFilter | AccountsTableAccountIdFilter | AccountsTableAccountFieldFilter | AccountsTableCustomPropertyFilter)[] | null;
+      /** Omit missing definitions and custom-property filters incompatible with their current types. */
+      ignoreMissingDefinitions?: boolean | null;
       /** Include churned accounts. Churned accounts are hidden by default. */
       includeChurned?: boolean | null;
       /** Include ignored accounts. Ignored accounts are hidden by default. */
@@ -3575,6 +3766,7 @@ export namespace Schemas {
       response?: AccountsTableQueryResponse | null;
       sort?: AccountsTableSort | null;
       tags?: QueryLogTags | null;
+      useDefaultColumns?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -4687,6 +4879,13 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[] | null;
     }
 
+    export interface ActionListResponse {
+      /** Number of actions that match the filters. Without `limit`, it is `offset` plus the number of actions returned. */
+      count: number;
+      /** Actions on this page, or every matching action without `limit`. */
+      results: Action[];
+    }
+
     export interface ActionReference {
       /** Resource type: insight, experiment, cohort, or hog_function */
       type: string;
@@ -5411,7 +5610,7 @@ export namespace Schemas {
          * @nullable
          */
       strength: string | null;
-      /** Refs into `computed.owned`, `computed.watched` and `computed.pages` of the same version, such as `o1` or `p2`, that show this thread. A ref is valid only inside one version. */
+      /** Refs into `computed.owned`, `computed.watched`, `computed.pages`, `computed.tasks` and `computed.mcp_sessions` of the same version, such as `o1`, `p2`, `t3` or `m1`, that show this thread. A ref is valid only inside one version. */
       refs: string[];
       /**
          * The last day of activity on the refs of this thread, as YYYY-MM-DD.
@@ -5565,6 +5764,13 @@ export namespace Schemas {
       visits: ActivitySummaryProductEnum[];
     }
 
+    export interface ActivitySummaryLineRef {
+      /** The ref that themes cite, such as `t1` for a task or `m1` for an MCP session. */
+      ref: string;
+      /** The day of the task or MCP session, as YYYY-MM-DD. */
+      last_at: string;
+    }
+
     export interface ActivitySummaryComputed {
       /** The version of the shape of these fields. */
       schema_version: number;
@@ -5578,6 +5784,10 @@ export namespace Schemas {
       products: ActivitySummaryProductSplit;
       /** The number of tasks the user gave to PostHog AI or the Slack agent. */
       task_count: number;
+      /** Tasks the user gave to PostHog AI or the Slack agent that the summary input showed, oldest first. Empty on summaries from before task refs existed. */
+      tasks: ActivitySummaryLineRef[];
+      /** Sessions of the user's AI agent over MCP that the summary input showed, oldest first. Empty on summaries from before MCP refs existed. */
+      mcp_sessions: ActivitySummaryLineRef[];
     }
 
     export interface ActivitySummary {
@@ -5621,6 +5831,94 @@ export namespace Schemas {
       prompt_version: number | null;
       /** True when a newer version will replace this summary soon. */
       stale: boolean;
+    }
+
+    /**
+     * * `semantic` - Semantic
+     * * `headline` - Headline
+     * * `themes` - Themes
+     * * `owned` - Owned
+     * * `watched` - Watched
+     * * `profile` - Profile
+     */
+    export type MatchKindEnum = typeof MatchKindEnum[keyof typeof MatchKindEnum];
+
+
+    export const MatchKindEnum = {
+      Semantic: 'semantic',
+      Headline: 'headline',
+      Themes: 'themes',
+      Owned: 'owned',
+      Watched: 'watched',
+      Profile: 'profile',
+    } as const;
+
+    export interface ActivitySummarySearchMatch {
+      /** `semantic` for a vector match, else the summary field a keyword matched.
+       *
+       * * `semantic` - Semantic
+       * * `headline` - Headline
+       * * `themes` - Themes
+       * * `owned` - Owned
+       * * `watched` - Watched
+       * * `profile` - Profile */
+      kind: MatchKindEnum;
+      /**
+         * A short excerpt around the first keyword match. Null for a semantic match.
+         * @nullable
+         */
+      snippet: string | null;
+    }
+
+    export interface ActivitySummarySearchHit {
+      /** The member. Use it in `suggested_reviewers`. */
+      user_uuid: string;
+      /** The member's first name. */
+      first_name: string;
+      /** The member's last name. */
+      last_name: string;
+      /**
+         * The member's GitHub login, lowercase. Null when no GitHub identity is linked.
+         * @nullable
+         */
+      github_login: string | null;
+      /**
+         * The reciprocal rank fusion score. Higher is a better match. Null when the request had no query.
+         * @nullable
+         */
+      score: number | null;
+      /** Why this member matched. */
+      matched_on: ActivitySummarySearchMatch[];
+      /**
+         * One or two sentences about what the member works on in this project.
+         * @nullable
+         */
+      headline: string | null;
+      /** The main threads of the member's work. */
+      themes: ActivitySummaryTheme[];
+      /** How the member works in this project overall, the main mode first. */
+      modes: ActivitySummaryModeEnum[];
+      /**
+         * When this summary was written.
+         * @nullable
+         */
+      generated_at: string | null;
+      /** True when a newer version will replace this summary soon. */
+      stale: boolean;
+      /**
+         * The one-page markdown profile. Set only when the request sets `include_profile`.
+         * @nullable
+         */
+      profile: string | null;
+    }
+
+    export interface ActivitySummarySearchResult {
+      /** The matching members, best match first. */
+      results: ActivitySummarySearchHit[];
+      /** False when the search used keywords only: a `keyword` search, a request with no query, or a `hybrid` search whose vector search failed. */
+      semantic_used: boolean;
+      /** Members with access to the project and no summary yet. The search cannot find them. */
+      not_ready_count: number;
     }
 
     export interface ActivitySummaryVersion {
@@ -5804,9 +6102,16 @@ export namespace Schemas {
       series_label?: string | null;
     }
 
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+     */
+    export type TrendsQueryResponseActionNames = {[key: string]: string} | null;
+
     export type TrendsQueryResponseResultsItem = { [key: string]: unknown };
 
     export interface TrendsQueryResponse {
+      /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+      action_names?: TrendsQueryResponseActionNames;
       boxplot_data?: BoxPlotDatum[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -6925,9 +7230,16 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+     */
+    export type StickinessQueryResponseActionNames = {[key: string]: string} | null;
+
     export type StickinessQueryResponseResultsItem = { [key: string]: unknown };
 
     export interface StickinessQueryResponse {
+      /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+      action_names?: StickinessQueryResponseActionNames;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -7050,9 +7362,16 @@ export namespace Schemas {
       toggledLifecycles?: LifecycleToggle[] | null;
     }
 
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+     */
+    export type LifecycleQueryResponseActionNames = {[key: string]: string} | null;
+
     export type LifecycleQueryResponseResultsItem = { [key: string]: unknown };
 
     export interface LifecycleQueryResponse {
+      /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+      action_names?: LifecycleQueryResponseActionNames;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -7425,6 +7744,13 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface ExperimentWarehouseNativeUnitBinding {
+      /** Which ids represent that unit, such as `billing_customer_id`. */
+      id_namespace: string;
+      /** What was randomized, as a stable project-scoped label such as `customer` or `account`. */
+      unit_type: string;
+    }
+
     export type ExperimentWarehouseNativeExposureConfigResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentWarehouseNativeExposureConfig {
@@ -7434,6 +7760,7 @@ export namespace Schemas {
       /** Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling. */
       query: string;
       response?: ExperimentWarehouseNativeExposureConfigResponse;
+      unit: ExperimentWarehouseNativeUnitBinding;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -7510,6 +7837,7 @@ export namespace Schemas {
       /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure. */
       query: string;
       response?: ExperimentWarehouseNativeNodeResponse;
+      unit: ExperimentWarehouseNativeUnitBinding;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -8651,13 +8979,15 @@ export namespace Schemas {
 
     export interface Response12 {
       columns?: unknown[] | null;
-      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+      latestDayComputedAt?: string | null;
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -8684,12 +9014,14 @@ export namespace Schemas {
     export type Response13Results = {[key: string]: MarketingAnalyticsItem};
 
     export interface Response13 {
-      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+      latestDayComputedAt?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
@@ -9084,6 +9416,8 @@ export namespace Schemas {
     }
 
     export interface Response20 {
+      columns?: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[] | null;
+      customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore: boolean;
@@ -9098,6 +9432,7 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      relationshipDefinitions?: AccountsTableRelationshipDefinition[] | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
@@ -9928,13 +10263,15 @@ export namespace Schemas {
 
     export interface MarketingAnalyticsTableQueryResponse {
       columns?: unknown[] | null;
-      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+      latestDayComputedAt?: string | null;
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10004,12 +10341,14 @@ export namespace Schemas {
     export type MarketingAnalyticsAggregatedQueryResponseResults = {[key: string]: MarketingAnalyticsItem};
 
     export interface MarketingAnalyticsAggregatedQueryResponse {
-      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+      latestDayComputedAt?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
@@ -10655,6 +10994,15 @@ export namespace Schemas {
       Area: 'area',
     } as const;
 
+    export type ValueLabels = typeof ValueLabels[keyof typeof ValueLabels];
+
+
+    export const ValueLabels = {
+      Auto: 'auto',
+      Show: 'show',
+      Hide: 'hide',
+    } as const;
+
     export type YAxisPosition = typeof YAxisPosition[keyof typeof YAxisPosition];
 
 
@@ -10666,8 +11014,12 @@ export namespace Schemas {
     export interface ChartSettingsDisplay {
       color?: string | null;
       displayType?: DisplayType | null;
+      /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
+      excludeFromTotal?: boolean | null;
       label?: string | null;
       trendLine?: boolean | null;
+      /** Overrides the chart's "Show values on series" for this series. Unset or 'auto' follows the chart setting. */
+      valueLabels?: ValueLabels | null;
       yAxisPosition?: YAxisPosition | null;
     }
 
@@ -10784,6 +11136,23 @@ export namespace Schemas {
       tableSettings?: TableSettings | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+    }
+
+    export type BICatalogMetricStatus = typeof BICatalogMetricStatus[keyof typeof BICatalogMetricStatus];
+
+
+    export const BICatalogMetricStatus = {
+      Approved: 'approved',
+      Proposed: 'proposed',
+    } as const;
+
+    export interface CatalogMetricContext {
+      id: string;
+      isDrifted: boolean;
+      owner?: string | null;
+      status: BICatalogMetricStatus;
+      unit: string;
+      updatedAt?: string | null;
     }
 
     export type BIDateBucket = typeof BIDateBucket[keyof typeof BIDateBucket];
@@ -11095,6 +11464,8 @@ export namespace Schemas {
     export interface BIConfig {
       /** Catalog provenance only: the snapshot does not track subsequent definition edits. */
       catalogMetric?: string | null;
+      /** Catalog metadata at copy time, not a live approval of the worksheet. */
+      catalogMetricContext?: CatalogMetricContext | null;
       chartType: ChartDisplayType;
       colorBy?: string | null;
       columns: BIField[];
@@ -11184,9 +11555,14 @@ export namespace Schemas {
     export type _InsightQuerySchema = InsightVizNode | DataTableNode | DataVisualizationNode | BIVisualizationNode | HogQuery;
 
     export interface DashboardTileBasic {
+      /** ID of the dashboard tile. */
       readonly id: number;
+      /** ID of the dashboard the tile sits on. */
       readonly dashboard_id: number;
-      /** @nullable */
+      /**
+         * Whether the tile was removed from the dashboard.
+         * @nullable
+         */
       deleted?: boolean | null;
     }
 
@@ -11226,12 +11602,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
      * @nullable
      */
     export type InsightResolvedDateRange = {
       readonly date_from?: string;
       readonly date_to?: string;
     } | null;
+
+    /**
+     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+     * @nullable
+     */
+    export type InsightResolvedCompareDateRange = {
+      readonly date_from?: string;
+      readonly date_to?: string;
+    } | null;
+
+    /**
+     * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+     * @nullable
+     */
+    export type InsightActionNames = {[key: string]: string} | null;
 
     /**
      * Simplified serializer to speed response times when loading large amounts of objects.
@@ -11330,8 +11722,21 @@ export namespace Schemas {
       readonly hogql: string | null;
       /** @nullable */
       readonly types: readonly unknown[] | null;
-      /** @nullable */
+      /**
+         * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+         * @nullable
+         */
       readonly resolved_date_range: InsightResolvedDateRange;
+      /**
+         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+         * @nullable
+         */
+      readonly resolved_compare_date_range: InsightResolvedCompareDateRange;
+      /**
+         * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+         * @nullable
+         */
+      readonly action_names: InsightActionNames;
       /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
       readonly query_scan: unknown;
       /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
@@ -11910,6 +12315,11 @@ export namespace Schemas {
       tiles: DashboardTile[];
     }
 
+    export interface AddInsightToDashboardRequest {
+      /** ID of an existing insight to place on the dashboard. The insight must belong to the same environment as the dashboard. Adding an insight the dashboard already shows changes nothing, and adding one that was removed from the dashboard restores its tile. */
+      insight_id: number;
+    }
+
     export interface AddOptOutRequest {
       /**
          * The recipient identifier to opt out (e.g. email address).
@@ -12188,10 +12598,27 @@ export namespace Schemas {
       models: AgentModelOption[];
     }
 
+    export type SpanHealthStatus = typeof SpanHealthStatus[keyof typeof SpanHealthStatus];
+
+
+    export const SpanHealthStatus = {
+      Silent: 'silent',
+      Regressed: 'regressed',
+      Degraded: 'degraded',
+      New: 'new',
+      Recovered: 'recovered',
+      Improved: 'improved',
+      Ok: 'ok',
+    } as const;
+
     export interface AggregatedSpanRow {
       avg_duration_nano: number;
       count: number;
       error_count: number;
+      /** Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is `ok`. */
+      health_reason?: string | null;
+      /** Set only when the query asked for `includeHealth`. Same statuses as the service health check. */
+      health_status?: SpanHealthStatus | null;
       name: string;
       p50_duration_nano: number;
       p95_duration_nano: number;
@@ -13514,7 +13941,7 @@ export namespace Schemas {
     }
 
     export interface AnomalyInsightResponse {
-      /** Whether anomaly scoring covers this project. */
+      /** Whether anomaly scoring scores this project now. False when scoring does not cover the project, or when the project turned it off in its self-driving settings. Scores written before scoring was turned off are still returned. */
       scoring_enabled: boolean;
       /** The numeric id of the insight. */
       insight_id: number;
@@ -13706,7 +14133,7 @@ export namespace Schemas {
     }
 
     export interface AnomalySearchResponse {
-      /** Whether anomaly scoring covers this project. */
+      /** Whether anomaly scoring scores this project now. False when scoring does not cover the project, or when the project turned it off in its self-driving settings. Scores written before scoring was turned off are still returned. */
       scoring_enabled: boolean;
       /** Active insights that scoring checks: saved trends insights that a person viewed, that sit on a dashboard someone opened, or that were edited in the active window (90 days by default), or that have an enabled alert or subscription. */
       watched_insights: number;
@@ -14639,6 +15066,51 @@ export namespace Schemas {
       github_team: string | null;
       /** False when the team membership table isn't synced, so a team filter matches nobody. */
       has_membership_data: boolean;
+    }
+
+    export interface PRLLMSpend {
+      /** Total agent LLM token cost in USD attributed to this PR (sum of $ai_total_cost_usd over the matched $ai_generation events). */
+      cost_usd: number;
+      /** Total input (prompt) tokens across the attributed generations. */
+      input_tokens: number;
+      /** Total output (completion) tokens across the attributed generations. */
+      output_tokens: number;
+      /** Number of $ai_generation events attributed to this PR by git branch ($ai_git_branch). */
+      generations: number;
+      /** Total prompt tokens read from the provider's prompt cache across the attributed generations ($ai_cache_read_input_tokens). Not included in input_tokens. */
+      cache_read_input_tokens: number;
+      /** Total prompt tokens written to the provider's prompt cache across the attributed generations ($ai_cache_creation_input_tokens). Not included in input_tokens. */
+      cache_creation_input_tokens: number;
+      /** Largest prompt any single attributed generation sent: input plus cache read plus cache write tokens. */
+      peak_context_tokens: number;
+    }
+
+    export interface AuthorPRLLMSpend {
+      /** Agent LLM token spend attributed to this pull request, by the same rule as `pr_cost`, or null when no generation matched. */
+      llm_spend: PRLLMSpend | null;
+      /** Pull request number. */
+      number: number;
+      /** Pull request title. */
+      title: string;
+      /** Pull request state: open, closed, or merged.
+       *
+       * * `open` - Open
+       * * `closed` - Closed
+       * * `merged` - Merged */
+      state: PRStateEnum;
+      /** The pull request's head branch, which attribution joins on. */
+      head_branch: string;
+      /** When the pull request was opened. */
+      created_at: string;
+    }
+
+    export interface AuthorLLMSpendList {
+      /** The author's pull requests active in the window, newest first, capped at `limit`. Each spend covers the pull request's whole attribution window, so it can include spend from before date_from. */
+      items: AuthorPRLLMSpend[];
+      /** True when more pull requests matched than `limit`. */
+      truncated: boolean;
+      /** Maximum number of pull requests returned in `items`. */
+      limit: number;
     }
 
     export type AutocompleteCompletionItemKind = typeof AutocompleteCompletionItemKind[keyof typeof AutocompleteCompletionItemKind];
@@ -17544,6 +18016,7 @@ export namespace Schemas {
        * * `America/Coral_Harbour` - America/Coral_Harbour
        * * `America/Cordoba` - America/Cordoba
        * * `America/Costa_Rica` - America/Costa_Rica
+       * * `America/Coyhaique` - America/Coyhaique
        * * `America/Creston` - America/Creston
        * * `America/Cuiaba` - America/Cuiaba
        * * `America/Curacao` - America/Curacao
@@ -20024,6 +20497,7 @@ export namespace Schemas {
     export const Breakdown1 = {
       Keyword: 'keyword',
       Page: 'page',
+      SearchTerm: 'search_term',
     } as const;
 
     /**
@@ -20791,6 +21265,16 @@ export namespace Schemas {
       B2b: 'b2b',
       B2c: 'b2c',
       Other: 'other',
+    } as const;
+
+    /**
+     * Change data capture engine of a source type, which picks its CDC setup form and status panel.
+     */
+    export type CDCEngine = typeof CDCEngine[keyof typeof CDCEngine];
+
+
+    export const CDCEngine = {
+      Postgres: 'postgres',
     } as const;
 
     export interface CICardSummary {
@@ -23154,6 +23638,18 @@ export namespace Schemas {
     export interface CanvasStateResponse {
       /** The canvas's shared entries plus the caller's own user-scoped entries. */
       entries: CanvasStateEntry[];
+      /** Number of entries in the whole selection, across all pages. */
+      count: number;
+      /**
+         * URL of the next page, or null when complete. It pages the same way as this request: by cursor when the request used a cursor, otherwise by offset.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL of the previous page by offset, or null on the first page and for a cursor request.
+         * @nullable
+         */
+      previous: string | null;
       /**
          * Next entry offset, or null when complete. Null when the request used a cursor.
          * @nullable
@@ -23942,6 +24438,25 @@ export namespace Schemas {
       base_version?: number | null;
     }
 
+    export interface ChannelPage {
+      /** Number of channels the requester can access. */
+      count: number;
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL of the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
+      /** Channels on this page. */
+      results: ChannelDTO[];
+    }
+
+    export type ChannelListResponse = ChannelDTO[] | ChannelPage;
+
     export interface ChannelMembersWrite {
       /**
          * Required list of member user IDs. This list replaces the current members. The creator remains a member. Send an empty list to remove all other members. Each submitted user must have project access.
@@ -24622,6 +25137,75 @@ export namespace Schemas {
       date_created: string | null;
     }
 
+    /**
+     * * `emerging` - Emerging
+     * * `active` - Active
+     * * `fading` - Fading
+     * * `dormant` - Dormant
+     */
+    export type ClusterStatusEnum = typeof ClusterStatusEnum[keyof typeof ClusterStatusEnum];
+
+
+    export const ClusterStatusEnum = {
+      Emerging: 'emerging',
+      Active: 'active',
+      Fading: 'fading',
+      Dormant: 'dormant',
+    } as const;
+
+    export interface VariantCount {
+      /** The variant key, or `__unattributed__` for members with none. */
+      key: string;
+      /** The group's members in this variant in the window. */
+      observation_count: number;
+      /** Distinct people among them. */
+      people_count: number;
+    }
+
+    export interface Cluster {
+      /** The cluster id. Pass it as `theme` or `group` to `vision-scanners-observations-list` to read members. */
+      id: string;
+      /** The scanner whose observations the cluster groups. */
+      scanner_id: string;
+      /** The scanner's name. */
+      scanner_name: string;
+      /**
+         * A short model-written search phrase for a theme. Null for a group, and for a theme too small to be named; `example_summary` stands in.
+         * @nullable
+         */
+      name: string | null;
+      /** Where the cluster stands, from its members: `emerging` (first member this week), `active`, `fading` (last week under half of the week before) or `dormant` (no member for two weeks).
+       *
+       * * `emerging` - Emerging
+       * * `active` - Active
+       * * `fading` - Fading
+       * * `dormant` - Dormant */
+      status: ClusterStatusEnum;
+      /** Readable observations in the window: issue observations, plus routine ones with `include_routine`. */
+      observation_count: number;
+      /** Distinct people among them; a session without an identified person counts as one. */
+      people_count: number;
+      /** Members in the same-length window just before `date_from`, to compare the trend against. */
+      previous_observation_count: number;
+      /** When the window's oldest member was observed. */
+      first_seen: string;
+      /** When the window's newest member was observed. */
+      last_seen: string;
+      /** Up to 3 of the window's highest-ranked members, best first. */
+      example_observation_ids: string[];
+      /** One-line summary of the best example; the readable label for a group, which has no name. */
+      example_summary: string;
+      /** The window's members split by experiment variant, largest first. Empty unless `by_variant` is set. Compare each variant's share of the group with its share of the scanner's sessions, since variants are sampled at different rates. */
+      variants: VariantCount[];
+    }
+
+    export interface ClusterList {
+      /** Clusters with at least one member in the window. */
+      results: Cluster[];
+      /** Whether another page follows at `offset + limit`. */
+      has_more: boolean;
+    }
+
     export interface DiffCluster {
       x: number;
       y: number;
@@ -25225,6 +25809,84 @@ export namespace Schemas {
          * @maxItems 1000
          */
       _create_static_person_ids?: string[];
+    }
+
+    export interface CohortCalculationHistory {
+      readonly id: string;
+      /** Cohort filters/properties at time of calculation */
+      filters: unknown;
+      /**
+         * Number of people in cohort
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
+      count?: number | null;
+      /** When calculation started */
+      started_at?: string;
+      /**
+         * When calculation finished
+         * @nullable
+         */
+      finished_at?: string | null;
+      /** Array of query information (query, query_id, query_ms, memory_mb, read_rows, written_rows) */
+      queries?: unknown;
+      /**
+         * Error message if calculation failed
+         * @nullable
+         */
+      error?: string | null;
+      /**
+         * Calculate duration in seconds if both start and end times are available
+         * @nullable
+         */
+      readonly duration_seconds: number | null;
+      /** Check if calculation is completed (successfully or with error) */
+      readonly is_completed: boolean;
+      /** Check if calculation completed successfully */
+      readonly is_successful: boolean;
+      /**
+         * Get total query duration across all queries
+         * @nullable
+         */
+      readonly total_query_ms: number | null;
+      /**
+         * Get total memory usage across all queries
+         * @nullable
+         */
+      readonly total_memory_mb: number | null;
+      /**
+         * Get total rows read across all queries
+         * @nullable
+         */
+      readonly total_read_rows: number | null;
+      /**
+         * Get total rows written across all queries
+         * @nullable
+         */
+      readonly total_written_rows: number | null;
+      /**
+         * Get the main query (first query in the array)
+         * @nullable
+         */
+      readonly main_query: string | null;
+    }
+
+    export interface CohortCalculationHistoryResponse {
+      /** Calculation runs on this page, newest first. */
+      results: CohortCalculationHistory[];
+      /** Number of calculation runs recorded for the cohort. */
+      count: number;
+      /**
+         * Query string for the next page, such as `?limit=100&offset=100`, or null.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * Query string for the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
     }
 
     /**
@@ -27913,6 +28575,14 @@ export namespace Schemas {
       Agent: 'agent',
     } as const;
 
+    export type MonitoringMetricConfigPurposeEnum = typeof MonitoringMetricConfigPurposeEnum[keyof typeof MonitoringMetricConfigPurposeEnum];
+
+
+    export const MonitoringMetricConfigPurposeEnum = {
+      Expectation: 'expectation',
+      MinimumEvidence: 'minimum_evidence',
+    } as const;
+
     export type ThresholdScalingEnum = typeof ThresholdScalingEnum[keyof typeof ThresholdScalingEnum];
 
 
@@ -27922,6 +28592,8 @@ export namespace Schemas {
     } as const;
 
     export interface MonitoringMetricConfig {
+      /** `expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count. */
+      purpose?: MonitoringMetricConfigPurposeEnum;
       /**
          * The period the comparison target describes, in minutes. Independent of the soak and run schedule.
          * @maximum 527040
@@ -29266,6 +29938,40 @@ export namespace Schemas {
       description?: string | null;
     }
 
+    /**
+     * The `campaign` object from Customer.io's `GET /v1/environments/{environment_id}/campaigns/{campaign_id}` (Journeys UI API, what the Customer.io CLI and MCP read). Must include `id`, `type`, `edges` and the trigger fields.
+     */
+    export type CustomerioCampaignCampaign = { [key: string]: unknown };
+
+    export type CustomerioCampaignActionsItem = { [key: string]: unknown };
+
+    export interface CustomerioCampaign {
+      /** The `campaign` object from Customer.io's `GET /v1/environments/{environment_id}/campaigns/{campaign_id}` (Journeys UI API, what the Customer.io CLI and MCP read). Must include `id`, `type`, `edges` and the trigger fields. */
+      campaign: CustomerioCampaignCampaign;
+      /** The top-level `actions` array from the same response, every step of the automation. */
+      actions: CustomerioCampaignActionsItem[];
+      /** The message templates the actions point at, from `GET /v1/environments/{environment_id}/templates/{template_id}`: a list of template objects, or an object keyed by template id. Leave them out when the project stored a Customer.io App API key: PostHog then reads the content from Customer.io itself. Without either, messages import with empty content. */
+      templates?: unknown;
+    }
+
+    export interface CustomerioSegment {
+      /** The segment's id. */
+      id: string;
+      /** The segment's name. */
+      name: string;
+      /** The segment's type: `dynamic`, or `static` for a hand-made list. */
+      type: string;
+    }
+
+    export interface CustomerioSenderIdentity {
+      /** The sender identity's id, which templates name in `from_identity_id`. */
+      id: string;
+      /** The address the sender sends from. */
+      email: string;
+      /** The sender's display name. */
+      name?: string;
+    }
+
     export type DashboardFilters = { [key: string]: unknown };
 
     /**
@@ -29621,6 +30327,30 @@ export namespace Schemas {
     }
 
     /**
+     * * `second` - second
+     * * `minute` - minute
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * * `month` - month
+     * * `quarter` - quarter
+     * * `year` - year
+     */
+    export type IntervalTypeEnum = typeof IntervalTypeEnum[keyof typeof IntervalTypeEnum];
+
+
+    export const IntervalTypeEnum = {
+      Second: 'second',
+      Minute: 'minute',
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+      Quarter: 'quarter',
+      Year: 'year',
+    } as const;
+
+    /**
      * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
      *
      * Documents the dashboard-level filters that act as the single source of truth for the
@@ -29640,6 +30370,26 @@ export namespace Schemas {
       date_to?: string | null;
       /** Dashboard-level property filters applied to every tile (PostHog property filter group). */
       properties?: unknown;
+      /** Dashboard-level breakdown applied to every tile that supports one, replacing the tile's own breakdown. Example: {"breakdown_type": "event", "breakdown": "$browser"}. Null clears it. */
+      breakdown_filter?: BreakdownFilter | null;
+      /** Time granularity forced onto every tile that supports one. Null means each tile keeps its own.
+       *
+       * * `second` - second
+       * * `minute` - minute
+       * * `hour` - hour
+       * * `day` - day
+       * * `week` - week
+       * * `month` - month
+       * * `quarter` - quarter
+       * * `year` - year */
+      interval?: IntervalTypeEnum | null;
+      /** Period comparison forced onto every tile that supports one. Null means each tile keeps its own. */
+      compareFilter?: CompareFilter | null;
+      /**
+         * True forces test accounts out of every tile, false forces them in, null keeps each tile's setting.
+         * @nullable
+         */
+      filterTestAccounts?: boolean | null;
     }
 
     /**
@@ -30436,30 +31186,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `second` - second
-     * * `minute` - minute
-     * * `hour` - hour
-     * * `day` - day
-     * * `week` - week
-     * * `month` - month
-     * * `quarter` - quarter
-     * * `year` - year
-     */
-    export type DataCatalogMetricRunRequestIntervalEnum = typeof DataCatalogMetricRunRequestIntervalEnum[keyof typeof DataCatalogMetricRunRequestIntervalEnum];
-
-
-    export const DataCatalogMetricRunRequestIntervalEnum = {
-      Second: 'second',
-      Minute: 'minute',
-      Hour: 'hour',
-      Day: 'day',
-      Week: 'week',
-      Month: 'month',
-      Quarter: 'quarter',
-      Year: 'year',
-    } as const;
-
-    /**
      * Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.
      */
     export interface DataCatalogMetricRunRequest {
@@ -30477,7 +31203,7 @@ export namespace Schemas {
        * * `month` - month
        * * `quarter` - quarter
        * * `year` - year */
-      interval?: DataCatalogMetricRunRequestIntervalEnum;
+      interval?: IntervalTypeEnum;
       /** Client-supplied id to correlate or cancel the run. */
       query_id?: string;
     }
@@ -32043,6 +32769,10 @@ export namespace Schemas {
       blocked_by: SyncFrequencyBlockedByEnum | null;
       /** The source or consumer named in `blocked_by`. Null when allowed, and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
       blocker: SyncFrequencyBlocker | null;
+      /** Upstream materialized views that would refresh more often than they do now if this cadence were chosen, because a view cannot be fresher than its inputs. Only views the caller may read are listed. Empty when the cadence is blocked. */
+      speeds_up: SyncFrequencyBlocker[];
+      /** True when at least one view this cadence speeds up sits outside the caller's access grants, so `speeds_up` is incomplete. */
+      speeds_up_withheld: boolean;
     }
 
     export interface SyncFrequencyBound {
@@ -32691,2838 +33421,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `Ashby` - Ashby
-     * * `Supabase` - Supabase
-     * * `CustomerIO` - CustomerIO
-     * * `Github` - Github
-     * * `Stripe` - Stripe
-     * * `Hubspot` - Hubspot
-     * * `Postgres` - Postgres
-     * * `Zendesk` - Zendesk
-     * * `Snowflake` - Snowflake
-     * * `Salesforce` - Salesforce
-     * * `MySQL` - MySQL
-     * * `MongoDB` - MongoDB
-     * * `MSSQL` - MSSQL
-     * * `Vitally` - Vitally
-     * * `BigQuery` - BigQuery
-     * * `Chargebee` - Chargebee
-     * * `Clerk` - Clerk
-     * * `GoogleAds` - GoogleAds
-     * * `GoogleSearchConsole` - GoogleSearchConsole
-     * * `TemporalIO` - TemporalIO
-     * * `DoIt` - DoIt
-     * * `GoogleSheets` - GoogleSheets
-     * * `MetaAds` - MetaAds
-     * * `Klaviyo` - Klaviyo
-     * * `Mailchimp` - Mailchimp
-     * * `Braze` - Braze
-     * * `Mailjet` - Mailjet
-     * * `Redshift` - Redshift
-     * * `Polar` - Polar
-     * * `RevenueCat` - RevenueCat
-     * * `LinkedinAds` - LinkedinAds
-     * * `RedditAds` - RedditAds
-     * * `TikTokAds` - TikTokAds
-     * * `BingAds` - BingAds
-     * * `Shopify` - Shopify
-     * * `Attio` - Attio
-     * * `SnapchatAds` - SnapchatAds
-     * * `Linear` - Linear
-     * * `LiteLLM` - LiteLLM
-     * * `Intercom` - Intercom
-     * * `Amplitude` - Amplitude
-     * * `Mixpanel` - Mixpanel
-     * * `Jira` - Jira
-     * * `ActiveCampaign` - ActiveCampaign
-     * * `Marketo` - Marketo
-     * * `Adjust` - Adjust
-     * * `AppsFlyer` - AppsFlyer
-     * * `Freshdesk` - Freshdesk
-     * * `GoogleAnalytics` - GoogleAnalytics
-     * * `Pipedrive` - Pipedrive
-     * * `SendGrid` - SendGrid
-     * * `Slack` - Slack
-     * * `PagerDuty` - PagerDuty
-     * * `Asana` - Asana
-     * * `Notion` - Notion
-     * * `Airtable` - Airtable
-     * * `Greenhouse` - Greenhouse
-     * * `BambooHR` - BambooHR
-     * * `Lever` - Lever
-     * * `GitLab` - GitLab
-     * * `Datadog` - Datadog
-     * * `Sentry` - Sentry
-     * * `Pendo` - Pendo
-     * * `FullStory` - FullStory
-     * * `AmazonAds` - AmazonAds
-     * * `PinterestAds` - PinterestAds
-     * * `AppleSearchAds` - AppleSearchAds
-     * * `QuickBooks` - QuickBooks
-     * * `Xero` - Xero
-     * * `NetSuite` - NetSuite
-     * * `WooCommerce` - WooCommerce
-     * * `BigCommerce` - BigCommerce
-     * * `PayPal` - PayPal
-     * * `Square` - Square
-     * * `Zoom` - Zoom
-     * * `Trello` - Trello
-     * * `TrafficStars` - TrafficStars
-     * * `Monday` - Monday
-     * * `ClickUp` - ClickUp
-     * * `Confluence` - Confluence
-     * * `Recurly` - Recurly
-     * * `SalesLoft` - SalesLoft
-     * * `Outreach` - Outreach
-     * * `Gong` - Gong
-     * * `Calendly` - Calendly
-     * * `Typeform` - Typeform
-     * * `UnityAds` - UnityAds
-     * * `Iterable` - Iterable
-     * * `ZohoCRM` - ZohoCRM
-     * * `Close` - Close
-     * * `Oracle` - Oracle
-     * * `DynamoDB` - DynamoDB
-     * * `Elasticsearch` - Elasticsearch
-     * * `Kafka` - Kafka
-     * * `LaunchDarkly` - LaunchDarkly
-     * * `Braintree` - Braintree
-     * * `Recharge` - Recharge
-     * * `HelpScout` - HelpScout
-     * * `Gorgias` - Gorgias
-     * * `Instagram` - Instagram
-     * * `YouTubeAnalytics` - YouTubeAnalytics
-     * * `FacebookPages` - FacebookPages
-     * * `TwitterAds` - TwitterAds
-     * * `Workday` - Workday
-     * * `ServiceNow` - ServiceNow
-     * * `Pardot` - Pardot
-     * * `Copper` - Copper
-     * * `Front` - Front
-     * * `ChartMogul` - ChartMogul
-     * * `Zuora` - Zuora
-     * * `Paddle` - Paddle
-     * * `CircleCI` - CircleCI
-     * * `CockroachDB` - CockroachDB
-     * * `Firebase` - Firebase
-     * * `AzureBlob` - AzureBlob
-     * * `GoogleDrive` - GoogleDrive
-     * * `OneDrive` - OneDrive
-     * * `SharePoint` - SharePoint
-     * * `Box` - Box
-     * * `SFTP` - SFTP
-     * * `MicrosoftTeams` - MicrosoftTeams
-     * * `Aircall` - Aircall
-     * * `Webflow` - Webflow
-     * * `Okta` - Okta
-     * * `Auth0` - Auth0
-     * * `Productboard` - Productboard
-     * * `Smartsheet` - Smartsheet
-     * * `Wrike` - Wrike
-     * * `Plaid` - Plaid
-     * * `SurveyMonkey` - SurveyMonkey
-     * * `Eventbrite` - Eventbrite
-     * * `Everflow` - Everflow
-     * * `RingCentral` - RingCentral
-     * * `Twilio` - Twilio
-     * * `Freshsales` - Freshsales
-     * * `Shortcut` - Shortcut
-     * * `ConvertKit` - ConvertKit
-     * * `Drip` - Drip
-     * * `CampaignMonitor` - CampaignMonitor
-     * * `MailerLite` - MailerLite
-     * * `Omnisend` - Omnisend
-     * * `Brevo` - Brevo
-     * * `Postmark` - Postmark
-     * * `Granola` - Granola
-     * * `BuildBetter` - BuildBetter
-     * * `Convex` - Convex
-     * * `ClickHouse` - ClickHouse
-     * * `Plain` - Plain
-     * * `Resend` - Resend
-     * * `PgAnalyze` - PgAnalyze
-     * * `WorkOS` - WorkOS
-     * * `AmazonS3` - AmazonS3
-     * * `GoogleCloudStorage` - GoogleCloudStorage
-     * * `Databricks` - Databricks
-     * * `Dynamics365` - Dynamics365
-     * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
-     * * `Db2` - Db2
-     * * `Heap` - Heap
-     * * `AdobeAnalytics` - AdobeAnalytics
-     * * `Matomo` - Matomo
-     * * `Optimizely` - Optimizely
-     * * `Adyen` - Adyen
-     * * `GoCardless` - GoCardless
-     * * `Mollie` - Mollie
-     * * `CheckoutCom` - CheckoutCom
-     * * `Branch` - Branch
-     * * `Criteo` - Criteo
-     * * `Outbrain` - Outbrain
-     * * `Taboola` - Taboola
-     * * `AdRoll` - AdRoll
-     * * `DisplayVideo360` - DisplayVideo360
-     * * `GoogleAdManager` - GoogleAdManager
-     * * `CampaignManager360` - CampaignManager360
-     * * `SearchAds360` - SearchAds360
-     * * `AdobeCommerce` - AdobeCommerce
-     * * `AmazonSellingPartner` - AmazonSellingPartner
-     * * `Ebay` - Ebay
-     * * `Commercetools` - Commercetools
-     * * `LightspeedRetail` - LightspeedRetail
-     * * `Shipmail` - Shipmail
-     * * `ShipStation` - ShipStation
-     * * `ConstantContact` - ConstantContact
-     * * `Mailgun` - Mailgun
-     * * `Eloqua` - Eloqua
-     * * `Sailthru` - Sailthru
-     * * `Ortto` - Ortto
-     * * `Attentive` - Attentive
-     * * `Kustomer` - Kustomer
-     * * `Dixa` - Dixa
-     * * `Gladly` - Gladly
-     * * `Qualtrics` - Qualtrics
-     * * `AzureDevOps` - AzureDevOps
-     * * `RoktAds` - RoktAds
-     * * `Rollbar` - Rollbar
-     * * `Opsgenie` - Opsgenie
-     * * `IncidentIo` - IncidentIo
-     * * `Pingdom` - Pingdom
-     * * `Cloudflare` - Cloudflare
-     * * `CloudflareD1` - CloudflareD1
-     * * `CosmosDB` - CosmosDB
-     * * `PlanetScaleMySQL` - PlanetScaleMySQL
-     * * `PlanetScalePostgres` - PlanetScalePostgres
-     * * `Plane` - Plane
-     * * `Scarf` - Scarf
-     * * `SapHana` - SapHana
-     * * `Rippling` - Rippling
-     * * `HiBob` - HiBob
-     * * `Personio` - Personio
-     * * `Deel` - Deel
-     * * `AdpWorkforceNow` - AdpWorkforceNow
-     * * `Paylocity` - Paylocity
-     * * `Gusto` - Gusto
-     * * `CultureAmp` - CultureAmp
-     * * `Lattice` - Lattice
-     * * `SageIntacct` - SageIntacct
-     * * `FreshBooks` - FreshBooks
-     * * `Expensify` - Expensify
-     * * `Ramp` - Ramp
-     * * `Brex` - Brex
-     * * `Coupa` - Coupa
-     * * `SapConcur` - SapConcur
-     * * `Apollo` - Apollo
-     * * `Crunchbase` - Crunchbase
-     * * `ZoomInfo` - ZoomInfo
-     * * `Clari` - Clari
-     * * `Chorus` - Chorus
-     * * `Coda` - Coda
-     * * `Guru` - Guru
-     * * `Dropbox` - Dropbox
-     * * `Docusign` - Docusign
-     * * `PandaDoc` - PandaDoc
-     * * `SapErp` - SapErp
-     * * `SapSuccessFactors` - SapSuccessFactors
-     * * `OracleEbs` - OracleEbs
-     * * `OracleFusion` - OracleFusion
-     * * `AmazonSNS` - AmazonSNS
-     * * `AmazonEventBridge` - AmazonEventBridge
-     * * `AmazonSQS` - AmazonSQS
-     * * `AmazonKinesis` - AmazonKinesis
-     * * `AmazonCloudWatch` - AmazonCloudWatch
-     * * `OpenAIAds` - OpenAIAds
-     * * `OneHundredMs` - OneHundredMs
-     * * `SevenShifts` - SevenShifts
-     * * `AcuityScheduling` - AcuityScheduling
-     * * `AgileCRM` - AgileCRM
-     * * `Aha` - Aha
-     * * `Airbyte` - Airbyte
-     * * `Akeneo` - Akeneo
-     * * `Algolia` - Algolia
-     * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
-     * * `ApifyDataset` - ApifyDataset
-     * * `Appcues` - Appcues
-     * * `Appfigures` - Appfigures
-     * * `Appfollow` - Appfollow
-     * * `Apptivo` - Apptivo
-     * * `AssemblyAI` - AssemblyAI
-     * * `Awin` - Awin
-     * * `AwsCloudTrail` - AwsCloudTrail
-     * * `AzureTableStorage` - AzureTableStorage
-     * * `Babelforce` - Babelforce
-     * * `Basecamp` - Basecamp
-     * * `Beamer` - Beamer
-     * * `BigMailer` - BigMailer
-     * * `Bluetally` - Bluetally
-     * * `BoldSign` - BoldSign
-     * * `BreezyHR` - BreezyHR
-     * * `Bugsnag` - Bugsnag
-     * * `Buildkite` - Buildkite
-     * * `Bunny` - Bunny
-     * * `Buzzsprout` - Buzzsprout
-     * * `CalCom` - CalCom
-     * * `CallRail` - CallRail
-     * * `Campayn` - Campayn
-     * * `Canny` - Canny
-     * * `CapsuleCRM` - CapsuleCRM
-     * * `CaptainData` - CaptainData
-     * * `CartCom` - CartCom
-     * * `CastorEDC` - CastorEDC
-     * * `Chameleon` - Chameleon
-     * * `Chargedesk` - Chargedesk
-     * * `Chargify` - Chargify
-     * * `Chift` - Chift
-     * * `Churnkey` - Churnkey
-     * * `Cin7` - Cin7
-     * * `CiscoMeraki` - CiscoMeraki
-     * * `Clazar` - Clazar
-     * * `Clockify` - Clockify
-     * * `Clockodo` - Clockodo
-     * * `Cloudbeds` - Cloudbeds
-     * * `Coassemble` - Coassemble
-     * * `Codefresh` - Codefresh
-     * * `Concord` - Concord
-     * * `ConfigCat` - ConfigCat
-     * * `Couchbase` - Couchbase
-     * * `Curve` - Curve
-     * * `Customerly` - Customerly
-     * * `Datascope` - Datascope
-     * * `Dbt` - Dbt
-     * * `Demodesk` - Demodesk
-     * * `Deputy` - Deputy
-     * * `DevinAI` - DevinAI
-     * * `Docuseal` - Docuseal
-     * * `Dolibarr` - Dolibarr
-     * * `Dremio` - Dremio
-     * * `DropboxSign` - DropboxSign
-     * * `Dwolla` - Dwolla
-     * * `EConomic` - EConomic
-     * * `Easypost` - Easypost
-     * * `Easypromos` - Easypromos
-     * * `Elasticemail` - Elasticemail
-     * * `EmailOctopus` - EmailOctopus
-     * * `EmploymentHero` - EmploymentHero
-     * * `Encharge` - Encharge
-     * * `Eventee` - Eventee
-     * * `Eventzilla` - Eventzilla
-     * * `Everhour` - Everhour
-     * * `EZOfficeInventory` - EZOfficeInventory
-     * * `Factorial` - Factorial
-     * * `Fastbill` - Fastbill
-     * * `Fastly` - Fastly
-     * * `Fauna` - Fauna
-     * * `Feishu` - Feishu
-     * * `Fillout` - Fillout
-     * * `Finage` - Finage
-     * * `Firebolt` - Firebolt
-     * * `FireHydrant` - FireHydrant
-     * * `Fleetio` - Fleetio
-     * * `Flexmail` - Flexmail
-     * * `Flexport` - Flexport
-     * * `FloatApp` - FloatApp
-     * * `Flowlu` - Flowlu
-     * * `Formbricks` - Formbricks
-     * * `Framer` - Framer
-     * * `FreeAgent` - FreeAgent
-     * * `Freightview` - Freightview
-     * * `Freshcaller` - Freshcaller
-     * * `Freshchat` - Freshchat
-     * * `Freshservice` - Freshservice
-     * * `Fulcrum` - Fulcrum
-     * * `GainsightCs` - GainsightCs
-     * * `GainsightPx` - GainsightPx
-     * * `GitBook` - GitBook
-     * * `Glassfrog` - Glassfrog
-     * * `Goldcast` - Goldcast
-     * * `GoLogin` - GoLogin
-     * * `Grafana` - Grafana
-     * * `GreytHr` - GreytHr
-     * * `Gridly` - Gridly
-     * * `Harness` - Harness
-     * * `Height` - Height
-     * * `Hellobaton` - Hellobaton
-     * * `HighLevel` - HighLevel
-     * * `HoorayHR` - HoorayHR
-     * * `Hubplanner` - Hubplanner
-     * * `Humanitix` - Humanitix
-     * * `Huntr` - Huntr
-     * * `Inflowinventory` - Inflowinventory
-     * * `InforNexus` - InforNexus
-     * * `Insightful` - Insightful
-     * * `Insightly` - Insightly
-     * * `Instantly` - Instantly
-     * * `Instatus` - Instatus
-     * * `Intruder` - Intruder
-     * * `Invoiced` - Invoiced
-     * * `Invoiceninja` - Invoiceninja
-     * * `JamfPro` - JamfPro
-     * * `JobNimbus` - JobNimbus
-     * * `Jotform` - Jotform
-     * * `JudgeMeReviews` - JudgeMeReviews
-     * * `JustCall` - JustCall
-     * * `JustSift` - JustSift
-     * * `K6Cloud` - K6Cloud
-     * * `Katana` - Katana
-     * * `Keka` - Keka
-     * * `Kisi` - Kisi
-     * * `Kissmetrics` - Kissmetrics
-     * * `Klarna` - Klarna
-     * * `Klaus` - Klaus
-     * * `Lago` - Lago
-     * * `Leadfeeder` - Leadfeeder
-     * * `Lemlist` - Lemlist
-     * * `LessAnnoyingCRM` - LessAnnoyingCRM
-     * * `LinkedinPages` - LinkedinPages
-     * * `Linkrunner` - Linkrunner
-     * * `Linnworks` - Linnworks
-     * * `Lob` - Lob
-     * * `Lokalise` - Lokalise
-     * * `Looker` - Looker
-     * * `Luma` - Luma
-     * * `MailerSend` - MailerSend
-     * * `Mailosaur` - Mailosaur
-     * * `Mailtrap` - Mailtrap
-     * * `Mantle` - Mantle
-     * * `Mention` - Mention
-     * * `MercadoAds` - MercadoAds
-     * * `Merge` - Merge
-     * * `Metabase` - Metabase
-     * * `Metricool` - Metricool
-     * * `MicrosoftDataverse` - MicrosoftDataverse
-     * * `MicrosoftEntraId` - MicrosoftEntraId
-     * * `MicrosoftLists` - MicrosoftLists
-     * * `Miro` - Miro
-     * * `Missive` - Missive
-     * * `MixMax` - MixMax
-     * * `Mode` - Mode
-     * * `Mux` - Mux
-     * * `MyHours` - MyHours
-     * * `N8n` - N8n
-     * * `Navan` - Navan
-     * * `NebiusAI` - NebiusAI
-     * * `Nexiopay` - Nexiopay
-     * * `NinjaOneRMM` - NinjaOneRMM
-     * * `NoCRM` - NoCRM
-     * * `NorthpassLMS` - NorthpassLMS
-     * * `Nutshell` - Nutshell
-     * * `Nylas` - Nylas
-     * * `Oncehub` - Oncehub
-     * * `Onepagecrm` - Onepagecrm
-     * * `OneSignal` - OneSignal
-     * * `Onfleet` - Onfleet
-     * * `OpinionStage` - OpinionStage
-     * * `OPUSWatch` - OPUSWatch
-     * * `Orb` - Orb
-     * * `Orbit` - Orbit
-     * * `Oura` - Oura
-     * * `Oveit` - Oveit
-     * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
-     * * `Paperform` - Paperform
-     * * `Papersign` - Papersign
-     * * `Partnerize` - Partnerize
-     * * `PartnerStack` - PartnerStack
-     * * `PayFit` - PayFit
-     * * `Paystack` - Paystack
-     * * `Pennylane` - Pennylane
-     * * `Perk` - Perk
-     * * `PersistIq` - PersistIq
-     * * `Persona` - Persona
-     * * `Phyllo` - Phyllo
-     * * `Picqer` - Picqer
-     * * `Pipeliner` - Pipeliner
-     * * `PivotalTracker` - PivotalTracker
-     * * `Piwik` - Piwik
-     * * `Planhat` - Planhat
-     * * `Plausible` - Plausible
-     * * `Poplar` - Poplar
-     * * `PrestaShop` - PrestaShop
-     * * `Pretix` - Pretix
-     * * `Primetric` - Primetric
-     * * `Printavo` - Printavo
-     * * `Printify` - Printify
-     * * `Productive` - Productive
-     * * `Pylon` - Pylon
-     * * `Qonto` - Qonto
-     * * `Qualaroo` - Qualaroo
-     * * `Railz` - Railz
-     * * `RDStationMarketing` - RDStationMarketing
-     * * `Recruitee` - Recruitee
-     * * `Reddit` - Reddit
-     * * `ReferralHero` - ReferralHero
-     * * `RentCast` - RentCast
-     * * `Repairshopr` - Repairshopr
-     * * `ReplyIo` - ReplyIo
-     * * `RetailExpress` - RetailExpress
-     * * `Retently` - Retently
-     * * `Retreaver` - Retreaver
-     * * `RevolutMerchant` - RevolutMerchant
-     * * `RocketChat` - RocketChat
-     * * `Rocketlane` - Rocketlane
-     * * `Rootly` - Rootly
-     * * `Ruddr` - Ruddr
-     * * `SafetyCulture` - SafetyCulture
-     * * `SageHR` - SageHR
-     * * `Salesflare` - Salesflare
-     * * `SAPFieldglass` - SAPFieldglass
-     * * `SavvyCal` - SavvyCal
-     * * `Secoda` - Secoda
-     * * `Segment` - Segment
-     * * `Sendowl` - Sendowl
-     * * `SendPulse` - SendPulse
-     * * `Senseforce` - Senseforce
-     * * `Serpstat` - Serpstat
-     * * `Sharetribe` - Sharetribe
-     * * `Shippo` - Shippo
-     * * `ShopWired` - ShopWired
-     * * `Shortio` - Shortio
-     * * `Shutterstock` - Shutterstock
-     * * `SigmaComputing` - SigmaComputing
-     * * `SignNow` - SignNow
-     * * `SimpleCast` - SimpleCast
-     * * `Simplesat` - Simplesat
-     * * `Smaily` - Smaily
-     * * `SmartEngage` - SmartEngage
-     * * `Smartreach` - Smartreach
-     * * `Smartwaiver` - Smartwaiver
-     * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
-     * * `SonarCloud` - SonarCloud
-     * * `SparkPost` - SparkPost
-     * * `SplitIo` - SplitIo
-     * * `SpotifyAds` - SpotifyAds
-     * * `SpotlerCRM` - SpotlerCRM
-     * * `Squarespace` - Squarespace
-     * * `Statsig` - Statsig
-     * * `Statuspage` - Statuspage
-     * * `Steam` - Steam
-     * * `Stigg` - Stigg
-     * * `Strava` - Strava
-     * * `SurveySparrow` - SurveySparrow
-     * * `Survicate` - Survicate
-     * * `Svix` - Svix
-     * * `Systeme` - Systeme
-     * * `Tavus` - Tavus
-     * * `Teamtailor` - Teamtailor
-     * * `Teamwork` - Teamwork
-     * * `Tempo` - Tempo
-     * * `Testrail` - Testrail
-     * * `Thinkific` - Thinkific
-     * * `ThinkificCourses` - ThinkificCourses
-     * * `ThriveLearning` - ThriveLearning
-     * * `Ticketmaster` - Ticketmaster
-     * * `TicketTailor` - TicketTailor
-     * * `TickTick` - TickTick
-     * * `Timely` - Timely
-     * * `Tinyemail` - Tinyemail
-     * * `Todoist` - Todoist
-     * * `Toggl` - Toggl
-     * * `TrackPMS` - TrackPMS
-     * * `Tremendous` - Tremendous
-     * * `TrustPilot` - TrustPilot
-     * * `Twitter` - Twitter
-     * * `TyntecSMS` - TyntecSMS
-     * * `Unleash` - Unleash
-     * * `UpPromote` - UpPromote
-     * * `Uptick` - Uptick
-     * * `Uservoice` - Uservoice
-     * * `Vantage` - Vantage
-     * * `Veeqo` - Veeqo
-     * * `Vercel` - Vercel
-     * * `VismaEconomic` - VismaEconomic
-     * * `VWO` - VWO
-     * * `Waiteraid` - Waiteraid
-     * * `Wasabi` - Wasabi
-     * * `WhenIWork` - WhenIWork
-     * * `Wordpress` - Wordpress
-     * * `Workable` - Workable
-     * * `Workflowmax` - Workflowmax
-     * * `Workramp` - Workramp
-     * * `Wufoo` - Wufoo
-     * * `Xsolla` - Xsolla
-     * * `YandexMetrica` - YandexMetrica
-     * * `Yotpo` - Yotpo
-     * * `Ynab` - Ynab
-     * * `Younium` - Younium
-     * * `YouSign` - YouSign
-     * * `YoutubeData` - YoutubeData
-     * * `ZapierSupportedStorage` - ZapierSupportedStorage
-     * * `ZapSign` - ZapSign
-     * * `ZendeskSell` - ZendeskSell
-     * * `ZendeskSunshine` - ZendeskSunshine
-     * * `Zenefits` - Zenefits
-     * * `Zenloop` - Zenloop
-     * * `ZohoAnalytics` - ZohoAnalytics
-     * * `ZohoBigin` - ZohoBigin
-     * * `ZohoBilling` - ZohoBilling
-     * * `ZohoBooks` - ZohoBooks
-     * * `ZohoCampaign` - ZohoCampaign
-     * * `ZohoDesk` - ZohoDesk
-     * * `ZohoExpense` - ZohoExpense
-     * * `ZohoInventory` - ZohoInventory
-     * * `ZohoInvoice` - ZohoInvoice
-     * * `ZonkaFeedback` - ZonkaFeedback
-     * * `AlphaVantage` - AlphaVantage
-     * * `Aviationstack` - Aviationstack
-     * * `Bitly` - Bitly
-     * * `Blogger` - Blogger
-     * * `Breezometer` - Breezometer
-     * * `CareQualityCommission` - CareQualityCommission
-     * * `Cimis` - Cimis
-     * * `CoinApi` - CoinApi
-     * * `CoinGecko` - CoinGecko
-     * * `CoinMarketCap` - CoinMarketCap
-     * * `DingConnect` - DingConnect
-     * * `Dockerhub` - Dockerhub
-     * * `ExchangeRatesApi` - ExchangeRatesApi
-     * * `FinancialModelling` - FinancialModelling
-     * * `Finnhub` - Finnhub
-     * * `Finnworlds` - Finnworlds
-     * * `Giphy` - Giphy
-     * * `Gmail` - Gmail
-     * * `GNews` - GNews
-     * * `GoogleCalendar` - GoogleCalendar
-     * * `GoogleClassroom` - GoogleClassroom
-     * * `GoogleDirectory` - GoogleDirectory
-     * * `GoogleForms` - GoogleForms
-     * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
-     * * `GoogleTasks` - GoogleTasks
-     * * `GoogleWebfonts` - GoogleWebfonts
-     * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
-     * * `HuggingFace` - HuggingFace
-     * * `IlluminaBasespace` - IlluminaBasespace
-     * * `Imagga` - Imagga
-     * * `Interzoid` - Interzoid
-     * * `IP2Whois` - IP2Whois
-     * * `KYVE` - KYVE
-     * * `Marketstack` - Marketstack
-     * * `Mendeley` - Mendeley
-     * * `Nasa` - Nasa
-     * * `NewYorkTimes` - NewYorkTimes
-     * * `NewsApi` - NewsApi
-     * * `NewsData` - NewsData
-     * * `OpenDataDc` - OpenDataDc
-     * * `OpenExchangeRates` - OpenExchangeRates
-     * * `OpenAQ` - OpenAQ
-     * * `OpenFDA` - OpenFDA
-     * * `OpenWeather` - OpenWeather
-     * * `Outlook` - Outlook
-     * * `Perigon` - Perigon
-     * * `Pexels` - Pexels
-     * * `Pocket` - Pocket
-     * * `Polygon` - Polygon
-     * * `PyPI` - PyPI
-     * * `Recreation` - Recreation
-     * * `RKICovid` - RKICovid
-     * * `Rss` - Rss
-     * * `SimFin` - SimFin
-     * * `StockData` - StockData
-     * * `Guardian` - Guardian
-     * * `TMDb` - TMDb
-     * * `TVMaze` - TVMaze
-     * * `TwelveData` - TwelveData
-     * * `Ubidots` - Ubidots
-     * * `USCensus` - USCensus
-     * * `Watchmode` - Watchmode
-     * * `WikipediaPageviews` - WikipediaPageviews
-     * * `YahooFinance` - YahooFinance
-     * * `Clarifai` - Clarifai
-     * * `Adapty` - Adapty
-     * * `Braintrust` - Braintrust
-     * * `StreamElements` - StreamElements
-     * * `Streamlabs` - Streamlabs
-     * * `Datorama` - Datorama
-     * * `Ahrefs` - Ahrefs
-     * * `Lightfield` - Lightfield
-     * * `Appstack` - Appstack
-     * * `Razorpay` - Razorpay
-     * * `Neon` - Neon
-     * * `NewRelic` - NewRelic
-     * * `Custom` - Custom
-     * * `Tile38` - Tile38
-     * * `Chatwoot` - Chatwoot
-     * * `Sanity` - Sanity
-     * * `Metronome` - Metronome
-     * * `Jobber` - Jobber
-     * * `Knock` - Knock
-     * * `Leexi` - Leexi
-     * * `RB2B` - RB2B
-     * * `Superwall` - Superwall
-     * * `Liana` - Liana
-     * * `TawkTo` - TawkTo
-     * * `Hightouch` - Hightouch
-     * * `LemonSqueezy` - LemonSqueezy
-     * * `Ikas` - Ikas
-     * * `Talkwalker` - Talkwalker
-     * * `NextdoorAds` - NextdoorAds
-     * * `AppLovin` - AppLovin
-     * * `Baserow` - Baserow
-     * * `Plunk` - Plunk
-     * * `Dub` - Dub
-     * * `AirOps` - AirOps
-     * * `Podium` - Podium
-     * * `Loops` - Loops
-     * * `Redis` - Redis
-     * * `Mercury` - Mercury
-     * * `Gojiberry` - Gojiberry
-     * * `Teachable` - Teachable
-     * * `PeecAI` - PeecAI
-     * * `Healthchecks` - Healthchecks
-     * * `Impact` - Impact
-     * * `AikidoSecurity` - AikidoSecurity
-     * * `Alguna` - Alguna
-     * * `Anthropic` - Anthropic
-     * * `Appwrite` - Appwrite
-     * * `BlandAI` - BlandAI
-     * * `BrowseAI` - BrowseAI
-     * * `BrowserUse` - BrowserUse
-     * * `ChartHop` - ChartHop
-     * * `Cody` - Cody
-     * * `Cursor` - Cursor
-     * * `Decagon` - Decagon
-     * * `Deepgram` - Deepgram
-     * * `ElevenLabs` - ElevenLabs
-     * * `Harvey` - Harvey
-     * * `Hyperspell` - Hyperspell
-     * * `Langfuse` - Langfuse
-     * * `LingoDev` - LingoDev
-     * * `M3ter` - M3ter
-     * * `Maxio` - Maxio
-     * * `Metorial` - Metorial
-     * * `OpenRouter` - OpenRouter
-     * * `TogetherAI` - TogetherAI
-     * * `Vapi` - Vapi
-     * * `Vespa` - Vespa
-     * * `Writesonic` - Writesonic
-     * * `Aiven` - Aiven
-     * * `Aviator` - Aviator
-     * * `Backblaze` - Backblaze
-     * * `Baseten` - Baseten
-     * * `Browserbase` - Browserbase
-     * * `Cohere` - Cohere
-     * * `DenoDeploy` - DenoDeploy
-     * * `DigitalOcean` - DigitalOcean
-     * * `E2B` - E2B
-     * * `Fintoc` - Fintoc
-     * * `Firecrawl` - Firecrawl
-     * * `FireworksAI` - FireworksAI
-     * * `FlyIo` - FlyIo
-     * * `Groq` - Groq
-     * * `GrowthBook` - GrowthBook
-     * * `Gumloop` - Gumloop
-     * * `Hatchet` - Hatchet
-     * * `Helicone` - Helicone
-     * * `Heroku` - Heroku
-     * * `Hetzner` - Hetzner
-     * * `HeyGen` - HeyGen
-     * * `Infisical` - Infisical
-     * * `Inngest` - Inngest
-     * * `KapaAI` - KapaAI
-     * * `Kernel` - Kernel
-     * * `Koyeb` - Koyeb
-     * * `LambdaLabs` - LambdaLabs
-     * * `LangSmith` - LangSmith
-     * * `Linode` - Linode
-     * * `Listmonk` - Listmonk
-     * * `LlamaCloud` - LlamaCloud
-     * * `Mem0` - Mem0
-     * * `Metriport` - Metriport
-     * * `Mintlify` - Mintlify
-     * * `MistralAI` - MistralAI
-     * * `Mono` - Mono
-     * * `Netlify` - Netlify
-     * * `Northflank` - Northflank
-     * * `OpenAI` - OpenAI
-     * * `Pinecone` - Pinecone
-     * * `PlatformSh` - PlatformSh
-     * * `PromptingCompany` - PromptingCompany
-     * * `Qdrant` - Qdrant
-     * * `Render` - Render
-     * * `Replicate` - Replicate
-     * * `RetellAI` - RetellAI
-     * * `Roark` - Roark
-     * * `RunPod` - RunPod
-     * * `ScaleAI` - ScaleAI
-     * * `Scaleway` - Scaleway
-     * * `SigNoz` - SigNoz
-     * * `Sim` - Sim
-     * * `Skyvern` - Skyvern
-     * * `Slash` - Slash
-     * * `Synthesia` - Synthesia
-     * * `Telli` - Telli
-     * * `TerraApi` - TerraApi
-     * * `TriggerDev` - TriggerDev
-     * * `Turso` - Turso
-     * * `Singular` - Singular
-     * * `Swonkie` - Swonkie
-     * * `TwelveLabs` - TwelveLabs
-     * * `Twenty` - Twenty
-     * * `Unstructured` - Unstructured
-     * * `Upstash` - Upstash
-     * * `Vellum` - Vellum
-     * * `Vultr` - Vultr
-     * * `Windmill` - Windmill
-     * * `Zep` - Zep
-     * * `Hex` - Hex
-     * * `Sumsub` - Sumsub
-     * * `GoogleChat` - GoogleChat
-     * * `Kickscale` - Kickscale
-     * * `Zellify` - Zellify
-     * * `RudderStack` - RudderStack
-     * * `DodoPayments` - DodoPayments
-     * * `Salestrics` - Salestrics
-     * * `Doppler` - Doppler
-     * * `Usersnap` - Usersnap
-     * * `Asknicely` - Asknicely
-     * * `Featurebase` - Featurebase
-     * * `Frill` - Frill
-     * * `Bettermode` - Bettermode
-     * * `Dynatrace` - Dynatrace
-     * * `Honeycomb` - Honeycomb
-     * * `SumoLogic` - SumoLogic
-     * * `LogzIO` - LogzIO
-     * * `Coralogix` - Coralogix
-     * * `BetterStack` - BetterStack
-     * * `Raygun` - Raygun
-     * * `Honeybadger` - Honeybadger
-     * * `Airbrake` - Airbrake
-     * * `Appsignal` - Appsignal
-     * * `Appdynamics` - Appdynamics
-     * * `Instana` - Instana
-     * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
-     * * `Uptimerobot` - Uptimerobot
-     * * `Statuscake` - Statuscake
-     * * `Tailscale` - Tailscale
-     * * `Flagsmith` - Flagsmith
-     * * `Xmatters` - Xmatters
-     * * `Squadcast` - Squadcast
-     * * `Zenduty` - Zenduty
-     * * `Cronitor` - Cronitor
-     * * `Jenkins` - Jenkins
-     * * `Bitbucket` - Bitbucket
-     * * `Gitea` - Gitea
-     * * `Teamcity` - Teamcity
-     * * `TravisCI` - TravisCI
-     * * `Semaphore` - Semaphore
-     * * `CircleciInsights` - CircleciInsights
-     * * `OctopusDeploy` - OctopusDeploy
-     * * `Sourcegraph` - Sourcegraph
-     * * `Bitrise` - Bitrise
-     * * `Gerrit` - Gerrit
-     * * `TerraformCloud` - TerraformCloud
-     * * `PulumiCloud` - PulumiCloud
-     * * `Spacelift` - Spacelift
-     * * `Railway` - Railway
-     * * `Argocd` - Argocd
-     * * `PrefectCloud` - PrefectCloud
-     * * `DagsterCloud` - DagsterCloud
-     * * `Env0` - Env0
-     * * `Kubecost` - Kubecost
-     * * `Snyk` - Snyk
-     * * `Semgrep` - Semgrep
-     * * `Veracode` - Veracode
-     * * `Checkmarx` - Checkmarx
-     * * `Gitguardian` - Gitguardian
-     * * `QualysVmdr` - QualysVmdr
-     * * `Rapid7Insightvm` - Rapid7Insightvm
-     * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
-     * * `Sentinelone` - Sentinelone
-     * * `Lacework` - Lacework
-     * * `OrcaSecurity` - OrcaSecurity
-     * * `Drata` - Drata
-     * * `Secureframe` - Secureframe
-     * * `CiscoDuo` - CiscoDuo
-     * * `Jumpcloud` - Jumpcloud
-     * * `OnePassword` - OnePassword
-     * * `Stytch` - Stytch
-     * * `Sonarqube` - Sonarqube
-     * * `Codecov` - Codecov
-     * * `Coveralls` - Coveralls
-     * * `Codacy` - Codacy
-     * * `Deepsource` - Deepsource
-     * * `Linearb` - Linearb
-     * * `Jellyfish` - Jellyfish
-     * * `Swarmia` - Swarmia
-     * * `Packagist` - Packagist
-     * * `Nuget` - Nuget
-     * * `CratesIO` - CratesIO
-     * * `SonatypeNexus` - SonatypeNexus
-     * * `JfrogArtifactory` - JfrogArtifactory
-     * * `Snowplow` - Snowplow
-     * * `WeightsAndBiases` - WeightsAndBiases
-     * * `MonteCarlo` - MonteCarlo
-     * * `Metaplane` - Metaplane
-     * * `Datahub` - Datahub
-     * * `ClickhouseCloud` - ClickhouseCloud
-     * * `ConfluentCloud` - ConfluentCloud
-     * * `KongKonnect` - KongKonnect
-     * * `Kandji` - Kandji
-     * * `Automox` - Automox
-     * * `Autumn` - Autumn
-     * * `GetStream` - GetStream
-     * * `Octolens` - Octolens
-     * * `Kajabi` - Kajabi
-     * * `Shopware` - Shopware
-     * * `Dubsado` - Dubsado
-     * * `Campfire` - Campfire
-     * * `PromptWatch` - PromptWatch
-     * * `Crisp` - Crisp
-     * * `Kommo` - Kommo
-     * * `Axiom` - Axiom
-     * * `Plivo` - Plivo
-     * * `DataForSEO` - DataForSEO
-     * * `Sleekplan` - Sleekplan
-     * * `AbTasty` - AbTasty
-     * * `Ably` - Ably
-     * * `AbnormalSecurity` - AbnormalSecurity
-     * * `Acast` - Acast
-     * * `Acculynx` - Acculynx
-     * * `Actionstep` - Actionstep
-     * * `Aftership` - Aftership
-     * * `AhaIdeas` - AhaIdeas
-     * * `AkamaiReporting` - AkamaiReporting
-     * * `Alation` - Alation
-     * * `Alegra` - Alegra
-     * * `Allegro` - Allegro
-     * * `AnodotCost` - AnodotCost
-     * * `Anomalo` - Anomalo
-     * * `Apaleo` - Apaleo
-     * * `Apitally` - Apitally
-     * * `AppStoreConnect` - AppStoreConnect
-     * * `Appdirect` - Appdirect
-     * * `Appfolio` - Appfolio
-     * * `Arxiv` - Arxiv
-     * * `Asaas` - Asaas
-     * * `Astronomer` - Astronomer
-     * * `Athenahealth` - Athenahealth
-     * * `Atlan` - Atlan
-     * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
-     * * `Avalara` - Avalara
-     * * `AwsAthena` - AwsAthena
-     * * `AwsBatch` - AwsBatch
-     * * `AwsBudgets` - AwsBudgets
-     * * `AwsCloudformation` - AwsCloudformation
-     * * `AwsComputeOptimizer` - AwsComputeOptimizer
-     * * `AwsConfig` - AwsConfig
-     * * `AwsConnect` - AwsConnect
-     * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
-     * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
-     * * `AwsCostExplorer` - AwsCostExplorer
-     * * `AwsDocumentDB` - AwsDocumentDB
-     * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
-     * * `AwsGuardduty` - AwsGuardduty
-     * * `AwsHealth` - AwsHealth
-     * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
-     * * `AwsInspector` - AwsInspector
-     * * `AwsMacie` - AwsMacie
-     * * `AwsOrganizations` - AwsOrganizations
-     * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
-     * * `AwsSagemaker` - AwsSagemaker
-     * * `AwsSavingsPlans` - AwsSavingsPlans
-     * * `AwsSecurityHub` - AwsSecurityHub
-     * * `AwsSes` - AwsSes
-     * * `AwsStepFunctions` - AwsStepFunctions
-     * * `AwsSupport` - AwsSupport
-     * * `AwsSystemsManager` - AwsSystemsManager
-     * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
-     * * `AwsWaf` - AwsWaf
-     * * `AwsXray` - AwsXray
-     * * `AzureActivityLog` - AzureActivityLog
-     * * `AzureAdvisor` - AzureAdvisor
-     * * `AzureApiManagement` - AzureApiManagement
-     * * `AzureApplicationInsights` - AzureApplicationInsights
-     * * `AzureCostManagement` - AzureCostManagement
-     * * `AzureDataExplorer` - AzureDataExplorer
-     * * `AzureDataFactory` - AzureDataFactory
-     * * `AzureLogAnalytics` - AzureLogAnalytics
-     * * `AzureMonitorAlerts` - AzureMonitorAlerts
-     * * `AzureMonitorMetrics` - AzureMonitorMetrics
-     * * `AzureOpenaiUsage` - AzureOpenaiUsage
-     * * `AzurePolicyInsights` - AzurePolicyInsights
-     * * `AzureReservations` - AzureReservations
-     * * `AzureResourceGraph` - AzureResourceGraph
-     * * `AzureResourceHealth` - AzureResourceHealth
-     * * `AzureServiceHealth` - AzureServiceHealth
-     * * `AzureSynapse` - AzureSynapse
-     * * `BackMarket` - BackMarket
-     * * `Beehiiv` - Beehiiv
-     * * `Bigeye` - Bigeye
-     * * `BillCom` - BillCom
-     * * `Billomat` - Billomat
-     * * `BingWebmasterTools` - BingWebmasterTools
-     * * `Bitwarden` - Bitwarden
-     * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
-     * * `BlackboardLearn` - BlackboardLearn
-     * * `Bling` - Bling
-     * * `Bloomerang` - Bloomerang
-     * * `Blueshift` - Blueshift
-     * * `Bluesky` - Bluesky
-     * * `BolRetailer` - BolRetailer
-     * * `Boulevard` - Boulevard
-     * * `Buffer` - Buffer
-     * * `Bugherd` - Bugherd
-     * * `Buildium` - Buildium
-     * * `Buttondown` - Buttondown
-     * * `BuyMeACoffee` - BuyMeACoffee
-     * * `Calendarific` - Calendarific
-     * * `Calibre` - Calibre
-     * * `CanvasLms` - CanvasLms
-     * * `Captivate` - Captivate
-     * * `Cashfree` - Cashfree
-     * * `CastAi` - CastAi
-     * * `Catchpoint` - Catchpoint
-     * * `CdcOpenData` - CdcOpenData
-     * * `Census` - Census
-     * * `Checkly` - Checkly
-     * * `CircleSo` - CircleSo
-     * * `Classy` - Classy
-     * * `Cleartax` - Cleartax
-     * * `Clever` - Clever
-     * * `Clevertap` - Clevertap
-     * * `Cliniko` - Cliniko
-     * * `Clio` - Clio
-     * * `Clip` - Clip
-     * * `Cloudability` - Cloudability
-     * * `Cloudsmith` - Cloudsmith
-     * * `Cloudzero` - Cloudzero
-     * * `Clover` - Clover
-     * * `Codemagic` - Codemagic
-     * * `Codescene` - Codescene
-     * * `Collibra` - Collibra
-     * * `Companycam` - Companycam
-     * * `Conekta` - Conekta
-     * * `ContaAzul` - ContaAzul
-     * * `Contentsquare` - Contentsquare
-     * * `Cortex` - Cortex
-     * * `Courier` - Courier
-     * * `Crossref` - Crossref
-     * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
-     * * `CubeCloud` - CubeCloud
-     * * `D2lBrightspace` - D2lBrightspace
-     * * `Dayforce` - Dayforce
-     * * `Debugbear` - Debugbear
-     * * `Descope` - Descope
-     * * `Develocity` - Develocity
-     * * `Dialpad` - Dialpad
-     * * `Discord` - Discord
-     * * `Discourse` - Discourse
-     * * `Donorbox` - Donorbox
-     * * `Doorloop` - Doorloop
-     * * `Dovetail` - Dovetail
-     * * `Dragonboat` - Dragonboat
-     * * `Drchrono` - Drchrono
-     * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
-     * * `EcbDataPortal` - EcbDataPortal
-     * * `Emarsys` - Emarsys
-     * * `Embrace` - Embrace
-     * * `Entsoe` - Entsoe
-     * * `Eppo` - Eppo
-     * * `Etsy` - Etsy
-     * * `Eurostat` - Eurostat
-     * * `Faire` - Faire
-     * * `FarosAi` - FarosAi
-     * * `Fieldpulse` - Fieldpulse
-     * * `Fieldwire` - Fieldwire
-     * * `Filevine` - Filevine
-     * * `Finout` - Finout
-     * * `Five9` - Five9
-     * * `FlexeraCloudCost` - FlexeraCloudCost
-     * * `Flutterwave` - Flutterwave
-     * * `Fortnox` - Fortnox
-     * * `Fourthwall` - Fourthwall
-     * * `Fred` - Fred
-     * * `Frontegg` - Frontegg
-     * * `FusionAuth` - FusionAuth
-     * * `G2` - G2
-     * * `Gcore` - Gcore
-     * * `GcpApigee` - GcpApigee
-     * * `GcpArtifactRegistry` - GcpArtifactRegistry
-     * * `GcpBigtable` - GcpBigtable
-     * * `GcpChronicle` - GcpChronicle
-     * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
-     * * `GcpCloudBilling` - GcpCloudBilling
-     * * `GcpCloudBuild` - GcpCloudBuild
-     * * `GcpCloudDeploy` - GcpCloudDeploy
-     * * `GcpCloudDns` - GcpCloudDns
-     * * `GcpCloudFunctions` - GcpCloudFunctions
-     * * `GcpCloudLogging` - GcpCloudLogging
-     * * `GcpCloudMonitoring` - GcpCloudMonitoring
-     * * `GcpCloudRun` - GcpCloudRun
-     * * `GcpCloudSpanner` - GcpCloudSpanner
-     * * `GcpCloudSql` - GcpCloudSql
-     * * `GcpCloudTrace` - GcpCloudTrace
-     * * `GcpCloudWorkflows` - GcpCloudWorkflows
-     * * `GcpComputeEngine` - GcpComputeEngine
-     * * `GcpContainerAnalysis` - GcpContainerAnalysis
-     * * `GcpDataflow` - GcpDataflow
-     * * `GcpDataplex` - GcpDataplex
-     * * `GcpDataproc` - GcpDataproc
-     * * `GcpErrorReporting` - GcpErrorReporting
-     * * `GcpGke` - GcpGke
-     * * `GcpPubsub` - GcpPubsub
-     * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
-     * * `GcpRecommender` - GcpRecommender
-     * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
-     * * `Gdelt` - Gdelt
-     * * `GenesysCloud` - GenesysCloud
-     * * `Getdx` - Getdx
-     * * `Ghost` - Ghost
-     * * `Givebutter` - Givebutter
-     * * `Gleif` - Gleif
-     * * `GooglePlayConsole` - GooglePlayConsole
-     * * `Guesty` - Guesty
-     * * `Gumroad` - Gumroad
-     * * `HarnessCcm` - HarnessCcm
-     * * `HarnessSei` - HarnessSei
-     * * `Harvest` - Harvest
-     * * `Healthie` - Healthie
-     * * `Hitpay` - Hitpay
-     * * `Hivebrite` - Hivebrite
-     * * `Holded` - Holded
-     * * `Hostaway` - Hostaway
-     * * `HousecallPro` - HousecallPro
-     * * `Humanitec` - Humanitec
-     * * `ImfData` - ImfData
-     * * `Imperva` - Imperva
-     * * `InfluxdbCloud` - InfluxdbCloud
-     * * `Iyzico` - Iyzico
-     * * `Jobtread` - Jobtread
-     * * `Kameleoon` - Kameleoon
-     * * `KauflandMarketplace` - KauflandMarketplace
-     * * `Kestra` - Kestra
-     * * `Kick` - Kick
-     * * `Kinde` - Kinde
-     * * `Kion` - Kion
-     * * `Knowbe4` - Knowbe4
-     * * `Komodor` - Komodor
-     * * `Labelbox` - Labelbox
-     * * `Lawmatics` - Lawmatics
-     * * `Learnworlds` - Learnworlds
-     * * `LexwareOffice` - LexwareOffice
-     * * `Lightdash` - Lightdash
-     * * `Lodgify` - Lodgify
-     * * `Logicmonitor` - Logicmonitor
-     * * `Logrocket` - Logrocket
-     * * `LoopReturns` - LoopReturns
-     * * `Mastodon` - Mastodon
-     * * `Meetup` - Meetup
-     * * `Megaphone` - Megaphone
-     * * `Memberful` - Memberful
-     * * `MercadoPago` - MercadoPago
-     * * `Meteostat` - Meteostat
-     * * `Mews` - Mews
-     * * `Mezmo` - Mezmo
-     * * `Microsoft365UsageReports` - Microsoft365UsageReports
-     * * `MicrosoftAdvertising` - MicrosoftAdvertising
-     * * `MicrosoftClarity` - MicrosoftClarity
-     * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
-     * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
-     * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
-     * * `MicrosoftIntune` - MicrosoftIntune
-     * * `MicrosoftPurview` - MicrosoftPurview
-     * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
-     * * `MicrosoftSentinel` - MicrosoftSentinel
-     * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
-     * * `Midtrans` - Midtrans
-     * * `MightyNetworks` - MightyNetworks
-     * * `Mindbody` - Mindbody
-     * * `Mirakl` - Mirakl
-     * * `Moesif` - Moesif
-     * * `Moneybird` - Moneybird
-     * * `Moodle` - Moodle
-     * * `Motherduck` - Motherduck
-     * * `Mycase` - Mycase
-     * * `NagerDate` - NagerDate
-     * * `NeonCrm` - NeonCrm
-     * * `Nexhealth` - Nexhealth
-     * * `NoaaCdo` - NoaaCdo
-     * * `Nobl9` - Nobl9
-     * * `Nolt` - Nolt
-     * * `Nops` - Nops
-     * * `NpmRegistry` - NpmRegistry
-     * * `Oecd` - Oecd
-     * * `Okendo` - Okendo
-     * * `Omni` - Omni
-     * * `Onelogin` - Onelogin
-     * * `OpenDental` - OpenDental
-     * * `OpenMeteo` - OpenMeteo
-     * * `Openalex` - Openalex
-     * * `Opencorporates` - Opencorporates
-     * * `Openfec` - Openfec
-     * * `OpnPayments` - OpnPayments
-     * * `Opslevel` - Opslevel
-     * * `OttoMarket` - OttoMarket
-     * * `Ownerrez` - Ownerrez
-     * * `Pagbank` - Pagbank
-     * * `Patreon` - Patreon
-     * * `Pax8` - Pax8
-     * * `Paychex` - Paychex
-     * * `Paymob` - Paymob
-     * * `Paymongo` - Paymongo
-     * * `Phonepe` - Phonepe
-     * * `Pike13` - Pike13
-     * * `Pingone` - Pingone
-     * * `PinterestOrganic` - PinterestOrganic
-     * * `PlanningCenter` - PlanningCenter
-     * * `PluralsightFlow` - PluralsightFlow
-     * * `Podbean` - Podbean
-     * * `Postscript` - Postscript
-     * * `PowerBiAdmin` - PowerBiAdmin
-     * * `Practicepanther` - Practicepanther
-     * * `Preset` - Preset
-     * * `Procore` - Procore
-     * * `Productiv` - Productiv
-     * * `ProofpointTap` - ProofpointTap
-     * * `Propertyware` - Propertyware
-     * * `Pubnub` - Pubnub
-     * * `Quay` - Quay
-     * * `Raken` - Raken
-     * * `RedpandaCloud` - RedpandaCloud
-     * * `RentManager` - RentManager
-     * * `Reverb` - Reverb
-     * * `RocketMatter` - RocketMatter
-     * * `Rubygems` - Rubygems
-     * * `Scalr` - Scalr
-     * * `SecEdgar` - SecEdgar
-     * * `SelectStar` - SelectStar
-     * * `SemanticScholar` - SemanticScholar
-     * * `Semrush` - Semrush
-     * * `ServiceFusion` - ServiceFusion
-     * * `Servicem8` - Servicem8
-     * * `Servicetitan` - Servicetitan
-     * * `Servicetrade` - Servicetrade
-     * * `Sevdesk` - Sevdesk
-     * * `Similarweb` - Similarweb
-     * * `Simpro` - Simpro
-     * * `Sinch` - Sinch
-     * * `Singlestore` - Singlestore
-     * * `Site24x7` - Site24x7
-     * * `Sleuth` - Sleuth
-     * * `Smartlook` - Smartlook
-     * * `Smartrecruiters` - Smartrecruiters
-     * * `Smokeball` - Smokeball
-     * * `SodaCloud` - SodaCloud
-     * * `Speedcurve` - Speedcurve
-     * * `SpotIo` - SpotIo
-     * * `Sprig` - Sprig
-     * * `Sprinklr` - Sprinklr
-     * * `SproutSocial` - SproutSocial
-     * * `StackOverflowForTeams` - StackOverflowForTeams
-     * * `Stockx` - Stockx
-     * * `TackleIo` - TackleIo
-     * * `Talkdesk` - Talkdesk
-     * * `TeamupFitness` - TeamupFitness
-     * * `Tebra` - Tebra
-     * * `Telnyx` - Telnyx
-     * * `Ternary` - Ternary
-     * * `Thoughtspot` - Thoughtspot
-     * * `Thousandeyes` - Thousandeyes
-     * * `Threads` - Threads
-     * * `TiktokShop` - TiktokShop
-     * * `TinyErp` - TinyErp
-     * * `Tinybird` - Tinybird
-     * * `Tipalti` - Tipalti
-     * * `Toast` - Toast
-     * * `Torii` - Torii
-     * * `Transistor` - Transistor
-     * * `TrunkIo` - TrunkIo
-     * * `Trustradius` - Trustradius
-     * * `Twitch` - Twitch
-     * * `TwoC2p` - TwoC2p
-     * * `UkCompaniesHouse` - UkCompaniesHouse
-     * * `UkOns` - UkOns
-     * * `UnComtrade` - UnComtrade
-     * * `UsBea` - UsBea
-     * * `UsBls` - UsBls
-     * * `UsEia` - UsEia
-     * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
-     * * `Vanta` - Vanta
-     * * `Vendr` - Vendr
-     * * `Virtuous` - Virtuous
-     * * `Vonage` - Vonage
-     * * `WalmartMarketplace` - WalmartMarketplace
-     * * `Waydev` - Waydev
-     * * `Wayfair` - Wayfair
-     * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
-     * * `WhoGho` - WhoGho
-     * * `Whop` - Whop
-     * * `Wistia` - Wistia
-     * * `Wiz` - Wiz
-     * * `Wompi` - Wompi
-     * * `Workiz` - Workiz
-     * * `WorldBank` - WorldBank
-     * * `Xendit` - Xendit
-     * * `Yoco` - Yoco
-     * * `ZalandoZdirect` - ZalandoZdirect
-     * * `Zluri` - Zluri
-     * * `Zylo` - Zylo
-     * * `Tally` - Tally
-     * * `Nuntly` - Nuntly
-     * * `Vturb` - Vturb
-     * * `Meltwater` - Meltwater
-     * * `UserCom` - UserCom
-     * * `Latitude` - Latitude
-     * * `Workato` - Workato
-     * * `SideShift` - SideShift
-     * * `DuckLake` - DuckLake
-     * * `Starburst` - Starburst
-     * * `Trino` - Trino
-     * * `Easybill` - Easybill
-     * * `Bexio` - Bexio
-     * * `Umami` - Umami
-     * * `Manychat` - Manychat
-     * * `Kickstarter` - Kickstarter
-     * * `Typesense` - Typesense
-     * * `FirstPromoter` - FirstPromoter
-     * * `Zero` - Zero
-     * * `Inth` - Inth
-     * * `BCMS` - BCMS
-     * * `Convonite` - Convonite
-     * * `Hookdeck` - Hookdeck
-     * * `Billit` - Billit
-     * * `Moxie` - Moxie
-     * * `TripleWhale` - TripleWhale
-     * * `Directus` - Directus
-     * * `Clay` - Clay
-     * * `TradableBits` - TradableBits
-     * * `Swan` - Swan
-     * * `Hyros` - Hyros
-     * * `Odoo` - Odoo
-     * * `Airbridge` - Airbridge
-     * * `Snovio` - Snovio
-     * * `GoogleMerchantCenter` - GoogleMerchantCenter
-     * * `Raisely` - Raisely
-     * * `RakutenAdvertising` - RakutenAdvertising
-     * * `Zitadel` - Zitadel
-     * * `DeelFlows` - DeelFlows
-     * * `WindsorAi` - WindsorAi
-     * * `Wix` - Wix
-     * * `Sevalla` - Sevalla
-     * * `Motion` - Motion
-     * * `ImpactPartner` - ImpactPartner
-     * * `Cloudinary` - Cloudinary
-     * * `Uploadcare` - Uploadcare
-     * * `WHMCS` - WHMCS
-     * * `MSG91` - MSG91
-     * * `Depot` - Depot
-     * * `Schematic` - Schematic
-     * * `Dokploy` - Dokploy
-     * * `Hootsuite` - Hootsuite
-     * * `WisprFlow` - WisprFlow
-     * * `SamCart` - SamCart
-     * * `IronSourceAds` - IronSourceAds
-     * * `MicrosoftExcel` - MicrosoftExcel
-     * * `Profound` - Profound
-     * * `Airwallex` - Airwallex
-     * * `Polymarket` - Polymarket
-     * * `Kalshi` - Kalshi
-     * * `Capterra` - Capterra
-     * * `GooglePostmasterTools` - GooglePostmasterTools
-     * * `Growi` - Growi
-     * * `Clarify` - Clarify
-     * * `DatoCMS` - DatoCMS
-     * * `WPSOffice` - WPSOffice
-     * * `TeraBox` - TeraBox
-     * * `SimonData` - SimonData
-     * * `CommissionJunction` - CommissionJunction
-     * * `Liveblocks` - Liveblocks
-     * * `Livestorm` - Livestorm
-     * * `NationBuilder` - NationBuilder
-     * * `Tana` - Tana
-     * * `Zenchef` - Zenchef
-     * * `Lovable` - Lovable
-     * * `Anvil` - Anvil
-     * * `Coolify` - Coolify
-     * * `SocialPilot` - SocialPilot
-     * * `Strato` - Strato
-     * * `Medusa` - Medusa
-     * * `Membrain` - Membrain
-     * * `RecallAI` - RecallAI
-     * * `Tenjin` - Tenjin
-     * * `Folk` - Folk
-     * * `Cybersource` - Cybersource
-     * * `GoogleAdSense` - GoogleAdSense
-     * * `Sequenzy` - Sequenzy
-     * * `Skio` - Skio
-     * * `Smartlead` - Smartlead
-     * * `Substack` - Substack
-     * * `ElectricityMaps` - ElectricityMaps
-     * * `Amplemarket` - Amplemarket
-     * * `Quo` - Quo
-     * * `HeyReach` - HeyReach
-     * * `MoEngage` - MoEngage
-     * * `Monaco` - Monaco
-     * * `Oneleet` - Oneleet
-     * * `Expo` - Expo
-     * * `PostNord` - PostNord
-     * * `Commslayer` - Commslayer
-     * * `Sprinto` - Sprinto
-     * * `Gem` - Gem
-     * * `AudioGO` - AudioGO
-     * * `ExactOnline` - ExactOnline
-     * * `LettrLabs` - LettrLabs
-     * * `GrafanaIRM` - GrafanaIRM
-     * * `Tessitura` - Tessitura
-     * * `ChargebackStop` - ChargebackStop
-     * * `Chargeflow` - Chargeflow
-     * * `Dreamdata` - Dreamdata
-     * * `GoogleBusinessProfile` - GoogleBusinessProfile
-     * * `Ledyer` - Ledyer
-     * * `Supermetrics` - Supermetrics
-     * * `SQLite` - SQLite
-     * * `Modal` - Modal
-     * * `Vimeo` - Vimeo
-     * * `Scrunch` - Scrunch
-     * * `Loom` - Loom
-     * * `Arcade` - Arcade
-     * * `Neo4j` - Neo4j
-     * * `TestDino` - TestDino
-     * * `ChessCom` - ChessCom
-     * * `Userback` - Userback
-     * * `Rewardful` - Rewardful
-     * * `Tracklution` - Tracklution
-     * * `StackAdapt` - StackAdapt
-     * * `CheckHQ` - CheckHQ
-     * * `RainforestPay` - RainforestPay
-     * * `Wise` - Wise
-     * * `LaravelCloud` - LaravelCloud
-     * * `Northbeam` - Northbeam
-     * * `NaverAds` - NaverAds
-     * * `ChannelIO` - ChannelIO
-     * * `Airship` - Airship
-     * * `Creem` - Creem
-     * * `Leantime` - Leantime
-     * * `Testomatio` - Testomatio
-     * * `GoogleAdMob` - GoogleAdMob
-     * * `Klar` - Klar
-     * * `ConectoCRM` - ConectoCRM
-     * * `CloudflareR2` - CloudflareR2
-     * * `Particle` - Particle
-     * * `FileUpload` - FileUpload
-     * * `Dripify` - Dripify
-     * * `AwsS3Tables` - AwsS3Tables
-     * * `Beacons` - Beacons
-     * * `WooPayments` - WooPayments
-     * * `Soniox` - Soniox
-     */
-    export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
-
-
-    export const ExternalDataSourceTypeEnum = {
-      Ashby: 'Ashby',
-      Supabase: 'Supabase',
-      CustomerIO: 'CustomerIO',
-      Github: 'Github',
-      Stripe: 'Stripe',
-      Hubspot: 'Hubspot',
-      Postgres: 'Postgres',
-      Zendesk: 'Zendesk',
-      Snowflake: 'Snowflake',
-      Salesforce: 'Salesforce',
-      MySQL: 'MySQL',
-      MongoDB: 'MongoDB',
-      Mssql: 'MSSQL',
-      Vitally: 'Vitally',
-      BigQuery: 'BigQuery',
-      Chargebee: 'Chargebee',
-      Clerk: 'Clerk',
-      GoogleAds: 'GoogleAds',
-      GoogleSearchConsole: 'GoogleSearchConsole',
-      TemporalIO: 'TemporalIO',
-      DoIt: 'DoIt',
-      GoogleSheets: 'GoogleSheets',
-      MetaAds: 'MetaAds',
-      Klaviyo: 'Klaviyo',
-      Mailchimp: 'Mailchimp',
-      Braze: 'Braze',
-      Mailjet: 'Mailjet',
-      Redshift: 'Redshift',
-      Polar: 'Polar',
-      RevenueCat: 'RevenueCat',
-      LinkedinAds: 'LinkedinAds',
-      RedditAds: 'RedditAds',
-      TikTokAds: 'TikTokAds',
-      BingAds: 'BingAds',
-      Shopify: 'Shopify',
-      Attio: 'Attio',
-      SnapchatAds: 'SnapchatAds',
-      Linear: 'Linear',
-      LiteLLM: 'LiteLLM',
-      Intercom: 'Intercom',
-      Amplitude: 'Amplitude',
-      Mixpanel: 'Mixpanel',
-      Jira: 'Jira',
-      ActiveCampaign: 'ActiveCampaign',
-      Marketo: 'Marketo',
-      Adjust: 'Adjust',
-      AppsFlyer: 'AppsFlyer',
-      Freshdesk: 'Freshdesk',
-      GoogleAnalytics: 'GoogleAnalytics',
-      Pipedrive: 'Pipedrive',
-      SendGrid: 'SendGrid',
-      Slack: 'Slack',
-      PagerDuty: 'PagerDuty',
-      Asana: 'Asana',
-      Notion: 'Notion',
-      Airtable: 'Airtable',
-      Greenhouse: 'Greenhouse',
-      BambooHR: 'BambooHR',
-      Lever: 'Lever',
-      GitLab: 'GitLab',
-      Datadog: 'Datadog',
-      Sentry: 'Sentry',
-      Pendo: 'Pendo',
-      FullStory: 'FullStory',
-      AmazonAds: 'AmazonAds',
-      PinterestAds: 'PinterestAds',
-      AppleSearchAds: 'AppleSearchAds',
-      QuickBooks: 'QuickBooks',
-      Xero: 'Xero',
-      NetSuite: 'NetSuite',
-      WooCommerce: 'WooCommerce',
-      BigCommerce: 'BigCommerce',
-      PayPal: 'PayPal',
-      Square: 'Square',
-      Zoom: 'Zoom',
-      Trello: 'Trello',
-      TrafficStars: 'TrafficStars',
-      Monday: 'Monday',
-      ClickUp: 'ClickUp',
-      Confluence: 'Confluence',
-      Recurly: 'Recurly',
-      SalesLoft: 'SalesLoft',
-      Outreach: 'Outreach',
-      Gong: 'Gong',
-      Calendly: 'Calendly',
-      Typeform: 'Typeform',
-      UnityAds: 'UnityAds',
-      Iterable: 'Iterable',
-      ZohoCRM: 'ZohoCRM',
-      Close: 'Close',
-      Oracle: 'Oracle',
-      DynamoDB: 'DynamoDB',
-      Elasticsearch: 'Elasticsearch',
-      Kafka: 'Kafka',
-      LaunchDarkly: 'LaunchDarkly',
-      Braintree: 'Braintree',
-      Recharge: 'Recharge',
-      HelpScout: 'HelpScout',
-      Gorgias: 'Gorgias',
-      Instagram: 'Instagram',
-      YouTubeAnalytics: 'YouTubeAnalytics',
-      FacebookPages: 'FacebookPages',
-      TwitterAds: 'TwitterAds',
-      Workday: 'Workday',
-      ServiceNow: 'ServiceNow',
-      Pardot: 'Pardot',
-      Copper: 'Copper',
-      Front: 'Front',
-      ChartMogul: 'ChartMogul',
-      Zuora: 'Zuora',
-      Paddle: 'Paddle',
-      CircleCI: 'CircleCI',
-      CockroachDB: 'CockroachDB',
-      Firebase: 'Firebase',
-      AzureBlob: 'AzureBlob',
-      GoogleDrive: 'GoogleDrive',
-      OneDrive: 'OneDrive',
-      SharePoint: 'SharePoint',
-      Box: 'Box',
-      Sftp: 'SFTP',
-      MicrosoftTeams: 'MicrosoftTeams',
-      Aircall: 'Aircall',
-      Webflow: 'Webflow',
-      Okta: 'Okta',
-      Auth0: 'Auth0',
-      Productboard: 'Productboard',
-      Smartsheet: 'Smartsheet',
-      Wrike: 'Wrike',
-      Plaid: 'Plaid',
-      SurveyMonkey: 'SurveyMonkey',
-      Eventbrite: 'Eventbrite',
-      Everflow: 'Everflow',
-      RingCentral: 'RingCentral',
-      Twilio: 'Twilio',
-      Freshsales: 'Freshsales',
-      Shortcut: 'Shortcut',
-      ConvertKit: 'ConvertKit',
-      Drip: 'Drip',
-      CampaignMonitor: 'CampaignMonitor',
-      MailerLite: 'MailerLite',
-      Omnisend: 'Omnisend',
-      Brevo: 'Brevo',
-      Postmark: 'Postmark',
-      Granola: 'Granola',
-      BuildBetter: 'BuildBetter',
-      Convex: 'Convex',
-      ClickHouse: 'ClickHouse',
-      Plain: 'Plain',
-      Resend: 'Resend',
-      PgAnalyze: 'PgAnalyze',
-      WorkOS: 'WorkOS',
-      AmazonS3: 'AmazonS3',
-      GoogleCloudStorage: 'GoogleCloudStorage',
-      Databricks: 'Databricks',
-      Dynamics365: 'Dynamics365',
-      SalesforceMarketingCloud: 'SalesforceMarketingCloud',
-      Db2: 'Db2',
-      Heap: 'Heap',
-      AdobeAnalytics: 'AdobeAnalytics',
-      Matomo: 'Matomo',
-      Optimizely: 'Optimizely',
-      Adyen: 'Adyen',
-      GoCardless: 'GoCardless',
-      Mollie: 'Mollie',
-      CheckoutCom: 'CheckoutCom',
-      Branch: 'Branch',
-      Criteo: 'Criteo',
-      Outbrain: 'Outbrain',
-      Taboola: 'Taboola',
-      AdRoll: 'AdRoll',
-      DisplayVideo360: 'DisplayVideo360',
-      GoogleAdManager: 'GoogleAdManager',
-      CampaignManager360: 'CampaignManager360',
-      SearchAds360: 'SearchAds360',
-      AdobeCommerce: 'AdobeCommerce',
-      AmazonSellingPartner: 'AmazonSellingPartner',
-      Ebay: 'Ebay',
-      Commercetools: 'Commercetools',
-      LightspeedRetail: 'LightspeedRetail',
-      Shipmail: 'Shipmail',
-      ShipStation: 'ShipStation',
-      ConstantContact: 'ConstantContact',
-      Mailgun: 'Mailgun',
-      Eloqua: 'Eloqua',
-      Sailthru: 'Sailthru',
-      Ortto: 'Ortto',
-      Attentive: 'Attentive',
-      Kustomer: 'Kustomer',
-      Dixa: 'Dixa',
-      Gladly: 'Gladly',
-      Qualtrics: 'Qualtrics',
-      AzureDevOps: 'AzureDevOps',
-      RoktAds: 'RoktAds',
-      Rollbar: 'Rollbar',
-      Opsgenie: 'Opsgenie',
-      IncidentIo: 'IncidentIo',
-      Pingdom: 'Pingdom',
-      Cloudflare: 'Cloudflare',
-      CloudflareD1: 'CloudflareD1',
-      CosmosDB: 'CosmosDB',
-      PlanetScaleMySQL: 'PlanetScaleMySQL',
-      PlanetScalePostgres: 'PlanetScalePostgres',
-      Plane: 'Plane',
-      Scarf: 'Scarf',
-      SapHana: 'SapHana',
-      Rippling: 'Rippling',
-      HiBob: 'HiBob',
-      Personio: 'Personio',
-      Deel: 'Deel',
-      AdpWorkforceNow: 'AdpWorkforceNow',
-      Paylocity: 'Paylocity',
-      Gusto: 'Gusto',
-      CultureAmp: 'CultureAmp',
-      Lattice: 'Lattice',
-      SageIntacct: 'SageIntacct',
-      FreshBooks: 'FreshBooks',
-      Expensify: 'Expensify',
-      Ramp: 'Ramp',
-      Brex: 'Brex',
-      Coupa: 'Coupa',
-      SapConcur: 'SapConcur',
-      Apollo: 'Apollo',
-      Crunchbase: 'Crunchbase',
-      ZoomInfo: 'ZoomInfo',
-      Clari: 'Clari',
-      Chorus: 'Chorus',
-      Coda: 'Coda',
-      Guru: 'Guru',
-      Dropbox: 'Dropbox',
-      Docusign: 'Docusign',
-      PandaDoc: 'PandaDoc',
-      SapErp: 'SapErp',
-      SapSuccessFactors: 'SapSuccessFactors',
-      OracleEbs: 'OracleEbs',
-      OracleFusion: 'OracleFusion',
-      AmazonSNS: 'AmazonSNS',
-      AmazonEventBridge: 'AmazonEventBridge',
-      AmazonSQS: 'AmazonSQS',
-      AmazonKinesis: 'AmazonKinesis',
-      AmazonCloudWatch: 'AmazonCloudWatch',
-      OpenAIAds: 'OpenAIAds',
-      OneHundredMs: 'OneHundredMs',
-      SevenShifts: 'SevenShifts',
-      AcuityScheduling: 'AcuityScheduling',
-      AgileCRM: 'AgileCRM',
-      Aha: 'Aha',
-      Airbyte: 'Airbyte',
-      Akeneo: 'Akeneo',
-      Algolia: 'Algolia',
-      AlpacaBrokerAPI: 'AlpacaBrokerAPI',
-      ApifyDataset: 'ApifyDataset',
-      Appcues: 'Appcues',
-      Appfigures: 'Appfigures',
-      Appfollow: 'Appfollow',
-      Apptivo: 'Apptivo',
-      AssemblyAI: 'AssemblyAI',
-      Awin: 'Awin',
-      AwsCloudTrail: 'AwsCloudTrail',
-      AzureTableStorage: 'AzureTableStorage',
-      Babelforce: 'Babelforce',
-      Basecamp: 'Basecamp',
-      Beamer: 'Beamer',
-      BigMailer: 'BigMailer',
-      Bluetally: 'Bluetally',
-      BoldSign: 'BoldSign',
-      BreezyHR: 'BreezyHR',
-      Bugsnag: 'Bugsnag',
-      Buildkite: 'Buildkite',
-      Bunny: 'Bunny',
-      Buzzsprout: 'Buzzsprout',
-      CalCom: 'CalCom',
-      CallRail: 'CallRail',
-      Campayn: 'Campayn',
-      Canny: 'Canny',
-      CapsuleCRM: 'CapsuleCRM',
-      CaptainData: 'CaptainData',
-      CartCom: 'CartCom',
-      CastorEDC: 'CastorEDC',
-      Chameleon: 'Chameleon',
-      Chargedesk: 'Chargedesk',
-      Chargify: 'Chargify',
-      Chift: 'Chift',
-      Churnkey: 'Churnkey',
-      Cin7: 'Cin7',
-      CiscoMeraki: 'CiscoMeraki',
-      Clazar: 'Clazar',
-      Clockify: 'Clockify',
-      Clockodo: 'Clockodo',
-      Cloudbeds: 'Cloudbeds',
-      Coassemble: 'Coassemble',
-      Codefresh: 'Codefresh',
-      Concord: 'Concord',
-      ConfigCat: 'ConfigCat',
-      Couchbase: 'Couchbase',
-      Curve: 'Curve',
-      Customerly: 'Customerly',
-      Datascope: 'Datascope',
-      Dbt: 'Dbt',
-      Demodesk: 'Demodesk',
-      Deputy: 'Deputy',
-      DevinAI: 'DevinAI',
-      Docuseal: 'Docuseal',
-      Dolibarr: 'Dolibarr',
-      Dremio: 'Dremio',
-      DropboxSign: 'DropboxSign',
-      Dwolla: 'Dwolla',
-      EConomic: 'EConomic',
-      Easypost: 'Easypost',
-      Easypromos: 'Easypromos',
-      Elasticemail: 'Elasticemail',
-      EmailOctopus: 'EmailOctopus',
-      EmploymentHero: 'EmploymentHero',
-      Encharge: 'Encharge',
-      Eventee: 'Eventee',
-      Eventzilla: 'Eventzilla',
-      Everhour: 'Everhour',
-      EZOfficeInventory: 'EZOfficeInventory',
-      Factorial: 'Factorial',
-      Fastbill: 'Fastbill',
-      Fastly: 'Fastly',
-      Fauna: 'Fauna',
-      Feishu: 'Feishu',
-      Fillout: 'Fillout',
-      Finage: 'Finage',
-      Firebolt: 'Firebolt',
-      FireHydrant: 'FireHydrant',
-      Fleetio: 'Fleetio',
-      Flexmail: 'Flexmail',
-      Flexport: 'Flexport',
-      FloatApp: 'FloatApp',
-      Flowlu: 'Flowlu',
-      Formbricks: 'Formbricks',
-      Framer: 'Framer',
-      FreeAgent: 'FreeAgent',
-      Freightview: 'Freightview',
-      Freshcaller: 'Freshcaller',
-      Freshchat: 'Freshchat',
-      Freshservice: 'Freshservice',
-      Fulcrum: 'Fulcrum',
-      GainsightCs: 'GainsightCs',
-      GainsightPx: 'GainsightPx',
-      GitBook: 'GitBook',
-      Glassfrog: 'Glassfrog',
-      Goldcast: 'Goldcast',
-      GoLogin: 'GoLogin',
-      Grafana: 'Grafana',
-      GreytHr: 'GreytHr',
-      Gridly: 'Gridly',
-      Harness: 'Harness',
-      Height: 'Height',
-      Hellobaton: 'Hellobaton',
-      HighLevel: 'HighLevel',
-      HoorayHR: 'HoorayHR',
-      Hubplanner: 'Hubplanner',
-      Humanitix: 'Humanitix',
-      Huntr: 'Huntr',
-      Inflowinventory: 'Inflowinventory',
-      InforNexus: 'InforNexus',
-      Insightful: 'Insightful',
-      Insightly: 'Insightly',
-      Instantly: 'Instantly',
-      Instatus: 'Instatus',
-      Intruder: 'Intruder',
-      Invoiced: 'Invoiced',
-      Invoiceninja: 'Invoiceninja',
-      JamfPro: 'JamfPro',
-      JobNimbus: 'JobNimbus',
-      Jotform: 'Jotform',
-      JudgeMeReviews: 'JudgeMeReviews',
-      JustCall: 'JustCall',
-      JustSift: 'JustSift',
-      K6Cloud: 'K6Cloud',
-      Katana: 'Katana',
-      Keka: 'Keka',
-      Kisi: 'Kisi',
-      Kissmetrics: 'Kissmetrics',
-      Klarna: 'Klarna',
-      Klaus: 'Klaus',
-      Lago: 'Lago',
-      Leadfeeder: 'Leadfeeder',
-      Lemlist: 'Lemlist',
-      LessAnnoyingCRM: 'LessAnnoyingCRM',
-      LinkedinPages: 'LinkedinPages',
-      Linkrunner: 'Linkrunner',
-      Linnworks: 'Linnworks',
-      Lob: 'Lob',
-      Lokalise: 'Lokalise',
-      Looker: 'Looker',
-      Luma: 'Luma',
-      MailerSend: 'MailerSend',
-      Mailosaur: 'Mailosaur',
-      Mailtrap: 'Mailtrap',
-      Mantle: 'Mantle',
-      Mention: 'Mention',
-      MercadoAds: 'MercadoAds',
-      Merge: 'Merge',
-      Metabase: 'Metabase',
-      Metricool: 'Metricool',
-      MicrosoftDataverse: 'MicrosoftDataverse',
-      MicrosoftEntraId: 'MicrosoftEntraId',
-      MicrosoftLists: 'MicrosoftLists',
-      Miro: 'Miro',
-      Missive: 'Missive',
-      MixMax: 'MixMax',
-      Mode: 'Mode',
-      Mux: 'Mux',
-      MyHours: 'MyHours',
-      N8n: 'N8n',
-      Navan: 'Navan',
-      NebiusAI: 'NebiusAI',
-      Nexiopay: 'Nexiopay',
-      NinjaOneRMM: 'NinjaOneRMM',
-      NoCRM: 'NoCRM',
-      NorthpassLMS: 'NorthpassLMS',
-      Nutshell: 'Nutshell',
-      Nylas: 'Nylas',
-      Oncehub: 'Oncehub',
-      Onepagecrm: 'Onepagecrm',
-      OneSignal: 'OneSignal',
-      Onfleet: 'Onfleet',
-      OpinionStage: 'OpinionStage',
-      OPUSWatch: 'OPUSWatch',
-      Orb: 'Orb',
-      Orbit: 'Orbit',
-      Oura: 'Oura',
-      Oveit: 'Oveit',
-      PabblySubscriptionsBilling: 'PabblySubscriptionsBilling',
-      Paperform: 'Paperform',
-      Papersign: 'Papersign',
-      Partnerize: 'Partnerize',
-      PartnerStack: 'PartnerStack',
-      PayFit: 'PayFit',
-      Paystack: 'Paystack',
-      Pennylane: 'Pennylane',
-      Perk: 'Perk',
-      PersistIq: 'PersistIq',
-      Persona: 'Persona',
-      Phyllo: 'Phyllo',
-      Picqer: 'Picqer',
-      Pipeliner: 'Pipeliner',
-      PivotalTracker: 'PivotalTracker',
-      Piwik: 'Piwik',
-      Planhat: 'Planhat',
-      Plausible: 'Plausible',
-      Poplar: 'Poplar',
-      PrestaShop: 'PrestaShop',
-      Pretix: 'Pretix',
-      Primetric: 'Primetric',
-      Printavo: 'Printavo',
-      Printify: 'Printify',
-      Productive: 'Productive',
-      Pylon: 'Pylon',
-      Qonto: 'Qonto',
-      Qualaroo: 'Qualaroo',
-      Railz: 'Railz',
-      RDStationMarketing: 'RDStationMarketing',
-      Recruitee: 'Recruitee',
-      Reddit: 'Reddit',
-      ReferralHero: 'ReferralHero',
-      RentCast: 'RentCast',
-      Repairshopr: 'Repairshopr',
-      ReplyIo: 'ReplyIo',
-      RetailExpress: 'RetailExpress',
-      Retently: 'Retently',
-      Retreaver: 'Retreaver',
-      RevolutMerchant: 'RevolutMerchant',
-      RocketChat: 'RocketChat',
-      Rocketlane: 'Rocketlane',
-      Rootly: 'Rootly',
-      Ruddr: 'Ruddr',
-      SafetyCulture: 'SafetyCulture',
-      SageHR: 'SageHR',
-      Salesflare: 'Salesflare',
-      SAPFieldglass: 'SAPFieldglass',
-      SavvyCal: 'SavvyCal',
-      Secoda: 'Secoda',
-      Segment: 'Segment',
-      Sendowl: 'Sendowl',
-      SendPulse: 'SendPulse',
-      Senseforce: 'Senseforce',
-      Serpstat: 'Serpstat',
-      Sharetribe: 'Sharetribe',
-      Shippo: 'Shippo',
-      ShopWired: 'ShopWired',
-      Shortio: 'Shortio',
-      Shutterstock: 'Shutterstock',
-      SigmaComputing: 'SigmaComputing',
-      SignNow: 'SignNow',
-      SimpleCast: 'SimpleCast',
-      Simplesat: 'Simplesat',
-      Smaily: 'Smaily',
-      SmartEngage: 'SmartEngage',
-      Smartreach: 'Smartreach',
-      Smartwaiver: 'Smartwaiver',
-      SolarwindsServiceDesk: 'SolarwindsServiceDesk',
-      SonarCloud: 'SonarCloud',
-      SparkPost: 'SparkPost',
-      SplitIo: 'SplitIo',
-      SpotifyAds: 'SpotifyAds',
-      SpotlerCRM: 'SpotlerCRM',
-      Squarespace: 'Squarespace',
-      Statsig: 'Statsig',
-      Statuspage: 'Statuspage',
-      Steam: 'Steam',
-      Stigg: 'Stigg',
-      Strava: 'Strava',
-      SurveySparrow: 'SurveySparrow',
-      Survicate: 'Survicate',
-      Svix: 'Svix',
-      Systeme: 'Systeme',
-      Tavus: 'Tavus',
-      Teamtailor: 'Teamtailor',
-      Teamwork: 'Teamwork',
-      Tempo: 'Tempo',
-      Testrail: 'Testrail',
-      Thinkific: 'Thinkific',
-      ThinkificCourses: 'ThinkificCourses',
-      ThriveLearning: 'ThriveLearning',
-      Ticketmaster: 'Ticketmaster',
-      TicketTailor: 'TicketTailor',
-      TickTick: 'TickTick',
-      Timely: 'Timely',
-      Tinyemail: 'Tinyemail',
-      Todoist: 'Todoist',
-      Toggl: 'Toggl',
-      TrackPMS: 'TrackPMS',
-      Tremendous: 'Tremendous',
-      TrustPilot: 'TrustPilot',
-      Twitter: 'Twitter',
-      TyntecSMS: 'TyntecSMS',
-      Unleash: 'Unleash',
-      UpPromote: 'UpPromote',
-      Uptick: 'Uptick',
-      Uservoice: 'Uservoice',
-      Vantage: 'Vantage',
-      Veeqo: 'Veeqo',
-      Vercel: 'Vercel',
-      VismaEconomic: 'VismaEconomic',
-      Vwo: 'VWO',
-      Waiteraid: 'Waiteraid',
-      Wasabi: 'Wasabi',
-      WhenIWork: 'WhenIWork',
-      Wordpress: 'Wordpress',
-      Workable: 'Workable',
-      Workflowmax: 'Workflowmax',
-      Workramp: 'Workramp',
-      Wufoo: 'Wufoo',
-      Xsolla: 'Xsolla',
-      YandexMetrica: 'YandexMetrica',
-      Yotpo: 'Yotpo',
-      Ynab: 'Ynab',
-      Younium: 'Younium',
-      YouSign: 'YouSign',
-      YoutubeData: 'YoutubeData',
-      ZapierSupportedStorage: 'ZapierSupportedStorage',
-      ZapSign: 'ZapSign',
-      ZendeskSell: 'ZendeskSell',
-      ZendeskSunshine: 'ZendeskSunshine',
-      Zenefits: 'Zenefits',
-      Zenloop: 'Zenloop',
-      ZohoAnalytics: 'ZohoAnalytics',
-      ZohoBigin: 'ZohoBigin',
-      ZohoBilling: 'ZohoBilling',
-      ZohoBooks: 'ZohoBooks',
-      ZohoCampaign: 'ZohoCampaign',
-      ZohoDesk: 'ZohoDesk',
-      ZohoExpense: 'ZohoExpense',
-      ZohoInventory: 'ZohoInventory',
-      ZohoInvoice: 'ZohoInvoice',
-      ZonkaFeedback: 'ZonkaFeedback',
-      AlphaVantage: 'AlphaVantage',
-      Aviationstack: 'Aviationstack',
-      Bitly: 'Bitly',
-      Blogger: 'Blogger',
-      Breezometer: 'Breezometer',
-      CareQualityCommission: 'CareQualityCommission',
-      Cimis: 'Cimis',
-      CoinApi: 'CoinApi',
-      CoinGecko: 'CoinGecko',
-      CoinMarketCap: 'CoinMarketCap',
-      DingConnect: 'DingConnect',
-      Dockerhub: 'Dockerhub',
-      ExchangeRatesApi: 'ExchangeRatesApi',
-      FinancialModelling: 'FinancialModelling',
-      Finnhub: 'Finnhub',
-      Finnworlds: 'Finnworlds',
-      Giphy: 'Giphy',
-      Gmail: 'Gmail',
-      GNews: 'GNews',
-      GoogleCalendar: 'GoogleCalendar',
-      GoogleClassroom: 'GoogleClassroom',
-      GoogleDirectory: 'GoogleDirectory',
-      GoogleForms: 'GoogleForms',
-      GooglePageSpeedInsights: 'GooglePageSpeedInsights',
-      GoogleTasks: 'GoogleTasks',
-      GoogleWebfonts: 'GoogleWebfonts',
-      GoogleWorkspaceAdminReports: 'GoogleWorkspaceAdminReports',
-      HuggingFace: 'HuggingFace',
-      IlluminaBasespace: 'IlluminaBasespace',
-      Imagga: 'Imagga',
-      Interzoid: 'Interzoid',
-      IP2Whois: 'IP2Whois',
-      Kyve: 'KYVE',
-      Marketstack: 'Marketstack',
-      Mendeley: 'Mendeley',
-      Nasa: 'Nasa',
-      NewYorkTimes: 'NewYorkTimes',
-      NewsApi: 'NewsApi',
-      NewsData: 'NewsData',
-      OpenDataDc: 'OpenDataDc',
-      OpenExchangeRates: 'OpenExchangeRates',
-      OpenAQ: 'OpenAQ',
-      OpenFDA: 'OpenFDA',
-      OpenWeather: 'OpenWeather',
-      Outlook: 'Outlook',
-      Perigon: 'Perigon',
-      Pexels: 'Pexels',
-      Pocket: 'Pocket',
-      Polygon: 'Polygon',
-      PyPI: 'PyPI',
-      Recreation: 'Recreation',
-      RKICovid: 'RKICovid',
-      Rss: 'Rss',
-      SimFin: 'SimFin',
-      StockData: 'StockData',
-      Guardian: 'Guardian',
-      TMDb: 'TMDb',
-      TVMaze: 'TVMaze',
-      TwelveData: 'TwelveData',
-      Ubidots: 'Ubidots',
-      USCensus: 'USCensus',
-      Watchmode: 'Watchmode',
-      WikipediaPageviews: 'WikipediaPageviews',
-      YahooFinance: 'YahooFinance',
-      Clarifai: 'Clarifai',
-      Adapty: 'Adapty',
-      Braintrust: 'Braintrust',
-      StreamElements: 'StreamElements',
-      Streamlabs: 'Streamlabs',
-      Datorama: 'Datorama',
-      Ahrefs: 'Ahrefs',
-      Lightfield: 'Lightfield',
-      Appstack: 'Appstack',
-      Razorpay: 'Razorpay',
-      Neon: 'Neon',
-      NewRelic: 'NewRelic',
-      Custom: 'Custom',
-      Tile38: 'Tile38',
-      Chatwoot: 'Chatwoot',
-      Sanity: 'Sanity',
-      Metronome: 'Metronome',
-      Jobber: 'Jobber',
-      Knock: 'Knock',
-      Leexi: 'Leexi',
-      Rb2b: 'RB2B',
-      Superwall: 'Superwall',
-      Liana: 'Liana',
-      TawkTo: 'TawkTo',
-      Hightouch: 'Hightouch',
-      LemonSqueezy: 'LemonSqueezy',
-      Ikas: 'Ikas',
-      Talkwalker: 'Talkwalker',
-      NextdoorAds: 'NextdoorAds',
-      AppLovin: 'AppLovin',
-      Baserow: 'Baserow',
-      Plunk: 'Plunk',
-      Dub: 'Dub',
-      AirOps: 'AirOps',
-      Podium: 'Podium',
-      Loops: 'Loops',
-      Redis: 'Redis',
-      Mercury: 'Mercury',
-      Gojiberry: 'Gojiberry',
-      Teachable: 'Teachable',
-      PeecAI: 'PeecAI',
-      Healthchecks: 'Healthchecks',
-      Impact: 'Impact',
-      AikidoSecurity: 'AikidoSecurity',
-      Alguna: 'Alguna',
-      Anthropic: 'Anthropic',
-      Appwrite: 'Appwrite',
-      BlandAI: 'BlandAI',
-      BrowseAI: 'BrowseAI',
-      BrowserUse: 'BrowserUse',
-      ChartHop: 'ChartHop',
-      Cody: 'Cody',
-      Cursor: 'Cursor',
-      Decagon: 'Decagon',
-      Deepgram: 'Deepgram',
-      ElevenLabs: 'ElevenLabs',
-      Harvey: 'Harvey',
-      Hyperspell: 'Hyperspell',
-      Langfuse: 'Langfuse',
-      LingoDev: 'LingoDev',
-      M3ter: 'M3ter',
-      Maxio: 'Maxio',
-      Metorial: 'Metorial',
-      OpenRouter: 'OpenRouter',
-      TogetherAI: 'TogetherAI',
-      Vapi: 'Vapi',
-      Vespa: 'Vespa',
-      Writesonic: 'Writesonic',
-      Aiven: 'Aiven',
-      Aviator: 'Aviator',
-      Backblaze: 'Backblaze',
-      Baseten: 'Baseten',
-      Browserbase: 'Browserbase',
-      Cohere: 'Cohere',
-      DenoDeploy: 'DenoDeploy',
-      DigitalOcean: 'DigitalOcean',
-      E2b: 'E2B',
-      Fintoc: 'Fintoc',
-      Firecrawl: 'Firecrawl',
-      FireworksAI: 'FireworksAI',
-      FlyIo: 'FlyIo',
-      Groq: 'Groq',
-      GrowthBook: 'GrowthBook',
-      Gumloop: 'Gumloop',
-      Hatchet: 'Hatchet',
-      Helicone: 'Helicone',
-      Heroku: 'Heroku',
-      Hetzner: 'Hetzner',
-      HeyGen: 'HeyGen',
-      Infisical: 'Infisical',
-      Inngest: 'Inngest',
-      KapaAI: 'KapaAI',
-      Kernel: 'Kernel',
-      Koyeb: 'Koyeb',
-      LambdaLabs: 'LambdaLabs',
-      LangSmith: 'LangSmith',
-      Linode: 'Linode',
-      Listmonk: 'Listmonk',
-      LlamaCloud: 'LlamaCloud',
-      Mem0: 'Mem0',
-      Metriport: 'Metriport',
-      Mintlify: 'Mintlify',
-      MistralAI: 'MistralAI',
-      Mono: 'Mono',
-      Netlify: 'Netlify',
-      Northflank: 'Northflank',
-      OpenAI: 'OpenAI',
-      Pinecone: 'Pinecone',
-      PlatformSh: 'PlatformSh',
-      PromptingCompany: 'PromptingCompany',
-      Qdrant: 'Qdrant',
-      Render: 'Render',
-      Replicate: 'Replicate',
-      RetellAI: 'RetellAI',
-      Roark: 'Roark',
-      RunPod: 'RunPod',
-      ScaleAI: 'ScaleAI',
-      Scaleway: 'Scaleway',
-      SigNoz: 'SigNoz',
-      Sim: 'Sim',
-      Skyvern: 'Skyvern',
-      Slash: 'Slash',
-      Synthesia: 'Synthesia',
-      Telli: 'Telli',
-      TerraApi: 'TerraApi',
-      TriggerDev: 'TriggerDev',
-      Turso: 'Turso',
-      Singular: 'Singular',
-      Swonkie: 'Swonkie',
-      TwelveLabs: 'TwelveLabs',
-      Twenty: 'Twenty',
-      Unstructured: 'Unstructured',
-      Upstash: 'Upstash',
-      Vellum: 'Vellum',
-      Vultr: 'Vultr',
-      Windmill: 'Windmill',
-      Zep: 'Zep',
-      Hex: 'Hex',
-      Sumsub: 'Sumsub',
-      GoogleChat: 'GoogleChat',
-      Kickscale: 'Kickscale',
-      Zellify: 'Zellify',
-      RudderStack: 'RudderStack',
-      DodoPayments: 'DodoPayments',
-      Salestrics: 'Salestrics',
-      Doppler: 'Doppler',
-      Usersnap: 'Usersnap',
-      Asknicely: 'Asknicely',
-      Featurebase: 'Featurebase',
-      Frill: 'Frill',
-      Bettermode: 'Bettermode',
-      Dynatrace: 'Dynatrace',
-      Honeycomb: 'Honeycomb',
-      SumoLogic: 'SumoLogic',
-      LogzIO: 'LogzIO',
-      Coralogix: 'Coralogix',
-      BetterStack: 'BetterStack',
-      Raygun: 'Raygun',
-      Honeybadger: 'Honeybadger',
-      Airbrake: 'Airbrake',
-      Appsignal: 'Appsignal',
-      Appdynamics: 'Appdynamics',
-      Instana: 'Instana',
-      SplunkObservabilityCloud: 'SplunkObservabilityCloud',
-      Uptimerobot: 'Uptimerobot',
-      Statuscake: 'Statuscake',
-      Tailscale: 'Tailscale',
-      Flagsmith: 'Flagsmith',
-      Xmatters: 'Xmatters',
-      Squadcast: 'Squadcast',
-      Zenduty: 'Zenduty',
-      Cronitor: 'Cronitor',
-      Jenkins: 'Jenkins',
-      Bitbucket: 'Bitbucket',
-      Gitea: 'Gitea',
-      Teamcity: 'Teamcity',
-      TravisCI: 'TravisCI',
-      Semaphore: 'Semaphore',
-      CircleciInsights: 'CircleciInsights',
-      OctopusDeploy: 'OctopusDeploy',
-      Sourcegraph: 'Sourcegraph',
-      Bitrise: 'Bitrise',
-      Gerrit: 'Gerrit',
-      TerraformCloud: 'TerraformCloud',
-      PulumiCloud: 'PulumiCloud',
-      Spacelift: 'Spacelift',
-      Railway: 'Railway',
-      Argocd: 'Argocd',
-      PrefectCloud: 'PrefectCloud',
-      DagsterCloud: 'DagsterCloud',
-      Env0: 'Env0',
-      Kubecost: 'Kubecost',
-      Snyk: 'Snyk',
-      Semgrep: 'Semgrep',
-      Veracode: 'Veracode',
-      Checkmarx: 'Checkmarx',
-      Gitguardian: 'Gitguardian',
-      QualysVmdr: 'QualysVmdr',
-      Rapid7Insightvm: 'Rapid7Insightvm',
-      TenableVulnerabilityManagement: 'TenableVulnerabilityManagement',
-      Sentinelone: 'Sentinelone',
-      Lacework: 'Lacework',
-      OrcaSecurity: 'OrcaSecurity',
-      Drata: 'Drata',
-      Secureframe: 'Secureframe',
-      CiscoDuo: 'CiscoDuo',
-      Jumpcloud: 'Jumpcloud',
-      OnePassword: 'OnePassword',
-      Stytch: 'Stytch',
-      Sonarqube: 'Sonarqube',
-      Codecov: 'Codecov',
-      Coveralls: 'Coveralls',
-      Codacy: 'Codacy',
-      Deepsource: 'Deepsource',
-      Linearb: 'Linearb',
-      Jellyfish: 'Jellyfish',
-      Swarmia: 'Swarmia',
-      Packagist: 'Packagist',
-      Nuget: 'Nuget',
-      CratesIO: 'CratesIO',
-      SonatypeNexus: 'SonatypeNexus',
-      JfrogArtifactory: 'JfrogArtifactory',
-      Snowplow: 'Snowplow',
-      WeightsAndBiases: 'WeightsAndBiases',
-      MonteCarlo: 'MonteCarlo',
-      Metaplane: 'Metaplane',
-      Datahub: 'Datahub',
-      ClickhouseCloud: 'ClickhouseCloud',
-      ConfluentCloud: 'ConfluentCloud',
-      KongKonnect: 'KongKonnect',
-      Kandji: 'Kandji',
-      Automox: 'Automox',
-      Autumn: 'Autumn',
-      GetStream: 'GetStream',
-      Octolens: 'Octolens',
-      Kajabi: 'Kajabi',
-      Shopware: 'Shopware',
-      Dubsado: 'Dubsado',
-      Campfire: 'Campfire',
-      PromptWatch: 'PromptWatch',
-      Crisp: 'Crisp',
-      Kommo: 'Kommo',
-      Axiom: 'Axiom',
-      Plivo: 'Plivo',
-      DataForSEO: 'DataForSEO',
-      Sleekplan: 'Sleekplan',
-      AbTasty: 'AbTasty',
-      Ably: 'Ably',
-      AbnormalSecurity: 'AbnormalSecurity',
-      Acast: 'Acast',
-      Acculynx: 'Acculynx',
-      Actionstep: 'Actionstep',
-      Aftership: 'Aftership',
-      AhaIdeas: 'AhaIdeas',
-      AkamaiReporting: 'AkamaiReporting',
-      Alation: 'Alation',
-      Alegra: 'Alegra',
-      Allegro: 'Allegro',
-      AnodotCost: 'AnodotCost',
-      Anomalo: 'Anomalo',
-      Apaleo: 'Apaleo',
-      Apitally: 'Apitally',
-      AppStoreConnect: 'AppStoreConnect',
-      Appdirect: 'Appdirect',
-      Appfolio: 'Appfolio',
-      Arxiv: 'Arxiv',
-      Asaas: 'Asaas',
-      Astronomer: 'Astronomer',
-      Athenahealth: 'Athenahealth',
-      Atlan: 'Atlan',
-      AutodeskConstructionCloud: 'AutodeskConstructionCloud',
-      Avalara: 'Avalara',
-      AwsAthena: 'AwsAthena',
-      AwsBatch: 'AwsBatch',
-      AwsBudgets: 'AwsBudgets',
-      AwsCloudformation: 'AwsCloudformation',
-      AwsComputeOptimizer: 'AwsComputeOptimizer',
-      AwsConfig: 'AwsConfig',
-      AwsConnect: 'AwsConnect',
-      AwsCostAndUsageReport: 'AwsCostAndUsageReport',
-      AwsCostAnomalyDetection: 'AwsCostAnomalyDetection',
-      AwsCostExplorer: 'AwsCostExplorer',
-      AwsDocumentDB: 'AwsDocumentDB',
-      AwsGlueDataCatalog: 'AwsGlueDataCatalog',
-      AwsGuardduty: 'AwsGuardduty',
-      AwsHealth: 'AwsHealth',
-      AwsIamAccessAnalyzer: 'AwsIamAccessAnalyzer',
-      AwsInspector: 'AwsInspector',
-      AwsMacie: 'AwsMacie',
-      AwsOrganizations: 'AwsOrganizations',
-      AwsRdsPerformanceInsights: 'AwsRdsPerformanceInsights',
-      AwsSagemaker: 'AwsSagemaker',
-      AwsSavingsPlans: 'AwsSavingsPlans',
-      AwsSecurityHub: 'AwsSecurityHub',
-      AwsSes: 'AwsSes',
-      AwsStepFunctions: 'AwsStepFunctions',
-      AwsSupport: 'AwsSupport',
-      AwsSystemsManager: 'AwsSystemsManager',
-      AwsTrustedAdvisor: 'AwsTrustedAdvisor',
-      AwsWaf: 'AwsWaf',
-      AwsXray: 'AwsXray',
-      AzureActivityLog: 'AzureActivityLog',
-      AzureAdvisor: 'AzureAdvisor',
-      AzureApiManagement: 'AzureApiManagement',
-      AzureApplicationInsights: 'AzureApplicationInsights',
-      AzureCostManagement: 'AzureCostManagement',
-      AzureDataExplorer: 'AzureDataExplorer',
-      AzureDataFactory: 'AzureDataFactory',
-      AzureLogAnalytics: 'AzureLogAnalytics',
-      AzureMonitorAlerts: 'AzureMonitorAlerts',
-      AzureMonitorMetrics: 'AzureMonitorMetrics',
-      AzureOpenaiUsage: 'AzureOpenaiUsage',
-      AzurePolicyInsights: 'AzurePolicyInsights',
-      AzureReservations: 'AzureReservations',
-      AzureResourceGraph: 'AzureResourceGraph',
-      AzureResourceHealth: 'AzureResourceHealth',
-      AzureServiceHealth: 'AzureServiceHealth',
-      AzureSynapse: 'AzureSynapse',
-      BackMarket: 'BackMarket',
-      Beehiiv: 'Beehiiv',
-      Bigeye: 'Bigeye',
-      BillCom: 'BillCom',
-      Billomat: 'Billomat',
-      BingWebmasterTools: 'BingWebmasterTools',
-      Bitwarden: 'Bitwarden',
-      BlackbaudRaisersEdgeNxt: 'BlackbaudRaisersEdgeNxt',
-      BlackboardLearn: 'BlackboardLearn',
-      Bling: 'Bling',
-      Bloomerang: 'Bloomerang',
-      Blueshift: 'Blueshift',
-      Bluesky: 'Bluesky',
-      BolRetailer: 'BolRetailer',
-      Boulevard: 'Boulevard',
-      Buffer: 'Buffer',
-      Bugherd: 'Bugherd',
-      Buildium: 'Buildium',
-      Buttondown: 'Buttondown',
-      BuyMeACoffee: 'BuyMeACoffee',
-      Calendarific: 'Calendarific',
-      Calibre: 'Calibre',
-      CanvasLms: 'CanvasLms',
-      Captivate: 'Captivate',
-      Cashfree: 'Cashfree',
-      CastAi: 'CastAi',
-      Catchpoint: 'Catchpoint',
-      CdcOpenData: 'CdcOpenData',
-      Census: 'Census',
-      Checkly: 'Checkly',
-      CircleSo: 'CircleSo',
-      Classy: 'Classy',
-      Cleartax: 'Cleartax',
-      Clever: 'Clever',
-      Clevertap: 'Clevertap',
-      Cliniko: 'Cliniko',
-      Clio: 'Clio',
-      Clip: 'Clip',
-      Cloudability: 'Cloudability',
-      Cloudsmith: 'Cloudsmith',
-      Cloudzero: 'Cloudzero',
-      Clover: 'Clover',
-      Codemagic: 'Codemagic',
-      Codescene: 'Codescene',
-      Collibra: 'Collibra',
-      Companycam: 'Companycam',
-      Conekta: 'Conekta',
-      ContaAzul: 'ContaAzul',
-      Contentsquare: 'Contentsquare',
-      Cortex: 'Cortex',
-      Courier: 'Courier',
-      Crossref: 'Crossref',
-      CrowdstrikeFalcon: 'CrowdstrikeFalcon',
-      CubeCloud: 'CubeCloud',
-      D2lBrightspace: 'D2lBrightspace',
-      Dayforce: 'Dayforce',
-      Debugbear: 'Debugbear',
-      Descope: 'Descope',
-      Develocity: 'Develocity',
-      Dialpad: 'Dialpad',
-      Discord: 'Discord',
-      Discourse: 'Discourse',
-      Donorbox: 'Donorbox',
-      Doorloop: 'Doorloop',
-      Dovetail: 'Dovetail',
-      Dragonboat: 'Dragonboat',
-      Drchrono: 'Drchrono',
-      Dynamics365BusinessCentral: 'Dynamics365BusinessCentral',
-      EcbDataPortal: 'EcbDataPortal',
-      Emarsys: 'Emarsys',
-      Embrace: 'Embrace',
-      Entsoe: 'Entsoe',
-      Eppo: 'Eppo',
-      Etsy: 'Etsy',
-      Eurostat: 'Eurostat',
-      Faire: 'Faire',
-      FarosAi: 'FarosAi',
-      Fieldpulse: 'Fieldpulse',
-      Fieldwire: 'Fieldwire',
-      Filevine: 'Filevine',
-      Finout: 'Finout',
-      Five9: 'Five9',
-      FlexeraCloudCost: 'FlexeraCloudCost',
-      Flutterwave: 'Flutterwave',
-      Fortnox: 'Fortnox',
-      Fourthwall: 'Fourthwall',
-      Fred: 'Fred',
-      Frontegg: 'Frontegg',
-      FusionAuth: 'FusionAuth',
-      G2: 'G2',
-      Gcore: 'Gcore',
-      GcpApigee: 'GcpApigee',
-      GcpArtifactRegistry: 'GcpArtifactRegistry',
-      GcpBigtable: 'GcpBigtable',
-      GcpChronicle: 'GcpChronicle',
-      GcpCloudAssetInventory: 'GcpCloudAssetInventory',
-      GcpCloudBilling: 'GcpCloudBilling',
-      GcpCloudBuild: 'GcpCloudBuild',
-      GcpCloudDeploy: 'GcpCloudDeploy',
-      GcpCloudDns: 'GcpCloudDns',
-      GcpCloudFunctions: 'GcpCloudFunctions',
-      GcpCloudLogging: 'GcpCloudLogging',
-      GcpCloudMonitoring: 'GcpCloudMonitoring',
-      GcpCloudRun: 'GcpCloudRun',
-      GcpCloudSpanner: 'GcpCloudSpanner',
-      GcpCloudSql: 'GcpCloudSql',
-      GcpCloudTrace: 'GcpCloudTrace',
-      GcpCloudWorkflows: 'GcpCloudWorkflows',
-      GcpComputeEngine: 'GcpComputeEngine',
-      GcpContainerAnalysis: 'GcpContainerAnalysis',
-      GcpDataflow: 'GcpDataflow',
-      GcpDataplex: 'GcpDataplex',
-      GcpDataproc: 'GcpDataproc',
-      GcpErrorReporting: 'GcpErrorReporting',
-      GcpGke: 'GcpGke',
-      GcpPubsub: 'GcpPubsub',
-      GcpRecaptchaEnterprise: 'GcpRecaptchaEnterprise',
-      GcpRecommender: 'GcpRecommender',
-      GcpSecurityCommandCenter: 'GcpSecurityCommandCenter',
-      Gdelt: 'Gdelt',
-      GenesysCloud: 'GenesysCloud',
-      Getdx: 'Getdx',
-      Ghost: 'Ghost',
-      Givebutter: 'Givebutter',
-      Gleif: 'Gleif',
-      GooglePlayConsole: 'GooglePlayConsole',
-      Guesty: 'Guesty',
-      Gumroad: 'Gumroad',
-      HarnessCcm: 'HarnessCcm',
-      HarnessSei: 'HarnessSei',
-      Harvest: 'Harvest',
-      Healthie: 'Healthie',
-      Hitpay: 'Hitpay',
-      Hivebrite: 'Hivebrite',
-      Holded: 'Holded',
-      Hostaway: 'Hostaway',
-      HousecallPro: 'HousecallPro',
-      Humanitec: 'Humanitec',
-      ImfData: 'ImfData',
-      Imperva: 'Imperva',
-      InfluxdbCloud: 'InfluxdbCloud',
-      Iyzico: 'Iyzico',
-      Jobtread: 'Jobtread',
-      Kameleoon: 'Kameleoon',
-      KauflandMarketplace: 'KauflandMarketplace',
-      Kestra: 'Kestra',
-      Kick: 'Kick',
-      Kinde: 'Kinde',
-      Kion: 'Kion',
-      Knowbe4: 'Knowbe4',
-      Komodor: 'Komodor',
-      Labelbox: 'Labelbox',
-      Lawmatics: 'Lawmatics',
-      Learnworlds: 'Learnworlds',
-      LexwareOffice: 'LexwareOffice',
-      Lightdash: 'Lightdash',
-      Lodgify: 'Lodgify',
-      Logicmonitor: 'Logicmonitor',
-      Logrocket: 'Logrocket',
-      LoopReturns: 'LoopReturns',
-      Mastodon: 'Mastodon',
-      Meetup: 'Meetup',
-      Megaphone: 'Megaphone',
-      Memberful: 'Memberful',
-      MercadoPago: 'MercadoPago',
-      Meteostat: 'Meteostat',
-      Mews: 'Mews',
-      Mezmo: 'Mezmo',
-      Microsoft365UsageReports: 'Microsoft365UsageReports',
-      MicrosoftAdvertising: 'MicrosoftAdvertising',
-      MicrosoftClarity: 'MicrosoftClarity',
-      MicrosoftDefenderCloudApps: 'MicrosoftDefenderCloudApps',
-      MicrosoftDefenderEndpoint: 'MicrosoftDefenderEndpoint',
-      MicrosoftDefenderForCloud: 'MicrosoftDefenderForCloud',
-      MicrosoftIntune: 'MicrosoftIntune',
-      MicrosoftPurview: 'MicrosoftPurview',
-      MicrosoftPurviewAudit: 'MicrosoftPurviewAudit',
-      MicrosoftSentinel: 'MicrosoftSentinel',
-      MicrosoftTeamsCallRecords: 'MicrosoftTeamsCallRecords',
-      Midtrans: 'Midtrans',
-      MightyNetworks: 'MightyNetworks',
-      Mindbody: 'Mindbody',
-      Mirakl: 'Mirakl',
-      Moesif: 'Moesif',
-      Moneybird: 'Moneybird',
-      Moodle: 'Moodle',
-      Motherduck: 'Motherduck',
-      Mycase: 'Mycase',
-      NagerDate: 'NagerDate',
-      NeonCrm: 'NeonCrm',
-      Nexhealth: 'Nexhealth',
-      NoaaCdo: 'NoaaCdo',
-      Nobl9: 'Nobl9',
-      Nolt: 'Nolt',
-      Nops: 'Nops',
-      NpmRegistry: 'NpmRegistry',
-      Oecd: 'Oecd',
-      Okendo: 'Okendo',
-      Omni: 'Omni',
-      Onelogin: 'Onelogin',
-      OpenDental: 'OpenDental',
-      OpenMeteo: 'OpenMeteo',
-      Openalex: 'Openalex',
-      Opencorporates: 'Opencorporates',
-      Openfec: 'Openfec',
-      OpnPayments: 'OpnPayments',
-      Opslevel: 'Opslevel',
-      OttoMarket: 'OttoMarket',
-      Ownerrez: 'Ownerrez',
-      Pagbank: 'Pagbank',
-      Patreon: 'Patreon',
-      Pax8: 'Pax8',
-      Paychex: 'Paychex',
-      Paymob: 'Paymob',
-      Paymongo: 'Paymongo',
-      Phonepe: 'Phonepe',
-      Pike13: 'Pike13',
-      Pingone: 'Pingone',
-      PinterestOrganic: 'PinterestOrganic',
-      PlanningCenter: 'PlanningCenter',
-      PluralsightFlow: 'PluralsightFlow',
-      Podbean: 'Podbean',
-      Postscript: 'Postscript',
-      PowerBiAdmin: 'PowerBiAdmin',
-      Practicepanther: 'Practicepanther',
-      Preset: 'Preset',
-      Procore: 'Procore',
-      Productiv: 'Productiv',
-      ProofpointTap: 'ProofpointTap',
-      Propertyware: 'Propertyware',
-      Pubnub: 'Pubnub',
-      Quay: 'Quay',
-      Raken: 'Raken',
-      RedpandaCloud: 'RedpandaCloud',
-      RentManager: 'RentManager',
-      Reverb: 'Reverb',
-      RocketMatter: 'RocketMatter',
-      Rubygems: 'Rubygems',
-      Scalr: 'Scalr',
-      SecEdgar: 'SecEdgar',
-      SelectStar: 'SelectStar',
-      SemanticScholar: 'SemanticScholar',
-      Semrush: 'Semrush',
-      ServiceFusion: 'ServiceFusion',
-      Servicem8: 'Servicem8',
-      Servicetitan: 'Servicetitan',
-      Servicetrade: 'Servicetrade',
-      Sevdesk: 'Sevdesk',
-      Similarweb: 'Similarweb',
-      Simpro: 'Simpro',
-      Sinch: 'Sinch',
-      Singlestore: 'Singlestore',
-      Site24x7: 'Site24x7',
-      Sleuth: 'Sleuth',
-      Smartlook: 'Smartlook',
-      Smartrecruiters: 'Smartrecruiters',
-      Smokeball: 'Smokeball',
-      SodaCloud: 'SodaCloud',
-      Speedcurve: 'Speedcurve',
-      SpotIo: 'SpotIo',
-      Sprig: 'Sprig',
-      Sprinklr: 'Sprinklr',
-      SproutSocial: 'SproutSocial',
-      StackOverflowForTeams: 'StackOverflowForTeams',
-      Stockx: 'Stockx',
-      TackleIo: 'TackleIo',
-      Talkdesk: 'Talkdesk',
-      TeamupFitness: 'TeamupFitness',
-      Tebra: 'Tebra',
-      Telnyx: 'Telnyx',
-      Ternary: 'Ternary',
-      Thoughtspot: 'Thoughtspot',
-      Thousandeyes: 'Thousandeyes',
-      Threads: 'Threads',
-      TiktokShop: 'TiktokShop',
-      TinyErp: 'TinyErp',
-      Tinybird: 'Tinybird',
-      Tipalti: 'Tipalti',
-      Toast: 'Toast',
-      Torii: 'Torii',
-      Transistor: 'Transistor',
-      TrunkIo: 'TrunkIo',
-      Trustradius: 'Trustradius',
-      Twitch: 'Twitch',
-      TwoC2p: 'TwoC2p',
-      UkCompaniesHouse: 'UkCompaniesHouse',
-      UkOns: 'UkOns',
-      UnComtrade: 'UnComtrade',
-      UsBea: 'UsBea',
-      UsBls: 'UsBls',
-      UsEia: 'UsEia',
-      UsTreasuryFiscalData: 'UsTreasuryFiscalData',
-      Vanta: 'Vanta',
-      Vendr: 'Vendr',
-      Virtuous: 'Virtuous',
-      Vonage: 'Vonage',
-      WalmartMarketplace: 'WalmartMarketplace',
-      Waydev: 'Waydev',
-      Wayfair: 'Wayfair',
-      WhatsappBusinessManagement: 'WhatsappBusinessManagement',
-      WhoGho: 'WhoGho',
-      Whop: 'Whop',
-      Wistia: 'Wistia',
-      Wiz: 'Wiz',
-      Wompi: 'Wompi',
-      Workiz: 'Workiz',
-      WorldBank: 'WorldBank',
-      Xendit: 'Xendit',
-      Yoco: 'Yoco',
-      ZalandoZdirect: 'ZalandoZdirect',
-      Zluri: 'Zluri',
-      Zylo: 'Zylo',
-      Tally: 'Tally',
-      Nuntly: 'Nuntly',
-      Vturb: 'Vturb',
-      Meltwater: 'Meltwater',
-      UserCom: 'UserCom',
-      Latitude: 'Latitude',
-      Workato: 'Workato',
-      SideShift: 'SideShift',
-      DuckLake: 'DuckLake',
-      Starburst: 'Starburst',
-      Trino: 'Trino',
-      Easybill: 'Easybill',
-      Bexio: 'Bexio',
-      Umami: 'Umami',
-      Manychat: 'Manychat',
-      Kickstarter: 'Kickstarter',
-      Typesense: 'Typesense',
-      FirstPromoter: 'FirstPromoter',
-      Zero: 'Zero',
-      Inth: 'Inth',
-      Bcms: 'BCMS',
-      Convonite: 'Convonite',
-      Hookdeck: 'Hookdeck',
-      Billit: 'Billit',
-      Moxie: 'Moxie',
-      TripleWhale: 'TripleWhale',
-      Directus: 'Directus',
-      Clay: 'Clay',
-      TradableBits: 'TradableBits',
-      Swan: 'Swan',
-      Hyros: 'Hyros',
-      Odoo: 'Odoo',
-      Airbridge: 'Airbridge',
-      Snovio: 'Snovio',
-      GoogleMerchantCenter: 'GoogleMerchantCenter',
-      Raisely: 'Raisely',
-      RakutenAdvertising: 'RakutenAdvertising',
-      Zitadel: 'Zitadel',
-      DeelFlows: 'DeelFlows',
-      WindsorAi: 'WindsorAi',
-      Wix: 'Wix',
-      Sevalla: 'Sevalla',
-      Motion: 'Motion',
-      ImpactPartner: 'ImpactPartner',
-      Cloudinary: 'Cloudinary',
-      Uploadcare: 'Uploadcare',
-      Whmcs: 'WHMCS',
-      Msg91: 'MSG91',
-      Depot: 'Depot',
-      Schematic: 'Schematic',
-      Dokploy: 'Dokploy',
-      Hootsuite: 'Hootsuite',
-      WisprFlow: 'WisprFlow',
-      SamCart: 'SamCart',
-      IronSourceAds: 'IronSourceAds',
-      MicrosoftExcel: 'MicrosoftExcel',
-      Profound: 'Profound',
-      Airwallex: 'Airwallex',
-      Polymarket: 'Polymarket',
-      Kalshi: 'Kalshi',
-      Capterra: 'Capterra',
-      GooglePostmasterTools: 'GooglePostmasterTools',
-      Growi: 'Growi',
-      Clarify: 'Clarify',
-      DatoCMS: 'DatoCMS',
-      WPSOffice: 'WPSOffice',
-      TeraBox: 'TeraBox',
-      SimonData: 'SimonData',
-      CommissionJunction: 'CommissionJunction',
-      Liveblocks: 'Liveblocks',
-      Livestorm: 'Livestorm',
-      NationBuilder: 'NationBuilder',
-      Tana: 'Tana',
-      Zenchef: 'Zenchef',
-      Lovable: 'Lovable',
-      Anvil: 'Anvil',
-      Coolify: 'Coolify',
-      SocialPilot: 'SocialPilot',
-      Strato: 'Strato',
-      Medusa: 'Medusa',
-      Membrain: 'Membrain',
-      RecallAI: 'RecallAI',
-      Tenjin: 'Tenjin',
-      Folk: 'Folk',
-      Cybersource: 'Cybersource',
-      GoogleAdSense: 'GoogleAdSense',
-      Sequenzy: 'Sequenzy',
-      Skio: 'Skio',
-      Smartlead: 'Smartlead',
-      Substack: 'Substack',
-      ElectricityMaps: 'ElectricityMaps',
-      Amplemarket: 'Amplemarket',
-      Quo: 'Quo',
-      HeyReach: 'HeyReach',
-      MoEngage: 'MoEngage',
-      Monaco: 'Monaco',
-      Oneleet: 'Oneleet',
-      Expo: 'Expo',
-      PostNord: 'PostNord',
-      Commslayer: 'Commslayer',
-      Sprinto: 'Sprinto',
-      Gem: 'Gem',
-      AudioGO: 'AudioGO',
-      ExactOnline: 'ExactOnline',
-      LettrLabs: 'LettrLabs',
-      GrafanaIRM: 'GrafanaIRM',
-      Tessitura: 'Tessitura',
-      ChargebackStop: 'ChargebackStop',
-      Chargeflow: 'Chargeflow',
-      Dreamdata: 'Dreamdata',
-      GoogleBusinessProfile: 'GoogleBusinessProfile',
-      Ledyer: 'Ledyer',
-      Supermetrics: 'Supermetrics',
-      SQLite: 'SQLite',
-      Modal: 'Modal',
-      Vimeo: 'Vimeo',
-      Scrunch: 'Scrunch',
-      Loom: 'Loom',
-      Arcade: 'Arcade',
-      Neo4j: 'Neo4j',
-      TestDino: 'TestDino',
-      ChessCom: 'ChessCom',
-      Userback: 'Userback',
-      Rewardful: 'Rewardful',
-      Tracklution: 'Tracklution',
-      StackAdapt: 'StackAdapt',
-      CheckHQ: 'CheckHQ',
-      RainforestPay: 'RainforestPay',
-      Wise: 'Wise',
-      LaravelCloud: 'LaravelCloud',
-      Northbeam: 'Northbeam',
-      NaverAds: 'NaverAds',
-      ChannelIO: 'ChannelIO',
-      Airship: 'Airship',
-      Creem: 'Creem',
-      Leantime: 'Leantime',
-      Testomatio: 'Testomatio',
-      GoogleAdMob: 'GoogleAdMob',
-      Klar: 'Klar',
-      ConectoCRM: 'ConectoCRM',
-      CloudflareR2: 'CloudflareR2',
-      Particle: 'Particle',
-      FileUpload: 'FileUpload',
-      Dripify: 'Dripify',
-      AwsS3Tables: 'AwsS3Tables',
-      Beacons: 'Beacons',
-      WooPayments: 'WooPayments',
-      Soniox: 'Soniox',
-    } as const;
-
-    /**
      * Validate credentials and preview available tables from a remote database.
      *
      * The request body contains source_type plus flat source-specific credential fields
@@ -35537,1421 +33435,8 @@ export namespace Schemas {
      * detected primary keys and incremental cursors.
      */
     export interface DatabaseSchemaRequest {
-      /** The source type to validate against.
-       *
-       * * `Ashby` - Ashby
-       * * `Supabase` - Supabase
-       * * `CustomerIO` - CustomerIO
-       * * `Github` - Github
-       * * `Stripe` - Stripe
-       * * `Hubspot` - Hubspot
-       * * `Postgres` - Postgres
-       * * `Zendesk` - Zendesk
-       * * `Snowflake` - Snowflake
-       * * `Salesforce` - Salesforce
-       * * `MySQL` - MySQL
-       * * `MongoDB` - MongoDB
-       * * `MSSQL` - MSSQL
-       * * `Vitally` - Vitally
-       * * `BigQuery` - BigQuery
-       * * `Chargebee` - Chargebee
-       * * `Clerk` - Clerk
-       * * `GoogleAds` - GoogleAds
-       * * `GoogleSearchConsole` - GoogleSearchConsole
-       * * `TemporalIO` - TemporalIO
-       * * `DoIt` - DoIt
-       * * `GoogleSheets` - GoogleSheets
-       * * `MetaAds` - MetaAds
-       * * `Klaviyo` - Klaviyo
-       * * `Mailchimp` - Mailchimp
-       * * `Braze` - Braze
-       * * `Mailjet` - Mailjet
-       * * `Redshift` - Redshift
-       * * `Polar` - Polar
-       * * `RevenueCat` - RevenueCat
-       * * `LinkedinAds` - LinkedinAds
-       * * `RedditAds` - RedditAds
-       * * `TikTokAds` - TikTokAds
-       * * `BingAds` - BingAds
-       * * `Shopify` - Shopify
-       * * `Attio` - Attio
-       * * `SnapchatAds` - SnapchatAds
-       * * `Linear` - Linear
-       * * `LiteLLM` - LiteLLM
-       * * `Intercom` - Intercom
-       * * `Amplitude` - Amplitude
-       * * `Mixpanel` - Mixpanel
-       * * `Jira` - Jira
-       * * `ActiveCampaign` - ActiveCampaign
-       * * `Marketo` - Marketo
-       * * `Adjust` - Adjust
-       * * `AppsFlyer` - AppsFlyer
-       * * `Freshdesk` - Freshdesk
-       * * `GoogleAnalytics` - GoogleAnalytics
-       * * `Pipedrive` - Pipedrive
-       * * `SendGrid` - SendGrid
-       * * `Slack` - Slack
-       * * `PagerDuty` - PagerDuty
-       * * `Asana` - Asana
-       * * `Notion` - Notion
-       * * `Airtable` - Airtable
-       * * `Greenhouse` - Greenhouse
-       * * `BambooHR` - BambooHR
-       * * `Lever` - Lever
-       * * `GitLab` - GitLab
-       * * `Datadog` - Datadog
-       * * `Sentry` - Sentry
-       * * `Pendo` - Pendo
-       * * `FullStory` - FullStory
-       * * `AmazonAds` - AmazonAds
-       * * `PinterestAds` - PinterestAds
-       * * `AppleSearchAds` - AppleSearchAds
-       * * `QuickBooks` - QuickBooks
-       * * `Xero` - Xero
-       * * `NetSuite` - NetSuite
-       * * `WooCommerce` - WooCommerce
-       * * `BigCommerce` - BigCommerce
-       * * `PayPal` - PayPal
-       * * `Square` - Square
-       * * `Zoom` - Zoom
-       * * `Trello` - Trello
-       * * `TrafficStars` - TrafficStars
-       * * `Monday` - Monday
-       * * `ClickUp` - ClickUp
-       * * `Confluence` - Confluence
-       * * `Recurly` - Recurly
-       * * `SalesLoft` - SalesLoft
-       * * `Outreach` - Outreach
-       * * `Gong` - Gong
-       * * `Calendly` - Calendly
-       * * `Typeform` - Typeform
-       * * `UnityAds` - UnityAds
-       * * `Iterable` - Iterable
-       * * `ZohoCRM` - ZohoCRM
-       * * `Close` - Close
-       * * `Oracle` - Oracle
-       * * `DynamoDB` - DynamoDB
-       * * `Elasticsearch` - Elasticsearch
-       * * `Kafka` - Kafka
-       * * `LaunchDarkly` - LaunchDarkly
-       * * `Braintree` - Braintree
-       * * `Recharge` - Recharge
-       * * `HelpScout` - HelpScout
-       * * `Gorgias` - Gorgias
-       * * `Instagram` - Instagram
-       * * `YouTubeAnalytics` - YouTubeAnalytics
-       * * `FacebookPages` - FacebookPages
-       * * `TwitterAds` - TwitterAds
-       * * `Workday` - Workday
-       * * `ServiceNow` - ServiceNow
-       * * `Pardot` - Pardot
-       * * `Copper` - Copper
-       * * `Front` - Front
-       * * `ChartMogul` - ChartMogul
-       * * `Zuora` - Zuora
-       * * `Paddle` - Paddle
-       * * `CircleCI` - CircleCI
-       * * `CockroachDB` - CockroachDB
-       * * `Firebase` - Firebase
-       * * `AzureBlob` - AzureBlob
-       * * `GoogleDrive` - GoogleDrive
-       * * `OneDrive` - OneDrive
-       * * `SharePoint` - SharePoint
-       * * `Box` - Box
-       * * `SFTP` - SFTP
-       * * `MicrosoftTeams` - MicrosoftTeams
-       * * `Aircall` - Aircall
-       * * `Webflow` - Webflow
-       * * `Okta` - Okta
-       * * `Auth0` - Auth0
-       * * `Productboard` - Productboard
-       * * `Smartsheet` - Smartsheet
-       * * `Wrike` - Wrike
-       * * `Plaid` - Plaid
-       * * `SurveyMonkey` - SurveyMonkey
-       * * `Eventbrite` - Eventbrite
-       * * `Everflow` - Everflow
-       * * `RingCentral` - RingCentral
-       * * `Twilio` - Twilio
-       * * `Freshsales` - Freshsales
-       * * `Shortcut` - Shortcut
-       * * `ConvertKit` - ConvertKit
-       * * `Drip` - Drip
-       * * `CampaignMonitor` - CampaignMonitor
-       * * `MailerLite` - MailerLite
-       * * `Omnisend` - Omnisend
-       * * `Brevo` - Brevo
-       * * `Postmark` - Postmark
-       * * `Granola` - Granola
-       * * `BuildBetter` - BuildBetter
-       * * `Convex` - Convex
-       * * `ClickHouse` - ClickHouse
-       * * `Plain` - Plain
-       * * `Resend` - Resend
-       * * `PgAnalyze` - PgAnalyze
-       * * `WorkOS` - WorkOS
-       * * `AmazonS3` - AmazonS3
-       * * `GoogleCloudStorage` - GoogleCloudStorage
-       * * `Databricks` - Databricks
-       * * `Dynamics365` - Dynamics365
-       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
-       * * `Db2` - Db2
-       * * `Heap` - Heap
-       * * `AdobeAnalytics` - AdobeAnalytics
-       * * `Matomo` - Matomo
-       * * `Optimizely` - Optimizely
-       * * `Adyen` - Adyen
-       * * `GoCardless` - GoCardless
-       * * `Mollie` - Mollie
-       * * `CheckoutCom` - CheckoutCom
-       * * `Branch` - Branch
-       * * `Criteo` - Criteo
-       * * `Outbrain` - Outbrain
-       * * `Taboola` - Taboola
-       * * `AdRoll` - AdRoll
-       * * `DisplayVideo360` - DisplayVideo360
-       * * `GoogleAdManager` - GoogleAdManager
-       * * `CampaignManager360` - CampaignManager360
-       * * `SearchAds360` - SearchAds360
-       * * `AdobeCommerce` - AdobeCommerce
-       * * `AmazonSellingPartner` - AmazonSellingPartner
-       * * `Ebay` - Ebay
-       * * `Commercetools` - Commercetools
-       * * `LightspeedRetail` - LightspeedRetail
-       * * `Shipmail` - Shipmail
-       * * `ShipStation` - ShipStation
-       * * `ConstantContact` - ConstantContact
-       * * `Mailgun` - Mailgun
-       * * `Eloqua` - Eloqua
-       * * `Sailthru` - Sailthru
-       * * `Ortto` - Ortto
-       * * `Attentive` - Attentive
-       * * `Kustomer` - Kustomer
-       * * `Dixa` - Dixa
-       * * `Gladly` - Gladly
-       * * `Qualtrics` - Qualtrics
-       * * `AzureDevOps` - AzureDevOps
-       * * `RoktAds` - RoktAds
-       * * `Rollbar` - Rollbar
-       * * `Opsgenie` - Opsgenie
-       * * `IncidentIo` - IncidentIo
-       * * `Pingdom` - Pingdom
-       * * `Cloudflare` - Cloudflare
-       * * `CloudflareD1` - CloudflareD1
-       * * `CosmosDB` - CosmosDB
-       * * `PlanetScaleMySQL` - PlanetScaleMySQL
-       * * `PlanetScalePostgres` - PlanetScalePostgres
-       * * `Plane` - Plane
-       * * `Scarf` - Scarf
-       * * `SapHana` - SapHana
-       * * `Rippling` - Rippling
-       * * `HiBob` - HiBob
-       * * `Personio` - Personio
-       * * `Deel` - Deel
-       * * `AdpWorkforceNow` - AdpWorkforceNow
-       * * `Paylocity` - Paylocity
-       * * `Gusto` - Gusto
-       * * `CultureAmp` - CultureAmp
-       * * `Lattice` - Lattice
-       * * `SageIntacct` - SageIntacct
-       * * `FreshBooks` - FreshBooks
-       * * `Expensify` - Expensify
-       * * `Ramp` - Ramp
-       * * `Brex` - Brex
-       * * `Coupa` - Coupa
-       * * `SapConcur` - SapConcur
-       * * `Apollo` - Apollo
-       * * `Crunchbase` - Crunchbase
-       * * `ZoomInfo` - ZoomInfo
-       * * `Clari` - Clari
-       * * `Chorus` - Chorus
-       * * `Coda` - Coda
-       * * `Guru` - Guru
-       * * `Dropbox` - Dropbox
-       * * `Docusign` - Docusign
-       * * `PandaDoc` - PandaDoc
-       * * `SapErp` - SapErp
-       * * `SapSuccessFactors` - SapSuccessFactors
-       * * `OracleEbs` - OracleEbs
-       * * `OracleFusion` - OracleFusion
-       * * `AmazonSNS` - AmazonSNS
-       * * `AmazonEventBridge` - AmazonEventBridge
-       * * `AmazonSQS` - AmazonSQS
-       * * `AmazonKinesis` - AmazonKinesis
-       * * `AmazonCloudWatch` - AmazonCloudWatch
-       * * `OpenAIAds` - OpenAIAds
-       * * `OneHundredMs` - OneHundredMs
-       * * `SevenShifts` - SevenShifts
-       * * `AcuityScheduling` - AcuityScheduling
-       * * `AgileCRM` - AgileCRM
-       * * `Aha` - Aha
-       * * `Airbyte` - Airbyte
-       * * `Akeneo` - Akeneo
-       * * `Algolia` - Algolia
-       * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
-       * * `ApifyDataset` - ApifyDataset
-       * * `Appcues` - Appcues
-       * * `Appfigures` - Appfigures
-       * * `Appfollow` - Appfollow
-       * * `Apptivo` - Apptivo
-       * * `AssemblyAI` - AssemblyAI
-       * * `Awin` - Awin
-       * * `AwsCloudTrail` - AwsCloudTrail
-       * * `AzureTableStorage` - AzureTableStorage
-       * * `Babelforce` - Babelforce
-       * * `Basecamp` - Basecamp
-       * * `Beamer` - Beamer
-       * * `BigMailer` - BigMailer
-       * * `Bluetally` - Bluetally
-       * * `BoldSign` - BoldSign
-       * * `BreezyHR` - BreezyHR
-       * * `Bugsnag` - Bugsnag
-       * * `Buildkite` - Buildkite
-       * * `Bunny` - Bunny
-       * * `Buzzsprout` - Buzzsprout
-       * * `CalCom` - CalCom
-       * * `CallRail` - CallRail
-       * * `Campayn` - Campayn
-       * * `Canny` - Canny
-       * * `CapsuleCRM` - CapsuleCRM
-       * * `CaptainData` - CaptainData
-       * * `CartCom` - CartCom
-       * * `CastorEDC` - CastorEDC
-       * * `Chameleon` - Chameleon
-       * * `Chargedesk` - Chargedesk
-       * * `Chargify` - Chargify
-       * * `Chift` - Chift
-       * * `Churnkey` - Churnkey
-       * * `Cin7` - Cin7
-       * * `CiscoMeraki` - CiscoMeraki
-       * * `Clazar` - Clazar
-       * * `Clockify` - Clockify
-       * * `Clockodo` - Clockodo
-       * * `Cloudbeds` - Cloudbeds
-       * * `Coassemble` - Coassemble
-       * * `Codefresh` - Codefresh
-       * * `Concord` - Concord
-       * * `ConfigCat` - ConfigCat
-       * * `Couchbase` - Couchbase
-       * * `Curve` - Curve
-       * * `Customerly` - Customerly
-       * * `Datascope` - Datascope
-       * * `Dbt` - Dbt
-       * * `Demodesk` - Demodesk
-       * * `Deputy` - Deputy
-       * * `DevinAI` - DevinAI
-       * * `Docuseal` - Docuseal
-       * * `Dolibarr` - Dolibarr
-       * * `Dremio` - Dremio
-       * * `DropboxSign` - DropboxSign
-       * * `Dwolla` - Dwolla
-       * * `EConomic` - EConomic
-       * * `Easypost` - Easypost
-       * * `Easypromos` - Easypromos
-       * * `Elasticemail` - Elasticemail
-       * * `EmailOctopus` - EmailOctopus
-       * * `EmploymentHero` - EmploymentHero
-       * * `Encharge` - Encharge
-       * * `Eventee` - Eventee
-       * * `Eventzilla` - Eventzilla
-       * * `Everhour` - Everhour
-       * * `EZOfficeInventory` - EZOfficeInventory
-       * * `Factorial` - Factorial
-       * * `Fastbill` - Fastbill
-       * * `Fastly` - Fastly
-       * * `Fauna` - Fauna
-       * * `Feishu` - Feishu
-       * * `Fillout` - Fillout
-       * * `Finage` - Finage
-       * * `Firebolt` - Firebolt
-       * * `FireHydrant` - FireHydrant
-       * * `Fleetio` - Fleetio
-       * * `Flexmail` - Flexmail
-       * * `Flexport` - Flexport
-       * * `FloatApp` - FloatApp
-       * * `Flowlu` - Flowlu
-       * * `Formbricks` - Formbricks
-       * * `Framer` - Framer
-       * * `FreeAgent` - FreeAgent
-       * * `Freightview` - Freightview
-       * * `Freshcaller` - Freshcaller
-       * * `Freshchat` - Freshchat
-       * * `Freshservice` - Freshservice
-       * * `Fulcrum` - Fulcrum
-       * * `GainsightCs` - GainsightCs
-       * * `GainsightPx` - GainsightPx
-       * * `GitBook` - GitBook
-       * * `Glassfrog` - Glassfrog
-       * * `Goldcast` - Goldcast
-       * * `GoLogin` - GoLogin
-       * * `Grafana` - Grafana
-       * * `GreytHr` - GreytHr
-       * * `Gridly` - Gridly
-       * * `Harness` - Harness
-       * * `Height` - Height
-       * * `Hellobaton` - Hellobaton
-       * * `HighLevel` - HighLevel
-       * * `HoorayHR` - HoorayHR
-       * * `Hubplanner` - Hubplanner
-       * * `Humanitix` - Humanitix
-       * * `Huntr` - Huntr
-       * * `Inflowinventory` - Inflowinventory
-       * * `InforNexus` - InforNexus
-       * * `Insightful` - Insightful
-       * * `Insightly` - Insightly
-       * * `Instantly` - Instantly
-       * * `Instatus` - Instatus
-       * * `Intruder` - Intruder
-       * * `Invoiced` - Invoiced
-       * * `Invoiceninja` - Invoiceninja
-       * * `JamfPro` - JamfPro
-       * * `JobNimbus` - JobNimbus
-       * * `Jotform` - Jotform
-       * * `JudgeMeReviews` - JudgeMeReviews
-       * * `JustCall` - JustCall
-       * * `JustSift` - JustSift
-       * * `K6Cloud` - K6Cloud
-       * * `Katana` - Katana
-       * * `Keka` - Keka
-       * * `Kisi` - Kisi
-       * * `Kissmetrics` - Kissmetrics
-       * * `Klarna` - Klarna
-       * * `Klaus` - Klaus
-       * * `Lago` - Lago
-       * * `Leadfeeder` - Leadfeeder
-       * * `Lemlist` - Lemlist
-       * * `LessAnnoyingCRM` - LessAnnoyingCRM
-       * * `LinkedinPages` - LinkedinPages
-       * * `Linkrunner` - Linkrunner
-       * * `Linnworks` - Linnworks
-       * * `Lob` - Lob
-       * * `Lokalise` - Lokalise
-       * * `Looker` - Looker
-       * * `Luma` - Luma
-       * * `MailerSend` - MailerSend
-       * * `Mailosaur` - Mailosaur
-       * * `Mailtrap` - Mailtrap
-       * * `Mantle` - Mantle
-       * * `Mention` - Mention
-       * * `MercadoAds` - MercadoAds
-       * * `Merge` - Merge
-       * * `Metabase` - Metabase
-       * * `Metricool` - Metricool
-       * * `MicrosoftDataverse` - MicrosoftDataverse
-       * * `MicrosoftEntraId` - MicrosoftEntraId
-       * * `MicrosoftLists` - MicrosoftLists
-       * * `Miro` - Miro
-       * * `Missive` - Missive
-       * * `MixMax` - MixMax
-       * * `Mode` - Mode
-       * * `Mux` - Mux
-       * * `MyHours` - MyHours
-       * * `N8n` - N8n
-       * * `Navan` - Navan
-       * * `NebiusAI` - NebiusAI
-       * * `Nexiopay` - Nexiopay
-       * * `NinjaOneRMM` - NinjaOneRMM
-       * * `NoCRM` - NoCRM
-       * * `NorthpassLMS` - NorthpassLMS
-       * * `Nutshell` - Nutshell
-       * * `Nylas` - Nylas
-       * * `Oncehub` - Oncehub
-       * * `Onepagecrm` - Onepagecrm
-       * * `OneSignal` - OneSignal
-       * * `Onfleet` - Onfleet
-       * * `OpinionStage` - OpinionStage
-       * * `OPUSWatch` - OPUSWatch
-       * * `Orb` - Orb
-       * * `Orbit` - Orbit
-       * * `Oura` - Oura
-       * * `Oveit` - Oveit
-       * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
-       * * `Paperform` - Paperform
-       * * `Papersign` - Papersign
-       * * `Partnerize` - Partnerize
-       * * `PartnerStack` - PartnerStack
-       * * `PayFit` - PayFit
-       * * `Paystack` - Paystack
-       * * `Pennylane` - Pennylane
-       * * `Perk` - Perk
-       * * `PersistIq` - PersistIq
-       * * `Persona` - Persona
-       * * `Phyllo` - Phyllo
-       * * `Picqer` - Picqer
-       * * `Pipeliner` - Pipeliner
-       * * `PivotalTracker` - PivotalTracker
-       * * `Piwik` - Piwik
-       * * `Planhat` - Planhat
-       * * `Plausible` - Plausible
-       * * `Poplar` - Poplar
-       * * `PrestaShop` - PrestaShop
-       * * `Pretix` - Pretix
-       * * `Primetric` - Primetric
-       * * `Printavo` - Printavo
-       * * `Printify` - Printify
-       * * `Productive` - Productive
-       * * `Pylon` - Pylon
-       * * `Qonto` - Qonto
-       * * `Qualaroo` - Qualaroo
-       * * `Railz` - Railz
-       * * `RDStationMarketing` - RDStationMarketing
-       * * `Recruitee` - Recruitee
-       * * `Reddit` - Reddit
-       * * `ReferralHero` - ReferralHero
-       * * `RentCast` - RentCast
-       * * `Repairshopr` - Repairshopr
-       * * `ReplyIo` - ReplyIo
-       * * `RetailExpress` - RetailExpress
-       * * `Retently` - Retently
-       * * `Retreaver` - Retreaver
-       * * `RevolutMerchant` - RevolutMerchant
-       * * `RocketChat` - RocketChat
-       * * `Rocketlane` - Rocketlane
-       * * `Rootly` - Rootly
-       * * `Ruddr` - Ruddr
-       * * `SafetyCulture` - SafetyCulture
-       * * `SageHR` - SageHR
-       * * `Salesflare` - Salesflare
-       * * `SAPFieldglass` - SAPFieldglass
-       * * `SavvyCal` - SavvyCal
-       * * `Secoda` - Secoda
-       * * `Segment` - Segment
-       * * `Sendowl` - Sendowl
-       * * `SendPulse` - SendPulse
-       * * `Senseforce` - Senseforce
-       * * `Serpstat` - Serpstat
-       * * `Sharetribe` - Sharetribe
-       * * `Shippo` - Shippo
-       * * `ShopWired` - ShopWired
-       * * `Shortio` - Shortio
-       * * `Shutterstock` - Shutterstock
-       * * `SigmaComputing` - SigmaComputing
-       * * `SignNow` - SignNow
-       * * `SimpleCast` - SimpleCast
-       * * `Simplesat` - Simplesat
-       * * `Smaily` - Smaily
-       * * `SmartEngage` - SmartEngage
-       * * `Smartreach` - Smartreach
-       * * `Smartwaiver` - Smartwaiver
-       * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
-       * * `SonarCloud` - SonarCloud
-       * * `SparkPost` - SparkPost
-       * * `SplitIo` - SplitIo
-       * * `SpotifyAds` - SpotifyAds
-       * * `SpotlerCRM` - SpotlerCRM
-       * * `Squarespace` - Squarespace
-       * * `Statsig` - Statsig
-       * * `Statuspage` - Statuspage
-       * * `Steam` - Steam
-       * * `Stigg` - Stigg
-       * * `Strava` - Strava
-       * * `SurveySparrow` - SurveySparrow
-       * * `Survicate` - Survicate
-       * * `Svix` - Svix
-       * * `Systeme` - Systeme
-       * * `Tavus` - Tavus
-       * * `Teamtailor` - Teamtailor
-       * * `Teamwork` - Teamwork
-       * * `Tempo` - Tempo
-       * * `Testrail` - Testrail
-       * * `Thinkific` - Thinkific
-       * * `ThinkificCourses` - ThinkificCourses
-       * * `ThriveLearning` - ThriveLearning
-       * * `Ticketmaster` - Ticketmaster
-       * * `TicketTailor` - TicketTailor
-       * * `TickTick` - TickTick
-       * * `Timely` - Timely
-       * * `Tinyemail` - Tinyemail
-       * * `Todoist` - Todoist
-       * * `Toggl` - Toggl
-       * * `TrackPMS` - TrackPMS
-       * * `Tremendous` - Tremendous
-       * * `TrustPilot` - TrustPilot
-       * * `Twitter` - Twitter
-       * * `TyntecSMS` - TyntecSMS
-       * * `Unleash` - Unleash
-       * * `UpPromote` - UpPromote
-       * * `Uptick` - Uptick
-       * * `Uservoice` - Uservoice
-       * * `Vantage` - Vantage
-       * * `Veeqo` - Veeqo
-       * * `Vercel` - Vercel
-       * * `VismaEconomic` - VismaEconomic
-       * * `VWO` - VWO
-       * * `Waiteraid` - Waiteraid
-       * * `Wasabi` - Wasabi
-       * * `WhenIWork` - WhenIWork
-       * * `Wordpress` - Wordpress
-       * * `Workable` - Workable
-       * * `Workflowmax` - Workflowmax
-       * * `Workramp` - Workramp
-       * * `Wufoo` - Wufoo
-       * * `Xsolla` - Xsolla
-       * * `YandexMetrica` - YandexMetrica
-       * * `Yotpo` - Yotpo
-       * * `Ynab` - Ynab
-       * * `Younium` - Younium
-       * * `YouSign` - YouSign
-       * * `YoutubeData` - YoutubeData
-       * * `ZapierSupportedStorage` - ZapierSupportedStorage
-       * * `ZapSign` - ZapSign
-       * * `ZendeskSell` - ZendeskSell
-       * * `ZendeskSunshine` - ZendeskSunshine
-       * * `Zenefits` - Zenefits
-       * * `Zenloop` - Zenloop
-       * * `ZohoAnalytics` - ZohoAnalytics
-       * * `ZohoBigin` - ZohoBigin
-       * * `ZohoBilling` - ZohoBilling
-       * * `ZohoBooks` - ZohoBooks
-       * * `ZohoCampaign` - ZohoCampaign
-       * * `ZohoDesk` - ZohoDesk
-       * * `ZohoExpense` - ZohoExpense
-       * * `ZohoInventory` - ZohoInventory
-       * * `ZohoInvoice` - ZohoInvoice
-       * * `ZonkaFeedback` - ZonkaFeedback
-       * * `AlphaVantage` - AlphaVantage
-       * * `Aviationstack` - Aviationstack
-       * * `Bitly` - Bitly
-       * * `Blogger` - Blogger
-       * * `Breezometer` - Breezometer
-       * * `CareQualityCommission` - CareQualityCommission
-       * * `Cimis` - Cimis
-       * * `CoinApi` - CoinApi
-       * * `CoinGecko` - CoinGecko
-       * * `CoinMarketCap` - CoinMarketCap
-       * * `DingConnect` - DingConnect
-       * * `Dockerhub` - Dockerhub
-       * * `ExchangeRatesApi` - ExchangeRatesApi
-       * * `FinancialModelling` - FinancialModelling
-       * * `Finnhub` - Finnhub
-       * * `Finnworlds` - Finnworlds
-       * * `Giphy` - Giphy
-       * * `Gmail` - Gmail
-       * * `GNews` - GNews
-       * * `GoogleCalendar` - GoogleCalendar
-       * * `GoogleClassroom` - GoogleClassroom
-       * * `GoogleDirectory` - GoogleDirectory
-       * * `GoogleForms` - GoogleForms
-       * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
-       * * `GoogleTasks` - GoogleTasks
-       * * `GoogleWebfonts` - GoogleWebfonts
-       * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
-       * * `HuggingFace` - HuggingFace
-       * * `IlluminaBasespace` - IlluminaBasespace
-       * * `Imagga` - Imagga
-       * * `Interzoid` - Interzoid
-       * * `IP2Whois` - IP2Whois
-       * * `KYVE` - KYVE
-       * * `Marketstack` - Marketstack
-       * * `Mendeley` - Mendeley
-       * * `Nasa` - Nasa
-       * * `NewYorkTimes` - NewYorkTimes
-       * * `NewsApi` - NewsApi
-       * * `NewsData` - NewsData
-       * * `OpenDataDc` - OpenDataDc
-       * * `OpenExchangeRates` - OpenExchangeRates
-       * * `OpenAQ` - OpenAQ
-       * * `OpenFDA` - OpenFDA
-       * * `OpenWeather` - OpenWeather
-       * * `Outlook` - Outlook
-       * * `Perigon` - Perigon
-       * * `Pexels` - Pexels
-       * * `Pocket` - Pocket
-       * * `Polygon` - Polygon
-       * * `PyPI` - PyPI
-       * * `Recreation` - Recreation
-       * * `RKICovid` - RKICovid
-       * * `Rss` - Rss
-       * * `SimFin` - SimFin
-       * * `StockData` - StockData
-       * * `Guardian` - Guardian
-       * * `TMDb` - TMDb
-       * * `TVMaze` - TVMaze
-       * * `TwelveData` - TwelveData
-       * * `Ubidots` - Ubidots
-       * * `USCensus` - USCensus
-       * * `Watchmode` - Watchmode
-       * * `WikipediaPageviews` - WikipediaPageviews
-       * * `YahooFinance` - YahooFinance
-       * * `Clarifai` - Clarifai
-       * * `Adapty` - Adapty
-       * * `Braintrust` - Braintrust
-       * * `StreamElements` - StreamElements
-       * * `Streamlabs` - Streamlabs
-       * * `Datorama` - Datorama
-       * * `Ahrefs` - Ahrefs
-       * * `Lightfield` - Lightfield
-       * * `Appstack` - Appstack
-       * * `Razorpay` - Razorpay
-       * * `Neon` - Neon
-       * * `NewRelic` - NewRelic
-       * * `Custom` - Custom
-       * * `Tile38` - Tile38
-       * * `Chatwoot` - Chatwoot
-       * * `Sanity` - Sanity
-       * * `Metronome` - Metronome
-       * * `Jobber` - Jobber
-       * * `Knock` - Knock
-       * * `Leexi` - Leexi
-       * * `RB2B` - RB2B
-       * * `Superwall` - Superwall
-       * * `Liana` - Liana
-       * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch
-       * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas
-       * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds
-       * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow
-       * * `Plunk` - Plunk
-       * * `Dub` - Dub
-       * * `AirOps` - AirOps
-       * * `Podium` - Podium
-       * * `Loops` - Loops
-       * * `Redis` - Redis
-       * * `Mercury` - Mercury
-       * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable
-       * * `PeecAI` - PeecAI
-       * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact
-       * * `AikidoSecurity` - AikidoSecurity
-       * * `Alguna` - Alguna
-       * * `Anthropic` - Anthropic
-       * * `Appwrite` - Appwrite
-       * * `BlandAI` - BlandAI
-       * * `BrowseAI` - BrowseAI
-       * * `BrowserUse` - BrowserUse
-       * * `ChartHop` - ChartHop
-       * * `Cody` - Cody
-       * * `Cursor` - Cursor
-       * * `Decagon` - Decagon
-       * * `Deepgram` - Deepgram
-       * * `ElevenLabs` - ElevenLabs
-       * * `Harvey` - Harvey
-       * * `Hyperspell` - Hyperspell
-       * * `Langfuse` - Langfuse
-       * * `LingoDev` - LingoDev
-       * * `M3ter` - M3ter
-       * * `Maxio` - Maxio
-       * * `Metorial` - Metorial
-       * * `OpenRouter` - OpenRouter
-       * * `TogetherAI` - TogetherAI
-       * * `Vapi` - Vapi
-       * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic
-       * * `Aiven` - Aiven
-       * * `Aviator` - Aviator
-       * * `Backblaze` - Backblaze
-       * * `Baseten` - Baseten
-       * * `Browserbase` - Browserbase
-       * * `Cohere` - Cohere
-       * * `DenoDeploy` - DenoDeploy
-       * * `DigitalOcean` - DigitalOcean
-       * * `E2B` - E2B
-       * * `Fintoc` - Fintoc
-       * * `Firecrawl` - Firecrawl
-       * * `FireworksAI` - FireworksAI
-       * * `FlyIo` - FlyIo
-       * * `Groq` - Groq
-       * * `GrowthBook` - GrowthBook
-       * * `Gumloop` - Gumloop
-       * * `Hatchet` - Hatchet
-       * * `Helicone` - Helicone
-       * * `Heroku` - Heroku
-       * * `Hetzner` - Hetzner
-       * * `HeyGen` - HeyGen
-       * * `Infisical` - Infisical
-       * * `Inngest` - Inngest
-       * * `KapaAI` - KapaAI
-       * * `Kernel` - Kernel
-       * * `Koyeb` - Koyeb
-       * * `LambdaLabs` - LambdaLabs
-       * * `LangSmith` - LangSmith
-       * * `Linode` - Linode
-       * * `Listmonk` - Listmonk
-       * * `LlamaCloud` - LlamaCloud
-       * * `Mem0` - Mem0
-       * * `Metriport` - Metriport
-       * * `Mintlify` - Mintlify
-       * * `MistralAI` - MistralAI
-       * * `Mono` - Mono
-       * * `Netlify` - Netlify
-       * * `Northflank` - Northflank
-       * * `OpenAI` - OpenAI
-       * * `Pinecone` - Pinecone
-       * * `PlatformSh` - PlatformSh
-       * * `PromptingCompany` - PromptingCompany
-       * * `Qdrant` - Qdrant
-       * * `Render` - Render
-       * * `Replicate` - Replicate
-       * * `RetellAI` - RetellAI
-       * * `Roark` - Roark
-       * * `RunPod` - RunPod
-       * * `ScaleAI` - ScaleAI
-       * * `Scaleway` - Scaleway
-       * * `SigNoz` - SigNoz
-       * * `Sim` - Sim
-       * * `Skyvern` - Skyvern
-       * * `Slash` - Slash
-       * * `Synthesia` - Synthesia
-       * * `Telli` - Telli
-       * * `TerraApi` - TerraApi
-       * * `TriggerDev` - TriggerDev
-       * * `Turso` - Turso
-       * * `Singular` - Singular
-       * * `Swonkie` - Swonkie
-       * * `TwelveLabs` - TwelveLabs
-       * * `Twenty` - Twenty
-       * * `Unstructured` - Unstructured
-       * * `Upstash` - Upstash
-       * * `Vellum` - Vellum
-       * * `Vultr` - Vultr
-       * * `Windmill` - Windmill
-       * * `Zep` - Zep
-       * * `Hex` - Hex
-       * * `Sumsub` - Sumsub
-       * * `GoogleChat` - GoogleChat
-       * * `Kickscale` - Kickscale
-       * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack
-       * * `DodoPayments` - DodoPayments
-       * * `Salestrics` - Salestrics
-       * * `Doppler` - Doppler
-       * * `Usersnap` - Usersnap
-       * * `Asknicely` - Asknicely
-       * * `Featurebase` - Featurebase
-       * * `Frill` - Frill
-       * * `Bettermode` - Bettermode
-       * * `Dynatrace` - Dynatrace
-       * * `Honeycomb` - Honeycomb
-       * * `SumoLogic` - SumoLogic
-       * * `LogzIO` - LogzIO
-       * * `Coralogix` - Coralogix
-       * * `BetterStack` - BetterStack
-       * * `Raygun` - Raygun
-       * * `Honeybadger` - Honeybadger
-       * * `Airbrake` - Airbrake
-       * * `Appsignal` - Appsignal
-       * * `Appdynamics` - Appdynamics
-       * * `Instana` - Instana
-       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
-       * * `Uptimerobot` - Uptimerobot
-       * * `Statuscake` - Statuscake
-       * * `Tailscale` - Tailscale
-       * * `Flagsmith` - Flagsmith
-       * * `Xmatters` - Xmatters
-       * * `Squadcast` - Squadcast
-       * * `Zenduty` - Zenduty
-       * * `Cronitor` - Cronitor
-       * * `Jenkins` - Jenkins
-       * * `Bitbucket` - Bitbucket
-       * * `Gitea` - Gitea
-       * * `Teamcity` - Teamcity
-       * * `TravisCI` - TravisCI
-       * * `Semaphore` - Semaphore
-       * * `CircleciInsights` - CircleciInsights
-       * * `OctopusDeploy` - OctopusDeploy
-       * * `Sourcegraph` - Sourcegraph
-       * * `Bitrise` - Bitrise
-       * * `Gerrit` - Gerrit
-       * * `TerraformCloud` - TerraformCloud
-       * * `PulumiCloud` - PulumiCloud
-       * * `Spacelift` - Spacelift
-       * * `Railway` - Railway
-       * * `Argocd` - Argocd
-       * * `PrefectCloud` - PrefectCloud
-       * * `DagsterCloud` - DagsterCloud
-       * * `Env0` - Env0
-       * * `Kubecost` - Kubecost
-       * * `Snyk` - Snyk
-       * * `Semgrep` - Semgrep
-       * * `Veracode` - Veracode
-       * * `Checkmarx` - Checkmarx
-       * * `Gitguardian` - Gitguardian
-       * * `QualysVmdr` - QualysVmdr
-       * * `Rapid7Insightvm` - Rapid7Insightvm
-       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
-       * * `Sentinelone` - Sentinelone
-       * * `Lacework` - Lacework
-       * * `OrcaSecurity` - OrcaSecurity
-       * * `Drata` - Drata
-       * * `Secureframe` - Secureframe
-       * * `CiscoDuo` - CiscoDuo
-       * * `Jumpcloud` - Jumpcloud
-       * * `OnePassword` - OnePassword
-       * * `Stytch` - Stytch
-       * * `Sonarqube` - Sonarqube
-       * * `Codecov` - Codecov
-       * * `Coveralls` - Coveralls
-       * * `Codacy` - Codacy
-       * * `Deepsource` - Deepsource
-       * * `Linearb` - Linearb
-       * * `Jellyfish` - Jellyfish
-       * * `Swarmia` - Swarmia
-       * * `Packagist` - Packagist
-       * * `Nuget` - Nuget
-       * * `CratesIO` - CratesIO
-       * * `SonatypeNexus` - SonatypeNexus
-       * * `JfrogArtifactory` - JfrogArtifactory
-       * * `Snowplow` - Snowplow
-       * * `WeightsAndBiases` - WeightsAndBiases
-       * * `MonteCarlo` - MonteCarlo
-       * * `Metaplane` - Metaplane
-       * * `Datahub` - Datahub
-       * * `ClickhouseCloud` - ClickhouseCloud
-       * * `ConfluentCloud` - ConfluentCloud
-       * * `KongKonnect` - KongKonnect
-       * * `Kandji` - Kandji
-       * * `Automox` - Automox
-       * * `Autumn` - Autumn
-       * * `GetStream` - GetStream
-       * * `Octolens` - Octolens
-       * * `Kajabi` - Kajabi
-       * * `Shopware` - Shopware
-       * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch
-       * * `Crisp` - Crisp
-       * * `Kommo` - Kommo
-       * * `Axiom` - Axiom
-       * * `Plivo` - Plivo
-       * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan
-       * * `AbTasty` - AbTasty
-       * * `Ably` - Ably
-       * * `AbnormalSecurity` - AbnormalSecurity
-       * * `Acast` - Acast
-       * * `Acculynx` - Acculynx
-       * * `Actionstep` - Actionstep
-       * * `Aftership` - Aftership
-       * * `AhaIdeas` - AhaIdeas
-       * * `AkamaiReporting` - AkamaiReporting
-       * * `Alation` - Alation
-       * * `Alegra` - Alegra
-       * * `Allegro` - Allegro
-       * * `AnodotCost` - AnodotCost
-       * * `Anomalo` - Anomalo
-       * * `Apaleo` - Apaleo
-       * * `Apitally` - Apitally
-       * * `AppStoreConnect` - AppStoreConnect
-       * * `Appdirect` - Appdirect
-       * * `Appfolio` - Appfolio
-       * * `Arxiv` - Arxiv
-       * * `Asaas` - Asaas
-       * * `Astronomer` - Astronomer
-       * * `Athenahealth` - Athenahealth
-       * * `Atlan` - Atlan
-       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
-       * * `Avalara` - Avalara
-       * * `AwsAthena` - AwsAthena
-       * * `AwsBatch` - AwsBatch
-       * * `AwsBudgets` - AwsBudgets
-       * * `AwsCloudformation` - AwsCloudformation
-       * * `AwsComputeOptimizer` - AwsComputeOptimizer
-       * * `AwsConfig` - AwsConfig
-       * * `AwsConnect` - AwsConnect
-       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
-       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
-       * * `AwsCostExplorer` - AwsCostExplorer
-       * * `AwsDocumentDB` - AwsDocumentDB
-       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
-       * * `AwsGuardduty` - AwsGuardduty
-       * * `AwsHealth` - AwsHealth
-       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
-       * * `AwsInspector` - AwsInspector
-       * * `AwsMacie` - AwsMacie
-       * * `AwsOrganizations` - AwsOrganizations
-       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
-       * * `AwsSagemaker` - AwsSagemaker
-       * * `AwsSavingsPlans` - AwsSavingsPlans
-       * * `AwsSecurityHub` - AwsSecurityHub
-       * * `AwsSes` - AwsSes
-       * * `AwsStepFunctions` - AwsStepFunctions
-       * * `AwsSupport` - AwsSupport
-       * * `AwsSystemsManager` - AwsSystemsManager
-       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
-       * * `AwsWaf` - AwsWaf
-       * * `AwsXray` - AwsXray
-       * * `AzureActivityLog` - AzureActivityLog
-       * * `AzureAdvisor` - AzureAdvisor
-       * * `AzureApiManagement` - AzureApiManagement
-       * * `AzureApplicationInsights` - AzureApplicationInsights
-       * * `AzureCostManagement` - AzureCostManagement
-       * * `AzureDataExplorer` - AzureDataExplorer
-       * * `AzureDataFactory` - AzureDataFactory
-       * * `AzureLogAnalytics` - AzureLogAnalytics
-       * * `AzureMonitorAlerts` - AzureMonitorAlerts
-       * * `AzureMonitorMetrics` - AzureMonitorMetrics
-       * * `AzureOpenaiUsage` - AzureOpenaiUsage
-       * * `AzurePolicyInsights` - AzurePolicyInsights
-       * * `AzureReservations` - AzureReservations
-       * * `AzureResourceGraph` - AzureResourceGraph
-       * * `AzureResourceHealth` - AzureResourceHealth
-       * * `AzureServiceHealth` - AzureServiceHealth
-       * * `AzureSynapse` - AzureSynapse
-       * * `BackMarket` - BackMarket
-       * * `Beehiiv` - Beehiiv
-       * * `Bigeye` - Bigeye
-       * * `BillCom` - BillCom
-       * * `Billomat` - Billomat
-       * * `BingWebmasterTools` - BingWebmasterTools
-       * * `Bitwarden` - Bitwarden
-       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
-       * * `BlackboardLearn` - BlackboardLearn
-       * * `Bling` - Bling
-       * * `Bloomerang` - Bloomerang
-       * * `Blueshift` - Blueshift
-       * * `Bluesky` - Bluesky
-       * * `BolRetailer` - BolRetailer
-       * * `Boulevard` - Boulevard
-       * * `Buffer` - Buffer
-       * * `Bugherd` - Bugherd
-       * * `Buildium` - Buildium
-       * * `Buttondown` - Buttondown
-       * * `BuyMeACoffee` - BuyMeACoffee
-       * * `Calendarific` - Calendarific
-       * * `Calibre` - Calibre
-       * * `CanvasLms` - CanvasLms
-       * * `Captivate` - Captivate
-       * * `Cashfree` - Cashfree
-       * * `CastAi` - CastAi
-       * * `Catchpoint` - Catchpoint
-       * * `CdcOpenData` - CdcOpenData
-       * * `Census` - Census
-       * * `Checkly` - Checkly
-       * * `CircleSo` - CircleSo
-       * * `Classy` - Classy
-       * * `Cleartax` - Cleartax
-       * * `Clever` - Clever
-       * * `Clevertap` - Clevertap
-       * * `Cliniko` - Cliniko
-       * * `Clio` - Clio
-       * * `Clip` - Clip
-       * * `Cloudability` - Cloudability
-       * * `Cloudsmith` - Cloudsmith
-       * * `Cloudzero` - Cloudzero
-       * * `Clover` - Clover
-       * * `Codemagic` - Codemagic
-       * * `Codescene` - Codescene
-       * * `Collibra` - Collibra
-       * * `Companycam` - Companycam
-       * * `Conekta` - Conekta
-       * * `ContaAzul` - ContaAzul
-       * * `Contentsquare` - Contentsquare
-       * * `Cortex` - Cortex
-       * * `Courier` - Courier
-       * * `Crossref` - Crossref
-       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
-       * * `CubeCloud` - CubeCloud
-       * * `D2lBrightspace` - D2lBrightspace
-       * * `Dayforce` - Dayforce
-       * * `Debugbear` - Debugbear
-       * * `Descope` - Descope
-       * * `Develocity` - Develocity
-       * * `Dialpad` - Dialpad
-       * * `Discord` - Discord
-       * * `Discourse` - Discourse
-       * * `Donorbox` - Donorbox
-       * * `Doorloop` - Doorloop
-       * * `Dovetail` - Dovetail
-       * * `Dragonboat` - Dragonboat
-       * * `Drchrono` - Drchrono
-       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
-       * * `EcbDataPortal` - EcbDataPortal
-       * * `Emarsys` - Emarsys
-       * * `Embrace` - Embrace
-       * * `Entsoe` - Entsoe
-       * * `Eppo` - Eppo
-       * * `Etsy` - Etsy
-       * * `Eurostat` - Eurostat
-       * * `Faire` - Faire
-       * * `FarosAi` - FarosAi
-       * * `Fieldpulse` - Fieldpulse
-       * * `Fieldwire` - Fieldwire
-       * * `Filevine` - Filevine
-       * * `Finout` - Finout
-       * * `Five9` - Five9
-       * * `FlexeraCloudCost` - FlexeraCloudCost
-       * * `Flutterwave` - Flutterwave
-       * * `Fortnox` - Fortnox
-       * * `Fourthwall` - Fourthwall
-       * * `Fred` - Fred
-       * * `Frontegg` - Frontegg
-       * * `FusionAuth` - FusionAuth
-       * * `G2` - G2
-       * * `Gcore` - Gcore
-       * * `GcpApigee` - GcpApigee
-       * * `GcpArtifactRegistry` - GcpArtifactRegistry
-       * * `GcpBigtable` - GcpBigtable
-       * * `GcpChronicle` - GcpChronicle
-       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
-       * * `GcpCloudBilling` - GcpCloudBilling
-       * * `GcpCloudBuild` - GcpCloudBuild
-       * * `GcpCloudDeploy` - GcpCloudDeploy
-       * * `GcpCloudDns` - GcpCloudDns
-       * * `GcpCloudFunctions` - GcpCloudFunctions
-       * * `GcpCloudLogging` - GcpCloudLogging
-       * * `GcpCloudMonitoring` - GcpCloudMonitoring
-       * * `GcpCloudRun` - GcpCloudRun
-       * * `GcpCloudSpanner` - GcpCloudSpanner
-       * * `GcpCloudSql` - GcpCloudSql
-       * * `GcpCloudTrace` - GcpCloudTrace
-       * * `GcpCloudWorkflows` - GcpCloudWorkflows
-       * * `GcpComputeEngine` - GcpComputeEngine
-       * * `GcpContainerAnalysis` - GcpContainerAnalysis
-       * * `GcpDataflow` - GcpDataflow
-       * * `GcpDataplex` - GcpDataplex
-       * * `GcpDataproc` - GcpDataproc
-       * * `GcpErrorReporting` - GcpErrorReporting
-       * * `GcpGke` - GcpGke
-       * * `GcpPubsub` - GcpPubsub
-       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
-       * * `GcpRecommender` - GcpRecommender
-       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
-       * * `Gdelt` - Gdelt
-       * * `GenesysCloud` - GenesysCloud
-       * * `Getdx` - Getdx
-       * * `Ghost` - Ghost
-       * * `Givebutter` - Givebutter
-       * * `Gleif` - Gleif
-       * * `GooglePlayConsole` - GooglePlayConsole
-       * * `Guesty` - Guesty
-       * * `Gumroad` - Gumroad
-       * * `HarnessCcm` - HarnessCcm
-       * * `HarnessSei` - HarnessSei
-       * * `Harvest` - Harvest
-       * * `Healthie` - Healthie
-       * * `Hitpay` - Hitpay
-       * * `Hivebrite` - Hivebrite
-       * * `Holded` - Holded
-       * * `Hostaway` - Hostaway
-       * * `HousecallPro` - HousecallPro
-       * * `Humanitec` - Humanitec
-       * * `ImfData` - ImfData
-       * * `Imperva` - Imperva
-       * * `InfluxdbCloud` - InfluxdbCloud
-       * * `Iyzico` - Iyzico
-       * * `Jobtread` - Jobtread
-       * * `Kameleoon` - Kameleoon
-       * * `KauflandMarketplace` - KauflandMarketplace
-       * * `Kestra` - Kestra
-       * * `Kick` - Kick
-       * * `Kinde` - Kinde
-       * * `Kion` - Kion
-       * * `Knowbe4` - Knowbe4
-       * * `Komodor` - Komodor
-       * * `Labelbox` - Labelbox
-       * * `Lawmatics` - Lawmatics
-       * * `Learnworlds` - Learnworlds
-       * * `LexwareOffice` - LexwareOffice
-       * * `Lightdash` - Lightdash
-       * * `Lodgify` - Lodgify
-       * * `Logicmonitor` - Logicmonitor
-       * * `Logrocket` - Logrocket
-       * * `LoopReturns` - LoopReturns
-       * * `Mastodon` - Mastodon
-       * * `Meetup` - Meetup
-       * * `Megaphone` - Megaphone
-       * * `Memberful` - Memberful
-       * * `MercadoPago` - MercadoPago
-       * * `Meteostat` - Meteostat
-       * * `Mews` - Mews
-       * * `Mezmo` - Mezmo
-       * * `Microsoft365UsageReports` - Microsoft365UsageReports
-       * * `MicrosoftAdvertising` - MicrosoftAdvertising
-       * * `MicrosoftClarity` - MicrosoftClarity
-       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
-       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
-       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
-       * * `MicrosoftIntune` - MicrosoftIntune
-       * * `MicrosoftPurview` - MicrosoftPurview
-       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
-       * * `MicrosoftSentinel` - MicrosoftSentinel
-       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
-       * * `Midtrans` - Midtrans
-       * * `MightyNetworks` - MightyNetworks
-       * * `Mindbody` - Mindbody
-       * * `Mirakl` - Mirakl
-       * * `Moesif` - Moesif
-       * * `Moneybird` - Moneybird
-       * * `Moodle` - Moodle
-       * * `Motherduck` - Motherduck
-       * * `Mycase` - Mycase
-       * * `NagerDate` - NagerDate
-       * * `NeonCrm` - NeonCrm
-       * * `Nexhealth` - Nexhealth
-       * * `NoaaCdo` - NoaaCdo
-       * * `Nobl9` - Nobl9
-       * * `Nolt` - Nolt
-       * * `Nops` - Nops
-       * * `NpmRegistry` - NpmRegistry
-       * * `Oecd` - Oecd
-       * * `Okendo` - Okendo
-       * * `Omni` - Omni
-       * * `Onelogin` - Onelogin
-       * * `OpenDental` - OpenDental
-       * * `OpenMeteo` - OpenMeteo
-       * * `Openalex` - Openalex
-       * * `Opencorporates` - Opencorporates
-       * * `Openfec` - Openfec
-       * * `OpnPayments` - OpnPayments
-       * * `Opslevel` - Opslevel
-       * * `OttoMarket` - OttoMarket
-       * * `Ownerrez` - Ownerrez
-       * * `Pagbank` - Pagbank
-       * * `Patreon` - Patreon
-       * * `Pax8` - Pax8
-       * * `Paychex` - Paychex
-       * * `Paymob` - Paymob
-       * * `Paymongo` - Paymongo
-       * * `Phonepe` - Phonepe
-       * * `Pike13` - Pike13
-       * * `Pingone` - Pingone
-       * * `PinterestOrganic` - PinterestOrganic
-       * * `PlanningCenter` - PlanningCenter
-       * * `PluralsightFlow` - PluralsightFlow
-       * * `Podbean` - Podbean
-       * * `Postscript` - Postscript
-       * * `PowerBiAdmin` - PowerBiAdmin
-       * * `Practicepanther` - Practicepanther
-       * * `Preset` - Preset
-       * * `Procore` - Procore
-       * * `Productiv` - Productiv
-       * * `ProofpointTap` - ProofpointTap
-       * * `Propertyware` - Propertyware
-       * * `Pubnub` - Pubnub
-       * * `Quay` - Quay
-       * * `Raken` - Raken
-       * * `RedpandaCloud` - RedpandaCloud
-       * * `RentManager` - RentManager
-       * * `Reverb` - Reverb
-       * * `RocketMatter` - RocketMatter
-       * * `Rubygems` - Rubygems
-       * * `Scalr` - Scalr
-       * * `SecEdgar` - SecEdgar
-       * * `SelectStar` - SelectStar
-       * * `SemanticScholar` - SemanticScholar
-       * * `Semrush` - Semrush
-       * * `ServiceFusion` - ServiceFusion
-       * * `Servicem8` - Servicem8
-       * * `Servicetitan` - Servicetitan
-       * * `Servicetrade` - Servicetrade
-       * * `Sevdesk` - Sevdesk
-       * * `Similarweb` - Similarweb
-       * * `Simpro` - Simpro
-       * * `Sinch` - Sinch
-       * * `Singlestore` - Singlestore
-       * * `Site24x7` - Site24x7
-       * * `Sleuth` - Sleuth
-       * * `Smartlook` - Smartlook
-       * * `Smartrecruiters` - Smartrecruiters
-       * * `Smokeball` - Smokeball
-       * * `SodaCloud` - SodaCloud
-       * * `Speedcurve` - Speedcurve
-       * * `SpotIo` - SpotIo
-       * * `Sprig` - Sprig
-       * * `Sprinklr` - Sprinklr
-       * * `SproutSocial` - SproutSocial
-       * * `StackOverflowForTeams` - StackOverflowForTeams
-       * * `Stockx` - Stockx
-       * * `TackleIo` - TackleIo
-       * * `Talkdesk` - Talkdesk
-       * * `TeamupFitness` - TeamupFitness
-       * * `Tebra` - Tebra
-       * * `Telnyx` - Telnyx
-       * * `Ternary` - Ternary
-       * * `Thoughtspot` - Thoughtspot
-       * * `Thousandeyes` - Thousandeyes
-       * * `Threads` - Threads
-       * * `TiktokShop` - TiktokShop
-       * * `TinyErp` - TinyErp
-       * * `Tinybird` - Tinybird
-       * * `Tipalti` - Tipalti
-       * * `Toast` - Toast
-       * * `Torii` - Torii
-       * * `Transistor` - Transistor
-       * * `TrunkIo` - TrunkIo
-       * * `Trustradius` - Trustradius
-       * * `Twitch` - Twitch
-       * * `TwoC2p` - TwoC2p
-       * * `UkCompaniesHouse` - UkCompaniesHouse
-       * * `UkOns` - UkOns
-       * * `UnComtrade` - UnComtrade
-       * * `UsBea` - UsBea
-       * * `UsBls` - UsBls
-       * * `UsEia` - UsEia
-       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
-       * * `Vanta` - Vanta
-       * * `Vendr` - Vendr
-       * * `Virtuous` - Virtuous
-       * * `Vonage` - Vonage
-       * * `WalmartMarketplace` - WalmartMarketplace
-       * * `Waydev` - Waydev
-       * * `Wayfair` - Wayfair
-       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
-       * * `WhoGho` - WhoGho
-       * * `Whop` - Whop
-       * * `Wistia` - Wistia
-       * * `Wiz` - Wiz
-       * * `Wompi` - Wompi
-       * * `Workiz` - Workiz
-       * * `WorldBank` - WorldBank
-       * * `Xendit` - Xendit
-       * * `Yoco` - Yoco
-       * * `ZalandoZdirect` - ZalandoZdirect
-       * * `Zluri` - Zluri
-       * * `Zylo` - Zylo
-       * * `Tally` - Tally
-       * * `Nuntly` - Nuntly
-       * * `Vturb` - Vturb
-       * * `Meltwater` - Meltwater
-       * * `UserCom` - UserCom
-       * * `Latitude` - Latitude
-       * * `Workato` - Workato
-       * * `SideShift` - SideShift
-       * * `DuckLake` - DuckLake
-       * * `Starburst` - Starburst
-       * * `Trino` - Trino
-       * * `Easybill` - Easybill
-       * * `Bexio` - Bexio
-       * * `Umami` - Umami
-       * * `Manychat` - Manychat
-       * * `Kickstarter` - Kickstarter
-       * * `Typesense` - Typesense
-       * * `FirstPromoter` - FirstPromoter
-       * * `Zero` - Zero
-       * * `Inth` - Inth
-       * * `BCMS` - BCMS
-       * * `Convonite` - Convonite
-       * * `Hookdeck` - Hookdeck
-       * * `Billit` - Billit
-       * * `Moxie` - Moxie
-       * * `TripleWhale` - TripleWhale
-       * * `Directus` - Directus
-       * * `Clay` - Clay
-       * * `TradableBits` - TradableBits
-       * * `Swan` - Swan
-       * * `Hyros` - Hyros
-       * * `Odoo` - Odoo
-       * * `Airbridge` - Airbridge
-       * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter
-       * * `Raisely` - Raisely
-       * * `RakutenAdvertising` - RakutenAdvertising
-       * * `Zitadel` - Zitadel
-       * * `DeelFlows` - DeelFlows
-       * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix
-       * * `Sevalla` - Sevalla
-       * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner
-       * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare
-       * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91
-       * * `Depot` - Depot
-       * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy
-       * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart
-       * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound
-       * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi
-       * * `Capterra` - Capterra
-       * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi
-       * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS
-       * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox
-       * * `SimonData` - SimonData
-       * * `CommissionJunction` - CommissionJunction
-       * * `Liveblocks` - Liveblocks
-       * * `Livestorm` - Livestorm
-       * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana
-       * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable
-       * * `Anvil` - Anvil
-       * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato
-       * * `Medusa` - Medusa
-       * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin
-       * * `Folk` - Folk
-       * * `Cybersource` - Cybersource
-       * * `GoogleAdSense` - GoogleAdSense
-       * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio
-       * * `Smartlead` - Smartlead
-       * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket
-       * * `Quo` - Quo
-       * * `HeyReach` - HeyReach
-       * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet
-       * * `Expo` - Expo
-       * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer
-       * * `Sprinto` - Sprinto
-       * * `Gem` - Gem
-       * * `AudioGO` - AudioGO
-       * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs
-       * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura
-       * * `ChargebackStop` - ChargebackStop
-       * * `Chargeflow` - Chargeflow
-       * * `Dreamdata` - Dreamdata
-       * * `GoogleBusinessProfile` - GoogleBusinessProfile
-       * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite
-       * * `Modal` - Modal
-       * * `Vimeo` - Vimeo
-       * * `Scrunch` - Scrunch
-       * * `Loom` - Loom
-       * * `Arcade` - Arcade
-       * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom
-       * * `Userback` - Userback
-       * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution
-       * * `StackAdapt` - StackAdapt
-       * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay
-       * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud
-       * * `Northbeam` - Northbeam
-       * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO
-       * * `Airship` - Airship
-       * * `Creem` - Creem
-       * * `Leantime` - Leantime
-       * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob
-       * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2
-       * * `Particle` - Particle
-       * * `FileUpload` - FileUpload
-       * * `Dripify` - Dripify
-       * * `AwsS3Tables` - AwsS3Tables
-       * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments
-       * * `Soniox` - Soniox */
-      source_type: ExternalDataSourceTypeEnum;
+      /** The source type to validate against. */
+      source_type: string;
     }
 
     /**
@@ -37098,10 +33583,10 @@ export namespace Schemas {
       detail: string;
     }
 
-    export type DatasetExportReadStatusEnum = typeof DatasetExportReadStatusEnum[keyof typeof DatasetExportReadStatusEnum];
+    export type ExportStatusEnum = typeof ExportStatusEnum[keyof typeof ExportStatusEnum];
 
 
-    export const DatasetExportReadStatusEnum = {
+    export const ExportStatusEnum = {
       Pending: 'pending',
       Complete: 'complete',
       Failed: 'failed',
@@ -37111,7 +33596,7 @@ export namespace Schemas {
       /** Export ID used to check status and download the file. */
       readonly id: number;
       /** Current export state: pending, complete, or failed. */
-      readonly status: DatasetExportReadStatusEnum;
+      readonly status: ExportStatusEnum;
       /** Immutable dataset revision included in the export. */
       readonly dataset_revision: number;
       /** Generated JSONL filename. */
@@ -37807,6 +34292,15 @@ export namespace Schemas {
       bucket_start: string;
       /** Deployments whose first success status landed in this bucket, within the environment scope. Zero-filled: 0 means nothing shipped. */
       deployment_count: number;
+    }
+
+    export interface DepotCIRepoUsage {
+      /** Repository the Depot source syncs, as lowercase 'owner/name'. */
+      repo: string;
+      /** Run time of the finished Depot CI job attempts that started in the window, hand-off jobs included. */
+      elapsed_seconds: number;
+      /** elapsed_seconds at the Depot CI list price for a 2-vCPU sandbox. Depot does not report the sandbox size of an attempt. */
+      estimated_cost_usd: number;
     }
 
     export interface DeprovisionWarehouseResponse {
@@ -38527,1421 +35021,8 @@ export namespace Schemas {
      * A source type that can be added as a direct (live-query) connection, with display metadata.
      */
     export interface DirectConnectionSourceOption {
-      /** The source type to start a direct-connection setup for (e.g. 'Postgres', 'ClickHouse').
-       *
-       * * `Ashby` - Ashby
-       * * `Supabase` - Supabase
-       * * `CustomerIO` - CustomerIO
-       * * `Github` - Github
-       * * `Stripe` - Stripe
-       * * `Hubspot` - Hubspot
-       * * `Postgres` - Postgres
-       * * `Zendesk` - Zendesk
-       * * `Snowflake` - Snowflake
-       * * `Salesforce` - Salesforce
-       * * `MySQL` - MySQL
-       * * `MongoDB` - MongoDB
-       * * `MSSQL` - MSSQL
-       * * `Vitally` - Vitally
-       * * `BigQuery` - BigQuery
-       * * `Chargebee` - Chargebee
-       * * `Clerk` - Clerk
-       * * `GoogleAds` - GoogleAds
-       * * `GoogleSearchConsole` - GoogleSearchConsole
-       * * `TemporalIO` - TemporalIO
-       * * `DoIt` - DoIt
-       * * `GoogleSheets` - GoogleSheets
-       * * `MetaAds` - MetaAds
-       * * `Klaviyo` - Klaviyo
-       * * `Mailchimp` - Mailchimp
-       * * `Braze` - Braze
-       * * `Mailjet` - Mailjet
-       * * `Redshift` - Redshift
-       * * `Polar` - Polar
-       * * `RevenueCat` - RevenueCat
-       * * `LinkedinAds` - LinkedinAds
-       * * `RedditAds` - RedditAds
-       * * `TikTokAds` - TikTokAds
-       * * `BingAds` - BingAds
-       * * `Shopify` - Shopify
-       * * `Attio` - Attio
-       * * `SnapchatAds` - SnapchatAds
-       * * `Linear` - Linear
-       * * `LiteLLM` - LiteLLM
-       * * `Intercom` - Intercom
-       * * `Amplitude` - Amplitude
-       * * `Mixpanel` - Mixpanel
-       * * `Jira` - Jira
-       * * `ActiveCampaign` - ActiveCampaign
-       * * `Marketo` - Marketo
-       * * `Adjust` - Adjust
-       * * `AppsFlyer` - AppsFlyer
-       * * `Freshdesk` - Freshdesk
-       * * `GoogleAnalytics` - GoogleAnalytics
-       * * `Pipedrive` - Pipedrive
-       * * `SendGrid` - SendGrid
-       * * `Slack` - Slack
-       * * `PagerDuty` - PagerDuty
-       * * `Asana` - Asana
-       * * `Notion` - Notion
-       * * `Airtable` - Airtable
-       * * `Greenhouse` - Greenhouse
-       * * `BambooHR` - BambooHR
-       * * `Lever` - Lever
-       * * `GitLab` - GitLab
-       * * `Datadog` - Datadog
-       * * `Sentry` - Sentry
-       * * `Pendo` - Pendo
-       * * `FullStory` - FullStory
-       * * `AmazonAds` - AmazonAds
-       * * `PinterestAds` - PinterestAds
-       * * `AppleSearchAds` - AppleSearchAds
-       * * `QuickBooks` - QuickBooks
-       * * `Xero` - Xero
-       * * `NetSuite` - NetSuite
-       * * `WooCommerce` - WooCommerce
-       * * `BigCommerce` - BigCommerce
-       * * `PayPal` - PayPal
-       * * `Square` - Square
-       * * `Zoom` - Zoom
-       * * `Trello` - Trello
-       * * `TrafficStars` - TrafficStars
-       * * `Monday` - Monday
-       * * `ClickUp` - ClickUp
-       * * `Confluence` - Confluence
-       * * `Recurly` - Recurly
-       * * `SalesLoft` - SalesLoft
-       * * `Outreach` - Outreach
-       * * `Gong` - Gong
-       * * `Calendly` - Calendly
-       * * `Typeform` - Typeform
-       * * `UnityAds` - UnityAds
-       * * `Iterable` - Iterable
-       * * `ZohoCRM` - ZohoCRM
-       * * `Close` - Close
-       * * `Oracle` - Oracle
-       * * `DynamoDB` - DynamoDB
-       * * `Elasticsearch` - Elasticsearch
-       * * `Kafka` - Kafka
-       * * `LaunchDarkly` - LaunchDarkly
-       * * `Braintree` - Braintree
-       * * `Recharge` - Recharge
-       * * `HelpScout` - HelpScout
-       * * `Gorgias` - Gorgias
-       * * `Instagram` - Instagram
-       * * `YouTubeAnalytics` - YouTubeAnalytics
-       * * `FacebookPages` - FacebookPages
-       * * `TwitterAds` - TwitterAds
-       * * `Workday` - Workday
-       * * `ServiceNow` - ServiceNow
-       * * `Pardot` - Pardot
-       * * `Copper` - Copper
-       * * `Front` - Front
-       * * `ChartMogul` - ChartMogul
-       * * `Zuora` - Zuora
-       * * `Paddle` - Paddle
-       * * `CircleCI` - CircleCI
-       * * `CockroachDB` - CockroachDB
-       * * `Firebase` - Firebase
-       * * `AzureBlob` - AzureBlob
-       * * `GoogleDrive` - GoogleDrive
-       * * `OneDrive` - OneDrive
-       * * `SharePoint` - SharePoint
-       * * `Box` - Box
-       * * `SFTP` - SFTP
-       * * `MicrosoftTeams` - MicrosoftTeams
-       * * `Aircall` - Aircall
-       * * `Webflow` - Webflow
-       * * `Okta` - Okta
-       * * `Auth0` - Auth0
-       * * `Productboard` - Productboard
-       * * `Smartsheet` - Smartsheet
-       * * `Wrike` - Wrike
-       * * `Plaid` - Plaid
-       * * `SurveyMonkey` - SurveyMonkey
-       * * `Eventbrite` - Eventbrite
-       * * `Everflow` - Everflow
-       * * `RingCentral` - RingCentral
-       * * `Twilio` - Twilio
-       * * `Freshsales` - Freshsales
-       * * `Shortcut` - Shortcut
-       * * `ConvertKit` - ConvertKit
-       * * `Drip` - Drip
-       * * `CampaignMonitor` - CampaignMonitor
-       * * `MailerLite` - MailerLite
-       * * `Omnisend` - Omnisend
-       * * `Brevo` - Brevo
-       * * `Postmark` - Postmark
-       * * `Granola` - Granola
-       * * `BuildBetter` - BuildBetter
-       * * `Convex` - Convex
-       * * `ClickHouse` - ClickHouse
-       * * `Plain` - Plain
-       * * `Resend` - Resend
-       * * `PgAnalyze` - PgAnalyze
-       * * `WorkOS` - WorkOS
-       * * `AmazonS3` - AmazonS3
-       * * `GoogleCloudStorage` - GoogleCloudStorage
-       * * `Databricks` - Databricks
-       * * `Dynamics365` - Dynamics365
-       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
-       * * `Db2` - Db2
-       * * `Heap` - Heap
-       * * `AdobeAnalytics` - AdobeAnalytics
-       * * `Matomo` - Matomo
-       * * `Optimizely` - Optimizely
-       * * `Adyen` - Adyen
-       * * `GoCardless` - GoCardless
-       * * `Mollie` - Mollie
-       * * `CheckoutCom` - CheckoutCom
-       * * `Branch` - Branch
-       * * `Criteo` - Criteo
-       * * `Outbrain` - Outbrain
-       * * `Taboola` - Taboola
-       * * `AdRoll` - AdRoll
-       * * `DisplayVideo360` - DisplayVideo360
-       * * `GoogleAdManager` - GoogleAdManager
-       * * `CampaignManager360` - CampaignManager360
-       * * `SearchAds360` - SearchAds360
-       * * `AdobeCommerce` - AdobeCommerce
-       * * `AmazonSellingPartner` - AmazonSellingPartner
-       * * `Ebay` - Ebay
-       * * `Commercetools` - Commercetools
-       * * `LightspeedRetail` - LightspeedRetail
-       * * `Shipmail` - Shipmail
-       * * `ShipStation` - ShipStation
-       * * `ConstantContact` - ConstantContact
-       * * `Mailgun` - Mailgun
-       * * `Eloqua` - Eloqua
-       * * `Sailthru` - Sailthru
-       * * `Ortto` - Ortto
-       * * `Attentive` - Attentive
-       * * `Kustomer` - Kustomer
-       * * `Dixa` - Dixa
-       * * `Gladly` - Gladly
-       * * `Qualtrics` - Qualtrics
-       * * `AzureDevOps` - AzureDevOps
-       * * `RoktAds` - RoktAds
-       * * `Rollbar` - Rollbar
-       * * `Opsgenie` - Opsgenie
-       * * `IncidentIo` - IncidentIo
-       * * `Pingdom` - Pingdom
-       * * `Cloudflare` - Cloudflare
-       * * `CloudflareD1` - CloudflareD1
-       * * `CosmosDB` - CosmosDB
-       * * `PlanetScaleMySQL` - PlanetScaleMySQL
-       * * `PlanetScalePostgres` - PlanetScalePostgres
-       * * `Plane` - Plane
-       * * `Scarf` - Scarf
-       * * `SapHana` - SapHana
-       * * `Rippling` - Rippling
-       * * `HiBob` - HiBob
-       * * `Personio` - Personio
-       * * `Deel` - Deel
-       * * `AdpWorkforceNow` - AdpWorkforceNow
-       * * `Paylocity` - Paylocity
-       * * `Gusto` - Gusto
-       * * `CultureAmp` - CultureAmp
-       * * `Lattice` - Lattice
-       * * `SageIntacct` - SageIntacct
-       * * `FreshBooks` - FreshBooks
-       * * `Expensify` - Expensify
-       * * `Ramp` - Ramp
-       * * `Brex` - Brex
-       * * `Coupa` - Coupa
-       * * `SapConcur` - SapConcur
-       * * `Apollo` - Apollo
-       * * `Crunchbase` - Crunchbase
-       * * `ZoomInfo` - ZoomInfo
-       * * `Clari` - Clari
-       * * `Chorus` - Chorus
-       * * `Coda` - Coda
-       * * `Guru` - Guru
-       * * `Dropbox` - Dropbox
-       * * `Docusign` - Docusign
-       * * `PandaDoc` - PandaDoc
-       * * `SapErp` - SapErp
-       * * `SapSuccessFactors` - SapSuccessFactors
-       * * `OracleEbs` - OracleEbs
-       * * `OracleFusion` - OracleFusion
-       * * `AmazonSNS` - AmazonSNS
-       * * `AmazonEventBridge` - AmazonEventBridge
-       * * `AmazonSQS` - AmazonSQS
-       * * `AmazonKinesis` - AmazonKinesis
-       * * `AmazonCloudWatch` - AmazonCloudWatch
-       * * `OpenAIAds` - OpenAIAds
-       * * `OneHundredMs` - OneHundredMs
-       * * `SevenShifts` - SevenShifts
-       * * `AcuityScheduling` - AcuityScheduling
-       * * `AgileCRM` - AgileCRM
-       * * `Aha` - Aha
-       * * `Airbyte` - Airbyte
-       * * `Akeneo` - Akeneo
-       * * `Algolia` - Algolia
-       * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
-       * * `ApifyDataset` - ApifyDataset
-       * * `Appcues` - Appcues
-       * * `Appfigures` - Appfigures
-       * * `Appfollow` - Appfollow
-       * * `Apptivo` - Apptivo
-       * * `AssemblyAI` - AssemblyAI
-       * * `Awin` - Awin
-       * * `AwsCloudTrail` - AwsCloudTrail
-       * * `AzureTableStorage` - AzureTableStorage
-       * * `Babelforce` - Babelforce
-       * * `Basecamp` - Basecamp
-       * * `Beamer` - Beamer
-       * * `BigMailer` - BigMailer
-       * * `Bluetally` - Bluetally
-       * * `BoldSign` - BoldSign
-       * * `BreezyHR` - BreezyHR
-       * * `Bugsnag` - Bugsnag
-       * * `Buildkite` - Buildkite
-       * * `Bunny` - Bunny
-       * * `Buzzsprout` - Buzzsprout
-       * * `CalCom` - CalCom
-       * * `CallRail` - CallRail
-       * * `Campayn` - Campayn
-       * * `Canny` - Canny
-       * * `CapsuleCRM` - CapsuleCRM
-       * * `CaptainData` - CaptainData
-       * * `CartCom` - CartCom
-       * * `CastorEDC` - CastorEDC
-       * * `Chameleon` - Chameleon
-       * * `Chargedesk` - Chargedesk
-       * * `Chargify` - Chargify
-       * * `Chift` - Chift
-       * * `Churnkey` - Churnkey
-       * * `Cin7` - Cin7
-       * * `CiscoMeraki` - CiscoMeraki
-       * * `Clazar` - Clazar
-       * * `Clockify` - Clockify
-       * * `Clockodo` - Clockodo
-       * * `Cloudbeds` - Cloudbeds
-       * * `Coassemble` - Coassemble
-       * * `Codefresh` - Codefresh
-       * * `Concord` - Concord
-       * * `ConfigCat` - ConfigCat
-       * * `Couchbase` - Couchbase
-       * * `Curve` - Curve
-       * * `Customerly` - Customerly
-       * * `Datascope` - Datascope
-       * * `Dbt` - Dbt
-       * * `Demodesk` - Demodesk
-       * * `Deputy` - Deputy
-       * * `DevinAI` - DevinAI
-       * * `Docuseal` - Docuseal
-       * * `Dolibarr` - Dolibarr
-       * * `Dremio` - Dremio
-       * * `DropboxSign` - DropboxSign
-       * * `Dwolla` - Dwolla
-       * * `EConomic` - EConomic
-       * * `Easypost` - Easypost
-       * * `Easypromos` - Easypromos
-       * * `Elasticemail` - Elasticemail
-       * * `EmailOctopus` - EmailOctopus
-       * * `EmploymentHero` - EmploymentHero
-       * * `Encharge` - Encharge
-       * * `Eventee` - Eventee
-       * * `Eventzilla` - Eventzilla
-       * * `Everhour` - Everhour
-       * * `EZOfficeInventory` - EZOfficeInventory
-       * * `Factorial` - Factorial
-       * * `Fastbill` - Fastbill
-       * * `Fastly` - Fastly
-       * * `Fauna` - Fauna
-       * * `Feishu` - Feishu
-       * * `Fillout` - Fillout
-       * * `Finage` - Finage
-       * * `Firebolt` - Firebolt
-       * * `FireHydrant` - FireHydrant
-       * * `Fleetio` - Fleetio
-       * * `Flexmail` - Flexmail
-       * * `Flexport` - Flexport
-       * * `FloatApp` - FloatApp
-       * * `Flowlu` - Flowlu
-       * * `Formbricks` - Formbricks
-       * * `Framer` - Framer
-       * * `FreeAgent` - FreeAgent
-       * * `Freightview` - Freightview
-       * * `Freshcaller` - Freshcaller
-       * * `Freshchat` - Freshchat
-       * * `Freshservice` - Freshservice
-       * * `Fulcrum` - Fulcrum
-       * * `GainsightCs` - GainsightCs
-       * * `GainsightPx` - GainsightPx
-       * * `GitBook` - GitBook
-       * * `Glassfrog` - Glassfrog
-       * * `Goldcast` - Goldcast
-       * * `GoLogin` - GoLogin
-       * * `Grafana` - Grafana
-       * * `GreytHr` - GreytHr
-       * * `Gridly` - Gridly
-       * * `Harness` - Harness
-       * * `Height` - Height
-       * * `Hellobaton` - Hellobaton
-       * * `HighLevel` - HighLevel
-       * * `HoorayHR` - HoorayHR
-       * * `Hubplanner` - Hubplanner
-       * * `Humanitix` - Humanitix
-       * * `Huntr` - Huntr
-       * * `Inflowinventory` - Inflowinventory
-       * * `InforNexus` - InforNexus
-       * * `Insightful` - Insightful
-       * * `Insightly` - Insightly
-       * * `Instantly` - Instantly
-       * * `Instatus` - Instatus
-       * * `Intruder` - Intruder
-       * * `Invoiced` - Invoiced
-       * * `Invoiceninja` - Invoiceninja
-       * * `JamfPro` - JamfPro
-       * * `JobNimbus` - JobNimbus
-       * * `Jotform` - Jotform
-       * * `JudgeMeReviews` - JudgeMeReviews
-       * * `JustCall` - JustCall
-       * * `JustSift` - JustSift
-       * * `K6Cloud` - K6Cloud
-       * * `Katana` - Katana
-       * * `Keka` - Keka
-       * * `Kisi` - Kisi
-       * * `Kissmetrics` - Kissmetrics
-       * * `Klarna` - Klarna
-       * * `Klaus` - Klaus
-       * * `Lago` - Lago
-       * * `Leadfeeder` - Leadfeeder
-       * * `Lemlist` - Lemlist
-       * * `LessAnnoyingCRM` - LessAnnoyingCRM
-       * * `LinkedinPages` - LinkedinPages
-       * * `Linkrunner` - Linkrunner
-       * * `Linnworks` - Linnworks
-       * * `Lob` - Lob
-       * * `Lokalise` - Lokalise
-       * * `Looker` - Looker
-       * * `Luma` - Luma
-       * * `MailerSend` - MailerSend
-       * * `Mailosaur` - Mailosaur
-       * * `Mailtrap` - Mailtrap
-       * * `Mantle` - Mantle
-       * * `Mention` - Mention
-       * * `MercadoAds` - MercadoAds
-       * * `Merge` - Merge
-       * * `Metabase` - Metabase
-       * * `Metricool` - Metricool
-       * * `MicrosoftDataverse` - MicrosoftDataverse
-       * * `MicrosoftEntraId` - MicrosoftEntraId
-       * * `MicrosoftLists` - MicrosoftLists
-       * * `Miro` - Miro
-       * * `Missive` - Missive
-       * * `MixMax` - MixMax
-       * * `Mode` - Mode
-       * * `Mux` - Mux
-       * * `MyHours` - MyHours
-       * * `N8n` - N8n
-       * * `Navan` - Navan
-       * * `NebiusAI` - NebiusAI
-       * * `Nexiopay` - Nexiopay
-       * * `NinjaOneRMM` - NinjaOneRMM
-       * * `NoCRM` - NoCRM
-       * * `NorthpassLMS` - NorthpassLMS
-       * * `Nutshell` - Nutshell
-       * * `Nylas` - Nylas
-       * * `Oncehub` - Oncehub
-       * * `Onepagecrm` - Onepagecrm
-       * * `OneSignal` - OneSignal
-       * * `Onfleet` - Onfleet
-       * * `OpinionStage` - OpinionStage
-       * * `OPUSWatch` - OPUSWatch
-       * * `Orb` - Orb
-       * * `Orbit` - Orbit
-       * * `Oura` - Oura
-       * * `Oveit` - Oveit
-       * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
-       * * `Paperform` - Paperform
-       * * `Papersign` - Papersign
-       * * `Partnerize` - Partnerize
-       * * `PartnerStack` - PartnerStack
-       * * `PayFit` - PayFit
-       * * `Paystack` - Paystack
-       * * `Pennylane` - Pennylane
-       * * `Perk` - Perk
-       * * `PersistIq` - PersistIq
-       * * `Persona` - Persona
-       * * `Phyllo` - Phyllo
-       * * `Picqer` - Picqer
-       * * `Pipeliner` - Pipeliner
-       * * `PivotalTracker` - PivotalTracker
-       * * `Piwik` - Piwik
-       * * `Planhat` - Planhat
-       * * `Plausible` - Plausible
-       * * `Poplar` - Poplar
-       * * `PrestaShop` - PrestaShop
-       * * `Pretix` - Pretix
-       * * `Primetric` - Primetric
-       * * `Printavo` - Printavo
-       * * `Printify` - Printify
-       * * `Productive` - Productive
-       * * `Pylon` - Pylon
-       * * `Qonto` - Qonto
-       * * `Qualaroo` - Qualaroo
-       * * `Railz` - Railz
-       * * `RDStationMarketing` - RDStationMarketing
-       * * `Recruitee` - Recruitee
-       * * `Reddit` - Reddit
-       * * `ReferralHero` - ReferralHero
-       * * `RentCast` - RentCast
-       * * `Repairshopr` - Repairshopr
-       * * `ReplyIo` - ReplyIo
-       * * `RetailExpress` - RetailExpress
-       * * `Retently` - Retently
-       * * `Retreaver` - Retreaver
-       * * `RevolutMerchant` - RevolutMerchant
-       * * `RocketChat` - RocketChat
-       * * `Rocketlane` - Rocketlane
-       * * `Rootly` - Rootly
-       * * `Ruddr` - Ruddr
-       * * `SafetyCulture` - SafetyCulture
-       * * `SageHR` - SageHR
-       * * `Salesflare` - Salesflare
-       * * `SAPFieldglass` - SAPFieldglass
-       * * `SavvyCal` - SavvyCal
-       * * `Secoda` - Secoda
-       * * `Segment` - Segment
-       * * `Sendowl` - Sendowl
-       * * `SendPulse` - SendPulse
-       * * `Senseforce` - Senseforce
-       * * `Serpstat` - Serpstat
-       * * `Sharetribe` - Sharetribe
-       * * `Shippo` - Shippo
-       * * `ShopWired` - ShopWired
-       * * `Shortio` - Shortio
-       * * `Shutterstock` - Shutterstock
-       * * `SigmaComputing` - SigmaComputing
-       * * `SignNow` - SignNow
-       * * `SimpleCast` - SimpleCast
-       * * `Simplesat` - Simplesat
-       * * `Smaily` - Smaily
-       * * `SmartEngage` - SmartEngage
-       * * `Smartreach` - Smartreach
-       * * `Smartwaiver` - Smartwaiver
-       * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
-       * * `SonarCloud` - SonarCloud
-       * * `SparkPost` - SparkPost
-       * * `SplitIo` - SplitIo
-       * * `SpotifyAds` - SpotifyAds
-       * * `SpotlerCRM` - SpotlerCRM
-       * * `Squarespace` - Squarespace
-       * * `Statsig` - Statsig
-       * * `Statuspage` - Statuspage
-       * * `Steam` - Steam
-       * * `Stigg` - Stigg
-       * * `Strava` - Strava
-       * * `SurveySparrow` - SurveySparrow
-       * * `Survicate` - Survicate
-       * * `Svix` - Svix
-       * * `Systeme` - Systeme
-       * * `Tavus` - Tavus
-       * * `Teamtailor` - Teamtailor
-       * * `Teamwork` - Teamwork
-       * * `Tempo` - Tempo
-       * * `Testrail` - Testrail
-       * * `Thinkific` - Thinkific
-       * * `ThinkificCourses` - ThinkificCourses
-       * * `ThriveLearning` - ThriveLearning
-       * * `Ticketmaster` - Ticketmaster
-       * * `TicketTailor` - TicketTailor
-       * * `TickTick` - TickTick
-       * * `Timely` - Timely
-       * * `Tinyemail` - Tinyemail
-       * * `Todoist` - Todoist
-       * * `Toggl` - Toggl
-       * * `TrackPMS` - TrackPMS
-       * * `Tremendous` - Tremendous
-       * * `TrustPilot` - TrustPilot
-       * * `Twitter` - Twitter
-       * * `TyntecSMS` - TyntecSMS
-       * * `Unleash` - Unleash
-       * * `UpPromote` - UpPromote
-       * * `Uptick` - Uptick
-       * * `Uservoice` - Uservoice
-       * * `Vantage` - Vantage
-       * * `Veeqo` - Veeqo
-       * * `Vercel` - Vercel
-       * * `VismaEconomic` - VismaEconomic
-       * * `VWO` - VWO
-       * * `Waiteraid` - Waiteraid
-       * * `Wasabi` - Wasabi
-       * * `WhenIWork` - WhenIWork
-       * * `Wordpress` - Wordpress
-       * * `Workable` - Workable
-       * * `Workflowmax` - Workflowmax
-       * * `Workramp` - Workramp
-       * * `Wufoo` - Wufoo
-       * * `Xsolla` - Xsolla
-       * * `YandexMetrica` - YandexMetrica
-       * * `Yotpo` - Yotpo
-       * * `Ynab` - Ynab
-       * * `Younium` - Younium
-       * * `YouSign` - YouSign
-       * * `YoutubeData` - YoutubeData
-       * * `ZapierSupportedStorage` - ZapierSupportedStorage
-       * * `ZapSign` - ZapSign
-       * * `ZendeskSell` - ZendeskSell
-       * * `ZendeskSunshine` - ZendeskSunshine
-       * * `Zenefits` - Zenefits
-       * * `Zenloop` - Zenloop
-       * * `ZohoAnalytics` - ZohoAnalytics
-       * * `ZohoBigin` - ZohoBigin
-       * * `ZohoBilling` - ZohoBilling
-       * * `ZohoBooks` - ZohoBooks
-       * * `ZohoCampaign` - ZohoCampaign
-       * * `ZohoDesk` - ZohoDesk
-       * * `ZohoExpense` - ZohoExpense
-       * * `ZohoInventory` - ZohoInventory
-       * * `ZohoInvoice` - ZohoInvoice
-       * * `ZonkaFeedback` - ZonkaFeedback
-       * * `AlphaVantage` - AlphaVantage
-       * * `Aviationstack` - Aviationstack
-       * * `Bitly` - Bitly
-       * * `Blogger` - Blogger
-       * * `Breezometer` - Breezometer
-       * * `CareQualityCommission` - CareQualityCommission
-       * * `Cimis` - Cimis
-       * * `CoinApi` - CoinApi
-       * * `CoinGecko` - CoinGecko
-       * * `CoinMarketCap` - CoinMarketCap
-       * * `DingConnect` - DingConnect
-       * * `Dockerhub` - Dockerhub
-       * * `ExchangeRatesApi` - ExchangeRatesApi
-       * * `FinancialModelling` - FinancialModelling
-       * * `Finnhub` - Finnhub
-       * * `Finnworlds` - Finnworlds
-       * * `Giphy` - Giphy
-       * * `Gmail` - Gmail
-       * * `GNews` - GNews
-       * * `GoogleCalendar` - GoogleCalendar
-       * * `GoogleClassroom` - GoogleClassroom
-       * * `GoogleDirectory` - GoogleDirectory
-       * * `GoogleForms` - GoogleForms
-       * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
-       * * `GoogleTasks` - GoogleTasks
-       * * `GoogleWebfonts` - GoogleWebfonts
-       * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
-       * * `HuggingFace` - HuggingFace
-       * * `IlluminaBasespace` - IlluminaBasespace
-       * * `Imagga` - Imagga
-       * * `Interzoid` - Interzoid
-       * * `IP2Whois` - IP2Whois
-       * * `KYVE` - KYVE
-       * * `Marketstack` - Marketstack
-       * * `Mendeley` - Mendeley
-       * * `Nasa` - Nasa
-       * * `NewYorkTimes` - NewYorkTimes
-       * * `NewsApi` - NewsApi
-       * * `NewsData` - NewsData
-       * * `OpenDataDc` - OpenDataDc
-       * * `OpenExchangeRates` - OpenExchangeRates
-       * * `OpenAQ` - OpenAQ
-       * * `OpenFDA` - OpenFDA
-       * * `OpenWeather` - OpenWeather
-       * * `Outlook` - Outlook
-       * * `Perigon` - Perigon
-       * * `Pexels` - Pexels
-       * * `Pocket` - Pocket
-       * * `Polygon` - Polygon
-       * * `PyPI` - PyPI
-       * * `Recreation` - Recreation
-       * * `RKICovid` - RKICovid
-       * * `Rss` - Rss
-       * * `SimFin` - SimFin
-       * * `StockData` - StockData
-       * * `Guardian` - Guardian
-       * * `TMDb` - TMDb
-       * * `TVMaze` - TVMaze
-       * * `TwelveData` - TwelveData
-       * * `Ubidots` - Ubidots
-       * * `USCensus` - USCensus
-       * * `Watchmode` - Watchmode
-       * * `WikipediaPageviews` - WikipediaPageviews
-       * * `YahooFinance` - YahooFinance
-       * * `Clarifai` - Clarifai
-       * * `Adapty` - Adapty
-       * * `Braintrust` - Braintrust
-       * * `StreamElements` - StreamElements
-       * * `Streamlabs` - Streamlabs
-       * * `Datorama` - Datorama
-       * * `Ahrefs` - Ahrefs
-       * * `Lightfield` - Lightfield
-       * * `Appstack` - Appstack
-       * * `Razorpay` - Razorpay
-       * * `Neon` - Neon
-       * * `NewRelic` - NewRelic
-       * * `Custom` - Custom
-       * * `Tile38` - Tile38
-       * * `Chatwoot` - Chatwoot
-       * * `Sanity` - Sanity
-       * * `Metronome` - Metronome
-       * * `Jobber` - Jobber
-       * * `Knock` - Knock
-       * * `Leexi` - Leexi
-       * * `RB2B` - RB2B
-       * * `Superwall` - Superwall
-       * * `Liana` - Liana
-       * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch
-       * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas
-       * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds
-       * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow
-       * * `Plunk` - Plunk
-       * * `Dub` - Dub
-       * * `AirOps` - AirOps
-       * * `Podium` - Podium
-       * * `Loops` - Loops
-       * * `Redis` - Redis
-       * * `Mercury` - Mercury
-       * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable
-       * * `PeecAI` - PeecAI
-       * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact
-       * * `AikidoSecurity` - AikidoSecurity
-       * * `Alguna` - Alguna
-       * * `Anthropic` - Anthropic
-       * * `Appwrite` - Appwrite
-       * * `BlandAI` - BlandAI
-       * * `BrowseAI` - BrowseAI
-       * * `BrowserUse` - BrowserUse
-       * * `ChartHop` - ChartHop
-       * * `Cody` - Cody
-       * * `Cursor` - Cursor
-       * * `Decagon` - Decagon
-       * * `Deepgram` - Deepgram
-       * * `ElevenLabs` - ElevenLabs
-       * * `Harvey` - Harvey
-       * * `Hyperspell` - Hyperspell
-       * * `Langfuse` - Langfuse
-       * * `LingoDev` - LingoDev
-       * * `M3ter` - M3ter
-       * * `Maxio` - Maxio
-       * * `Metorial` - Metorial
-       * * `OpenRouter` - OpenRouter
-       * * `TogetherAI` - TogetherAI
-       * * `Vapi` - Vapi
-       * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic
-       * * `Aiven` - Aiven
-       * * `Aviator` - Aviator
-       * * `Backblaze` - Backblaze
-       * * `Baseten` - Baseten
-       * * `Browserbase` - Browserbase
-       * * `Cohere` - Cohere
-       * * `DenoDeploy` - DenoDeploy
-       * * `DigitalOcean` - DigitalOcean
-       * * `E2B` - E2B
-       * * `Fintoc` - Fintoc
-       * * `Firecrawl` - Firecrawl
-       * * `FireworksAI` - FireworksAI
-       * * `FlyIo` - FlyIo
-       * * `Groq` - Groq
-       * * `GrowthBook` - GrowthBook
-       * * `Gumloop` - Gumloop
-       * * `Hatchet` - Hatchet
-       * * `Helicone` - Helicone
-       * * `Heroku` - Heroku
-       * * `Hetzner` - Hetzner
-       * * `HeyGen` - HeyGen
-       * * `Infisical` - Infisical
-       * * `Inngest` - Inngest
-       * * `KapaAI` - KapaAI
-       * * `Kernel` - Kernel
-       * * `Koyeb` - Koyeb
-       * * `LambdaLabs` - LambdaLabs
-       * * `LangSmith` - LangSmith
-       * * `Linode` - Linode
-       * * `Listmonk` - Listmonk
-       * * `LlamaCloud` - LlamaCloud
-       * * `Mem0` - Mem0
-       * * `Metriport` - Metriport
-       * * `Mintlify` - Mintlify
-       * * `MistralAI` - MistralAI
-       * * `Mono` - Mono
-       * * `Netlify` - Netlify
-       * * `Northflank` - Northflank
-       * * `OpenAI` - OpenAI
-       * * `Pinecone` - Pinecone
-       * * `PlatformSh` - PlatformSh
-       * * `PromptingCompany` - PromptingCompany
-       * * `Qdrant` - Qdrant
-       * * `Render` - Render
-       * * `Replicate` - Replicate
-       * * `RetellAI` - RetellAI
-       * * `Roark` - Roark
-       * * `RunPod` - RunPod
-       * * `ScaleAI` - ScaleAI
-       * * `Scaleway` - Scaleway
-       * * `SigNoz` - SigNoz
-       * * `Sim` - Sim
-       * * `Skyvern` - Skyvern
-       * * `Slash` - Slash
-       * * `Synthesia` - Synthesia
-       * * `Telli` - Telli
-       * * `TerraApi` - TerraApi
-       * * `TriggerDev` - TriggerDev
-       * * `Turso` - Turso
-       * * `Singular` - Singular
-       * * `Swonkie` - Swonkie
-       * * `TwelveLabs` - TwelveLabs
-       * * `Twenty` - Twenty
-       * * `Unstructured` - Unstructured
-       * * `Upstash` - Upstash
-       * * `Vellum` - Vellum
-       * * `Vultr` - Vultr
-       * * `Windmill` - Windmill
-       * * `Zep` - Zep
-       * * `Hex` - Hex
-       * * `Sumsub` - Sumsub
-       * * `GoogleChat` - GoogleChat
-       * * `Kickscale` - Kickscale
-       * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack
-       * * `DodoPayments` - DodoPayments
-       * * `Salestrics` - Salestrics
-       * * `Doppler` - Doppler
-       * * `Usersnap` - Usersnap
-       * * `Asknicely` - Asknicely
-       * * `Featurebase` - Featurebase
-       * * `Frill` - Frill
-       * * `Bettermode` - Bettermode
-       * * `Dynatrace` - Dynatrace
-       * * `Honeycomb` - Honeycomb
-       * * `SumoLogic` - SumoLogic
-       * * `LogzIO` - LogzIO
-       * * `Coralogix` - Coralogix
-       * * `BetterStack` - BetterStack
-       * * `Raygun` - Raygun
-       * * `Honeybadger` - Honeybadger
-       * * `Airbrake` - Airbrake
-       * * `Appsignal` - Appsignal
-       * * `Appdynamics` - Appdynamics
-       * * `Instana` - Instana
-       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
-       * * `Uptimerobot` - Uptimerobot
-       * * `Statuscake` - Statuscake
-       * * `Tailscale` - Tailscale
-       * * `Flagsmith` - Flagsmith
-       * * `Xmatters` - Xmatters
-       * * `Squadcast` - Squadcast
-       * * `Zenduty` - Zenduty
-       * * `Cronitor` - Cronitor
-       * * `Jenkins` - Jenkins
-       * * `Bitbucket` - Bitbucket
-       * * `Gitea` - Gitea
-       * * `Teamcity` - Teamcity
-       * * `TravisCI` - TravisCI
-       * * `Semaphore` - Semaphore
-       * * `CircleciInsights` - CircleciInsights
-       * * `OctopusDeploy` - OctopusDeploy
-       * * `Sourcegraph` - Sourcegraph
-       * * `Bitrise` - Bitrise
-       * * `Gerrit` - Gerrit
-       * * `TerraformCloud` - TerraformCloud
-       * * `PulumiCloud` - PulumiCloud
-       * * `Spacelift` - Spacelift
-       * * `Railway` - Railway
-       * * `Argocd` - Argocd
-       * * `PrefectCloud` - PrefectCloud
-       * * `DagsterCloud` - DagsterCloud
-       * * `Env0` - Env0
-       * * `Kubecost` - Kubecost
-       * * `Snyk` - Snyk
-       * * `Semgrep` - Semgrep
-       * * `Veracode` - Veracode
-       * * `Checkmarx` - Checkmarx
-       * * `Gitguardian` - Gitguardian
-       * * `QualysVmdr` - QualysVmdr
-       * * `Rapid7Insightvm` - Rapid7Insightvm
-       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
-       * * `Sentinelone` - Sentinelone
-       * * `Lacework` - Lacework
-       * * `OrcaSecurity` - OrcaSecurity
-       * * `Drata` - Drata
-       * * `Secureframe` - Secureframe
-       * * `CiscoDuo` - CiscoDuo
-       * * `Jumpcloud` - Jumpcloud
-       * * `OnePassword` - OnePassword
-       * * `Stytch` - Stytch
-       * * `Sonarqube` - Sonarqube
-       * * `Codecov` - Codecov
-       * * `Coveralls` - Coveralls
-       * * `Codacy` - Codacy
-       * * `Deepsource` - Deepsource
-       * * `Linearb` - Linearb
-       * * `Jellyfish` - Jellyfish
-       * * `Swarmia` - Swarmia
-       * * `Packagist` - Packagist
-       * * `Nuget` - Nuget
-       * * `CratesIO` - CratesIO
-       * * `SonatypeNexus` - SonatypeNexus
-       * * `JfrogArtifactory` - JfrogArtifactory
-       * * `Snowplow` - Snowplow
-       * * `WeightsAndBiases` - WeightsAndBiases
-       * * `MonteCarlo` - MonteCarlo
-       * * `Metaplane` - Metaplane
-       * * `Datahub` - Datahub
-       * * `ClickhouseCloud` - ClickhouseCloud
-       * * `ConfluentCloud` - ConfluentCloud
-       * * `KongKonnect` - KongKonnect
-       * * `Kandji` - Kandji
-       * * `Automox` - Automox
-       * * `Autumn` - Autumn
-       * * `GetStream` - GetStream
-       * * `Octolens` - Octolens
-       * * `Kajabi` - Kajabi
-       * * `Shopware` - Shopware
-       * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch
-       * * `Crisp` - Crisp
-       * * `Kommo` - Kommo
-       * * `Axiom` - Axiom
-       * * `Plivo` - Plivo
-       * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan
-       * * `AbTasty` - AbTasty
-       * * `Ably` - Ably
-       * * `AbnormalSecurity` - AbnormalSecurity
-       * * `Acast` - Acast
-       * * `Acculynx` - Acculynx
-       * * `Actionstep` - Actionstep
-       * * `Aftership` - Aftership
-       * * `AhaIdeas` - AhaIdeas
-       * * `AkamaiReporting` - AkamaiReporting
-       * * `Alation` - Alation
-       * * `Alegra` - Alegra
-       * * `Allegro` - Allegro
-       * * `AnodotCost` - AnodotCost
-       * * `Anomalo` - Anomalo
-       * * `Apaleo` - Apaleo
-       * * `Apitally` - Apitally
-       * * `AppStoreConnect` - AppStoreConnect
-       * * `Appdirect` - Appdirect
-       * * `Appfolio` - Appfolio
-       * * `Arxiv` - Arxiv
-       * * `Asaas` - Asaas
-       * * `Astronomer` - Astronomer
-       * * `Athenahealth` - Athenahealth
-       * * `Atlan` - Atlan
-       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
-       * * `Avalara` - Avalara
-       * * `AwsAthena` - AwsAthena
-       * * `AwsBatch` - AwsBatch
-       * * `AwsBudgets` - AwsBudgets
-       * * `AwsCloudformation` - AwsCloudformation
-       * * `AwsComputeOptimizer` - AwsComputeOptimizer
-       * * `AwsConfig` - AwsConfig
-       * * `AwsConnect` - AwsConnect
-       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
-       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
-       * * `AwsCostExplorer` - AwsCostExplorer
-       * * `AwsDocumentDB` - AwsDocumentDB
-       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
-       * * `AwsGuardduty` - AwsGuardduty
-       * * `AwsHealth` - AwsHealth
-       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
-       * * `AwsInspector` - AwsInspector
-       * * `AwsMacie` - AwsMacie
-       * * `AwsOrganizations` - AwsOrganizations
-       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
-       * * `AwsSagemaker` - AwsSagemaker
-       * * `AwsSavingsPlans` - AwsSavingsPlans
-       * * `AwsSecurityHub` - AwsSecurityHub
-       * * `AwsSes` - AwsSes
-       * * `AwsStepFunctions` - AwsStepFunctions
-       * * `AwsSupport` - AwsSupport
-       * * `AwsSystemsManager` - AwsSystemsManager
-       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
-       * * `AwsWaf` - AwsWaf
-       * * `AwsXray` - AwsXray
-       * * `AzureActivityLog` - AzureActivityLog
-       * * `AzureAdvisor` - AzureAdvisor
-       * * `AzureApiManagement` - AzureApiManagement
-       * * `AzureApplicationInsights` - AzureApplicationInsights
-       * * `AzureCostManagement` - AzureCostManagement
-       * * `AzureDataExplorer` - AzureDataExplorer
-       * * `AzureDataFactory` - AzureDataFactory
-       * * `AzureLogAnalytics` - AzureLogAnalytics
-       * * `AzureMonitorAlerts` - AzureMonitorAlerts
-       * * `AzureMonitorMetrics` - AzureMonitorMetrics
-       * * `AzureOpenaiUsage` - AzureOpenaiUsage
-       * * `AzurePolicyInsights` - AzurePolicyInsights
-       * * `AzureReservations` - AzureReservations
-       * * `AzureResourceGraph` - AzureResourceGraph
-       * * `AzureResourceHealth` - AzureResourceHealth
-       * * `AzureServiceHealth` - AzureServiceHealth
-       * * `AzureSynapse` - AzureSynapse
-       * * `BackMarket` - BackMarket
-       * * `Beehiiv` - Beehiiv
-       * * `Bigeye` - Bigeye
-       * * `BillCom` - BillCom
-       * * `Billomat` - Billomat
-       * * `BingWebmasterTools` - BingWebmasterTools
-       * * `Bitwarden` - Bitwarden
-       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
-       * * `BlackboardLearn` - BlackboardLearn
-       * * `Bling` - Bling
-       * * `Bloomerang` - Bloomerang
-       * * `Blueshift` - Blueshift
-       * * `Bluesky` - Bluesky
-       * * `BolRetailer` - BolRetailer
-       * * `Boulevard` - Boulevard
-       * * `Buffer` - Buffer
-       * * `Bugherd` - Bugherd
-       * * `Buildium` - Buildium
-       * * `Buttondown` - Buttondown
-       * * `BuyMeACoffee` - BuyMeACoffee
-       * * `Calendarific` - Calendarific
-       * * `Calibre` - Calibre
-       * * `CanvasLms` - CanvasLms
-       * * `Captivate` - Captivate
-       * * `Cashfree` - Cashfree
-       * * `CastAi` - CastAi
-       * * `Catchpoint` - Catchpoint
-       * * `CdcOpenData` - CdcOpenData
-       * * `Census` - Census
-       * * `Checkly` - Checkly
-       * * `CircleSo` - CircleSo
-       * * `Classy` - Classy
-       * * `Cleartax` - Cleartax
-       * * `Clever` - Clever
-       * * `Clevertap` - Clevertap
-       * * `Cliniko` - Cliniko
-       * * `Clio` - Clio
-       * * `Clip` - Clip
-       * * `Cloudability` - Cloudability
-       * * `Cloudsmith` - Cloudsmith
-       * * `Cloudzero` - Cloudzero
-       * * `Clover` - Clover
-       * * `Codemagic` - Codemagic
-       * * `Codescene` - Codescene
-       * * `Collibra` - Collibra
-       * * `Companycam` - Companycam
-       * * `Conekta` - Conekta
-       * * `ContaAzul` - ContaAzul
-       * * `Contentsquare` - Contentsquare
-       * * `Cortex` - Cortex
-       * * `Courier` - Courier
-       * * `Crossref` - Crossref
-       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
-       * * `CubeCloud` - CubeCloud
-       * * `D2lBrightspace` - D2lBrightspace
-       * * `Dayforce` - Dayforce
-       * * `Debugbear` - Debugbear
-       * * `Descope` - Descope
-       * * `Develocity` - Develocity
-       * * `Dialpad` - Dialpad
-       * * `Discord` - Discord
-       * * `Discourse` - Discourse
-       * * `Donorbox` - Donorbox
-       * * `Doorloop` - Doorloop
-       * * `Dovetail` - Dovetail
-       * * `Dragonboat` - Dragonboat
-       * * `Drchrono` - Drchrono
-       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
-       * * `EcbDataPortal` - EcbDataPortal
-       * * `Emarsys` - Emarsys
-       * * `Embrace` - Embrace
-       * * `Entsoe` - Entsoe
-       * * `Eppo` - Eppo
-       * * `Etsy` - Etsy
-       * * `Eurostat` - Eurostat
-       * * `Faire` - Faire
-       * * `FarosAi` - FarosAi
-       * * `Fieldpulse` - Fieldpulse
-       * * `Fieldwire` - Fieldwire
-       * * `Filevine` - Filevine
-       * * `Finout` - Finout
-       * * `Five9` - Five9
-       * * `FlexeraCloudCost` - FlexeraCloudCost
-       * * `Flutterwave` - Flutterwave
-       * * `Fortnox` - Fortnox
-       * * `Fourthwall` - Fourthwall
-       * * `Fred` - Fred
-       * * `Frontegg` - Frontegg
-       * * `FusionAuth` - FusionAuth
-       * * `G2` - G2
-       * * `Gcore` - Gcore
-       * * `GcpApigee` - GcpApigee
-       * * `GcpArtifactRegistry` - GcpArtifactRegistry
-       * * `GcpBigtable` - GcpBigtable
-       * * `GcpChronicle` - GcpChronicle
-       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
-       * * `GcpCloudBilling` - GcpCloudBilling
-       * * `GcpCloudBuild` - GcpCloudBuild
-       * * `GcpCloudDeploy` - GcpCloudDeploy
-       * * `GcpCloudDns` - GcpCloudDns
-       * * `GcpCloudFunctions` - GcpCloudFunctions
-       * * `GcpCloudLogging` - GcpCloudLogging
-       * * `GcpCloudMonitoring` - GcpCloudMonitoring
-       * * `GcpCloudRun` - GcpCloudRun
-       * * `GcpCloudSpanner` - GcpCloudSpanner
-       * * `GcpCloudSql` - GcpCloudSql
-       * * `GcpCloudTrace` - GcpCloudTrace
-       * * `GcpCloudWorkflows` - GcpCloudWorkflows
-       * * `GcpComputeEngine` - GcpComputeEngine
-       * * `GcpContainerAnalysis` - GcpContainerAnalysis
-       * * `GcpDataflow` - GcpDataflow
-       * * `GcpDataplex` - GcpDataplex
-       * * `GcpDataproc` - GcpDataproc
-       * * `GcpErrorReporting` - GcpErrorReporting
-       * * `GcpGke` - GcpGke
-       * * `GcpPubsub` - GcpPubsub
-       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
-       * * `GcpRecommender` - GcpRecommender
-       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
-       * * `Gdelt` - Gdelt
-       * * `GenesysCloud` - GenesysCloud
-       * * `Getdx` - Getdx
-       * * `Ghost` - Ghost
-       * * `Givebutter` - Givebutter
-       * * `Gleif` - Gleif
-       * * `GooglePlayConsole` - GooglePlayConsole
-       * * `Guesty` - Guesty
-       * * `Gumroad` - Gumroad
-       * * `HarnessCcm` - HarnessCcm
-       * * `HarnessSei` - HarnessSei
-       * * `Harvest` - Harvest
-       * * `Healthie` - Healthie
-       * * `Hitpay` - Hitpay
-       * * `Hivebrite` - Hivebrite
-       * * `Holded` - Holded
-       * * `Hostaway` - Hostaway
-       * * `HousecallPro` - HousecallPro
-       * * `Humanitec` - Humanitec
-       * * `ImfData` - ImfData
-       * * `Imperva` - Imperva
-       * * `InfluxdbCloud` - InfluxdbCloud
-       * * `Iyzico` - Iyzico
-       * * `Jobtread` - Jobtread
-       * * `Kameleoon` - Kameleoon
-       * * `KauflandMarketplace` - KauflandMarketplace
-       * * `Kestra` - Kestra
-       * * `Kick` - Kick
-       * * `Kinde` - Kinde
-       * * `Kion` - Kion
-       * * `Knowbe4` - Knowbe4
-       * * `Komodor` - Komodor
-       * * `Labelbox` - Labelbox
-       * * `Lawmatics` - Lawmatics
-       * * `Learnworlds` - Learnworlds
-       * * `LexwareOffice` - LexwareOffice
-       * * `Lightdash` - Lightdash
-       * * `Lodgify` - Lodgify
-       * * `Logicmonitor` - Logicmonitor
-       * * `Logrocket` - Logrocket
-       * * `LoopReturns` - LoopReturns
-       * * `Mastodon` - Mastodon
-       * * `Meetup` - Meetup
-       * * `Megaphone` - Megaphone
-       * * `Memberful` - Memberful
-       * * `MercadoPago` - MercadoPago
-       * * `Meteostat` - Meteostat
-       * * `Mews` - Mews
-       * * `Mezmo` - Mezmo
-       * * `Microsoft365UsageReports` - Microsoft365UsageReports
-       * * `MicrosoftAdvertising` - MicrosoftAdvertising
-       * * `MicrosoftClarity` - MicrosoftClarity
-       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
-       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
-       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
-       * * `MicrosoftIntune` - MicrosoftIntune
-       * * `MicrosoftPurview` - MicrosoftPurview
-       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
-       * * `MicrosoftSentinel` - MicrosoftSentinel
-       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
-       * * `Midtrans` - Midtrans
-       * * `MightyNetworks` - MightyNetworks
-       * * `Mindbody` - Mindbody
-       * * `Mirakl` - Mirakl
-       * * `Moesif` - Moesif
-       * * `Moneybird` - Moneybird
-       * * `Moodle` - Moodle
-       * * `Motherduck` - Motherduck
-       * * `Mycase` - Mycase
-       * * `NagerDate` - NagerDate
-       * * `NeonCrm` - NeonCrm
-       * * `Nexhealth` - Nexhealth
-       * * `NoaaCdo` - NoaaCdo
-       * * `Nobl9` - Nobl9
-       * * `Nolt` - Nolt
-       * * `Nops` - Nops
-       * * `NpmRegistry` - NpmRegistry
-       * * `Oecd` - Oecd
-       * * `Okendo` - Okendo
-       * * `Omni` - Omni
-       * * `Onelogin` - Onelogin
-       * * `OpenDental` - OpenDental
-       * * `OpenMeteo` - OpenMeteo
-       * * `Openalex` - Openalex
-       * * `Opencorporates` - Opencorporates
-       * * `Openfec` - Openfec
-       * * `OpnPayments` - OpnPayments
-       * * `Opslevel` - Opslevel
-       * * `OttoMarket` - OttoMarket
-       * * `Ownerrez` - Ownerrez
-       * * `Pagbank` - Pagbank
-       * * `Patreon` - Patreon
-       * * `Pax8` - Pax8
-       * * `Paychex` - Paychex
-       * * `Paymob` - Paymob
-       * * `Paymongo` - Paymongo
-       * * `Phonepe` - Phonepe
-       * * `Pike13` - Pike13
-       * * `Pingone` - Pingone
-       * * `PinterestOrganic` - PinterestOrganic
-       * * `PlanningCenter` - PlanningCenter
-       * * `PluralsightFlow` - PluralsightFlow
-       * * `Podbean` - Podbean
-       * * `Postscript` - Postscript
-       * * `PowerBiAdmin` - PowerBiAdmin
-       * * `Practicepanther` - Practicepanther
-       * * `Preset` - Preset
-       * * `Procore` - Procore
-       * * `Productiv` - Productiv
-       * * `ProofpointTap` - ProofpointTap
-       * * `Propertyware` - Propertyware
-       * * `Pubnub` - Pubnub
-       * * `Quay` - Quay
-       * * `Raken` - Raken
-       * * `RedpandaCloud` - RedpandaCloud
-       * * `RentManager` - RentManager
-       * * `Reverb` - Reverb
-       * * `RocketMatter` - RocketMatter
-       * * `Rubygems` - Rubygems
-       * * `Scalr` - Scalr
-       * * `SecEdgar` - SecEdgar
-       * * `SelectStar` - SelectStar
-       * * `SemanticScholar` - SemanticScholar
-       * * `Semrush` - Semrush
-       * * `ServiceFusion` - ServiceFusion
-       * * `Servicem8` - Servicem8
-       * * `Servicetitan` - Servicetitan
-       * * `Servicetrade` - Servicetrade
-       * * `Sevdesk` - Sevdesk
-       * * `Similarweb` - Similarweb
-       * * `Simpro` - Simpro
-       * * `Sinch` - Sinch
-       * * `Singlestore` - Singlestore
-       * * `Site24x7` - Site24x7
-       * * `Sleuth` - Sleuth
-       * * `Smartlook` - Smartlook
-       * * `Smartrecruiters` - Smartrecruiters
-       * * `Smokeball` - Smokeball
-       * * `SodaCloud` - SodaCloud
-       * * `Speedcurve` - Speedcurve
-       * * `SpotIo` - SpotIo
-       * * `Sprig` - Sprig
-       * * `Sprinklr` - Sprinklr
-       * * `SproutSocial` - SproutSocial
-       * * `StackOverflowForTeams` - StackOverflowForTeams
-       * * `Stockx` - Stockx
-       * * `TackleIo` - TackleIo
-       * * `Talkdesk` - Talkdesk
-       * * `TeamupFitness` - TeamupFitness
-       * * `Tebra` - Tebra
-       * * `Telnyx` - Telnyx
-       * * `Ternary` - Ternary
-       * * `Thoughtspot` - Thoughtspot
-       * * `Thousandeyes` - Thousandeyes
-       * * `Threads` - Threads
-       * * `TiktokShop` - TiktokShop
-       * * `TinyErp` - TinyErp
-       * * `Tinybird` - Tinybird
-       * * `Tipalti` - Tipalti
-       * * `Toast` - Toast
-       * * `Torii` - Torii
-       * * `Transistor` - Transistor
-       * * `TrunkIo` - TrunkIo
-       * * `Trustradius` - Trustradius
-       * * `Twitch` - Twitch
-       * * `TwoC2p` - TwoC2p
-       * * `UkCompaniesHouse` - UkCompaniesHouse
-       * * `UkOns` - UkOns
-       * * `UnComtrade` - UnComtrade
-       * * `UsBea` - UsBea
-       * * `UsBls` - UsBls
-       * * `UsEia` - UsEia
-       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
-       * * `Vanta` - Vanta
-       * * `Vendr` - Vendr
-       * * `Virtuous` - Virtuous
-       * * `Vonage` - Vonage
-       * * `WalmartMarketplace` - WalmartMarketplace
-       * * `Waydev` - Waydev
-       * * `Wayfair` - Wayfair
-       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
-       * * `WhoGho` - WhoGho
-       * * `Whop` - Whop
-       * * `Wistia` - Wistia
-       * * `Wiz` - Wiz
-       * * `Wompi` - Wompi
-       * * `Workiz` - Workiz
-       * * `WorldBank` - WorldBank
-       * * `Xendit` - Xendit
-       * * `Yoco` - Yoco
-       * * `ZalandoZdirect` - ZalandoZdirect
-       * * `Zluri` - Zluri
-       * * `Zylo` - Zylo
-       * * `Tally` - Tally
-       * * `Nuntly` - Nuntly
-       * * `Vturb` - Vturb
-       * * `Meltwater` - Meltwater
-       * * `UserCom` - UserCom
-       * * `Latitude` - Latitude
-       * * `Workato` - Workato
-       * * `SideShift` - SideShift
-       * * `DuckLake` - DuckLake
-       * * `Starburst` - Starburst
-       * * `Trino` - Trino
-       * * `Easybill` - Easybill
-       * * `Bexio` - Bexio
-       * * `Umami` - Umami
-       * * `Manychat` - Manychat
-       * * `Kickstarter` - Kickstarter
-       * * `Typesense` - Typesense
-       * * `FirstPromoter` - FirstPromoter
-       * * `Zero` - Zero
-       * * `Inth` - Inth
-       * * `BCMS` - BCMS
-       * * `Convonite` - Convonite
-       * * `Hookdeck` - Hookdeck
-       * * `Billit` - Billit
-       * * `Moxie` - Moxie
-       * * `TripleWhale` - TripleWhale
-       * * `Directus` - Directus
-       * * `Clay` - Clay
-       * * `TradableBits` - TradableBits
-       * * `Swan` - Swan
-       * * `Hyros` - Hyros
-       * * `Odoo` - Odoo
-       * * `Airbridge` - Airbridge
-       * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter
-       * * `Raisely` - Raisely
-       * * `RakutenAdvertising` - RakutenAdvertising
-       * * `Zitadel` - Zitadel
-       * * `DeelFlows` - DeelFlows
-       * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix
-       * * `Sevalla` - Sevalla
-       * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner
-       * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare
-       * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91
-       * * `Depot` - Depot
-       * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy
-       * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart
-       * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound
-       * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi
-       * * `Capterra` - Capterra
-       * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi
-       * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS
-       * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox
-       * * `SimonData` - SimonData
-       * * `CommissionJunction` - CommissionJunction
-       * * `Liveblocks` - Liveblocks
-       * * `Livestorm` - Livestorm
-       * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana
-       * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable
-       * * `Anvil` - Anvil
-       * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato
-       * * `Medusa` - Medusa
-       * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin
-       * * `Folk` - Folk
-       * * `Cybersource` - Cybersource
-       * * `GoogleAdSense` - GoogleAdSense
-       * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio
-       * * `Smartlead` - Smartlead
-       * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket
-       * * `Quo` - Quo
-       * * `HeyReach` - HeyReach
-       * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet
-       * * `Expo` - Expo
-       * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer
-       * * `Sprinto` - Sprinto
-       * * `Gem` - Gem
-       * * `AudioGO` - AudioGO
-       * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs
-       * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura
-       * * `ChargebackStop` - ChargebackStop
-       * * `Chargeflow` - Chargeflow
-       * * `Dreamdata` - Dreamdata
-       * * `GoogleBusinessProfile` - GoogleBusinessProfile
-       * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite
-       * * `Modal` - Modal
-       * * `Vimeo` - Vimeo
-       * * `Scrunch` - Scrunch
-       * * `Loom` - Loom
-       * * `Arcade` - Arcade
-       * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom
-       * * `Userback` - Userback
-       * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution
-       * * `StackAdapt` - StackAdapt
-       * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay
-       * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud
-       * * `Northbeam` - Northbeam
-       * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO
-       * * `Airship` - Airship
-       * * `Creem` - Creem
-       * * `Leantime` - Leantime
-       * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob
-       * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2
-       * * `Particle` - Particle
-       * * `FileUpload` - FileUpload
-       * * `Dripify` - Dripify
-       * * `AwsS3Tables` - AwsS3Tables
-       * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments
-       * * `Soniox` - Soniox */
-      readonly source_type: ExternalDataSourceTypeEnum;
+      /** The source type to start a direct-connection setup for (e.g. 'Postgres', 'ClickHouse'). */
+      readonly source_type: string;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
       /**
@@ -40363,6 +35444,8 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       experiment_id?: number;
+      /** A `RecordingsQuery` the person already chose, as the replay list holds it. The draft starts from it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND its own page, event, action or cohort filters onto it. It keeps them only when the combined filter still matches recent recordings, returns them in `query_additions`, and sizes the sampling dials against the combined `query`. `experiment_exposure` becomes the scanner's experiment and variants, which the draft keeps as they are. `date_from`/`date_to` are dropped, because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session exposure are refused, because a scanner cannot apply them. A query with no filters starts from every new recording. Omit to let the draft pick the sessions. */
+      query?: unknown;
     }
 
     /**
@@ -40401,6 +35484,8 @@ export namespace Schemas {
       rationale: string;
       /** `RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session. */
       query: unknown;
+      /** When the request passed a `query`: the filters the draft ANDed onto it, which `query` already includes. Show them to the person as added by AI. Null when nothing was added or no `query` was passed. */
+      query_additions: unknown;
       /** The quality pre-filter the draft chose for the goal. Null when the costing estimate failed, in which case the wizard keeps its defaults.
        *
        * * `focused` - Focused
@@ -41365,6 +36450,26 @@ export namespace Schemas {
       name: string;
     }
 
+    /**
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained
+     */
+    export type EmailDeliveryStatusEnum = typeof EmailDeliveryStatusEnum[keyof typeof EmailDeliveryStatusEnum];
+
+
+    export const EmailDeliveryStatusEnum = {
+      Queued: 'queued',
+      Failed: 'failed',
+      Sent: 'sent',
+      Delivered: 'delivered',
+      Bounced: 'bounced',
+      Complained: 'complained',
+    } as const;
+
     export interface EmailDomainConnectProvider {
       /** Domain Connect endpoint of the provider. */
       endpoint: string;
@@ -41737,6 +36842,29 @@ export namespace Schemas {
       readonly email_sending_suspended_at: string | null;
       /** Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended. */
       readonly email_sending_suspension_reason: string;
+    }
+
+    export interface EmailStatus {
+      /** The `message_id` that the send returned. */
+      id: string;
+      /** What happened to the email. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
+       *
+       * * `queued` - Queued
+       * * `failed` - Failed
+       * * `sent` - Sent
+       * * `delivered` - Delivered
+       * * `bounced` - Bounced
+       * * `complained` - Complained */
+      status: EmailDeliveryStatusEnum;
+      /** When the send was queued. */
+      created_at: string;
+      /** When the email reached its current status. */
+      status_at: string;
+      /**
+         * Why a failed email was not sent, or the bounce type of a bounced email. A failed send has `provider_error`, or `provider_rejected` when the provider refused the email after it accepted the send. A skipped send has `recipient_suppressed`, `recipient_unreachable`, `recipient_opted_out`, `missing_recipient`, `sending_paused`, `sending_suspended` or `frequency_capped`. A run that stopped before the send has `canceled`, `workflow_unavailable` or an error kind such as `timeout`, and more error kinds can be added. A bounce has `hard`, `soft` or `unknown`. Null otherwise.
+         * @nullable
+         */
+      reason: string | null;
     }
 
     /**
@@ -42340,7 +37468,7 @@ export namespace Schemas {
       query: unknown;
       /** Whether the endpoint can be executed via the API. */
       is_active: boolean;
-      /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+      /** Effective data freshness, in seconds. Materialized endpoints use the node's refresh target, which can differ from the standard freshness choices. Other endpoints use the cache duration. */
       data_freshness_seconds: number;
       /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
@@ -42475,7 +37603,7 @@ export namespace Schemas {
       query: unknown;
       /** Whether the endpoint can be executed via the API. */
       is_active: boolean;
-      /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+      /** Effective data freshness, in seconds. Materialized endpoints use the node's refresh target, which can differ from the standard freshness choices. Other endpoints use the cache duration. */
       data_freshness_seconds: number;
       /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
@@ -45053,6 +40181,13 @@ export namespace Schemas {
          * @nullable
          */
       judge_method?: 'llm' | 'decision' | null;
+      /** Set to false to judge text only. */
+      include_media?: boolean;
+      /**
+         * How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default.
+         * @nullable
+         */
+      reasoning_level?: 'minimal' | 'low' | 'medium' | 'high' | null;
     } | {
       /**
          * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
@@ -46219,7 +41354,7 @@ export namespace Schemas {
     }
 
     export interface PassRateOverview {
-      /** Enabled pass rate evaluations, lowest rate first. */
+      /** Pass rate evaluations with results in the period, paused ones included, lowest rate first. */
       entries: PassRateOverviewEntry[];
       /** Median of the per-evaluation pass rates without low evidence. */
       median: number | null;
@@ -46242,7 +41377,7 @@ export namespace Schemas {
       /** Start of each bucket, in the project's timezone. Every series is aligned with it. The first bucket can start before `start`. */
       buckets: string[];
       evaluations: EvaluationResult[];
-      /** Totals over the enabled evaluations. */
+      /** Totals over every evaluation's results in the period, paused ones included. */
       totals: OverviewTotals;
       passRateOverview: PassRateOverview;
     }
@@ -46388,62 +41523,6 @@ export namespace Schemas {
       pipelines: IngestionPipelineEnum[];
     }
 
-    export interface EventMatch {
-      /** The event name to select, such as $autocapture. */
-      name: string;
-      /** The event's display name, such as Autocapture. */
-      display_name: string;
-      /** How likely the search means this event, from 0 to 1. */
-      probability: number;
-    }
-
-    /**
-     * * `wrong_length` - The search is too short or too long to ask about
-     * * `only_values` - Nothing but values is left for the model to read
-     * * `unavailable` - The model could not answer at all
-     * * `partial` - Some model requests failed, so an event it never asked about might have matched
-     * * `nothing_likely` - The model found no core event likely
-     * * `not_ingested` - The project never sent the likely events
-     * * `matched` - At least one likely event has data
-     */
-    export type EventMatchOutcomeEnum = typeof EventMatchOutcomeEnum[keyof typeof EventMatchOutcomeEnum];
-
-
-    export const EventMatchOutcomeEnum = {
-      WrongLength: 'wrong_length',
-      OnlyValues: 'only_values',
-      Unavailable: 'unavailable',
-      Partial: 'partial',
-      NothingLikely: 'nothing_likely',
-      NotIngested: 'not_ingested',
-      Matched: 'matched',
-    } as const;
-
-    export interface EventMatchRequest {
-      /**
-         * What the person typed into the events list search box, which matched no event name.
-         * @maxLength 200
-         */
-      query: string;
-    }
-
-    export interface EventMatchResponse {
-      /** PostHog core events the search most likely means, strongest first. Empty when nothing is likely. */
-      matches: EventMatch[];
-      /** The step that decided the answer, so an empty answer says why it is empty.
-       *
-       * * `wrong_length` - The search is too short or too long to ask about
-       * * `only_values` - Nothing but values is left for the model to read
-       * * `unavailable` - The model could not answer at all
-       * * `partial` - Some model requests failed, so an event it never asked about might have matched
-       * * `nothing_likely` - The model found no core event likely
-       * * `not_ingested` - The project never sent the likely events
-       * * `matched` - At least one likely event has data */
-      outcome: EventMatchOutcomeEnum;
-      /** Likely core events this project never sent, strongest first. Only filled when outcome is not_ingested. */
-      unsent: EventMatch[];
-    }
-
     export type EventMatchScope = typeof EventMatchScope[keyof typeof EventMatchScope];
 
 
@@ -46472,6 +41551,7 @@ export namespace Schemas {
      * * `Numeric` - Numeric
      * * `Boolean` - Boolean
      * * `Object` - Object
+     * * `Array` - Array
      */
     export type SchemaPropertyTypeEnum = typeof SchemaPropertyTypeEnum[keyof typeof SchemaPropertyTypeEnum];
 
@@ -46482,6 +41562,7 @@ export namespace Schemas {
       Numeric: 'Numeric',
       Boolean: 'Boolean',
       Object: 'Object',
+      Array: 'Array',
     } as const;
 
     export interface SchemaPropertyGroupProperty {
@@ -46668,7 +41749,41 @@ export namespace Schemas {
       AiTrace: '$ai_trace',
     } as const;
 
+    export interface EventWorkflowsBuildRequest {
+      /**
+         * The events to build email workflows for, at most 5. Each event gets at most one draft workflow that starts when the event happens.
+         * @minItems 1
+         * @maxItems 5
+         * @items.maxLength 400
+         */
+      events: string[];
+      /** Start a new build when the last one for these events failed. Leave it false when asking for a running build's status. */
+      retry?: boolean;
+    }
+
+    export interface EventWorkflowsBuildResponse {
+      /** ready when at least one draft was saved, building while the background build runs (call again with the same events to check), failed when no event produced a valid workflow. A failed result stays until a call sends retry.
+       *
+       * * `ready` - Ready
+       * * `building` - Building
+       * * `failed` - Failed */
+      status: DataSuggestionBuildStatusEnum;
+      /** With status ready: the saved draft workflows, which never run until enabled. Empty otherwise. */
+      workflow_ids: string[];
+    }
+
     export interface EventsRetention {
+      /**
+         * The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.
+         * @nullable
+         */
+      readonly organization_retention_months: number | null;
+      /** The longest window the organization's plan allows, in months. */
+      readonly plan_retention_months: number;
+      /** The shortest window an admin can set, in months. */
+      readonly min_retention_months: number;
+      /** The longest window an admin can set, in months. Never longer than the plan's window. */
+      readonly max_retention_months: number;
       /**
          * How many months of events stay queryable, counted back from today. Null while no retention window applies to the project.
          * @nullable
@@ -46681,6 +41796,20 @@ export namespace Schemas {
       readonly retained_from: string | null;
       /** Where the events retention policy is documented. */
       readonly docs_url: string;
+      /**
+         * The window, in months, set for this project. Null while the project uses the organization's window.
+         * @nullable
+         */
+      readonly project_retention_months: number | null;
+    }
+
+    export interface EventsRetentionUpdate {
+      /**
+         * The window in months. Events older than this are deleted on the next monthly cleanup and can't be restored. Null removes the window.
+         * @minimum 1
+         * @nullable
+         */
+      retention_months: number | null;
     }
 
     export interface ExcerptChoice {
@@ -47468,9 +42597,12 @@ export namespace Schemas {
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
@@ -47478,6 +42610,8 @@ export namespace Schemas {
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
+     * * `flag_shared` - Flag Shared
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -47493,9 +42627,12 @@ export namespace Schemas {
       MetricEventNotIngested: 'metric_event_not_ingested',
       MetricCannotCompile: 'metric_cannot_compile',
       MetricCalculationFailed: 'metric_calculation_failed',
+      MetricAllZero: 'metric_all_zero',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+      ExposureFilterOnDynamicCohort: 'exposure_filter_on_dynamic_cohort',
       Srm: 'srm',
       ZeroExposures: 'zero_exposures',
+      TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
       ForcedVariantReleaseCondition: 'forced_variant_release_condition',
       FlagVariantsMismatch: 'flag_variants_mismatch',
       SplitChangedMidRun: 'split_changed_mid_run',
@@ -47503,6 +42640,8 @@ export namespace Schemas {
       ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
       NewFlagNoTraffic: 'new_flag_no_traffic',
       EarlySignificance: 'early_significance',
+      MetricsNotMatured: 'metrics_not_matured',
+      FlagShared: 'flag_shared',
     } as const;
 
     /**
@@ -47561,22 +42700,32 @@ export namespace Schemas {
        * * `metric_event_not_ingested` - Metric Event Not Ingested
        * * `metric_cannot_compile` - Metric Cannot Compile
        * * `metric_calculation_failed` - Metric Calculation Failed
+       * * `metric_all_zero` - Metric All Zero
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+       * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
        * * `srm` - Sample Ratio Mismatch
        * * `zero_exposures` - Zero Exposures
+       * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
        * * `forced_variant_release_condition` - Forced Variant Release Condition
        * * `flag_variants_mismatch` - Flag Variants Mismatch
        * * `split_changed_mid_run` - Split Changed Mid Run
        * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
        * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
        * * `new_flag_no_traffic` - New Flag No Traffic
-       * * `early_significance` - Early Significance */
+       * * `early_significance` - Early Significance
+       * * `metrics_not_matured` - Metrics Not Matured
+       * * `flag_shared` - Flag Shared */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
          * @nullable
          */
       subcode: string | null;
+      /**
+         * A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), what leaves nobody exposed ('test_account_filter'), what made a metric reach a query limit ('metric', 'exposure_criteria'), or why a check could not read what it needs ('no_history_access'). Null when the finding names none.
+         * @nullable
+         */
+      reason: string | null;
       /** How much the problem affects the results: critical, warning, or info.
        *
        * * `critical` - Critical severity
@@ -47600,6 +42749,7 @@ export namespace Schemas {
 
     /**
      * * `flag_state` - Flag State
+     * * `flag_shared` - Flag Shared
      * * `flag_history` - Flag History
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
@@ -47611,9 +42761,13 @@ export namespace Schemas {
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
      * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
@@ -47623,6 +42777,7 @@ export namespace Schemas {
 
     export const ExperimentHealthCheckKeyEnum = {
       FlagState: 'flag_state',
+      FlagShared: 'flag_shared',
       FlagHistory: 'flag_history',
       SplitChangedMidRun: 'split_changed_mid_run',
       BucketingChangedMidRun: 'bucketing_changed_mid_run',
@@ -47634,9 +42789,13 @@ export namespace Schemas {
       MetricEventNotIngested: 'metric_event_not_ingested',
       MetricCannotCompile: 'metric_cannot_compile',
       MetricCalculationFailed: 'metric_calculation_failed',
+      MetricAllZero: 'metric_all_zero',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+      ExposureFilters: 'exposure_filters',
       EarlySignificance: 'early_significance',
+      MetricsNotMatured: 'metrics_not_matured',
       ZeroExposures: 'zero_exposures',
+      TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
       Srm: 'srm',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
       MultipleVariantsShare: 'multiple_variants_share',
@@ -47662,6 +42821,7 @@ export namespace Schemas {
       /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
        *
        * * `flag_state` - Flag State
+       * * `flag_shared` - Flag Shared
        * * `flag_history` - Flag History
        * * `split_changed_mid_run` - Split Changed Mid Run
        * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
@@ -47673,14 +42833,18 @@ export namespace Schemas {
        * * `metric_event_not_ingested` - Metric Event Not Ingested
        * * `metric_cannot_compile` - Metric Cannot Compile
        * * `metric_calculation_failed` - Metric Calculation Failed
+       * * `metric_all_zero` - Metric All Zero
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+       * * `exposure_filters` - Exposure Filters
        * * `early_significance` - Early Significance
+       * * `metrics_not_matured` - Metrics Not Matured
        * * `zero_exposures` - Zero Exposures
+       * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
        * * `srm` - Srm
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `multiple_variants_share` - Multiple Variants Share */
       key: ExperimentHealthCheckKeyEnum;
-      /** What the check looks at, for example 'Feature flag variants'. */
+      /** The problem the check looks for, for example 'Metrics not set up'. */
       name: string;
       /** passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
        *
@@ -47957,6 +43121,7 @@ export namespace Schemas {
       Srm: 'srm',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
       MultipleVariantsShare: 'multiple_variants_share',
+      TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     } as const;
 
     export type ExperimentExposureHealthCheckStatus = typeof ExperimentExposureHealthCheckStatus[keyof typeof ExperimentExposureHealthCheckStatus];
@@ -47972,7 +43137,7 @@ export namespace Schemas {
     export interface ExperimentExposureHealthCheck {
       /** Stable identifier of the check. */
       key: ExperimentExposureHealthCheckKey;
-      /** What the check looks at, as the health panel lists it. */
+      /** The problem the check looks for, as the health panel lists it. */
       name: string;
       /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
       reason: string | null;
@@ -48003,6 +43168,7 @@ export namespace Schemas {
       Srm: 'srm',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
       MultipleVariantsShare: 'multiple_variants_share',
+      TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     } as const;
 
     export type ExperimentExposureHealthFindingSeverity = typeof ExperimentExposureHealthFindingSeverity[keyof typeof ExperimentExposureHealthFindingSeverity];
@@ -48025,6 +43191,8 @@ export namespace Schemas {
       diagnostic_ref: string | null;
       /** The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code. */
       evidence: ExperimentExposureHealthFindingEvidence;
+      /** A stable qualifier below the subcode, for example where a sample ratio mismatch is located. Null when the finding names none. */
+      reason: string | null;
       /** How much the problem affects the results: critical, warning, or info. */
       severity: ExperimentExposureHealthFindingSeverity;
       /** The case within the code, when a code covers several. Null when the code has one case. */
@@ -48430,6 +43598,22 @@ export namespace Schemas {
       message: string | null;
     }
 
+    export interface ExperimentHealthInputsZeroMetric {
+      /** The name of the metric, as the results page shows it. */
+      name: string;
+      /** Whether the metric is a primary or a secondary metric of the experiment. */
+      role: string;
+      /** The persons or groups of the result, across the variants. */
+      exposures: number;
+      /**
+         * The side of a ratio that reads zero. Each side that reads zero has its own entry. Null for the other metric types.
+         * @nullable
+         */
+      ratio_side: string | null;
+      /** The events of the metric that the project last received before launch. */
+      stopped_events: string[];
+    }
+
     export interface ExperimentHealthInputsLatestCalculation {
       /**
          * When the latest calculation that the results page shows finished. Null when none has finished.
@@ -48438,6 +43622,13 @@ export namespace Schemas {
       finished_at: string | null;
       /** The metrics whose latest calculation failed, with the error that the results page shows. */
       failures: ExperimentHealthInputsMetricCalculationFailure[];
+      /**
+         * The hours from launch to the end of the data of this calculation. Null when none has finished.
+         * @nullable
+         */
+      hours_of_data: number | null;
+      /** The metrics that read zero in every variant in this calculation. */
+      zero_metrics: ExperimentHealthInputsZeroMetric[];
     }
 
     export interface ExperimentHealthInputsFlagChange {
@@ -48834,7 +44025,7 @@ export namespace Schemas {
          */
       flag_called_during_run: boolean | null;
       /**
-         * Whether PostHog has recorded a call of the flag after the end. The flag state check reads it on an ended experiment whose flag is still active with multiple variants. False only after 3 days without a recorded call. Null before the end, before those 3 days are over, or when the organization's flag calls can't be read.
+         * Whether PostHog has recorded a call of the flag after the end and within the last 3 days. The flag state check reads it on an ended experiment whose flag is still active with multiple variants. False only once 3 days have passed since the end. Null before the end, before those 3 days are over without a call, or when the organization's flag calls can't be read.
          * @nullable
          */
       flag_called_after_end: boolean | null;
@@ -48842,7 +44033,7 @@ export namespace Schemas {
       exposure_events: ExperimentHealthInputsExposureEvents | null;
       /** Whether the project has received each event that the metrics and the exposure criteria name, by event name. A name that ingestion keeps no record of is absent. */
       events_received: ExperimentHealthInputsEventsReceived;
-      /** The compile of each metric's query without running it, as the reader, which the metric queries check reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on every request. Null when the compile itself failed. */
+      /** The compile of each metric's query without running it, as the reader, which the 'Invalid metric definitions' check reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on every request. Null when the compile itself failed. */
       metric_compiles: ExperimentHealthInputsMetricCompiles | null;
       /** The latest finished calculation of the metrics, which the metric results check reads. Null before launch, on an archived experiment, or when the read failed. */
       latest_calculation: ExperimentHealthInputsLatestCalculation | null;
@@ -48910,7 +44101,7 @@ export namespace Schemas {
       readonly completed_metrics: number;
       /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
       readonly failed_metrics: number;
-      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
+      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
       readonly metric_errors: unknown;
       /** When the job was created */
       readonly created_at: string;
@@ -49001,7 +44192,7 @@ export namespace Schemas {
       readonly completed_metrics: number;
       /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
       readonly failed_metrics: number;
-      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
+      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
       readonly metric_errors: unknown;
       /** When the job was created */
       readonly created_at: string;
@@ -49086,7 +44277,7 @@ export namespace Schemas {
       readonly completed_metrics: number;
       /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
       readonly failed_metrics: number;
-      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
+      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
       readonly metric_errors: unknown;
       /** When the job was created */
       readonly created_at: string;
@@ -51390,6 +46581,8 @@ export namespace Schemas {
       /** @nullable */
       readonly api_version?: string | null;
       readonly supported_api_versions?: string[];
+      /** @nullable */
+      readonly file_name?: string | null;
     } | null;
 
     /**
@@ -51485,6 +46678,11 @@ export namespace Schemas {
       readonly label: string | null;
       /** @nullable */
       readonly table: ExternalDataSchemaTable;
+      /**
+         * The id of the warehouse table this schema syncs into. Set before the first sync for a table the schema already names, such as a migrated one. Null when there is none.
+         * @nullable
+         */
+      readonly table_id: string | null;
       should_sync?: boolean;
       /** @nullable */
       readonly last_synced_at: string | null;
@@ -51496,6 +46694,8 @@ export namespace Schemas {
       readonly incremental: boolean;
       /** @nullable */
       readonly status: string | null;
+      /** Whether this schema is linked to an existing self-managed table that its first sync will import. Until then the table keeps reading the original bucket. */
+      readonly pending_self_managed_table: boolean;
       /** Sync strategy: incremental, full_refresh, append, cdc, or xmin.
        *
        * * `full_refresh` - full_refresh
@@ -51599,6 +46799,11 @@ export namespace Schemas {
       readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
       /** Whether exact source-side column metadata is available for safe source-query projection. */
       readonly source_column_metadata_available: boolean;
+      /**
+         * Name of the history table that keeps every version of each row, or `null` when the table keeps no history. A history table created before `_history` names existed keeps its `_cdc` name.
+         * @nullable
+         */
+      readonly history_table_name: string | null;
       /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
@@ -51726,1421 +46931,8 @@ export namespace Schemas {
       readonly prefix: string | null;
       /** Backend engine detected for the direct connection. */
       readonly engine: EngineEnum | null;
-      /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
-       *
-       * * `Ashby` - Ashby
-       * * `Supabase` - Supabase
-       * * `CustomerIO` - CustomerIO
-       * * `Github` - Github
-       * * `Stripe` - Stripe
-       * * `Hubspot` - Hubspot
-       * * `Postgres` - Postgres
-       * * `Zendesk` - Zendesk
-       * * `Snowflake` - Snowflake
-       * * `Salesforce` - Salesforce
-       * * `MySQL` - MySQL
-       * * `MongoDB` - MongoDB
-       * * `MSSQL` - MSSQL
-       * * `Vitally` - Vitally
-       * * `BigQuery` - BigQuery
-       * * `Chargebee` - Chargebee
-       * * `Clerk` - Clerk
-       * * `GoogleAds` - GoogleAds
-       * * `GoogleSearchConsole` - GoogleSearchConsole
-       * * `TemporalIO` - TemporalIO
-       * * `DoIt` - DoIt
-       * * `GoogleSheets` - GoogleSheets
-       * * `MetaAds` - MetaAds
-       * * `Klaviyo` - Klaviyo
-       * * `Mailchimp` - Mailchimp
-       * * `Braze` - Braze
-       * * `Mailjet` - Mailjet
-       * * `Redshift` - Redshift
-       * * `Polar` - Polar
-       * * `RevenueCat` - RevenueCat
-       * * `LinkedinAds` - LinkedinAds
-       * * `RedditAds` - RedditAds
-       * * `TikTokAds` - TikTokAds
-       * * `BingAds` - BingAds
-       * * `Shopify` - Shopify
-       * * `Attio` - Attio
-       * * `SnapchatAds` - SnapchatAds
-       * * `Linear` - Linear
-       * * `LiteLLM` - LiteLLM
-       * * `Intercom` - Intercom
-       * * `Amplitude` - Amplitude
-       * * `Mixpanel` - Mixpanel
-       * * `Jira` - Jira
-       * * `ActiveCampaign` - ActiveCampaign
-       * * `Marketo` - Marketo
-       * * `Adjust` - Adjust
-       * * `AppsFlyer` - AppsFlyer
-       * * `Freshdesk` - Freshdesk
-       * * `GoogleAnalytics` - GoogleAnalytics
-       * * `Pipedrive` - Pipedrive
-       * * `SendGrid` - SendGrid
-       * * `Slack` - Slack
-       * * `PagerDuty` - PagerDuty
-       * * `Asana` - Asana
-       * * `Notion` - Notion
-       * * `Airtable` - Airtable
-       * * `Greenhouse` - Greenhouse
-       * * `BambooHR` - BambooHR
-       * * `Lever` - Lever
-       * * `GitLab` - GitLab
-       * * `Datadog` - Datadog
-       * * `Sentry` - Sentry
-       * * `Pendo` - Pendo
-       * * `FullStory` - FullStory
-       * * `AmazonAds` - AmazonAds
-       * * `PinterestAds` - PinterestAds
-       * * `AppleSearchAds` - AppleSearchAds
-       * * `QuickBooks` - QuickBooks
-       * * `Xero` - Xero
-       * * `NetSuite` - NetSuite
-       * * `WooCommerce` - WooCommerce
-       * * `BigCommerce` - BigCommerce
-       * * `PayPal` - PayPal
-       * * `Square` - Square
-       * * `Zoom` - Zoom
-       * * `Trello` - Trello
-       * * `TrafficStars` - TrafficStars
-       * * `Monday` - Monday
-       * * `ClickUp` - ClickUp
-       * * `Confluence` - Confluence
-       * * `Recurly` - Recurly
-       * * `SalesLoft` - SalesLoft
-       * * `Outreach` - Outreach
-       * * `Gong` - Gong
-       * * `Calendly` - Calendly
-       * * `Typeform` - Typeform
-       * * `UnityAds` - UnityAds
-       * * `Iterable` - Iterable
-       * * `ZohoCRM` - ZohoCRM
-       * * `Close` - Close
-       * * `Oracle` - Oracle
-       * * `DynamoDB` - DynamoDB
-       * * `Elasticsearch` - Elasticsearch
-       * * `Kafka` - Kafka
-       * * `LaunchDarkly` - LaunchDarkly
-       * * `Braintree` - Braintree
-       * * `Recharge` - Recharge
-       * * `HelpScout` - HelpScout
-       * * `Gorgias` - Gorgias
-       * * `Instagram` - Instagram
-       * * `YouTubeAnalytics` - YouTubeAnalytics
-       * * `FacebookPages` - FacebookPages
-       * * `TwitterAds` - TwitterAds
-       * * `Workday` - Workday
-       * * `ServiceNow` - ServiceNow
-       * * `Pardot` - Pardot
-       * * `Copper` - Copper
-       * * `Front` - Front
-       * * `ChartMogul` - ChartMogul
-       * * `Zuora` - Zuora
-       * * `Paddle` - Paddle
-       * * `CircleCI` - CircleCI
-       * * `CockroachDB` - CockroachDB
-       * * `Firebase` - Firebase
-       * * `AzureBlob` - AzureBlob
-       * * `GoogleDrive` - GoogleDrive
-       * * `OneDrive` - OneDrive
-       * * `SharePoint` - SharePoint
-       * * `Box` - Box
-       * * `SFTP` - SFTP
-       * * `MicrosoftTeams` - MicrosoftTeams
-       * * `Aircall` - Aircall
-       * * `Webflow` - Webflow
-       * * `Okta` - Okta
-       * * `Auth0` - Auth0
-       * * `Productboard` - Productboard
-       * * `Smartsheet` - Smartsheet
-       * * `Wrike` - Wrike
-       * * `Plaid` - Plaid
-       * * `SurveyMonkey` - SurveyMonkey
-       * * `Eventbrite` - Eventbrite
-       * * `Everflow` - Everflow
-       * * `RingCentral` - RingCentral
-       * * `Twilio` - Twilio
-       * * `Freshsales` - Freshsales
-       * * `Shortcut` - Shortcut
-       * * `ConvertKit` - ConvertKit
-       * * `Drip` - Drip
-       * * `CampaignMonitor` - CampaignMonitor
-       * * `MailerLite` - MailerLite
-       * * `Omnisend` - Omnisend
-       * * `Brevo` - Brevo
-       * * `Postmark` - Postmark
-       * * `Granola` - Granola
-       * * `BuildBetter` - BuildBetter
-       * * `Convex` - Convex
-       * * `ClickHouse` - ClickHouse
-       * * `Plain` - Plain
-       * * `Resend` - Resend
-       * * `PgAnalyze` - PgAnalyze
-       * * `WorkOS` - WorkOS
-       * * `AmazonS3` - AmazonS3
-       * * `GoogleCloudStorage` - GoogleCloudStorage
-       * * `Databricks` - Databricks
-       * * `Dynamics365` - Dynamics365
-       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
-       * * `Db2` - Db2
-       * * `Heap` - Heap
-       * * `AdobeAnalytics` - AdobeAnalytics
-       * * `Matomo` - Matomo
-       * * `Optimizely` - Optimizely
-       * * `Adyen` - Adyen
-       * * `GoCardless` - GoCardless
-       * * `Mollie` - Mollie
-       * * `CheckoutCom` - CheckoutCom
-       * * `Branch` - Branch
-       * * `Criteo` - Criteo
-       * * `Outbrain` - Outbrain
-       * * `Taboola` - Taboola
-       * * `AdRoll` - AdRoll
-       * * `DisplayVideo360` - DisplayVideo360
-       * * `GoogleAdManager` - GoogleAdManager
-       * * `CampaignManager360` - CampaignManager360
-       * * `SearchAds360` - SearchAds360
-       * * `AdobeCommerce` - AdobeCommerce
-       * * `AmazonSellingPartner` - AmazonSellingPartner
-       * * `Ebay` - Ebay
-       * * `Commercetools` - Commercetools
-       * * `LightspeedRetail` - LightspeedRetail
-       * * `Shipmail` - Shipmail
-       * * `ShipStation` - ShipStation
-       * * `ConstantContact` - ConstantContact
-       * * `Mailgun` - Mailgun
-       * * `Eloqua` - Eloqua
-       * * `Sailthru` - Sailthru
-       * * `Ortto` - Ortto
-       * * `Attentive` - Attentive
-       * * `Kustomer` - Kustomer
-       * * `Dixa` - Dixa
-       * * `Gladly` - Gladly
-       * * `Qualtrics` - Qualtrics
-       * * `AzureDevOps` - AzureDevOps
-       * * `RoktAds` - RoktAds
-       * * `Rollbar` - Rollbar
-       * * `Opsgenie` - Opsgenie
-       * * `IncidentIo` - IncidentIo
-       * * `Pingdom` - Pingdom
-       * * `Cloudflare` - Cloudflare
-       * * `CloudflareD1` - CloudflareD1
-       * * `CosmosDB` - CosmosDB
-       * * `PlanetScaleMySQL` - PlanetScaleMySQL
-       * * `PlanetScalePostgres` - PlanetScalePostgres
-       * * `Plane` - Plane
-       * * `Scarf` - Scarf
-       * * `SapHana` - SapHana
-       * * `Rippling` - Rippling
-       * * `HiBob` - HiBob
-       * * `Personio` - Personio
-       * * `Deel` - Deel
-       * * `AdpWorkforceNow` - AdpWorkforceNow
-       * * `Paylocity` - Paylocity
-       * * `Gusto` - Gusto
-       * * `CultureAmp` - CultureAmp
-       * * `Lattice` - Lattice
-       * * `SageIntacct` - SageIntacct
-       * * `FreshBooks` - FreshBooks
-       * * `Expensify` - Expensify
-       * * `Ramp` - Ramp
-       * * `Brex` - Brex
-       * * `Coupa` - Coupa
-       * * `SapConcur` - SapConcur
-       * * `Apollo` - Apollo
-       * * `Crunchbase` - Crunchbase
-       * * `ZoomInfo` - ZoomInfo
-       * * `Clari` - Clari
-       * * `Chorus` - Chorus
-       * * `Coda` - Coda
-       * * `Guru` - Guru
-       * * `Dropbox` - Dropbox
-       * * `Docusign` - Docusign
-       * * `PandaDoc` - PandaDoc
-       * * `SapErp` - SapErp
-       * * `SapSuccessFactors` - SapSuccessFactors
-       * * `OracleEbs` - OracleEbs
-       * * `OracleFusion` - OracleFusion
-       * * `AmazonSNS` - AmazonSNS
-       * * `AmazonEventBridge` - AmazonEventBridge
-       * * `AmazonSQS` - AmazonSQS
-       * * `AmazonKinesis` - AmazonKinesis
-       * * `AmazonCloudWatch` - AmazonCloudWatch
-       * * `OpenAIAds` - OpenAIAds
-       * * `OneHundredMs` - OneHundredMs
-       * * `SevenShifts` - SevenShifts
-       * * `AcuityScheduling` - AcuityScheduling
-       * * `AgileCRM` - AgileCRM
-       * * `Aha` - Aha
-       * * `Airbyte` - Airbyte
-       * * `Akeneo` - Akeneo
-       * * `Algolia` - Algolia
-       * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
-       * * `ApifyDataset` - ApifyDataset
-       * * `Appcues` - Appcues
-       * * `Appfigures` - Appfigures
-       * * `Appfollow` - Appfollow
-       * * `Apptivo` - Apptivo
-       * * `AssemblyAI` - AssemblyAI
-       * * `Awin` - Awin
-       * * `AwsCloudTrail` - AwsCloudTrail
-       * * `AzureTableStorage` - AzureTableStorage
-       * * `Babelforce` - Babelforce
-       * * `Basecamp` - Basecamp
-       * * `Beamer` - Beamer
-       * * `BigMailer` - BigMailer
-       * * `Bluetally` - Bluetally
-       * * `BoldSign` - BoldSign
-       * * `BreezyHR` - BreezyHR
-       * * `Bugsnag` - Bugsnag
-       * * `Buildkite` - Buildkite
-       * * `Bunny` - Bunny
-       * * `Buzzsprout` - Buzzsprout
-       * * `CalCom` - CalCom
-       * * `CallRail` - CallRail
-       * * `Campayn` - Campayn
-       * * `Canny` - Canny
-       * * `CapsuleCRM` - CapsuleCRM
-       * * `CaptainData` - CaptainData
-       * * `CartCom` - CartCom
-       * * `CastorEDC` - CastorEDC
-       * * `Chameleon` - Chameleon
-       * * `Chargedesk` - Chargedesk
-       * * `Chargify` - Chargify
-       * * `Chift` - Chift
-       * * `Churnkey` - Churnkey
-       * * `Cin7` - Cin7
-       * * `CiscoMeraki` - CiscoMeraki
-       * * `Clazar` - Clazar
-       * * `Clockify` - Clockify
-       * * `Clockodo` - Clockodo
-       * * `Cloudbeds` - Cloudbeds
-       * * `Coassemble` - Coassemble
-       * * `Codefresh` - Codefresh
-       * * `Concord` - Concord
-       * * `ConfigCat` - ConfigCat
-       * * `Couchbase` - Couchbase
-       * * `Curve` - Curve
-       * * `Customerly` - Customerly
-       * * `Datascope` - Datascope
-       * * `Dbt` - Dbt
-       * * `Demodesk` - Demodesk
-       * * `Deputy` - Deputy
-       * * `DevinAI` - DevinAI
-       * * `Docuseal` - Docuseal
-       * * `Dolibarr` - Dolibarr
-       * * `Dremio` - Dremio
-       * * `DropboxSign` - DropboxSign
-       * * `Dwolla` - Dwolla
-       * * `EConomic` - EConomic
-       * * `Easypost` - Easypost
-       * * `Easypromos` - Easypromos
-       * * `Elasticemail` - Elasticemail
-       * * `EmailOctopus` - EmailOctopus
-       * * `EmploymentHero` - EmploymentHero
-       * * `Encharge` - Encharge
-       * * `Eventee` - Eventee
-       * * `Eventzilla` - Eventzilla
-       * * `Everhour` - Everhour
-       * * `EZOfficeInventory` - EZOfficeInventory
-       * * `Factorial` - Factorial
-       * * `Fastbill` - Fastbill
-       * * `Fastly` - Fastly
-       * * `Fauna` - Fauna
-       * * `Feishu` - Feishu
-       * * `Fillout` - Fillout
-       * * `Finage` - Finage
-       * * `Firebolt` - Firebolt
-       * * `FireHydrant` - FireHydrant
-       * * `Fleetio` - Fleetio
-       * * `Flexmail` - Flexmail
-       * * `Flexport` - Flexport
-       * * `FloatApp` - FloatApp
-       * * `Flowlu` - Flowlu
-       * * `Formbricks` - Formbricks
-       * * `Framer` - Framer
-       * * `FreeAgent` - FreeAgent
-       * * `Freightview` - Freightview
-       * * `Freshcaller` - Freshcaller
-       * * `Freshchat` - Freshchat
-       * * `Freshservice` - Freshservice
-       * * `Fulcrum` - Fulcrum
-       * * `GainsightCs` - GainsightCs
-       * * `GainsightPx` - GainsightPx
-       * * `GitBook` - GitBook
-       * * `Glassfrog` - Glassfrog
-       * * `Goldcast` - Goldcast
-       * * `GoLogin` - GoLogin
-       * * `Grafana` - Grafana
-       * * `GreytHr` - GreytHr
-       * * `Gridly` - Gridly
-       * * `Harness` - Harness
-       * * `Height` - Height
-       * * `Hellobaton` - Hellobaton
-       * * `HighLevel` - HighLevel
-       * * `HoorayHR` - HoorayHR
-       * * `Hubplanner` - Hubplanner
-       * * `Humanitix` - Humanitix
-       * * `Huntr` - Huntr
-       * * `Inflowinventory` - Inflowinventory
-       * * `InforNexus` - InforNexus
-       * * `Insightful` - Insightful
-       * * `Insightly` - Insightly
-       * * `Instantly` - Instantly
-       * * `Instatus` - Instatus
-       * * `Intruder` - Intruder
-       * * `Invoiced` - Invoiced
-       * * `Invoiceninja` - Invoiceninja
-       * * `JamfPro` - JamfPro
-       * * `JobNimbus` - JobNimbus
-       * * `Jotform` - Jotform
-       * * `JudgeMeReviews` - JudgeMeReviews
-       * * `JustCall` - JustCall
-       * * `JustSift` - JustSift
-       * * `K6Cloud` - K6Cloud
-       * * `Katana` - Katana
-       * * `Keka` - Keka
-       * * `Kisi` - Kisi
-       * * `Kissmetrics` - Kissmetrics
-       * * `Klarna` - Klarna
-       * * `Klaus` - Klaus
-       * * `Lago` - Lago
-       * * `Leadfeeder` - Leadfeeder
-       * * `Lemlist` - Lemlist
-       * * `LessAnnoyingCRM` - LessAnnoyingCRM
-       * * `LinkedinPages` - LinkedinPages
-       * * `Linkrunner` - Linkrunner
-       * * `Linnworks` - Linnworks
-       * * `Lob` - Lob
-       * * `Lokalise` - Lokalise
-       * * `Looker` - Looker
-       * * `Luma` - Luma
-       * * `MailerSend` - MailerSend
-       * * `Mailosaur` - Mailosaur
-       * * `Mailtrap` - Mailtrap
-       * * `Mantle` - Mantle
-       * * `Mention` - Mention
-       * * `MercadoAds` - MercadoAds
-       * * `Merge` - Merge
-       * * `Metabase` - Metabase
-       * * `Metricool` - Metricool
-       * * `MicrosoftDataverse` - MicrosoftDataverse
-       * * `MicrosoftEntraId` - MicrosoftEntraId
-       * * `MicrosoftLists` - MicrosoftLists
-       * * `Miro` - Miro
-       * * `Missive` - Missive
-       * * `MixMax` - MixMax
-       * * `Mode` - Mode
-       * * `Mux` - Mux
-       * * `MyHours` - MyHours
-       * * `N8n` - N8n
-       * * `Navan` - Navan
-       * * `NebiusAI` - NebiusAI
-       * * `Nexiopay` - Nexiopay
-       * * `NinjaOneRMM` - NinjaOneRMM
-       * * `NoCRM` - NoCRM
-       * * `NorthpassLMS` - NorthpassLMS
-       * * `Nutshell` - Nutshell
-       * * `Nylas` - Nylas
-       * * `Oncehub` - Oncehub
-       * * `Onepagecrm` - Onepagecrm
-       * * `OneSignal` - OneSignal
-       * * `Onfleet` - Onfleet
-       * * `OpinionStage` - OpinionStage
-       * * `OPUSWatch` - OPUSWatch
-       * * `Orb` - Orb
-       * * `Orbit` - Orbit
-       * * `Oura` - Oura
-       * * `Oveit` - Oveit
-       * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
-       * * `Paperform` - Paperform
-       * * `Papersign` - Papersign
-       * * `Partnerize` - Partnerize
-       * * `PartnerStack` - PartnerStack
-       * * `PayFit` - PayFit
-       * * `Paystack` - Paystack
-       * * `Pennylane` - Pennylane
-       * * `Perk` - Perk
-       * * `PersistIq` - PersistIq
-       * * `Persona` - Persona
-       * * `Phyllo` - Phyllo
-       * * `Picqer` - Picqer
-       * * `Pipeliner` - Pipeliner
-       * * `PivotalTracker` - PivotalTracker
-       * * `Piwik` - Piwik
-       * * `Planhat` - Planhat
-       * * `Plausible` - Plausible
-       * * `Poplar` - Poplar
-       * * `PrestaShop` - PrestaShop
-       * * `Pretix` - Pretix
-       * * `Primetric` - Primetric
-       * * `Printavo` - Printavo
-       * * `Printify` - Printify
-       * * `Productive` - Productive
-       * * `Pylon` - Pylon
-       * * `Qonto` - Qonto
-       * * `Qualaroo` - Qualaroo
-       * * `Railz` - Railz
-       * * `RDStationMarketing` - RDStationMarketing
-       * * `Recruitee` - Recruitee
-       * * `Reddit` - Reddit
-       * * `ReferralHero` - ReferralHero
-       * * `RentCast` - RentCast
-       * * `Repairshopr` - Repairshopr
-       * * `ReplyIo` - ReplyIo
-       * * `RetailExpress` - RetailExpress
-       * * `Retently` - Retently
-       * * `Retreaver` - Retreaver
-       * * `RevolutMerchant` - RevolutMerchant
-       * * `RocketChat` - RocketChat
-       * * `Rocketlane` - Rocketlane
-       * * `Rootly` - Rootly
-       * * `Ruddr` - Ruddr
-       * * `SafetyCulture` - SafetyCulture
-       * * `SageHR` - SageHR
-       * * `Salesflare` - Salesflare
-       * * `SAPFieldglass` - SAPFieldglass
-       * * `SavvyCal` - SavvyCal
-       * * `Secoda` - Secoda
-       * * `Segment` - Segment
-       * * `Sendowl` - Sendowl
-       * * `SendPulse` - SendPulse
-       * * `Senseforce` - Senseforce
-       * * `Serpstat` - Serpstat
-       * * `Sharetribe` - Sharetribe
-       * * `Shippo` - Shippo
-       * * `ShopWired` - ShopWired
-       * * `Shortio` - Shortio
-       * * `Shutterstock` - Shutterstock
-       * * `SigmaComputing` - SigmaComputing
-       * * `SignNow` - SignNow
-       * * `SimpleCast` - SimpleCast
-       * * `Simplesat` - Simplesat
-       * * `Smaily` - Smaily
-       * * `SmartEngage` - SmartEngage
-       * * `Smartreach` - Smartreach
-       * * `Smartwaiver` - Smartwaiver
-       * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
-       * * `SonarCloud` - SonarCloud
-       * * `SparkPost` - SparkPost
-       * * `SplitIo` - SplitIo
-       * * `SpotifyAds` - SpotifyAds
-       * * `SpotlerCRM` - SpotlerCRM
-       * * `Squarespace` - Squarespace
-       * * `Statsig` - Statsig
-       * * `Statuspage` - Statuspage
-       * * `Steam` - Steam
-       * * `Stigg` - Stigg
-       * * `Strava` - Strava
-       * * `SurveySparrow` - SurveySparrow
-       * * `Survicate` - Survicate
-       * * `Svix` - Svix
-       * * `Systeme` - Systeme
-       * * `Tavus` - Tavus
-       * * `Teamtailor` - Teamtailor
-       * * `Teamwork` - Teamwork
-       * * `Tempo` - Tempo
-       * * `Testrail` - Testrail
-       * * `Thinkific` - Thinkific
-       * * `ThinkificCourses` - ThinkificCourses
-       * * `ThriveLearning` - ThriveLearning
-       * * `Ticketmaster` - Ticketmaster
-       * * `TicketTailor` - TicketTailor
-       * * `TickTick` - TickTick
-       * * `Timely` - Timely
-       * * `Tinyemail` - Tinyemail
-       * * `Todoist` - Todoist
-       * * `Toggl` - Toggl
-       * * `TrackPMS` - TrackPMS
-       * * `Tremendous` - Tremendous
-       * * `TrustPilot` - TrustPilot
-       * * `Twitter` - Twitter
-       * * `TyntecSMS` - TyntecSMS
-       * * `Unleash` - Unleash
-       * * `UpPromote` - UpPromote
-       * * `Uptick` - Uptick
-       * * `Uservoice` - Uservoice
-       * * `Vantage` - Vantage
-       * * `Veeqo` - Veeqo
-       * * `Vercel` - Vercel
-       * * `VismaEconomic` - VismaEconomic
-       * * `VWO` - VWO
-       * * `Waiteraid` - Waiteraid
-       * * `Wasabi` - Wasabi
-       * * `WhenIWork` - WhenIWork
-       * * `Wordpress` - Wordpress
-       * * `Workable` - Workable
-       * * `Workflowmax` - Workflowmax
-       * * `Workramp` - Workramp
-       * * `Wufoo` - Wufoo
-       * * `Xsolla` - Xsolla
-       * * `YandexMetrica` - YandexMetrica
-       * * `Yotpo` - Yotpo
-       * * `Ynab` - Ynab
-       * * `Younium` - Younium
-       * * `YouSign` - YouSign
-       * * `YoutubeData` - YoutubeData
-       * * `ZapierSupportedStorage` - ZapierSupportedStorage
-       * * `ZapSign` - ZapSign
-       * * `ZendeskSell` - ZendeskSell
-       * * `ZendeskSunshine` - ZendeskSunshine
-       * * `Zenefits` - Zenefits
-       * * `Zenloop` - Zenloop
-       * * `ZohoAnalytics` - ZohoAnalytics
-       * * `ZohoBigin` - ZohoBigin
-       * * `ZohoBilling` - ZohoBilling
-       * * `ZohoBooks` - ZohoBooks
-       * * `ZohoCampaign` - ZohoCampaign
-       * * `ZohoDesk` - ZohoDesk
-       * * `ZohoExpense` - ZohoExpense
-       * * `ZohoInventory` - ZohoInventory
-       * * `ZohoInvoice` - ZohoInvoice
-       * * `ZonkaFeedback` - ZonkaFeedback
-       * * `AlphaVantage` - AlphaVantage
-       * * `Aviationstack` - Aviationstack
-       * * `Bitly` - Bitly
-       * * `Blogger` - Blogger
-       * * `Breezometer` - Breezometer
-       * * `CareQualityCommission` - CareQualityCommission
-       * * `Cimis` - Cimis
-       * * `CoinApi` - CoinApi
-       * * `CoinGecko` - CoinGecko
-       * * `CoinMarketCap` - CoinMarketCap
-       * * `DingConnect` - DingConnect
-       * * `Dockerhub` - Dockerhub
-       * * `ExchangeRatesApi` - ExchangeRatesApi
-       * * `FinancialModelling` - FinancialModelling
-       * * `Finnhub` - Finnhub
-       * * `Finnworlds` - Finnworlds
-       * * `Giphy` - Giphy
-       * * `Gmail` - Gmail
-       * * `GNews` - GNews
-       * * `GoogleCalendar` - GoogleCalendar
-       * * `GoogleClassroom` - GoogleClassroom
-       * * `GoogleDirectory` - GoogleDirectory
-       * * `GoogleForms` - GoogleForms
-       * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
-       * * `GoogleTasks` - GoogleTasks
-       * * `GoogleWebfonts` - GoogleWebfonts
-       * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
-       * * `HuggingFace` - HuggingFace
-       * * `IlluminaBasespace` - IlluminaBasespace
-       * * `Imagga` - Imagga
-       * * `Interzoid` - Interzoid
-       * * `IP2Whois` - IP2Whois
-       * * `KYVE` - KYVE
-       * * `Marketstack` - Marketstack
-       * * `Mendeley` - Mendeley
-       * * `Nasa` - Nasa
-       * * `NewYorkTimes` - NewYorkTimes
-       * * `NewsApi` - NewsApi
-       * * `NewsData` - NewsData
-       * * `OpenDataDc` - OpenDataDc
-       * * `OpenExchangeRates` - OpenExchangeRates
-       * * `OpenAQ` - OpenAQ
-       * * `OpenFDA` - OpenFDA
-       * * `OpenWeather` - OpenWeather
-       * * `Outlook` - Outlook
-       * * `Perigon` - Perigon
-       * * `Pexels` - Pexels
-       * * `Pocket` - Pocket
-       * * `Polygon` - Polygon
-       * * `PyPI` - PyPI
-       * * `Recreation` - Recreation
-       * * `RKICovid` - RKICovid
-       * * `Rss` - Rss
-       * * `SimFin` - SimFin
-       * * `StockData` - StockData
-       * * `Guardian` - Guardian
-       * * `TMDb` - TMDb
-       * * `TVMaze` - TVMaze
-       * * `TwelveData` - TwelveData
-       * * `Ubidots` - Ubidots
-       * * `USCensus` - USCensus
-       * * `Watchmode` - Watchmode
-       * * `WikipediaPageviews` - WikipediaPageviews
-       * * `YahooFinance` - YahooFinance
-       * * `Clarifai` - Clarifai
-       * * `Adapty` - Adapty
-       * * `Braintrust` - Braintrust
-       * * `StreamElements` - StreamElements
-       * * `Streamlabs` - Streamlabs
-       * * `Datorama` - Datorama
-       * * `Ahrefs` - Ahrefs
-       * * `Lightfield` - Lightfield
-       * * `Appstack` - Appstack
-       * * `Razorpay` - Razorpay
-       * * `Neon` - Neon
-       * * `NewRelic` - NewRelic
-       * * `Custom` - Custom
-       * * `Tile38` - Tile38
-       * * `Chatwoot` - Chatwoot
-       * * `Sanity` - Sanity
-       * * `Metronome` - Metronome
-       * * `Jobber` - Jobber
-       * * `Knock` - Knock
-       * * `Leexi` - Leexi
-       * * `RB2B` - RB2B
-       * * `Superwall` - Superwall
-       * * `Liana` - Liana
-       * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch
-       * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas
-       * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds
-       * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow
-       * * `Plunk` - Plunk
-       * * `Dub` - Dub
-       * * `AirOps` - AirOps
-       * * `Podium` - Podium
-       * * `Loops` - Loops
-       * * `Redis` - Redis
-       * * `Mercury` - Mercury
-       * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable
-       * * `PeecAI` - PeecAI
-       * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact
-       * * `AikidoSecurity` - AikidoSecurity
-       * * `Alguna` - Alguna
-       * * `Anthropic` - Anthropic
-       * * `Appwrite` - Appwrite
-       * * `BlandAI` - BlandAI
-       * * `BrowseAI` - BrowseAI
-       * * `BrowserUse` - BrowserUse
-       * * `ChartHop` - ChartHop
-       * * `Cody` - Cody
-       * * `Cursor` - Cursor
-       * * `Decagon` - Decagon
-       * * `Deepgram` - Deepgram
-       * * `ElevenLabs` - ElevenLabs
-       * * `Harvey` - Harvey
-       * * `Hyperspell` - Hyperspell
-       * * `Langfuse` - Langfuse
-       * * `LingoDev` - LingoDev
-       * * `M3ter` - M3ter
-       * * `Maxio` - Maxio
-       * * `Metorial` - Metorial
-       * * `OpenRouter` - OpenRouter
-       * * `TogetherAI` - TogetherAI
-       * * `Vapi` - Vapi
-       * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic
-       * * `Aiven` - Aiven
-       * * `Aviator` - Aviator
-       * * `Backblaze` - Backblaze
-       * * `Baseten` - Baseten
-       * * `Browserbase` - Browserbase
-       * * `Cohere` - Cohere
-       * * `DenoDeploy` - DenoDeploy
-       * * `DigitalOcean` - DigitalOcean
-       * * `E2B` - E2B
-       * * `Fintoc` - Fintoc
-       * * `Firecrawl` - Firecrawl
-       * * `FireworksAI` - FireworksAI
-       * * `FlyIo` - FlyIo
-       * * `Groq` - Groq
-       * * `GrowthBook` - GrowthBook
-       * * `Gumloop` - Gumloop
-       * * `Hatchet` - Hatchet
-       * * `Helicone` - Helicone
-       * * `Heroku` - Heroku
-       * * `Hetzner` - Hetzner
-       * * `HeyGen` - HeyGen
-       * * `Infisical` - Infisical
-       * * `Inngest` - Inngest
-       * * `KapaAI` - KapaAI
-       * * `Kernel` - Kernel
-       * * `Koyeb` - Koyeb
-       * * `LambdaLabs` - LambdaLabs
-       * * `LangSmith` - LangSmith
-       * * `Linode` - Linode
-       * * `Listmonk` - Listmonk
-       * * `LlamaCloud` - LlamaCloud
-       * * `Mem0` - Mem0
-       * * `Metriport` - Metriport
-       * * `Mintlify` - Mintlify
-       * * `MistralAI` - MistralAI
-       * * `Mono` - Mono
-       * * `Netlify` - Netlify
-       * * `Northflank` - Northflank
-       * * `OpenAI` - OpenAI
-       * * `Pinecone` - Pinecone
-       * * `PlatformSh` - PlatformSh
-       * * `PromptingCompany` - PromptingCompany
-       * * `Qdrant` - Qdrant
-       * * `Render` - Render
-       * * `Replicate` - Replicate
-       * * `RetellAI` - RetellAI
-       * * `Roark` - Roark
-       * * `RunPod` - RunPod
-       * * `ScaleAI` - ScaleAI
-       * * `Scaleway` - Scaleway
-       * * `SigNoz` - SigNoz
-       * * `Sim` - Sim
-       * * `Skyvern` - Skyvern
-       * * `Slash` - Slash
-       * * `Synthesia` - Synthesia
-       * * `Telli` - Telli
-       * * `TerraApi` - TerraApi
-       * * `TriggerDev` - TriggerDev
-       * * `Turso` - Turso
-       * * `Singular` - Singular
-       * * `Swonkie` - Swonkie
-       * * `TwelveLabs` - TwelveLabs
-       * * `Twenty` - Twenty
-       * * `Unstructured` - Unstructured
-       * * `Upstash` - Upstash
-       * * `Vellum` - Vellum
-       * * `Vultr` - Vultr
-       * * `Windmill` - Windmill
-       * * `Zep` - Zep
-       * * `Hex` - Hex
-       * * `Sumsub` - Sumsub
-       * * `GoogleChat` - GoogleChat
-       * * `Kickscale` - Kickscale
-       * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack
-       * * `DodoPayments` - DodoPayments
-       * * `Salestrics` - Salestrics
-       * * `Doppler` - Doppler
-       * * `Usersnap` - Usersnap
-       * * `Asknicely` - Asknicely
-       * * `Featurebase` - Featurebase
-       * * `Frill` - Frill
-       * * `Bettermode` - Bettermode
-       * * `Dynatrace` - Dynatrace
-       * * `Honeycomb` - Honeycomb
-       * * `SumoLogic` - SumoLogic
-       * * `LogzIO` - LogzIO
-       * * `Coralogix` - Coralogix
-       * * `BetterStack` - BetterStack
-       * * `Raygun` - Raygun
-       * * `Honeybadger` - Honeybadger
-       * * `Airbrake` - Airbrake
-       * * `Appsignal` - Appsignal
-       * * `Appdynamics` - Appdynamics
-       * * `Instana` - Instana
-       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
-       * * `Uptimerobot` - Uptimerobot
-       * * `Statuscake` - Statuscake
-       * * `Tailscale` - Tailscale
-       * * `Flagsmith` - Flagsmith
-       * * `Xmatters` - Xmatters
-       * * `Squadcast` - Squadcast
-       * * `Zenduty` - Zenduty
-       * * `Cronitor` - Cronitor
-       * * `Jenkins` - Jenkins
-       * * `Bitbucket` - Bitbucket
-       * * `Gitea` - Gitea
-       * * `Teamcity` - Teamcity
-       * * `TravisCI` - TravisCI
-       * * `Semaphore` - Semaphore
-       * * `CircleciInsights` - CircleciInsights
-       * * `OctopusDeploy` - OctopusDeploy
-       * * `Sourcegraph` - Sourcegraph
-       * * `Bitrise` - Bitrise
-       * * `Gerrit` - Gerrit
-       * * `TerraformCloud` - TerraformCloud
-       * * `PulumiCloud` - PulumiCloud
-       * * `Spacelift` - Spacelift
-       * * `Railway` - Railway
-       * * `Argocd` - Argocd
-       * * `PrefectCloud` - PrefectCloud
-       * * `DagsterCloud` - DagsterCloud
-       * * `Env0` - Env0
-       * * `Kubecost` - Kubecost
-       * * `Snyk` - Snyk
-       * * `Semgrep` - Semgrep
-       * * `Veracode` - Veracode
-       * * `Checkmarx` - Checkmarx
-       * * `Gitguardian` - Gitguardian
-       * * `QualysVmdr` - QualysVmdr
-       * * `Rapid7Insightvm` - Rapid7Insightvm
-       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
-       * * `Sentinelone` - Sentinelone
-       * * `Lacework` - Lacework
-       * * `OrcaSecurity` - OrcaSecurity
-       * * `Drata` - Drata
-       * * `Secureframe` - Secureframe
-       * * `CiscoDuo` - CiscoDuo
-       * * `Jumpcloud` - Jumpcloud
-       * * `OnePassword` - OnePassword
-       * * `Stytch` - Stytch
-       * * `Sonarqube` - Sonarqube
-       * * `Codecov` - Codecov
-       * * `Coveralls` - Coveralls
-       * * `Codacy` - Codacy
-       * * `Deepsource` - Deepsource
-       * * `Linearb` - Linearb
-       * * `Jellyfish` - Jellyfish
-       * * `Swarmia` - Swarmia
-       * * `Packagist` - Packagist
-       * * `Nuget` - Nuget
-       * * `CratesIO` - CratesIO
-       * * `SonatypeNexus` - SonatypeNexus
-       * * `JfrogArtifactory` - JfrogArtifactory
-       * * `Snowplow` - Snowplow
-       * * `WeightsAndBiases` - WeightsAndBiases
-       * * `MonteCarlo` - MonteCarlo
-       * * `Metaplane` - Metaplane
-       * * `Datahub` - Datahub
-       * * `ClickhouseCloud` - ClickhouseCloud
-       * * `ConfluentCloud` - ConfluentCloud
-       * * `KongKonnect` - KongKonnect
-       * * `Kandji` - Kandji
-       * * `Automox` - Automox
-       * * `Autumn` - Autumn
-       * * `GetStream` - GetStream
-       * * `Octolens` - Octolens
-       * * `Kajabi` - Kajabi
-       * * `Shopware` - Shopware
-       * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch
-       * * `Crisp` - Crisp
-       * * `Kommo` - Kommo
-       * * `Axiom` - Axiom
-       * * `Plivo` - Plivo
-       * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan
-       * * `AbTasty` - AbTasty
-       * * `Ably` - Ably
-       * * `AbnormalSecurity` - AbnormalSecurity
-       * * `Acast` - Acast
-       * * `Acculynx` - Acculynx
-       * * `Actionstep` - Actionstep
-       * * `Aftership` - Aftership
-       * * `AhaIdeas` - AhaIdeas
-       * * `AkamaiReporting` - AkamaiReporting
-       * * `Alation` - Alation
-       * * `Alegra` - Alegra
-       * * `Allegro` - Allegro
-       * * `AnodotCost` - AnodotCost
-       * * `Anomalo` - Anomalo
-       * * `Apaleo` - Apaleo
-       * * `Apitally` - Apitally
-       * * `AppStoreConnect` - AppStoreConnect
-       * * `Appdirect` - Appdirect
-       * * `Appfolio` - Appfolio
-       * * `Arxiv` - Arxiv
-       * * `Asaas` - Asaas
-       * * `Astronomer` - Astronomer
-       * * `Athenahealth` - Athenahealth
-       * * `Atlan` - Atlan
-       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
-       * * `Avalara` - Avalara
-       * * `AwsAthena` - AwsAthena
-       * * `AwsBatch` - AwsBatch
-       * * `AwsBudgets` - AwsBudgets
-       * * `AwsCloudformation` - AwsCloudformation
-       * * `AwsComputeOptimizer` - AwsComputeOptimizer
-       * * `AwsConfig` - AwsConfig
-       * * `AwsConnect` - AwsConnect
-       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
-       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
-       * * `AwsCostExplorer` - AwsCostExplorer
-       * * `AwsDocumentDB` - AwsDocumentDB
-       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
-       * * `AwsGuardduty` - AwsGuardduty
-       * * `AwsHealth` - AwsHealth
-       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
-       * * `AwsInspector` - AwsInspector
-       * * `AwsMacie` - AwsMacie
-       * * `AwsOrganizations` - AwsOrganizations
-       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
-       * * `AwsSagemaker` - AwsSagemaker
-       * * `AwsSavingsPlans` - AwsSavingsPlans
-       * * `AwsSecurityHub` - AwsSecurityHub
-       * * `AwsSes` - AwsSes
-       * * `AwsStepFunctions` - AwsStepFunctions
-       * * `AwsSupport` - AwsSupport
-       * * `AwsSystemsManager` - AwsSystemsManager
-       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
-       * * `AwsWaf` - AwsWaf
-       * * `AwsXray` - AwsXray
-       * * `AzureActivityLog` - AzureActivityLog
-       * * `AzureAdvisor` - AzureAdvisor
-       * * `AzureApiManagement` - AzureApiManagement
-       * * `AzureApplicationInsights` - AzureApplicationInsights
-       * * `AzureCostManagement` - AzureCostManagement
-       * * `AzureDataExplorer` - AzureDataExplorer
-       * * `AzureDataFactory` - AzureDataFactory
-       * * `AzureLogAnalytics` - AzureLogAnalytics
-       * * `AzureMonitorAlerts` - AzureMonitorAlerts
-       * * `AzureMonitorMetrics` - AzureMonitorMetrics
-       * * `AzureOpenaiUsage` - AzureOpenaiUsage
-       * * `AzurePolicyInsights` - AzurePolicyInsights
-       * * `AzureReservations` - AzureReservations
-       * * `AzureResourceGraph` - AzureResourceGraph
-       * * `AzureResourceHealth` - AzureResourceHealth
-       * * `AzureServiceHealth` - AzureServiceHealth
-       * * `AzureSynapse` - AzureSynapse
-       * * `BackMarket` - BackMarket
-       * * `Beehiiv` - Beehiiv
-       * * `Bigeye` - Bigeye
-       * * `BillCom` - BillCom
-       * * `Billomat` - Billomat
-       * * `BingWebmasterTools` - BingWebmasterTools
-       * * `Bitwarden` - Bitwarden
-       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
-       * * `BlackboardLearn` - BlackboardLearn
-       * * `Bling` - Bling
-       * * `Bloomerang` - Bloomerang
-       * * `Blueshift` - Blueshift
-       * * `Bluesky` - Bluesky
-       * * `BolRetailer` - BolRetailer
-       * * `Boulevard` - Boulevard
-       * * `Buffer` - Buffer
-       * * `Bugherd` - Bugherd
-       * * `Buildium` - Buildium
-       * * `Buttondown` - Buttondown
-       * * `BuyMeACoffee` - BuyMeACoffee
-       * * `Calendarific` - Calendarific
-       * * `Calibre` - Calibre
-       * * `CanvasLms` - CanvasLms
-       * * `Captivate` - Captivate
-       * * `Cashfree` - Cashfree
-       * * `CastAi` - CastAi
-       * * `Catchpoint` - Catchpoint
-       * * `CdcOpenData` - CdcOpenData
-       * * `Census` - Census
-       * * `Checkly` - Checkly
-       * * `CircleSo` - CircleSo
-       * * `Classy` - Classy
-       * * `Cleartax` - Cleartax
-       * * `Clever` - Clever
-       * * `Clevertap` - Clevertap
-       * * `Cliniko` - Cliniko
-       * * `Clio` - Clio
-       * * `Clip` - Clip
-       * * `Cloudability` - Cloudability
-       * * `Cloudsmith` - Cloudsmith
-       * * `Cloudzero` - Cloudzero
-       * * `Clover` - Clover
-       * * `Codemagic` - Codemagic
-       * * `Codescene` - Codescene
-       * * `Collibra` - Collibra
-       * * `Companycam` - Companycam
-       * * `Conekta` - Conekta
-       * * `ContaAzul` - ContaAzul
-       * * `Contentsquare` - Contentsquare
-       * * `Cortex` - Cortex
-       * * `Courier` - Courier
-       * * `Crossref` - Crossref
-       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
-       * * `CubeCloud` - CubeCloud
-       * * `D2lBrightspace` - D2lBrightspace
-       * * `Dayforce` - Dayforce
-       * * `Debugbear` - Debugbear
-       * * `Descope` - Descope
-       * * `Develocity` - Develocity
-       * * `Dialpad` - Dialpad
-       * * `Discord` - Discord
-       * * `Discourse` - Discourse
-       * * `Donorbox` - Donorbox
-       * * `Doorloop` - Doorloop
-       * * `Dovetail` - Dovetail
-       * * `Dragonboat` - Dragonboat
-       * * `Drchrono` - Drchrono
-       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
-       * * `EcbDataPortal` - EcbDataPortal
-       * * `Emarsys` - Emarsys
-       * * `Embrace` - Embrace
-       * * `Entsoe` - Entsoe
-       * * `Eppo` - Eppo
-       * * `Etsy` - Etsy
-       * * `Eurostat` - Eurostat
-       * * `Faire` - Faire
-       * * `FarosAi` - FarosAi
-       * * `Fieldpulse` - Fieldpulse
-       * * `Fieldwire` - Fieldwire
-       * * `Filevine` - Filevine
-       * * `Finout` - Finout
-       * * `Five9` - Five9
-       * * `FlexeraCloudCost` - FlexeraCloudCost
-       * * `Flutterwave` - Flutterwave
-       * * `Fortnox` - Fortnox
-       * * `Fourthwall` - Fourthwall
-       * * `Fred` - Fred
-       * * `Frontegg` - Frontegg
-       * * `FusionAuth` - FusionAuth
-       * * `G2` - G2
-       * * `Gcore` - Gcore
-       * * `GcpApigee` - GcpApigee
-       * * `GcpArtifactRegistry` - GcpArtifactRegistry
-       * * `GcpBigtable` - GcpBigtable
-       * * `GcpChronicle` - GcpChronicle
-       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
-       * * `GcpCloudBilling` - GcpCloudBilling
-       * * `GcpCloudBuild` - GcpCloudBuild
-       * * `GcpCloudDeploy` - GcpCloudDeploy
-       * * `GcpCloudDns` - GcpCloudDns
-       * * `GcpCloudFunctions` - GcpCloudFunctions
-       * * `GcpCloudLogging` - GcpCloudLogging
-       * * `GcpCloudMonitoring` - GcpCloudMonitoring
-       * * `GcpCloudRun` - GcpCloudRun
-       * * `GcpCloudSpanner` - GcpCloudSpanner
-       * * `GcpCloudSql` - GcpCloudSql
-       * * `GcpCloudTrace` - GcpCloudTrace
-       * * `GcpCloudWorkflows` - GcpCloudWorkflows
-       * * `GcpComputeEngine` - GcpComputeEngine
-       * * `GcpContainerAnalysis` - GcpContainerAnalysis
-       * * `GcpDataflow` - GcpDataflow
-       * * `GcpDataplex` - GcpDataplex
-       * * `GcpDataproc` - GcpDataproc
-       * * `GcpErrorReporting` - GcpErrorReporting
-       * * `GcpGke` - GcpGke
-       * * `GcpPubsub` - GcpPubsub
-       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
-       * * `GcpRecommender` - GcpRecommender
-       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
-       * * `Gdelt` - Gdelt
-       * * `GenesysCloud` - GenesysCloud
-       * * `Getdx` - Getdx
-       * * `Ghost` - Ghost
-       * * `Givebutter` - Givebutter
-       * * `Gleif` - Gleif
-       * * `GooglePlayConsole` - GooglePlayConsole
-       * * `Guesty` - Guesty
-       * * `Gumroad` - Gumroad
-       * * `HarnessCcm` - HarnessCcm
-       * * `HarnessSei` - HarnessSei
-       * * `Harvest` - Harvest
-       * * `Healthie` - Healthie
-       * * `Hitpay` - Hitpay
-       * * `Hivebrite` - Hivebrite
-       * * `Holded` - Holded
-       * * `Hostaway` - Hostaway
-       * * `HousecallPro` - HousecallPro
-       * * `Humanitec` - Humanitec
-       * * `ImfData` - ImfData
-       * * `Imperva` - Imperva
-       * * `InfluxdbCloud` - InfluxdbCloud
-       * * `Iyzico` - Iyzico
-       * * `Jobtread` - Jobtread
-       * * `Kameleoon` - Kameleoon
-       * * `KauflandMarketplace` - KauflandMarketplace
-       * * `Kestra` - Kestra
-       * * `Kick` - Kick
-       * * `Kinde` - Kinde
-       * * `Kion` - Kion
-       * * `Knowbe4` - Knowbe4
-       * * `Komodor` - Komodor
-       * * `Labelbox` - Labelbox
-       * * `Lawmatics` - Lawmatics
-       * * `Learnworlds` - Learnworlds
-       * * `LexwareOffice` - LexwareOffice
-       * * `Lightdash` - Lightdash
-       * * `Lodgify` - Lodgify
-       * * `Logicmonitor` - Logicmonitor
-       * * `Logrocket` - Logrocket
-       * * `LoopReturns` - LoopReturns
-       * * `Mastodon` - Mastodon
-       * * `Meetup` - Meetup
-       * * `Megaphone` - Megaphone
-       * * `Memberful` - Memberful
-       * * `MercadoPago` - MercadoPago
-       * * `Meteostat` - Meteostat
-       * * `Mews` - Mews
-       * * `Mezmo` - Mezmo
-       * * `Microsoft365UsageReports` - Microsoft365UsageReports
-       * * `MicrosoftAdvertising` - MicrosoftAdvertising
-       * * `MicrosoftClarity` - MicrosoftClarity
-       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
-       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
-       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
-       * * `MicrosoftIntune` - MicrosoftIntune
-       * * `MicrosoftPurview` - MicrosoftPurview
-       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
-       * * `MicrosoftSentinel` - MicrosoftSentinel
-       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
-       * * `Midtrans` - Midtrans
-       * * `MightyNetworks` - MightyNetworks
-       * * `Mindbody` - Mindbody
-       * * `Mirakl` - Mirakl
-       * * `Moesif` - Moesif
-       * * `Moneybird` - Moneybird
-       * * `Moodle` - Moodle
-       * * `Motherduck` - Motherduck
-       * * `Mycase` - Mycase
-       * * `NagerDate` - NagerDate
-       * * `NeonCrm` - NeonCrm
-       * * `Nexhealth` - Nexhealth
-       * * `NoaaCdo` - NoaaCdo
-       * * `Nobl9` - Nobl9
-       * * `Nolt` - Nolt
-       * * `Nops` - Nops
-       * * `NpmRegistry` - NpmRegistry
-       * * `Oecd` - Oecd
-       * * `Okendo` - Okendo
-       * * `Omni` - Omni
-       * * `Onelogin` - Onelogin
-       * * `OpenDental` - OpenDental
-       * * `OpenMeteo` - OpenMeteo
-       * * `Openalex` - Openalex
-       * * `Opencorporates` - Opencorporates
-       * * `Openfec` - Openfec
-       * * `OpnPayments` - OpnPayments
-       * * `Opslevel` - Opslevel
-       * * `OttoMarket` - OttoMarket
-       * * `Ownerrez` - Ownerrez
-       * * `Pagbank` - Pagbank
-       * * `Patreon` - Patreon
-       * * `Pax8` - Pax8
-       * * `Paychex` - Paychex
-       * * `Paymob` - Paymob
-       * * `Paymongo` - Paymongo
-       * * `Phonepe` - Phonepe
-       * * `Pike13` - Pike13
-       * * `Pingone` - Pingone
-       * * `PinterestOrganic` - PinterestOrganic
-       * * `PlanningCenter` - PlanningCenter
-       * * `PluralsightFlow` - PluralsightFlow
-       * * `Podbean` - Podbean
-       * * `Postscript` - Postscript
-       * * `PowerBiAdmin` - PowerBiAdmin
-       * * `Practicepanther` - Practicepanther
-       * * `Preset` - Preset
-       * * `Procore` - Procore
-       * * `Productiv` - Productiv
-       * * `ProofpointTap` - ProofpointTap
-       * * `Propertyware` - Propertyware
-       * * `Pubnub` - Pubnub
-       * * `Quay` - Quay
-       * * `Raken` - Raken
-       * * `RedpandaCloud` - RedpandaCloud
-       * * `RentManager` - RentManager
-       * * `Reverb` - Reverb
-       * * `RocketMatter` - RocketMatter
-       * * `Rubygems` - Rubygems
-       * * `Scalr` - Scalr
-       * * `SecEdgar` - SecEdgar
-       * * `SelectStar` - SelectStar
-       * * `SemanticScholar` - SemanticScholar
-       * * `Semrush` - Semrush
-       * * `ServiceFusion` - ServiceFusion
-       * * `Servicem8` - Servicem8
-       * * `Servicetitan` - Servicetitan
-       * * `Servicetrade` - Servicetrade
-       * * `Sevdesk` - Sevdesk
-       * * `Similarweb` - Similarweb
-       * * `Simpro` - Simpro
-       * * `Sinch` - Sinch
-       * * `Singlestore` - Singlestore
-       * * `Site24x7` - Site24x7
-       * * `Sleuth` - Sleuth
-       * * `Smartlook` - Smartlook
-       * * `Smartrecruiters` - Smartrecruiters
-       * * `Smokeball` - Smokeball
-       * * `SodaCloud` - SodaCloud
-       * * `Speedcurve` - Speedcurve
-       * * `SpotIo` - SpotIo
-       * * `Sprig` - Sprig
-       * * `Sprinklr` - Sprinklr
-       * * `SproutSocial` - SproutSocial
-       * * `StackOverflowForTeams` - StackOverflowForTeams
-       * * `Stockx` - Stockx
-       * * `TackleIo` - TackleIo
-       * * `Talkdesk` - Talkdesk
-       * * `TeamupFitness` - TeamupFitness
-       * * `Tebra` - Tebra
-       * * `Telnyx` - Telnyx
-       * * `Ternary` - Ternary
-       * * `Thoughtspot` - Thoughtspot
-       * * `Thousandeyes` - Thousandeyes
-       * * `Threads` - Threads
-       * * `TiktokShop` - TiktokShop
-       * * `TinyErp` - TinyErp
-       * * `Tinybird` - Tinybird
-       * * `Tipalti` - Tipalti
-       * * `Toast` - Toast
-       * * `Torii` - Torii
-       * * `Transistor` - Transistor
-       * * `TrunkIo` - TrunkIo
-       * * `Trustradius` - Trustradius
-       * * `Twitch` - Twitch
-       * * `TwoC2p` - TwoC2p
-       * * `UkCompaniesHouse` - UkCompaniesHouse
-       * * `UkOns` - UkOns
-       * * `UnComtrade` - UnComtrade
-       * * `UsBea` - UsBea
-       * * `UsBls` - UsBls
-       * * `UsEia` - UsEia
-       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
-       * * `Vanta` - Vanta
-       * * `Vendr` - Vendr
-       * * `Virtuous` - Virtuous
-       * * `Vonage` - Vonage
-       * * `WalmartMarketplace` - WalmartMarketplace
-       * * `Waydev` - Waydev
-       * * `Wayfair` - Wayfair
-       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
-       * * `WhoGho` - WhoGho
-       * * `Whop` - Whop
-       * * `Wistia` - Wistia
-       * * `Wiz` - Wiz
-       * * `Wompi` - Wompi
-       * * `Workiz` - Workiz
-       * * `WorldBank` - WorldBank
-       * * `Xendit` - Xendit
-       * * `Yoco` - Yoco
-       * * `ZalandoZdirect` - ZalandoZdirect
-       * * `Zluri` - Zluri
-       * * `Zylo` - Zylo
-       * * `Tally` - Tally
-       * * `Nuntly` - Nuntly
-       * * `Vturb` - Vturb
-       * * `Meltwater` - Meltwater
-       * * `UserCom` - UserCom
-       * * `Latitude` - Latitude
-       * * `Workato` - Workato
-       * * `SideShift` - SideShift
-       * * `DuckLake` - DuckLake
-       * * `Starburst` - Starburst
-       * * `Trino` - Trino
-       * * `Easybill` - Easybill
-       * * `Bexio` - Bexio
-       * * `Umami` - Umami
-       * * `Manychat` - Manychat
-       * * `Kickstarter` - Kickstarter
-       * * `Typesense` - Typesense
-       * * `FirstPromoter` - FirstPromoter
-       * * `Zero` - Zero
-       * * `Inth` - Inth
-       * * `BCMS` - BCMS
-       * * `Convonite` - Convonite
-       * * `Hookdeck` - Hookdeck
-       * * `Billit` - Billit
-       * * `Moxie` - Moxie
-       * * `TripleWhale` - TripleWhale
-       * * `Directus` - Directus
-       * * `Clay` - Clay
-       * * `TradableBits` - TradableBits
-       * * `Swan` - Swan
-       * * `Hyros` - Hyros
-       * * `Odoo` - Odoo
-       * * `Airbridge` - Airbridge
-       * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter
-       * * `Raisely` - Raisely
-       * * `RakutenAdvertising` - RakutenAdvertising
-       * * `Zitadel` - Zitadel
-       * * `DeelFlows` - DeelFlows
-       * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix
-       * * `Sevalla` - Sevalla
-       * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner
-       * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare
-       * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91
-       * * `Depot` - Depot
-       * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy
-       * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart
-       * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound
-       * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi
-       * * `Capterra` - Capterra
-       * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi
-       * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS
-       * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox
-       * * `SimonData` - SimonData
-       * * `CommissionJunction` - CommissionJunction
-       * * `Liveblocks` - Liveblocks
-       * * `Livestorm` - Livestorm
-       * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana
-       * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable
-       * * `Anvil` - Anvil
-       * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato
-       * * `Medusa` - Medusa
-       * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin
-       * * `Folk` - Folk
-       * * `Cybersource` - Cybersource
-       * * `GoogleAdSense` - GoogleAdSense
-       * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio
-       * * `Smartlead` - Smartlead
-       * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket
-       * * `Quo` - Quo
-       * * `HeyReach` - HeyReach
-       * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet
-       * * `Expo` - Expo
-       * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer
-       * * `Sprinto` - Sprinto
-       * * `Gem` - Gem
-       * * `AudioGO` - AudioGO
-       * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs
-       * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura
-       * * `ChargebackStop` - ChargebackStop
-       * * `Chargeflow` - Chargeflow
-       * * `Dreamdata` - Dreamdata
-       * * `GoogleBusinessProfile` - GoogleBusinessProfile
-       * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite
-       * * `Modal` - Modal
-       * * `Vimeo` - Vimeo
-       * * `Scrunch` - Scrunch
-       * * `Loom` - Loom
-       * * `Arcade` - Arcade
-       * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom
-       * * `Userback` - Userback
-       * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution
-       * * `StackAdapt` - StackAdapt
-       * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay
-       * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud
-       * * `Northbeam` - Northbeam
-       * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO
-       * * `Airship` - Airship
-       * * `Creem` - Creem
-       * * `Leantime` - Leantime
-       * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob
-       * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2
-       * * `Particle` - Particle
-       * * `FileUpload` - FileUpload
-       * * `Dripify` - Dripify
-       * * `AwsS3Tables` - AwsS3Tables
-       * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments
-       * * `Soniox` - Soniox */
-      readonly source_type: ExternalDataSourceTypeEnum;
+      /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake'). */
+      readonly source_type: string;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
        * * `warehouse` - warehouse
@@ -53163,1421 +46955,8 @@ export namespace Schemas {
     export type ExternalDataSourceCreatePayload = { [key: string]: unknown };
 
     export interface ExternalDataSourceCreate {
-      /** The source type (e.g. 'Postgres', 'Stripe').
-       *
-       * * `Ashby` - Ashby
-       * * `Supabase` - Supabase
-       * * `CustomerIO` - CustomerIO
-       * * `Github` - Github
-       * * `Stripe` - Stripe
-       * * `Hubspot` - Hubspot
-       * * `Postgres` - Postgres
-       * * `Zendesk` - Zendesk
-       * * `Snowflake` - Snowflake
-       * * `Salesforce` - Salesforce
-       * * `MySQL` - MySQL
-       * * `MongoDB` - MongoDB
-       * * `MSSQL` - MSSQL
-       * * `Vitally` - Vitally
-       * * `BigQuery` - BigQuery
-       * * `Chargebee` - Chargebee
-       * * `Clerk` - Clerk
-       * * `GoogleAds` - GoogleAds
-       * * `GoogleSearchConsole` - GoogleSearchConsole
-       * * `TemporalIO` - TemporalIO
-       * * `DoIt` - DoIt
-       * * `GoogleSheets` - GoogleSheets
-       * * `MetaAds` - MetaAds
-       * * `Klaviyo` - Klaviyo
-       * * `Mailchimp` - Mailchimp
-       * * `Braze` - Braze
-       * * `Mailjet` - Mailjet
-       * * `Redshift` - Redshift
-       * * `Polar` - Polar
-       * * `RevenueCat` - RevenueCat
-       * * `LinkedinAds` - LinkedinAds
-       * * `RedditAds` - RedditAds
-       * * `TikTokAds` - TikTokAds
-       * * `BingAds` - BingAds
-       * * `Shopify` - Shopify
-       * * `Attio` - Attio
-       * * `SnapchatAds` - SnapchatAds
-       * * `Linear` - Linear
-       * * `LiteLLM` - LiteLLM
-       * * `Intercom` - Intercom
-       * * `Amplitude` - Amplitude
-       * * `Mixpanel` - Mixpanel
-       * * `Jira` - Jira
-       * * `ActiveCampaign` - ActiveCampaign
-       * * `Marketo` - Marketo
-       * * `Adjust` - Adjust
-       * * `AppsFlyer` - AppsFlyer
-       * * `Freshdesk` - Freshdesk
-       * * `GoogleAnalytics` - GoogleAnalytics
-       * * `Pipedrive` - Pipedrive
-       * * `SendGrid` - SendGrid
-       * * `Slack` - Slack
-       * * `PagerDuty` - PagerDuty
-       * * `Asana` - Asana
-       * * `Notion` - Notion
-       * * `Airtable` - Airtable
-       * * `Greenhouse` - Greenhouse
-       * * `BambooHR` - BambooHR
-       * * `Lever` - Lever
-       * * `GitLab` - GitLab
-       * * `Datadog` - Datadog
-       * * `Sentry` - Sentry
-       * * `Pendo` - Pendo
-       * * `FullStory` - FullStory
-       * * `AmazonAds` - AmazonAds
-       * * `PinterestAds` - PinterestAds
-       * * `AppleSearchAds` - AppleSearchAds
-       * * `QuickBooks` - QuickBooks
-       * * `Xero` - Xero
-       * * `NetSuite` - NetSuite
-       * * `WooCommerce` - WooCommerce
-       * * `BigCommerce` - BigCommerce
-       * * `PayPal` - PayPal
-       * * `Square` - Square
-       * * `Zoom` - Zoom
-       * * `Trello` - Trello
-       * * `TrafficStars` - TrafficStars
-       * * `Monday` - Monday
-       * * `ClickUp` - ClickUp
-       * * `Confluence` - Confluence
-       * * `Recurly` - Recurly
-       * * `SalesLoft` - SalesLoft
-       * * `Outreach` - Outreach
-       * * `Gong` - Gong
-       * * `Calendly` - Calendly
-       * * `Typeform` - Typeform
-       * * `UnityAds` - UnityAds
-       * * `Iterable` - Iterable
-       * * `ZohoCRM` - ZohoCRM
-       * * `Close` - Close
-       * * `Oracle` - Oracle
-       * * `DynamoDB` - DynamoDB
-       * * `Elasticsearch` - Elasticsearch
-       * * `Kafka` - Kafka
-       * * `LaunchDarkly` - LaunchDarkly
-       * * `Braintree` - Braintree
-       * * `Recharge` - Recharge
-       * * `HelpScout` - HelpScout
-       * * `Gorgias` - Gorgias
-       * * `Instagram` - Instagram
-       * * `YouTubeAnalytics` - YouTubeAnalytics
-       * * `FacebookPages` - FacebookPages
-       * * `TwitterAds` - TwitterAds
-       * * `Workday` - Workday
-       * * `ServiceNow` - ServiceNow
-       * * `Pardot` - Pardot
-       * * `Copper` - Copper
-       * * `Front` - Front
-       * * `ChartMogul` - ChartMogul
-       * * `Zuora` - Zuora
-       * * `Paddle` - Paddle
-       * * `CircleCI` - CircleCI
-       * * `CockroachDB` - CockroachDB
-       * * `Firebase` - Firebase
-       * * `AzureBlob` - AzureBlob
-       * * `GoogleDrive` - GoogleDrive
-       * * `OneDrive` - OneDrive
-       * * `SharePoint` - SharePoint
-       * * `Box` - Box
-       * * `SFTP` - SFTP
-       * * `MicrosoftTeams` - MicrosoftTeams
-       * * `Aircall` - Aircall
-       * * `Webflow` - Webflow
-       * * `Okta` - Okta
-       * * `Auth0` - Auth0
-       * * `Productboard` - Productboard
-       * * `Smartsheet` - Smartsheet
-       * * `Wrike` - Wrike
-       * * `Plaid` - Plaid
-       * * `SurveyMonkey` - SurveyMonkey
-       * * `Eventbrite` - Eventbrite
-       * * `Everflow` - Everflow
-       * * `RingCentral` - RingCentral
-       * * `Twilio` - Twilio
-       * * `Freshsales` - Freshsales
-       * * `Shortcut` - Shortcut
-       * * `ConvertKit` - ConvertKit
-       * * `Drip` - Drip
-       * * `CampaignMonitor` - CampaignMonitor
-       * * `MailerLite` - MailerLite
-       * * `Omnisend` - Omnisend
-       * * `Brevo` - Brevo
-       * * `Postmark` - Postmark
-       * * `Granola` - Granola
-       * * `BuildBetter` - BuildBetter
-       * * `Convex` - Convex
-       * * `ClickHouse` - ClickHouse
-       * * `Plain` - Plain
-       * * `Resend` - Resend
-       * * `PgAnalyze` - PgAnalyze
-       * * `WorkOS` - WorkOS
-       * * `AmazonS3` - AmazonS3
-       * * `GoogleCloudStorage` - GoogleCloudStorage
-       * * `Databricks` - Databricks
-       * * `Dynamics365` - Dynamics365
-       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
-       * * `Db2` - Db2
-       * * `Heap` - Heap
-       * * `AdobeAnalytics` - AdobeAnalytics
-       * * `Matomo` - Matomo
-       * * `Optimizely` - Optimizely
-       * * `Adyen` - Adyen
-       * * `GoCardless` - GoCardless
-       * * `Mollie` - Mollie
-       * * `CheckoutCom` - CheckoutCom
-       * * `Branch` - Branch
-       * * `Criteo` - Criteo
-       * * `Outbrain` - Outbrain
-       * * `Taboola` - Taboola
-       * * `AdRoll` - AdRoll
-       * * `DisplayVideo360` - DisplayVideo360
-       * * `GoogleAdManager` - GoogleAdManager
-       * * `CampaignManager360` - CampaignManager360
-       * * `SearchAds360` - SearchAds360
-       * * `AdobeCommerce` - AdobeCommerce
-       * * `AmazonSellingPartner` - AmazonSellingPartner
-       * * `Ebay` - Ebay
-       * * `Commercetools` - Commercetools
-       * * `LightspeedRetail` - LightspeedRetail
-       * * `Shipmail` - Shipmail
-       * * `ShipStation` - ShipStation
-       * * `ConstantContact` - ConstantContact
-       * * `Mailgun` - Mailgun
-       * * `Eloqua` - Eloqua
-       * * `Sailthru` - Sailthru
-       * * `Ortto` - Ortto
-       * * `Attentive` - Attentive
-       * * `Kustomer` - Kustomer
-       * * `Dixa` - Dixa
-       * * `Gladly` - Gladly
-       * * `Qualtrics` - Qualtrics
-       * * `AzureDevOps` - AzureDevOps
-       * * `RoktAds` - RoktAds
-       * * `Rollbar` - Rollbar
-       * * `Opsgenie` - Opsgenie
-       * * `IncidentIo` - IncidentIo
-       * * `Pingdom` - Pingdom
-       * * `Cloudflare` - Cloudflare
-       * * `CloudflareD1` - CloudflareD1
-       * * `CosmosDB` - CosmosDB
-       * * `PlanetScaleMySQL` - PlanetScaleMySQL
-       * * `PlanetScalePostgres` - PlanetScalePostgres
-       * * `Plane` - Plane
-       * * `Scarf` - Scarf
-       * * `SapHana` - SapHana
-       * * `Rippling` - Rippling
-       * * `HiBob` - HiBob
-       * * `Personio` - Personio
-       * * `Deel` - Deel
-       * * `AdpWorkforceNow` - AdpWorkforceNow
-       * * `Paylocity` - Paylocity
-       * * `Gusto` - Gusto
-       * * `CultureAmp` - CultureAmp
-       * * `Lattice` - Lattice
-       * * `SageIntacct` - SageIntacct
-       * * `FreshBooks` - FreshBooks
-       * * `Expensify` - Expensify
-       * * `Ramp` - Ramp
-       * * `Brex` - Brex
-       * * `Coupa` - Coupa
-       * * `SapConcur` - SapConcur
-       * * `Apollo` - Apollo
-       * * `Crunchbase` - Crunchbase
-       * * `ZoomInfo` - ZoomInfo
-       * * `Clari` - Clari
-       * * `Chorus` - Chorus
-       * * `Coda` - Coda
-       * * `Guru` - Guru
-       * * `Dropbox` - Dropbox
-       * * `Docusign` - Docusign
-       * * `PandaDoc` - PandaDoc
-       * * `SapErp` - SapErp
-       * * `SapSuccessFactors` - SapSuccessFactors
-       * * `OracleEbs` - OracleEbs
-       * * `OracleFusion` - OracleFusion
-       * * `AmazonSNS` - AmazonSNS
-       * * `AmazonEventBridge` - AmazonEventBridge
-       * * `AmazonSQS` - AmazonSQS
-       * * `AmazonKinesis` - AmazonKinesis
-       * * `AmazonCloudWatch` - AmazonCloudWatch
-       * * `OpenAIAds` - OpenAIAds
-       * * `OneHundredMs` - OneHundredMs
-       * * `SevenShifts` - SevenShifts
-       * * `AcuityScheduling` - AcuityScheduling
-       * * `AgileCRM` - AgileCRM
-       * * `Aha` - Aha
-       * * `Airbyte` - Airbyte
-       * * `Akeneo` - Akeneo
-       * * `Algolia` - Algolia
-       * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
-       * * `ApifyDataset` - ApifyDataset
-       * * `Appcues` - Appcues
-       * * `Appfigures` - Appfigures
-       * * `Appfollow` - Appfollow
-       * * `Apptivo` - Apptivo
-       * * `AssemblyAI` - AssemblyAI
-       * * `Awin` - Awin
-       * * `AwsCloudTrail` - AwsCloudTrail
-       * * `AzureTableStorage` - AzureTableStorage
-       * * `Babelforce` - Babelforce
-       * * `Basecamp` - Basecamp
-       * * `Beamer` - Beamer
-       * * `BigMailer` - BigMailer
-       * * `Bluetally` - Bluetally
-       * * `BoldSign` - BoldSign
-       * * `BreezyHR` - BreezyHR
-       * * `Bugsnag` - Bugsnag
-       * * `Buildkite` - Buildkite
-       * * `Bunny` - Bunny
-       * * `Buzzsprout` - Buzzsprout
-       * * `CalCom` - CalCom
-       * * `CallRail` - CallRail
-       * * `Campayn` - Campayn
-       * * `Canny` - Canny
-       * * `CapsuleCRM` - CapsuleCRM
-       * * `CaptainData` - CaptainData
-       * * `CartCom` - CartCom
-       * * `CastorEDC` - CastorEDC
-       * * `Chameleon` - Chameleon
-       * * `Chargedesk` - Chargedesk
-       * * `Chargify` - Chargify
-       * * `Chift` - Chift
-       * * `Churnkey` - Churnkey
-       * * `Cin7` - Cin7
-       * * `CiscoMeraki` - CiscoMeraki
-       * * `Clazar` - Clazar
-       * * `Clockify` - Clockify
-       * * `Clockodo` - Clockodo
-       * * `Cloudbeds` - Cloudbeds
-       * * `Coassemble` - Coassemble
-       * * `Codefresh` - Codefresh
-       * * `Concord` - Concord
-       * * `ConfigCat` - ConfigCat
-       * * `Couchbase` - Couchbase
-       * * `Curve` - Curve
-       * * `Customerly` - Customerly
-       * * `Datascope` - Datascope
-       * * `Dbt` - Dbt
-       * * `Demodesk` - Demodesk
-       * * `Deputy` - Deputy
-       * * `DevinAI` - DevinAI
-       * * `Docuseal` - Docuseal
-       * * `Dolibarr` - Dolibarr
-       * * `Dremio` - Dremio
-       * * `DropboxSign` - DropboxSign
-       * * `Dwolla` - Dwolla
-       * * `EConomic` - EConomic
-       * * `Easypost` - Easypost
-       * * `Easypromos` - Easypromos
-       * * `Elasticemail` - Elasticemail
-       * * `EmailOctopus` - EmailOctopus
-       * * `EmploymentHero` - EmploymentHero
-       * * `Encharge` - Encharge
-       * * `Eventee` - Eventee
-       * * `Eventzilla` - Eventzilla
-       * * `Everhour` - Everhour
-       * * `EZOfficeInventory` - EZOfficeInventory
-       * * `Factorial` - Factorial
-       * * `Fastbill` - Fastbill
-       * * `Fastly` - Fastly
-       * * `Fauna` - Fauna
-       * * `Feishu` - Feishu
-       * * `Fillout` - Fillout
-       * * `Finage` - Finage
-       * * `Firebolt` - Firebolt
-       * * `FireHydrant` - FireHydrant
-       * * `Fleetio` - Fleetio
-       * * `Flexmail` - Flexmail
-       * * `Flexport` - Flexport
-       * * `FloatApp` - FloatApp
-       * * `Flowlu` - Flowlu
-       * * `Formbricks` - Formbricks
-       * * `Framer` - Framer
-       * * `FreeAgent` - FreeAgent
-       * * `Freightview` - Freightview
-       * * `Freshcaller` - Freshcaller
-       * * `Freshchat` - Freshchat
-       * * `Freshservice` - Freshservice
-       * * `Fulcrum` - Fulcrum
-       * * `GainsightCs` - GainsightCs
-       * * `GainsightPx` - GainsightPx
-       * * `GitBook` - GitBook
-       * * `Glassfrog` - Glassfrog
-       * * `Goldcast` - Goldcast
-       * * `GoLogin` - GoLogin
-       * * `Grafana` - Grafana
-       * * `GreytHr` - GreytHr
-       * * `Gridly` - Gridly
-       * * `Harness` - Harness
-       * * `Height` - Height
-       * * `Hellobaton` - Hellobaton
-       * * `HighLevel` - HighLevel
-       * * `HoorayHR` - HoorayHR
-       * * `Hubplanner` - Hubplanner
-       * * `Humanitix` - Humanitix
-       * * `Huntr` - Huntr
-       * * `Inflowinventory` - Inflowinventory
-       * * `InforNexus` - InforNexus
-       * * `Insightful` - Insightful
-       * * `Insightly` - Insightly
-       * * `Instantly` - Instantly
-       * * `Instatus` - Instatus
-       * * `Intruder` - Intruder
-       * * `Invoiced` - Invoiced
-       * * `Invoiceninja` - Invoiceninja
-       * * `JamfPro` - JamfPro
-       * * `JobNimbus` - JobNimbus
-       * * `Jotform` - Jotform
-       * * `JudgeMeReviews` - JudgeMeReviews
-       * * `JustCall` - JustCall
-       * * `JustSift` - JustSift
-       * * `K6Cloud` - K6Cloud
-       * * `Katana` - Katana
-       * * `Keka` - Keka
-       * * `Kisi` - Kisi
-       * * `Kissmetrics` - Kissmetrics
-       * * `Klarna` - Klarna
-       * * `Klaus` - Klaus
-       * * `Lago` - Lago
-       * * `Leadfeeder` - Leadfeeder
-       * * `Lemlist` - Lemlist
-       * * `LessAnnoyingCRM` - LessAnnoyingCRM
-       * * `LinkedinPages` - LinkedinPages
-       * * `Linkrunner` - Linkrunner
-       * * `Linnworks` - Linnworks
-       * * `Lob` - Lob
-       * * `Lokalise` - Lokalise
-       * * `Looker` - Looker
-       * * `Luma` - Luma
-       * * `MailerSend` - MailerSend
-       * * `Mailosaur` - Mailosaur
-       * * `Mailtrap` - Mailtrap
-       * * `Mantle` - Mantle
-       * * `Mention` - Mention
-       * * `MercadoAds` - MercadoAds
-       * * `Merge` - Merge
-       * * `Metabase` - Metabase
-       * * `Metricool` - Metricool
-       * * `MicrosoftDataverse` - MicrosoftDataverse
-       * * `MicrosoftEntraId` - MicrosoftEntraId
-       * * `MicrosoftLists` - MicrosoftLists
-       * * `Miro` - Miro
-       * * `Missive` - Missive
-       * * `MixMax` - MixMax
-       * * `Mode` - Mode
-       * * `Mux` - Mux
-       * * `MyHours` - MyHours
-       * * `N8n` - N8n
-       * * `Navan` - Navan
-       * * `NebiusAI` - NebiusAI
-       * * `Nexiopay` - Nexiopay
-       * * `NinjaOneRMM` - NinjaOneRMM
-       * * `NoCRM` - NoCRM
-       * * `NorthpassLMS` - NorthpassLMS
-       * * `Nutshell` - Nutshell
-       * * `Nylas` - Nylas
-       * * `Oncehub` - Oncehub
-       * * `Onepagecrm` - Onepagecrm
-       * * `OneSignal` - OneSignal
-       * * `Onfleet` - Onfleet
-       * * `OpinionStage` - OpinionStage
-       * * `OPUSWatch` - OPUSWatch
-       * * `Orb` - Orb
-       * * `Orbit` - Orbit
-       * * `Oura` - Oura
-       * * `Oveit` - Oveit
-       * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
-       * * `Paperform` - Paperform
-       * * `Papersign` - Papersign
-       * * `Partnerize` - Partnerize
-       * * `PartnerStack` - PartnerStack
-       * * `PayFit` - PayFit
-       * * `Paystack` - Paystack
-       * * `Pennylane` - Pennylane
-       * * `Perk` - Perk
-       * * `PersistIq` - PersistIq
-       * * `Persona` - Persona
-       * * `Phyllo` - Phyllo
-       * * `Picqer` - Picqer
-       * * `Pipeliner` - Pipeliner
-       * * `PivotalTracker` - PivotalTracker
-       * * `Piwik` - Piwik
-       * * `Planhat` - Planhat
-       * * `Plausible` - Plausible
-       * * `Poplar` - Poplar
-       * * `PrestaShop` - PrestaShop
-       * * `Pretix` - Pretix
-       * * `Primetric` - Primetric
-       * * `Printavo` - Printavo
-       * * `Printify` - Printify
-       * * `Productive` - Productive
-       * * `Pylon` - Pylon
-       * * `Qonto` - Qonto
-       * * `Qualaroo` - Qualaroo
-       * * `Railz` - Railz
-       * * `RDStationMarketing` - RDStationMarketing
-       * * `Recruitee` - Recruitee
-       * * `Reddit` - Reddit
-       * * `ReferralHero` - ReferralHero
-       * * `RentCast` - RentCast
-       * * `Repairshopr` - Repairshopr
-       * * `ReplyIo` - ReplyIo
-       * * `RetailExpress` - RetailExpress
-       * * `Retently` - Retently
-       * * `Retreaver` - Retreaver
-       * * `RevolutMerchant` - RevolutMerchant
-       * * `RocketChat` - RocketChat
-       * * `Rocketlane` - Rocketlane
-       * * `Rootly` - Rootly
-       * * `Ruddr` - Ruddr
-       * * `SafetyCulture` - SafetyCulture
-       * * `SageHR` - SageHR
-       * * `Salesflare` - Salesflare
-       * * `SAPFieldglass` - SAPFieldglass
-       * * `SavvyCal` - SavvyCal
-       * * `Secoda` - Secoda
-       * * `Segment` - Segment
-       * * `Sendowl` - Sendowl
-       * * `SendPulse` - SendPulse
-       * * `Senseforce` - Senseforce
-       * * `Serpstat` - Serpstat
-       * * `Sharetribe` - Sharetribe
-       * * `Shippo` - Shippo
-       * * `ShopWired` - ShopWired
-       * * `Shortio` - Shortio
-       * * `Shutterstock` - Shutterstock
-       * * `SigmaComputing` - SigmaComputing
-       * * `SignNow` - SignNow
-       * * `SimpleCast` - SimpleCast
-       * * `Simplesat` - Simplesat
-       * * `Smaily` - Smaily
-       * * `SmartEngage` - SmartEngage
-       * * `Smartreach` - Smartreach
-       * * `Smartwaiver` - Smartwaiver
-       * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
-       * * `SonarCloud` - SonarCloud
-       * * `SparkPost` - SparkPost
-       * * `SplitIo` - SplitIo
-       * * `SpotifyAds` - SpotifyAds
-       * * `SpotlerCRM` - SpotlerCRM
-       * * `Squarespace` - Squarespace
-       * * `Statsig` - Statsig
-       * * `Statuspage` - Statuspage
-       * * `Steam` - Steam
-       * * `Stigg` - Stigg
-       * * `Strava` - Strava
-       * * `SurveySparrow` - SurveySparrow
-       * * `Survicate` - Survicate
-       * * `Svix` - Svix
-       * * `Systeme` - Systeme
-       * * `Tavus` - Tavus
-       * * `Teamtailor` - Teamtailor
-       * * `Teamwork` - Teamwork
-       * * `Tempo` - Tempo
-       * * `Testrail` - Testrail
-       * * `Thinkific` - Thinkific
-       * * `ThinkificCourses` - ThinkificCourses
-       * * `ThriveLearning` - ThriveLearning
-       * * `Ticketmaster` - Ticketmaster
-       * * `TicketTailor` - TicketTailor
-       * * `TickTick` - TickTick
-       * * `Timely` - Timely
-       * * `Tinyemail` - Tinyemail
-       * * `Todoist` - Todoist
-       * * `Toggl` - Toggl
-       * * `TrackPMS` - TrackPMS
-       * * `Tremendous` - Tremendous
-       * * `TrustPilot` - TrustPilot
-       * * `Twitter` - Twitter
-       * * `TyntecSMS` - TyntecSMS
-       * * `Unleash` - Unleash
-       * * `UpPromote` - UpPromote
-       * * `Uptick` - Uptick
-       * * `Uservoice` - Uservoice
-       * * `Vantage` - Vantage
-       * * `Veeqo` - Veeqo
-       * * `Vercel` - Vercel
-       * * `VismaEconomic` - VismaEconomic
-       * * `VWO` - VWO
-       * * `Waiteraid` - Waiteraid
-       * * `Wasabi` - Wasabi
-       * * `WhenIWork` - WhenIWork
-       * * `Wordpress` - Wordpress
-       * * `Workable` - Workable
-       * * `Workflowmax` - Workflowmax
-       * * `Workramp` - Workramp
-       * * `Wufoo` - Wufoo
-       * * `Xsolla` - Xsolla
-       * * `YandexMetrica` - YandexMetrica
-       * * `Yotpo` - Yotpo
-       * * `Ynab` - Ynab
-       * * `Younium` - Younium
-       * * `YouSign` - YouSign
-       * * `YoutubeData` - YoutubeData
-       * * `ZapierSupportedStorage` - ZapierSupportedStorage
-       * * `ZapSign` - ZapSign
-       * * `ZendeskSell` - ZendeskSell
-       * * `ZendeskSunshine` - ZendeskSunshine
-       * * `Zenefits` - Zenefits
-       * * `Zenloop` - Zenloop
-       * * `ZohoAnalytics` - ZohoAnalytics
-       * * `ZohoBigin` - ZohoBigin
-       * * `ZohoBilling` - ZohoBilling
-       * * `ZohoBooks` - ZohoBooks
-       * * `ZohoCampaign` - ZohoCampaign
-       * * `ZohoDesk` - ZohoDesk
-       * * `ZohoExpense` - ZohoExpense
-       * * `ZohoInventory` - ZohoInventory
-       * * `ZohoInvoice` - ZohoInvoice
-       * * `ZonkaFeedback` - ZonkaFeedback
-       * * `AlphaVantage` - AlphaVantage
-       * * `Aviationstack` - Aviationstack
-       * * `Bitly` - Bitly
-       * * `Blogger` - Blogger
-       * * `Breezometer` - Breezometer
-       * * `CareQualityCommission` - CareQualityCommission
-       * * `Cimis` - Cimis
-       * * `CoinApi` - CoinApi
-       * * `CoinGecko` - CoinGecko
-       * * `CoinMarketCap` - CoinMarketCap
-       * * `DingConnect` - DingConnect
-       * * `Dockerhub` - Dockerhub
-       * * `ExchangeRatesApi` - ExchangeRatesApi
-       * * `FinancialModelling` - FinancialModelling
-       * * `Finnhub` - Finnhub
-       * * `Finnworlds` - Finnworlds
-       * * `Giphy` - Giphy
-       * * `Gmail` - Gmail
-       * * `GNews` - GNews
-       * * `GoogleCalendar` - GoogleCalendar
-       * * `GoogleClassroom` - GoogleClassroom
-       * * `GoogleDirectory` - GoogleDirectory
-       * * `GoogleForms` - GoogleForms
-       * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
-       * * `GoogleTasks` - GoogleTasks
-       * * `GoogleWebfonts` - GoogleWebfonts
-       * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
-       * * `HuggingFace` - HuggingFace
-       * * `IlluminaBasespace` - IlluminaBasespace
-       * * `Imagga` - Imagga
-       * * `Interzoid` - Interzoid
-       * * `IP2Whois` - IP2Whois
-       * * `KYVE` - KYVE
-       * * `Marketstack` - Marketstack
-       * * `Mendeley` - Mendeley
-       * * `Nasa` - Nasa
-       * * `NewYorkTimes` - NewYorkTimes
-       * * `NewsApi` - NewsApi
-       * * `NewsData` - NewsData
-       * * `OpenDataDc` - OpenDataDc
-       * * `OpenExchangeRates` - OpenExchangeRates
-       * * `OpenAQ` - OpenAQ
-       * * `OpenFDA` - OpenFDA
-       * * `OpenWeather` - OpenWeather
-       * * `Outlook` - Outlook
-       * * `Perigon` - Perigon
-       * * `Pexels` - Pexels
-       * * `Pocket` - Pocket
-       * * `Polygon` - Polygon
-       * * `PyPI` - PyPI
-       * * `Recreation` - Recreation
-       * * `RKICovid` - RKICovid
-       * * `Rss` - Rss
-       * * `SimFin` - SimFin
-       * * `StockData` - StockData
-       * * `Guardian` - Guardian
-       * * `TMDb` - TMDb
-       * * `TVMaze` - TVMaze
-       * * `TwelveData` - TwelveData
-       * * `Ubidots` - Ubidots
-       * * `USCensus` - USCensus
-       * * `Watchmode` - Watchmode
-       * * `WikipediaPageviews` - WikipediaPageviews
-       * * `YahooFinance` - YahooFinance
-       * * `Clarifai` - Clarifai
-       * * `Adapty` - Adapty
-       * * `Braintrust` - Braintrust
-       * * `StreamElements` - StreamElements
-       * * `Streamlabs` - Streamlabs
-       * * `Datorama` - Datorama
-       * * `Ahrefs` - Ahrefs
-       * * `Lightfield` - Lightfield
-       * * `Appstack` - Appstack
-       * * `Razorpay` - Razorpay
-       * * `Neon` - Neon
-       * * `NewRelic` - NewRelic
-       * * `Custom` - Custom
-       * * `Tile38` - Tile38
-       * * `Chatwoot` - Chatwoot
-       * * `Sanity` - Sanity
-       * * `Metronome` - Metronome
-       * * `Jobber` - Jobber
-       * * `Knock` - Knock
-       * * `Leexi` - Leexi
-       * * `RB2B` - RB2B
-       * * `Superwall` - Superwall
-       * * `Liana` - Liana
-       * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch
-       * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas
-       * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds
-       * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow
-       * * `Plunk` - Plunk
-       * * `Dub` - Dub
-       * * `AirOps` - AirOps
-       * * `Podium` - Podium
-       * * `Loops` - Loops
-       * * `Redis` - Redis
-       * * `Mercury` - Mercury
-       * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable
-       * * `PeecAI` - PeecAI
-       * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact
-       * * `AikidoSecurity` - AikidoSecurity
-       * * `Alguna` - Alguna
-       * * `Anthropic` - Anthropic
-       * * `Appwrite` - Appwrite
-       * * `BlandAI` - BlandAI
-       * * `BrowseAI` - BrowseAI
-       * * `BrowserUse` - BrowserUse
-       * * `ChartHop` - ChartHop
-       * * `Cody` - Cody
-       * * `Cursor` - Cursor
-       * * `Decagon` - Decagon
-       * * `Deepgram` - Deepgram
-       * * `ElevenLabs` - ElevenLabs
-       * * `Harvey` - Harvey
-       * * `Hyperspell` - Hyperspell
-       * * `Langfuse` - Langfuse
-       * * `LingoDev` - LingoDev
-       * * `M3ter` - M3ter
-       * * `Maxio` - Maxio
-       * * `Metorial` - Metorial
-       * * `OpenRouter` - OpenRouter
-       * * `TogetherAI` - TogetherAI
-       * * `Vapi` - Vapi
-       * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic
-       * * `Aiven` - Aiven
-       * * `Aviator` - Aviator
-       * * `Backblaze` - Backblaze
-       * * `Baseten` - Baseten
-       * * `Browserbase` - Browserbase
-       * * `Cohere` - Cohere
-       * * `DenoDeploy` - DenoDeploy
-       * * `DigitalOcean` - DigitalOcean
-       * * `E2B` - E2B
-       * * `Fintoc` - Fintoc
-       * * `Firecrawl` - Firecrawl
-       * * `FireworksAI` - FireworksAI
-       * * `FlyIo` - FlyIo
-       * * `Groq` - Groq
-       * * `GrowthBook` - GrowthBook
-       * * `Gumloop` - Gumloop
-       * * `Hatchet` - Hatchet
-       * * `Helicone` - Helicone
-       * * `Heroku` - Heroku
-       * * `Hetzner` - Hetzner
-       * * `HeyGen` - HeyGen
-       * * `Infisical` - Infisical
-       * * `Inngest` - Inngest
-       * * `KapaAI` - KapaAI
-       * * `Kernel` - Kernel
-       * * `Koyeb` - Koyeb
-       * * `LambdaLabs` - LambdaLabs
-       * * `LangSmith` - LangSmith
-       * * `Linode` - Linode
-       * * `Listmonk` - Listmonk
-       * * `LlamaCloud` - LlamaCloud
-       * * `Mem0` - Mem0
-       * * `Metriport` - Metriport
-       * * `Mintlify` - Mintlify
-       * * `MistralAI` - MistralAI
-       * * `Mono` - Mono
-       * * `Netlify` - Netlify
-       * * `Northflank` - Northflank
-       * * `OpenAI` - OpenAI
-       * * `Pinecone` - Pinecone
-       * * `PlatformSh` - PlatformSh
-       * * `PromptingCompany` - PromptingCompany
-       * * `Qdrant` - Qdrant
-       * * `Render` - Render
-       * * `Replicate` - Replicate
-       * * `RetellAI` - RetellAI
-       * * `Roark` - Roark
-       * * `RunPod` - RunPod
-       * * `ScaleAI` - ScaleAI
-       * * `Scaleway` - Scaleway
-       * * `SigNoz` - SigNoz
-       * * `Sim` - Sim
-       * * `Skyvern` - Skyvern
-       * * `Slash` - Slash
-       * * `Synthesia` - Synthesia
-       * * `Telli` - Telli
-       * * `TerraApi` - TerraApi
-       * * `TriggerDev` - TriggerDev
-       * * `Turso` - Turso
-       * * `Singular` - Singular
-       * * `Swonkie` - Swonkie
-       * * `TwelveLabs` - TwelveLabs
-       * * `Twenty` - Twenty
-       * * `Unstructured` - Unstructured
-       * * `Upstash` - Upstash
-       * * `Vellum` - Vellum
-       * * `Vultr` - Vultr
-       * * `Windmill` - Windmill
-       * * `Zep` - Zep
-       * * `Hex` - Hex
-       * * `Sumsub` - Sumsub
-       * * `GoogleChat` - GoogleChat
-       * * `Kickscale` - Kickscale
-       * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack
-       * * `DodoPayments` - DodoPayments
-       * * `Salestrics` - Salestrics
-       * * `Doppler` - Doppler
-       * * `Usersnap` - Usersnap
-       * * `Asknicely` - Asknicely
-       * * `Featurebase` - Featurebase
-       * * `Frill` - Frill
-       * * `Bettermode` - Bettermode
-       * * `Dynatrace` - Dynatrace
-       * * `Honeycomb` - Honeycomb
-       * * `SumoLogic` - SumoLogic
-       * * `LogzIO` - LogzIO
-       * * `Coralogix` - Coralogix
-       * * `BetterStack` - BetterStack
-       * * `Raygun` - Raygun
-       * * `Honeybadger` - Honeybadger
-       * * `Airbrake` - Airbrake
-       * * `Appsignal` - Appsignal
-       * * `Appdynamics` - Appdynamics
-       * * `Instana` - Instana
-       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
-       * * `Uptimerobot` - Uptimerobot
-       * * `Statuscake` - Statuscake
-       * * `Tailscale` - Tailscale
-       * * `Flagsmith` - Flagsmith
-       * * `Xmatters` - Xmatters
-       * * `Squadcast` - Squadcast
-       * * `Zenduty` - Zenduty
-       * * `Cronitor` - Cronitor
-       * * `Jenkins` - Jenkins
-       * * `Bitbucket` - Bitbucket
-       * * `Gitea` - Gitea
-       * * `Teamcity` - Teamcity
-       * * `TravisCI` - TravisCI
-       * * `Semaphore` - Semaphore
-       * * `CircleciInsights` - CircleciInsights
-       * * `OctopusDeploy` - OctopusDeploy
-       * * `Sourcegraph` - Sourcegraph
-       * * `Bitrise` - Bitrise
-       * * `Gerrit` - Gerrit
-       * * `TerraformCloud` - TerraformCloud
-       * * `PulumiCloud` - PulumiCloud
-       * * `Spacelift` - Spacelift
-       * * `Railway` - Railway
-       * * `Argocd` - Argocd
-       * * `PrefectCloud` - PrefectCloud
-       * * `DagsterCloud` - DagsterCloud
-       * * `Env0` - Env0
-       * * `Kubecost` - Kubecost
-       * * `Snyk` - Snyk
-       * * `Semgrep` - Semgrep
-       * * `Veracode` - Veracode
-       * * `Checkmarx` - Checkmarx
-       * * `Gitguardian` - Gitguardian
-       * * `QualysVmdr` - QualysVmdr
-       * * `Rapid7Insightvm` - Rapid7Insightvm
-       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
-       * * `Sentinelone` - Sentinelone
-       * * `Lacework` - Lacework
-       * * `OrcaSecurity` - OrcaSecurity
-       * * `Drata` - Drata
-       * * `Secureframe` - Secureframe
-       * * `CiscoDuo` - CiscoDuo
-       * * `Jumpcloud` - Jumpcloud
-       * * `OnePassword` - OnePassword
-       * * `Stytch` - Stytch
-       * * `Sonarqube` - Sonarqube
-       * * `Codecov` - Codecov
-       * * `Coveralls` - Coveralls
-       * * `Codacy` - Codacy
-       * * `Deepsource` - Deepsource
-       * * `Linearb` - Linearb
-       * * `Jellyfish` - Jellyfish
-       * * `Swarmia` - Swarmia
-       * * `Packagist` - Packagist
-       * * `Nuget` - Nuget
-       * * `CratesIO` - CratesIO
-       * * `SonatypeNexus` - SonatypeNexus
-       * * `JfrogArtifactory` - JfrogArtifactory
-       * * `Snowplow` - Snowplow
-       * * `WeightsAndBiases` - WeightsAndBiases
-       * * `MonteCarlo` - MonteCarlo
-       * * `Metaplane` - Metaplane
-       * * `Datahub` - Datahub
-       * * `ClickhouseCloud` - ClickhouseCloud
-       * * `ConfluentCloud` - ConfluentCloud
-       * * `KongKonnect` - KongKonnect
-       * * `Kandji` - Kandji
-       * * `Automox` - Automox
-       * * `Autumn` - Autumn
-       * * `GetStream` - GetStream
-       * * `Octolens` - Octolens
-       * * `Kajabi` - Kajabi
-       * * `Shopware` - Shopware
-       * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch
-       * * `Crisp` - Crisp
-       * * `Kommo` - Kommo
-       * * `Axiom` - Axiom
-       * * `Plivo` - Plivo
-       * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan
-       * * `AbTasty` - AbTasty
-       * * `Ably` - Ably
-       * * `AbnormalSecurity` - AbnormalSecurity
-       * * `Acast` - Acast
-       * * `Acculynx` - Acculynx
-       * * `Actionstep` - Actionstep
-       * * `Aftership` - Aftership
-       * * `AhaIdeas` - AhaIdeas
-       * * `AkamaiReporting` - AkamaiReporting
-       * * `Alation` - Alation
-       * * `Alegra` - Alegra
-       * * `Allegro` - Allegro
-       * * `AnodotCost` - AnodotCost
-       * * `Anomalo` - Anomalo
-       * * `Apaleo` - Apaleo
-       * * `Apitally` - Apitally
-       * * `AppStoreConnect` - AppStoreConnect
-       * * `Appdirect` - Appdirect
-       * * `Appfolio` - Appfolio
-       * * `Arxiv` - Arxiv
-       * * `Asaas` - Asaas
-       * * `Astronomer` - Astronomer
-       * * `Athenahealth` - Athenahealth
-       * * `Atlan` - Atlan
-       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
-       * * `Avalara` - Avalara
-       * * `AwsAthena` - AwsAthena
-       * * `AwsBatch` - AwsBatch
-       * * `AwsBudgets` - AwsBudgets
-       * * `AwsCloudformation` - AwsCloudformation
-       * * `AwsComputeOptimizer` - AwsComputeOptimizer
-       * * `AwsConfig` - AwsConfig
-       * * `AwsConnect` - AwsConnect
-       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
-       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
-       * * `AwsCostExplorer` - AwsCostExplorer
-       * * `AwsDocumentDB` - AwsDocumentDB
-       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
-       * * `AwsGuardduty` - AwsGuardduty
-       * * `AwsHealth` - AwsHealth
-       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
-       * * `AwsInspector` - AwsInspector
-       * * `AwsMacie` - AwsMacie
-       * * `AwsOrganizations` - AwsOrganizations
-       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
-       * * `AwsSagemaker` - AwsSagemaker
-       * * `AwsSavingsPlans` - AwsSavingsPlans
-       * * `AwsSecurityHub` - AwsSecurityHub
-       * * `AwsSes` - AwsSes
-       * * `AwsStepFunctions` - AwsStepFunctions
-       * * `AwsSupport` - AwsSupport
-       * * `AwsSystemsManager` - AwsSystemsManager
-       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
-       * * `AwsWaf` - AwsWaf
-       * * `AwsXray` - AwsXray
-       * * `AzureActivityLog` - AzureActivityLog
-       * * `AzureAdvisor` - AzureAdvisor
-       * * `AzureApiManagement` - AzureApiManagement
-       * * `AzureApplicationInsights` - AzureApplicationInsights
-       * * `AzureCostManagement` - AzureCostManagement
-       * * `AzureDataExplorer` - AzureDataExplorer
-       * * `AzureDataFactory` - AzureDataFactory
-       * * `AzureLogAnalytics` - AzureLogAnalytics
-       * * `AzureMonitorAlerts` - AzureMonitorAlerts
-       * * `AzureMonitorMetrics` - AzureMonitorMetrics
-       * * `AzureOpenaiUsage` - AzureOpenaiUsage
-       * * `AzurePolicyInsights` - AzurePolicyInsights
-       * * `AzureReservations` - AzureReservations
-       * * `AzureResourceGraph` - AzureResourceGraph
-       * * `AzureResourceHealth` - AzureResourceHealth
-       * * `AzureServiceHealth` - AzureServiceHealth
-       * * `AzureSynapse` - AzureSynapse
-       * * `BackMarket` - BackMarket
-       * * `Beehiiv` - Beehiiv
-       * * `Bigeye` - Bigeye
-       * * `BillCom` - BillCom
-       * * `Billomat` - Billomat
-       * * `BingWebmasterTools` - BingWebmasterTools
-       * * `Bitwarden` - Bitwarden
-       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
-       * * `BlackboardLearn` - BlackboardLearn
-       * * `Bling` - Bling
-       * * `Bloomerang` - Bloomerang
-       * * `Blueshift` - Blueshift
-       * * `Bluesky` - Bluesky
-       * * `BolRetailer` - BolRetailer
-       * * `Boulevard` - Boulevard
-       * * `Buffer` - Buffer
-       * * `Bugherd` - Bugherd
-       * * `Buildium` - Buildium
-       * * `Buttondown` - Buttondown
-       * * `BuyMeACoffee` - BuyMeACoffee
-       * * `Calendarific` - Calendarific
-       * * `Calibre` - Calibre
-       * * `CanvasLms` - CanvasLms
-       * * `Captivate` - Captivate
-       * * `Cashfree` - Cashfree
-       * * `CastAi` - CastAi
-       * * `Catchpoint` - Catchpoint
-       * * `CdcOpenData` - CdcOpenData
-       * * `Census` - Census
-       * * `Checkly` - Checkly
-       * * `CircleSo` - CircleSo
-       * * `Classy` - Classy
-       * * `Cleartax` - Cleartax
-       * * `Clever` - Clever
-       * * `Clevertap` - Clevertap
-       * * `Cliniko` - Cliniko
-       * * `Clio` - Clio
-       * * `Clip` - Clip
-       * * `Cloudability` - Cloudability
-       * * `Cloudsmith` - Cloudsmith
-       * * `Cloudzero` - Cloudzero
-       * * `Clover` - Clover
-       * * `Codemagic` - Codemagic
-       * * `Codescene` - Codescene
-       * * `Collibra` - Collibra
-       * * `Companycam` - Companycam
-       * * `Conekta` - Conekta
-       * * `ContaAzul` - ContaAzul
-       * * `Contentsquare` - Contentsquare
-       * * `Cortex` - Cortex
-       * * `Courier` - Courier
-       * * `Crossref` - Crossref
-       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
-       * * `CubeCloud` - CubeCloud
-       * * `D2lBrightspace` - D2lBrightspace
-       * * `Dayforce` - Dayforce
-       * * `Debugbear` - Debugbear
-       * * `Descope` - Descope
-       * * `Develocity` - Develocity
-       * * `Dialpad` - Dialpad
-       * * `Discord` - Discord
-       * * `Discourse` - Discourse
-       * * `Donorbox` - Donorbox
-       * * `Doorloop` - Doorloop
-       * * `Dovetail` - Dovetail
-       * * `Dragonboat` - Dragonboat
-       * * `Drchrono` - Drchrono
-       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
-       * * `EcbDataPortal` - EcbDataPortal
-       * * `Emarsys` - Emarsys
-       * * `Embrace` - Embrace
-       * * `Entsoe` - Entsoe
-       * * `Eppo` - Eppo
-       * * `Etsy` - Etsy
-       * * `Eurostat` - Eurostat
-       * * `Faire` - Faire
-       * * `FarosAi` - FarosAi
-       * * `Fieldpulse` - Fieldpulse
-       * * `Fieldwire` - Fieldwire
-       * * `Filevine` - Filevine
-       * * `Finout` - Finout
-       * * `Five9` - Five9
-       * * `FlexeraCloudCost` - FlexeraCloudCost
-       * * `Flutterwave` - Flutterwave
-       * * `Fortnox` - Fortnox
-       * * `Fourthwall` - Fourthwall
-       * * `Fred` - Fred
-       * * `Frontegg` - Frontegg
-       * * `FusionAuth` - FusionAuth
-       * * `G2` - G2
-       * * `Gcore` - Gcore
-       * * `GcpApigee` - GcpApigee
-       * * `GcpArtifactRegistry` - GcpArtifactRegistry
-       * * `GcpBigtable` - GcpBigtable
-       * * `GcpChronicle` - GcpChronicle
-       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
-       * * `GcpCloudBilling` - GcpCloudBilling
-       * * `GcpCloudBuild` - GcpCloudBuild
-       * * `GcpCloudDeploy` - GcpCloudDeploy
-       * * `GcpCloudDns` - GcpCloudDns
-       * * `GcpCloudFunctions` - GcpCloudFunctions
-       * * `GcpCloudLogging` - GcpCloudLogging
-       * * `GcpCloudMonitoring` - GcpCloudMonitoring
-       * * `GcpCloudRun` - GcpCloudRun
-       * * `GcpCloudSpanner` - GcpCloudSpanner
-       * * `GcpCloudSql` - GcpCloudSql
-       * * `GcpCloudTrace` - GcpCloudTrace
-       * * `GcpCloudWorkflows` - GcpCloudWorkflows
-       * * `GcpComputeEngine` - GcpComputeEngine
-       * * `GcpContainerAnalysis` - GcpContainerAnalysis
-       * * `GcpDataflow` - GcpDataflow
-       * * `GcpDataplex` - GcpDataplex
-       * * `GcpDataproc` - GcpDataproc
-       * * `GcpErrorReporting` - GcpErrorReporting
-       * * `GcpGke` - GcpGke
-       * * `GcpPubsub` - GcpPubsub
-       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
-       * * `GcpRecommender` - GcpRecommender
-       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
-       * * `Gdelt` - Gdelt
-       * * `GenesysCloud` - GenesysCloud
-       * * `Getdx` - Getdx
-       * * `Ghost` - Ghost
-       * * `Givebutter` - Givebutter
-       * * `Gleif` - Gleif
-       * * `GooglePlayConsole` - GooglePlayConsole
-       * * `Guesty` - Guesty
-       * * `Gumroad` - Gumroad
-       * * `HarnessCcm` - HarnessCcm
-       * * `HarnessSei` - HarnessSei
-       * * `Harvest` - Harvest
-       * * `Healthie` - Healthie
-       * * `Hitpay` - Hitpay
-       * * `Hivebrite` - Hivebrite
-       * * `Holded` - Holded
-       * * `Hostaway` - Hostaway
-       * * `HousecallPro` - HousecallPro
-       * * `Humanitec` - Humanitec
-       * * `ImfData` - ImfData
-       * * `Imperva` - Imperva
-       * * `InfluxdbCloud` - InfluxdbCloud
-       * * `Iyzico` - Iyzico
-       * * `Jobtread` - Jobtread
-       * * `Kameleoon` - Kameleoon
-       * * `KauflandMarketplace` - KauflandMarketplace
-       * * `Kestra` - Kestra
-       * * `Kick` - Kick
-       * * `Kinde` - Kinde
-       * * `Kion` - Kion
-       * * `Knowbe4` - Knowbe4
-       * * `Komodor` - Komodor
-       * * `Labelbox` - Labelbox
-       * * `Lawmatics` - Lawmatics
-       * * `Learnworlds` - Learnworlds
-       * * `LexwareOffice` - LexwareOffice
-       * * `Lightdash` - Lightdash
-       * * `Lodgify` - Lodgify
-       * * `Logicmonitor` - Logicmonitor
-       * * `Logrocket` - Logrocket
-       * * `LoopReturns` - LoopReturns
-       * * `Mastodon` - Mastodon
-       * * `Meetup` - Meetup
-       * * `Megaphone` - Megaphone
-       * * `Memberful` - Memberful
-       * * `MercadoPago` - MercadoPago
-       * * `Meteostat` - Meteostat
-       * * `Mews` - Mews
-       * * `Mezmo` - Mezmo
-       * * `Microsoft365UsageReports` - Microsoft365UsageReports
-       * * `MicrosoftAdvertising` - MicrosoftAdvertising
-       * * `MicrosoftClarity` - MicrosoftClarity
-       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
-       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
-       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
-       * * `MicrosoftIntune` - MicrosoftIntune
-       * * `MicrosoftPurview` - MicrosoftPurview
-       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
-       * * `MicrosoftSentinel` - MicrosoftSentinel
-       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
-       * * `Midtrans` - Midtrans
-       * * `MightyNetworks` - MightyNetworks
-       * * `Mindbody` - Mindbody
-       * * `Mirakl` - Mirakl
-       * * `Moesif` - Moesif
-       * * `Moneybird` - Moneybird
-       * * `Moodle` - Moodle
-       * * `Motherduck` - Motherduck
-       * * `Mycase` - Mycase
-       * * `NagerDate` - NagerDate
-       * * `NeonCrm` - NeonCrm
-       * * `Nexhealth` - Nexhealth
-       * * `NoaaCdo` - NoaaCdo
-       * * `Nobl9` - Nobl9
-       * * `Nolt` - Nolt
-       * * `Nops` - Nops
-       * * `NpmRegistry` - NpmRegistry
-       * * `Oecd` - Oecd
-       * * `Okendo` - Okendo
-       * * `Omni` - Omni
-       * * `Onelogin` - Onelogin
-       * * `OpenDental` - OpenDental
-       * * `OpenMeteo` - OpenMeteo
-       * * `Openalex` - Openalex
-       * * `Opencorporates` - Opencorporates
-       * * `Openfec` - Openfec
-       * * `OpnPayments` - OpnPayments
-       * * `Opslevel` - Opslevel
-       * * `OttoMarket` - OttoMarket
-       * * `Ownerrez` - Ownerrez
-       * * `Pagbank` - Pagbank
-       * * `Patreon` - Patreon
-       * * `Pax8` - Pax8
-       * * `Paychex` - Paychex
-       * * `Paymob` - Paymob
-       * * `Paymongo` - Paymongo
-       * * `Phonepe` - Phonepe
-       * * `Pike13` - Pike13
-       * * `Pingone` - Pingone
-       * * `PinterestOrganic` - PinterestOrganic
-       * * `PlanningCenter` - PlanningCenter
-       * * `PluralsightFlow` - PluralsightFlow
-       * * `Podbean` - Podbean
-       * * `Postscript` - Postscript
-       * * `PowerBiAdmin` - PowerBiAdmin
-       * * `Practicepanther` - Practicepanther
-       * * `Preset` - Preset
-       * * `Procore` - Procore
-       * * `Productiv` - Productiv
-       * * `ProofpointTap` - ProofpointTap
-       * * `Propertyware` - Propertyware
-       * * `Pubnub` - Pubnub
-       * * `Quay` - Quay
-       * * `Raken` - Raken
-       * * `RedpandaCloud` - RedpandaCloud
-       * * `RentManager` - RentManager
-       * * `Reverb` - Reverb
-       * * `RocketMatter` - RocketMatter
-       * * `Rubygems` - Rubygems
-       * * `Scalr` - Scalr
-       * * `SecEdgar` - SecEdgar
-       * * `SelectStar` - SelectStar
-       * * `SemanticScholar` - SemanticScholar
-       * * `Semrush` - Semrush
-       * * `ServiceFusion` - ServiceFusion
-       * * `Servicem8` - Servicem8
-       * * `Servicetitan` - Servicetitan
-       * * `Servicetrade` - Servicetrade
-       * * `Sevdesk` - Sevdesk
-       * * `Similarweb` - Similarweb
-       * * `Simpro` - Simpro
-       * * `Sinch` - Sinch
-       * * `Singlestore` - Singlestore
-       * * `Site24x7` - Site24x7
-       * * `Sleuth` - Sleuth
-       * * `Smartlook` - Smartlook
-       * * `Smartrecruiters` - Smartrecruiters
-       * * `Smokeball` - Smokeball
-       * * `SodaCloud` - SodaCloud
-       * * `Speedcurve` - Speedcurve
-       * * `SpotIo` - SpotIo
-       * * `Sprig` - Sprig
-       * * `Sprinklr` - Sprinklr
-       * * `SproutSocial` - SproutSocial
-       * * `StackOverflowForTeams` - StackOverflowForTeams
-       * * `Stockx` - Stockx
-       * * `TackleIo` - TackleIo
-       * * `Talkdesk` - Talkdesk
-       * * `TeamupFitness` - TeamupFitness
-       * * `Tebra` - Tebra
-       * * `Telnyx` - Telnyx
-       * * `Ternary` - Ternary
-       * * `Thoughtspot` - Thoughtspot
-       * * `Thousandeyes` - Thousandeyes
-       * * `Threads` - Threads
-       * * `TiktokShop` - TiktokShop
-       * * `TinyErp` - TinyErp
-       * * `Tinybird` - Tinybird
-       * * `Tipalti` - Tipalti
-       * * `Toast` - Toast
-       * * `Torii` - Torii
-       * * `Transistor` - Transistor
-       * * `TrunkIo` - TrunkIo
-       * * `Trustradius` - Trustradius
-       * * `Twitch` - Twitch
-       * * `TwoC2p` - TwoC2p
-       * * `UkCompaniesHouse` - UkCompaniesHouse
-       * * `UkOns` - UkOns
-       * * `UnComtrade` - UnComtrade
-       * * `UsBea` - UsBea
-       * * `UsBls` - UsBls
-       * * `UsEia` - UsEia
-       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
-       * * `Vanta` - Vanta
-       * * `Vendr` - Vendr
-       * * `Virtuous` - Virtuous
-       * * `Vonage` - Vonage
-       * * `WalmartMarketplace` - WalmartMarketplace
-       * * `Waydev` - Waydev
-       * * `Wayfair` - Wayfair
-       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
-       * * `WhoGho` - WhoGho
-       * * `Whop` - Whop
-       * * `Wistia` - Wistia
-       * * `Wiz` - Wiz
-       * * `Wompi` - Wompi
-       * * `Workiz` - Workiz
-       * * `WorldBank` - WorldBank
-       * * `Xendit` - Xendit
-       * * `Yoco` - Yoco
-       * * `ZalandoZdirect` - ZalandoZdirect
-       * * `Zluri` - Zluri
-       * * `Zylo` - Zylo
-       * * `Tally` - Tally
-       * * `Nuntly` - Nuntly
-       * * `Vturb` - Vturb
-       * * `Meltwater` - Meltwater
-       * * `UserCom` - UserCom
-       * * `Latitude` - Latitude
-       * * `Workato` - Workato
-       * * `SideShift` - SideShift
-       * * `DuckLake` - DuckLake
-       * * `Starburst` - Starburst
-       * * `Trino` - Trino
-       * * `Easybill` - Easybill
-       * * `Bexio` - Bexio
-       * * `Umami` - Umami
-       * * `Manychat` - Manychat
-       * * `Kickstarter` - Kickstarter
-       * * `Typesense` - Typesense
-       * * `FirstPromoter` - FirstPromoter
-       * * `Zero` - Zero
-       * * `Inth` - Inth
-       * * `BCMS` - BCMS
-       * * `Convonite` - Convonite
-       * * `Hookdeck` - Hookdeck
-       * * `Billit` - Billit
-       * * `Moxie` - Moxie
-       * * `TripleWhale` - TripleWhale
-       * * `Directus` - Directus
-       * * `Clay` - Clay
-       * * `TradableBits` - TradableBits
-       * * `Swan` - Swan
-       * * `Hyros` - Hyros
-       * * `Odoo` - Odoo
-       * * `Airbridge` - Airbridge
-       * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter
-       * * `Raisely` - Raisely
-       * * `RakutenAdvertising` - RakutenAdvertising
-       * * `Zitadel` - Zitadel
-       * * `DeelFlows` - DeelFlows
-       * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix
-       * * `Sevalla` - Sevalla
-       * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner
-       * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare
-       * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91
-       * * `Depot` - Depot
-       * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy
-       * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart
-       * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound
-       * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi
-       * * `Capterra` - Capterra
-       * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi
-       * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS
-       * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox
-       * * `SimonData` - SimonData
-       * * `CommissionJunction` - CommissionJunction
-       * * `Liveblocks` - Liveblocks
-       * * `Livestorm` - Livestorm
-       * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana
-       * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable
-       * * `Anvil` - Anvil
-       * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato
-       * * `Medusa` - Medusa
-       * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin
-       * * `Folk` - Folk
-       * * `Cybersource` - Cybersource
-       * * `GoogleAdSense` - GoogleAdSense
-       * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio
-       * * `Smartlead` - Smartlead
-       * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket
-       * * `Quo` - Quo
-       * * `HeyReach` - HeyReach
-       * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet
-       * * `Expo` - Expo
-       * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer
-       * * `Sprinto` - Sprinto
-       * * `Gem` - Gem
-       * * `AudioGO` - AudioGO
-       * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs
-       * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura
-       * * `ChargebackStop` - ChargebackStop
-       * * `Chargeflow` - Chargeflow
-       * * `Dreamdata` - Dreamdata
-       * * `GoogleBusinessProfile` - GoogleBusinessProfile
-       * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite
-       * * `Modal` - Modal
-       * * `Vimeo` - Vimeo
-       * * `Scrunch` - Scrunch
-       * * `Loom` - Loom
-       * * `Arcade` - Arcade
-       * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom
-       * * `Userback` - Userback
-       * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution
-       * * `StackAdapt` - StackAdapt
-       * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay
-       * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud
-       * * `Northbeam` - Northbeam
-       * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO
-       * * `Airship` - Airship
-       * * `Creem` - Creem
-       * * `Leantime` - Leantime
-       * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob
-       * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2
-       * * `Particle` - Particle
-       * * `FileUpload` - FileUpload
-       * * `Dripify` - Dripify
-       * * `AwsS3Tables` - AwsS3Tables
-       * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments
-       * * `Soniox` - Soniox */
-      source_type: ExternalDataSourceTypeEnum;
+      /** The source type (e.g. 'Postgres', 'Stripe'). */
+      source_type: string;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
       /**
@@ -54690,7 +47069,8 @@ export namespace Schemas {
       readonly status: string;
       client_secret: string;
       account_id: string;
-      readonly source_type: ExternalDataSourceTypeEnum;
+      /** The source type (e.g. 'Postgres', 'Stripe'). */
+      readonly source_type: string;
       /** @nullable */
       readonly latest_error: string | null;
       /**
@@ -54739,6 +47119,11 @@ export namespace Schemas {
       readonly supports_webhooks: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection: boolean;
+      /**
+         * The name of the file a file upload source imports. Null for other sources or when it is unknown.
+         * @nullable
+         */
+      readonly file_name: string | null;
       /**
          * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
          * @nullable
@@ -56437,10 +48822,10 @@ export namespace Schemas {
      * * `review` - review
      * * `observe` - observe
      */
-    export type PurposeEnum = typeof PurposeEnum[keyof typeof PurposeEnum];
+    export type RunPurposeEnum = typeof RunPurposeEnum[keyof typeof RunPurposeEnum];
 
 
-    export const PurposeEnum = {
+    export const RunPurposeEnum = {
       Review: 'review',
       Observe: 'observe',
     } as const;
@@ -56463,7 +48848,7 @@ export namespace Schemas {
        *
        * * `review` - review
        * * `observe` - observe */
-      readonly purpose: PurposeEnum;
+      readonly purpose: RunPurposeEnum;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
        *
        * * `exact` - exact
@@ -57412,7 +49797,20 @@ export namespace Schemas {
       personal_github_connected: boolean;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface GitHubBranchesResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** List of branch names */
       branches: string[];
       /**
@@ -57567,7 +49965,20 @@ export namespace Schemas {
       installation_status: InstallationStatusEnum;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface GitHubReposResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
       has_more: boolean;
@@ -57578,6 +49989,11 @@ export namespace Schemas {
       next_offset: number | null;
       /** Total number of repositories matching the search query, across all pages. */
       total: number;
+    }
+
+    export interface GitHubRepositoryAccessResponse {
+      /** Whether a live GitHub request confirmed repository access. */
+      available: boolean;
     }
 
     export interface GitHubSource {
@@ -57600,7 +50016,20 @@ export namespace Schemas {
       name: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface GitHubTeamsResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** List of GitHub teams available to the installation organization. */
       teams: GitHubTeam[];
       /** Whether more teams are available beyond this page. */
@@ -57644,6 +50073,11 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface GithubIssueDependencyRef {
+      repository: string;
+      number: number;
+    }
+
     export interface GithubIssueSignalExtra {
       html_url: string;
       number: number;
@@ -57654,6 +50088,7 @@ export namespace Schemas {
       state: string;
       author_login?: string | null;
       author_association?: string | null;
+      depends_on_issues?: GithubIssueDependencyRef[];
     }
 
     export interface GitlabIssueSignalExtra {
@@ -58646,6 +51081,98 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `failure` - Failure
+     * * `struggle` - Struggle
+     * * `revenue` - Revenue
+     */
+    export type HighlightFeedCategoryEnum = typeof HighlightFeedCategoryEnum[keyof typeof HighlightFeedCategoryEnum];
+
+
+    export const HighlightFeedCategoryEnum = {
+      Failure: 'failure',
+      Struggle: 'struggle',
+      Revenue: 'revenue',
+    } as const;
+
+    /**
+     * Body of POST /vision/scanners/highlight_feed_impressions/.
+     */
+    export interface HighlightFeedImpressions {
+      /** The client's id for the feed load that showed these cards. One load counts each card once. */
+      feed_load_id: string;
+      /**
+         * Observations the calling user saw in the Highlights feed, at most 100. Ids the user cannot read are ignored.
+         * @minItems 1
+         * @maxItems 100
+         */
+      observation_ids: string[];
+    }
+
+    /**
+     * * `embedding_pick` - Embedding Pick
+     * * `unviewed_recent` - Unviewed Recent
+     * * `recent` - Recent
+     */
+    export type HighlightFeedReasonEnum = typeof HighlightFeedReasonEnum[keyof typeof HighlightFeedReasonEnum];
+
+
+    export const HighlightFeedReasonEnum = {
+      EmbeddingPick: 'embedding_pick',
+      UnviewedRecent: 'unviewed_recent',
+      Recent: 'recent',
+    } as const;
+
+    /**
+     * Machine-readable reason an observation made the feed; the frontend renders the copy.
+     */
+    export interface HighlightFeedReason {
+      /** Why the observation is in the feed: `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+       *
+       * * `embedding_pick` - Embedding Pick
+       * * `unviewed_recent` - Unviewed Recent
+       * * `recent` - Recent */
+      kind: HighlightFeedReasonEnum;
+      /** What the session reads like, for `embedding_pick`.
+       *
+       * * `failure` - Failure
+       * * `struggle` - Struggle
+       * * `revenue` - Revenue */
+      watch_category?: HighlightFeedCategoryEnum;
+      /**
+         * Other sessions from the same scanner in the window that describe nearly the same thing, for `embedding_pick`. The feed shows one session per group.
+         * @nullable
+         */
+      similar_count?: number | null;
+      /**
+         * Distinct people across the session's feed group in the window, for `embedding_pick`. A finding that reached more people ranks higher.
+         * @nullable
+         */
+      affected_people?: number | null;
+    }
+
+    /**
+     * One feed entry: the observation plus why it ranked.
+     */
+    export interface HighlightFeedItem {
+      /** The observation, in the standard shape. */
+      observation: ReplayObservation;
+      /** Why this observation made the feed. */
+      reason: HighlightFeedReason;
+    }
+
+    /**
+     * Response of GET /vision/scanners/highlight_feed/.
+     */
+    export interface HighlightFeedResponse {
+      /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
+      results: HighlightFeedItem[];
+      /** Whether a later page holds more ranked items. Request it with `offset` set past this page. */
+      has_more: boolean;
+      /** The time this feed ranks as of. Send it back with later pages. */
+      as_of: string;
+    }
+
+    /**
      * * `risk` - Risk
      * * `opportunity` - Opportunity
      */
@@ -58754,6 +51281,7 @@ export namespace Schemas {
      * * `routine` - You open this often
      * * `dashboard` - On a dashboard you open often
      * * `key_metric` - Project key metric
+     * * `popular` - Opened often in this project
      */
     export type HighlightMetricReasonEnum = typeof HighlightMetricReasonEnum[keyof typeof HighlightMetricReasonEnum];
 
@@ -58762,6 +51290,7 @@ export namespace Schemas {
       Routine: 'routine',
       Dashboard: 'dashboard',
       KeyMetric: 'key_metric',
+      Popular: 'popular',
     } as const;
 
     export interface HighlightMover {
@@ -58811,11 +51340,12 @@ export namespace Schemas {
       value_format: HighlightValueFormat | null;
       /** The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`. */
       period_starts: string[];
-      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project. Null for a number the person pinned, which `pins` lists, and for metrics computed before this field existed.
+      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open. Null for metrics computed before this field existed.
        *
        * * `routine` - You open this often
        * * `dashboard` - On a dashboard you open often
-       * * `key_metric` - Project key metric */
+       * * `key_metric` - Project key metric
+       * * `popular` - Opened often in this project */
       reason: HighlightMetricReasonEnum | null;
       /**
          * Name of the dashboard the tile comes from when `reason` is `dashboard`, else null.
@@ -58882,8 +51412,56 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    /**
+     * * `pending` - Loading
+     * * `ready` - Ready
+     * * `empty` - No data
+     * * `error` - Could not load
+     */
+    export type PulseSlotStatusEnum = typeof PulseSlotStatusEnum[keyof typeof PulseSlotStatusEnum];
+
+
+    export const PulseSlotStatusEnum = {
+      Pending: 'pending',
+      Ready: 'ready',
+      Empty: 'empty',
+      Error: 'error',
+    } as const;
+
+    export interface PulseSlot {
+      /** Why this number is selected, when known before its value arrives.
+       *
+       * * `routine` - You open this often
+       * * `dashboard` - On a dashboard you open often
+       * * `key_metric` - Project key metric
+       * * `popular` - Opened often in this project */
+      reason?: HighlightMetricReasonEnum | null;
+      /** Stable key of the selected number. */
+      key: string;
+      /** Title available before the number is computed. */
+      name: string;
+      /** Loading state of this number.
+       *
+       * * `pending` - Loading
+       * * `ready` - Ready
+       * * `empty` - No data
+       * * `error` - Could not load */
+      status: PulseSlotStatusEnum;
+      /**
+         * Path to the source, relative to the project.
+         * @nullable
+         */
+      url: string | null;
+      /** Measurement interval, when known.
+       *
+       * * `day` - Day
+       * * `week` - Week
+       * * `month` - Month */
+      interval: CalendarUnitEnum | null;
+    }
+
     export interface Highlights {
-      /** `ready` when the content is fresh. `computing` while new highlights are being computed: the content is the last ready highlights of the day, or empty, so poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.
+      /** `ready` when the content is fresh. `computing` while new highlights are being computed: the content includes available results and, when enabled, pending number details. Otherwise it is the last ready highlights of the day, or empty. Poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.
        *
        * * `computing` - Computing
        * * `ready` - Ready
@@ -58900,6 +51478,11 @@ export namespace Schemas {
       refresh_at: string;
       /** Key metrics of the project from its settings. */
       pulse: HighlightMetric[];
+      /**
+         * Selected numbers in stable display order, including unfinished numbers. Ready values are in pulse. Null for clients using complete results.
+         * @nullable
+         */
+      pulse_slots?: PulseSlot[] | null;
       /** Up to 6 items, the highest scores across sources, in display order: by `priority`, then by `score`, highest first. */
       items: HighlightItem[];
       /** The numbers the person keeps, in their order, with the state of each one. Pinned numbers lead `pulse`. */
@@ -59121,7 +51704,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
      */
     export type HogFlowActionConfig = { [key: string]: unknown } | {
       /** Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout. */
@@ -59180,7 +51763,7 @@ export namespace Schemas {
        * * `random_cohort_branch` - random_cohort_branch
        * * `exit` - exit */
       type: HogFlowActionTypeEnum;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
       config: HogFlowActionConfig;
       /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
       output_variable?: unknown;
@@ -60028,6 +52611,7 @@ export namespace Schemas {
      * * `task_repository` - task_repository
      * * `task_mcp_installations` - task_mcp_installations
      * * `signals_scout` - signals_scout
+     * * `posthog_survey` - posthog_survey
      * * `task_skills` - task_skills
      * * `replay_vision_scan` - replay_vision_scan
      */
@@ -60056,6 +52640,7 @@ export namespace Schemas {
       TaskRepository: 'task_repository',
       TaskMcpInstallations: 'task_mcp_installations',
       SignalsScout: 'signals_scout',
+      PosthogSurvey: 'posthog_survey',
       TaskSkills: 'task_skills',
       ReplayVisionScan: 'replay_vision_scan',
     } as const;
@@ -61100,9 +53685,14 @@ export namespace Schemas {
 
     export interface MarketingAnalyticsSearchSource {
       keywordTable?: string | null;
+      /** Google Ads search terms from Performance Max campaigns. */
+      performanceMaxSearchTermTable?: string | null;
       placementTable?: string | null;
       queryPageTable?: boolean | null;
+      /** Google Ads search terms from Search campaigns. */
+      searchTermTable?: string | null;
       sourceType: SourceType;
+      /** For the Google Ads search term breakdown, the campaign table, which carries the account currency. */
       statsTable: string;
     }
 
@@ -61120,6 +53710,143 @@ export namespace Schemas {
       response?: MarketingAnalyticsSearchQueryResponse | null;
       search?: string | null;
       sources: MarketingAnalyticsSearchSource[];
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type MarketingAnalyticsRecommendationImpactDirection = typeof MarketingAnalyticsRecommendationImpactDirection[keyof typeof MarketingAnalyticsRecommendationImpactDirection];
+
+
+    export const MarketingAnalyticsRecommendationImpactDirection = {
+      Save: 'save',
+      Gain: 'gain',
+      Invest: 'invest',
+      Keep: 'keep',
+    } as const;
+
+    export type MarketingAnalyticsRecommendationImpactType = typeof MarketingAnalyticsRecommendationImpactType[keyof typeof MarketingAnalyticsRecommendationImpactType];
+
+
+    export const MarketingAnalyticsRecommendationImpactType = {
+      Measured: 'measured',
+      Estimated: 'estimated',
+    } as const;
+
+    export type MarketingAnalyticsRecommendationLevel = typeof MarketingAnalyticsRecommendationLevel[keyof typeof MarketingAnalyticsRecommendationLevel];
+
+
+    export const MarketingAnalyticsRecommendationLevel = {
+      Campaign: 'campaign',
+      SearchTerm: 'search_term',
+    } as const;
+
+    export type MarketingAnalyticsRecommendationRule = typeof MarketingAnalyticsRecommendationRule[keyof typeof MarketingAnalyticsRecommendationRule];
+
+
+    export const MarketingAnalyticsRecommendationRule = {
+      BudgetConstrained: 'budget_constrained',
+      BrandLeak: 'brand_leak',
+      ScaleCampaign: 'scale_campaign',
+      ReviewCampaign: 'review_campaign',
+      PolicyLimited: 'policy_limited',
+      BrandOverlap: 'brand_overlap',
+      ContentGap: 'content_gap',
+      KeywordGap: 'keyword_gap',
+      SpendWithoutConversions: 'spend_without_conversions',
+      StrikingDistance: 'striking_distance',
+    } as const;
+
+    export interface MarketingAnalyticsRecommendationStep {
+      /** Text to paste into Google Ads at this step, such as a campaign name or keywords in match type syntax, one per line. */
+      copyValue?: string | null;
+      /** The words in `text` that link to `url`, usually the section name. */
+      linkText?: string | null;
+      text: string;
+      /** Google Ads page for this step. It opens the section for the whole account, because links cannot filter to one campaign. */
+      url?: string | null;
+    }
+
+    export interface MarketingAnalyticsRecommendation {
+      action: string;
+      /** The campaign a search term recommendation applies to, when it applies to one. */
+      campaign?: string | null;
+      currency?: string | null;
+      /** Monthly money impact in the account currency. Null when the rule has no money impact. */
+      impact?: number | null;
+      impactDirection: MarketingAnalyticsRecommendationImpactDirection;
+      impactType: MarketingAnalyticsRecommendationImpactType;
+      level: MarketingAnalyticsRecommendationLevel;
+      reason: string;
+      rule: MarketingAnalyticsRecommendationRule;
+      /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
+      steps?: MarketingAnalyticsRecommendationStep[] | null;
+      /** The campaign name or the search term the recommendation is about. */
+      subject: string;
+    }
+
+    export interface MarketingAnalyticsRecommendationsQueryResponse {
+      /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
+      disclaimer: string;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MarketingAnalyticsRecommendation[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export type MarketingAnalyticsRecommendationsSourceType = typeof MarketingAnalyticsRecommendationsSourceType[keyof typeof MarketingAnalyticsRecommendationsSourceType];
+
+
+    export const MarketingAnalyticsRecommendationsSourceType = {
+      GoogleAds: 'GoogleAds',
+      GoogleSearchConsole: 'GoogleSearchConsole',
+    } as const;
+
+    export interface MarketingAnalyticsRecommendationsSource {
+      /** Google Ads daily campaign impression share table. */
+      campaignImpressionShareTable?: string | null;
+      /** Google Ads daily campaign stats table. */
+      campaignStatsTable?: string | null;
+      /** Google Ads campaign table. */
+      campaignTable?: string | null;
+      /** Google Ads customer table, used for the account currency. */
+      customerTable?: string | null;
+      /** Google Ads search term table for Performance Max campaigns. */
+      performanceMaxSearchTermTable?: string | null;
+      /** Google Search Console table with one row per query, or per query and page. */
+      queryTable?: string | null;
+      /** Google Ads search term table split by the keyword that matched each term. */
+      searchTermKeywordTable?: string | null;
+      /** Google Ads search term table for Search campaigns. */
+      searchTermTable?: string | null;
+      /** Google Search Console sites table, used to infer the brand name. */
+      sitesTable?: string | null;
+      sourceType: MarketingAnalyticsRecommendationsSourceType;
+    }
+
+    export interface MarketingAnalyticsRecommendationsQuery {
+      dateRange?: DateRange | null;
+      kind?: 'MarketingAnalyticsRecommendationsQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      response?: MarketingAnalyticsRecommendationsQueryResponse | null;
+      /** Tables to read. Omit to read every synced Google Ads and Google Search Console source in the project. */
+      sources?: MarketingAnalyticsRecommendationsSource[] | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -62080,6 +54807,10 @@ export namespace Schemas {
       compareFilter?: CompareFilter | null;
       dateRange: DateRange;
       filterGroup?: PropertyGroupFilter | null;
+      /** Group HTTP server spans by `METHOD route` in place of the span name. Spans without a route keep their name. Spans that are not HTTP server spans are left out. */
+      groupByEndpoint?: boolean | null;
+      /** Classify each row against the comparison window, or the previous period when `compareFilter` is off. Fills `health_status` and `health_reason`. Runs a second window query. */
+      includeHealth?: boolean | null;
       /** Also aggregate sessions and people per operation. Off by default: it reads the attribute maps. */
       includeImpact?: boolean | null;
       kind?: 'TraceSpansAggregationQuery';
@@ -63553,7 +56284,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLMetadataResponse | null;
       /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | MarketingAnalyticsRecommendationsQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | null;
       tags?: QueryLogTags | null;
       /** Variables to be subsituted into the query */
       variables?: HogQLMetadataVariables;
@@ -63579,7 +56310,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLAutocompleteResponse | null;
       /** Query in whose context to validate. */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | MarketingAnalyticsRecommendationsQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | null;
       /** Start position of the editor word */
       startPosition: number;
       tags?: QueryLogTags | null;
@@ -64013,6 +56744,16 @@ export namespace Schemas {
     }
 
     /**
+     * * `github_optional` - GitHub optional
+     */
+    export type InboxActivationModeEnum = typeof InboxActivationModeEnum[keyof typeof InboxActivationModeEnum];
+
+
+    export const InboxActivationModeEnum = {
+      GithubOptional: 'github_optional',
+    } as const;
+
+    /**
      * * `signals` - Signals
      * * `scouts` - Scouts
      * * `github` - GitHub
@@ -64024,6 +56765,18 @@ export namespace Schemas {
       Signals: 'signals',
       Scouts: 'scouts',
       Github: 'github',
+    } as const;
+
+    /**
+     * * `quick` - Quick
+     * * `guided` - Guided
+     */
+    export type InboxOnboardingSetupModeEnum = typeof InboxOnboardingSetupModeEnum[keyof typeof InboxOnboardingSetupModeEnum];
+
+
+    export const InboxOnboardingSetupModeEnum = {
+      Quick: 'quick',
+      Guided: 'guided',
     } as const;
 
     /**
@@ -64510,12 +57263,21 @@ export namespace Schemas {
     }
 
     export interface InboxOnboardingDraft {
+      /** Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.
+       *
+       * * `github_optional` - GitHub optional */
+      activation_mode?: InboxActivationModeEnum;
       /** Step to resume after returning.
        *
        * * `signals` - Signals
        * * `scouts` - Scouts
        * * `github` - GitHub */
       step: InboxOnboardingStepEnum;
+      /** How setup was chosen: quick activation from the welcome screen, or the guided steps.
+       *
+       * * `quick` - Quick
+       * * `guided` - Guided */
+      setup_mode?: InboxOnboardingSetupModeEnum;
       /** Staged signal source choices. */
       sources: InboxOnboardingSource[];
       /**
@@ -64541,29 +57303,6 @@ export namespace Schemas {
        * * `P3` - P3
        * * `P4` - P4 */
       implementation_priority: AutonomyPriorityEnum;
-    }
-
-    /**
-     * * `control` - Control
-     * * `test-ui` - Focused steps
-     * * `test-github` - Activate and explore
-     */
-    export type InboxOnboardingVariantEnum = typeof InboxOnboardingVariantEnum[keyof typeof InboxOnboardingVariantEnum];
-
-
-    export const InboxOnboardingVariantEnum = {
-      Control: 'control',
-      TestUi: 'test-ui',
-      TestGithub: 'test-github',
-    } as const;
-
-    export interface InboxOnboardingExposure {
-      /** Assigned experiment variant at the eligible Inbox impression.
-       *
-       * * `control` - Control
-       * * `test-ui` - Focused steps
-       * * `test-github` - Activate and explore */
-      variant: InboxOnboardingVariantEnum;
     }
 
     /**
@@ -64600,6 +57339,8 @@ export namespace Schemas {
     }
 
     export interface InboxOnboardingState {
+      /** Whether this project can activate Self-driving without connecting GitHub. */
+      github_optional_available?: boolean;
       /** Whether the current user can receive an in-app notification when this investigation finishes. */
       first_report_completion_notification?: boolean;
       /**
@@ -64618,12 +57359,6 @@ export namespace Schemas {
          * @nullable
          */
       completed_at: string | null;
-      /** Variant recorded at the first eligible impression.
-       *
-       * * `control` - Control
-       * * `test-ui` - Focused steps
-       * * `test-github` - Activate and explore */
-      variant: InboxOnboardingVariantEnum | null;
     }
 
     export interface InboxSummaryPullRequest {
@@ -65699,11 +58434,115 @@ export namespace Schemas {
     }
 
     /**
+     * * `oauth` - OAuth
+     * * `token` - Token
+     * * `credentials` - Credentials
+     */
+    export type IntegrationAuthTypeEnum = typeof IntegrationAuthTypeEnum[keyof typeof IntegrationAuthTypeEnum];
+
+
+    export const IntegrationAuthTypeEnum = {
+      Oauth: 'oauth',
+      Token: 'token',
+      Credentials: 'credentials',
+    } as const;
+
+    /**
      * Standard Integration serializer.
      */
     export interface IntegrationConfig {
       readonly id: number;
+      /**
+         * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
+         * @maxLength 32
+         */
+      kind: string;
+      /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+       *
+       * * `oauth` - OAuth
+       * * `token` - Token
+       * * `credentials` - Credentials */
+      readonly auth_type: IntegrationAuthTypeEnum;
+      config?: unknown;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly errors: string;
+      readonly display_name: string;
+      /** Slack only: whether reconnecting can request the files:write scope. */
+      readonly files_write_requestable: boolean;
+      /**
+         * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
+         * @nullable
+         */
+      readonly installation_shared: boolean | null;
+      /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
+      readonly installation_status: InstallationStatusEnum | null;
+    }
+
+    /**
+     * The request schema of a create. A create accepts only the public kinds, so the schema lists them.
+     */
+    export interface IntegrationConfigCreate {
+      readonly id: number;
+      /** The provider of the integration, for example 'slack' or 'github'.
+       *
+       * * `anthropic` - Anthropic
+       * * `apple-ads` - Apple Ads
+       * * `apns` - Apple Push
+       * * `aws-redshift` - Aws Redshift
+       * * `aws-s3` - Aws S3
+       * * `azure-blob` - Azure Blob
+       * * `bing-ads` - Bing Ads
+       * * `clickup` - Clickup
+       * * `customerio-app` - Customerio App
+       * * `customerio-track` - Customerio Track
+       * * `customerio-webhook` - Customerio Webhook
+       * * `databricks` - Databricks
+       * * `email` - Email
+       * * `firebase` - Firebase
+       * * `github` - Github
+       * * `gitlab` - Gitlab
+       * * `google-ads` - Google Ads
+       * * `google-analytics` - Google Analytics
+       * * `google-calendar` - Google Calendar
+       * * `google-cloud-service-account` - Google Cloud Service Account
+       * * `google-cloud-storage` - Google Cloud Storage
+       * * `google-pubsub` - Google Pubsub
+       * * `google-search-console` - Google Search Console
+       * * `google-sheets` - Google Sheets
+       * * `helpscout` - Helpscout
+       * * `hubspot` - Hubspot
+       * * `instagram` - Instagram
+       * * `intercom` - Intercom
+       * * `jira` - Jira
+       * * `linear` - Linear
+       * * `linkedin-ads` - Linkedin Ads
+       * * `meta-ads` - Meta Ads
+       * * `pardot` - Pardot
+       * * `pinterest-ads` - Pinterest Ads
+       * * `postgresql` - Postgresql
+       * * `posthog` - Posthog
+       * * `reddit-ads` - Reddit Ads
+       * * `twitter-ads` - Twitter Ads
+       * * `resend` - Resend
+       * * `s3-compatible` - S3 Compatible
+       * * `salesforce` - Salesforce
+       * * `slack` - Slack
+       * * `slack-posthog-code` - Slack Posthog Code
+       * * `snapchat` - Snapchat
+       * * `snowflake` - Snowflake
+       * * `stripe` - Stripe
+       * * `tiktok-ads` - Tiktok Ads
+       * * `twilio` - Twilio
+       * * `vercel` - Vercel
+       * * `youtube-analytics` - Youtube Analytics */
       kind: IntegrationKindEnum;
+      /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+       *
+       * * `oauth` - OAuth
+       * * `token` - Token
+       * * `credentials` - Credentials */
+      readonly auth_type: IntegrationAuthTypeEnum;
       config?: unknown;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -66086,36 +58925,6 @@ export namespace Schemas {
       recipe_snapshot: IterationTrailWithRecipeRecipeSnapshot;
     }
 
-    /**
-     * * `visible_error` - Error on screen
-     * * `silent_failure` - Action silently failed
-     * * `unresponsive` - Clicks went nowhere
-     * * `slow_or_stuck` - Slow or stuck
-     * * `blocked` - Blocked
-     * * `cant_find` - Couldn't find it
-     * * `confused` - Confused
-     * * `workaround` - Took a workaround
-     * * `abandoned` - Gave up
-     * * `churn_signal` - Churn signal
-     * * `success` - Worked well
-     */
-    export type JevWatchReasonEnum = typeof JevWatchReasonEnum[keyof typeof JevWatchReasonEnum];
-
-
-    export const JevWatchReasonEnum = {
-      VisibleError: 'visible_error',
-      SilentFailure: 'silent_failure',
-      Unresponsive: 'unresponsive',
-      SlowOrStuck: 'slow_or_stuck',
-      Blocked: 'blocked',
-      CantFind: 'cant_find',
-      Confused: 'confused',
-      Workaround: 'workaround',
-      Abandoned: 'abandoned',
-      ChurnSignal: 'churn_signal',
-      Success: 'success',
-    } as const;
-
     export interface JiraIssueSignalExtra {
       key: string;
       url: string | null;
@@ -66278,6 +59087,13 @@ export namespace Schemas {
       role: KeyClauseRoleEnum;
       /** Sentences from the report that explain the clause further. */
       expansion: string[];
+    }
+
+    export interface KnowledgeAvailability {
+      /** True when the project has at least one business knowledge source. */
+      readonly has_sources: boolean;
+      /** True when this environment has at least one GitHub repository selected. */
+      readonly has_repositories: boolean;
     }
 
     /**
@@ -67423,6 +60239,17 @@ export namespace Schemas {
       results: LLMSkillSearchResult[];
     }
 
+    export interface LLMSpendCoverage {
+      /** Total cost in USD of the $ai_generation events stamped with this repository ($ai_git_repo) in the window. Generations with no repository stamp are not counted. */
+      cost_usd: number;
+      /** The part of cost_usd that the branch and session attribution credits to a pull request. A generation credited to several pull requests counts once. */
+      attributed_cost_usd: number;
+      /** Number of $ai_generation events in cost_usd. */
+      generations: number;
+      /** Number of $ai_generation events in attributed_cost_usd. */
+      attributed_generations: number;
+    }
+
     export interface LLMTaggerConfig {
       /**
          * Prompt instructing the LLM how to tag generations
@@ -67643,6 +60470,7 @@ export namespace Schemas {
      * * `posthog-unreal` - posthog-unreal
      * * `posthog-go-mcp` - posthog-go-mcp
      * * `posthog-ruby-mcp` - posthog-ruby-mcp
+     * * `posthog-roblox` - posthog-roblox
      * * `js` - js
      */
     export type LibEnum = typeof LibEnum[keyof typeof LibEnum];
@@ -67677,6 +60505,7 @@ export namespace Schemas {
       PosthogUnreal: 'posthog-unreal',
       PosthogGoMcp: 'posthog-go-mcp',
       PosthogRubyMcp: 'posthog-ruby-mcp',
+      PosthogRoblox: 'posthog-roblox',
       Js: 'js',
     } as const;
 
@@ -71746,6 +64575,18 @@ export namespace Schemas {
       Value: 'value',
     } as const;
 
+    /**
+     * * `clickhouse` - ClickHouse
+     * * `trino` - Trino
+     */
+    export type MaterializationEngineEnum = typeof MaterializationEngineEnum[keyof typeof MaterializationEngineEnum];
+
+
+    export const MaterializationEngineEnum = {
+      Clickhouse: 'clickhouse',
+      Trino: 'trino',
+    } as const;
+
     export interface MaterializationPreviewAggregate {
       /** Aggregate expression in the transformed query. */
       expression: string;
@@ -71987,6 +64828,70 @@ export namespace Schemas {
     }
 
     /**
+     * * `dashboard` - Dashboard
+     * * `insight` - Insight
+     * * `notebook` - Notebook
+     * * `recording` - Session recording
+     * * `subscription` - Subscription
+     * * `alert` - Alert
+     */
+    export type MemberOffboardingResourceKindEnum = typeof MemberOffboardingResourceKindEnum[keyof typeof MemberOffboardingResourceKindEnum];
+
+
+    export const MemberOffboardingResourceKindEnum = {
+      Dashboard: 'dashboard',
+      Insight: 'insight',
+      Notebook: 'notebook',
+      Recording: 'recording',
+      Subscription: 'subscription',
+      Alert: 'alert',
+    } as const;
+
+    export interface MemberOffboardingResource {
+      /** Opaque identifier used to update this resource during offboarding. */
+      id: string;
+      /** Identifier accepted by the resource’s own API. */
+      resource_id: string;
+      /** The kind of public object or automated delivery.
+       *
+       * * `dashboard` - Dashboard
+       * * `insight` - Insight
+       * * `notebook` - Notebook
+       * * `recording` - Session recording
+       * * `subscription` - Subscription
+       * * `alert` - Alert */
+      kind: MemberOffboardingResourceKindEnum;
+      /** The resource's display name. */
+      name: string;
+      /** Project containing the resource. */
+      team_id: number;
+      /** Name of the project containing the resource. */
+      project_name: string;
+      /**
+         * When the subscription was created, if applicable.
+         * @nullable
+         */
+      created_at: string | null;
+      /**
+         * Subscription delivery channel: email, slack, or teams.
+         * @nullable
+         */
+      destination_type?: string | null;
+      /**
+         * Subscription recipients, Slack channels, or safe webhook host.
+         * @nullable
+         */
+      destination?: string | null;
+      /** Whether all active public links require a password. */
+      password_protected: boolean;
+      /**
+         * Project-scoped path to open the resource in PostHog.
+         * @nullable
+         */
+      url: string | null;
+    }
+
+    /**
      * A resolved access level with the rule that supplied it — the wire form of `ResolvedAccess`.
      */
     export interface ProjectAccessSource {
@@ -72081,6 +64986,7 @@ export namespace Schemas {
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
        * * `mcp_registry` - mcp_registry
+       * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -72102,6 +65008,7 @@ export namespace Schemas {
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
+       * * `signal_usage` - signal_usage
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
@@ -72113,6 +65020,7 @@ export namespace Schemas {
        * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
+       * * `transactional_email` - transactional_email
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -72565,6 +65473,126 @@ export namespace Schemas {
       Textbox: 'textbox',
     } as const;
 
+    /**
+     * * `slack` - Slack
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `discord` - Discord
+     * * `pagerduty` - PagerDuty
+     */
+    export type MetricsAlertDestinationTypeEnum = typeof MetricsAlertDestinationTypeEnum[keyof typeof MetricsAlertDestinationTypeEnum];
+
+
+    export const MetricsAlertDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Discord: 'discord',
+      Pagerduty: 'pagerduty',
+    } as const;
+
+    /**
+     * * `firing` - firing
+     * * `resolved` - resolved
+     * * `errored` - errored
+     * * `broken` - broken
+     */
+    export type MetricsAlertDestinationEventKindEnum = typeof MetricsAlertDestinationEventKindEnum[keyof typeof MetricsAlertDestinationEventKindEnum];
+
+
+    export const MetricsAlertDestinationEventKindEnum = {
+      Firing: 'firing',
+      Resolved: 'resolved',
+      Errored: 'errored',
+      Broken: 'broken',
+    } as const;
+
+    export interface MetricsAlertCreateDestination {
+      /** Notification destination type.
+       *
+       * * `slack` - Slack
+       * * `webhook` - Webhook
+       * * `teams` - Microsoft Teams
+       * * `discord` - Discord
+       * * `pagerduty` - PagerDuty */
+      type: MetricsAlertDestinationTypeEnum;
+      /** Integration ID for the Slack workspace. Required when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Required when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable channel name for display. */
+      slack_channel_name?: string;
+      /** HTTPS endpoint to post to. Required for webhook, teams and discord. */
+      webhook_url?: string;
+      /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. */
+      pagerduty_routing_key?: string;
+      /** Severity PagerDuty records on the incident. Used when type=pagerduty.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region of the account. Used when type=pagerduty.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+      /**
+         * The alert transitions to send about. Defaults to every kind, or to firing and resolved for PagerDuty, which then hears each incident's trigger and resolve.
+         * @minItems 1
+         */
+      event_kinds?: MetricsAlertDestinationEventKindEnum[];
+    }
+
+    export interface MetricsAlertDeleteDestination {
+      /**
+         * IDs of the destinations to delete, as the list endpoint returns them.
+         * @minItems 1
+         * @maxItems 100
+         */
+      destination_ids: string[];
+    }
+
+    export interface MetricsAlertDestination {
+      /** ID of the destination. Send it to the delete endpoint to remove it. */
+      id: string;
+      /** Notification destination type.
+       *
+       * * `slack` - Slack
+       * * `webhook` - Webhook
+       * * `teams` - Microsoft Teams
+       * * `discord` - Discord
+       * * `pagerduty` - PagerDuty */
+      type: MetricsAlertDestinationTypeEnum;
+      /** Whether the destination is sent to. */
+      enabled: boolean;
+      /** The alert transitions the destination hears about. A PagerDuty destination hears the incident trigger and resolve of every firing. */
+      event_kinds: MetricsAlertDestinationEventKindEnum[];
+      /** Integration ID of the Slack workspace. Set when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Set when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable Slack channel name. Set when type=slack. */
+      slack_channel_name?: string;
+      /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
+      webhook_url?: string;
+      /** PagerDuty integration key reduced to its last four characters. */
+      pagerduty_routing_key?: string;
+      /** Severity of the PagerDuty incident.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region the events go to.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+    }
+
     export interface MetricsCreatedDashboard {
       /** The id of the dashboard. */
       dashboard_id: number;
@@ -72662,6 +65690,175 @@ export namespace Schemas {
          * @nullable
          */
       reviewed_at: string | null;
+    }
+
+    /**
+     * How a series' value compares with `threshold`. Required for a threshold.
+     */
+    export type MetricsPlatformAlertConditionOperator = typeof MetricsPlatformAlertConditionOperator[keyof typeof MetricsPlatformAlertConditionOperator] | null;
+
+
+    export const MetricsPlatformAlertConditionOperator = {
+      Gt: 'gt',
+      Gte: 'gte',
+      Lt: 'lt',
+      Lte: 'lte',
+      Eq: 'eq',
+      Ne: 'ne',
+    } as const;
+
+    export type MetricsPlatformAlertConditionKindEnum = typeof MetricsPlatformAlertConditionKindEnum[keyof typeof MetricsPlatformAlertConditionKindEnum];
+
+
+    export const MetricsPlatformAlertConditionKindEnum = {
+      Threshold: 'threshold',
+      Present: 'present',
+    } as const;
+
+    export interface MetricsPlatformAlertCondition {
+      /** threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach. */
+      kind?: MetricsPlatformAlertConditionKindEnum;
+      /** How a series' value compares with `threshold`. Required for a threshold. */
+      operator?: MetricsPlatformAlertConditionOperator;
+      /** The value a series is compared with. Required for a threshold. */
+      threshold?: number | null;
+    }
+
+    export interface MetricsPlatformAlertConfig {
+      /**
+         * A PromQL expression over this project's metrics. Each series it returns is one group. For a threshold condition, leave the comparison out of the expression.
+         * @minLength 1
+         * @maxLength 10000
+         */
+      query: string;
+      /** When a series is in breach. */
+      condition: MetricsPlatformAlertCondition;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change after the create.
+     */
+    export type MetricsPlatformAlertConfigurationCreateSourceKind = typeof MetricsPlatformAlertConfigurationCreateSourceKind[keyof typeof MetricsPlatformAlertConfigurationCreateSourceKind];
+
+
+    export const MetricsPlatformAlertConfigurationCreateSourceKind = {
+      Metrics: 'metrics',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type MetricsPlatformAlertConfigurationCreateLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type MetricsPlatformAlertConfigurationCreateAnnotations = {[key: string]: string};
+
+    /**
+     * The settings of a new alert. Every one but source_config has a default, which is stored.
+     */
+    export interface MetricsPlatformAlertConfigurationCreate {
+      /** Product whose data the alert evaluates. It cannot change after the create. */
+      source_kind: MetricsPlatformAlertConfigurationCreateSourceKind;
+      /**
+         * Human-readable name of the alert. Defaults to 'Untitled alert'.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Settings for a metrics alert. The bound the alert is evaluated against is under condition. */
+      source_config: MetricsPlatformAlertConfig;
+      /** How the alert splits its results into instances. Defaults to mode single. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert. Defaults to 0.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: MetricsPlatformAlertConfigurationCreateLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: MetricsPlatformAlertConfigurationCreateAnnotations;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type MetricsPlatformAlertConfigurationEditSourceKind = typeof MetricsPlatformAlertConfigurationEditSourceKind[keyof typeof MetricsPlatformAlertConfigurationEditSourceKind];
+
+
+    export const MetricsPlatformAlertConfigurationEditSourceKind = {
+      Metrics: 'metrics',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type MetricsPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type MetricsPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface MetricsPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: MetricsPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled: boolean;
+      /** Settings for a metrics alert. The bound the alert is evaluated against is under condition. */
+      source_config: MetricsPlatformAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: MetricsPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: MetricsPlatformAlertConfigurationEditAnnotations;
     }
 
     export interface MetricsSuggestedDashboard {
@@ -73128,7 +66325,7 @@ export namespace Schemas {
       overview: ModelUsageTotals;
       /** Daily usage, attributed to when each run finished. */
       trends: ModelUsageDay[];
-      /** Model breakdown, highest measured bytes first. */
+      /** Model breakdown in the requested sort order. */
       models: ModelUsageRow[];
       /** Total number of models in the breakdown. */
       count: number;
@@ -74205,7 +67402,7 @@ export namespace Schemas {
     }
 
     /**
-     * Why the calling user marked an observation not useful in What to watch.
+     * Why the calling user marked an observation not useful in the Highlights feed.
      */
     export interface ObservationFeedDismissal {
       /** Optional reason the observation was not useful. Omit or send null when the user gave none.
@@ -74696,7 +67893,20 @@ export namespace Schemas {
       prompt_version: string | null;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineExperimentPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -74832,7 +68042,20 @@ export namespace Schemas {
       summary: OfflineScorerSummary;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineHistoryPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -74896,7 +68119,7 @@ export namespace Schemas {
        * * `expired` - Expired */
       payload_state: PayloadStateEnum;
       /**
-         * Payload retention deadline; cleanup is not yet enabled.
+         * Payload expires 30 days after first acceptance; deletion runs hourly.
          * @nullable
          */
       payload_expires_at: string | null;
@@ -74953,7 +68176,7 @@ export namespace Schemas {
        * * `expired` - Expired */
       payload_state: PayloadStateEnum;
       /**
-         * Payload retention deadline; cleanup is not yet enabled.
+         * Payload expires 30 days after first acceptance; deletion runs hourly.
          * @nullable
          */
       payload_expires_at: string | null;
@@ -74961,7 +68184,20 @@ export namespace Schemas {
       results: OfflineResultCell[];
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineItemPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -75040,7 +68276,7 @@ export namespace Schemas {
        * * `expired` - Expired */
       payload_state: PayloadStateEnum;
       /**
-         * Payload retention deadline; cleanup is not yet enabled.
+         * Payload expires 30 days after first acceptance; deletion runs hourly.
          * @nullable
          */
       payload_expires_at: string | null;
@@ -75048,7 +68284,20 @@ export namespace Schemas {
       scorer: OfflineScorerVersionRead;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineResultPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -75080,7 +68329,20 @@ export namespace Schemas {
       data: OfflineEvaluationResultPayloadInput | null;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineSummaryPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -75689,6 +68951,20 @@ export namespace Schemas {
       readonly scim_base_url: string | null;
     }
 
+    export interface OrganizationEventsRetention {
+      /**
+         * The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.
+         * @nullable
+         */
+      readonly organization_retention_months: number | null;
+      /** The longest window the organization's plan allows, in months. */
+      readonly plan_retention_months: number;
+      /** The shortest window an admin can set, in months. */
+      readonly min_retention_months: number;
+      /** The longest window an admin can set, in months. Never longer than the plan's window. */
+      readonly max_retention_months: number;
+    }
+
     export interface OrganizationFeatureFlagRow {
       /** ID of the representative feature flag for this key */
       id: number;
@@ -75752,13 +69028,19 @@ export namespace Schemas {
       /** @maxLength 30 */
       first_name?: string;
       readonly emailing_attempt_made: boolean;
+      /** True when the email provider reported the target address as suppressed at send time. */
+      readonly email_suppressed: boolean;
       level?: OrganizationMembershipLevelEnum;
       /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
       readonly is_expired: boolean;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
-      /** @nullable */
+      /**
+         * Optional personal message in the invite email.
+         * @maxLength 1000
+         * @nullable
+         */
       message?: string | null;
       /** List of team IDs and corresponding access levels to private projects. */
       private_project_access?: unknown;
@@ -76050,17 +69332,6 @@ export namespace Schemas {
        * * `github_actions` - GitHub Actions
        * * `depot_ci` - Depot CI */
       ci_engine?: CIEngineEnum | null;
-    }
-
-    export interface PRLLMSpend {
-      /** Total agent LLM token cost in USD attributed to this PR (sum of $ai_total_cost_usd over the matched $ai_generation events). */
-      cost_usd: number;
-      /** Total input (prompt) tokens across the attributed generations. */
-      input_tokens: number;
-      /** Total output (completion) tokens across the attributed generations. */
-      output_tokens: number;
-      /** Number of $ai_generation events attributed to this PR by git branch ($ai_git_branch). */
-      generations: number;
     }
 
     export interface PRCostSummary {
@@ -76414,15 +69685,6 @@ export namespace Schemas {
       results: AccountTrackRuleRunView[];
     }
 
-    export interface PaginatedActionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Action[];
-    }
-
     export interface PaginatedActivityLogList {
       /** @nullable */
       next?: string | null;
@@ -76532,6 +69794,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedBatchExportBackfillList {
+      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -76549,6 +69812,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedBatchExportRunList {
+      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -76646,15 +69910,6 @@ export namespace Schemas {
       results: ChangeRequest[];
     }
 
-    export interface PaginatedChannelDTOList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ChannelDTO[];
-    }
-
     export interface PaginatedChannelFeedMessageDTOList {
       count: number;
       /** @nullable */
@@ -76707,6 +69962,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedCommentList {
+      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -76883,15 +70139,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DataCatalogRelationshipProposal[];
-    }
-
-    export interface PaginatedDataColorThemeList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: DataColorTheme[];
     }
 
     export interface PaginatedDataDeletionRequestList {
@@ -77662,12 +70909,32 @@ export namespace Schemas {
     }
 
     export interface PaginatedMCPSessionList {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL of the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
       results: MCPSession[];
       /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
       has_next: boolean;
     }
 
     export interface PaginatedMCPToolCallList {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL of the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
       results: MCPToolCall[];
       /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
       has_next: boolean;
@@ -77954,6 +71221,7 @@ export namespace Schemas {
      * * `insight` - Insight
      * * `warehouse_source` - Warehouse source
      * * `warehouse_destination` - Warehouse destination
+     * * `metrics` - Metrics
      */
     export type PlatformAlertConfigurationSourceKindEnum = typeof PlatformAlertConfigurationSourceKindEnum[keyof typeof PlatformAlertConfigurationSourceKindEnum];
 
@@ -77963,6 +71231,7 @@ export namespace Schemas {
       Insight: 'insight',
       WarehouseSource: 'warehouse_source',
       WarehouseDestination: 'warehouse_destination',
+      Metrics: 'metrics',
     } as const;
 
     /**
@@ -78055,7 +71324,8 @@ export namespace Schemas {
        * * `logs` - Logs
        * * `insight` - Insight
        * * `warehouse_source` - Warehouse source
-       * * `warehouse_destination` - Warehouse destination */
+       * * `warehouse_destination` - Warehouse destination
+       * * `metrics` - Metrics */
       readonly source_kind: PlatformAlertConfigurationSourceKindEnum;
       /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
       readonly source_config: PlatformAlertConfigurationSourceConfig;
@@ -78150,11 +71420,11 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `DEBUG` - DEBUG
-     * * `LOG` - LOG
-     * * `INFO` - INFO
-     * * `WARN` - WARN
-     * * `ERROR` - ERROR
+     * * `DEBUG` - Debug
+     * * `LOG` - Log
+     * * `INFO` - Info
+     * * `WARN` - Warn
+     * * `ERROR` - Error
      */
     export type PluginLogEntryTypeEnum = typeof PluginLogEntryTypeEnum[keyof typeof PluginLogEntryTypeEnum];
 
@@ -78636,6 +71906,14 @@ export namespace Schemas {
       Google: 'google',
     } as const;
 
+    export type UnrunnableReasonEnum = typeof UnrunnableReasonEnum[keyof typeof UnrunnableReasonEnum];
+
+
+    export const UnrunnableReasonEnum = {
+      NoAiConsent: 'no_ai_consent',
+      CreatorLostAccess: 'creator_lost_access',
+    } as const;
+
     /**
      * A Replay Vision scanner: its type, targeting query, and AI configuration.
      */
@@ -78677,6 +71955,8 @@ export namespace Schemas {
        * * `template` - Template
        * * `scratch` - From scratch */
       creation_method?: ScannerCreationMethodEnum | null;
+      /** Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`. */
+      take_over_as_creator?: boolean;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config: unknown;
       /** The current prompt condensed by AI into the one question the scanner answers about a session. Falls back to the prompt's first line when no question matches the current prompt. */
@@ -78760,6 +72040,13 @@ export namespace Schemas {
       readonly dashboard_suggested: boolean;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
+      /**
+         * Why the scanner's recording filter cannot run, from the last sweep or estimate that tried it. Cleared when the filter changes or a sweep runs it.
+         * @nullable
+         */
+      readonly filter_error: string | null;
+      /** Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. The sweep turns an enabled scanner off when either applies. */
+      readonly unrunnable_reason: UnrunnableReasonEnum | null;
       readonly created_at: string;
       /** User who created the scanner. */
       readonly created_by: UserBasic | null;
@@ -79449,7 +72736,8 @@ export namespace Schemas {
      */
     export interface SessionRecordingExternalReferenceIntegration {
       readonly id: number;
-      readonly kind: IntegrationKindEnum;
+      /** The provider of the integration, for example 'github'. */
+      readonly kind: string;
       readonly display_name: string;
     }
 
@@ -79483,76 +72771,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SessionRecordingExternalRef[];
-    }
-
-    export type SessionRecordingExternalReferencesItem = { [key: string]: unknown };
-
-    export interface SessionRecording {
-      readonly id: string;
-      /** @nullable */
-      readonly distinct_id: string | null;
-      readonly viewed: boolean;
-      readonly viewers: readonly string[];
-      readonly recording_duration: number;
-      /** @nullable */
-      readonly active_seconds: number | null;
-      /** @nullable */
-      readonly inactive_seconds: number | null;
-      /** @nullable */
-      readonly start_time: string | null;
-      /** @nullable */
-      readonly end_time: string | null;
-      /** @nullable */
-      readonly click_count: number | null;
-      /** @nullable */
-      readonly keypress_count: number | null;
-      /** @nullable */
-      readonly mouse_activity_count: number | null;
-      /** @nullable */
-      readonly console_log_count: number | null;
-      /** @nullable */
-      readonly console_warn_count: number | null;
-      /** @nullable */
-      readonly console_error_count: number | null;
-      /** @nullable */
-      readonly start_url: string | null;
-      person?: MinimalPerson;
-      /** @nullable */
-      readonly retention_period_days: number | null;
-      /** @nullable */
-      readonly expiry_time: string | null;
-      /** @nullable */
-      readonly recording_ttl: number | null;
-      /** @nullable */
-      readonly snapshot_source: string | null;
-      /** @nullable */
-      readonly snapshot_library: string | null;
-      readonly ongoing: boolean;
-      /** @nullable */
-      readonly activity_score: number | null;
-      /** Load external references (linked issues) for this recording */
-      readonly external_references: readonly SessionRecordingExternalReferencesItem[];
-      /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
-      readonly matches_filters: boolean;
-      /**
-         * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
-         * @nullable
-         */
-      readonly total_size: number | null;
-      /**
-         * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
-         * @nullable
-         */
-      readonly event_count: number | null;
-    }
-
-    export interface PaginatedSessionRecordingList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: SessionRecording[];
     }
 
     /**
@@ -79663,6 +72881,7 @@ export namespace Schemas {
      * * `check_result` - Check Result
      * * `check_observation` - Check Observation
      * * `check_scheduled` - Check Scheduled
+     * * `check_authoring` - Check Authoring
      * * `check_expired` - Check Expired
      * * `check_cancelled` - Check Cancelled
      * * `implementation_decision` - Implementation Decision
@@ -79704,6 +72923,7 @@ export namespace Schemas {
       CheckResult: 'check_result',
       CheckObservation: 'check_observation',
       CheckScheduled: 'check_scheduled',
+      CheckAuthoring: 'check_authoring',
       CheckExpired: 'check_expired',
       CheckCancelled: 'check_cancelled',
       ImplementationDecision: 'implementation_decision',
@@ -79939,6 +73159,7 @@ export namespace Schemas {
      * * `ready` - Ready
      * * `monitoring` - Monitoring
      * * `resolved` - Resolved
+     * * `closed` - Closed
      * * `failed` - Failed
      * * `deleted` - Deleted
      * * `suppressed` - Suppressed
@@ -79954,6 +73175,7 @@ export namespace Schemas {
       Ready: 'ready',
       Monitoring: 'monitoring',
       Resolved: 'resolved',
+      Closed: 'closed',
       Failed: 'failed',
       Deleted: 'deleted',
       Suppressed: 'suppressed',
@@ -80170,6 +73392,52 @@ export namespace Schemas {
       NotActionable: 'not_actionable',
       System: 'system',
     } as const;
+
+    /**
+     * * `code` - Code context
+     * * `data_only` - Project data
+     */
+    export type ReportResearchModeEnum = typeof ReportResearchModeEnum[keyof typeof ReportResearchModeEnum];
+
+
+    export const ReportResearchModeEnum = {
+      Code: 'code',
+      DataOnly: 'data_only',
+    } as const;
+
+    /**
+     * * `available` - Available
+     * * `no_integration` - Not connected
+     * * `no_repositories` - No repositories
+     * * `selection_unresolved` - No repository selected
+     * * `github_unavailable` - GitHub unavailable
+     */
+    export type ReportRepositoryStatusEnum = typeof ReportRepositoryStatusEnum[keyof typeof ReportRepositoryStatusEnum];
+
+
+    export const ReportRepositoryStatusEnum = {
+      Available: 'available',
+      NoIntegration: 'no_integration',
+      NoRepositories: 'no_repositories',
+      SelectionUnresolved: 'selection_unresolved',
+      GithubUnavailable: 'github_unavailable',
+    } as const;
+
+    export interface ReportResearchContext {
+      /** Whether research had access to a repository.
+       *
+       * * `code` - Code context
+       * * `data_only` - Project data */
+      mode: ReportResearchModeEnum;
+      /** Code availability when the report was researched; not a live integration health check.
+       *
+       * * `available` - Available
+       * * `no_integration` - Not connected
+       * * `no_repositories` - No repositories
+       * * `selection_unresolved` - No repository selected
+       * * `github_unavailable` - GitHub unavailable */
+      repository_status: ReportRepositoryStatusEnum;
+    }
 
     /**
      * * `unknown` - Unknown
@@ -80469,6 +73737,7 @@ export namespace Schemas {
        * * `ready` - Ready
        * * `monitoring` - Monitoring
        * * `resolved` - Resolved
+       * * `closed` - Closed
        * * `failed` - Failed
        * * `deleted` - Deleted
        * * `suppressed` - Suppressed */
@@ -80509,6 +73778,7 @@ export namespace Schemas {
        * * `ready` - Ready
        * * `monitoring` - Monitoring
        * * `resolved` - Resolved
+       * * `closed` - Closed
        * * `failed` - Failed
        * * `deleted` - Deleted
        * * `suppressed` - Suppressed */
@@ -80593,6 +73863,8 @@ export namespace Schemas {
       readonly repo_slug: string | null;
       /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
       readonly is_self_improvement_report: boolean;
+      /** Evidence available to the latest research pass. Null for legacy reports. */
+      readonly research_context: ReportResearchContext | null;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -80651,7 +73923,7 @@ export namespace Schemas {
       /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
       readonly plan: ReportPlan | null;
       /**
-         * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's outcome (open, action or fix), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
+         * Sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first, so rows from several requests merge in the order of one request. For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from 0 to 1, and a report without a usable score gets 2 plus its priority rank. The priority ranker uses the priority rank only, from 0 (P0) to 5 (no priority). Null for every other sort.
          * @nullable
          */
       readonly inbox_merge_key: number | null;
@@ -80669,6 +73941,11 @@ export namespace Schemas {
          * @nullable
          */
       ranker?: string | null;
+      /**
+         * Whether the client shows a ranking score pill on each card, when sort=recommended. The same flag arm sets this and the ranker. Null for every other sort.
+         * @nullable
+         */
+      ranking_pill?: boolean | null;
     }
 
     export type SignalSourceSyncStatusEnum = typeof SignalSourceSyncStatusEnum[keyof typeof SignalSourceSyncStatusEnum];
@@ -80685,6 +73962,11 @@ export namespace Schemas {
      */
     export type SignalSourceConfigConfig = { [key: string]: unknown };
 
+    /**
+     * Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.
+     */
+    export type SignalSourceConfigConfigSet = { [key: string]: unknown };
+
     export interface SignalSourceConfig {
       readonly id: string;
       source_product: SignalSourceProductEnum;
@@ -80692,6 +73974,10 @@ export namespace Schemas {
       enabled?: boolean;
       /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
       config?: SignalSourceConfigConfig;
+      /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
+      config_set?: SignalSourceConfigConfigSet;
+      /** Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config. */
+      config_remove?: string[];
       readonly created_at: string;
       readonly updated_at: string;
       /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
@@ -81004,6 +74290,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedSubscriptionDeliveryList {
+      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -81239,6 +74526,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedSubscriptionSummaryList {
+      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -81504,7 +74792,8 @@ export namespace Schemas {
       /** @nullable */
       readonly created_by: number | null;
       readonly status: string;
-      readonly source_type: ExternalDataSourceTypeEnum;
+      /** The source type (e.g. 'Postgres', 'Stripe'). */
+      readonly source_type: string;
     }
 
     export type TableColumnsItem = { [key: string]: unknown };
@@ -81568,6 +74857,11 @@ export namespace Schemas {
       readonly external_data_source: SimpleExternalDataSourceSerializers;
       /** @nullable */
       readonly external_schema: TableExternalSchema;
+      /**
+         * The managed source that will import this self-managed table on its first sync, if one is linked.
+         * @nullable
+         */
+      readonly pending_source_id: string | null;
       /** Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes. */
       options?: TableOptions;
       /**
@@ -82485,6 +75779,69 @@ export namespace Schemas {
     }
 
     /**
+     * * `shared` - Everyone in the project
+     * * `personal` - Only the creator
+     */
+    export type TicketMacroVisibilityEnum = typeof TicketMacroVisibilityEnum[keyof typeof TicketMacroVisibilityEnum];
+
+
+    export const TicketMacroVisibilityEnum = {
+      Shared: 'shared',
+      Personal: 'personal',
+    } as const;
+
+    export interface TicketMacro {
+      /** UUID of the macro. */
+      readonly id: string;
+      /**
+         * Name shown in the macro list and the composer menu.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut.
+         * @maxLength 50
+         * @nullable
+         */
+      shortcut?: string | null;
+      /**
+         * Reply text in markdown. May contain {{customer.first_name}}, {{customer.name}}, {{customer.email}}, {{agent.first_name}}, {{agent.name}}, and {{ticket.number}}. Variables are filled in when an agent inserts the macro.
+         * @maxLength 10000
+         */
+      body: string;
+      /** Who can see and use the macro. 'shared' is everyone in the project, the default. 'personal' is only the person who created it.
+       *
+       * * `shared` - Everyone in the project
+       * * `personal` - Only the creator */
+      visibility?: TicketMacroVisibilityEnum;
+      /** How many times agents have inserted this macro. */
+      readonly usage_count: number;
+      /**
+         * When an agent last inserted this macro. Null if it has never been used.
+         * @nullable
+         */
+      readonly last_used_at: string | null;
+      /** When the macro was created. */
+      readonly created_at: string;
+      /**
+         * When the macro was last edited. Null until the first edit.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+      /** The user who created this macro. Null when that user was deleted. */
+      readonly created_by: UserBasic | null;
+    }
+
+    export interface PaginatedTicketMacroList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TicketMacro[];
+    }
+
+    /**
      * * `customer_message` - Customer message
      * * `sent_reply` - Sent reply
      * * `internal_note` - Internal note
@@ -83240,6 +76597,8 @@ export namespace Schemas {
       readonly pending_invites: readonly PendingInvite[];
       /** True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
       readonly requires_credential_review: boolean;
+      /** How many personal API keys the user may hold, from the `personal_api_keys` billing entitlement of the user's organizations. The highest limit across their organizations applies, and 10 when no organization grants a limit. Creating a key beyond it is rejected with a validation error. Read-only. */
+      readonly personal_api_keys_limit: number;
     }
 
     export interface PaginatedUserList {
@@ -83594,6 +76953,83 @@ export namespace Schemas {
     }
 
     /**
+     * * `as_is` - Moves as is
+     * * `caveats` - Moves with caveats
+     * * `unsupported` - Not supported
+     */
+    export type WarehouseMigrationItemVerdictEnum = typeof WarehouseMigrationItemVerdictEnum[keyof typeof WarehouseMigrationItemVerdictEnum];
+
+
+    export const WarehouseMigrationItemVerdictEnum = {
+      AsIs: 'as_is',
+      Caveats: 'caveats',
+      Unsupported: 'unsupported',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `applying` - Applying
+     * * `applied` - Applied
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     */
+    export type WarehouseMigrationItemStatusEnum = typeof WarehouseMigrationItemStatusEnum[keyof typeof WarehouseMigrationItemStatusEnum];
+
+
+    export const WarehouseMigrationItemStatusEnum = {
+      Pending: 'pending',
+      Applying: 'applying',
+      Applied: 'applied',
+      Skipped: 'skipped',
+      Failed: 'failed',
+    } as const;
+
+    export interface WarehouseMigrationItem {
+      /** Item ID. Pass it to the apply and skip actions. */
+      id: string;
+      /** The connection ID in the vendor account. */
+      vendor_connection_id: string;
+      /** The vendor's connector type, for example `postgres` or `hubspot`. */
+      vendor_service: string;
+      /** The connection name in the vendor account. */
+      name: string;
+      /** Whether the connection moves as it is, moves with caveats, or is not supported.
+       *
+       * * `as_is` - Moves as is
+       * * `caveats` - Moves with caveats
+       * * `unsupported` - Not supported */
+      verdict: WarehouseMigrationItemVerdictEnum;
+      /** Differences between Fivetran and PostHog for this connection. */
+      caveats: string[];
+      /** What PostHog creates for this connection. Null when the connection is not supported. */
+      proposal: ItemProposal | null;
+      /** `pending` until the source is created (`applied`) or the user skips it.
+       *
+       * * `pending` - Pending
+       * * `applying` - Applying
+       * * `applied` - Applied
+       * * `skipped` - Skipped
+       * * `failed` - Failed */
+      status: WarehouseMigrationItemStatusEnum;
+      /**
+         * The PostHog source created for this connection, if any.
+         * @nullable
+         */
+      external_data_source_id: string | null;
+      /** Why the last apply attempt failed, if it did. */
+      error: string;
+    }
+
+    export interface PaginatedWarehouseMigrationItemList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WarehouseMigrationItem[];
+    }
+
+    /**
      * * `fivetran` - Fivetran
      */
     export type WarehouseMigrationProviderEnum = typeof WarehouseMigrationProviderEnum[keyof typeof WarehouseMigrationProviderEnum];
@@ -83684,6 +77120,8 @@ export namespace Schemas {
       refresh_seconds_per_month: number;
       /** Bytes its refreshes read in a month. */
       refresh_bytes_per_month: number;
+      /** Whether the view is materialized. A plain view has no refreshes, so both refresh costs are 0. */
+      materialized?: boolean;
     }
 
     export interface WarehouseSuggestionVisibleSources {
@@ -83711,6 +77149,20 @@ export namespace Schemas {
       Savings: 'savings',
     } as const;
 
+    /**
+     * * `waiting` - Waiting
+     * * `background` - Background
+     * * `scanned` - Scanned
+     */
+    export type WarehouseSuggestionMainSavingEnum = typeof WarehouseSuggestionMainSavingEnum[keyof typeof WarehouseSuggestionMainSavingEnum];
+
+
+    export const WarehouseSuggestionMainSavingEnum = {
+      Waiting: 'waiting',
+      Background: 'background',
+      Scanned: 'scanned',
+    } as const;
+
     export interface WarehouseSuggestionMaterializePayload {
       /** Sources that are always current, such as PostHog tables and direct connections. */
       live_sources: WarehouseSuggestionVisibleSources;
@@ -83729,6 +77181,12 @@ export namespace Schemas {
        * * `consumer_refresh` - Consumer refresh
        * * `savings` - Savings */
       refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasisEnum | null;
+      /** The saving that earned the suggestion. waiting: people, agents and API callers wait less on reads. background: refreshes do less work. scanned: reads scan fewer bytes. Null on suggestions made before this was recorded.
+       *
+       * * `waiting` - Waiting
+       * * `background` - Background
+       * * `scanned` - Scanned */
+      main_saving: WarehouseSuggestionMainSavingEnum | null;
       /** Name of the view to materialize. */
       subject_name: string;
       /** Proposed refresh interval, in seconds. */
@@ -83755,6 +77213,21 @@ export namespace Schemas {
       lookback_seconds?: number;
       /** How many materialized views compute this view again on every refresh, because it is not stored. 0 when the saving comes only from people's reads. */
       recomputed_by_views?: number;
+      /**
+         * Part of saves_seconds_per_month that people, agents and API callers spend waiting on reads of this view, in seconds. Null on suggestions made before this was recorded.
+         * @nullable
+         */
+      waiting_seconds_saved_per_month?: number | null;
+      /**
+         * Part of saves_seconds_per_month that background refreshes spend, in seconds. Negative when refreshing the stored copy costs more background time than it saves. Null on suggestions made before this was recorded.
+         * @nullable
+         */
+      background_seconds_saved_per_month?: number | null;
+      /**
+         * How long one read of the view takes today, in seconds. Null when no read was measured on its own.
+         * @nullable
+         */
+      read_seconds?: number | null;
     }
 
     export interface WarehouseSuggestionUnmaterializePayload {
@@ -87010,6 +80483,13 @@ export namespace Schemas {
          * @nullable
          */
       judge_method?: 'llm' | 'decision' | null;
+      /** Set to false to judge text only. */
+      include_media?: boolean;
+      /**
+         * How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default.
+         * @nullable
+         */
+      reasoning_level?: 'minimal' | 'low' | 'medium' | 'high' | null;
     } | {
       /**
          * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
@@ -87634,6 +81114,8 @@ export namespace Schemas {
       /** @nullable */
       readonly api_version?: string | null;
       readonly supported_api_versions?: string[];
+      /** @nullable */
+      readonly file_name?: string | null;
     } | null;
 
     /**
@@ -87646,6 +81128,11 @@ export namespace Schemas {
       readonly label?: string | null;
       /** @nullable */
       readonly table?: PatchedExternalDataSchemaTable;
+      /**
+         * The id of the warehouse table this schema syncs into. Set before the first sync for a table the schema already names, such as a migrated one. Null when there is none.
+         * @nullable
+         */
+      readonly table_id?: string | null;
       should_sync?: boolean;
       /** @nullable */
       readonly last_synced_at?: string | null;
@@ -87657,6 +81144,8 @@ export namespace Schemas {
       readonly incremental?: boolean;
       /** @nullable */
       readonly status?: string | null;
+      /** Whether this schema is linked to an existing self-managed table that its first sync will import. Until then the table keeps reading the original bucket. */
+      readonly pending_self_managed_table?: boolean;
       /** Sync strategy: incremental, full_refresh, append, cdc, or xmin.
        *
        * * `full_refresh` - full_refresh
@@ -87761,6 +81250,11 @@ export namespace Schemas {
       /** Whether exact source-side column metadata is available for safe source-query projection. */
       readonly source_column_metadata_available?: boolean;
       /**
+         * Name of the history table that keeps every version of each row, or `null` when the table keeps no history. A history table created before `_history` names existed keeps its `_cdc` name.
+         * @nullable
+         */
+      readonly history_table_name?: string | null;
+      /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
          */
@@ -87801,7 +81295,8 @@ export namespace Schemas {
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
-      readonly source_type?: ExternalDataSourceTypeEnum;
+      /** The source type (e.g. 'Postgres', 'Stripe'). */
+      readonly source_type?: string;
       /** @nullable */
       readonly latest_error?: string | null;
       /**
@@ -87851,6 +81346,11 @@ export namespace Schemas {
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection?: boolean;
       /**
+         * The name of the file a file upload source imports. Null for other sources or when it is unknown.
+         * @nullable
+         */
+      readonly file_name?: string | null;
+      /**
          * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
          * @nullable
          */
@@ -87864,7 +81364,41 @@ export namespace Schemas {
       readonly connection_warning?: string | null;
     }
 
+    /**
+     * * `errors` - Errors or bugs
+     * * `metrics` - Metrics got worse
+     * * `planned` - It was planned
+     * * `wrong_configuration` - Wrong configuration
+     * * `other` - Other
+     */
+    export type RollbackReasonEnum = typeof RollbackReasonEnum[keyof typeof RollbackReasonEnum];
+
+
+    export const RollbackReasonEnum = {
+      Errors: 'errors',
+      Metrics: 'metrics',
+      Planned: 'planned',
+      WrongConfiguration: 'wrong_configuration',
+      Other: 'other',
+    } as const;
+
     export interface PatchedFeatureFlagPartialUpdateRequestSchema {
+      /** When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag. */
+      ask_rollback_reason?: boolean;
+      /** Why this edit lowers the flag's exposure, for example a rollback after errors. Stored on the activity log entry of the edit. Not stored for an edit that needs approval or for a config version 2 flag.
+       *
+       * * `errors` - Errors or bugs
+       * * `metrics` - Metrics got worse
+       * * `planned` - It was planned
+       * * `wrong_configuration` - Wrong configuration
+       * * `other` - Other */
+      rollback_reason?: RollbackReasonEnum | null;
+      /**
+         * A free-text note for `rollback_reason`. Requires `rollback_reason`.
+         * @maxLength 1000
+         * @nullable
+         */
+      rollback_reason_note?: string | null;
       /** Feature flag key. */
       key?: string;
       /** Feature flag description (stored in the `name` field for backwards compatibility). */
@@ -88636,12 +82170,28 @@ export namespace Schemas {
     }
 
     /**
+     * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
      * @nullable
      */
     export type PatchedInsightResolvedDateRange = {
       readonly date_from?: string;
       readonly date_to?: string;
     } | null;
+
+    /**
+     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+     * @nullable
+     */
+    export type PatchedInsightResolvedCompareDateRange = {
+      readonly date_from?: string;
+      readonly date_to?: string;
+    } | null;
+
+    /**
+     * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+     * @nullable
+     */
+    export type PatchedInsightActionNames = {[key: string]: string} | null;
 
     /**
      * Simplified serializer to speed response times when loading large amounts of objects.
@@ -88740,8 +82290,21 @@ export namespace Schemas {
       readonly hogql?: string | null;
       /** @nullable */
       readonly types?: readonly unknown[] | null;
-      /** @nullable */
+      /**
+         * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+         * @nullable
+         */
       readonly resolved_date_range?: PatchedInsightResolvedDateRange;
+      /**
+         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+         * @nullable
+         */
+      readonly resolved_compare_date_range?: PatchedInsightResolvedCompareDateRange;
+      /**
+         * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+         * @nullable
+         */
+      readonly action_names?: PatchedInsightActionNames;
       /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
       readonly query_scan?: unknown;
       /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
@@ -88870,7 +82433,17 @@ export namespace Schemas {
      */
     export interface PatchedIntegrationConfig {
       readonly id?: number;
-      kind?: IntegrationKindEnum;
+      /**
+         * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
+         * @maxLength 32
+         */
+      kind?: string;
+      /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+       *
+       * * `oauth` - OAuth
+       * * `token` - Token
+       * * `credentials` - Credentials */
+      readonly auth_type?: IntegrationAuthTypeEnum;
       config?: unknown;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -89520,6 +83093,69 @@ export namespace Schemas {
       draft_content?: MessageTemplateContent | null;
     }
 
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type PatchedMetricsPlatformAlertConfigurationEditSourceKind = typeof PatchedMetricsPlatformAlertConfigurationEditSourceKind[keyof typeof PatchedMetricsPlatformAlertConfigurationEditSourceKind];
+
+
+    export const PatchedMetricsPlatformAlertConfigurationEditSourceKind = {
+      Metrics: 'metrics',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type PatchedMetricsPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type PatchedMetricsPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface PatchedMetricsPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: PatchedMetricsPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled?: boolean;
+      /** Settings for a metrics alert. The bound the alert is evaluated against is under condition. */
+      source_config?: MetricsPlatformAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: PatchedMetricsPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: PatchedMetricsPlatformAlertConfigurationEditAnnotations;
+    }
+
     export interface PatchedMoveTileRequest {
       /** Destination dashboard ID. */
       to_dashboard?: number;
@@ -89854,7 +83490,7 @@ export namespace Schemas {
       name?: string | null;
       description?: string;
       pinned?: boolean;
-      /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
+      /** Dashboard-level filters (date range, properties, breakdown, interval, comparison) applied across all tiles as the source of truth. */
       filters?: DashboardFiltersOpenApi;
       /**
          * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
@@ -90132,7 +83768,7 @@ export namespace Schemas {
       annotations?: PatchedWarehouseSourcePlatformAlertConfigurationEditAnnotations;
     }
 
-    export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit | PatchedWarehouseDestinationPlatformAlertConfigurationEdit | PatchedWarehouseSourcePlatformAlertConfigurationEdit;
+    export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit | PatchedMetricsPlatformAlertConfigurationEdit | PatchedWarehouseDestinationPlatformAlertConfigurationEdit | PatchedWarehouseSourcePlatformAlertConfigurationEdit;
 
     /**
      * Request body for PATCH /api/users/@me/product_intro_seen.
@@ -90362,6 +83998,13 @@ export namespace Schemas {
          * @nullable
          */
       marketing_frequency_cap_window_days?: number | null;
+      /**
+         * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away.
+         * @minimum 1
+         * @maximum 168
+         * @nullable
+         */
+      marketing_frequency_cap_hold_hours?: number | null;
     }
 
     export interface TeamFeatureFlagPolicyConfig {
@@ -90539,6 +84182,7 @@ export namespace Schemas {
        * * `America/Coral_Harbour` - America/Coral_Harbour
        * * `America/Cordoba` - America/Cordoba
        * * `America/Costa_Rica` - America/Costa_Rica
+       * * `America/Coyhaique` - America/Coyhaique
        * * `America/Creston` - America/Creston
        * * `America/Cuiaba` - America/Cuiaba
        * * `America/Curacao` - America/Curacao
@@ -91432,6 +85076,8 @@ export namespace Schemas {
        * * `template` - Template
        * * `scratch` - From scratch */
       creation_method?: ScannerCreationMethodEnum | null;
+      /** Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`. */
+      take_over_as_creator?: boolean;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config?: unknown;
       /** The current prompt condensed by AI into the one question the scanner answers about a session. Falls back to the prompt's first line when no question matches the current prompt. */
@@ -91515,6 +85161,13 @@ export namespace Schemas {
       readonly dashboard_suggested?: boolean;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
+      /**
+         * Why the scanner's recording filter cannot run, from the last sweep or estimate that tried it. Cleared when the filter changes or a sweep runs it.
+         * @nullable
+         */
+      readonly filter_error?: string | null;
+      /** Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. The sweep turns an enabled scanner off when either applies. */
+      readonly unrunnable_reason?: UnrunnableReasonEnum | null;
       readonly created_at?: string;
       /** User who created the scanner. */
       readonly created_by?: UserBasic | null;
@@ -91782,7 +85435,7 @@ export namespace Schemas {
        * * `flash` - On everywhere
        * * `off` - Off everywhere */
       default_review_mode?: DefaultReviewModeEnum;
-      /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the posthog-review label, an @posthog review comment, and the Review button still review drafts. */
+      /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: an @posthog review comment and the Review button still review drafts. */
       review_drafts?: boolean;
       /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
       resolve_comments?: boolean;
@@ -92325,8 +85978,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 14
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 15
          */
       write_scopes?: string[];
       /**
@@ -92361,6 +86014,11 @@ export namespace Schemas {
      */
     export type PatchedSignalSourceConfigConfig = { [key: string]: unknown };
 
+    /**
+     * Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.
+     */
+    export type PatchedSignalSourceConfigConfigSet = { [key: string]: unknown };
+
     export interface PatchedSignalSourceConfig {
       readonly id?: string;
       source_product?: SignalSourceProductEnum;
@@ -92368,6 +86026,10 @@ export namespace Schemas {
       enabled?: boolean;
       /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
       config?: PatchedSignalSourceConfigConfig;
+      /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
+      config_set?: PatchedSignalSourceConfigConfigSet;
+      /** Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config. */
+      config_remove?: string[];
       readonly created_at?: string;
       readonly updated_at?: string;
       /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
@@ -93469,6 +87131,11 @@ export namespace Schemas {
       readonly external_data_source?: SimpleExternalDataSourceSerializers;
       /** @nullable */
       readonly external_schema?: PatchedTableExternalSchema;
+      /**
+         * The managed source that will import this self-managed table on its first sync, if one is linked.
+         * @nullable
+         */
+      readonly pending_source_id?: string | null;
       /** Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes. */
       options?: PatchedTableOptions;
       /**
@@ -93628,6 +87295,8 @@ export namespace Schemas {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
      */
     export type TaskOriginProductEnum = typeof TaskOriginProductEnum[keyof typeof TaskOriginProductEnum];
 
@@ -93659,6 +87328,8 @@ export namespace Schemas {
       SpaceSetup: 'space_setup',
       BusinessKnowledge: 'business_knowledge',
       MetricsImport: 'metrics_import',
+      KnowledgeWriter: 'knowledge_writer',
+      ContextLayer: 'context_layer',
     } as const;
 
     /**
@@ -93720,7 +87391,9 @@ export namespace Schemas {
        * * `workflow` - Workflow
        * * `space_setup` - Space Setup
        * * `business_knowledge` - Business Knowledge
-       * * `metrics_import` - Metrics Import */
+       * * `metrics_import` - Metrics Import
+       * * `knowledge_writer` - Knowledge Writer
+       * * `context_layer` - Context Layer */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -93860,6 +87533,48 @@ export namespace Schemas {
       retention_days?: number;
       /** @nullable */
       readonly retention_last_updated?: string | null;
+    }
+
+    export interface PatchedTicketMacro {
+      /** UUID of the macro. */
+      readonly id?: string;
+      /**
+         * Name shown in the macro list and the composer menu.
+         * @maxLength 200
+         */
+      name?: string;
+      /**
+         * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut.
+         * @maxLength 50
+         * @nullable
+         */
+      shortcut?: string | null;
+      /**
+         * Reply text in markdown. May contain {{customer.first_name}}, {{customer.name}}, {{customer.email}}, {{agent.first_name}}, {{agent.name}}, and {{ticket.number}}. Variables are filled in when an agent inserts the macro.
+         * @maxLength 10000
+         */
+      body?: string;
+      /** Who can see and use the macro. 'shared' is everyone in the project, the default. 'personal' is only the person who created it.
+       *
+       * * `shared` - Everyone in the project
+       * * `personal` - Only the creator */
+      visibility?: TicketMacroVisibilityEnum;
+      /** How many times agents have inserted this macro. */
+      readonly usage_count?: number;
+      /**
+         * When an agent last inserted this macro. Null if it has never been used.
+         * @nullable
+         */
+      readonly last_used_at?: string | null;
+      /** When the macro was created. */
+      readonly created_at?: string;
+      /**
+         * When the macro was last edited. Null until the first edit.
+         * @nullable
+         */
+      readonly updated_at?: string | null;
+      /** The user who created this macro. Null when that user was deleted. */
+      readonly created_by?: UserBasic | null;
     }
 
     /**
@@ -94323,6 +88038,8 @@ export namespace Schemas {
       readonly pending_invites?: readonly PendingInvite[];
       /** True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
       readonly requires_credential_review?: boolean;
+      /** How many personal API keys the user may hold, from the `personal_api_keys` billing entitlement of the user's organizations. The highest limit across their organizations applies, and 10 when no organization grants a limit. Creating a key beyond it is rejected with a validation error. Read-only. */
+      readonly personal_api_keys_limit?: number;
     }
 
     export interface PinnedAccountProperty {
@@ -94665,6 +88382,13 @@ export namespace Schemas {
          * @nullable
          */
       marketing_frequency_cap_window_days?: number | null;
+      /**
+         * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away. A held message sends as soon as one of the person's earlier messages leaves the window.
+         * @minimum 1
+         * @maximum 168
+         * @nullable
+         */
+      marketing_frequency_cap_hold_hours?: number | null;
       /** Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.
        *
        * * `off` - Off
@@ -94895,11 +88619,199 @@ export namespace Schemas {
       success: boolean;
     }
 
+    /**
+     * Property keys and values to set together, instead of 'key' and 'value'. One request sets up to 1000 properties and emits a single $set event.
+     */
+    export type PersonUpdatePropertyRequestProperties = { [key: string]: unknown };
+
     export interface PersonUpdatePropertyRequest {
-      /** The property key to set. */
-      key: string;
+      /** The property key to set. Pair it with 'value' to set one property. */
+      key?: string;
       /** The property value. Can be a string, number, boolean, or object. */
-      value: unknown;
+      value?: unknown;
+      /** Property keys and values to set together, instead of 'key' and 'value'. One request sets up to 1000 properties and emits a single $set event. */
+      properties?: PersonUpdatePropertyRequestProperties;
+    }
+
+    /**
+     * * `ready` - ready
+     * * `unavailable` - unavailable
+     */
+    export type PersonalRankingStatusEnum = typeof PersonalRankingStatusEnum[keyof typeof PersonalRankingStatusEnum];
+
+
+    export const PersonalRankingStatusEnum = {
+      Ready: 'ready',
+      Unavailable: 'unavailable',
+    } as const;
+
+    /**
+     * * `top` - top
+     * * `worth_a_look` - worth_a_look
+     * * `later` - later
+     */
+    export type PersonalRankingTierEnum = typeof PersonalRankingTierEnum[keyof typeof PersonalRankingTierEnum];
+
+
+    export const PersonalRankingTierEnum = {
+      Top: 'top',
+      WorthALook: 'worth_a_look',
+      Later: 'later',
+    } as const;
+
+    /**
+     * * `suggested_reviewer` - suggested_reviewer
+     * * `claimed` - claimed
+     * * `waiting_on_input` - waiting_on_input
+     */
+    export type PersonalRankingNeedsYouEnum = typeof PersonalRankingNeedsYouEnum[keyof typeof PersonalRankingNeedsYouEnum];
+
+
+    export const PersonalRankingNeedsYouEnum = {
+      SuggestedReviewer: 'suggested_reviewer',
+      Claimed: 'claimed',
+      WaitingOnInput: 'waiting_on_input',
+    } as const;
+
+    export interface PersonalRankingMatched {
+      /**
+         * The theme of your activity summary that the report matches, or null.
+         * @nullable
+         */
+      theme: string | null;
+      /** Why the report needs you: you are a suggested reviewer, you claimed it, or it waits on your input. */
+      needs_you: PersonalRankingNeedsYouEnum[];
+    }
+
+    /**
+     * * `llm` - llm
+     * * `model` - model
+     */
+    export type PersonalRankingRankedByEnum = typeof PersonalRankingRankedByEnum[keyof typeof PersonalRankingRankedByEnum];
+
+
+    export const PersonalRankingRankedByEnum = {
+      Llm: 'llm',
+      Model: 'model',
+    } as const;
+
+    export interface PersonalRankingReport {
+      /** The report id. Pass it to inbox-reports-retrieve for the full report. */
+      id: string;
+      /** The report title. */
+      title: string;
+      /** The report status.
+       *
+       * * `potential` - Potential
+       * * `candidate` - Candidate
+       * * `in_progress` - In Progress
+       * * `pending_input` - Pending Input
+       * * `ready` - Ready
+       * * `monitoring` - Monitoring
+       * * `resolved` - Resolved
+       * * `closed` - Closed
+       * * `failed` - Failed
+       * * `deleted` - Deleted
+       * * `suppressed` - Suppressed */
+      status: SignalReportStatusEnum;
+      /** The report priority, P0 to P4, or null.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
+      priority: AutonomyPriorityEnum | null;
+      /** The state of the report's implementation pull request, or null when it has none.
+       *
+       * * `unknown` - Unknown
+       * * `draft` - Draft
+       * * `open` - Open
+       * * `closed` - Closed
+       * * `merged` - Merged */
+      implementation_pr_state: SignalReportAssignmentPrStateEnum | null;
+      /** The ranking model's predictions for the report. */
+      ranking: ReportRanking;
+    }
+
+    export interface PersonalRankingEntry {
+      /** The position in your list. 1 is the first. */
+      rank: number;
+      /** top, worth_a_look or later.
+       *
+       * * `top` - top
+       * * `worth_a_look` - worth_a_look
+       * * `later` - later */
+      tier: PersonalRankingTierEnum;
+      /** Why the report has this place in your list. */
+      reason: string;
+      /**
+         * A suggested next step for the top entries. Null for the others.
+         * @nullable
+         */
+      next_step: string | null;
+      /** What in your work the report matches. */
+      matched: PersonalRankingMatched;
+      /** llm: the language model placed the report. model: it kept its place in the inbox order.
+       *
+       * * `llm` - llm
+       * * `model` - model */
+      ranked_by: PersonalRankingRankedByEnum;
+      /** A compact view of the report. */
+      report: PersonalRankingReport;
+    }
+
+    export interface PersonalRankingFold {
+      /** The report that the list leaves out. */
+      report_id: string;
+      /** The report in the list that covers the same work. */
+      into_report_id: string;
+      /** Why the two reports are about the same work. */
+      reason: string;
+    }
+
+    export interface PersonalRanking {
+      /** ready: the list is in `results`. unavailable: personal ranking is off now, and `results` is empty.
+       *
+       * * `ready` - ready
+       * * `unavailable` - unavailable */
+      status: PersonalRankingStatusEnum;
+      /** True when the language model ranked the list with your activity summary. False when you have no summary yet or the build fell back to the inbox order. */
+      personalized: boolean;
+      /** True when the list is a stored one. False when it is the inbox order fallback or the new list that `wait_seconds` waited for. */
+      cached: boolean;
+      /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise a build limit was reached, so try again later. */
+      stale: boolean;
+      /** True when a new list is being built in the background. Call again in a few seconds, or pass `wait_seconds`, to get it. */
+      building: boolean;
+      /**
+         * Why the list is in inbox order and not ranked by the language model. building: no list is stored yet and one is being built. rate_limited: no list is stored yet and a build limit was reached, either yours or the shared daily one. build_failed: no list is stored yet and the build could not start. no_activity_summary: you have no activity summary yet, so the model did not rank the list. llm_error, timeout, malformed_output, truncated_output, no_candidates or ai_not_approved: the stored build fell back. Null when the model ranked it.
+         * @nullable
+         */
+      fallback_reason: string | null;
+      /**
+         * When the list was built.
+         * @nullable
+         */
+      generated_at: string | null;
+      /**
+         * How long the model call of the build took, in ms. Null when there was no model call.
+         * @nullable
+         */
+      latency_ms: number | null;
+      /**
+         * The version of your activity summary that the build read, or null.
+         * @nullable
+         */
+      activity_summary_version: number | null;
+      /** How many reports the build considered. */
+      candidates_considered: number;
+      /** How many reports the stored list ranks. `results` holds at most `limit` of them. */
+      ranked_count: number;
+      /** Your reports, best first. A report that left your inbox since the build, for example a resolved one, is left out. */
+      results: PersonalRankingEntry[];
+      /** Reports the list leaves out because another report in it covers the same work. */
+      folded: PersonalRankingFold[];
     }
 
     export interface _Summary {
@@ -94911,6 +88823,8 @@ export namespace Schemas {
       product: string;
       /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
       total_cost_usd: number;
+      /** Raw LLM cost in USD for products eligible for AI or Desktop credit billing, independent of the product filter and breakdown limit. Excludes credit markup and does not represent an invoiced amount. */
+      billable_cost_usd: number;
       /** Total $ai_generation + $ai_embedding events captured across every product. */
       event_count: number;
       /** Total cost in USD for the product filter. Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
@@ -94929,6 +88843,8 @@ export namespace Schemas {
       event_count: number;
       /** Total cost in USD for this product over the lookback window. */
       cost_usd: number;
+      /** Whether this product is eligible for PostHog AI or Desktop credit billing, independent of event-level billing rules. */
+      billable: boolean;
     }
 
     export interface _ProductBreakdown {
@@ -95395,7 +89311,7 @@ export namespace Schemas {
       annotations?: WarehouseSourcePlatformAlertConfigurationCreateAnnotations;
     }
 
-    export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate | WarehouseDestinationPlatformAlertConfigurationCreate | WarehouseSourcePlatformAlertConfigurationCreate;
+    export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate | MetricsPlatformAlertConfigurationCreate | WarehouseDestinationPlatformAlertConfigurationCreate | WarehouseSourcePlatformAlertConfigurationCreate;
 
     /**
      * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
@@ -95523,7 +89439,7 @@ export namespace Schemas {
       annotations?: WarehouseSourcePlatformAlertConfigurationEditAnnotations;
     }
 
-    export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit | WarehouseDestinationPlatformAlertConfigurationEdit | WarehouseSourcePlatformAlertConfigurationEdit;
+    export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit | MetricsPlatformAlertConfigurationEdit | WarehouseDestinationPlatformAlertConfigurationEdit | WarehouseSourcePlatformAlertConfigurationEdit;
 
     export interface PlatformAlertGroupSnooze {
       /**
@@ -96274,6 +90190,7 @@ export namespace Schemas {
        * * `America/Coral_Harbour` - America/Coral_Harbour
        * * `America/Cordoba` - America/Cordoba
        * * `America/Costa_Rica` - America/Costa_Rica
+       * * `America/Coyhaique` - America/Coyhaique
        * * `America/Creston` - America/Creston
        * * `America/Cuiaba` - America/Cuiaba
        * * `America/Curacao` - America/Curacao
@@ -97145,6 +91062,7 @@ export namespace Schemas {
        * * `America/Coral_Harbour` - America/Coral_Harbour
        * * `America/Cordoba` - America/Cordoba
        * * `America/Costa_Rica` - America/Costa_Rica
+       * * `America/Coyhaique` - America/Coyhaique
        * * `America/Creston` - America/Creston
        * * `America/Cuiaba` - America/Cuiaba
        * * `America/Curacao` - America/Curacao
@@ -99666,7 +93584,7 @@ export namespace Schemas {
        * ```
        *
        * For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access). */
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | MarketingAnalyticsRecommendationsQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | PropertyValuesQuery;
       /** Whether results should be calculated sync or async, and how much to rely on the cache:
        * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
        * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
@@ -100443,13 +94361,15 @@ export namespace Schemas {
 
     export interface QueryResponseAlternative33 {
       columns?: unknown[] | null;
-      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+      latestDayComputedAt?: string | null;
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -100476,12 +94396,14 @@ export namespace Schemas {
     export type QueryResponseAlternative34Results = {[key: string]: MarketingAnalyticsItem};
 
     export interface QueryResponseAlternative34 {
-      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+      latestDayComputedAt?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
@@ -100634,6 +94556,30 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative39 {
+      /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
+      disclaimer: string;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MarketingAnalyticsRecommendation[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface QueryResponseAlternative40 {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -100662,7 +94608,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative40 {
+    export interface QueryResponseAlternative41 {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -100690,7 +94636,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative41 {
+    export interface QueryResponseAlternative42 {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -100718,7 +94664,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative42 {
+    export interface QueryResponseAlternative43 {
       /** Executed ClickHouse query */
       clickhouse?: string | null;
       /** Display formats for directly selected virtual properties, aligned with columns. */
@@ -100757,7 +94703,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative43 {
+    export interface QueryResponseAlternative44 {
       dateFrom?: string | null;
       dateTo?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -100789,7 +94735,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative44 {
+    export interface QueryResponseAlternative45 {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -100807,34 +94753,6 @@ export namespace Schemas {
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** When the oldest precomputed window this response used was computed. Unset for live responses. */
       preComputedAt?: string | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The resolved previous/comparison period date range, when comparing against another period */
-      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[];
-      samplingRate?: SamplingRate | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: unknown[] | null;
-      /** Connector-synced data warehouse sources referenced by this query, if any. */
-      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
-    }
-
-    export interface QueryResponseAlternative45 {
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -100870,6 +94788,7 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
+      samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
@@ -100880,6 +94799,33 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative47 {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface QueryResponseAlternative48 {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -100914,7 +94860,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative48 {
+    export interface QueryResponseAlternative49 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -100947,7 +94893,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative49 {
+    export interface QueryResponseAlternative50 {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -100974,7 +94920,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative50 {
+    export interface QueryResponseAlternative51 {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -101001,15 +94947,17 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative51 {
+    export interface QueryResponseAlternative52 {
       columns?: unknown[] | null;
-      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+      latestDayComputedAt?: string | null;
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -101033,15 +94981,17 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative52Results = {[key: string]: MarketingAnalyticsItem};
+    export type QueryResponseAlternative53Results = {[key: string]: MarketingAnalyticsItem};
 
-    export interface QueryResponseAlternative52 {
-      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    export interface QueryResponseAlternative53 {
+      /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+      latestDayComputedAt?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
@@ -101052,34 +95002,8 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative52Results;
+      results: QueryResponseAlternative53Results;
       samplingRate?: SamplingRate | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Connector-synced data warehouse sources referenced by this query, if any. */
-      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
-    }
-
-    export interface QueryResponseAlternative53 {
-      columns?: string[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The resolved previous/comparison period date range, when comparing against another period */
-      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: ErrorTrackingIssue[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
@@ -101105,7 +95029,7 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: ErrorTrackingCorrelatedIssue[];
+      results: ErrorTrackingIssue[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
@@ -101131,6 +95055,32 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: ErrorTrackingCorrelatedIssue[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface QueryResponseAlternative56 {
+      columns?: string[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LLMTrace[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
@@ -101140,7 +95090,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative57 {
+    export interface QueryResponseAlternative58 {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -101167,7 +95117,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative58 {
+    export interface QueryResponseAlternative59 {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -101197,7 +95147,9 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative59 {
+    export interface QueryResponseAlternative60 {
+      columns?: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[] | null;
+      customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore: boolean;
@@ -101212,6 +95164,7 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      relationshipDefinitions?: AccountsTableRelationshipDefinition[] | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
@@ -101225,9 +95178,16 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative60ResultsItem = { [key: string]: unknown };
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+     */
+    export type QueryResponseAlternative61ActionNames = {[key: string]: string} | null;
 
-    export interface QueryResponseAlternative60 {
+    export type QueryResponseAlternative61ResultsItem = { [key: string]: unknown };
+
+    export interface QueryResponseAlternative61 {
+      /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+      action_names?: QueryResponseAlternative61ActionNames;
       boxplot_data?: BoxPlotDatum[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -101243,7 +95203,7 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative60ResultsItem[];
+      results: QueryResponseAlternative61ResultsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
@@ -101252,7 +95212,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative61 {
+    export interface QueryResponseAlternative62 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -101276,7 +95236,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative62 {
+    export interface QueryResponseAlternative63 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -101298,7 +95258,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative63 {
+    export interface QueryResponseAlternative64 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -101320,7 +95280,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative64 {
+    export interface QueryResponseAlternative65 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -101342,9 +95302,16 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative65ResultsItem = { [key: string]: unknown };
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+     */
+    export type QueryResponseAlternative66ActionNames = {[key: string]: string} | null;
 
-    export interface QueryResponseAlternative65 {
+    export type QueryResponseAlternative66ResultsItem = { [key: string]: unknown };
+
+    export interface QueryResponseAlternative66 {
+      /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+      action_names?: QueryResponseAlternative66ActionNames;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -101357,7 +95324,7 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative65ResultsItem[];
+      results: QueryResponseAlternative66ResultsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
@@ -101366,14 +95333,14 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative67Tables = {[key: string]: DatabaseSchemaPostHogTable | DatabaseSchemaSystemTable | DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable | DatabaseSchemaBatchExportTable | DatabaseSchemaMaterializedViewTable | DatabaseSchemaEndpointTable};
-
-    export interface QueryResponseAlternative67 {
-      joins: DataWarehouseViewLink[];
-      tables: QueryResponseAlternative67Tables;
-    }
+    export type QueryResponseAlternative68Tables = {[key: string]: DatabaseSchemaPostHogTable | DatabaseSchemaSystemTable | DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable | DatabaseSchemaBatchExportTable | DatabaseSchemaMaterializedViewTable | DatabaseSchemaEndpointTable};
 
     export interface QueryResponseAlternative68 {
+      joins: DataWarehouseViewLink[];
+      tables: QueryResponseAlternative68Tables;
+    }
+
+    export interface QueryResponseAlternative69 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       has_next: boolean;
@@ -101398,7 +95365,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative69 {
+    export interface QueryResponseAlternative70 {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -101426,7 +95393,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative70 {
+    export interface QueryResponseAlternative71 {
       count: number;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -101449,7 +95416,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative71 {
+    export interface QueryResponseAlternative72 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -101471,7 +95438,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative72 {
+    export interface QueryResponseAlternative73 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -101493,7 +95460,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative73 {
+    export interface QueryResponseAlternative74 {
       /** Upper bound per row (y axis), ascending. */
       bounds: number[];
       /** Observation count per cell: counts[row][column], row = bound, column = time. */
@@ -101521,7 +95488,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative74 {
+    export interface QueryResponseAlternative75 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -101548,7 +95515,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative75 {
+    export interface QueryResponseAlternative76 {
       /** Result rows for the comparison period when `compareFilter.compare` is true. */
       compare?: AggregatedSpanRow[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -101572,7 +95539,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative76 {
+    export interface QueryResponseAlternative77 {
       /** Result rows for the comparison period when `compareFilter.compare` is true. */
       compare?: SpanTreeNode[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -101596,7 +95563,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative77 {
+    export interface QueryResponseAlternative78 {
       /** Result rows for the comparison period when `compareFilter.compare` is true. */
       compare?: AttributeBreakdownRow[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -101620,13 +95587,13 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative78 {
+    export interface QueryResponseAlternative79 {
       questions: string[];
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative79 {
+    export interface QueryResponseAlternative80 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -101651,7 +95618,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative80 {
+    export interface QueryResponseAlternative81 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -101676,7 +95643,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative81 {
+    export interface QueryResponseAlternative82 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -101698,7 +95665,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative82 {
+    export interface QueryResponseAlternative83 {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -101724,7 +95691,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative85 {
+    export interface QueryResponseAlternative86 {
       /** Timestamp of the newer trace */
       newerTimestamp?: string | null;
       /** ID of the newer trace (chronologically after current) */
@@ -101739,7 +95706,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative86 {
+    export interface QueryResponseAlternative87 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -101761,7 +95728,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative87 {
+    export interface QueryResponseAlternative88 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -101783,7 +95750,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative88 {
+    export interface QueryResponseAlternative89 {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -101813,7 +95780,9 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative89 {
+    export interface QueryResponseAlternative90 {
+      columns?: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[] | null;
+      customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore: boolean;
@@ -101828,6 +95797,7 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      relationshipDefinitions?: AccountsTableRelationshipDefinition[] | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
@@ -101841,7 +95811,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative90 {
+    export interface QueryResponseAlternative91 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -101863,7 +95833,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative91 {
+    export interface QueryResponseAlternative92 {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -101890,29 +95860,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative92ResultsItem = { [key: string]: unknown };
-
-    export interface QueryResponseAlternative92 {
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The resolved previous/comparison period date range, when comparing against another period */
-      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative92ResultsItem[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Connector-synced data warehouse sources referenced by this query, if any. */
-      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
-    }
+    export type QueryResponseAlternative93ResultsItem = { [key: string]: unknown };
 
     export interface QueryResponseAlternative93 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -101927,7 +95875,7 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MCPToolCallBreakdownItem[];
+      results: QueryResponseAlternative93ResultsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
@@ -101949,7 +95897,7 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MCPToolCallsAndErrorsItem[];
+      results: MCPToolCallBreakdownItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
@@ -101971,7 +95919,7 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MCPHarnessBreakdownItem[];
+      results: MCPToolCallsAndErrorsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
@@ -101981,6 +95929,28 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative96 {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MCPHarnessBreakdownItem[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface QueryResponseAlternative97 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Whether another page of individual model identifiers is available. */
@@ -102004,7 +95974,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative97 {
+    export interface QueryResponseAlternative98 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -102026,7 +95996,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative98 {
+    export interface QueryResponseAlternative99 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -102048,7 +96018,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative99 {
+    export interface QueryResponseAlternative100 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -102070,7 +96040,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative100 {
+    export interface QueryResponseAlternative101 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -102092,7 +96062,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative101 {
+    export interface QueryResponseAlternative102 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -102115,7 +96085,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative102 {
+    export interface QueryResponseAlternative103 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -102137,7 +96107,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative103 {
+    export interface QueryResponseAlternative104 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -102165,7 +96135,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative104 {
+    export interface QueryResponseAlternative105 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -102187,7 +96157,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative105 {
+    export interface QueryResponseAlternative106 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -102209,7 +96179,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative106 {
+    export interface QueryResponseAlternative107 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -102231,7 +96201,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative107 {
+    export interface QueryResponseAlternative108 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -102253,7 +96223,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative108 {
+    export interface QueryResponseAlternative109 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -102275,7 +96245,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative109 {
+    export interface QueryResponseAlternative110 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -102297,7 +96267,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative110 {
+    export interface QueryResponseAlternative111 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -102319,7 +96289,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative111 {
+    export interface QueryResponseAlternative112 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Whether more reports exist past this page. */
@@ -102343,7 +96313,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative112 {
+    export interface QueryResponseAlternative113 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -102365,7 +96335,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative12 | QueryResponseAlternative13 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative61 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107 | QueryResponseAlternative108 | QueryResponseAlternative109 | QueryResponseAlternative110 | QueryResponseAlternative111 | QueryResponseAlternative112;
+    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative12 | QueryResponseAlternative13 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | QueryResponseAlternative39 | unknown | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative56 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative61 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107 | QueryResponseAlternative108 | QueryResponseAlternative109 | QueryResponseAlternative110 | QueryResponseAlternative111 | QueryResponseAlternative112 | QueryResponseAlternative113;
 
     export interface QueryScanResponse {
       analysis?: QueryScanAnalysis | null;
@@ -102376,11 +96346,11 @@ export namespace Schemas {
     }
 
     export interface QueryUpgradeRequest {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | MarketingAnalyticsRecommendationsQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | PropertyValuesQuery;
     }
 
     export interface QueryUpgradeResponse {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | MarketingAnalyticsRecommendationsQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | PropertyValuesQuery;
     }
 
     export interface QuotaResourceLimit {
@@ -103512,6 +97482,8 @@ export namespace Schemas {
       readonly repo_slug: string | null;
       /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
       readonly is_self_improvement_report: boolean;
+      /** Evidence available to the latest research pass. Null for legacy reports. */
+      readonly research_context: ReportResearchContext | null;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -104307,6 +98279,25 @@ export namespace Schemas {
       signals: SignalNode[];
     }
 
+    export interface SpendAmount {
+      /**
+         * Recorded usage in USD cents, before billing exemptions; null when untracked.
+         * @nullable
+         */
+      total_spend: number | null;
+      /** Whether usage is still settling or accounting is incomplete. */
+      incomplete: boolean;
+    }
+
+    export interface ReportSpend {
+      /** Usage for the report's backing signals, research and repository selection. */
+      generation: SpendAmount;
+      /** Usage for implementation tasks owned by the report. */
+      implementation: SpendAmount;
+      /** Full usage of scout runs that authored this report. Shared with all other output of those runs. */
+      shared_scout_runs: SpendAmount;
+    }
+
     /**
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
@@ -105055,7 +99046,20 @@ export namespace Schemas {
       updated_at: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface ReusableWidgetPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Reusable widgets in this page. */
       results: ReusableWidgetSummary[];
       /** Total reusable widgets matching the search. */
@@ -105100,7 +99104,20 @@ export namespace Schemas {
       expected_current_version_id: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface ReusableWidgetVersionPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Published versions, newest first. */
       results: ReusableWidgetVersionDetail[];
       /** Total number of published versions. */
@@ -106233,7 +100250,20 @@ export namespace Schemas {
       body: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface ReviewReviewsTablePage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** How many reviews match the scope and every filter, across all pages. */
       count: number;
       /** How many reviews have a run in flight under the scope and filters, ignoring `status`. Labels the running quick filter without a second request. */
@@ -106330,7 +100360,7 @@ export namespace Schemas {
        * * `flash` - On everywhere
        * * `off` - Off everywhere */
       default_review_mode?: DefaultReviewModeEnum;
-      /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the posthog-review label, an @posthog review comment, and the Review button still review drafts. */
+      /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: an @posthog review comment and the Review button still review drafts. */
       review_drafts?: boolean;
       /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
       resolve_comments?: boolean;
@@ -107052,6 +101082,17 @@ export namespace Schemas {
     }
 
     /**
+     * Body of the `resume` action.
+     */
+    export interface SavedQueryResumeRequest {
+      /** Resume only this engine's materialization: 'clickhouse' or 'trino' (the managed warehouse). Omit it to resume every engine the query is suspended on.
+       *
+       * * `clickhouse` - ClickHouse
+       * * `trino` - Trino */
+      engine?: MaterializationEngineEnum;
+    }
+
+    /**
      * Body of the `resume_schedules` action.
      */
     export interface SavedQueryResumeSchedulesRequest {
@@ -107070,6 +101111,11 @@ export namespace Schemas {
        * * `upstream` - Upstream
        * * `downstream` - Downstream */
       direction?: MaterializationRunDirectionEnum;
+      /** Where to build the views. 'clickhouse' (the default) refreshes the tables that queries read. 'trino' builds the same views on the organization's managed warehouse only, and leaves the ClickHouse tables as they are. 'trino' returns 403 when the organization has no managed warehouse, and 409 while another managed warehouse run of these views is in progress.
+       *
+       * * `clickhouse` - ClickHouse
+       * * `trino` - Trino */
+      engine?: MaterializationEngineEnum;
     }
 
     export interface SavedQueryRunResponse {
@@ -107180,8 +101226,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 14
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 15
          */
       write_scopes?: string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -107230,6 +101276,28 @@ export namespace Schemas {
     }
 
     /**
+     * * `variant-analysis` - Variant analysis
+     * * `daily-digest` - Daily digest
+     * * `root-cause` - Root cause
+     * * `weekly-themes` - Weekly themes
+     * * `trend-watch` - Trend watch
+     * * `new-issues` - New issue watch
+     * * `scratch` - Start from scratch
+     */
+    export type ScoutTemplateKeyEnum = typeof ScoutTemplateKeyEnum[keyof typeof ScoutTemplateKeyEnum];
+
+
+    export const ScoutTemplateKeyEnum = {
+      VariantAnalysis: 'variant-analysis',
+      DailyDigest: 'daily-digest',
+      RootCause: 'root-cause',
+      WeeklyThemes: 'weekly-themes',
+      TrendWatch: 'trend-watch',
+      NewIssues: 'new-issues',
+      Scratch: 'scratch',
+    } as const;
+
+    /**
      * A scout to stand up for this scanner. The scanner comes from the URL, never the body: it is
      * what the caller's access is checked against, and what the scout is recorded as belonging to.
      *
@@ -107258,6 +101326,16 @@ export namespace Schemas {
       config?: SignalScoutConfigOptions;
       /** Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only. */
       variant_analysis?: boolean;
+      /** The template the body came from. A body left exactly as the template rendered it keeps following later edits to that template; an edited body stays as written.
+       *
+       * * `variant-analysis` - Variant analysis
+       * * `daily-digest` - Daily digest
+       * * `root-cause` - Root cause
+       * * `weekly-themes` - Weekly themes
+       * * `trend-watch` - Trend watch
+       * * `new-issues` - New issue watch
+       * * `scratch` - Start from scratch */
+      template_key?: ScoutTemplateKeyEnum;
     }
 
     export type ScoutRoleEnum = typeof ScoutRoleEnum[keyof typeof ScoutRoleEnum];
@@ -107464,8 +101542,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 14
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 15
          */
       readonly write_scopes: readonly string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -107551,6 +101629,29 @@ export namespace Schemas {
       created: boolean;
       /** The scout's config, including the source recorded for it. */
       config: SignalScoutConfig;
+    }
+
+    export interface ScannerScoutTemplate {
+      /** The template's id.
+       *
+       * * `variant-analysis` - Variant analysis
+       * * `daily-digest` - Daily digest
+       * * `root-cause` - Root cause
+       * * `weekly-themes` - Weekly themes
+       * * `trend-watch` - Trend watch
+       * * `new-issues` - New issue watch
+       * * `scratch` - Start from scratch */
+      key: ScoutTemplateKeyEnum;
+      /** The template's name, as the template picker shows it. */
+      title: string;
+      /** What a scout made from this template does. */
+      description: string;
+      /** The name the create form starts with. */
+      default_name: string;
+      /** The default run schedule, as a cron expression in the project timezone. */
+      cron: string;
+      /** The scout's instructions, rendered for this scanner. */
+      body: string;
     }
 
     export interface SelfDrivingReport {
@@ -107723,7 +101824,20 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface ScoreDefinitionVersionPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total immutable versions for this scorer. */
       count: number;
       /**
@@ -107962,34 +102076,6 @@ export namespace Schemas {
          * @nullable
          */
       dispatched_at: string | null;
-    }
-
-    /**
-     * What one scout spent in the window, and what it produced for that spend.
-     */
-    export interface ScoutCost {
-      /** Full skill name of the scout, e.g. `signals-scout-error-tracking`. */
-      skill_name: string;
-      /** Model spend attributed to the scout's runs in the window, in US dollars. Zero when none of its runs had spend attributed, which `priced_run_count` tells apart from a scout that really spent nothing. */
-      spend_usd: number;
-      /** Runs the scout started in the window. */
-      run_count: number;
-      /** Runs of the scout that had spend attributed. Lower than `run_count` where a run failed before its first model call, or its generations haven't landed yet. Divide `spend_usd` by this, not by `run_count`, for cost per run. */
-      priced_run_count: number;
-      /** Distinct inbox reports the scout filed or added to in the window. A report it authored in one run and edited in three counts once. Zero means the scout produced no reports, so cost per report has no value rather than a value of zero. */
-      reports_touched: number;
-    }
-
-    /**
-     * Model spend and output per scout over a window.
-     */
-    export interface ScoutCosts {
-      /** Window the rows describe, in days. */
-      window_days: number;
-      /** One row per scout that started at least one run on this project in the window. */
-      scouts: ScoutCost[];
-      /** False when this deployment has no internal AI observability project to read the generations from, so `scouts` is empty and every spend is unknown rather than zero. */
-      available: boolean;
     }
 
     /**
@@ -108446,29 +102532,6 @@ export namespace Schemas {
     }
 
     /**
-     * What one scout run spent on model calls.
-     */
-    export interface ScoutRunTokenCost {
-      /** UUID of the `SignalScoutRun` this cost belongs to. */
-      run_id: string;
-      /**
-         * Model spend attributed to the run in US dollars, summed from its `$ai_generation` events. Null when no generation is attributed to the run — it failed before its first model call, or its events haven't landed yet. A run still in progress reports what it has spent so far.
-         * @nullable
-         */
-      token_cost_usd: number | null;
-    }
-
-    /**
-     * Model spend for a batch of scout runs.
-     */
-    export interface ScoutRunTokenCosts {
-      /** One entry per requested run that exists on this project. Runs from another project, and ids that match no run, are absent. */
-      costs: ScoutRunTokenCost[];
-      /** False when this deployment has no internal AI observability project to read the generations from, so `costs` is empty and every cost is unknown rather than zero. */
-      available: boolean;
-    }
-
-    /**
      * A scope preset a scout run can be dispatched with.
      */
     export interface ScoutScopePreset {
@@ -108476,6 +102539,18 @@ export namespace Schemas {
       name: string;
       /** Every scope a token minted from this preset carries, including the internal ones. */
       scopes: string[];
+    }
+
+    export interface ScoutSpend {
+      /** Name of the scout skill. */
+      skill_name: string;
+      /** Accumulated usage for this scout's runs in the period. */
+      spend: SpendAmount;
+      /**
+         * Average recorded usage per tracked scout run in USD cents; null when no runs were tracked.
+         * @nullable
+         */
+      average_spend: number | null;
     }
 
     export interface ScoutSuggestionRefresh {
@@ -109371,6 +103446,7 @@ export namespace Schemas {
        * * `posthog-unreal` - posthog-unreal
        * * `posthog-go-mcp` - posthog-go-mcp
        * * `posthog-ruby-mcp` - posthog-ruby-mcp
+       * * `posthog-roblox` - posthog-roblox
        * * `js` - js */
       lib: LibEnum;
       /** Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
@@ -109593,6 +103669,26 @@ export namespace Schemas {
      */
     export type SendEmailMessageData = {[key: string]: unknown};
 
+    export interface SendEmail {
+      /** Email address of the recipient. */
+      to: string;
+      /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
+      message_data?: SendEmailMessageData;
+      /** ID of the email template to send. The template must be made transactional first. */
+      template_id: string;
+      /**
+         * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
+         * @maxLength 400
+         * @nullable
+         */
+      distinct_id?: string | null;
+    }
+
+    /**
+     * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
+     */
+    export type SendTransactionalEmailMessageData = {[key: string]: unknown};
+
     export interface TransactionalEmailIdentifiers {
       /**
          * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
@@ -109602,34 +103698,13 @@ export namespace Schemas {
       distinct_id?: string | null;
     }
 
-    export interface SendEmailTemplate {
-      /** ID of the email template to send. The template must be made transactional first. */
-      id: string;
-    }
-
-    export interface SendEmail {
-      /** Email address of the recipient. */
-      to: string;
-      /** Who the email is for, used to attribute engagement events. */
-      identifiers?: TransactionalEmailIdentifiers;
-      /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
-      message_data?: SendEmailMessageData;
-      /** The transactional email template to send. */
-      template: SendEmailTemplate;
-    }
-
-    /**
-     * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
-     */
-    export type SendTransactionalEmailMessageData = {[key: string]: unknown};
-
     export interface SendTransactionalEmail {
       /** Email address of the recipient. */
       to: string;
-      /** Who the email is for, used to attribute engagement events. */
-      identifiers?: TransactionalEmailIdentifiers;
       /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
       message_data?: SendTransactionalEmailMessageData;
+      /** Who the email is for, used to attribute engagement events. */
+      identifiers?: TransactionalEmailIdentifiers;
     }
 
     export interface SendTransactionalEmailResponse {
@@ -109976,6 +104051,67 @@ export namespace Schemas {
       date_to: string;
     }
 
+    export type SessionRecordingExternalReferencesItem = { [key: string]: unknown };
+
+    export interface SessionRecording {
+      readonly id: string;
+      /** @nullable */
+      readonly distinct_id: string | null;
+      readonly viewed: boolean;
+      readonly viewers: readonly string[];
+      readonly recording_duration: number;
+      /** @nullable */
+      readonly active_seconds: number | null;
+      /** @nullable */
+      readonly inactive_seconds: number | null;
+      /** @nullable */
+      readonly start_time: string | null;
+      /** @nullable */
+      readonly end_time: string | null;
+      /** @nullable */
+      readonly click_count: number | null;
+      /** @nullable */
+      readonly keypress_count: number | null;
+      /** @nullable */
+      readonly mouse_activity_count: number | null;
+      /** @nullable */
+      readonly console_log_count: number | null;
+      /** @nullable */
+      readonly console_warn_count: number | null;
+      /** @nullable */
+      readonly console_error_count: number | null;
+      /** @nullable */
+      readonly start_url: string | null;
+      person?: MinimalPerson;
+      /** @nullable */
+      readonly retention_period_days: number | null;
+      /** @nullable */
+      readonly expiry_time: string | null;
+      /** @nullable */
+      readonly recording_ttl: number | null;
+      /** @nullable */
+      readonly snapshot_source: string | null;
+      /** @nullable */
+      readonly snapshot_library: string | null;
+      readonly ongoing: boolean;
+      /** @nullable */
+      readonly activity_score: number | null;
+      /** Load external references (linked issues) for this recording */
+      readonly external_references: readonly SessionRecordingExternalReferencesItem[];
+      /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+      readonly matches_filters: boolean;
+      /**
+         * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly total_size: number | null;
+      /**
+         * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly event_count: number | null;
+    }
+
     export interface SessionRecordingBulkDeleteRequest {
       /**
          * Session IDs of the recordings to delete (max 100 per call).
@@ -110027,6 +104163,17 @@ export namespace Schemas {
       logs_expired: boolean;
     }
 
+    export interface SessionRecordingListResponse {
+      /** Recordings on this page. */
+      results: SessionRecording[];
+      /** Whether more recordings match the query after this page. */
+      has_next: boolean;
+      /** Version of the listing response format. */
+      version: number;
+      /** Cursor for the next page. Send it back as `after` to load the next page. Absent when the query does not page by cursor or there is no next page. */
+      next_cursor?: string;
+    }
+
     export type SessionReplayListWidgetCatalogEntryOpenApiWidgetType = typeof SessionReplayListWidgetCatalogEntryOpenApiWidgetType[keyof typeof SessionReplayListWidgetCatalogEntryOpenApiWidgetType];
 
 
@@ -110061,6 +104208,23 @@ export namespace Schemas {
     export interface SetAllServersEnabled {
       /** True enables every MCP server for the team; false disables them all. Applies to every registered server and becomes the default for untouched and future catalog servers. */
       enabled: boolean;
+    }
+
+    /**
+     * Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice.
+     */
+    export type SetPreferencesTopics = {[key: string]: boolean};
+
+    export interface SetPreferences {
+      /**
+         * The recipient's email address, exactly as Workflows sends to it. Matching is exact, so `Jane@example.com` and `jane@example.com` are two recipients.
+         * @maxLength 512
+         */
+      identifier: string;
+      /** `false` opts the recipient out of every marketing topic. `true` lifts that opt-out. Applied before `topics`. */
+      all_marketing?: boolean;
+      /** Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice. */
+      topics?: SetPreferencesTopics;
     }
 
     export interface SetTemplateEnabled {
@@ -110339,6 +104503,40 @@ export namespace Schemas {
       readonly task_id: string | null;
     }
 
+    export interface SignalReportBulkClaimRequest {
+      /**
+         * Report ids to claim for the caller in one call (1–100). Duplicates are de-duplicated. Each id is claimed independently, so a report that cannot be claimed does not block the rest.
+         * @minItems 1
+         * @maxItems 100
+         */
+      ids: string[];
+      /** Take over a report that an agent or an internal task holds. A report that a person holds directly is never taken over and comes back as a conflict. */
+      takeover_agent_claims?: boolean;
+    }
+
+    export interface SignalReportBulkClaimResult {
+      /** The report id this result refers to. */
+      id: string;
+      /** One of: claimed, conflict, not_found. claimed: the caller holds the claim, including when it already did. conflict: the claim was refused, because someone else holds the report or its status does not allow a claim (a 409 on the single-report endpoint). not_found: no report with this id is visible to you. */
+      outcome: string;
+      /**
+         * Human-readable explanation for a conflict or not_found outcome.
+         * @nullable
+         */
+      detail?: string | null;
+    }
+
+    export interface SignalReportBulkClaimResponse {
+      /** One result per requested id, in request order (after de-duplication). */
+      results: SignalReportBulkClaimResult[];
+      /** Number of reports the caller now holds. */
+      claimed_count: number;
+      /** Number of reports whose claim was refused. */
+      conflict_count: number;
+      /** Number of requested ids not visible to the caller. */
+      not_found_count: number;
+    }
+
     /**
      * * `suppressed` - suppressed
      * * `potential` - potential
@@ -110356,7 +104554,7 @@ export namespace Schemas {
     } as const;
 
     export interface SignalReportBulkStateRequest {
-      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential
@@ -110713,6 +104911,13 @@ export namespace Schemas {
       report_id: string;
     }
 
+    export interface SignalReportSectionCounts {
+      /** Ready reports with an implementation pull request. */
+      pull_requests: number;
+      /** Ready reports without an implementation pull request. */
+      reports: number;
+    }
+
     export interface SignalReportSourceMetadata {
       /** Report id. */
       readonly id: string;
@@ -110740,7 +104945,7 @@ export namespace Schemas {
     }
 
     export interface SignalReportStateRequest {
-      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential
@@ -110834,6 +105039,8 @@ export namespace Schemas {
       reason: string | null;
       /** True when the scout owner guardrail added the entry rather than commit authorship. */
       is_skill_owner: boolean;
+      /** True when no evidence selected anyone and the report fell back to the project's default owner. The entry routes the report, but it is not ownership evidence. */
+      is_default_owner: boolean;
       /**
          * Scout skill whose run wrote the entry. Null when no scout did.
          * @nullable
@@ -111014,8 +105221,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 14
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 15
          */
       write_scopes?: string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -111454,6 +105661,11 @@ export namespace Schemas {
          * @nullable
          */
       default_slack_notification_channel?: string | null;
+      /**
+         * Connected Slack integration that owns `default_slack_notification_channel`. Send it together with the channel. A channel saved without it is routed through the team's oldest Slack integration, and clearing the channel clears this too.
+         * @nullable
+         */
+      default_slack_notification_integration?: number | null;
       /** Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch. */
       autostart_base_branches?: SignalTeamConfigAutostartBaseBranches;
       /**
@@ -111497,6 +105709,16 @@ export namespace Schemas {
          * @nullable
          */
       pull_request_label?: string | null;
+      /**
+         * Extra GitHub repositories, as 'organization/repository', that self-driving implementation tasks can read and write within the connected GitHub App's permissions, for example an assets repository for PR screenshots. A task gets only the entries with the same owner as its selected repository. They are not cloned, and the PR still targets the selected repository. Each new entry must be reachable through one of the project's GitHub installations. Changes apply to tasks started afterwards. Empty by default.
+         * @maxItems 20
+         * @items.maxLength 255
+         */
+      implementation_repositories?: string[];
+      /** Whether anomaly scoring scores this project's active trends insights every hour and writes the results as $anomaly_score events, which are not billed. True by default. Set false to stop new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered. */
+      anomaly_scoring_enabled?: boolean;
+      /** Whether anomaly scoring covers this project, so anomaly_scoring_enabled has an effect. PostHog decides which projects anomaly scoring covers. */
+      readonly anomaly_scoring_available: boolean;
       /**
          * How many reports first became visible in the inbox during the current project-timezone day. This is the count the daily report limit compares against.
          * @minimum 0
@@ -111592,6 +105814,95 @@ export namespace Schemas {
       readonly previous_secret_valid_until: string | null;
     }
 
+    export interface SlackAppChannelJoinResult {
+      /** Slack channel ID. */
+      channel_id: string;
+      /**
+         * Slack's error code when PostHog could not join, or null when it joined.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    export interface SlackAppChannelOption {
+      /** Slack channel ID. */
+      id: string;
+      /** Channel name, without the leading #. */
+      name: string;
+      /** Whether PostHog is already in the channel. */
+      is_member: boolean;
+    }
+
+    export interface SlackAppChannelOptions {
+      /** Public channels that PostHog can join. Shared channels are left out. */
+      channels: SlackAppChannelOption[];
+    }
+
+    export interface SlackAppDefaultProject {
+      /** ID of the Slack integration of the project that becomes the workspace default. */
+      integration_id: number;
+    }
+
+    export interface SlackAppJoinChannels {
+      /**
+         * IDs of the public channels that PostHog joins.
+         * @minItems 1
+         * @maxItems 20
+         */
+      channel_ids: string[];
+      /** Whether PostHog posts its welcome message in each channel it joins. When false, it joins quietly. */
+      post_welcome?: boolean;
+    }
+
+    export interface SlackAppJoinChannelsResult {
+      /** The result for each channel, in request order. */
+      results: SlackAppChannelJoinResult[];
+    }
+
+    export interface SlackAppProjectOption {
+      /** ID of the Slack integration that connects this project. */
+      integration_id: number;
+      /** Name of the PostHog project. */
+      project_name: string;
+      /** Name of the organization that owns the project. */
+      organization_name: string;
+    }
+
+    /**
+     * * `ai_consent` - AI data processing
+     * * `default_project` - Default project
+     * * `channels` - Channels
+     */
+    export type SlackSetupStepKeyEnum = typeof SlackSetupStepKeyEnum[keyof typeof SlackSetupStepKeyEnum];
+
+
+    export const SlackSetupStepKeyEnum = {
+      AiConsent: 'ai_consent',
+      DefaultProject: 'default_project',
+      Channels: 'channels',
+    } as const;
+
+    export interface SlackAppWorkspaceSetup {
+      /** ID of the Slack integration that this setup is for. */
+      integration_id: number;
+      /**
+         * Name of the Slack workspace, as Slack sent it at install time.
+         * @nullable
+         */
+      slack_workspace_name: string | null;
+      /**
+         * Link that opens the PostHog app's direct message in this Slack workspace. Null when the install has no app ID.
+         * @nullable
+         */
+      open_slack_url: string | null;
+      /** Setup steps that apply to this install and are not done yet, in display order. ai_consent: the organization must allow AI data processing. default_project: the Slack workspace connects to 2 or more projects and has no default. channels: the install can join channels, and the setup started on the Slack page. */
+      steps: SlackSetupStepKeyEnum[];
+      /** Projects connected to this Slack workspace that the person can open. Empty unless default_project is a step. */
+      project_options: SlackAppProjectOption[];
+      /** Whether a channel join from this setup can post the welcome message in the channel. False when channels is not a step, or when the workspace sends the welcome only to the inviter or turns it off. */
+      can_post_channel_welcome: boolean;
+    }
+
     export interface SlackChannel {
       /** Slack channel ID (e.g. C0123ABC) — pass to cdp-functions inputs.channel. */
       id: string;
@@ -111607,7 +105918,20 @@ export namespace Schemas {
       is_private_without_access: boolean;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface SlackChannelsResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Slack channels visible to the PostHog Slack app. */
       channels: SlackChannel[];
       /**
@@ -111800,7 +106124,20 @@ export namespace Schemas {
       display_name: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface SlackUsersResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Human Slack workspace members the PostHog Slack app can DM. */
       users: SlackUser[];
       /**
@@ -111990,7 +106327,7 @@ export namespace Schemas {
       /** Extra search terms (alternate spellings, acronyms) for the catalog search, e.g. GoogleAnalytics → ["ga4", "ga"]. Matched alongside name/label/category. */
       keywords?: string[] | null;
       label?: string | null;
-      name: ExternalDataSourceTypeEnum;
+      name: string;
       permissionsCaption?: string | null;
       releaseStatus?: ReleaseStatus | null;
       /** Tables to suggest enabling, with optional tooltip explaining why */
@@ -112009,6 +106346,8 @@ export namespace Schemas {
       /** Vendor API docs or changelog URL, or null when the vendor publishes none. */
       apiDocsUrl?: string | null;
       deprecatedVersions: SourceVersionDeprecation[];
+      /** Change data capture engine, which picks the CDC setup form and status panel. Null when the source has no CDC. */
+      cdcEngine?: CDCEngine | null;
       /** Credential-free documented table catalog, empty for SQL and file sources with user-defined schemas. The public endpoint sets it; the wizard omits it to keep its payload small. */
       tables?: SourceDocumentedTable[] | null;
     }
@@ -112049,1421 +106388,8 @@ export namespace Schemas {
     export type SourceCredentialCreatePayload = { [key: string]: unknown };
 
     export interface SourceCredentialCreate {
-      /** The source type these credentials are for (e.g. 'Stripe', 'Postgres').
-       *
-       * * `Ashby` - Ashby
-       * * `Supabase` - Supabase
-       * * `CustomerIO` - CustomerIO
-       * * `Github` - Github
-       * * `Stripe` - Stripe
-       * * `Hubspot` - Hubspot
-       * * `Postgres` - Postgres
-       * * `Zendesk` - Zendesk
-       * * `Snowflake` - Snowflake
-       * * `Salesforce` - Salesforce
-       * * `MySQL` - MySQL
-       * * `MongoDB` - MongoDB
-       * * `MSSQL` - MSSQL
-       * * `Vitally` - Vitally
-       * * `BigQuery` - BigQuery
-       * * `Chargebee` - Chargebee
-       * * `Clerk` - Clerk
-       * * `GoogleAds` - GoogleAds
-       * * `GoogleSearchConsole` - GoogleSearchConsole
-       * * `TemporalIO` - TemporalIO
-       * * `DoIt` - DoIt
-       * * `GoogleSheets` - GoogleSheets
-       * * `MetaAds` - MetaAds
-       * * `Klaviyo` - Klaviyo
-       * * `Mailchimp` - Mailchimp
-       * * `Braze` - Braze
-       * * `Mailjet` - Mailjet
-       * * `Redshift` - Redshift
-       * * `Polar` - Polar
-       * * `RevenueCat` - RevenueCat
-       * * `LinkedinAds` - LinkedinAds
-       * * `RedditAds` - RedditAds
-       * * `TikTokAds` - TikTokAds
-       * * `BingAds` - BingAds
-       * * `Shopify` - Shopify
-       * * `Attio` - Attio
-       * * `SnapchatAds` - SnapchatAds
-       * * `Linear` - Linear
-       * * `LiteLLM` - LiteLLM
-       * * `Intercom` - Intercom
-       * * `Amplitude` - Amplitude
-       * * `Mixpanel` - Mixpanel
-       * * `Jira` - Jira
-       * * `ActiveCampaign` - ActiveCampaign
-       * * `Marketo` - Marketo
-       * * `Adjust` - Adjust
-       * * `AppsFlyer` - AppsFlyer
-       * * `Freshdesk` - Freshdesk
-       * * `GoogleAnalytics` - GoogleAnalytics
-       * * `Pipedrive` - Pipedrive
-       * * `SendGrid` - SendGrid
-       * * `Slack` - Slack
-       * * `PagerDuty` - PagerDuty
-       * * `Asana` - Asana
-       * * `Notion` - Notion
-       * * `Airtable` - Airtable
-       * * `Greenhouse` - Greenhouse
-       * * `BambooHR` - BambooHR
-       * * `Lever` - Lever
-       * * `GitLab` - GitLab
-       * * `Datadog` - Datadog
-       * * `Sentry` - Sentry
-       * * `Pendo` - Pendo
-       * * `FullStory` - FullStory
-       * * `AmazonAds` - AmazonAds
-       * * `PinterestAds` - PinterestAds
-       * * `AppleSearchAds` - AppleSearchAds
-       * * `QuickBooks` - QuickBooks
-       * * `Xero` - Xero
-       * * `NetSuite` - NetSuite
-       * * `WooCommerce` - WooCommerce
-       * * `BigCommerce` - BigCommerce
-       * * `PayPal` - PayPal
-       * * `Square` - Square
-       * * `Zoom` - Zoom
-       * * `Trello` - Trello
-       * * `TrafficStars` - TrafficStars
-       * * `Monday` - Monday
-       * * `ClickUp` - ClickUp
-       * * `Confluence` - Confluence
-       * * `Recurly` - Recurly
-       * * `SalesLoft` - SalesLoft
-       * * `Outreach` - Outreach
-       * * `Gong` - Gong
-       * * `Calendly` - Calendly
-       * * `Typeform` - Typeform
-       * * `UnityAds` - UnityAds
-       * * `Iterable` - Iterable
-       * * `ZohoCRM` - ZohoCRM
-       * * `Close` - Close
-       * * `Oracle` - Oracle
-       * * `DynamoDB` - DynamoDB
-       * * `Elasticsearch` - Elasticsearch
-       * * `Kafka` - Kafka
-       * * `LaunchDarkly` - LaunchDarkly
-       * * `Braintree` - Braintree
-       * * `Recharge` - Recharge
-       * * `HelpScout` - HelpScout
-       * * `Gorgias` - Gorgias
-       * * `Instagram` - Instagram
-       * * `YouTubeAnalytics` - YouTubeAnalytics
-       * * `FacebookPages` - FacebookPages
-       * * `TwitterAds` - TwitterAds
-       * * `Workday` - Workday
-       * * `ServiceNow` - ServiceNow
-       * * `Pardot` - Pardot
-       * * `Copper` - Copper
-       * * `Front` - Front
-       * * `ChartMogul` - ChartMogul
-       * * `Zuora` - Zuora
-       * * `Paddle` - Paddle
-       * * `CircleCI` - CircleCI
-       * * `CockroachDB` - CockroachDB
-       * * `Firebase` - Firebase
-       * * `AzureBlob` - AzureBlob
-       * * `GoogleDrive` - GoogleDrive
-       * * `OneDrive` - OneDrive
-       * * `SharePoint` - SharePoint
-       * * `Box` - Box
-       * * `SFTP` - SFTP
-       * * `MicrosoftTeams` - MicrosoftTeams
-       * * `Aircall` - Aircall
-       * * `Webflow` - Webflow
-       * * `Okta` - Okta
-       * * `Auth0` - Auth0
-       * * `Productboard` - Productboard
-       * * `Smartsheet` - Smartsheet
-       * * `Wrike` - Wrike
-       * * `Plaid` - Plaid
-       * * `SurveyMonkey` - SurveyMonkey
-       * * `Eventbrite` - Eventbrite
-       * * `Everflow` - Everflow
-       * * `RingCentral` - RingCentral
-       * * `Twilio` - Twilio
-       * * `Freshsales` - Freshsales
-       * * `Shortcut` - Shortcut
-       * * `ConvertKit` - ConvertKit
-       * * `Drip` - Drip
-       * * `CampaignMonitor` - CampaignMonitor
-       * * `MailerLite` - MailerLite
-       * * `Omnisend` - Omnisend
-       * * `Brevo` - Brevo
-       * * `Postmark` - Postmark
-       * * `Granola` - Granola
-       * * `BuildBetter` - BuildBetter
-       * * `Convex` - Convex
-       * * `ClickHouse` - ClickHouse
-       * * `Plain` - Plain
-       * * `Resend` - Resend
-       * * `PgAnalyze` - PgAnalyze
-       * * `WorkOS` - WorkOS
-       * * `AmazonS3` - AmazonS3
-       * * `GoogleCloudStorage` - GoogleCloudStorage
-       * * `Databricks` - Databricks
-       * * `Dynamics365` - Dynamics365
-       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
-       * * `Db2` - Db2
-       * * `Heap` - Heap
-       * * `AdobeAnalytics` - AdobeAnalytics
-       * * `Matomo` - Matomo
-       * * `Optimizely` - Optimizely
-       * * `Adyen` - Adyen
-       * * `GoCardless` - GoCardless
-       * * `Mollie` - Mollie
-       * * `CheckoutCom` - CheckoutCom
-       * * `Branch` - Branch
-       * * `Criteo` - Criteo
-       * * `Outbrain` - Outbrain
-       * * `Taboola` - Taboola
-       * * `AdRoll` - AdRoll
-       * * `DisplayVideo360` - DisplayVideo360
-       * * `GoogleAdManager` - GoogleAdManager
-       * * `CampaignManager360` - CampaignManager360
-       * * `SearchAds360` - SearchAds360
-       * * `AdobeCommerce` - AdobeCommerce
-       * * `AmazonSellingPartner` - AmazonSellingPartner
-       * * `Ebay` - Ebay
-       * * `Commercetools` - Commercetools
-       * * `LightspeedRetail` - LightspeedRetail
-       * * `Shipmail` - Shipmail
-       * * `ShipStation` - ShipStation
-       * * `ConstantContact` - ConstantContact
-       * * `Mailgun` - Mailgun
-       * * `Eloqua` - Eloqua
-       * * `Sailthru` - Sailthru
-       * * `Ortto` - Ortto
-       * * `Attentive` - Attentive
-       * * `Kustomer` - Kustomer
-       * * `Dixa` - Dixa
-       * * `Gladly` - Gladly
-       * * `Qualtrics` - Qualtrics
-       * * `AzureDevOps` - AzureDevOps
-       * * `RoktAds` - RoktAds
-       * * `Rollbar` - Rollbar
-       * * `Opsgenie` - Opsgenie
-       * * `IncidentIo` - IncidentIo
-       * * `Pingdom` - Pingdom
-       * * `Cloudflare` - Cloudflare
-       * * `CloudflareD1` - CloudflareD1
-       * * `CosmosDB` - CosmosDB
-       * * `PlanetScaleMySQL` - PlanetScaleMySQL
-       * * `PlanetScalePostgres` - PlanetScalePostgres
-       * * `Plane` - Plane
-       * * `Scarf` - Scarf
-       * * `SapHana` - SapHana
-       * * `Rippling` - Rippling
-       * * `HiBob` - HiBob
-       * * `Personio` - Personio
-       * * `Deel` - Deel
-       * * `AdpWorkforceNow` - AdpWorkforceNow
-       * * `Paylocity` - Paylocity
-       * * `Gusto` - Gusto
-       * * `CultureAmp` - CultureAmp
-       * * `Lattice` - Lattice
-       * * `SageIntacct` - SageIntacct
-       * * `FreshBooks` - FreshBooks
-       * * `Expensify` - Expensify
-       * * `Ramp` - Ramp
-       * * `Brex` - Brex
-       * * `Coupa` - Coupa
-       * * `SapConcur` - SapConcur
-       * * `Apollo` - Apollo
-       * * `Crunchbase` - Crunchbase
-       * * `ZoomInfo` - ZoomInfo
-       * * `Clari` - Clari
-       * * `Chorus` - Chorus
-       * * `Coda` - Coda
-       * * `Guru` - Guru
-       * * `Dropbox` - Dropbox
-       * * `Docusign` - Docusign
-       * * `PandaDoc` - PandaDoc
-       * * `SapErp` - SapErp
-       * * `SapSuccessFactors` - SapSuccessFactors
-       * * `OracleEbs` - OracleEbs
-       * * `OracleFusion` - OracleFusion
-       * * `AmazonSNS` - AmazonSNS
-       * * `AmazonEventBridge` - AmazonEventBridge
-       * * `AmazonSQS` - AmazonSQS
-       * * `AmazonKinesis` - AmazonKinesis
-       * * `AmazonCloudWatch` - AmazonCloudWatch
-       * * `OpenAIAds` - OpenAIAds
-       * * `OneHundredMs` - OneHundredMs
-       * * `SevenShifts` - SevenShifts
-       * * `AcuityScheduling` - AcuityScheduling
-       * * `AgileCRM` - AgileCRM
-       * * `Aha` - Aha
-       * * `Airbyte` - Airbyte
-       * * `Akeneo` - Akeneo
-       * * `Algolia` - Algolia
-       * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
-       * * `ApifyDataset` - ApifyDataset
-       * * `Appcues` - Appcues
-       * * `Appfigures` - Appfigures
-       * * `Appfollow` - Appfollow
-       * * `Apptivo` - Apptivo
-       * * `AssemblyAI` - AssemblyAI
-       * * `Awin` - Awin
-       * * `AwsCloudTrail` - AwsCloudTrail
-       * * `AzureTableStorage` - AzureTableStorage
-       * * `Babelforce` - Babelforce
-       * * `Basecamp` - Basecamp
-       * * `Beamer` - Beamer
-       * * `BigMailer` - BigMailer
-       * * `Bluetally` - Bluetally
-       * * `BoldSign` - BoldSign
-       * * `BreezyHR` - BreezyHR
-       * * `Bugsnag` - Bugsnag
-       * * `Buildkite` - Buildkite
-       * * `Bunny` - Bunny
-       * * `Buzzsprout` - Buzzsprout
-       * * `CalCom` - CalCom
-       * * `CallRail` - CallRail
-       * * `Campayn` - Campayn
-       * * `Canny` - Canny
-       * * `CapsuleCRM` - CapsuleCRM
-       * * `CaptainData` - CaptainData
-       * * `CartCom` - CartCom
-       * * `CastorEDC` - CastorEDC
-       * * `Chameleon` - Chameleon
-       * * `Chargedesk` - Chargedesk
-       * * `Chargify` - Chargify
-       * * `Chift` - Chift
-       * * `Churnkey` - Churnkey
-       * * `Cin7` - Cin7
-       * * `CiscoMeraki` - CiscoMeraki
-       * * `Clazar` - Clazar
-       * * `Clockify` - Clockify
-       * * `Clockodo` - Clockodo
-       * * `Cloudbeds` - Cloudbeds
-       * * `Coassemble` - Coassemble
-       * * `Codefresh` - Codefresh
-       * * `Concord` - Concord
-       * * `ConfigCat` - ConfigCat
-       * * `Couchbase` - Couchbase
-       * * `Curve` - Curve
-       * * `Customerly` - Customerly
-       * * `Datascope` - Datascope
-       * * `Dbt` - Dbt
-       * * `Demodesk` - Demodesk
-       * * `Deputy` - Deputy
-       * * `DevinAI` - DevinAI
-       * * `Docuseal` - Docuseal
-       * * `Dolibarr` - Dolibarr
-       * * `Dremio` - Dremio
-       * * `DropboxSign` - DropboxSign
-       * * `Dwolla` - Dwolla
-       * * `EConomic` - EConomic
-       * * `Easypost` - Easypost
-       * * `Easypromos` - Easypromos
-       * * `Elasticemail` - Elasticemail
-       * * `EmailOctopus` - EmailOctopus
-       * * `EmploymentHero` - EmploymentHero
-       * * `Encharge` - Encharge
-       * * `Eventee` - Eventee
-       * * `Eventzilla` - Eventzilla
-       * * `Everhour` - Everhour
-       * * `EZOfficeInventory` - EZOfficeInventory
-       * * `Factorial` - Factorial
-       * * `Fastbill` - Fastbill
-       * * `Fastly` - Fastly
-       * * `Fauna` - Fauna
-       * * `Feishu` - Feishu
-       * * `Fillout` - Fillout
-       * * `Finage` - Finage
-       * * `Firebolt` - Firebolt
-       * * `FireHydrant` - FireHydrant
-       * * `Fleetio` - Fleetio
-       * * `Flexmail` - Flexmail
-       * * `Flexport` - Flexport
-       * * `FloatApp` - FloatApp
-       * * `Flowlu` - Flowlu
-       * * `Formbricks` - Formbricks
-       * * `Framer` - Framer
-       * * `FreeAgent` - FreeAgent
-       * * `Freightview` - Freightview
-       * * `Freshcaller` - Freshcaller
-       * * `Freshchat` - Freshchat
-       * * `Freshservice` - Freshservice
-       * * `Fulcrum` - Fulcrum
-       * * `GainsightCs` - GainsightCs
-       * * `GainsightPx` - GainsightPx
-       * * `GitBook` - GitBook
-       * * `Glassfrog` - Glassfrog
-       * * `Goldcast` - Goldcast
-       * * `GoLogin` - GoLogin
-       * * `Grafana` - Grafana
-       * * `GreytHr` - GreytHr
-       * * `Gridly` - Gridly
-       * * `Harness` - Harness
-       * * `Height` - Height
-       * * `Hellobaton` - Hellobaton
-       * * `HighLevel` - HighLevel
-       * * `HoorayHR` - HoorayHR
-       * * `Hubplanner` - Hubplanner
-       * * `Humanitix` - Humanitix
-       * * `Huntr` - Huntr
-       * * `Inflowinventory` - Inflowinventory
-       * * `InforNexus` - InforNexus
-       * * `Insightful` - Insightful
-       * * `Insightly` - Insightly
-       * * `Instantly` - Instantly
-       * * `Instatus` - Instatus
-       * * `Intruder` - Intruder
-       * * `Invoiced` - Invoiced
-       * * `Invoiceninja` - Invoiceninja
-       * * `JamfPro` - JamfPro
-       * * `JobNimbus` - JobNimbus
-       * * `Jotform` - Jotform
-       * * `JudgeMeReviews` - JudgeMeReviews
-       * * `JustCall` - JustCall
-       * * `JustSift` - JustSift
-       * * `K6Cloud` - K6Cloud
-       * * `Katana` - Katana
-       * * `Keka` - Keka
-       * * `Kisi` - Kisi
-       * * `Kissmetrics` - Kissmetrics
-       * * `Klarna` - Klarna
-       * * `Klaus` - Klaus
-       * * `Lago` - Lago
-       * * `Leadfeeder` - Leadfeeder
-       * * `Lemlist` - Lemlist
-       * * `LessAnnoyingCRM` - LessAnnoyingCRM
-       * * `LinkedinPages` - LinkedinPages
-       * * `Linkrunner` - Linkrunner
-       * * `Linnworks` - Linnworks
-       * * `Lob` - Lob
-       * * `Lokalise` - Lokalise
-       * * `Looker` - Looker
-       * * `Luma` - Luma
-       * * `MailerSend` - MailerSend
-       * * `Mailosaur` - Mailosaur
-       * * `Mailtrap` - Mailtrap
-       * * `Mantle` - Mantle
-       * * `Mention` - Mention
-       * * `MercadoAds` - MercadoAds
-       * * `Merge` - Merge
-       * * `Metabase` - Metabase
-       * * `Metricool` - Metricool
-       * * `MicrosoftDataverse` - MicrosoftDataverse
-       * * `MicrosoftEntraId` - MicrosoftEntraId
-       * * `MicrosoftLists` - MicrosoftLists
-       * * `Miro` - Miro
-       * * `Missive` - Missive
-       * * `MixMax` - MixMax
-       * * `Mode` - Mode
-       * * `Mux` - Mux
-       * * `MyHours` - MyHours
-       * * `N8n` - N8n
-       * * `Navan` - Navan
-       * * `NebiusAI` - NebiusAI
-       * * `Nexiopay` - Nexiopay
-       * * `NinjaOneRMM` - NinjaOneRMM
-       * * `NoCRM` - NoCRM
-       * * `NorthpassLMS` - NorthpassLMS
-       * * `Nutshell` - Nutshell
-       * * `Nylas` - Nylas
-       * * `Oncehub` - Oncehub
-       * * `Onepagecrm` - Onepagecrm
-       * * `OneSignal` - OneSignal
-       * * `Onfleet` - Onfleet
-       * * `OpinionStage` - OpinionStage
-       * * `OPUSWatch` - OPUSWatch
-       * * `Orb` - Orb
-       * * `Orbit` - Orbit
-       * * `Oura` - Oura
-       * * `Oveit` - Oveit
-       * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
-       * * `Paperform` - Paperform
-       * * `Papersign` - Papersign
-       * * `Partnerize` - Partnerize
-       * * `PartnerStack` - PartnerStack
-       * * `PayFit` - PayFit
-       * * `Paystack` - Paystack
-       * * `Pennylane` - Pennylane
-       * * `Perk` - Perk
-       * * `PersistIq` - PersistIq
-       * * `Persona` - Persona
-       * * `Phyllo` - Phyllo
-       * * `Picqer` - Picqer
-       * * `Pipeliner` - Pipeliner
-       * * `PivotalTracker` - PivotalTracker
-       * * `Piwik` - Piwik
-       * * `Planhat` - Planhat
-       * * `Plausible` - Plausible
-       * * `Poplar` - Poplar
-       * * `PrestaShop` - PrestaShop
-       * * `Pretix` - Pretix
-       * * `Primetric` - Primetric
-       * * `Printavo` - Printavo
-       * * `Printify` - Printify
-       * * `Productive` - Productive
-       * * `Pylon` - Pylon
-       * * `Qonto` - Qonto
-       * * `Qualaroo` - Qualaroo
-       * * `Railz` - Railz
-       * * `RDStationMarketing` - RDStationMarketing
-       * * `Recruitee` - Recruitee
-       * * `Reddit` - Reddit
-       * * `ReferralHero` - ReferralHero
-       * * `RentCast` - RentCast
-       * * `Repairshopr` - Repairshopr
-       * * `ReplyIo` - ReplyIo
-       * * `RetailExpress` - RetailExpress
-       * * `Retently` - Retently
-       * * `Retreaver` - Retreaver
-       * * `RevolutMerchant` - RevolutMerchant
-       * * `RocketChat` - RocketChat
-       * * `Rocketlane` - Rocketlane
-       * * `Rootly` - Rootly
-       * * `Ruddr` - Ruddr
-       * * `SafetyCulture` - SafetyCulture
-       * * `SageHR` - SageHR
-       * * `Salesflare` - Salesflare
-       * * `SAPFieldglass` - SAPFieldglass
-       * * `SavvyCal` - SavvyCal
-       * * `Secoda` - Secoda
-       * * `Segment` - Segment
-       * * `Sendowl` - Sendowl
-       * * `SendPulse` - SendPulse
-       * * `Senseforce` - Senseforce
-       * * `Serpstat` - Serpstat
-       * * `Sharetribe` - Sharetribe
-       * * `Shippo` - Shippo
-       * * `ShopWired` - ShopWired
-       * * `Shortio` - Shortio
-       * * `Shutterstock` - Shutterstock
-       * * `SigmaComputing` - SigmaComputing
-       * * `SignNow` - SignNow
-       * * `SimpleCast` - SimpleCast
-       * * `Simplesat` - Simplesat
-       * * `Smaily` - Smaily
-       * * `SmartEngage` - SmartEngage
-       * * `Smartreach` - Smartreach
-       * * `Smartwaiver` - Smartwaiver
-       * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
-       * * `SonarCloud` - SonarCloud
-       * * `SparkPost` - SparkPost
-       * * `SplitIo` - SplitIo
-       * * `SpotifyAds` - SpotifyAds
-       * * `SpotlerCRM` - SpotlerCRM
-       * * `Squarespace` - Squarespace
-       * * `Statsig` - Statsig
-       * * `Statuspage` - Statuspage
-       * * `Steam` - Steam
-       * * `Stigg` - Stigg
-       * * `Strava` - Strava
-       * * `SurveySparrow` - SurveySparrow
-       * * `Survicate` - Survicate
-       * * `Svix` - Svix
-       * * `Systeme` - Systeme
-       * * `Tavus` - Tavus
-       * * `Teamtailor` - Teamtailor
-       * * `Teamwork` - Teamwork
-       * * `Tempo` - Tempo
-       * * `Testrail` - Testrail
-       * * `Thinkific` - Thinkific
-       * * `ThinkificCourses` - ThinkificCourses
-       * * `ThriveLearning` - ThriveLearning
-       * * `Ticketmaster` - Ticketmaster
-       * * `TicketTailor` - TicketTailor
-       * * `TickTick` - TickTick
-       * * `Timely` - Timely
-       * * `Tinyemail` - Tinyemail
-       * * `Todoist` - Todoist
-       * * `Toggl` - Toggl
-       * * `TrackPMS` - TrackPMS
-       * * `Tremendous` - Tremendous
-       * * `TrustPilot` - TrustPilot
-       * * `Twitter` - Twitter
-       * * `TyntecSMS` - TyntecSMS
-       * * `Unleash` - Unleash
-       * * `UpPromote` - UpPromote
-       * * `Uptick` - Uptick
-       * * `Uservoice` - Uservoice
-       * * `Vantage` - Vantage
-       * * `Veeqo` - Veeqo
-       * * `Vercel` - Vercel
-       * * `VismaEconomic` - VismaEconomic
-       * * `VWO` - VWO
-       * * `Waiteraid` - Waiteraid
-       * * `Wasabi` - Wasabi
-       * * `WhenIWork` - WhenIWork
-       * * `Wordpress` - Wordpress
-       * * `Workable` - Workable
-       * * `Workflowmax` - Workflowmax
-       * * `Workramp` - Workramp
-       * * `Wufoo` - Wufoo
-       * * `Xsolla` - Xsolla
-       * * `YandexMetrica` - YandexMetrica
-       * * `Yotpo` - Yotpo
-       * * `Ynab` - Ynab
-       * * `Younium` - Younium
-       * * `YouSign` - YouSign
-       * * `YoutubeData` - YoutubeData
-       * * `ZapierSupportedStorage` - ZapierSupportedStorage
-       * * `ZapSign` - ZapSign
-       * * `ZendeskSell` - ZendeskSell
-       * * `ZendeskSunshine` - ZendeskSunshine
-       * * `Zenefits` - Zenefits
-       * * `Zenloop` - Zenloop
-       * * `ZohoAnalytics` - ZohoAnalytics
-       * * `ZohoBigin` - ZohoBigin
-       * * `ZohoBilling` - ZohoBilling
-       * * `ZohoBooks` - ZohoBooks
-       * * `ZohoCampaign` - ZohoCampaign
-       * * `ZohoDesk` - ZohoDesk
-       * * `ZohoExpense` - ZohoExpense
-       * * `ZohoInventory` - ZohoInventory
-       * * `ZohoInvoice` - ZohoInvoice
-       * * `ZonkaFeedback` - ZonkaFeedback
-       * * `AlphaVantage` - AlphaVantage
-       * * `Aviationstack` - Aviationstack
-       * * `Bitly` - Bitly
-       * * `Blogger` - Blogger
-       * * `Breezometer` - Breezometer
-       * * `CareQualityCommission` - CareQualityCommission
-       * * `Cimis` - Cimis
-       * * `CoinApi` - CoinApi
-       * * `CoinGecko` - CoinGecko
-       * * `CoinMarketCap` - CoinMarketCap
-       * * `DingConnect` - DingConnect
-       * * `Dockerhub` - Dockerhub
-       * * `ExchangeRatesApi` - ExchangeRatesApi
-       * * `FinancialModelling` - FinancialModelling
-       * * `Finnhub` - Finnhub
-       * * `Finnworlds` - Finnworlds
-       * * `Giphy` - Giphy
-       * * `Gmail` - Gmail
-       * * `GNews` - GNews
-       * * `GoogleCalendar` - GoogleCalendar
-       * * `GoogleClassroom` - GoogleClassroom
-       * * `GoogleDirectory` - GoogleDirectory
-       * * `GoogleForms` - GoogleForms
-       * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
-       * * `GoogleTasks` - GoogleTasks
-       * * `GoogleWebfonts` - GoogleWebfonts
-       * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
-       * * `HuggingFace` - HuggingFace
-       * * `IlluminaBasespace` - IlluminaBasespace
-       * * `Imagga` - Imagga
-       * * `Interzoid` - Interzoid
-       * * `IP2Whois` - IP2Whois
-       * * `KYVE` - KYVE
-       * * `Marketstack` - Marketstack
-       * * `Mendeley` - Mendeley
-       * * `Nasa` - Nasa
-       * * `NewYorkTimes` - NewYorkTimes
-       * * `NewsApi` - NewsApi
-       * * `NewsData` - NewsData
-       * * `OpenDataDc` - OpenDataDc
-       * * `OpenExchangeRates` - OpenExchangeRates
-       * * `OpenAQ` - OpenAQ
-       * * `OpenFDA` - OpenFDA
-       * * `OpenWeather` - OpenWeather
-       * * `Outlook` - Outlook
-       * * `Perigon` - Perigon
-       * * `Pexels` - Pexels
-       * * `Pocket` - Pocket
-       * * `Polygon` - Polygon
-       * * `PyPI` - PyPI
-       * * `Recreation` - Recreation
-       * * `RKICovid` - RKICovid
-       * * `Rss` - Rss
-       * * `SimFin` - SimFin
-       * * `StockData` - StockData
-       * * `Guardian` - Guardian
-       * * `TMDb` - TMDb
-       * * `TVMaze` - TVMaze
-       * * `TwelveData` - TwelveData
-       * * `Ubidots` - Ubidots
-       * * `USCensus` - USCensus
-       * * `Watchmode` - Watchmode
-       * * `WikipediaPageviews` - WikipediaPageviews
-       * * `YahooFinance` - YahooFinance
-       * * `Clarifai` - Clarifai
-       * * `Adapty` - Adapty
-       * * `Braintrust` - Braintrust
-       * * `StreamElements` - StreamElements
-       * * `Streamlabs` - Streamlabs
-       * * `Datorama` - Datorama
-       * * `Ahrefs` - Ahrefs
-       * * `Lightfield` - Lightfield
-       * * `Appstack` - Appstack
-       * * `Razorpay` - Razorpay
-       * * `Neon` - Neon
-       * * `NewRelic` - NewRelic
-       * * `Custom` - Custom
-       * * `Tile38` - Tile38
-       * * `Chatwoot` - Chatwoot
-       * * `Sanity` - Sanity
-       * * `Metronome` - Metronome
-       * * `Jobber` - Jobber
-       * * `Knock` - Knock
-       * * `Leexi` - Leexi
-       * * `RB2B` - RB2B
-       * * `Superwall` - Superwall
-       * * `Liana` - Liana
-       * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch
-       * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas
-       * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds
-       * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow
-       * * `Plunk` - Plunk
-       * * `Dub` - Dub
-       * * `AirOps` - AirOps
-       * * `Podium` - Podium
-       * * `Loops` - Loops
-       * * `Redis` - Redis
-       * * `Mercury` - Mercury
-       * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable
-       * * `PeecAI` - PeecAI
-       * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact
-       * * `AikidoSecurity` - AikidoSecurity
-       * * `Alguna` - Alguna
-       * * `Anthropic` - Anthropic
-       * * `Appwrite` - Appwrite
-       * * `BlandAI` - BlandAI
-       * * `BrowseAI` - BrowseAI
-       * * `BrowserUse` - BrowserUse
-       * * `ChartHop` - ChartHop
-       * * `Cody` - Cody
-       * * `Cursor` - Cursor
-       * * `Decagon` - Decagon
-       * * `Deepgram` - Deepgram
-       * * `ElevenLabs` - ElevenLabs
-       * * `Harvey` - Harvey
-       * * `Hyperspell` - Hyperspell
-       * * `Langfuse` - Langfuse
-       * * `LingoDev` - LingoDev
-       * * `M3ter` - M3ter
-       * * `Maxio` - Maxio
-       * * `Metorial` - Metorial
-       * * `OpenRouter` - OpenRouter
-       * * `TogetherAI` - TogetherAI
-       * * `Vapi` - Vapi
-       * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic
-       * * `Aiven` - Aiven
-       * * `Aviator` - Aviator
-       * * `Backblaze` - Backblaze
-       * * `Baseten` - Baseten
-       * * `Browserbase` - Browserbase
-       * * `Cohere` - Cohere
-       * * `DenoDeploy` - DenoDeploy
-       * * `DigitalOcean` - DigitalOcean
-       * * `E2B` - E2B
-       * * `Fintoc` - Fintoc
-       * * `Firecrawl` - Firecrawl
-       * * `FireworksAI` - FireworksAI
-       * * `FlyIo` - FlyIo
-       * * `Groq` - Groq
-       * * `GrowthBook` - GrowthBook
-       * * `Gumloop` - Gumloop
-       * * `Hatchet` - Hatchet
-       * * `Helicone` - Helicone
-       * * `Heroku` - Heroku
-       * * `Hetzner` - Hetzner
-       * * `HeyGen` - HeyGen
-       * * `Infisical` - Infisical
-       * * `Inngest` - Inngest
-       * * `KapaAI` - KapaAI
-       * * `Kernel` - Kernel
-       * * `Koyeb` - Koyeb
-       * * `LambdaLabs` - LambdaLabs
-       * * `LangSmith` - LangSmith
-       * * `Linode` - Linode
-       * * `Listmonk` - Listmonk
-       * * `LlamaCloud` - LlamaCloud
-       * * `Mem0` - Mem0
-       * * `Metriport` - Metriport
-       * * `Mintlify` - Mintlify
-       * * `MistralAI` - MistralAI
-       * * `Mono` - Mono
-       * * `Netlify` - Netlify
-       * * `Northflank` - Northflank
-       * * `OpenAI` - OpenAI
-       * * `Pinecone` - Pinecone
-       * * `PlatformSh` - PlatformSh
-       * * `PromptingCompany` - PromptingCompany
-       * * `Qdrant` - Qdrant
-       * * `Render` - Render
-       * * `Replicate` - Replicate
-       * * `RetellAI` - RetellAI
-       * * `Roark` - Roark
-       * * `RunPod` - RunPod
-       * * `ScaleAI` - ScaleAI
-       * * `Scaleway` - Scaleway
-       * * `SigNoz` - SigNoz
-       * * `Sim` - Sim
-       * * `Skyvern` - Skyvern
-       * * `Slash` - Slash
-       * * `Synthesia` - Synthesia
-       * * `Telli` - Telli
-       * * `TerraApi` - TerraApi
-       * * `TriggerDev` - TriggerDev
-       * * `Turso` - Turso
-       * * `Singular` - Singular
-       * * `Swonkie` - Swonkie
-       * * `TwelveLabs` - TwelveLabs
-       * * `Twenty` - Twenty
-       * * `Unstructured` - Unstructured
-       * * `Upstash` - Upstash
-       * * `Vellum` - Vellum
-       * * `Vultr` - Vultr
-       * * `Windmill` - Windmill
-       * * `Zep` - Zep
-       * * `Hex` - Hex
-       * * `Sumsub` - Sumsub
-       * * `GoogleChat` - GoogleChat
-       * * `Kickscale` - Kickscale
-       * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack
-       * * `DodoPayments` - DodoPayments
-       * * `Salestrics` - Salestrics
-       * * `Doppler` - Doppler
-       * * `Usersnap` - Usersnap
-       * * `Asknicely` - Asknicely
-       * * `Featurebase` - Featurebase
-       * * `Frill` - Frill
-       * * `Bettermode` - Bettermode
-       * * `Dynatrace` - Dynatrace
-       * * `Honeycomb` - Honeycomb
-       * * `SumoLogic` - SumoLogic
-       * * `LogzIO` - LogzIO
-       * * `Coralogix` - Coralogix
-       * * `BetterStack` - BetterStack
-       * * `Raygun` - Raygun
-       * * `Honeybadger` - Honeybadger
-       * * `Airbrake` - Airbrake
-       * * `Appsignal` - Appsignal
-       * * `Appdynamics` - Appdynamics
-       * * `Instana` - Instana
-       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
-       * * `Uptimerobot` - Uptimerobot
-       * * `Statuscake` - Statuscake
-       * * `Tailscale` - Tailscale
-       * * `Flagsmith` - Flagsmith
-       * * `Xmatters` - Xmatters
-       * * `Squadcast` - Squadcast
-       * * `Zenduty` - Zenduty
-       * * `Cronitor` - Cronitor
-       * * `Jenkins` - Jenkins
-       * * `Bitbucket` - Bitbucket
-       * * `Gitea` - Gitea
-       * * `Teamcity` - Teamcity
-       * * `TravisCI` - TravisCI
-       * * `Semaphore` - Semaphore
-       * * `CircleciInsights` - CircleciInsights
-       * * `OctopusDeploy` - OctopusDeploy
-       * * `Sourcegraph` - Sourcegraph
-       * * `Bitrise` - Bitrise
-       * * `Gerrit` - Gerrit
-       * * `TerraformCloud` - TerraformCloud
-       * * `PulumiCloud` - PulumiCloud
-       * * `Spacelift` - Spacelift
-       * * `Railway` - Railway
-       * * `Argocd` - Argocd
-       * * `PrefectCloud` - PrefectCloud
-       * * `DagsterCloud` - DagsterCloud
-       * * `Env0` - Env0
-       * * `Kubecost` - Kubecost
-       * * `Snyk` - Snyk
-       * * `Semgrep` - Semgrep
-       * * `Veracode` - Veracode
-       * * `Checkmarx` - Checkmarx
-       * * `Gitguardian` - Gitguardian
-       * * `QualysVmdr` - QualysVmdr
-       * * `Rapid7Insightvm` - Rapid7Insightvm
-       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
-       * * `Sentinelone` - Sentinelone
-       * * `Lacework` - Lacework
-       * * `OrcaSecurity` - OrcaSecurity
-       * * `Drata` - Drata
-       * * `Secureframe` - Secureframe
-       * * `CiscoDuo` - CiscoDuo
-       * * `Jumpcloud` - Jumpcloud
-       * * `OnePassword` - OnePassword
-       * * `Stytch` - Stytch
-       * * `Sonarqube` - Sonarqube
-       * * `Codecov` - Codecov
-       * * `Coveralls` - Coveralls
-       * * `Codacy` - Codacy
-       * * `Deepsource` - Deepsource
-       * * `Linearb` - Linearb
-       * * `Jellyfish` - Jellyfish
-       * * `Swarmia` - Swarmia
-       * * `Packagist` - Packagist
-       * * `Nuget` - Nuget
-       * * `CratesIO` - CratesIO
-       * * `SonatypeNexus` - SonatypeNexus
-       * * `JfrogArtifactory` - JfrogArtifactory
-       * * `Snowplow` - Snowplow
-       * * `WeightsAndBiases` - WeightsAndBiases
-       * * `MonteCarlo` - MonteCarlo
-       * * `Metaplane` - Metaplane
-       * * `Datahub` - Datahub
-       * * `ClickhouseCloud` - ClickhouseCloud
-       * * `ConfluentCloud` - ConfluentCloud
-       * * `KongKonnect` - KongKonnect
-       * * `Kandji` - Kandji
-       * * `Automox` - Automox
-       * * `Autumn` - Autumn
-       * * `GetStream` - GetStream
-       * * `Octolens` - Octolens
-       * * `Kajabi` - Kajabi
-       * * `Shopware` - Shopware
-       * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch
-       * * `Crisp` - Crisp
-       * * `Kommo` - Kommo
-       * * `Axiom` - Axiom
-       * * `Plivo` - Plivo
-       * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan
-       * * `AbTasty` - AbTasty
-       * * `Ably` - Ably
-       * * `AbnormalSecurity` - AbnormalSecurity
-       * * `Acast` - Acast
-       * * `Acculynx` - Acculynx
-       * * `Actionstep` - Actionstep
-       * * `Aftership` - Aftership
-       * * `AhaIdeas` - AhaIdeas
-       * * `AkamaiReporting` - AkamaiReporting
-       * * `Alation` - Alation
-       * * `Alegra` - Alegra
-       * * `Allegro` - Allegro
-       * * `AnodotCost` - AnodotCost
-       * * `Anomalo` - Anomalo
-       * * `Apaleo` - Apaleo
-       * * `Apitally` - Apitally
-       * * `AppStoreConnect` - AppStoreConnect
-       * * `Appdirect` - Appdirect
-       * * `Appfolio` - Appfolio
-       * * `Arxiv` - Arxiv
-       * * `Asaas` - Asaas
-       * * `Astronomer` - Astronomer
-       * * `Athenahealth` - Athenahealth
-       * * `Atlan` - Atlan
-       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
-       * * `Avalara` - Avalara
-       * * `AwsAthena` - AwsAthena
-       * * `AwsBatch` - AwsBatch
-       * * `AwsBudgets` - AwsBudgets
-       * * `AwsCloudformation` - AwsCloudformation
-       * * `AwsComputeOptimizer` - AwsComputeOptimizer
-       * * `AwsConfig` - AwsConfig
-       * * `AwsConnect` - AwsConnect
-       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
-       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
-       * * `AwsCostExplorer` - AwsCostExplorer
-       * * `AwsDocumentDB` - AwsDocumentDB
-       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
-       * * `AwsGuardduty` - AwsGuardduty
-       * * `AwsHealth` - AwsHealth
-       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
-       * * `AwsInspector` - AwsInspector
-       * * `AwsMacie` - AwsMacie
-       * * `AwsOrganizations` - AwsOrganizations
-       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
-       * * `AwsSagemaker` - AwsSagemaker
-       * * `AwsSavingsPlans` - AwsSavingsPlans
-       * * `AwsSecurityHub` - AwsSecurityHub
-       * * `AwsSes` - AwsSes
-       * * `AwsStepFunctions` - AwsStepFunctions
-       * * `AwsSupport` - AwsSupport
-       * * `AwsSystemsManager` - AwsSystemsManager
-       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
-       * * `AwsWaf` - AwsWaf
-       * * `AwsXray` - AwsXray
-       * * `AzureActivityLog` - AzureActivityLog
-       * * `AzureAdvisor` - AzureAdvisor
-       * * `AzureApiManagement` - AzureApiManagement
-       * * `AzureApplicationInsights` - AzureApplicationInsights
-       * * `AzureCostManagement` - AzureCostManagement
-       * * `AzureDataExplorer` - AzureDataExplorer
-       * * `AzureDataFactory` - AzureDataFactory
-       * * `AzureLogAnalytics` - AzureLogAnalytics
-       * * `AzureMonitorAlerts` - AzureMonitorAlerts
-       * * `AzureMonitorMetrics` - AzureMonitorMetrics
-       * * `AzureOpenaiUsage` - AzureOpenaiUsage
-       * * `AzurePolicyInsights` - AzurePolicyInsights
-       * * `AzureReservations` - AzureReservations
-       * * `AzureResourceGraph` - AzureResourceGraph
-       * * `AzureResourceHealth` - AzureResourceHealth
-       * * `AzureServiceHealth` - AzureServiceHealth
-       * * `AzureSynapse` - AzureSynapse
-       * * `BackMarket` - BackMarket
-       * * `Beehiiv` - Beehiiv
-       * * `Bigeye` - Bigeye
-       * * `BillCom` - BillCom
-       * * `Billomat` - Billomat
-       * * `BingWebmasterTools` - BingWebmasterTools
-       * * `Bitwarden` - Bitwarden
-       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
-       * * `BlackboardLearn` - BlackboardLearn
-       * * `Bling` - Bling
-       * * `Bloomerang` - Bloomerang
-       * * `Blueshift` - Blueshift
-       * * `Bluesky` - Bluesky
-       * * `BolRetailer` - BolRetailer
-       * * `Boulevard` - Boulevard
-       * * `Buffer` - Buffer
-       * * `Bugherd` - Bugherd
-       * * `Buildium` - Buildium
-       * * `Buttondown` - Buttondown
-       * * `BuyMeACoffee` - BuyMeACoffee
-       * * `Calendarific` - Calendarific
-       * * `Calibre` - Calibre
-       * * `CanvasLms` - CanvasLms
-       * * `Captivate` - Captivate
-       * * `Cashfree` - Cashfree
-       * * `CastAi` - CastAi
-       * * `Catchpoint` - Catchpoint
-       * * `CdcOpenData` - CdcOpenData
-       * * `Census` - Census
-       * * `Checkly` - Checkly
-       * * `CircleSo` - CircleSo
-       * * `Classy` - Classy
-       * * `Cleartax` - Cleartax
-       * * `Clever` - Clever
-       * * `Clevertap` - Clevertap
-       * * `Cliniko` - Cliniko
-       * * `Clio` - Clio
-       * * `Clip` - Clip
-       * * `Cloudability` - Cloudability
-       * * `Cloudsmith` - Cloudsmith
-       * * `Cloudzero` - Cloudzero
-       * * `Clover` - Clover
-       * * `Codemagic` - Codemagic
-       * * `Codescene` - Codescene
-       * * `Collibra` - Collibra
-       * * `Companycam` - Companycam
-       * * `Conekta` - Conekta
-       * * `ContaAzul` - ContaAzul
-       * * `Contentsquare` - Contentsquare
-       * * `Cortex` - Cortex
-       * * `Courier` - Courier
-       * * `Crossref` - Crossref
-       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
-       * * `CubeCloud` - CubeCloud
-       * * `D2lBrightspace` - D2lBrightspace
-       * * `Dayforce` - Dayforce
-       * * `Debugbear` - Debugbear
-       * * `Descope` - Descope
-       * * `Develocity` - Develocity
-       * * `Dialpad` - Dialpad
-       * * `Discord` - Discord
-       * * `Discourse` - Discourse
-       * * `Donorbox` - Donorbox
-       * * `Doorloop` - Doorloop
-       * * `Dovetail` - Dovetail
-       * * `Dragonboat` - Dragonboat
-       * * `Drchrono` - Drchrono
-       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
-       * * `EcbDataPortal` - EcbDataPortal
-       * * `Emarsys` - Emarsys
-       * * `Embrace` - Embrace
-       * * `Entsoe` - Entsoe
-       * * `Eppo` - Eppo
-       * * `Etsy` - Etsy
-       * * `Eurostat` - Eurostat
-       * * `Faire` - Faire
-       * * `FarosAi` - FarosAi
-       * * `Fieldpulse` - Fieldpulse
-       * * `Fieldwire` - Fieldwire
-       * * `Filevine` - Filevine
-       * * `Finout` - Finout
-       * * `Five9` - Five9
-       * * `FlexeraCloudCost` - FlexeraCloudCost
-       * * `Flutterwave` - Flutterwave
-       * * `Fortnox` - Fortnox
-       * * `Fourthwall` - Fourthwall
-       * * `Fred` - Fred
-       * * `Frontegg` - Frontegg
-       * * `FusionAuth` - FusionAuth
-       * * `G2` - G2
-       * * `Gcore` - Gcore
-       * * `GcpApigee` - GcpApigee
-       * * `GcpArtifactRegistry` - GcpArtifactRegistry
-       * * `GcpBigtable` - GcpBigtable
-       * * `GcpChronicle` - GcpChronicle
-       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
-       * * `GcpCloudBilling` - GcpCloudBilling
-       * * `GcpCloudBuild` - GcpCloudBuild
-       * * `GcpCloudDeploy` - GcpCloudDeploy
-       * * `GcpCloudDns` - GcpCloudDns
-       * * `GcpCloudFunctions` - GcpCloudFunctions
-       * * `GcpCloudLogging` - GcpCloudLogging
-       * * `GcpCloudMonitoring` - GcpCloudMonitoring
-       * * `GcpCloudRun` - GcpCloudRun
-       * * `GcpCloudSpanner` - GcpCloudSpanner
-       * * `GcpCloudSql` - GcpCloudSql
-       * * `GcpCloudTrace` - GcpCloudTrace
-       * * `GcpCloudWorkflows` - GcpCloudWorkflows
-       * * `GcpComputeEngine` - GcpComputeEngine
-       * * `GcpContainerAnalysis` - GcpContainerAnalysis
-       * * `GcpDataflow` - GcpDataflow
-       * * `GcpDataplex` - GcpDataplex
-       * * `GcpDataproc` - GcpDataproc
-       * * `GcpErrorReporting` - GcpErrorReporting
-       * * `GcpGke` - GcpGke
-       * * `GcpPubsub` - GcpPubsub
-       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
-       * * `GcpRecommender` - GcpRecommender
-       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
-       * * `Gdelt` - Gdelt
-       * * `GenesysCloud` - GenesysCloud
-       * * `Getdx` - Getdx
-       * * `Ghost` - Ghost
-       * * `Givebutter` - Givebutter
-       * * `Gleif` - Gleif
-       * * `GooglePlayConsole` - GooglePlayConsole
-       * * `Guesty` - Guesty
-       * * `Gumroad` - Gumroad
-       * * `HarnessCcm` - HarnessCcm
-       * * `HarnessSei` - HarnessSei
-       * * `Harvest` - Harvest
-       * * `Healthie` - Healthie
-       * * `Hitpay` - Hitpay
-       * * `Hivebrite` - Hivebrite
-       * * `Holded` - Holded
-       * * `Hostaway` - Hostaway
-       * * `HousecallPro` - HousecallPro
-       * * `Humanitec` - Humanitec
-       * * `ImfData` - ImfData
-       * * `Imperva` - Imperva
-       * * `InfluxdbCloud` - InfluxdbCloud
-       * * `Iyzico` - Iyzico
-       * * `Jobtread` - Jobtread
-       * * `Kameleoon` - Kameleoon
-       * * `KauflandMarketplace` - KauflandMarketplace
-       * * `Kestra` - Kestra
-       * * `Kick` - Kick
-       * * `Kinde` - Kinde
-       * * `Kion` - Kion
-       * * `Knowbe4` - Knowbe4
-       * * `Komodor` - Komodor
-       * * `Labelbox` - Labelbox
-       * * `Lawmatics` - Lawmatics
-       * * `Learnworlds` - Learnworlds
-       * * `LexwareOffice` - LexwareOffice
-       * * `Lightdash` - Lightdash
-       * * `Lodgify` - Lodgify
-       * * `Logicmonitor` - Logicmonitor
-       * * `Logrocket` - Logrocket
-       * * `LoopReturns` - LoopReturns
-       * * `Mastodon` - Mastodon
-       * * `Meetup` - Meetup
-       * * `Megaphone` - Megaphone
-       * * `Memberful` - Memberful
-       * * `MercadoPago` - MercadoPago
-       * * `Meteostat` - Meteostat
-       * * `Mews` - Mews
-       * * `Mezmo` - Mezmo
-       * * `Microsoft365UsageReports` - Microsoft365UsageReports
-       * * `MicrosoftAdvertising` - MicrosoftAdvertising
-       * * `MicrosoftClarity` - MicrosoftClarity
-       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
-       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
-       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
-       * * `MicrosoftIntune` - MicrosoftIntune
-       * * `MicrosoftPurview` - MicrosoftPurview
-       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
-       * * `MicrosoftSentinel` - MicrosoftSentinel
-       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
-       * * `Midtrans` - Midtrans
-       * * `MightyNetworks` - MightyNetworks
-       * * `Mindbody` - Mindbody
-       * * `Mirakl` - Mirakl
-       * * `Moesif` - Moesif
-       * * `Moneybird` - Moneybird
-       * * `Moodle` - Moodle
-       * * `Motherduck` - Motherduck
-       * * `Mycase` - Mycase
-       * * `NagerDate` - NagerDate
-       * * `NeonCrm` - NeonCrm
-       * * `Nexhealth` - Nexhealth
-       * * `NoaaCdo` - NoaaCdo
-       * * `Nobl9` - Nobl9
-       * * `Nolt` - Nolt
-       * * `Nops` - Nops
-       * * `NpmRegistry` - NpmRegistry
-       * * `Oecd` - Oecd
-       * * `Okendo` - Okendo
-       * * `Omni` - Omni
-       * * `Onelogin` - Onelogin
-       * * `OpenDental` - OpenDental
-       * * `OpenMeteo` - OpenMeteo
-       * * `Openalex` - Openalex
-       * * `Opencorporates` - Opencorporates
-       * * `Openfec` - Openfec
-       * * `OpnPayments` - OpnPayments
-       * * `Opslevel` - Opslevel
-       * * `OttoMarket` - OttoMarket
-       * * `Ownerrez` - Ownerrez
-       * * `Pagbank` - Pagbank
-       * * `Patreon` - Patreon
-       * * `Pax8` - Pax8
-       * * `Paychex` - Paychex
-       * * `Paymob` - Paymob
-       * * `Paymongo` - Paymongo
-       * * `Phonepe` - Phonepe
-       * * `Pike13` - Pike13
-       * * `Pingone` - Pingone
-       * * `PinterestOrganic` - PinterestOrganic
-       * * `PlanningCenter` - PlanningCenter
-       * * `PluralsightFlow` - PluralsightFlow
-       * * `Podbean` - Podbean
-       * * `Postscript` - Postscript
-       * * `PowerBiAdmin` - PowerBiAdmin
-       * * `Practicepanther` - Practicepanther
-       * * `Preset` - Preset
-       * * `Procore` - Procore
-       * * `Productiv` - Productiv
-       * * `ProofpointTap` - ProofpointTap
-       * * `Propertyware` - Propertyware
-       * * `Pubnub` - Pubnub
-       * * `Quay` - Quay
-       * * `Raken` - Raken
-       * * `RedpandaCloud` - RedpandaCloud
-       * * `RentManager` - RentManager
-       * * `Reverb` - Reverb
-       * * `RocketMatter` - RocketMatter
-       * * `Rubygems` - Rubygems
-       * * `Scalr` - Scalr
-       * * `SecEdgar` - SecEdgar
-       * * `SelectStar` - SelectStar
-       * * `SemanticScholar` - SemanticScholar
-       * * `Semrush` - Semrush
-       * * `ServiceFusion` - ServiceFusion
-       * * `Servicem8` - Servicem8
-       * * `Servicetitan` - Servicetitan
-       * * `Servicetrade` - Servicetrade
-       * * `Sevdesk` - Sevdesk
-       * * `Similarweb` - Similarweb
-       * * `Simpro` - Simpro
-       * * `Sinch` - Sinch
-       * * `Singlestore` - Singlestore
-       * * `Site24x7` - Site24x7
-       * * `Sleuth` - Sleuth
-       * * `Smartlook` - Smartlook
-       * * `Smartrecruiters` - Smartrecruiters
-       * * `Smokeball` - Smokeball
-       * * `SodaCloud` - SodaCloud
-       * * `Speedcurve` - Speedcurve
-       * * `SpotIo` - SpotIo
-       * * `Sprig` - Sprig
-       * * `Sprinklr` - Sprinklr
-       * * `SproutSocial` - SproutSocial
-       * * `StackOverflowForTeams` - StackOverflowForTeams
-       * * `Stockx` - Stockx
-       * * `TackleIo` - TackleIo
-       * * `Talkdesk` - Talkdesk
-       * * `TeamupFitness` - TeamupFitness
-       * * `Tebra` - Tebra
-       * * `Telnyx` - Telnyx
-       * * `Ternary` - Ternary
-       * * `Thoughtspot` - Thoughtspot
-       * * `Thousandeyes` - Thousandeyes
-       * * `Threads` - Threads
-       * * `TiktokShop` - TiktokShop
-       * * `TinyErp` - TinyErp
-       * * `Tinybird` - Tinybird
-       * * `Tipalti` - Tipalti
-       * * `Toast` - Toast
-       * * `Torii` - Torii
-       * * `Transistor` - Transistor
-       * * `TrunkIo` - TrunkIo
-       * * `Trustradius` - Trustradius
-       * * `Twitch` - Twitch
-       * * `TwoC2p` - TwoC2p
-       * * `UkCompaniesHouse` - UkCompaniesHouse
-       * * `UkOns` - UkOns
-       * * `UnComtrade` - UnComtrade
-       * * `UsBea` - UsBea
-       * * `UsBls` - UsBls
-       * * `UsEia` - UsEia
-       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
-       * * `Vanta` - Vanta
-       * * `Vendr` - Vendr
-       * * `Virtuous` - Virtuous
-       * * `Vonage` - Vonage
-       * * `WalmartMarketplace` - WalmartMarketplace
-       * * `Waydev` - Waydev
-       * * `Wayfair` - Wayfair
-       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
-       * * `WhoGho` - WhoGho
-       * * `Whop` - Whop
-       * * `Wistia` - Wistia
-       * * `Wiz` - Wiz
-       * * `Wompi` - Wompi
-       * * `Workiz` - Workiz
-       * * `WorldBank` - WorldBank
-       * * `Xendit` - Xendit
-       * * `Yoco` - Yoco
-       * * `ZalandoZdirect` - ZalandoZdirect
-       * * `Zluri` - Zluri
-       * * `Zylo` - Zylo
-       * * `Tally` - Tally
-       * * `Nuntly` - Nuntly
-       * * `Vturb` - Vturb
-       * * `Meltwater` - Meltwater
-       * * `UserCom` - UserCom
-       * * `Latitude` - Latitude
-       * * `Workato` - Workato
-       * * `SideShift` - SideShift
-       * * `DuckLake` - DuckLake
-       * * `Starburst` - Starburst
-       * * `Trino` - Trino
-       * * `Easybill` - Easybill
-       * * `Bexio` - Bexio
-       * * `Umami` - Umami
-       * * `Manychat` - Manychat
-       * * `Kickstarter` - Kickstarter
-       * * `Typesense` - Typesense
-       * * `FirstPromoter` - FirstPromoter
-       * * `Zero` - Zero
-       * * `Inth` - Inth
-       * * `BCMS` - BCMS
-       * * `Convonite` - Convonite
-       * * `Hookdeck` - Hookdeck
-       * * `Billit` - Billit
-       * * `Moxie` - Moxie
-       * * `TripleWhale` - TripleWhale
-       * * `Directus` - Directus
-       * * `Clay` - Clay
-       * * `TradableBits` - TradableBits
-       * * `Swan` - Swan
-       * * `Hyros` - Hyros
-       * * `Odoo` - Odoo
-       * * `Airbridge` - Airbridge
-       * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter
-       * * `Raisely` - Raisely
-       * * `RakutenAdvertising` - RakutenAdvertising
-       * * `Zitadel` - Zitadel
-       * * `DeelFlows` - DeelFlows
-       * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix
-       * * `Sevalla` - Sevalla
-       * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner
-       * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare
-       * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91
-       * * `Depot` - Depot
-       * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy
-       * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart
-       * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound
-       * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi
-       * * `Capterra` - Capterra
-       * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi
-       * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS
-       * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox
-       * * `SimonData` - SimonData
-       * * `CommissionJunction` - CommissionJunction
-       * * `Liveblocks` - Liveblocks
-       * * `Livestorm` - Livestorm
-       * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana
-       * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable
-       * * `Anvil` - Anvil
-       * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato
-       * * `Medusa` - Medusa
-       * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin
-       * * `Folk` - Folk
-       * * `Cybersource` - Cybersource
-       * * `GoogleAdSense` - GoogleAdSense
-       * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio
-       * * `Smartlead` - Smartlead
-       * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket
-       * * `Quo` - Quo
-       * * `HeyReach` - HeyReach
-       * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet
-       * * `Expo` - Expo
-       * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer
-       * * `Sprinto` - Sprinto
-       * * `Gem` - Gem
-       * * `AudioGO` - AudioGO
-       * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs
-       * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura
-       * * `ChargebackStop` - ChargebackStop
-       * * `Chargeflow` - Chargeflow
-       * * `Dreamdata` - Dreamdata
-       * * `GoogleBusinessProfile` - GoogleBusinessProfile
-       * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite
-       * * `Modal` - Modal
-       * * `Vimeo` - Vimeo
-       * * `Scrunch` - Scrunch
-       * * `Loom` - Loom
-       * * `Arcade` - Arcade
-       * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom
-       * * `Userback` - Userback
-       * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution
-       * * `StackAdapt` - StackAdapt
-       * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay
-       * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud
-       * * `Northbeam` - Northbeam
-       * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO
-       * * `Airship` - Airship
-       * * `Creem` - Creem
-       * * `Leantime` - Leantime
-       * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob
-       * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2
-       * * `Particle` - Particle
-       * * `FileUpload` - FileUpload
-       * * `Dripify` - Dripify
-       * * `AwsS3Tables` - AwsS3Tables
-       * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments
-       * * `Soniox` - Soniox */
-      source_type: ExternalDataSourceTypeEnum;
+      /** The source type these credentials are for (e.g. 'Stripe', 'Postgres'). */
+      source_type: string;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
     }
@@ -113531,1421 +106457,8 @@ export namespace Schemas {
     export type SourcePreviewRequestPayload = { [key: string]: unknown };
 
     export interface SourcePreviewRequest {
-      /** The source type to preview. Only 'Custom' (a user-defined REST API) is supported today.
-       *
-       * * `Ashby` - Ashby
-       * * `Supabase` - Supabase
-       * * `CustomerIO` - CustomerIO
-       * * `Github` - Github
-       * * `Stripe` - Stripe
-       * * `Hubspot` - Hubspot
-       * * `Postgres` - Postgres
-       * * `Zendesk` - Zendesk
-       * * `Snowflake` - Snowflake
-       * * `Salesforce` - Salesforce
-       * * `MySQL` - MySQL
-       * * `MongoDB` - MongoDB
-       * * `MSSQL` - MSSQL
-       * * `Vitally` - Vitally
-       * * `BigQuery` - BigQuery
-       * * `Chargebee` - Chargebee
-       * * `Clerk` - Clerk
-       * * `GoogleAds` - GoogleAds
-       * * `GoogleSearchConsole` - GoogleSearchConsole
-       * * `TemporalIO` - TemporalIO
-       * * `DoIt` - DoIt
-       * * `GoogleSheets` - GoogleSheets
-       * * `MetaAds` - MetaAds
-       * * `Klaviyo` - Klaviyo
-       * * `Mailchimp` - Mailchimp
-       * * `Braze` - Braze
-       * * `Mailjet` - Mailjet
-       * * `Redshift` - Redshift
-       * * `Polar` - Polar
-       * * `RevenueCat` - RevenueCat
-       * * `LinkedinAds` - LinkedinAds
-       * * `RedditAds` - RedditAds
-       * * `TikTokAds` - TikTokAds
-       * * `BingAds` - BingAds
-       * * `Shopify` - Shopify
-       * * `Attio` - Attio
-       * * `SnapchatAds` - SnapchatAds
-       * * `Linear` - Linear
-       * * `LiteLLM` - LiteLLM
-       * * `Intercom` - Intercom
-       * * `Amplitude` - Amplitude
-       * * `Mixpanel` - Mixpanel
-       * * `Jira` - Jira
-       * * `ActiveCampaign` - ActiveCampaign
-       * * `Marketo` - Marketo
-       * * `Adjust` - Adjust
-       * * `AppsFlyer` - AppsFlyer
-       * * `Freshdesk` - Freshdesk
-       * * `GoogleAnalytics` - GoogleAnalytics
-       * * `Pipedrive` - Pipedrive
-       * * `SendGrid` - SendGrid
-       * * `Slack` - Slack
-       * * `PagerDuty` - PagerDuty
-       * * `Asana` - Asana
-       * * `Notion` - Notion
-       * * `Airtable` - Airtable
-       * * `Greenhouse` - Greenhouse
-       * * `BambooHR` - BambooHR
-       * * `Lever` - Lever
-       * * `GitLab` - GitLab
-       * * `Datadog` - Datadog
-       * * `Sentry` - Sentry
-       * * `Pendo` - Pendo
-       * * `FullStory` - FullStory
-       * * `AmazonAds` - AmazonAds
-       * * `PinterestAds` - PinterestAds
-       * * `AppleSearchAds` - AppleSearchAds
-       * * `QuickBooks` - QuickBooks
-       * * `Xero` - Xero
-       * * `NetSuite` - NetSuite
-       * * `WooCommerce` - WooCommerce
-       * * `BigCommerce` - BigCommerce
-       * * `PayPal` - PayPal
-       * * `Square` - Square
-       * * `Zoom` - Zoom
-       * * `Trello` - Trello
-       * * `TrafficStars` - TrafficStars
-       * * `Monday` - Monday
-       * * `ClickUp` - ClickUp
-       * * `Confluence` - Confluence
-       * * `Recurly` - Recurly
-       * * `SalesLoft` - SalesLoft
-       * * `Outreach` - Outreach
-       * * `Gong` - Gong
-       * * `Calendly` - Calendly
-       * * `Typeform` - Typeform
-       * * `UnityAds` - UnityAds
-       * * `Iterable` - Iterable
-       * * `ZohoCRM` - ZohoCRM
-       * * `Close` - Close
-       * * `Oracle` - Oracle
-       * * `DynamoDB` - DynamoDB
-       * * `Elasticsearch` - Elasticsearch
-       * * `Kafka` - Kafka
-       * * `LaunchDarkly` - LaunchDarkly
-       * * `Braintree` - Braintree
-       * * `Recharge` - Recharge
-       * * `HelpScout` - HelpScout
-       * * `Gorgias` - Gorgias
-       * * `Instagram` - Instagram
-       * * `YouTubeAnalytics` - YouTubeAnalytics
-       * * `FacebookPages` - FacebookPages
-       * * `TwitterAds` - TwitterAds
-       * * `Workday` - Workday
-       * * `ServiceNow` - ServiceNow
-       * * `Pardot` - Pardot
-       * * `Copper` - Copper
-       * * `Front` - Front
-       * * `ChartMogul` - ChartMogul
-       * * `Zuora` - Zuora
-       * * `Paddle` - Paddle
-       * * `CircleCI` - CircleCI
-       * * `CockroachDB` - CockroachDB
-       * * `Firebase` - Firebase
-       * * `AzureBlob` - AzureBlob
-       * * `GoogleDrive` - GoogleDrive
-       * * `OneDrive` - OneDrive
-       * * `SharePoint` - SharePoint
-       * * `Box` - Box
-       * * `SFTP` - SFTP
-       * * `MicrosoftTeams` - MicrosoftTeams
-       * * `Aircall` - Aircall
-       * * `Webflow` - Webflow
-       * * `Okta` - Okta
-       * * `Auth0` - Auth0
-       * * `Productboard` - Productboard
-       * * `Smartsheet` - Smartsheet
-       * * `Wrike` - Wrike
-       * * `Plaid` - Plaid
-       * * `SurveyMonkey` - SurveyMonkey
-       * * `Eventbrite` - Eventbrite
-       * * `Everflow` - Everflow
-       * * `RingCentral` - RingCentral
-       * * `Twilio` - Twilio
-       * * `Freshsales` - Freshsales
-       * * `Shortcut` - Shortcut
-       * * `ConvertKit` - ConvertKit
-       * * `Drip` - Drip
-       * * `CampaignMonitor` - CampaignMonitor
-       * * `MailerLite` - MailerLite
-       * * `Omnisend` - Omnisend
-       * * `Brevo` - Brevo
-       * * `Postmark` - Postmark
-       * * `Granola` - Granola
-       * * `BuildBetter` - BuildBetter
-       * * `Convex` - Convex
-       * * `ClickHouse` - ClickHouse
-       * * `Plain` - Plain
-       * * `Resend` - Resend
-       * * `PgAnalyze` - PgAnalyze
-       * * `WorkOS` - WorkOS
-       * * `AmazonS3` - AmazonS3
-       * * `GoogleCloudStorage` - GoogleCloudStorage
-       * * `Databricks` - Databricks
-       * * `Dynamics365` - Dynamics365
-       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
-       * * `Db2` - Db2
-       * * `Heap` - Heap
-       * * `AdobeAnalytics` - AdobeAnalytics
-       * * `Matomo` - Matomo
-       * * `Optimizely` - Optimizely
-       * * `Adyen` - Adyen
-       * * `GoCardless` - GoCardless
-       * * `Mollie` - Mollie
-       * * `CheckoutCom` - CheckoutCom
-       * * `Branch` - Branch
-       * * `Criteo` - Criteo
-       * * `Outbrain` - Outbrain
-       * * `Taboola` - Taboola
-       * * `AdRoll` - AdRoll
-       * * `DisplayVideo360` - DisplayVideo360
-       * * `GoogleAdManager` - GoogleAdManager
-       * * `CampaignManager360` - CampaignManager360
-       * * `SearchAds360` - SearchAds360
-       * * `AdobeCommerce` - AdobeCommerce
-       * * `AmazonSellingPartner` - AmazonSellingPartner
-       * * `Ebay` - Ebay
-       * * `Commercetools` - Commercetools
-       * * `LightspeedRetail` - LightspeedRetail
-       * * `Shipmail` - Shipmail
-       * * `ShipStation` - ShipStation
-       * * `ConstantContact` - ConstantContact
-       * * `Mailgun` - Mailgun
-       * * `Eloqua` - Eloqua
-       * * `Sailthru` - Sailthru
-       * * `Ortto` - Ortto
-       * * `Attentive` - Attentive
-       * * `Kustomer` - Kustomer
-       * * `Dixa` - Dixa
-       * * `Gladly` - Gladly
-       * * `Qualtrics` - Qualtrics
-       * * `AzureDevOps` - AzureDevOps
-       * * `RoktAds` - RoktAds
-       * * `Rollbar` - Rollbar
-       * * `Opsgenie` - Opsgenie
-       * * `IncidentIo` - IncidentIo
-       * * `Pingdom` - Pingdom
-       * * `Cloudflare` - Cloudflare
-       * * `CloudflareD1` - CloudflareD1
-       * * `CosmosDB` - CosmosDB
-       * * `PlanetScaleMySQL` - PlanetScaleMySQL
-       * * `PlanetScalePostgres` - PlanetScalePostgres
-       * * `Plane` - Plane
-       * * `Scarf` - Scarf
-       * * `SapHana` - SapHana
-       * * `Rippling` - Rippling
-       * * `HiBob` - HiBob
-       * * `Personio` - Personio
-       * * `Deel` - Deel
-       * * `AdpWorkforceNow` - AdpWorkforceNow
-       * * `Paylocity` - Paylocity
-       * * `Gusto` - Gusto
-       * * `CultureAmp` - CultureAmp
-       * * `Lattice` - Lattice
-       * * `SageIntacct` - SageIntacct
-       * * `FreshBooks` - FreshBooks
-       * * `Expensify` - Expensify
-       * * `Ramp` - Ramp
-       * * `Brex` - Brex
-       * * `Coupa` - Coupa
-       * * `SapConcur` - SapConcur
-       * * `Apollo` - Apollo
-       * * `Crunchbase` - Crunchbase
-       * * `ZoomInfo` - ZoomInfo
-       * * `Clari` - Clari
-       * * `Chorus` - Chorus
-       * * `Coda` - Coda
-       * * `Guru` - Guru
-       * * `Dropbox` - Dropbox
-       * * `Docusign` - Docusign
-       * * `PandaDoc` - PandaDoc
-       * * `SapErp` - SapErp
-       * * `SapSuccessFactors` - SapSuccessFactors
-       * * `OracleEbs` - OracleEbs
-       * * `OracleFusion` - OracleFusion
-       * * `AmazonSNS` - AmazonSNS
-       * * `AmazonEventBridge` - AmazonEventBridge
-       * * `AmazonSQS` - AmazonSQS
-       * * `AmazonKinesis` - AmazonKinesis
-       * * `AmazonCloudWatch` - AmazonCloudWatch
-       * * `OpenAIAds` - OpenAIAds
-       * * `OneHundredMs` - OneHundredMs
-       * * `SevenShifts` - SevenShifts
-       * * `AcuityScheduling` - AcuityScheduling
-       * * `AgileCRM` - AgileCRM
-       * * `Aha` - Aha
-       * * `Airbyte` - Airbyte
-       * * `Akeneo` - Akeneo
-       * * `Algolia` - Algolia
-       * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
-       * * `ApifyDataset` - ApifyDataset
-       * * `Appcues` - Appcues
-       * * `Appfigures` - Appfigures
-       * * `Appfollow` - Appfollow
-       * * `Apptivo` - Apptivo
-       * * `AssemblyAI` - AssemblyAI
-       * * `Awin` - Awin
-       * * `AwsCloudTrail` - AwsCloudTrail
-       * * `AzureTableStorage` - AzureTableStorage
-       * * `Babelforce` - Babelforce
-       * * `Basecamp` - Basecamp
-       * * `Beamer` - Beamer
-       * * `BigMailer` - BigMailer
-       * * `Bluetally` - Bluetally
-       * * `BoldSign` - BoldSign
-       * * `BreezyHR` - BreezyHR
-       * * `Bugsnag` - Bugsnag
-       * * `Buildkite` - Buildkite
-       * * `Bunny` - Bunny
-       * * `Buzzsprout` - Buzzsprout
-       * * `CalCom` - CalCom
-       * * `CallRail` - CallRail
-       * * `Campayn` - Campayn
-       * * `Canny` - Canny
-       * * `CapsuleCRM` - CapsuleCRM
-       * * `CaptainData` - CaptainData
-       * * `CartCom` - CartCom
-       * * `CastorEDC` - CastorEDC
-       * * `Chameleon` - Chameleon
-       * * `Chargedesk` - Chargedesk
-       * * `Chargify` - Chargify
-       * * `Chift` - Chift
-       * * `Churnkey` - Churnkey
-       * * `Cin7` - Cin7
-       * * `CiscoMeraki` - CiscoMeraki
-       * * `Clazar` - Clazar
-       * * `Clockify` - Clockify
-       * * `Clockodo` - Clockodo
-       * * `Cloudbeds` - Cloudbeds
-       * * `Coassemble` - Coassemble
-       * * `Codefresh` - Codefresh
-       * * `Concord` - Concord
-       * * `ConfigCat` - ConfigCat
-       * * `Couchbase` - Couchbase
-       * * `Curve` - Curve
-       * * `Customerly` - Customerly
-       * * `Datascope` - Datascope
-       * * `Dbt` - Dbt
-       * * `Demodesk` - Demodesk
-       * * `Deputy` - Deputy
-       * * `DevinAI` - DevinAI
-       * * `Docuseal` - Docuseal
-       * * `Dolibarr` - Dolibarr
-       * * `Dremio` - Dremio
-       * * `DropboxSign` - DropboxSign
-       * * `Dwolla` - Dwolla
-       * * `EConomic` - EConomic
-       * * `Easypost` - Easypost
-       * * `Easypromos` - Easypromos
-       * * `Elasticemail` - Elasticemail
-       * * `EmailOctopus` - EmailOctopus
-       * * `EmploymentHero` - EmploymentHero
-       * * `Encharge` - Encharge
-       * * `Eventee` - Eventee
-       * * `Eventzilla` - Eventzilla
-       * * `Everhour` - Everhour
-       * * `EZOfficeInventory` - EZOfficeInventory
-       * * `Factorial` - Factorial
-       * * `Fastbill` - Fastbill
-       * * `Fastly` - Fastly
-       * * `Fauna` - Fauna
-       * * `Feishu` - Feishu
-       * * `Fillout` - Fillout
-       * * `Finage` - Finage
-       * * `Firebolt` - Firebolt
-       * * `FireHydrant` - FireHydrant
-       * * `Fleetio` - Fleetio
-       * * `Flexmail` - Flexmail
-       * * `Flexport` - Flexport
-       * * `FloatApp` - FloatApp
-       * * `Flowlu` - Flowlu
-       * * `Formbricks` - Formbricks
-       * * `Framer` - Framer
-       * * `FreeAgent` - FreeAgent
-       * * `Freightview` - Freightview
-       * * `Freshcaller` - Freshcaller
-       * * `Freshchat` - Freshchat
-       * * `Freshservice` - Freshservice
-       * * `Fulcrum` - Fulcrum
-       * * `GainsightCs` - GainsightCs
-       * * `GainsightPx` - GainsightPx
-       * * `GitBook` - GitBook
-       * * `Glassfrog` - Glassfrog
-       * * `Goldcast` - Goldcast
-       * * `GoLogin` - GoLogin
-       * * `Grafana` - Grafana
-       * * `GreytHr` - GreytHr
-       * * `Gridly` - Gridly
-       * * `Harness` - Harness
-       * * `Height` - Height
-       * * `Hellobaton` - Hellobaton
-       * * `HighLevel` - HighLevel
-       * * `HoorayHR` - HoorayHR
-       * * `Hubplanner` - Hubplanner
-       * * `Humanitix` - Humanitix
-       * * `Huntr` - Huntr
-       * * `Inflowinventory` - Inflowinventory
-       * * `InforNexus` - InforNexus
-       * * `Insightful` - Insightful
-       * * `Insightly` - Insightly
-       * * `Instantly` - Instantly
-       * * `Instatus` - Instatus
-       * * `Intruder` - Intruder
-       * * `Invoiced` - Invoiced
-       * * `Invoiceninja` - Invoiceninja
-       * * `JamfPro` - JamfPro
-       * * `JobNimbus` - JobNimbus
-       * * `Jotform` - Jotform
-       * * `JudgeMeReviews` - JudgeMeReviews
-       * * `JustCall` - JustCall
-       * * `JustSift` - JustSift
-       * * `K6Cloud` - K6Cloud
-       * * `Katana` - Katana
-       * * `Keka` - Keka
-       * * `Kisi` - Kisi
-       * * `Kissmetrics` - Kissmetrics
-       * * `Klarna` - Klarna
-       * * `Klaus` - Klaus
-       * * `Lago` - Lago
-       * * `Leadfeeder` - Leadfeeder
-       * * `Lemlist` - Lemlist
-       * * `LessAnnoyingCRM` - LessAnnoyingCRM
-       * * `LinkedinPages` - LinkedinPages
-       * * `Linkrunner` - Linkrunner
-       * * `Linnworks` - Linnworks
-       * * `Lob` - Lob
-       * * `Lokalise` - Lokalise
-       * * `Looker` - Looker
-       * * `Luma` - Luma
-       * * `MailerSend` - MailerSend
-       * * `Mailosaur` - Mailosaur
-       * * `Mailtrap` - Mailtrap
-       * * `Mantle` - Mantle
-       * * `Mention` - Mention
-       * * `MercadoAds` - MercadoAds
-       * * `Merge` - Merge
-       * * `Metabase` - Metabase
-       * * `Metricool` - Metricool
-       * * `MicrosoftDataverse` - MicrosoftDataverse
-       * * `MicrosoftEntraId` - MicrosoftEntraId
-       * * `MicrosoftLists` - MicrosoftLists
-       * * `Miro` - Miro
-       * * `Missive` - Missive
-       * * `MixMax` - MixMax
-       * * `Mode` - Mode
-       * * `Mux` - Mux
-       * * `MyHours` - MyHours
-       * * `N8n` - N8n
-       * * `Navan` - Navan
-       * * `NebiusAI` - NebiusAI
-       * * `Nexiopay` - Nexiopay
-       * * `NinjaOneRMM` - NinjaOneRMM
-       * * `NoCRM` - NoCRM
-       * * `NorthpassLMS` - NorthpassLMS
-       * * `Nutshell` - Nutshell
-       * * `Nylas` - Nylas
-       * * `Oncehub` - Oncehub
-       * * `Onepagecrm` - Onepagecrm
-       * * `OneSignal` - OneSignal
-       * * `Onfleet` - Onfleet
-       * * `OpinionStage` - OpinionStage
-       * * `OPUSWatch` - OPUSWatch
-       * * `Orb` - Orb
-       * * `Orbit` - Orbit
-       * * `Oura` - Oura
-       * * `Oveit` - Oveit
-       * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
-       * * `Paperform` - Paperform
-       * * `Papersign` - Papersign
-       * * `Partnerize` - Partnerize
-       * * `PartnerStack` - PartnerStack
-       * * `PayFit` - PayFit
-       * * `Paystack` - Paystack
-       * * `Pennylane` - Pennylane
-       * * `Perk` - Perk
-       * * `PersistIq` - PersistIq
-       * * `Persona` - Persona
-       * * `Phyllo` - Phyllo
-       * * `Picqer` - Picqer
-       * * `Pipeliner` - Pipeliner
-       * * `PivotalTracker` - PivotalTracker
-       * * `Piwik` - Piwik
-       * * `Planhat` - Planhat
-       * * `Plausible` - Plausible
-       * * `Poplar` - Poplar
-       * * `PrestaShop` - PrestaShop
-       * * `Pretix` - Pretix
-       * * `Primetric` - Primetric
-       * * `Printavo` - Printavo
-       * * `Printify` - Printify
-       * * `Productive` - Productive
-       * * `Pylon` - Pylon
-       * * `Qonto` - Qonto
-       * * `Qualaroo` - Qualaroo
-       * * `Railz` - Railz
-       * * `RDStationMarketing` - RDStationMarketing
-       * * `Recruitee` - Recruitee
-       * * `Reddit` - Reddit
-       * * `ReferralHero` - ReferralHero
-       * * `RentCast` - RentCast
-       * * `Repairshopr` - Repairshopr
-       * * `ReplyIo` - ReplyIo
-       * * `RetailExpress` - RetailExpress
-       * * `Retently` - Retently
-       * * `Retreaver` - Retreaver
-       * * `RevolutMerchant` - RevolutMerchant
-       * * `RocketChat` - RocketChat
-       * * `Rocketlane` - Rocketlane
-       * * `Rootly` - Rootly
-       * * `Ruddr` - Ruddr
-       * * `SafetyCulture` - SafetyCulture
-       * * `SageHR` - SageHR
-       * * `Salesflare` - Salesflare
-       * * `SAPFieldglass` - SAPFieldglass
-       * * `SavvyCal` - SavvyCal
-       * * `Secoda` - Secoda
-       * * `Segment` - Segment
-       * * `Sendowl` - Sendowl
-       * * `SendPulse` - SendPulse
-       * * `Senseforce` - Senseforce
-       * * `Serpstat` - Serpstat
-       * * `Sharetribe` - Sharetribe
-       * * `Shippo` - Shippo
-       * * `ShopWired` - ShopWired
-       * * `Shortio` - Shortio
-       * * `Shutterstock` - Shutterstock
-       * * `SigmaComputing` - SigmaComputing
-       * * `SignNow` - SignNow
-       * * `SimpleCast` - SimpleCast
-       * * `Simplesat` - Simplesat
-       * * `Smaily` - Smaily
-       * * `SmartEngage` - SmartEngage
-       * * `Smartreach` - Smartreach
-       * * `Smartwaiver` - Smartwaiver
-       * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
-       * * `SonarCloud` - SonarCloud
-       * * `SparkPost` - SparkPost
-       * * `SplitIo` - SplitIo
-       * * `SpotifyAds` - SpotifyAds
-       * * `SpotlerCRM` - SpotlerCRM
-       * * `Squarespace` - Squarespace
-       * * `Statsig` - Statsig
-       * * `Statuspage` - Statuspage
-       * * `Steam` - Steam
-       * * `Stigg` - Stigg
-       * * `Strava` - Strava
-       * * `SurveySparrow` - SurveySparrow
-       * * `Survicate` - Survicate
-       * * `Svix` - Svix
-       * * `Systeme` - Systeme
-       * * `Tavus` - Tavus
-       * * `Teamtailor` - Teamtailor
-       * * `Teamwork` - Teamwork
-       * * `Tempo` - Tempo
-       * * `Testrail` - Testrail
-       * * `Thinkific` - Thinkific
-       * * `ThinkificCourses` - ThinkificCourses
-       * * `ThriveLearning` - ThriveLearning
-       * * `Ticketmaster` - Ticketmaster
-       * * `TicketTailor` - TicketTailor
-       * * `TickTick` - TickTick
-       * * `Timely` - Timely
-       * * `Tinyemail` - Tinyemail
-       * * `Todoist` - Todoist
-       * * `Toggl` - Toggl
-       * * `TrackPMS` - TrackPMS
-       * * `Tremendous` - Tremendous
-       * * `TrustPilot` - TrustPilot
-       * * `Twitter` - Twitter
-       * * `TyntecSMS` - TyntecSMS
-       * * `Unleash` - Unleash
-       * * `UpPromote` - UpPromote
-       * * `Uptick` - Uptick
-       * * `Uservoice` - Uservoice
-       * * `Vantage` - Vantage
-       * * `Veeqo` - Veeqo
-       * * `Vercel` - Vercel
-       * * `VismaEconomic` - VismaEconomic
-       * * `VWO` - VWO
-       * * `Waiteraid` - Waiteraid
-       * * `Wasabi` - Wasabi
-       * * `WhenIWork` - WhenIWork
-       * * `Wordpress` - Wordpress
-       * * `Workable` - Workable
-       * * `Workflowmax` - Workflowmax
-       * * `Workramp` - Workramp
-       * * `Wufoo` - Wufoo
-       * * `Xsolla` - Xsolla
-       * * `YandexMetrica` - YandexMetrica
-       * * `Yotpo` - Yotpo
-       * * `Ynab` - Ynab
-       * * `Younium` - Younium
-       * * `YouSign` - YouSign
-       * * `YoutubeData` - YoutubeData
-       * * `ZapierSupportedStorage` - ZapierSupportedStorage
-       * * `ZapSign` - ZapSign
-       * * `ZendeskSell` - ZendeskSell
-       * * `ZendeskSunshine` - ZendeskSunshine
-       * * `Zenefits` - Zenefits
-       * * `Zenloop` - Zenloop
-       * * `ZohoAnalytics` - ZohoAnalytics
-       * * `ZohoBigin` - ZohoBigin
-       * * `ZohoBilling` - ZohoBilling
-       * * `ZohoBooks` - ZohoBooks
-       * * `ZohoCampaign` - ZohoCampaign
-       * * `ZohoDesk` - ZohoDesk
-       * * `ZohoExpense` - ZohoExpense
-       * * `ZohoInventory` - ZohoInventory
-       * * `ZohoInvoice` - ZohoInvoice
-       * * `ZonkaFeedback` - ZonkaFeedback
-       * * `AlphaVantage` - AlphaVantage
-       * * `Aviationstack` - Aviationstack
-       * * `Bitly` - Bitly
-       * * `Blogger` - Blogger
-       * * `Breezometer` - Breezometer
-       * * `CareQualityCommission` - CareQualityCommission
-       * * `Cimis` - Cimis
-       * * `CoinApi` - CoinApi
-       * * `CoinGecko` - CoinGecko
-       * * `CoinMarketCap` - CoinMarketCap
-       * * `DingConnect` - DingConnect
-       * * `Dockerhub` - Dockerhub
-       * * `ExchangeRatesApi` - ExchangeRatesApi
-       * * `FinancialModelling` - FinancialModelling
-       * * `Finnhub` - Finnhub
-       * * `Finnworlds` - Finnworlds
-       * * `Giphy` - Giphy
-       * * `Gmail` - Gmail
-       * * `GNews` - GNews
-       * * `GoogleCalendar` - GoogleCalendar
-       * * `GoogleClassroom` - GoogleClassroom
-       * * `GoogleDirectory` - GoogleDirectory
-       * * `GoogleForms` - GoogleForms
-       * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
-       * * `GoogleTasks` - GoogleTasks
-       * * `GoogleWebfonts` - GoogleWebfonts
-       * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
-       * * `HuggingFace` - HuggingFace
-       * * `IlluminaBasespace` - IlluminaBasespace
-       * * `Imagga` - Imagga
-       * * `Interzoid` - Interzoid
-       * * `IP2Whois` - IP2Whois
-       * * `KYVE` - KYVE
-       * * `Marketstack` - Marketstack
-       * * `Mendeley` - Mendeley
-       * * `Nasa` - Nasa
-       * * `NewYorkTimes` - NewYorkTimes
-       * * `NewsApi` - NewsApi
-       * * `NewsData` - NewsData
-       * * `OpenDataDc` - OpenDataDc
-       * * `OpenExchangeRates` - OpenExchangeRates
-       * * `OpenAQ` - OpenAQ
-       * * `OpenFDA` - OpenFDA
-       * * `OpenWeather` - OpenWeather
-       * * `Outlook` - Outlook
-       * * `Perigon` - Perigon
-       * * `Pexels` - Pexels
-       * * `Pocket` - Pocket
-       * * `Polygon` - Polygon
-       * * `PyPI` - PyPI
-       * * `Recreation` - Recreation
-       * * `RKICovid` - RKICovid
-       * * `Rss` - Rss
-       * * `SimFin` - SimFin
-       * * `StockData` - StockData
-       * * `Guardian` - Guardian
-       * * `TMDb` - TMDb
-       * * `TVMaze` - TVMaze
-       * * `TwelveData` - TwelveData
-       * * `Ubidots` - Ubidots
-       * * `USCensus` - USCensus
-       * * `Watchmode` - Watchmode
-       * * `WikipediaPageviews` - WikipediaPageviews
-       * * `YahooFinance` - YahooFinance
-       * * `Clarifai` - Clarifai
-       * * `Adapty` - Adapty
-       * * `Braintrust` - Braintrust
-       * * `StreamElements` - StreamElements
-       * * `Streamlabs` - Streamlabs
-       * * `Datorama` - Datorama
-       * * `Ahrefs` - Ahrefs
-       * * `Lightfield` - Lightfield
-       * * `Appstack` - Appstack
-       * * `Razorpay` - Razorpay
-       * * `Neon` - Neon
-       * * `NewRelic` - NewRelic
-       * * `Custom` - Custom
-       * * `Tile38` - Tile38
-       * * `Chatwoot` - Chatwoot
-       * * `Sanity` - Sanity
-       * * `Metronome` - Metronome
-       * * `Jobber` - Jobber
-       * * `Knock` - Knock
-       * * `Leexi` - Leexi
-       * * `RB2B` - RB2B
-       * * `Superwall` - Superwall
-       * * `Liana` - Liana
-       * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch
-       * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas
-       * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds
-       * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow
-       * * `Plunk` - Plunk
-       * * `Dub` - Dub
-       * * `AirOps` - AirOps
-       * * `Podium` - Podium
-       * * `Loops` - Loops
-       * * `Redis` - Redis
-       * * `Mercury` - Mercury
-       * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable
-       * * `PeecAI` - PeecAI
-       * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact
-       * * `AikidoSecurity` - AikidoSecurity
-       * * `Alguna` - Alguna
-       * * `Anthropic` - Anthropic
-       * * `Appwrite` - Appwrite
-       * * `BlandAI` - BlandAI
-       * * `BrowseAI` - BrowseAI
-       * * `BrowserUse` - BrowserUse
-       * * `ChartHop` - ChartHop
-       * * `Cody` - Cody
-       * * `Cursor` - Cursor
-       * * `Decagon` - Decagon
-       * * `Deepgram` - Deepgram
-       * * `ElevenLabs` - ElevenLabs
-       * * `Harvey` - Harvey
-       * * `Hyperspell` - Hyperspell
-       * * `Langfuse` - Langfuse
-       * * `LingoDev` - LingoDev
-       * * `M3ter` - M3ter
-       * * `Maxio` - Maxio
-       * * `Metorial` - Metorial
-       * * `OpenRouter` - OpenRouter
-       * * `TogetherAI` - TogetherAI
-       * * `Vapi` - Vapi
-       * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic
-       * * `Aiven` - Aiven
-       * * `Aviator` - Aviator
-       * * `Backblaze` - Backblaze
-       * * `Baseten` - Baseten
-       * * `Browserbase` - Browserbase
-       * * `Cohere` - Cohere
-       * * `DenoDeploy` - DenoDeploy
-       * * `DigitalOcean` - DigitalOcean
-       * * `E2B` - E2B
-       * * `Fintoc` - Fintoc
-       * * `Firecrawl` - Firecrawl
-       * * `FireworksAI` - FireworksAI
-       * * `FlyIo` - FlyIo
-       * * `Groq` - Groq
-       * * `GrowthBook` - GrowthBook
-       * * `Gumloop` - Gumloop
-       * * `Hatchet` - Hatchet
-       * * `Helicone` - Helicone
-       * * `Heroku` - Heroku
-       * * `Hetzner` - Hetzner
-       * * `HeyGen` - HeyGen
-       * * `Infisical` - Infisical
-       * * `Inngest` - Inngest
-       * * `KapaAI` - KapaAI
-       * * `Kernel` - Kernel
-       * * `Koyeb` - Koyeb
-       * * `LambdaLabs` - LambdaLabs
-       * * `LangSmith` - LangSmith
-       * * `Linode` - Linode
-       * * `Listmonk` - Listmonk
-       * * `LlamaCloud` - LlamaCloud
-       * * `Mem0` - Mem0
-       * * `Metriport` - Metriport
-       * * `Mintlify` - Mintlify
-       * * `MistralAI` - MistralAI
-       * * `Mono` - Mono
-       * * `Netlify` - Netlify
-       * * `Northflank` - Northflank
-       * * `OpenAI` - OpenAI
-       * * `Pinecone` - Pinecone
-       * * `PlatformSh` - PlatformSh
-       * * `PromptingCompany` - PromptingCompany
-       * * `Qdrant` - Qdrant
-       * * `Render` - Render
-       * * `Replicate` - Replicate
-       * * `RetellAI` - RetellAI
-       * * `Roark` - Roark
-       * * `RunPod` - RunPod
-       * * `ScaleAI` - ScaleAI
-       * * `Scaleway` - Scaleway
-       * * `SigNoz` - SigNoz
-       * * `Sim` - Sim
-       * * `Skyvern` - Skyvern
-       * * `Slash` - Slash
-       * * `Synthesia` - Synthesia
-       * * `Telli` - Telli
-       * * `TerraApi` - TerraApi
-       * * `TriggerDev` - TriggerDev
-       * * `Turso` - Turso
-       * * `Singular` - Singular
-       * * `Swonkie` - Swonkie
-       * * `TwelveLabs` - TwelveLabs
-       * * `Twenty` - Twenty
-       * * `Unstructured` - Unstructured
-       * * `Upstash` - Upstash
-       * * `Vellum` - Vellum
-       * * `Vultr` - Vultr
-       * * `Windmill` - Windmill
-       * * `Zep` - Zep
-       * * `Hex` - Hex
-       * * `Sumsub` - Sumsub
-       * * `GoogleChat` - GoogleChat
-       * * `Kickscale` - Kickscale
-       * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack
-       * * `DodoPayments` - DodoPayments
-       * * `Salestrics` - Salestrics
-       * * `Doppler` - Doppler
-       * * `Usersnap` - Usersnap
-       * * `Asknicely` - Asknicely
-       * * `Featurebase` - Featurebase
-       * * `Frill` - Frill
-       * * `Bettermode` - Bettermode
-       * * `Dynatrace` - Dynatrace
-       * * `Honeycomb` - Honeycomb
-       * * `SumoLogic` - SumoLogic
-       * * `LogzIO` - LogzIO
-       * * `Coralogix` - Coralogix
-       * * `BetterStack` - BetterStack
-       * * `Raygun` - Raygun
-       * * `Honeybadger` - Honeybadger
-       * * `Airbrake` - Airbrake
-       * * `Appsignal` - Appsignal
-       * * `Appdynamics` - Appdynamics
-       * * `Instana` - Instana
-       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
-       * * `Uptimerobot` - Uptimerobot
-       * * `Statuscake` - Statuscake
-       * * `Tailscale` - Tailscale
-       * * `Flagsmith` - Flagsmith
-       * * `Xmatters` - Xmatters
-       * * `Squadcast` - Squadcast
-       * * `Zenduty` - Zenduty
-       * * `Cronitor` - Cronitor
-       * * `Jenkins` - Jenkins
-       * * `Bitbucket` - Bitbucket
-       * * `Gitea` - Gitea
-       * * `Teamcity` - Teamcity
-       * * `TravisCI` - TravisCI
-       * * `Semaphore` - Semaphore
-       * * `CircleciInsights` - CircleciInsights
-       * * `OctopusDeploy` - OctopusDeploy
-       * * `Sourcegraph` - Sourcegraph
-       * * `Bitrise` - Bitrise
-       * * `Gerrit` - Gerrit
-       * * `TerraformCloud` - TerraformCloud
-       * * `PulumiCloud` - PulumiCloud
-       * * `Spacelift` - Spacelift
-       * * `Railway` - Railway
-       * * `Argocd` - Argocd
-       * * `PrefectCloud` - PrefectCloud
-       * * `DagsterCloud` - DagsterCloud
-       * * `Env0` - Env0
-       * * `Kubecost` - Kubecost
-       * * `Snyk` - Snyk
-       * * `Semgrep` - Semgrep
-       * * `Veracode` - Veracode
-       * * `Checkmarx` - Checkmarx
-       * * `Gitguardian` - Gitguardian
-       * * `QualysVmdr` - QualysVmdr
-       * * `Rapid7Insightvm` - Rapid7Insightvm
-       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
-       * * `Sentinelone` - Sentinelone
-       * * `Lacework` - Lacework
-       * * `OrcaSecurity` - OrcaSecurity
-       * * `Drata` - Drata
-       * * `Secureframe` - Secureframe
-       * * `CiscoDuo` - CiscoDuo
-       * * `Jumpcloud` - Jumpcloud
-       * * `OnePassword` - OnePassword
-       * * `Stytch` - Stytch
-       * * `Sonarqube` - Sonarqube
-       * * `Codecov` - Codecov
-       * * `Coveralls` - Coveralls
-       * * `Codacy` - Codacy
-       * * `Deepsource` - Deepsource
-       * * `Linearb` - Linearb
-       * * `Jellyfish` - Jellyfish
-       * * `Swarmia` - Swarmia
-       * * `Packagist` - Packagist
-       * * `Nuget` - Nuget
-       * * `CratesIO` - CratesIO
-       * * `SonatypeNexus` - SonatypeNexus
-       * * `JfrogArtifactory` - JfrogArtifactory
-       * * `Snowplow` - Snowplow
-       * * `WeightsAndBiases` - WeightsAndBiases
-       * * `MonteCarlo` - MonteCarlo
-       * * `Metaplane` - Metaplane
-       * * `Datahub` - Datahub
-       * * `ClickhouseCloud` - ClickhouseCloud
-       * * `ConfluentCloud` - ConfluentCloud
-       * * `KongKonnect` - KongKonnect
-       * * `Kandji` - Kandji
-       * * `Automox` - Automox
-       * * `Autumn` - Autumn
-       * * `GetStream` - GetStream
-       * * `Octolens` - Octolens
-       * * `Kajabi` - Kajabi
-       * * `Shopware` - Shopware
-       * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch
-       * * `Crisp` - Crisp
-       * * `Kommo` - Kommo
-       * * `Axiom` - Axiom
-       * * `Plivo` - Plivo
-       * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan
-       * * `AbTasty` - AbTasty
-       * * `Ably` - Ably
-       * * `AbnormalSecurity` - AbnormalSecurity
-       * * `Acast` - Acast
-       * * `Acculynx` - Acculynx
-       * * `Actionstep` - Actionstep
-       * * `Aftership` - Aftership
-       * * `AhaIdeas` - AhaIdeas
-       * * `AkamaiReporting` - AkamaiReporting
-       * * `Alation` - Alation
-       * * `Alegra` - Alegra
-       * * `Allegro` - Allegro
-       * * `AnodotCost` - AnodotCost
-       * * `Anomalo` - Anomalo
-       * * `Apaleo` - Apaleo
-       * * `Apitally` - Apitally
-       * * `AppStoreConnect` - AppStoreConnect
-       * * `Appdirect` - Appdirect
-       * * `Appfolio` - Appfolio
-       * * `Arxiv` - Arxiv
-       * * `Asaas` - Asaas
-       * * `Astronomer` - Astronomer
-       * * `Athenahealth` - Athenahealth
-       * * `Atlan` - Atlan
-       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
-       * * `Avalara` - Avalara
-       * * `AwsAthena` - AwsAthena
-       * * `AwsBatch` - AwsBatch
-       * * `AwsBudgets` - AwsBudgets
-       * * `AwsCloudformation` - AwsCloudformation
-       * * `AwsComputeOptimizer` - AwsComputeOptimizer
-       * * `AwsConfig` - AwsConfig
-       * * `AwsConnect` - AwsConnect
-       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
-       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
-       * * `AwsCostExplorer` - AwsCostExplorer
-       * * `AwsDocumentDB` - AwsDocumentDB
-       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
-       * * `AwsGuardduty` - AwsGuardduty
-       * * `AwsHealth` - AwsHealth
-       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
-       * * `AwsInspector` - AwsInspector
-       * * `AwsMacie` - AwsMacie
-       * * `AwsOrganizations` - AwsOrganizations
-       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
-       * * `AwsSagemaker` - AwsSagemaker
-       * * `AwsSavingsPlans` - AwsSavingsPlans
-       * * `AwsSecurityHub` - AwsSecurityHub
-       * * `AwsSes` - AwsSes
-       * * `AwsStepFunctions` - AwsStepFunctions
-       * * `AwsSupport` - AwsSupport
-       * * `AwsSystemsManager` - AwsSystemsManager
-       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
-       * * `AwsWaf` - AwsWaf
-       * * `AwsXray` - AwsXray
-       * * `AzureActivityLog` - AzureActivityLog
-       * * `AzureAdvisor` - AzureAdvisor
-       * * `AzureApiManagement` - AzureApiManagement
-       * * `AzureApplicationInsights` - AzureApplicationInsights
-       * * `AzureCostManagement` - AzureCostManagement
-       * * `AzureDataExplorer` - AzureDataExplorer
-       * * `AzureDataFactory` - AzureDataFactory
-       * * `AzureLogAnalytics` - AzureLogAnalytics
-       * * `AzureMonitorAlerts` - AzureMonitorAlerts
-       * * `AzureMonitorMetrics` - AzureMonitorMetrics
-       * * `AzureOpenaiUsage` - AzureOpenaiUsage
-       * * `AzurePolicyInsights` - AzurePolicyInsights
-       * * `AzureReservations` - AzureReservations
-       * * `AzureResourceGraph` - AzureResourceGraph
-       * * `AzureResourceHealth` - AzureResourceHealth
-       * * `AzureServiceHealth` - AzureServiceHealth
-       * * `AzureSynapse` - AzureSynapse
-       * * `BackMarket` - BackMarket
-       * * `Beehiiv` - Beehiiv
-       * * `Bigeye` - Bigeye
-       * * `BillCom` - BillCom
-       * * `Billomat` - Billomat
-       * * `BingWebmasterTools` - BingWebmasterTools
-       * * `Bitwarden` - Bitwarden
-       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
-       * * `BlackboardLearn` - BlackboardLearn
-       * * `Bling` - Bling
-       * * `Bloomerang` - Bloomerang
-       * * `Blueshift` - Blueshift
-       * * `Bluesky` - Bluesky
-       * * `BolRetailer` - BolRetailer
-       * * `Boulevard` - Boulevard
-       * * `Buffer` - Buffer
-       * * `Bugherd` - Bugherd
-       * * `Buildium` - Buildium
-       * * `Buttondown` - Buttondown
-       * * `BuyMeACoffee` - BuyMeACoffee
-       * * `Calendarific` - Calendarific
-       * * `Calibre` - Calibre
-       * * `CanvasLms` - CanvasLms
-       * * `Captivate` - Captivate
-       * * `Cashfree` - Cashfree
-       * * `CastAi` - CastAi
-       * * `Catchpoint` - Catchpoint
-       * * `CdcOpenData` - CdcOpenData
-       * * `Census` - Census
-       * * `Checkly` - Checkly
-       * * `CircleSo` - CircleSo
-       * * `Classy` - Classy
-       * * `Cleartax` - Cleartax
-       * * `Clever` - Clever
-       * * `Clevertap` - Clevertap
-       * * `Cliniko` - Cliniko
-       * * `Clio` - Clio
-       * * `Clip` - Clip
-       * * `Cloudability` - Cloudability
-       * * `Cloudsmith` - Cloudsmith
-       * * `Cloudzero` - Cloudzero
-       * * `Clover` - Clover
-       * * `Codemagic` - Codemagic
-       * * `Codescene` - Codescene
-       * * `Collibra` - Collibra
-       * * `Companycam` - Companycam
-       * * `Conekta` - Conekta
-       * * `ContaAzul` - ContaAzul
-       * * `Contentsquare` - Contentsquare
-       * * `Cortex` - Cortex
-       * * `Courier` - Courier
-       * * `Crossref` - Crossref
-       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
-       * * `CubeCloud` - CubeCloud
-       * * `D2lBrightspace` - D2lBrightspace
-       * * `Dayforce` - Dayforce
-       * * `Debugbear` - Debugbear
-       * * `Descope` - Descope
-       * * `Develocity` - Develocity
-       * * `Dialpad` - Dialpad
-       * * `Discord` - Discord
-       * * `Discourse` - Discourse
-       * * `Donorbox` - Donorbox
-       * * `Doorloop` - Doorloop
-       * * `Dovetail` - Dovetail
-       * * `Dragonboat` - Dragonboat
-       * * `Drchrono` - Drchrono
-       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
-       * * `EcbDataPortal` - EcbDataPortal
-       * * `Emarsys` - Emarsys
-       * * `Embrace` - Embrace
-       * * `Entsoe` - Entsoe
-       * * `Eppo` - Eppo
-       * * `Etsy` - Etsy
-       * * `Eurostat` - Eurostat
-       * * `Faire` - Faire
-       * * `FarosAi` - FarosAi
-       * * `Fieldpulse` - Fieldpulse
-       * * `Fieldwire` - Fieldwire
-       * * `Filevine` - Filevine
-       * * `Finout` - Finout
-       * * `Five9` - Five9
-       * * `FlexeraCloudCost` - FlexeraCloudCost
-       * * `Flutterwave` - Flutterwave
-       * * `Fortnox` - Fortnox
-       * * `Fourthwall` - Fourthwall
-       * * `Fred` - Fred
-       * * `Frontegg` - Frontegg
-       * * `FusionAuth` - FusionAuth
-       * * `G2` - G2
-       * * `Gcore` - Gcore
-       * * `GcpApigee` - GcpApigee
-       * * `GcpArtifactRegistry` - GcpArtifactRegistry
-       * * `GcpBigtable` - GcpBigtable
-       * * `GcpChronicle` - GcpChronicle
-       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
-       * * `GcpCloudBilling` - GcpCloudBilling
-       * * `GcpCloudBuild` - GcpCloudBuild
-       * * `GcpCloudDeploy` - GcpCloudDeploy
-       * * `GcpCloudDns` - GcpCloudDns
-       * * `GcpCloudFunctions` - GcpCloudFunctions
-       * * `GcpCloudLogging` - GcpCloudLogging
-       * * `GcpCloudMonitoring` - GcpCloudMonitoring
-       * * `GcpCloudRun` - GcpCloudRun
-       * * `GcpCloudSpanner` - GcpCloudSpanner
-       * * `GcpCloudSql` - GcpCloudSql
-       * * `GcpCloudTrace` - GcpCloudTrace
-       * * `GcpCloudWorkflows` - GcpCloudWorkflows
-       * * `GcpComputeEngine` - GcpComputeEngine
-       * * `GcpContainerAnalysis` - GcpContainerAnalysis
-       * * `GcpDataflow` - GcpDataflow
-       * * `GcpDataplex` - GcpDataplex
-       * * `GcpDataproc` - GcpDataproc
-       * * `GcpErrorReporting` - GcpErrorReporting
-       * * `GcpGke` - GcpGke
-       * * `GcpPubsub` - GcpPubsub
-       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
-       * * `GcpRecommender` - GcpRecommender
-       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
-       * * `Gdelt` - Gdelt
-       * * `GenesysCloud` - GenesysCloud
-       * * `Getdx` - Getdx
-       * * `Ghost` - Ghost
-       * * `Givebutter` - Givebutter
-       * * `Gleif` - Gleif
-       * * `GooglePlayConsole` - GooglePlayConsole
-       * * `Guesty` - Guesty
-       * * `Gumroad` - Gumroad
-       * * `HarnessCcm` - HarnessCcm
-       * * `HarnessSei` - HarnessSei
-       * * `Harvest` - Harvest
-       * * `Healthie` - Healthie
-       * * `Hitpay` - Hitpay
-       * * `Hivebrite` - Hivebrite
-       * * `Holded` - Holded
-       * * `Hostaway` - Hostaway
-       * * `HousecallPro` - HousecallPro
-       * * `Humanitec` - Humanitec
-       * * `ImfData` - ImfData
-       * * `Imperva` - Imperva
-       * * `InfluxdbCloud` - InfluxdbCloud
-       * * `Iyzico` - Iyzico
-       * * `Jobtread` - Jobtread
-       * * `Kameleoon` - Kameleoon
-       * * `KauflandMarketplace` - KauflandMarketplace
-       * * `Kestra` - Kestra
-       * * `Kick` - Kick
-       * * `Kinde` - Kinde
-       * * `Kion` - Kion
-       * * `Knowbe4` - Knowbe4
-       * * `Komodor` - Komodor
-       * * `Labelbox` - Labelbox
-       * * `Lawmatics` - Lawmatics
-       * * `Learnworlds` - Learnworlds
-       * * `LexwareOffice` - LexwareOffice
-       * * `Lightdash` - Lightdash
-       * * `Lodgify` - Lodgify
-       * * `Logicmonitor` - Logicmonitor
-       * * `Logrocket` - Logrocket
-       * * `LoopReturns` - LoopReturns
-       * * `Mastodon` - Mastodon
-       * * `Meetup` - Meetup
-       * * `Megaphone` - Megaphone
-       * * `Memberful` - Memberful
-       * * `MercadoPago` - MercadoPago
-       * * `Meteostat` - Meteostat
-       * * `Mews` - Mews
-       * * `Mezmo` - Mezmo
-       * * `Microsoft365UsageReports` - Microsoft365UsageReports
-       * * `MicrosoftAdvertising` - MicrosoftAdvertising
-       * * `MicrosoftClarity` - MicrosoftClarity
-       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
-       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
-       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
-       * * `MicrosoftIntune` - MicrosoftIntune
-       * * `MicrosoftPurview` - MicrosoftPurview
-       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
-       * * `MicrosoftSentinel` - MicrosoftSentinel
-       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
-       * * `Midtrans` - Midtrans
-       * * `MightyNetworks` - MightyNetworks
-       * * `Mindbody` - Mindbody
-       * * `Mirakl` - Mirakl
-       * * `Moesif` - Moesif
-       * * `Moneybird` - Moneybird
-       * * `Moodle` - Moodle
-       * * `Motherduck` - Motherduck
-       * * `Mycase` - Mycase
-       * * `NagerDate` - NagerDate
-       * * `NeonCrm` - NeonCrm
-       * * `Nexhealth` - Nexhealth
-       * * `NoaaCdo` - NoaaCdo
-       * * `Nobl9` - Nobl9
-       * * `Nolt` - Nolt
-       * * `Nops` - Nops
-       * * `NpmRegistry` - NpmRegistry
-       * * `Oecd` - Oecd
-       * * `Okendo` - Okendo
-       * * `Omni` - Omni
-       * * `Onelogin` - Onelogin
-       * * `OpenDental` - OpenDental
-       * * `OpenMeteo` - OpenMeteo
-       * * `Openalex` - Openalex
-       * * `Opencorporates` - Opencorporates
-       * * `Openfec` - Openfec
-       * * `OpnPayments` - OpnPayments
-       * * `Opslevel` - Opslevel
-       * * `OttoMarket` - OttoMarket
-       * * `Ownerrez` - Ownerrez
-       * * `Pagbank` - Pagbank
-       * * `Patreon` - Patreon
-       * * `Pax8` - Pax8
-       * * `Paychex` - Paychex
-       * * `Paymob` - Paymob
-       * * `Paymongo` - Paymongo
-       * * `Phonepe` - Phonepe
-       * * `Pike13` - Pike13
-       * * `Pingone` - Pingone
-       * * `PinterestOrganic` - PinterestOrganic
-       * * `PlanningCenter` - PlanningCenter
-       * * `PluralsightFlow` - PluralsightFlow
-       * * `Podbean` - Podbean
-       * * `Postscript` - Postscript
-       * * `PowerBiAdmin` - PowerBiAdmin
-       * * `Practicepanther` - Practicepanther
-       * * `Preset` - Preset
-       * * `Procore` - Procore
-       * * `Productiv` - Productiv
-       * * `ProofpointTap` - ProofpointTap
-       * * `Propertyware` - Propertyware
-       * * `Pubnub` - Pubnub
-       * * `Quay` - Quay
-       * * `Raken` - Raken
-       * * `RedpandaCloud` - RedpandaCloud
-       * * `RentManager` - RentManager
-       * * `Reverb` - Reverb
-       * * `RocketMatter` - RocketMatter
-       * * `Rubygems` - Rubygems
-       * * `Scalr` - Scalr
-       * * `SecEdgar` - SecEdgar
-       * * `SelectStar` - SelectStar
-       * * `SemanticScholar` - SemanticScholar
-       * * `Semrush` - Semrush
-       * * `ServiceFusion` - ServiceFusion
-       * * `Servicem8` - Servicem8
-       * * `Servicetitan` - Servicetitan
-       * * `Servicetrade` - Servicetrade
-       * * `Sevdesk` - Sevdesk
-       * * `Similarweb` - Similarweb
-       * * `Simpro` - Simpro
-       * * `Sinch` - Sinch
-       * * `Singlestore` - Singlestore
-       * * `Site24x7` - Site24x7
-       * * `Sleuth` - Sleuth
-       * * `Smartlook` - Smartlook
-       * * `Smartrecruiters` - Smartrecruiters
-       * * `Smokeball` - Smokeball
-       * * `SodaCloud` - SodaCloud
-       * * `Speedcurve` - Speedcurve
-       * * `SpotIo` - SpotIo
-       * * `Sprig` - Sprig
-       * * `Sprinklr` - Sprinklr
-       * * `SproutSocial` - SproutSocial
-       * * `StackOverflowForTeams` - StackOverflowForTeams
-       * * `Stockx` - Stockx
-       * * `TackleIo` - TackleIo
-       * * `Talkdesk` - Talkdesk
-       * * `TeamupFitness` - TeamupFitness
-       * * `Tebra` - Tebra
-       * * `Telnyx` - Telnyx
-       * * `Ternary` - Ternary
-       * * `Thoughtspot` - Thoughtspot
-       * * `Thousandeyes` - Thousandeyes
-       * * `Threads` - Threads
-       * * `TiktokShop` - TiktokShop
-       * * `TinyErp` - TinyErp
-       * * `Tinybird` - Tinybird
-       * * `Tipalti` - Tipalti
-       * * `Toast` - Toast
-       * * `Torii` - Torii
-       * * `Transistor` - Transistor
-       * * `TrunkIo` - TrunkIo
-       * * `Trustradius` - Trustradius
-       * * `Twitch` - Twitch
-       * * `TwoC2p` - TwoC2p
-       * * `UkCompaniesHouse` - UkCompaniesHouse
-       * * `UkOns` - UkOns
-       * * `UnComtrade` - UnComtrade
-       * * `UsBea` - UsBea
-       * * `UsBls` - UsBls
-       * * `UsEia` - UsEia
-       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
-       * * `Vanta` - Vanta
-       * * `Vendr` - Vendr
-       * * `Virtuous` - Virtuous
-       * * `Vonage` - Vonage
-       * * `WalmartMarketplace` - WalmartMarketplace
-       * * `Waydev` - Waydev
-       * * `Wayfair` - Wayfair
-       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
-       * * `WhoGho` - WhoGho
-       * * `Whop` - Whop
-       * * `Wistia` - Wistia
-       * * `Wiz` - Wiz
-       * * `Wompi` - Wompi
-       * * `Workiz` - Workiz
-       * * `WorldBank` - WorldBank
-       * * `Xendit` - Xendit
-       * * `Yoco` - Yoco
-       * * `ZalandoZdirect` - ZalandoZdirect
-       * * `Zluri` - Zluri
-       * * `Zylo` - Zylo
-       * * `Tally` - Tally
-       * * `Nuntly` - Nuntly
-       * * `Vturb` - Vturb
-       * * `Meltwater` - Meltwater
-       * * `UserCom` - UserCom
-       * * `Latitude` - Latitude
-       * * `Workato` - Workato
-       * * `SideShift` - SideShift
-       * * `DuckLake` - DuckLake
-       * * `Starburst` - Starburst
-       * * `Trino` - Trino
-       * * `Easybill` - Easybill
-       * * `Bexio` - Bexio
-       * * `Umami` - Umami
-       * * `Manychat` - Manychat
-       * * `Kickstarter` - Kickstarter
-       * * `Typesense` - Typesense
-       * * `FirstPromoter` - FirstPromoter
-       * * `Zero` - Zero
-       * * `Inth` - Inth
-       * * `BCMS` - BCMS
-       * * `Convonite` - Convonite
-       * * `Hookdeck` - Hookdeck
-       * * `Billit` - Billit
-       * * `Moxie` - Moxie
-       * * `TripleWhale` - TripleWhale
-       * * `Directus` - Directus
-       * * `Clay` - Clay
-       * * `TradableBits` - TradableBits
-       * * `Swan` - Swan
-       * * `Hyros` - Hyros
-       * * `Odoo` - Odoo
-       * * `Airbridge` - Airbridge
-       * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter
-       * * `Raisely` - Raisely
-       * * `RakutenAdvertising` - RakutenAdvertising
-       * * `Zitadel` - Zitadel
-       * * `DeelFlows` - DeelFlows
-       * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix
-       * * `Sevalla` - Sevalla
-       * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner
-       * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare
-       * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91
-       * * `Depot` - Depot
-       * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy
-       * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart
-       * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound
-       * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi
-       * * `Capterra` - Capterra
-       * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi
-       * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS
-       * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox
-       * * `SimonData` - SimonData
-       * * `CommissionJunction` - CommissionJunction
-       * * `Liveblocks` - Liveblocks
-       * * `Livestorm` - Livestorm
-       * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana
-       * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable
-       * * `Anvil` - Anvil
-       * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato
-       * * `Medusa` - Medusa
-       * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin
-       * * `Folk` - Folk
-       * * `Cybersource` - Cybersource
-       * * `GoogleAdSense` - GoogleAdSense
-       * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio
-       * * `Smartlead` - Smartlead
-       * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket
-       * * `Quo` - Quo
-       * * `HeyReach` - HeyReach
-       * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet
-       * * `Expo` - Expo
-       * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer
-       * * `Sprinto` - Sprinto
-       * * `Gem` - Gem
-       * * `AudioGO` - AudioGO
-       * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs
-       * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura
-       * * `ChargebackStop` - ChargebackStop
-       * * `Chargeflow` - Chargeflow
-       * * `Dreamdata` - Dreamdata
-       * * `GoogleBusinessProfile` - GoogleBusinessProfile
-       * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite
-       * * `Modal` - Modal
-       * * `Vimeo` - Vimeo
-       * * `Scrunch` - Scrunch
-       * * `Loom` - Loom
-       * * `Arcade` - Arcade
-       * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom
-       * * `Userback` - Userback
-       * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution
-       * * `StackAdapt` - StackAdapt
-       * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay
-       * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud
-       * * `Northbeam` - Northbeam
-       * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO
-       * * `Airship` - Airship
-       * * `Creem` - Creem
-       * * `Leantime` - Leantime
-       * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob
-       * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2
-       * * `Particle` - Particle
-       * * `FileUpload` - FileUpload
-       * * `Dripify` - Dripify
-       * * `AwsS3Tables` - AwsS3Tables
-       * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments
-       * * `Soniox` - Soniox */
-      source_type: ExternalDataSourceTypeEnum;
+      /** The source type to preview. Only 'Custom' (a user-defined REST API) is supported today. */
+      source_type: string;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
       /** Which manifest resource (table) to read a sample from — one of the resource names in manifest_json. */
@@ -114980,1421 +106493,8 @@ export namespace Schemas {
     export type SourceSetupPayload = { [key: string]: unknown };
 
     export interface SourceSetup {
-      /** The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot').
-       *
-       * * `Ashby` - Ashby
-       * * `Supabase` - Supabase
-       * * `CustomerIO` - CustomerIO
-       * * `Github` - Github
-       * * `Stripe` - Stripe
-       * * `Hubspot` - Hubspot
-       * * `Postgres` - Postgres
-       * * `Zendesk` - Zendesk
-       * * `Snowflake` - Snowflake
-       * * `Salesforce` - Salesforce
-       * * `MySQL` - MySQL
-       * * `MongoDB` - MongoDB
-       * * `MSSQL` - MSSQL
-       * * `Vitally` - Vitally
-       * * `BigQuery` - BigQuery
-       * * `Chargebee` - Chargebee
-       * * `Clerk` - Clerk
-       * * `GoogleAds` - GoogleAds
-       * * `GoogleSearchConsole` - GoogleSearchConsole
-       * * `TemporalIO` - TemporalIO
-       * * `DoIt` - DoIt
-       * * `GoogleSheets` - GoogleSheets
-       * * `MetaAds` - MetaAds
-       * * `Klaviyo` - Klaviyo
-       * * `Mailchimp` - Mailchimp
-       * * `Braze` - Braze
-       * * `Mailjet` - Mailjet
-       * * `Redshift` - Redshift
-       * * `Polar` - Polar
-       * * `RevenueCat` - RevenueCat
-       * * `LinkedinAds` - LinkedinAds
-       * * `RedditAds` - RedditAds
-       * * `TikTokAds` - TikTokAds
-       * * `BingAds` - BingAds
-       * * `Shopify` - Shopify
-       * * `Attio` - Attio
-       * * `SnapchatAds` - SnapchatAds
-       * * `Linear` - Linear
-       * * `LiteLLM` - LiteLLM
-       * * `Intercom` - Intercom
-       * * `Amplitude` - Amplitude
-       * * `Mixpanel` - Mixpanel
-       * * `Jira` - Jira
-       * * `ActiveCampaign` - ActiveCampaign
-       * * `Marketo` - Marketo
-       * * `Adjust` - Adjust
-       * * `AppsFlyer` - AppsFlyer
-       * * `Freshdesk` - Freshdesk
-       * * `GoogleAnalytics` - GoogleAnalytics
-       * * `Pipedrive` - Pipedrive
-       * * `SendGrid` - SendGrid
-       * * `Slack` - Slack
-       * * `PagerDuty` - PagerDuty
-       * * `Asana` - Asana
-       * * `Notion` - Notion
-       * * `Airtable` - Airtable
-       * * `Greenhouse` - Greenhouse
-       * * `BambooHR` - BambooHR
-       * * `Lever` - Lever
-       * * `GitLab` - GitLab
-       * * `Datadog` - Datadog
-       * * `Sentry` - Sentry
-       * * `Pendo` - Pendo
-       * * `FullStory` - FullStory
-       * * `AmazonAds` - AmazonAds
-       * * `PinterestAds` - PinterestAds
-       * * `AppleSearchAds` - AppleSearchAds
-       * * `QuickBooks` - QuickBooks
-       * * `Xero` - Xero
-       * * `NetSuite` - NetSuite
-       * * `WooCommerce` - WooCommerce
-       * * `BigCommerce` - BigCommerce
-       * * `PayPal` - PayPal
-       * * `Square` - Square
-       * * `Zoom` - Zoom
-       * * `Trello` - Trello
-       * * `TrafficStars` - TrafficStars
-       * * `Monday` - Monday
-       * * `ClickUp` - ClickUp
-       * * `Confluence` - Confluence
-       * * `Recurly` - Recurly
-       * * `SalesLoft` - SalesLoft
-       * * `Outreach` - Outreach
-       * * `Gong` - Gong
-       * * `Calendly` - Calendly
-       * * `Typeform` - Typeform
-       * * `UnityAds` - UnityAds
-       * * `Iterable` - Iterable
-       * * `ZohoCRM` - ZohoCRM
-       * * `Close` - Close
-       * * `Oracle` - Oracle
-       * * `DynamoDB` - DynamoDB
-       * * `Elasticsearch` - Elasticsearch
-       * * `Kafka` - Kafka
-       * * `LaunchDarkly` - LaunchDarkly
-       * * `Braintree` - Braintree
-       * * `Recharge` - Recharge
-       * * `HelpScout` - HelpScout
-       * * `Gorgias` - Gorgias
-       * * `Instagram` - Instagram
-       * * `YouTubeAnalytics` - YouTubeAnalytics
-       * * `FacebookPages` - FacebookPages
-       * * `TwitterAds` - TwitterAds
-       * * `Workday` - Workday
-       * * `ServiceNow` - ServiceNow
-       * * `Pardot` - Pardot
-       * * `Copper` - Copper
-       * * `Front` - Front
-       * * `ChartMogul` - ChartMogul
-       * * `Zuora` - Zuora
-       * * `Paddle` - Paddle
-       * * `CircleCI` - CircleCI
-       * * `CockroachDB` - CockroachDB
-       * * `Firebase` - Firebase
-       * * `AzureBlob` - AzureBlob
-       * * `GoogleDrive` - GoogleDrive
-       * * `OneDrive` - OneDrive
-       * * `SharePoint` - SharePoint
-       * * `Box` - Box
-       * * `SFTP` - SFTP
-       * * `MicrosoftTeams` - MicrosoftTeams
-       * * `Aircall` - Aircall
-       * * `Webflow` - Webflow
-       * * `Okta` - Okta
-       * * `Auth0` - Auth0
-       * * `Productboard` - Productboard
-       * * `Smartsheet` - Smartsheet
-       * * `Wrike` - Wrike
-       * * `Plaid` - Plaid
-       * * `SurveyMonkey` - SurveyMonkey
-       * * `Eventbrite` - Eventbrite
-       * * `Everflow` - Everflow
-       * * `RingCentral` - RingCentral
-       * * `Twilio` - Twilio
-       * * `Freshsales` - Freshsales
-       * * `Shortcut` - Shortcut
-       * * `ConvertKit` - ConvertKit
-       * * `Drip` - Drip
-       * * `CampaignMonitor` - CampaignMonitor
-       * * `MailerLite` - MailerLite
-       * * `Omnisend` - Omnisend
-       * * `Brevo` - Brevo
-       * * `Postmark` - Postmark
-       * * `Granola` - Granola
-       * * `BuildBetter` - BuildBetter
-       * * `Convex` - Convex
-       * * `ClickHouse` - ClickHouse
-       * * `Plain` - Plain
-       * * `Resend` - Resend
-       * * `PgAnalyze` - PgAnalyze
-       * * `WorkOS` - WorkOS
-       * * `AmazonS3` - AmazonS3
-       * * `GoogleCloudStorage` - GoogleCloudStorage
-       * * `Databricks` - Databricks
-       * * `Dynamics365` - Dynamics365
-       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
-       * * `Db2` - Db2
-       * * `Heap` - Heap
-       * * `AdobeAnalytics` - AdobeAnalytics
-       * * `Matomo` - Matomo
-       * * `Optimizely` - Optimizely
-       * * `Adyen` - Adyen
-       * * `GoCardless` - GoCardless
-       * * `Mollie` - Mollie
-       * * `CheckoutCom` - CheckoutCom
-       * * `Branch` - Branch
-       * * `Criteo` - Criteo
-       * * `Outbrain` - Outbrain
-       * * `Taboola` - Taboola
-       * * `AdRoll` - AdRoll
-       * * `DisplayVideo360` - DisplayVideo360
-       * * `GoogleAdManager` - GoogleAdManager
-       * * `CampaignManager360` - CampaignManager360
-       * * `SearchAds360` - SearchAds360
-       * * `AdobeCommerce` - AdobeCommerce
-       * * `AmazonSellingPartner` - AmazonSellingPartner
-       * * `Ebay` - Ebay
-       * * `Commercetools` - Commercetools
-       * * `LightspeedRetail` - LightspeedRetail
-       * * `Shipmail` - Shipmail
-       * * `ShipStation` - ShipStation
-       * * `ConstantContact` - ConstantContact
-       * * `Mailgun` - Mailgun
-       * * `Eloqua` - Eloqua
-       * * `Sailthru` - Sailthru
-       * * `Ortto` - Ortto
-       * * `Attentive` - Attentive
-       * * `Kustomer` - Kustomer
-       * * `Dixa` - Dixa
-       * * `Gladly` - Gladly
-       * * `Qualtrics` - Qualtrics
-       * * `AzureDevOps` - AzureDevOps
-       * * `RoktAds` - RoktAds
-       * * `Rollbar` - Rollbar
-       * * `Opsgenie` - Opsgenie
-       * * `IncidentIo` - IncidentIo
-       * * `Pingdom` - Pingdom
-       * * `Cloudflare` - Cloudflare
-       * * `CloudflareD1` - CloudflareD1
-       * * `CosmosDB` - CosmosDB
-       * * `PlanetScaleMySQL` - PlanetScaleMySQL
-       * * `PlanetScalePostgres` - PlanetScalePostgres
-       * * `Plane` - Plane
-       * * `Scarf` - Scarf
-       * * `SapHana` - SapHana
-       * * `Rippling` - Rippling
-       * * `HiBob` - HiBob
-       * * `Personio` - Personio
-       * * `Deel` - Deel
-       * * `AdpWorkforceNow` - AdpWorkforceNow
-       * * `Paylocity` - Paylocity
-       * * `Gusto` - Gusto
-       * * `CultureAmp` - CultureAmp
-       * * `Lattice` - Lattice
-       * * `SageIntacct` - SageIntacct
-       * * `FreshBooks` - FreshBooks
-       * * `Expensify` - Expensify
-       * * `Ramp` - Ramp
-       * * `Brex` - Brex
-       * * `Coupa` - Coupa
-       * * `SapConcur` - SapConcur
-       * * `Apollo` - Apollo
-       * * `Crunchbase` - Crunchbase
-       * * `ZoomInfo` - ZoomInfo
-       * * `Clari` - Clari
-       * * `Chorus` - Chorus
-       * * `Coda` - Coda
-       * * `Guru` - Guru
-       * * `Dropbox` - Dropbox
-       * * `Docusign` - Docusign
-       * * `PandaDoc` - PandaDoc
-       * * `SapErp` - SapErp
-       * * `SapSuccessFactors` - SapSuccessFactors
-       * * `OracleEbs` - OracleEbs
-       * * `OracleFusion` - OracleFusion
-       * * `AmazonSNS` - AmazonSNS
-       * * `AmazonEventBridge` - AmazonEventBridge
-       * * `AmazonSQS` - AmazonSQS
-       * * `AmazonKinesis` - AmazonKinesis
-       * * `AmazonCloudWatch` - AmazonCloudWatch
-       * * `OpenAIAds` - OpenAIAds
-       * * `OneHundredMs` - OneHundredMs
-       * * `SevenShifts` - SevenShifts
-       * * `AcuityScheduling` - AcuityScheduling
-       * * `AgileCRM` - AgileCRM
-       * * `Aha` - Aha
-       * * `Airbyte` - Airbyte
-       * * `Akeneo` - Akeneo
-       * * `Algolia` - Algolia
-       * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
-       * * `ApifyDataset` - ApifyDataset
-       * * `Appcues` - Appcues
-       * * `Appfigures` - Appfigures
-       * * `Appfollow` - Appfollow
-       * * `Apptivo` - Apptivo
-       * * `AssemblyAI` - AssemblyAI
-       * * `Awin` - Awin
-       * * `AwsCloudTrail` - AwsCloudTrail
-       * * `AzureTableStorage` - AzureTableStorage
-       * * `Babelforce` - Babelforce
-       * * `Basecamp` - Basecamp
-       * * `Beamer` - Beamer
-       * * `BigMailer` - BigMailer
-       * * `Bluetally` - Bluetally
-       * * `BoldSign` - BoldSign
-       * * `BreezyHR` - BreezyHR
-       * * `Bugsnag` - Bugsnag
-       * * `Buildkite` - Buildkite
-       * * `Bunny` - Bunny
-       * * `Buzzsprout` - Buzzsprout
-       * * `CalCom` - CalCom
-       * * `CallRail` - CallRail
-       * * `Campayn` - Campayn
-       * * `Canny` - Canny
-       * * `CapsuleCRM` - CapsuleCRM
-       * * `CaptainData` - CaptainData
-       * * `CartCom` - CartCom
-       * * `CastorEDC` - CastorEDC
-       * * `Chameleon` - Chameleon
-       * * `Chargedesk` - Chargedesk
-       * * `Chargify` - Chargify
-       * * `Chift` - Chift
-       * * `Churnkey` - Churnkey
-       * * `Cin7` - Cin7
-       * * `CiscoMeraki` - CiscoMeraki
-       * * `Clazar` - Clazar
-       * * `Clockify` - Clockify
-       * * `Clockodo` - Clockodo
-       * * `Cloudbeds` - Cloudbeds
-       * * `Coassemble` - Coassemble
-       * * `Codefresh` - Codefresh
-       * * `Concord` - Concord
-       * * `ConfigCat` - ConfigCat
-       * * `Couchbase` - Couchbase
-       * * `Curve` - Curve
-       * * `Customerly` - Customerly
-       * * `Datascope` - Datascope
-       * * `Dbt` - Dbt
-       * * `Demodesk` - Demodesk
-       * * `Deputy` - Deputy
-       * * `DevinAI` - DevinAI
-       * * `Docuseal` - Docuseal
-       * * `Dolibarr` - Dolibarr
-       * * `Dremio` - Dremio
-       * * `DropboxSign` - DropboxSign
-       * * `Dwolla` - Dwolla
-       * * `EConomic` - EConomic
-       * * `Easypost` - Easypost
-       * * `Easypromos` - Easypromos
-       * * `Elasticemail` - Elasticemail
-       * * `EmailOctopus` - EmailOctopus
-       * * `EmploymentHero` - EmploymentHero
-       * * `Encharge` - Encharge
-       * * `Eventee` - Eventee
-       * * `Eventzilla` - Eventzilla
-       * * `Everhour` - Everhour
-       * * `EZOfficeInventory` - EZOfficeInventory
-       * * `Factorial` - Factorial
-       * * `Fastbill` - Fastbill
-       * * `Fastly` - Fastly
-       * * `Fauna` - Fauna
-       * * `Feishu` - Feishu
-       * * `Fillout` - Fillout
-       * * `Finage` - Finage
-       * * `Firebolt` - Firebolt
-       * * `FireHydrant` - FireHydrant
-       * * `Fleetio` - Fleetio
-       * * `Flexmail` - Flexmail
-       * * `Flexport` - Flexport
-       * * `FloatApp` - FloatApp
-       * * `Flowlu` - Flowlu
-       * * `Formbricks` - Formbricks
-       * * `Framer` - Framer
-       * * `FreeAgent` - FreeAgent
-       * * `Freightview` - Freightview
-       * * `Freshcaller` - Freshcaller
-       * * `Freshchat` - Freshchat
-       * * `Freshservice` - Freshservice
-       * * `Fulcrum` - Fulcrum
-       * * `GainsightCs` - GainsightCs
-       * * `GainsightPx` - GainsightPx
-       * * `GitBook` - GitBook
-       * * `Glassfrog` - Glassfrog
-       * * `Goldcast` - Goldcast
-       * * `GoLogin` - GoLogin
-       * * `Grafana` - Grafana
-       * * `GreytHr` - GreytHr
-       * * `Gridly` - Gridly
-       * * `Harness` - Harness
-       * * `Height` - Height
-       * * `Hellobaton` - Hellobaton
-       * * `HighLevel` - HighLevel
-       * * `HoorayHR` - HoorayHR
-       * * `Hubplanner` - Hubplanner
-       * * `Humanitix` - Humanitix
-       * * `Huntr` - Huntr
-       * * `Inflowinventory` - Inflowinventory
-       * * `InforNexus` - InforNexus
-       * * `Insightful` - Insightful
-       * * `Insightly` - Insightly
-       * * `Instantly` - Instantly
-       * * `Instatus` - Instatus
-       * * `Intruder` - Intruder
-       * * `Invoiced` - Invoiced
-       * * `Invoiceninja` - Invoiceninja
-       * * `JamfPro` - JamfPro
-       * * `JobNimbus` - JobNimbus
-       * * `Jotform` - Jotform
-       * * `JudgeMeReviews` - JudgeMeReviews
-       * * `JustCall` - JustCall
-       * * `JustSift` - JustSift
-       * * `K6Cloud` - K6Cloud
-       * * `Katana` - Katana
-       * * `Keka` - Keka
-       * * `Kisi` - Kisi
-       * * `Kissmetrics` - Kissmetrics
-       * * `Klarna` - Klarna
-       * * `Klaus` - Klaus
-       * * `Lago` - Lago
-       * * `Leadfeeder` - Leadfeeder
-       * * `Lemlist` - Lemlist
-       * * `LessAnnoyingCRM` - LessAnnoyingCRM
-       * * `LinkedinPages` - LinkedinPages
-       * * `Linkrunner` - Linkrunner
-       * * `Linnworks` - Linnworks
-       * * `Lob` - Lob
-       * * `Lokalise` - Lokalise
-       * * `Looker` - Looker
-       * * `Luma` - Luma
-       * * `MailerSend` - MailerSend
-       * * `Mailosaur` - Mailosaur
-       * * `Mailtrap` - Mailtrap
-       * * `Mantle` - Mantle
-       * * `Mention` - Mention
-       * * `MercadoAds` - MercadoAds
-       * * `Merge` - Merge
-       * * `Metabase` - Metabase
-       * * `Metricool` - Metricool
-       * * `MicrosoftDataverse` - MicrosoftDataverse
-       * * `MicrosoftEntraId` - MicrosoftEntraId
-       * * `MicrosoftLists` - MicrosoftLists
-       * * `Miro` - Miro
-       * * `Missive` - Missive
-       * * `MixMax` - MixMax
-       * * `Mode` - Mode
-       * * `Mux` - Mux
-       * * `MyHours` - MyHours
-       * * `N8n` - N8n
-       * * `Navan` - Navan
-       * * `NebiusAI` - NebiusAI
-       * * `Nexiopay` - Nexiopay
-       * * `NinjaOneRMM` - NinjaOneRMM
-       * * `NoCRM` - NoCRM
-       * * `NorthpassLMS` - NorthpassLMS
-       * * `Nutshell` - Nutshell
-       * * `Nylas` - Nylas
-       * * `Oncehub` - Oncehub
-       * * `Onepagecrm` - Onepagecrm
-       * * `OneSignal` - OneSignal
-       * * `Onfleet` - Onfleet
-       * * `OpinionStage` - OpinionStage
-       * * `OPUSWatch` - OPUSWatch
-       * * `Orb` - Orb
-       * * `Orbit` - Orbit
-       * * `Oura` - Oura
-       * * `Oveit` - Oveit
-       * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
-       * * `Paperform` - Paperform
-       * * `Papersign` - Papersign
-       * * `Partnerize` - Partnerize
-       * * `PartnerStack` - PartnerStack
-       * * `PayFit` - PayFit
-       * * `Paystack` - Paystack
-       * * `Pennylane` - Pennylane
-       * * `Perk` - Perk
-       * * `PersistIq` - PersistIq
-       * * `Persona` - Persona
-       * * `Phyllo` - Phyllo
-       * * `Picqer` - Picqer
-       * * `Pipeliner` - Pipeliner
-       * * `PivotalTracker` - PivotalTracker
-       * * `Piwik` - Piwik
-       * * `Planhat` - Planhat
-       * * `Plausible` - Plausible
-       * * `Poplar` - Poplar
-       * * `PrestaShop` - PrestaShop
-       * * `Pretix` - Pretix
-       * * `Primetric` - Primetric
-       * * `Printavo` - Printavo
-       * * `Printify` - Printify
-       * * `Productive` - Productive
-       * * `Pylon` - Pylon
-       * * `Qonto` - Qonto
-       * * `Qualaroo` - Qualaroo
-       * * `Railz` - Railz
-       * * `RDStationMarketing` - RDStationMarketing
-       * * `Recruitee` - Recruitee
-       * * `Reddit` - Reddit
-       * * `ReferralHero` - ReferralHero
-       * * `RentCast` - RentCast
-       * * `Repairshopr` - Repairshopr
-       * * `ReplyIo` - ReplyIo
-       * * `RetailExpress` - RetailExpress
-       * * `Retently` - Retently
-       * * `Retreaver` - Retreaver
-       * * `RevolutMerchant` - RevolutMerchant
-       * * `RocketChat` - RocketChat
-       * * `Rocketlane` - Rocketlane
-       * * `Rootly` - Rootly
-       * * `Ruddr` - Ruddr
-       * * `SafetyCulture` - SafetyCulture
-       * * `SageHR` - SageHR
-       * * `Salesflare` - Salesflare
-       * * `SAPFieldglass` - SAPFieldglass
-       * * `SavvyCal` - SavvyCal
-       * * `Secoda` - Secoda
-       * * `Segment` - Segment
-       * * `Sendowl` - Sendowl
-       * * `SendPulse` - SendPulse
-       * * `Senseforce` - Senseforce
-       * * `Serpstat` - Serpstat
-       * * `Sharetribe` - Sharetribe
-       * * `Shippo` - Shippo
-       * * `ShopWired` - ShopWired
-       * * `Shortio` - Shortio
-       * * `Shutterstock` - Shutterstock
-       * * `SigmaComputing` - SigmaComputing
-       * * `SignNow` - SignNow
-       * * `SimpleCast` - SimpleCast
-       * * `Simplesat` - Simplesat
-       * * `Smaily` - Smaily
-       * * `SmartEngage` - SmartEngage
-       * * `Smartreach` - Smartreach
-       * * `Smartwaiver` - Smartwaiver
-       * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
-       * * `SonarCloud` - SonarCloud
-       * * `SparkPost` - SparkPost
-       * * `SplitIo` - SplitIo
-       * * `SpotifyAds` - SpotifyAds
-       * * `SpotlerCRM` - SpotlerCRM
-       * * `Squarespace` - Squarespace
-       * * `Statsig` - Statsig
-       * * `Statuspage` - Statuspage
-       * * `Steam` - Steam
-       * * `Stigg` - Stigg
-       * * `Strava` - Strava
-       * * `SurveySparrow` - SurveySparrow
-       * * `Survicate` - Survicate
-       * * `Svix` - Svix
-       * * `Systeme` - Systeme
-       * * `Tavus` - Tavus
-       * * `Teamtailor` - Teamtailor
-       * * `Teamwork` - Teamwork
-       * * `Tempo` - Tempo
-       * * `Testrail` - Testrail
-       * * `Thinkific` - Thinkific
-       * * `ThinkificCourses` - ThinkificCourses
-       * * `ThriveLearning` - ThriveLearning
-       * * `Ticketmaster` - Ticketmaster
-       * * `TicketTailor` - TicketTailor
-       * * `TickTick` - TickTick
-       * * `Timely` - Timely
-       * * `Tinyemail` - Tinyemail
-       * * `Todoist` - Todoist
-       * * `Toggl` - Toggl
-       * * `TrackPMS` - TrackPMS
-       * * `Tremendous` - Tremendous
-       * * `TrustPilot` - TrustPilot
-       * * `Twitter` - Twitter
-       * * `TyntecSMS` - TyntecSMS
-       * * `Unleash` - Unleash
-       * * `UpPromote` - UpPromote
-       * * `Uptick` - Uptick
-       * * `Uservoice` - Uservoice
-       * * `Vantage` - Vantage
-       * * `Veeqo` - Veeqo
-       * * `Vercel` - Vercel
-       * * `VismaEconomic` - VismaEconomic
-       * * `VWO` - VWO
-       * * `Waiteraid` - Waiteraid
-       * * `Wasabi` - Wasabi
-       * * `WhenIWork` - WhenIWork
-       * * `Wordpress` - Wordpress
-       * * `Workable` - Workable
-       * * `Workflowmax` - Workflowmax
-       * * `Workramp` - Workramp
-       * * `Wufoo` - Wufoo
-       * * `Xsolla` - Xsolla
-       * * `YandexMetrica` - YandexMetrica
-       * * `Yotpo` - Yotpo
-       * * `Ynab` - Ynab
-       * * `Younium` - Younium
-       * * `YouSign` - YouSign
-       * * `YoutubeData` - YoutubeData
-       * * `ZapierSupportedStorage` - ZapierSupportedStorage
-       * * `ZapSign` - ZapSign
-       * * `ZendeskSell` - ZendeskSell
-       * * `ZendeskSunshine` - ZendeskSunshine
-       * * `Zenefits` - Zenefits
-       * * `Zenloop` - Zenloop
-       * * `ZohoAnalytics` - ZohoAnalytics
-       * * `ZohoBigin` - ZohoBigin
-       * * `ZohoBilling` - ZohoBilling
-       * * `ZohoBooks` - ZohoBooks
-       * * `ZohoCampaign` - ZohoCampaign
-       * * `ZohoDesk` - ZohoDesk
-       * * `ZohoExpense` - ZohoExpense
-       * * `ZohoInventory` - ZohoInventory
-       * * `ZohoInvoice` - ZohoInvoice
-       * * `ZonkaFeedback` - ZonkaFeedback
-       * * `AlphaVantage` - AlphaVantage
-       * * `Aviationstack` - Aviationstack
-       * * `Bitly` - Bitly
-       * * `Blogger` - Blogger
-       * * `Breezometer` - Breezometer
-       * * `CareQualityCommission` - CareQualityCommission
-       * * `Cimis` - Cimis
-       * * `CoinApi` - CoinApi
-       * * `CoinGecko` - CoinGecko
-       * * `CoinMarketCap` - CoinMarketCap
-       * * `DingConnect` - DingConnect
-       * * `Dockerhub` - Dockerhub
-       * * `ExchangeRatesApi` - ExchangeRatesApi
-       * * `FinancialModelling` - FinancialModelling
-       * * `Finnhub` - Finnhub
-       * * `Finnworlds` - Finnworlds
-       * * `Giphy` - Giphy
-       * * `Gmail` - Gmail
-       * * `GNews` - GNews
-       * * `GoogleCalendar` - GoogleCalendar
-       * * `GoogleClassroom` - GoogleClassroom
-       * * `GoogleDirectory` - GoogleDirectory
-       * * `GoogleForms` - GoogleForms
-       * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
-       * * `GoogleTasks` - GoogleTasks
-       * * `GoogleWebfonts` - GoogleWebfonts
-       * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
-       * * `HuggingFace` - HuggingFace
-       * * `IlluminaBasespace` - IlluminaBasespace
-       * * `Imagga` - Imagga
-       * * `Interzoid` - Interzoid
-       * * `IP2Whois` - IP2Whois
-       * * `KYVE` - KYVE
-       * * `Marketstack` - Marketstack
-       * * `Mendeley` - Mendeley
-       * * `Nasa` - Nasa
-       * * `NewYorkTimes` - NewYorkTimes
-       * * `NewsApi` - NewsApi
-       * * `NewsData` - NewsData
-       * * `OpenDataDc` - OpenDataDc
-       * * `OpenExchangeRates` - OpenExchangeRates
-       * * `OpenAQ` - OpenAQ
-       * * `OpenFDA` - OpenFDA
-       * * `OpenWeather` - OpenWeather
-       * * `Outlook` - Outlook
-       * * `Perigon` - Perigon
-       * * `Pexels` - Pexels
-       * * `Pocket` - Pocket
-       * * `Polygon` - Polygon
-       * * `PyPI` - PyPI
-       * * `Recreation` - Recreation
-       * * `RKICovid` - RKICovid
-       * * `Rss` - Rss
-       * * `SimFin` - SimFin
-       * * `StockData` - StockData
-       * * `Guardian` - Guardian
-       * * `TMDb` - TMDb
-       * * `TVMaze` - TVMaze
-       * * `TwelveData` - TwelveData
-       * * `Ubidots` - Ubidots
-       * * `USCensus` - USCensus
-       * * `Watchmode` - Watchmode
-       * * `WikipediaPageviews` - WikipediaPageviews
-       * * `YahooFinance` - YahooFinance
-       * * `Clarifai` - Clarifai
-       * * `Adapty` - Adapty
-       * * `Braintrust` - Braintrust
-       * * `StreamElements` - StreamElements
-       * * `Streamlabs` - Streamlabs
-       * * `Datorama` - Datorama
-       * * `Ahrefs` - Ahrefs
-       * * `Lightfield` - Lightfield
-       * * `Appstack` - Appstack
-       * * `Razorpay` - Razorpay
-       * * `Neon` - Neon
-       * * `NewRelic` - NewRelic
-       * * `Custom` - Custom
-       * * `Tile38` - Tile38
-       * * `Chatwoot` - Chatwoot
-       * * `Sanity` - Sanity
-       * * `Metronome` - Metronome
-       * * `Jobber` - Jobber
-       * * `Knock` - Knock
-       * * `Leexi` - Leexi
-       * * `RB2B` - RB2B
-       * * `Superwall` - Superwall
-       * * `Liana` - Liana
-       * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch
-       * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas
-       * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds
-       * * `AppLovin` - AppLovin
-       * * `Baserow` - Baserow
-       * * `Plunk` - Plunk
-       * * `Dub` - Dub
-       * * `AirOps` - AirOps
-       * * `Podium` - Podium
-       * * `Loops` - Loops
-       * * `Redis` - Redis
-       * * `Mercury` - Mercury
-       * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable
-       * * `PeecAI` - PeecAI
-       * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact
-       * * `AikidoSecurity` - AikidoSecurity
-       * * `Alguna` - Alguna
-       * * `Anthropic` - Anthropic
-       * * `Appwrite` - Appwrite
-       * * `BlandAI` - BlandAI
-       * * `BrowseAI` - BrowseAI
-       * * `BrowserUse` - BrowserUse
-       * * `ChartHop` - ChartHop
-       * * `Cody` - Cody
-       * * `Cursor` - Cursor
-       * * `Decagon` - Decagon
-       * * `Deepgram` - Deepgram
-       * * `ElevenLabs` - ElevenLabs
-       * * `Harvey` - Harvey
-       * * `Hyperspell` - Hyperspell
-       * * `Langfuse` - Langfuse
-       * * `LingoDev` - LingoDev
-       * * `M3ter` - M3ter
-       * * `Maxio` - Maxio
-       * * `Metorial` - Metorial
-       * * `OpenRouter` - OpenRouter
-       * * `TogetherAI` - TogetherAI
-       * * `Vapi` - Vapi
-       * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic
-       * * `Aiven` - Aiven
-       * * `Aviator` - Aviator
-       * * `Backblaze` - Backblaze
-       * * `Baseten` - Baseten
-       * * `Browserbase` - Browserbase
-       * * `Cohere` - Cohere
-       * * `DenoDeploy` - DenoDeploy
-       * * `DigitalOcean` - DigitalOcean
-       * * `E2B` - E2B
-       * * `Fintoc` - Fintoc
-       * * `Firecrawl` - Firecrawl
-       * * `FireworksAI` - FireworksAI
-       * * `FlyIo` - FlyIo
-       * * `Groq` - Groq
-       * * `GrowthBook` - GrowthBook
-       * * `Gumloop` - Gumloop
-       * * `Hatchet` - Hatchet
-       * * `Helicone` - Helicone
-       * * `Heroku` - Heroku
-       * * `Hetzner` - Hetzner
-       * * `HeyGen` - HeyGen
-       * * `Infisical` - Infisical
-       * * `Inngest` - Inngest
-       * * `KapaAI` - KapaAI
-       * * `Kernel` - Kernel
-       * * `Koyeb` - Koyeb
-       * * `LambdaLabs` - LambdaLabs
-       * * `LangSmith` - LangSmith
-       * * `Linode` - Linode
-       * * `Listmonk` - Listmonk
-       * * `LlamaCloud` - LlamaCloud
-       * * `Mem0` - Mem0
-       * * `Metriport` - Metriport
-       * * `Mintlify` - Mintlify
-       * * `MistralAI` - MistralAI
-       * * `Mono` - Mono
-       * * `Netlify` - Netlify
-       * * `Northflank` - Northflank
-       * * `OpenAI` - OpenAI
-       * * `Pinecone` - Pinecone
-       * * `PlatformSh` - PlatformSh
-       * * `PromptingCompany` - PromptingCompany
-       * * `Qdrant` - Qdrant
-       * * `Render` - Render
-       * * `Replicate` - Replicate
-       * * `RetellAI` - RetellAI
-       * * `Roark` - Roark
-       * * `RunPod` - RunPod
-       * * `ScaleAI` - ScaleAI
-       * * `Scaleway` - Scaleway
-       * * `SigNoz` - SigNoz
-       * * `Sim` - Sim
-       * * `Skyvern` - Skyvern
-       * * `Slash` - Slash
-       * * `Synthesia` - Synthesia
-       * * `Telli` - Telli
-       * * `TerraApi` - TerraApi
-       * * `TriggerDev` - TriggerDev
-       * * `Turso` - Turso
-       * * `Singular` - Singular
-       * * `Swonkie` - Swonkie
-       * * `TwelveLabs` - TwelveLabs
-       * * `Twenty` - Twenty
-       * * `Unstructured` - Unstructured
-       * * `Upstash` - Upstash
-       * * `Vellum` - Vellum
-       * * `Vultr` - Vultr
-       * * `Windmill` - Windmill
-       * * `Zep` - Zep
-       * * `Hex` - Hex
-       * * `Sumsub` - Sumsub
-       * * `GoogleChat` - GoogleChat
-       * * `Kickscale` - Kickscale
-       * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack
-       * * `DodoPayments` - DodoPayments
-       * * `Salestrics` - Salestrics
-       * * `Doppler` - Doppler
-       * * `Usersnap` - Usersnap
-       * * `Asknicely` - Asknicely
-       * * `Featurebase` - Featurebase
-       * * `Frill` - Frill
-       * * `Bettermode` - Bettermode
-       * * `Dynatrace` - Dynatrace
-       * * `Honeycomb` - Honeycomb
-       * * `SumoLogic` - SumoLogic
-       * * `LogzIO` - LogzIO
-       * * `Coralogix` - Coralogix
-       * * `BetterStack` - BetterStack
-       * * `Raygun` - Raygun
-       * * `Honeybadger` - Honeybadger
-       * * `Airbrake` - Airbrake
-       * * `Appsignal` - Appsignal
-       * * `Appdynamics` - Appdynamics
-       * * `Instana` - Instana
-       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
-       * * `Uptimerobot` - Uptimerobot
-       * * `Statuscake` - Statuscake
-       * * `Tailscale` - Tailscale
-       * * `Flagsmith` - Flagsmith
-       * * `Xmatters` - Xmatters
-       * * `Squadcast` - Squadcast
-       * * `Zenduty` - Zenduty
-       * * `Cronitor` - Cronitor
-       * * `Jenkins` - Jenkins
-       * * `Bitbucket` - Bitbucket
-       * * `Gitea` - Gitea
-       * * `Teamcity` - Teamcity
-       * * `TravisCI` - TravisCI
-       * * `Semaphore` - Semaphore
-       * * `CircleciInsights` - CircleciInsights
-       * * `OctopusDeploy` - OctopusDeploy
-       * * `Sourcegraph` - Sourcegraph
-       * * `Bitrise` - Bitrise
-       * * `Gerrit` - Gerrit
-       * * `TerraformCloud` - TerraformCloud
-       * * `PulumiCloud` - PulumiCloud
-       * * `Spacelift` - Spacelift
-       * * `Railway` - Railway
-       * * `Argocd` - Argocd
-       * * `PrefectCloud` - PrefectCloud
-       * * `DagsterCloud` - DagsterCloud
-       * * `Env0` - Env0
-       * * `Kubecost` - Kubecost
-       * * `Snyk` - Snyk
-       * * `Semgrep` - Semgrep
-       * * `Veracode` - Veracode
-       * * `Checkmarx` - Checkmarx
-       * * `Gitguardian` - Gitguardian
-       * * `QualysVmdr` - QualysVmdr
-       * * `Rapid7Insightvm` - Rapid7Insightvm
-       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
-       * * `Sentinelone` - Sentinelone
-       * * `Lacework` - Lacework
-       * * `OrcaSecurity` - OrcaSecurity
-       * * `Drata` - Drata
-       * * `Secureframe` - Secureframe
-       * * `CiscoDuo` - CiscoDuo
-       * * `Jumpcloud` - Jumpcloud
-       * * `OnePassword` - OnePassword
-       * * `Stytch` - Stytch
-       * * `Sonarqube` - Sonarqube
-       * * `Codecov` - Codecov
-       * * `Coveralls` - Coveralls
-       * * `Codacy` - Codacy
-       * * `Deepsource` - Deepsource
-       * * `Linearb` - Linearb
-       * * `Jellyfish` - Jellyfish
-       * * `Swarmia` - Swarmia
-       * * `Packagist` - Packagist
-       * * `Nuget` - Nuget
-       * * `CratesIO` - CratesIO
-       * * `SonatypeNexus` - SonatypeNexus
-       * * `JfrogArtifactory` - JfrogArtifactory
-       * * `Snowplow` - Snowplow
-       * * `WeightsAndBiases` - WeightsAndBiases
-       * * `MonteCarlo` - MonteCarlo
-       * * `Metaplane` - Metaplane
-       * * `Datahub` - Datahub
-       * * `ClickhouseCloud` - ClickhouseCloud
-       * * `ConfluentCloud` - ConfluentCloud
-       * * `KongKonnect` - KongKonnect
-       * * `Kandji` - Kandji
-       * * `Automox` - Automox
-       * * `Autumn` - Autumn
-       * * `GetStream` - GetStream
-       * * `Octolens` - Octolens
-       * * `Kajabi` - Kajabi
-       * * `Shopware` - Shopware
-       * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch
-       * * `Crisp` - Crisp
-       * * `Kommo` - Kommo
-       * * `Axiom` - Axiom
-       * * `Plivo` - Plivo
-       * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan
-       * * `AbTasty` - AbTasty
-       * * `Ably` - Ably
-       * * `AbnormalSecurity` - AbnormalSecurity
-       * * `Acast` - Acast
-       * * `Acculynx` - Acculynx
-       * * `Actionstep` - Actionstep
-       * * `Aftership` - Aftership
-       * * `AhaIdeas` - AhaIdeas
-       * * `AkamaiReporting` - AkamaiReporting
-       * * `Alation` - Alation
-       * * `Alegra` - Alegra
-       * * `Allegro` - Allegro
-       * * `AnodotCost` - AnodotCost
-       * * `Anomalo` - Anomalo
-       * * `Apaleo` - Apaleo
-       * * `Apitally` - Apitally
-       * * `AppStoreConnect` - AppStoreConnect
-       * * `Appdirect` - Appdirect
-       * * `Appfolio` - Appfolio
-       * * `Arxiv` - Arxiv
-       * * `Asaas` - Asaas
-       * * `Astronomer` - Astronomer
-       * * `Athenahealth` - Athenahealth
-       * * `Atlan` - Atlan
-       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
-       * * `Avalara` - Avalara
-       * * `AwsAthena` - AwsAthena
-       * * `AwsBatch` - AwsBatch
-       * * `AwsBudgets` - AwsBudgets
-       * * `AwsCloudformation` - AwsCloudformation
-       * * `AwsComputeOptimizer` - AwsComputeOptimizer
-       * * `AwsConfig` - AwsConfig
-       * * `AwsConnect` - AwsConnect
-       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
-       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
-       * * `AwsCostExplorer` - AwsCostExplorer
-       * * `AwsDocumentDB` - AwsDocumentDB
-       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
-       * * `AwsGuardduty` - AwsGuardduty
-       * * `AwsHealth` - AwsHealth
-       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
-       * * `AwsInspector` - AwsInspector
-       * * `AwsMacie` - AwsMacie
-       * * `AwsOrganizations` - AwsOrganizations
-       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
-       * * `AwsSagemaker` - AwsSagemaker
-       * * `AwsSavingsPlans` - AwsSavingsPlans
-       * * `AwsSecurityHub` - AwsSecurityHub
-       * * `AwsSes` - AwsSes
-       * * `AwsStepFunctions` - AwsStepFunctions
-       * * `AwsSupport` - AwsSupport
-       * * `AwsSystemsManager` - AwsSystemsManager
-       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
-       * * `AwsWaf` - AwsWaf
-       * * `AwsXray` - AwsXray
-       * * `AzureActivityLog` - AzureActivityLog
-       * * `AzureAdvisor` - AzureAdvisor
-       * * `AzureApiManagement` - AzureApiManagement
-       * * `AzureApplicationInsights` - AzureApplicationInsights
-       * * `AzureCostManagement` - AzureCostManagement
-       * * `AzureDataExplorer` - AzureDataExplorer
-       * * `AzureDataFactory` - AzureDataFactory
-       * * `AzureLogAnalytics` - AzureLogAnalytics
-       * * `AzureMonitorAlerts` - AzureMonitorAlerts
-       * * `AzureMonitorMetrics` - AzureMonitorMetrics
-       * * `AzureOpenaiUsage` - AzureOpenaiUsage
-       * * `AzurePolicyInsights` - AzurePolicyInsights
-       * * `AzureReservations` - AzureReservations
-       * * `AzureResourceGraph` - AzureResourceGraph
-       * * `AzureResourceHealth` - AzureResourceHealth
-       * * `AzureServiceHealth` - AzureServiceHealth
-       * * `AzureSynapse` - AzureSynapse
-       * * `BackMarket` - BackMarket
-       * * `Beehiiv` - Beehiiv
-       * * `Bigeye` - Bigeye
-       * * `BillCom` - BillCom
-       * * `Billomat` - Billomat
-       * * `BingWebmasterTools` - BingWebmasterTools
-       * * `Bitwarden` - Bitwarden
-       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
-       * * `BlackboardLearn` - BlackboardLearn
-       * * `Bling` - Bling
-       * * `Bloomerang` - Bloomerang
-       * * `Blueshift` - Blueshift
-       * * `Bluesky` - Bluesky
-       * * `BolRetailer` - BolRetailer
-       * * `Boulevard` - Boulevard
-       * * `Buffer` - Buffer
-       * * `Bugherd` - Bugherd
-       * * `Buildium` - Buildium
-       * * `Buttondown` - Buttondown
-       * * `BuyMeACoffee` - BuyMeACoffee
-       * * `Calendarific` - Calendarific
-       * * `Calibre` - Calibre
-       * * `CanvasLms` - CanvasLms
-       * * `Captivate` - Captivate
-       * * `Cashfree` - Cashfree
-       * * `CastAi` - CastAi
-       * * `Catchpoint` - Catchpoint
-       * * `CdcOpenData` - CdcOpenData
-       * * `Census` - Census
-       * * `Checkly` - Checkly
-       * * `CircleSo` - CircleSo
-       * * `Classy` - Classy
-       * * `Cleartax` - Cleartax
-       * * `Clever` - Clever
-       * * `Clevertap` - Clevertap
-       * * `Cliniko` - Cliniko
-       * * `Clio` - Clio
-       * * `Clip` - Clip
-       * * `Cloudability` - Cloudability
-       * * `Cloudsmith` - Cloudsmith
-       * * `Cloudzero` - Cloudzero
-       * * `Clover` - Clover
-       * * `Codemagic` - Codemagic
-       * * `Codescene` - Codescene
-       * * `Collibra` - Collibra
-       * * `Companycam` - Companycam
-       * * `Conekta` - Conekta
-       * * `ContaAzul` - ContaAzul
-       * * `Contentsquare` - Contentsquare
-       * * `Cortex` - Cortex
-       * * `Courier` - Courier
-       * * `Crossref` - Crossref
-       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
-       * * `CubeCloud` - CubeCloud
-       * * `D2lBrightspace` - D2lBrightspace
-       * * `Dayforce` - Dayforce
-       * * `Debugbear` - Debugbear
-       * * `Descope` - Descope
-       * * `Develocity` - Develocity
-       * * `Dialpad` - Dialpad
-       * * `Discord` - Discord
-       * * `Discourse` - Discourse
-       * * `Donorbox` - Donorbox
-       * * `Doorloop` - Doorloop
-       * * `Dovetail` - Dovetail
-       * * `Dragonboat` - Dragonboat
-       * * `Drchrono` - Drchrono
-       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
-       * * `EcbDataPortal` - EcbDataPortal
-       * * `Emarsys` - Emarsys
-       * * `Embrace` - Embrace
-       * * `Entsoe` - Entsoe
-       * * `Eppo` - Eppo
-       * * `Etsy` - Etsy
-       * * `Eurostat` - Eurostat
-       * * `Faire` - Faire
-       * * `FarosAi` - FarosAi
-       * * `Fieldpulse` - Fieldpulse
-       * * `Fieldwire` - Fieldwire
-       * * `Filevine` - Filevine
-       * * `Finout` - Finout
-       * * `Five9` - Five9
-       * * `FlexeraCloudCost` - FlexeraCloudCost
-       * * `Flutterwave` - Flutterwave
-       * * `Fortnox` - Fortnox
-       * * `Fourthwall` - Fourthwall
-       * * `Fred` - Fred
-       * * `Frontegg` - Frontegg
-       * * `FusionAuth` - FusionAuth
-       * * `G2` - G2
-       * * `Gcore` - Gcore
-       * * `GcpApigee` - GcpApigee
-       * * `GcpArtifactRegistry` - GcpArtifactRegistry
-       * * `GcpBigtable` - GcpBigtable
-       * * `GcpChronicle` - GcpChronicle
-       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
-       * * `GcpCloudBilling` - GcpCloudBilling
-       * * `GcpCloudBuild` - GcpCloudBuild
-       * * `GcpCloudDeploy` - GcpCloudDeploy
-       * * `GcpCloudDns` - GcpCloudDns
-       * * `GcpCloudFunctions` - GcpCloudFunctions
-       * * `GcpCloudLogging` - GcpCloudLogging
-       * * `GcpCloudMonitoring` - GcpCloudMonitoring
-       * * `GcpCloudRun` - GcpCloudRun
-       * * `GcpCloudSpanner` - GcpCloudSpanner
-       * * `GcpCloudSql` - GcpCloudSql
-       * * `GcpCloudTrace` - GcpCloudTrace
-       * * `GcpCloudWorkflows` - GcpCloudWorkflows
-       * * `GcpComputeEngine` - GcpComputeEngine
-       * * `GcpContainerAnalysis` - GcpContainerAnalysis
-       * * `GcpDataflow` - GcpDataflow
-       * * `GcpDataplex` - GcpDataplex
-       * * `GcpDataproc` - GcpDataproc
-       * * `GcpErrorReporting` - GcpErrorReporting
-       * * `GcpGke` - GcpGke
-       * * `GcpPubsub` - GcpPubsub
-       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
-       * * `GcpRecommender` - GcpRecommender
-       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
-       * * `Gdelt` - Gdelt
-       * * `GenesysCloud` - GenesysCloud
-       * * `Getdx` - Getdx
-       * * `Ghost` - Ghost
-       * * `Givebutter` - Givebutter
-       * * `Gleif` - Gleif
-       * * `GooglePlayConsole` - GooglePlayConsole
-       * * `Guesty` - Guesty
-       * * `Gumroad` - Gumroad
-       * * `HarnessCcm` - HarnessCcm
-       * * `HarnessSei` - HarnessSei
-       * * `Harvest` - Harvest
-       * * `Healthie` - Healthie
-       * * `Hitpay` - Hitpay
-       * * `Hivebrite` - Hivebrite
-       * * `Holded` - Holded
-       * * `Hostaway` - Hostaway
-       * * `HousecallPro` - HousecallPro
-       * * `Humanitec` - Humanitec
-       * * `ImfData` - ImfData
-       * * `Imperva` - Imperva
-       * * `InfluxdbCloud` - InfluxdbCloud
-       * * `Iyzico` - Iyzico
-       * * `Jobtread` - Jobtread
-       * * `Kameleoon` - Kameleoon
-       * * `KauflandMarketplace` - KauflandMarketplace
-       * * `Kestra` - Kestra
-       * * `Kick` - Kick
-       * * `Kinde` - Kinde
-       * * `Kion` - Kion
-       * * `Knowbe4` - Knowbe4
-       * * `Komodor` - Komodor
-       * * `Labelbox` - Labelbox
-       * * `Lawmatics` - Lawmatics
-       * * `Learnworlds` - Learnworlds
-       * * `LexwareOffice` - LexwareOffice
-       * * `Lightdash` - Lightdash
-       * * `Lodgify` - Lodgify
-       * * `Logicmonitor` - Logicmonitor
-       * * `Logrocket` - Logrocket
-       * * `LoopReturns` - LoopReturns
-       * * `Mastodon` - Mastodon
-       * * `Meetup` - Meetup
-       * * `Megaphone` - Megaphone
-       * * `Memberful` - Memberful
-       * * `MercadoPago` - MercadoPago
-       * * `Meteostat` - Meteostat
-       * * `Mews` - Mews
-       * * `Mezmo` - Mezmo
-       * * `Microsoft365UsageReports` - Microsoft365UsageReports
-       * * `MicrosoftAdvertising` - MicrosoftAdvertising
-       * * `MicrosoftClarity` - MicrosoftClarity
-       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
-       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
-       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
-       * * `MicrosoftIntune` - MicrosoftIntune
-       * * `MicrosoftPurview` - MicrosoftPurview
-       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
-       * * `MicrosoftSentinel` - MicrosoftSentinel
-       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
-       * * `Midtrans` - Midtrans
-       * * `MightyNetworks` - MightyNetworks
-       * * `Mindbody` - Mindbody
-       * * `Mirakl` - Mirakl
-       * * `Moesif` - Moesif
-       * * `Moneybird` - Moneybird
-       * * `Moodle` - Moodle
-       * * `Motherduck` - Motherduck
-       * * `Mycase` - Mycase
-       * * `NagerDate` - NagerDate
-       * * `NeonCrm` - NeonCrm
-       * * `Nexhealth` - Nexhealth
-       * * `NoaaCdo` - NoaaCdo
-       * * `Nobl9` - Nobl9
-       * * `Nolt` - Nolt
-       * * `Nops` - Nops
-       * * `NpmRegistry` - NpmRegistry
-       * * `Oecd` - Oecd
-       * * `Okendo` - Okendo
-       * * `Omni` - Omni
-       * * `Onelogin` - Onelogin
-       * * `OpenDental` - OpenDental
-       * * `OpenMeteo` - OpenMeteo
-       * * `Openalex` - Openalex
-       * * `Opencorporates` - Opencorporates
-       * * `Openfec` - Openfec
-       * * `OpnPayments` - OpnPayments
-       * * `Opslevel` - Opslevel
-       * * `OttoMarket` - OttoMarket
-       * * `Ownerrez` - Ownerrez
-       * * `Pagbank` - Pagbank
-       * * `Patreon` - Patreon
-       * * `Pax8` - Pax8
-       * * `Paychex` - Paychex
-       * * `Paymob` - Paymob
-       * * `Paymongo` - Paymongo
-       * * `Phonepe` - Phonepe
-       * * `Pike13` - Pike13
-       * * `Pingone` - Pingone
-       * * `PinterestOrganic` - PinterestOrganic
-       * * `PlanningCenter` - PlanningCenter
-       * * `PluralsightFlow` - PluralsightFlow
-       * * `Podbean` - Podbean
-       * * `Postscript` - Postscript
-       * * `PowerBiAdmin` - PowerBiAdmin
-       * * `Practicepanther` - Practicepanther
-       * * `Preset` - Preset
-       * * `Procore` - Procore
-       * * `Productiv` - Productiv
-       * * `ProofpointTap` - ProofpointTap
-       * * `Propertyware` - Propertyware
-       * * `Pubnub` - Pubnub
-       * * `Quay` - Quay
-       * * `Raken` - Raken
-       * * `RedpandaCloud` - RedpandaCloud
-       * * `RentManager` - RentManager
-       * * `Reverb` - Reverb
-       * * `RocketMatter` - RocketMatter
-       * * `Rubygems` - Rubygems
-       * * `Scalr` - Scalr
-       * * `SecEdgar` - SecEdgar
-       * * `SelectStar` - SelectStar
-       * * `SemanticScholar` - SemanticScholar
-       * * `Semrush` - Semrush
-       * * `ServiceFusion` - ServiceFusion
-       * * `Servicem8` - Servicem8
-       * * `Servicetitan` - Servicetitan
-       * * `Servicetrade` - Servicetrade
-       * * `Sevdesk` - Sevdesk
-       * * `Similarweb` - Similarweb
-       * * `Simpro` - Simpro
-       * * `Sinch` - Sinch
-       * * `Singlestore` - Singlestore
-       * * `Site24x7` - Site24x7
-       * * `Sleuth` - Sleuth
-       * * `Smartlook` - Smartlook
-       * * `Smartrecruiters` - Smartrecruiters
-       * * `Smokeball` - Smokeball
-       * * `SodaCloud` - SodaCloud
-       * * `Speedcurve` - Speedcurve
-       * * `SpotIo` - SpotIo
-       * * `Sprig` - Sprig
-       * * `Sprinklr` - Sprinklr
-       * * `SproutSocial` - SproutSocial
-       * * `StackOverflowForTeams` - StackOverflowForTeams
-       * * `Stockx` - Stockx
-       * * `TackleIo` - TackleIo
-       * * `Talkdesk` - Talkdesk
-       * * `TeamupFitness` - TeamupFitness
-       * * `Tebra` - Tebra
-       * * `Telnyx` - Telnyx
-       * * `Ternary` - Ternary
-       * * `Thoughtspot` - Thoughtspot
-       * * `Thousandeyes` - Thousandeyes
-       * * `Threads` - Threads
-       * * `TiktokShop` - TiktokShop
-       * * `TinyErp` - TinyErp
-       * * `Tinybird` - Tinybird
-       * * `Tipalti` - Tipalti
-       * * `Toast` - Toast
-       * * `Torii` - Torii
-       * * `Transistor` - Transistor
-       * * `TrunkIo` - TrunkIo
-       * * `Trustradius` - Trustradius
-       * * `Twitch` - Twitch
-       * * `TwoC2p` - TwoC2p
-       * * `UkCompaniesHouse` - UkCompaniesHouse
-       * * `UkOns` - UkOns
-       * * `UnComtrade` - UnComtrade
-       * * `UsBea` - UsBea
-       * * `UsBls` - UsBls
-       * * `UsEia` - UsEia
-       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
-       * * `Vanta` - Vanta
-       * * `Vendr` - Vendr
-       * * `Virtuous` - Virtuous
-       * * `Vonage` - Vonage
-       * * `WalmartMarketplace` - WalmartMarketplace
-       * * `Waydev` - Waydev
-       * * `Wayfair` - Wayfair
-       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
-       * * `WhoGho` - WhoGho
-       * * `Whop` - Whop
-       * * `Wistia` - Wistia
-       * * `Wiz` - Wiz
-       * * `Wompi` - Wompi
-       * * `Workiz` - Workiz
-       * * `WorldBank` - WorldBank
-       * * `Xendit` - Xendit
-       * * `Yoco` - Yoco
-       * * `ZalandoZdirect` - ZalandoZdirect
-       * * `Zluri` - Zluri
-       * * `Zylo` - Zylo
-       * * `Tally` - Tally
-       * * `Nuntly` - Nuntly
-       * * `Vturb` - Vturb
-       * * `Meltwater` - Meltwater
-       * * `UserCom` - UserCom
-       * * `Latitude` - Latitude
-       * * `Workato` - Workato
-       * * `SideShift` - SideShift
-       * * `DuckLake` - DuckLake
-       * * `Starburst` - Starburst
-       * * `Trino` - Trino
-       * * `Easybill` - Easybill
-       * * `Bexio` - Bexio
-       * * `Umami` - Umami
-       * * `Manychat` - Manychat
-       * * `Kickstarter` - Kickstarter
-       * * `Typesense` - Typesense
-       * * `FirstPromoter` - FirstPromoter
-       * * `Zero` - Zero
-       * * `Inth` - Inth
-       * * `BCMS` - BCMS
-       * * `Convonite` - Convonite
-       * * `Hookdeck` - Hookdeck
-       * * `Billit` - Billit
-       * * `Moxie` - Moxie
-       * * `TripleWhale` - TripleWhale
-       * * `Directus` - Directus
-       * * `Clay` - Clay
-       * * `TradableBits` - TradableBits
-       * * `Swan` - Swan
-       * * `Hyros` - Hyros
-       * * `Odoo` - Odoo
-       * * `Airbridge` - Airbridge
-       * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter
-       * * `Raisely` - Raisely
-       * * `RakutenAdvertising` - RakutenAdvertising
-       * * `Zitadel` - Zitadel
-       * * `DeelFlows` - DeelFlows
-       * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix
-       * * `Sevalla` - Sevalla
-       * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner
-       * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare
-       * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91
-       * * `Depot` - Depot
-       * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy
-       * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart
-       * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound
-       * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi
-       * * `Capterra` - Capterra
-       * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi
-       * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS
-       * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox
-       * * `SimonData` - SimonData
-       * * `CommissionJunction` - CommissionJunction
-       * * `Liveblocks` - Liveblocks
-       * * `Livestorm` - Livestorm
-       * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana
-       * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable
-       * * `Anvil` - Anvil
-       * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato
-       * * `Medusa` - Medusa
-       * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin
-       * * `Folk` - Folk
-       * * `Cybersource` - Cybersource
-       * * `GoogleAdSense` - GoogleAdSense
-       * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio
-       * * `Smartlead` - Smartlead
-       * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket
-       * * `Quo` - Quo
-       * * `HeyReach` - HeyReach
-       * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet
-       * * `Expo` - Expo
-       * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer
-       * * `Sprinto` - Sprinto
-       * * `Gem` - Gem
-       * * `AudioGO` - AudioGO
-       * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs
-       * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura
-       * * `ChargebackStop` - ChargebackStop
-       * * `Chargeflow` - Chargeflow
-       * * `Dreamdata` - Dreamdata
-       * * `GoogleBusinessProfile` - GoogleBusinessProfile
-       * * `Ledyer` - Ledyer
-       * * `Supermetrics` - Supermetrics
-       * * `SQLite` - SQLite
-       * * `Modal` - Modal
-       * * `Vimeo` - Vimeo
-       * * `Scrunch` - Scrunch
-       * * `Loom` - Loom
-       * * `Arcade` - Arcade
-       * * `Neo4j` - Neo4j
-       * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom
-       * * `Userback` - Userback
-       * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution
-       * * `StackAdapt` - StackAdapt
-       * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay
-       * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud
-       * * `Northbeam` - Northbeam
-       * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO
-       * * `Airship` - Airship
-       * * `Creem` - Creem
-       * * `Leantime` - Leantime
-       * * `Testomatio` - Testomatio
-       * * `GoogleAdMob` - GoogleAdMob
-       * * `Klar` - Klar
-       * * `ConectoCRM` - ConectoCRM
-       * * `CloudflareR2` - CloudflareR2
-       * * `Particle` - Particle
-       * * `FileUpload` - FileUpload
-       * * `Dripify` - Dripify
-       * * `AwsS3Tables` - AwsS3Tables
-       * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments
-       * * `Soniox` - Soniox */
-      source_type: ExternalDataSourceTypeEnum;
+      /** The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot'). */
+      source_type: string;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
       /**
@@ -116435,6 +106535,17 @@ export namespace Schemas {
       id: string;
       /** Outcome of automatic webhook registration. Only present for sources that support webhooks (e.g. Stripe) and have webhook-capable tables. */
       webhook?: SourceSetupWebhook;
+    }
+
+    export interface SourceSpend {
+      /** Product that emitted the signals. */
+      source_product: string;
+      /** Type of signals emitted by the source. */
+      source_type: string;
+      /** Number of signals received in the last 30 days. */
+      signal_count: number;
+      /** Accumulated processing usage on these signals, including later processing. */
+      spend: SpendAmount;
     }
 
     /**
@@ -116491,6 +106602,17 @@ export namespace Schemas {
       Count: 'count',
       Bytes: 'bytes',
     } as const;
+
+    export interface SpendOverview {
+      /** Inclusive start of the rolling 30-day run window. */
+      period_start: string;
+      /** Exclusive end of the rolling 30-day run window. */
+      period_end: string;
+      /** Usage for each scout with runs in the period. */
+      scouts: ScoutSpend[];
+      /** Total scout run usage in the period. */
+      scout_spend: SpendAmount;
+    }
 
     /**
      * Raw cached payload as stored in Redis, or null on a miss.
@@ -117568,7 +107690,20 @@ export namespace Schemas {
       extra: SurveyResponseExtra;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface SurveyResponsesList {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Survey response rows for the requested page. */
       results: SurveyResponseRow[];
       /** True if more rows exist beyond the current page — fetch the next page with offset + limit. */
@@ -117578,6 +107713,15 @@ export namespace Schemas {
       /** The offset applied to this query (echoed back for pagination). */
       offset: number;
     }
+
+    export type SurveyResponsesStatusEnum = typeof SurveyResponsesStatusEnum[keyof typeof SurveyResponsesStatusEnum];
+
+
+    export const SurveyResponsesStatusEnum = {
+      Ok: 'ok',
+      Failed: 'failed',
+      NotPermitted: 'not_permitted',
+    } as const;
 
     export type SurveyResultsWidgetCatalogEntryOpenApiWidgetType = typeof SurveyResultsWidgetCatalogEntryOpenApiWidgetType[keyof typeof SurveyResultsWidgetCatalogEntryOpenApiWidgetType];
 
@@ -118187,6 +108331,16 @@ export namespace Schemas {
          * @nullable
          */
       next_before_id?: string | null;
+      /**
+         * URL of the next page, with before and before_id set, or null on the final page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * Always null: the feed pages forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
     }
 
     /**
@@ -118474,7 +108628,9 @@ export namespace Schemas {
        * * `workflow` - Workflow
        * * `space_setup` - Space Setup
        * * `business_knowledge` - Business Knowledge
-       * * `metrics_import` - Metrics Import */
+       * * `metrics_import` - Metrics Import
+       * * `knowledge_writer` - Knowledge Writer
+       * * `context_layer` - Context Layer */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -118698,11 +108854,13 @@ export namespace Schemas {
 
     /**
      * * `autoresearch` - autoresearch
+     * * `context_layer` - context_layer
      * * `error_tracking` - error_tracking
      * * `eval_clusters` - eval_clusters
      * * `experiments` - experiments
      * * `hogdesk` - hogdesk
      * * `image_builder` - image_builder
+     * * `knowledge_writer` - knowledge_writer
      * * `loop` - loop
      * * `mcp_analytics` - mcp_analytics
      * * `onboarding` - onboarding
@@ -118728,11 +108886,13 @@ export namespace Schemas {
 
     export const TaskListSourceEnum = {
       Autoresearch: 'autoresearch',
+      ContextLayer: 'context_layer',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       Experiments: 'experiments',
       Hogdesk: 'hogdesk',
       ImageBuilder: 'image_builder',
+      KnowledgeWriter: 'knowledge_writer',
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
       Onboarding: 'onboarding',
@@ -120168,7 +110328,9 @@ export namespace Schemas {
        * * `workflow` - Workflow
        * * `space_setup` - Space Setup
        * * `business_knowledge` - Business Knowledge
-       * * `metrics_import` - Metrics Import */
+       * * `metrics_import` - Metrics Import
+       * * `knowledge_writer` - Knowledge Writer
+       * * `context_layer` - Context Layer */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -121297,6 +111459,23 @@ export namespace Schemas {
       change: WoWChange | null;
     }
 
+    /**
+     * Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed.
+     */
+    export type TopicPreferencesTopics = {[key: string]: boolean};
+
+    export interface TopicPreferences {
+      /** The recipient the preferences belong to. */
+      identifier: string;
+      /**
+         * `false` when the recipient opted out of all marketing, `true` when they opted back in, `null` when they never chose.
+         * @nullable
+         */
+      all_marketing: boolean | null;
+      /** Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed. */
+      topics: TopicPreferencesTopics;
+    }
+
     export type TraceNodeIdsByAlias = {[key: string]: string};
 
     export interface TracePerson {
@@ -121369,6 +111548,33 @@ export namespace Schemas {
       git: TraceGit | null;
     }
 
+    export interface TraceChoiceAnswer {
+      kind: 'choice';
+      question: string;
+      choices: string[];
+    }
+
+    export interface TraceCluster {
+      /** The clustering run that put the trace in this cluster. The cluster page is addressed by this id and the cluster id. */
+      runId: string;
+      /** When the run finished. */
+      runAt: string;
+      /** The clustering job the run belongs to, null for a run without a job. */
+      jobId: string | null;
+      jobName: string | null;
+      /** The cluster's id within its run. -1 is the run's outliers. */
+      clusterId: number;
+      title: string | null;
+      description: string | null;
+      /** The trace fit no cluster in this run. */
+      isOutlier: boolean;
+    }
+
+    export interface TraceClusters {
+      /** The clusters that list the trace: for each clustering job, the newest scheduled run that lists it. Manual runs are left out. Clusters come before outliers, then newest first. */
+      clusters: TraceCluster[];
+    }
+
     export type TraceEvaluationResultOutcomeEnum = typeof TraceEvaluationResultOutcomeEnum[keyof typeof TraceEvaluationResultOutcomeEnum];
 
 
@@ -121428,6 +111634,31 @@ export namespace Schemas {
       summary: TraceEvaluationSummary;
     }
 
+    export interface TraceExport {
+      /** The export id, used to read its status and download the file. */
+      id: number;
+      /** Whether the file is still being written, ready, or failed. */
+      status: ExportStatusEnum;
+      /** The name the downloaded JSON file gets. */
+      filename: string;
+      /** When the export was requested. */
+      createdAt: string;
+      /** When the file is deleted. */
+      expiresAfter: string | null;
+      /** Why the export failed, null unless status is failed. */
+      exception: string | null;
+    }
+
+    export interface TraceExportCreate {
+      /** When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table. */
+      timestamp_hint?: string;
+    }
+
+    export interface TraceExportError {
+      /** Why the file cannot be downloaded yet. */
+      detail: string;
+    }
+
     export interface TraceNodeMetadata {
       provider: string | null;
       temperature: number | null;
@@ -121465,6 +111696,129 @@ export namespace Schemas {
       event: TraceNodeEvent | null;
     }
 
+    export interface TraceExportFile {
+      /** The trace as the trace endpoint returns it. */
+      trace: Trace;
+      /** True when the trace has more events than an export reads. The file then holds the earliest events only, and leaves out the later steps. */
+      truncated: boolean;
+      /** Every node with its event properties as ingested, inputs and outputs included: the root first, then the tree in pre-order. */
+      nodes: TraceNodeDetail[];
+    }
+
+    export interface TraceFeedbackScore {
+      id: string;
+      name: string | null;
+      /** The score as text: a string as sent, any other value as compact JSON, such as 0, false or 4.5. */
+      value: string;
+      /** The tree node the score targets: the step's event uuid, or the trace id for a trace-level score. */
+      nodeId: string;
+      timestamp: string;
+    }
+
+    export interface TraceFeedbackText {
+      kind: 'text';
+      id: string;
+      text: string;
+      /** The tree node the feedback targets: the step's event uuid, or the trace id for trace-level feedback. */
+      nodeId: string;
+      timestamp: string;
+    }
+
+    export interface TraceSurvey {
+      id: string;
+      /** Null when the survey no longer exists. */
+      name: string | null;
+    }
+
+    export interface TraceThumbsAnswer {
+      kind: 'thumbs';
+      question: string;
+      up: boolean;
+    }
+
+    export interface TraceRatingAnswer {
+      kind: 'rating';
+      question: string;
+      value: string;
+      scale: number | null;
+      lowerLabel: string | null;
+      upperLabel: string | null;
+    }
+
+    export interface TraceTextAnswer {
+      kind: 'text';
+      question: string;
+      text: string;
+    }
+
+    /**
+     * Why the answers cannot be shown: the survey was deleted, or it has no questions.
+     */
+    export type TraceSurveyResponseUnavailable = typeof TraceSurveyResponseUnavailable[keyof typeof TraceSurveyResponseUnavailable] | null;
+
+
+    export const TraceSurveyResponseUnavailable = {
+      SurveyNotFound: 'survey_not_found',
+      NoQuestions: 'no_questions',
+    } as const;
+
+    export interface TraceSurveyResponse {
+      kind: 'survey';
+      id: string;
+      /** The tree node the response targets: the trace id, as a survey response covers the whole trace. */
+      nodeId: string;
+      timestamp: string;
+      survey: TraceSurvey;
+      answers: (TraceThumbsAnswer | TraceRatingAnswer | TraceChoiceAnswer | TraceTextAnswer)[];
+      /** False when the user left the survey before its end. */
+      complete: boolean;
+      /** Why the answers cannot be shown: the survey was deleted, or it has no questions. */
+      unavailable: TraceSurveyResponseUnavailable;
+    }
+
+    export interface TraceUnansweredSurvey {
+      survey: TraceSurvey;
+      /** When the survey was first shown. */
+      timestamp: string;
+    }
+
+    export interface TraceFeedbackSummary {
+      /** Scores plus responses. */
+      total: number;
+      /** Thumbs up answers to 2-point survey rating questions. */
+      thumbsUp: number;
+      /** Thumbs down answers to 2-point survey rating questions. */
+      thumbsDown: number;
+    }
+
+    export interface TraceFeedback {
+      /** Oldest first. */
+      scores: TraceFeedbackScore[];
+      /** What users said, oldest first. */
+      responses: (TraceFeedbackText | TraceSurveyResponse)[];
+      /** Surveys shown with the trace and not answered, oldest first. */
+      unanswered: TraceUnansweredSurvey[];
+      /** ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes. */
+      surveyResponsesStatus: SurveyResponsesStatusEnum;
+      summary: TraceFeedbackSummary;
+    }
+
+    export interface TracePullRequest {
+      /** The owner of the pull request's repository. */
+      repoOwner: string;
+      /** The name of the pull request's repository. */
+      repoName: string;
+      /** The pull request number. */
+      number: number;
+      /** The pull request title, or null when the synced data has none. */
+      title: string | null;
+    }
+
+    export interface TracePullRequestLookup {
+      /** The pull request the trace's git branch belongs to, ranked by engineering analytics, or null when the trace has no branch, the project has no GitHub source, or no pull request matches. */
+      pullRequest: TracePullRequest | null;
+    }
+
     export interface TraceReviewCreate {
       /**
          * Trace ID for the review. Only one active review can exist per trace and team.
@@ -121483,6 +111837,80 @@ export namespace Schemas {
          * @nullable
          */
       queue_id?: string | null;
+    }
+
+    export interface TraceSearchMatch {
+      /** A step whose stored data contains the query. The root's id is the trace id. */
+      nodeId: string;
+      /** How many times the query occurs in the step's stored inputs, outputs, state, tools, name, model, provider and error, ignoring case. Keys of the stored JSON count too. */
+      count: number;
+    }
+
+    export interface TraceSearchResults {
+      /** Occurrences of the query across every matching step. */
+      total: number;
+      /** Matching steps in tree order, the root first. Steps without a match are left out. */
+      matches: TraceSearchMatch[];
+    }
+
+    export type TraceSummaryStatusEnum = typeof TraceSummaryStatusEnum[keyof typeof TraceSummaryStatusEnum];
+
+
+    export const TraceSummaryStatusEnum = {
+      Pending: 'pending',
+      Ready: 'ready',
+      Failed: 'failed',
+    } as const;
+
+    export interface TraceSummaryItem {
+      text: string;
+      /** The step the item refers to, or null when it names none. */
+      nodeId: string | null;
+    }
+
+    export interface TraceSummaryContent {
+      title: string;
+      bullets: TraceSummaryItem[];
+      /** Details worth a second look, or empty. */
+      notes: TraceSummaryItem[];
+      /** The main steps of the trace as a small text diagram. */
+      flow: string;
+      /** The model that wrote the summary. */
+      model: string;
+      generatedAt: string;
+    }
+
+    export type TraceSummaryFailureReasonEnum = typeof TraceSummaryFailureReasonEnum[keyof typeof TraceSummaryFailureReasonEnum];
+
+
+    export const TraceSummaryFailureReasonEnum = {
+      TraceNotFound: 'trace_not_found',
+      TooLarge: 'too_large',
+      Timeout: 'timeout',
+      ProviderError: 'provider_error',
+      NotApproved: 'not_approved',
+      AccessChanged: 'access_changed',
+      Error: 'error',
+    } as const;
+
+    export interface TraceSummaryFailure {
+      reason: TraceSummaryFailureReasonEnum;
+      /** Why the summary failed, ready to show to the user. */
+      message: string;
+    }
+
+    export interface TraceSummary {
+      /** `pending` while the summary is written, then `ready` or `failed`. */
+      status: TraceSummaryStatusEnum;
+      /** The summary when `status` is `ready`, else null. */
+      content: TraceSummaryContent | null;
+      /** Why it failed when `status` is `failed`, else null. */
+      failure: TraceSummaryFailure | null;
+    }
+
+    export interface TraceSummaryRequest {
+      /** Replace a ready summary with a new one. A pending summary is never replaced. */
+      regenerate?: boolean;
     }
 
     /**
@@ -121958,6 +112386,28 @@ export namespace Schemas {
          */
       connected_at?: string | null;
     }
+
+    /**
+     * * `Redshift` - Redshift
+     * * `Snowflake` - Snowflake
+     * * `BigQuery` - BigQuery
+     * * `Postgres` - Postgres
+     * * `Databricks` - Databricks
+     * * `AzureBlob` - Azure Blob
+     * * `S3` - S3
+     */
+    export type UserCreatableDestinationTypeEnum = typeof UserCreatableDestinationTypeEnum[keyof typeof UserCreatableDestinationTypeEnum];
+
+
+    export const UserCreatableDestinationTypeEnum = {
+      Redshift: 'Redshift',
+      Snowflake: 'Snowflake',
+      BigQuery: 'BigQuery',
+      Postgres: 'Postgres',
+      Databricks: 'Databricks',
+      AzureBlob: 'AzureBlob',
+      S3: 'S3',
+    } as const;
 
     export interface UserCustomerAnalyticsConfig {
       /** Account properties pinned in sidebar display order. */
@@ -122565,6 +113015,8 @@ export namespace Schemas {
       readonly projected_monthly_credits: number;
       /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. A capped scanner contributes at most what its own credit limit has left this period, folded back into a 30-day rate. A monthly rate: only the part falling in the days left of the period lands this period. Scanners without a computed estimate contribute 0. */
       readonly scanners_monthly_credits: number;
+      /** The part of `scanners_monthly_credits` that lands between now and `period_end`. Use it for rest-of-period forecasts; billing forecasts from the same figure. */
+      readonly scanners_period_credits: number;
       /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
       readonly backfills_committed_credits: number;
       /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
@@ -122605,6 +113057,18 @@ export namespace Schemas {
       Pagerduty: 'pagerduty',
     } as const;
 
+    /**
+     * * `firing` - firing
+     * * `resolved` - resolved
+     */
+    export type WarehouseAlertEventKindChoicesEnum = typeof WarehouseAlertEventKindChoicesEnum[keyof typeof WarehouseAlertEventKindChoicesEnum];
+
+
+    export const WarehouseAlertEventKindChoicesEnum = {
+      Firing: 'firing',
+      Resolved: 'resolved',
+    } as const;
+
     export interface WarehouseAlertCreateDestination {
       /** Notification destination type.
        *
@@ -122614,6 +113078,11 @@ export namespace Schemas {
        * * `discord` - discord
        * * `pagerduty` - pagerduty */
       type: WarehouseAlertDestinationTypeEnum;
+      /**
+         * Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves, whatever this lists. Defaults to every kind.
+         * @minItems 1
+         */
+      event_kinds?: WarehouseAlertEventKindChoicesEnum[];
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -122640,16 +113109,16 @@ export namespace Schemas {
 
     export interface WarehouseAlertDeleteDestination {
       /**
-         * HogFunction IDs of one destination, as the list endpoint returns them. They are deleted together.
+         * IDs of the alert's destinations to delete, as the list endpoint returns them.
          * @minItems 1
-         * @maxItems 100
+         * @maxItems 5
          */
-      hog_function_ids: string[];
+      destination_ids: string[];
     }
 
     export interface WarehouseAlertDestination {
-      /** HogFunction IDs that make up this destination, one per alert event kind it handles. Send them all to the delete endpoint to remove the destination. */
-      hog_function_ids: string[];
+      /** Destination ID. Send it to the delete endpoint to remove the destination. */
+      id: string;
       /** Notification destination type.
        *
        * * `slack` - slack
@@ -122658,8 +113127,10 @@ export namespace Schemas {
        * * `discord` - discord
        * * `pagerduty` - pagerduty */
       type: WarehouseAlertDestinationTypeEnum;
-      /** Whether every HogFunction of the destination is enabled, so it notifies for every event kind. */
+      /** Whether the destination is sent to. */
       enabled: boolean;
+      /** Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves, whatever this lists. */
+      event_kinds: WarehouseAlertEventKindChoicesEnum[];
       /** Integration ID of the Slack workspace. Set when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Set when type=slack. */
@@ -122682,11 +113153,6 @@ export namespace Schemas {
        * * `us` - us
        * * `eu` - eu */
       pagerduty_region?: PagerDutyRegionEnum;
-    }
-
-    export interface WarehouseAlertDestinationCreated {
-      /** HogFunction IDs created for the destination, one per event kind. */
-      hog_function_ids: string[];
     }
 
     export interface WarehouseConnection {
@@ -122720,74 +113186,6 @@ export namespace Schemas {
       api_key: string;
       /** Secret that belongs to the API key. */
       api_secret: string;
-    }
-
-    /**
-     * * `as_is` - Moves as is
-     * * `caveats` - Moves with caveats
-     * * `unsupported` - Not supported
-     */
-    export type WarehouseMigrationItemVerdictEnum = typeof WarehouseMigrationItemVerdictEnum[keyof typeof WarehouseMigrationItemVerdictEnum];
-
-
-    export const WarehouseMigrationItemVerdictEnum = {
-      AsIs: 'as_is',
-      Caveats: 'caveats',
-      Unsupported: 'unsupported',
-    } as const;
-
-    /**
-     * * `pending` - Pending
-     * * `applying` - Applying
-     * * `applied` - Applied
-     * * `skipped` - Skipped
-     * * `failed` - Failed
-     */
-    export type WarehouseMigrationItemStatusEnum = typeof WarehouseMigrationItemStatusEnum[keyof typeof WarehouseMigrationItemStatusEnum];
-
-
-    export const WarehouseMigrationItemStatusEnum = {
-      Pending: 'pending',
-      Applying: 'applying',
-      Applied: 'applied',
-      Skipped: 'skipped',
-      Failed: 'failed',
-    } as const;
-
-    export interface WarehouseMigrationItem {
-      /** Item ID. Pass it to the apply and skip actions. */
-      id: string;
-      /** The connection ID in the vendor account. */
-      vendor_connection_id: string;
-      /** The vendor's connector type, for example `postgres` or `hubspot`. */
-      vendor_service: string;
-      /** The connection name in the vendor account. */
-      name: string;
-      /** Whether the connection moves as it is, moves with caveats, or is not supported.
-       *
-       * * `as_is` - Moves as is
-       * * `caveats` - Moves with caveats
-       * * `unsupported` - Not supported */
-      verdict: WarehouseMigrationItemVerdictEnum;
-      /** Differences between Fivetran and PostHog for this connection. */
-      caveats: string[];
-      /** What PostHog creates for this connection. Null when the connection is not supported. */
-      proposal: ItemProposal | null;
-      /** `pending` until the source is created (`applied`) or the user skips it.
-       *
-       * * `pending` - Pending
-       * * `applying` - Applying
-       * * `applied` - Applied
-       * * `skipped` - Skipped
-       * * `failed` - Failed */
-      status: WarehouseMigrationItemStatusEnum;
-      /**
-         * The PostHog source created for this connection, if any.
-         * @nullable
-         */
-      external_data_source_id: string | null;
-      /** Why the last apply attempt failed, if it did. */
-      error: string;
     }
 
     export interface WarehouseMigrationSkipItems {
@@ -123161,228 +113559,6 @@ export namespace Schemas {
       run_id: string;
     }
 
-    /**
-     * * `failure` - Failure
-     * * `struggle` - Struggle
-     * * `revenue` - Revenue
-     */
-    export type WatchFeedCategoryEnum = typeof WatchFeedCategoryEnum[keyof typeof WatchFeedCategoryEnum];
-
-
-    export const WatchFeedCategoryEnum = {
-      Failure: 'failure',
-      Struggle: 'struggle',
-      Revenue: 'revenue',
-    } as const;
-
-    /**
-     * Body of POST /vision/scanners/watch_feed_impressions/.
-     */
-    export interface WatchFeedImpressions {
-      /** The client's id for the feed load that showed these cards. One load counts each card once. */
-      feed_load_id: string;
-      /**
-         * Observations the calling user saw in What to watch, at most 100. Ids the user cannot read are ignored.
-         * @minItems 1
-         * @maxItems 100
-         */
-      observation_ids: string[];
-    }
-
-    /**
-     * * `signal_emitted` - Signal Emitted
-     * * `unusual_verdict` - Unusual Verdict
-     * * `notable` - Notable
-     * * `verdict_yes` - Verdict Yes
-     * * `outlier_score` - Outlier Score
-     * * `rare_tag` - Rare Tag
-     * * `novel_summary` - Novel Summary
-     * * `friction` - Friction
-     * * `jev_watchable` - Jev Watchable
-     * * `embedding_pick` - Embedding Pick
-     * * `unviewed_recent` - Unviewed Recent
-     * * `recent` - Recent
-     */
-    export type WatchFeedReasonEnum = typeof WatchFeedReasonEnum[keyof typeof WatchFeedReasonEnum];
-
-
-    export const WatchFeedReasonEnum = {
-      SignalEmitted: 'signal_emitted',
-      UnusualVerdict: 'unusual_verdict',
-      Notable: 'notable',
-      VerdictYes: 'verdict_yes',
-      OutlierScore: 'outlier_score',
-      RareTag: 'rare_tag',
-      NovelSummary: 'novel_summary',
-      Friction: 'friction',
-      JevWatchable: 'jev_watchable',
-      EmbeddingPick: 'embedding_pick',
-      UnviewedRecent: 'unviewed_recent',
-      Recent: 'recent',
-    } as const;
-
-    /**
-     * One signal an observation raised, named rather than counted.
-     */
-    export interface WatchFeedSignal {
-      /** Issue type: `bug`, `crash`, `design_flaw`, or `ux_friction`. */
-      problem_type: string;
-      /** The finding in a few words, written by the scan. The full description lives on the signal itself. */
-      headline: string;
-    }
-
-    /**
-     * Machine-readable reason an observation made the feed; the frontend renders the copy.
-     */
-    export interface WatchFeedReason {
-      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `jev_watchable` (the decision model judged the session worth watching; teams on the Jev ranker experiment only), `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth; teams on the embedding ranker only), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
-       *
-       * * `signal_emitted` - Signal Emitted
-       * * `unusual_verdict` - Unusual Verdict
-       * * `notable` - Notable
-       * * `verdict_yes` - Verdict Yes
-       * * `outlier_score` - Outlier Score
-       * * `rare_tag` - Rare Tag
-       * * `novel_summary` - Novel Summary
-       * * `friction` - Friction
-       * * `jev_watchable` - Jev Watchable
-       * * `embedding_pick` - Embedding Pick
-       * * `unviewed_recent` - Unviewed Recent
-       * * `recent` - Recent */
-      kind: WatchFeedReasonEnum;
-      /**
-         * Signals this observation emitted, for `signal_emitted`.
-         * @nullable
-         */
-      signals_count?: number | null;
-      /** Issue type of each emitted signal (`bug`, `crash`, `design_flaw`, `ux_friction`), one entry per signal in the order raised, for `signal_emitted`. Absent on signals scanned before this shipped. */
-      problem_types?: string[];
-      /** Each emitted signal in the order raised, for `signal_emitted`. Carries what the card needs to name the findings instead of counting them. Absent on sessions scanned before this shipped, which carry `problem_types` alone. */
-      signals?: WatchFeedSignal[];
-      /**
-         * The monitor's answer, for `unusual_verdict`.
-         * @nullable
-         */
-      verdict?: string | null;
-      /**
-         * Share (0-1) of the scanner's window observations with this answer, for `unusual_verdict`.
-         * @nullable
-         */
-      verdict_share?: number | null;
-      /**
-         * The scan's own 0-1 judgment of how much a team would benefit from watching, for `notable`.
-         * @nullable
-         */
-      notability?: number | null;
-      /**
-         * The decision model's 0-1 judgment that the session is worth watching, for `jev_watchable`.
-         * @nullable
-         */
-      jev_probability?: number | null;
-      /**
-         * The scan's own sentence naming why the session is worth watching. Present on the `notable` and `jev_watchable` reason kinds when the scan itself found the session notable, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
-         * @nullable
-         */
-      notability_reason?: string | null;
-      /** Why the decision model rated the session worth watching, picked from a fixed list, for `jev_watchable`. Absent when no reason on the list fits, or on sessions judged before reasons shipped.
-       *
-       * * `visible_error` - Error on screen
-       * * `silent_failure` - Action silently failed
-       * * `unresponsive` - Clicks went nowhere
-       * * `slow_or_stuck` - Slow or stuck
-       * * `blocked` - Blocked
-       * * `cant_find` - Couldn't find it
-       * * `confused` - Confused
-       * * `workaround` - Took a workaround
-       * * `abandoned` - Gave up
-       * * `churn_signal` - Churn signal
-       * * `success` - Worked well */
-      watch_reason?: JevWatchReasonEnum;
-      /**
-         * The observation's score, for `outlier_score`.
-         * @nullable
-         */
-      score?: number | null;
-      /**
-         * The scanner's mean score in the window, for `outlier_score`.
-         * @nullable
-         */
-      window_mean?: number | null;
-      /**
-         * The rare tag that ranked the observation, for `rare_tag`.
-         * @nullable
-         */
-      tag?: string | null;
-      /**
-         * Share (0-1) of the scanner's window observations carrying `tag`, for `rare_tag`.
-         * @nullable
-         */
-      tag_share?: number | null;
-      /** What the session reads like, for `embedding_pick`.
-       *
-       * * `failure` - Failure
-       * * `struggle` - Struggle
-       * * `revenue` - Revenue */
-      watch_category?: WatchFeedCategoryEnum;
-      /**
-         * Other sessions from the same scanner in the window that describe nearly the same thing, for `embedding_pick`. The feed shows one session per group.
-         * @nullable
-         */
-      similar_count?: number | null;
-      /**
-         * Distinct people across the session's duplicate group in the window, for `embedding_pick`. A finding that reached more people ranks higher.
-         * @nullable
-         */
-      affected_people?: number | null;
-    }
-
-    /**
-     * One feed entry: the observation plus why it ranked.
-     */
-    export interface WatchFeedItem {
-      /** The observation, in the standard shape. */
-      observation: ReplayObservation;
-      /** Why this observation made the feed. */
-      reason: WatchFeedReason;
-    }
-
-    /**
-     * * `weighted-score` - Weighted Score
-     * * `jev` - Jev
-     * * `embedding` - Embedding
-     */
-    export type WatchFeedRankerEnum = typeof WatchFeedRankerEnum[keyof typeof WatchFeedRankerEnum];
-
-
-    export const WatchFeedRankerEnum = {
-      WeightedScore: 'weighted-score',
-      Jev: 'jev',
-      Embedding: 'embedding',
-    } as const;
-
-    /**
-     * Response of GET /vision/scanners/watch_feed/.
-     */
-    export interface WatchFeedResponse {
-      /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
-      results: WatchFeedItem[];
-      /** Whether a later page holds more ranked items. Request it with `offset` set past this page. */
-      has_more: boolean;
-      /** The time this feed ranks as of. Send it back with later pages. */
-      as_of: string;
-      /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `embedding` on the rank the watch rank consumer wrote from the observation's embedding, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
-       *
-       * * `weighted-score` - Weighted Score
-       * * `jev` - Jev
-       * * `embedding` - Embedding */
-      ranker: WatchFeedRankerEnum;
-      /**
-         * The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, `jev`, `embedding`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, which is the exposure the experiment counts.
-         * @nullable
-         */
-      ranker_variant: string | null;
-    }
-
     export interface WebAnalyticsBotCondition {
       /**
          * Stable id for the condition. Generated when omitted.
@@ -123470,20 +113646,6 @@ export namespace Schemas {
       content: WebMCPExecResultContentItem[];
       /** True when the tool ran and reported a failure. */
       is_error: boolean;
-    }
-
-    /**
-     * JSON Schema of the tool input, as the MCP server advertises it.
-     */
-    export type WebMCPExecToolInputSchema = { [key: string]: unknown };
-
-    export interface WebMCPExecTool {
-      /** Tool name to register with WebMCP. */
-      name: string;
-      /** Tool description from the PostHog MCP server, which tells the agent how to write commands. */
-      description: string;
-      /** JSON Schema of the tool input, as the MCP server advertises it. */
-      input_schema: WebMCPExecToolInputSchema;
     }
 
     export interface WebhookExternalStatus {
@@ -124045,7 +114207,20 @@ export namespace Schemas {
       build_hash: string | null;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface WidgetVersionPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Versions ordered newest first. */
       results: WidgetVersion[];
       /**
@@ -124199,6 +114374,16 @@ export namespace Schemas {
          * @nullable
          */
       warehouse_source_type: string | null;
+      /** Warehouse destination PostHog can send data to when the tool is that warehouse, or null for any other tool.
+       *
+       * * `Redshift` - Redshift
+       * * `Snowflake` - Snowflake
+       * * `BigQuery` - BigQuery
+       * * `Postgres` - Postgres
+       * * `Databricks` - Databricks
+       * * `AzureBlob` - Azure Blob
+       * * `S3` - S3 */
+      warehouse_destination_type: UserCreatableDestinationTypeEnum | null;
       /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
        *
        * * `in-cli` - In the terminal
@@ -124530,6 +114715,146 @@ export namespace Schemas {
        * * `github_actions` - GitHub Actions
        * * `depot_ci` - Depot CI */
       latest_ci_engine?: CIEngineEnum | null;
+    }
+
+    /**
+     * * `approximated` - Approximated
+     * * `unsupported` - Unsupported
+     * * `needs_input` - Needs input
+     */
+    export type WorkflowImportNoteLevelEnum = typeof WorkflowImportNoteLevelEnum[keyof typeof WorkflowImportNoteLevelEnum];
+
+
+    export const WorkflowImportNoteLevelEnum = {
+      Approximated: 'approximated',
+      Unsupported: 'unsupported',
+      NeedsInput: 'needs_input',
+    } as const;
+
+    export interface WorkflowImportNote {
+      /** `approximated`: the step behaves differently in PostHog. `unsupported`: the setting was left out. `needs_input`: the team must set something before enabling.
+       *
+       * * `approximated` - Approximated
+       * * `unsupported` - Unsupported
+       * * `needs_input` - Needs input */
+      level: WorkflowImportNoteLevelEnum;
+      /** What changed or was left out, and what to do about it. */
+      message: string;
+      /**
+         * The workflow step the note is about, or null.
+         * @nullable
+         */
+      step_id: string | null;
+      /**
+         * That step's name, or null.
+         * @nullable
+         */
+      step_name: string | null;
+    }
+
+    export interface WorkflowImportRecord {
+      /** The import record's id. */
+      readonly id: string;
+      /** The tool the workflow was imported from. */
+      readonly source: string;
+      /** The automation's id in that tool. */
+      readonly source_id: string;
+      /** The automation's name in that tool. */
+      readonly source_name: string;
+      /**
+         * The workflow.
+         * @nullable
+         */
+      readonly hog_flow: string | null;
+      /** What the import changed or left out. */
+      readonly notes: readonly WorkflowImportNote[];
+      /** When the workflow was last imported. */
+      readonly updated_at: string;
+    }
+
+    /**
+     * Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too.
+     */
+    export type WorkflowImportRequestSnippets = {[key: string]: string};
+
+    /**
+     * Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set.
+     */
+    export type WorkflowImportRequestSegmentCohorts = {[key: string]: number};
+
+    /**
+     * Customer.io layout id to the layout's `body`, from `GET /v1/environments/{environment_id}/layouts/{layout_id}`. An email whose template names a `layout_id` is wrapped in that layout at `{{ content }}`.
+     */
+    export type WorkflowImportRequestLayouts = {[key: string]: string};
+
+    export interface WorkflowImportRequest {
+      /** The tool the automations come from.
+       *
+       * * `customerio` - Customer.io */
+      source: ImportProviderKeyEnum;
+      /** The automations to import, at most 50. People are never read from these objects. */
+      campaigns: CustomerioCampaign[];
+      /** Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too. */
+      snippets?: WorkflowImportRequestSnippets;
+      /** Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set. */
+      segment_cohorts?: WorkflowImportRequestSegmentCohorts;
+      /** Customer.io layout id to the layout's `body`, from `GET /v1/environments/{environment_id}/layouts/{layout_id}`. An email whose template names a `layout_id` is wrapped in that layout at `{{ content }}`. */
+      layouts?: WorkflowImportRequestLayouts;
+      /** Customer.io sender identities, from `GET /v1/environments/{environment_id}/identities?type=email`. Each email gets the PostHog sender with the same address. */
+      sender_identities?: CustomerioSenderIdentity[];
+      /** Customer.io segment ids, names and types, without members, so the notes can name each segment and flag static ones. */
+      segments?: CustomerioSegment[];
+      /** When true, translate and check the automations but save nothing, to preview the import. */
+      dry_run?: boolean;
+    }
+
+    /**
+     * * `preview` - Preview
+     * * `created` - Created
+     * * `updated` - Updated
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     */
+    export type WorkflowImportStatusEnum = typeof WorkflowImportStatusEnum[keyof typeof WorkflowImportStatusEnum];
+
+
+    export const WorkflowImportStatusEnum = {
+      Preview: 'preview',
+      Created: 'created',
+      Updated: 'updated',
+      Skipped: 'skipped',
+      Failed: 'failed',
+    } as const;
+
+    export interface WorkflowImportResult {
+      /** The automation's id in Customer.io. */
+      source_id: string;
+      /** The automation's name. */
+      name: string;
+      /** `preview` when dry_run is set, `created` or `updated` for a saved draft, `skipped` when an earlier import of it is no longer a draft, `failed` when the draft does not pass the workflow checks.
+       *
+       * * `preview` - Preview
+       * * `created` - Created
+       * * `updated` - Updated
+       * * `skipped` - Skipped
+       * * `failed` - Failed */
+      status: WorkflowImportStatusEnum;
+      /**
+         * The draft workflow's id, when one was saved. In a preview, the draft an import would replace.
+         * @nullable
+         */
+      workflow_id: string | null;
+      /** What the import changed or left out. */
+      notes: WorkflowImportNote[];
+      /** Why the draft failed the workflow checks, for `failed`. */
+      validation_errors: string[];
+    }
+
+    export interface WorkflowImportResponse {
+      /** One result per automation, in request order. */
+      results: WorkflowImportResult[];
+      /** True when PostHog read message content from Customer.io with the project's stored App API key. */
+      content_fetched: boolean;
     }
 
     export interface WorkflowJobStep {
@@ -124962,6 +115287,13 @@ export namespace Schemas {
          * @nullable
          */
       marketing_frequency_cap_window_days?: number | null;
+      /**
+         * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away. A held message sends as soon as one of the person's earlier messages leaves the window.
+         * @minimum 1
+         * @maximum 168
+         * @nullable
+         */
+      marketing_frequency_cap_hold_hours?: number | null;
       /** Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.
        *
        * * `off` - Off
@@ -125133,6 +115465,21 @@ export namespace Schemas {
          * @nullable
          */
       spans_with_distinct_id: number | null;
+      /** How this group compares with its baseline: regressed (error rate or p95 jumped), degraded (high error rate), new (no spans in the baseline), recovered, improved, or ok. Null unless the query set `includeHealth`.
+       *
+       * * `silent` - Silent
+       * * `regressed` - Regressed
+       * * `degraded` - Degraded
+       * * `new` - New
+       * * `recovered` - Recovered
+       * * `improved` - Improved
+       * * `ok` - Ok */
+      health_status: ServiceHealthStatusEnum | null;
+      /**
+         * Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is ok.
+         * @nullable
+         */
+      health_reason: string | null;
     }
 
     export interface _CompareFilter {
@@ -125832,7 +116179,10 @@ export namespace Schemas {
       searchTerm?: string;
       /** Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND/OR groups. */
       filterGroup?: LogsFilterGroupInput;
-      /** Max results (1-1000). */
+      /**
+         * Max results. Values above 2000 are capped at 2000.
+         * @minimum 1
+         */
       limit?: number;
       /** Pagination cursor from previous response. */
       after?: string;
@@ -127078,6 +117428,10 @@ export namespace Schemas {
       offset?: number;
       /** Also return the sessions and people behind each operation. Off by default because it reads the span and resource attribute maps, which the rest of the aggregation never touches. */
       includeImpact?: boolean;
+      /** Group HTTP server spans by `METHOD route` (from `http.route`) in place of the span name, so raw paths like `/users/1` and `/users/2` fold into one row. Spans without a route keep their span name. Spans that are not HTTP server spans are left out. */
+      groupByEndpoint?: boolean;
+      /** Also return `health_status` and `health_reason` per row, comparing each row with the same row in the comparison window, or in the previous period when `compareFilter` is off. Uses the same statuses and thresholds as the service health check. Costs a second window query. */
+      includeHealth?: boolean;
     }
 
     export interface _TracingAggregationRequest {
@@ -128063,6 +118417,10 @@ export namespace Schemas {
      */
     clients?: string[];
     /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
      * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.
      */
     detail_filters?: string;
@@ -128457,6 +118815,7 @@ export namespace Schemas {
     export type CrossProjectDashboardsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -128468,6 +118827,7 @@ export namespace Schemas {
     export type CrossProjectDashboardsTilesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -128847,6 +119207,7 @@ export namespace Schemas {
     created_by?: number[];
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -128862,17 +119223,30 @@ export namespace Schemas {
     export type AccountRelationshipDefinitionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Return all definitions in one response when set to none.
+     */
+    pagination?: AccountRelationshipDefinitionsListPagination;
     };
+
+    export type AccountRelationshipDefinitionsListPagination = typeof AccountRelationshipDefinitionsListPagination[keyof typeof AccountRelationshipDefinitionsListPagination];
+
+
+    export const AccountRelationshipDefinitionsListPagination = {
+      None: 'none',
+    } as const;
 
     export type AccountTrackRulesRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -128907,6 +119281,7 @@ export namespace Schemas {
     include_ignored?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -128956,6 +119331,7 @@ export namespace Schemas {
     export type AccountsEmailThreadsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -128967,6 +119343,7 @@ export namespace Schemas {
     export type AccountsEmailThreadMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number;
     /**
@@ -128978,6 +119355,7 @@ export namespace Schemas {
     export type AccountsMeetingsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -128993,6 +119371,7 @@ export namespace Schemas {
     export type AccountsSummariesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -129004,6 +119383,7 @@ export namespace Schemas {
     export type AccountsSupportTicketMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number;
     /**
@@ -129159,6 +119539,10 @@ export namespace Schemas {
 
     export type ActivityLogListParams = {
     /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
      * Filter by the ID of the affected resource.
      * @minLength 1
      */
@@ -129265,6 +119649,7 @@ export namespace Schemas {
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
+     * * `TicketMacro` - TicketMacro
      * * `KnowledgeSource` - KnowledgeSource
      * * `KnowledgeLibrary` - KnowledgeLibrary
      * * `InstanceSetting` - InstanceSetting
@@ -129383,6 +119768,7 @@ export namespace Schemas {
       DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
+      TicketMacro: 'TicketMacro',
       KnowledgeSource: 'KnowledgeSource',
       KnowledgeLibrary: 'KnowledgeLibrary',
       InstanceSetting: 'InstanceSetting',
@@ -129487,6 +119873,7 @@ export namespace Schemas {
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
+     * * `TicketMacro` - TicketMacro
      * * `KnowledgeSource` - KnowledgeSource
      * * `KnowledgeLibrary` - KnowledgeLibrary
      * * `InstanceSetting` - InstanceSetting
@@ -129593,6 +119980,7 @@ export namespace Schemas {
       DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
+      TicketMacro: 'TicketMacro',
       KnowledgeSource: 'KnowledgeSource',
       KnowledgeLibrary: 'KnowledgeLibrary',
       InstanceSetting: 'InstanceSetting',
@@ -129625,6 +120013,10 @@ export namespace Schemas {
      * Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).
      */
     clients?: string[];
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
     /**
      * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.
      */
@@ -129730,6 +120122,7 @@ export namespace Schemas {
     include_archived?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -129752,6 +120145,7 @@ export namespace Schemas {
     engine?: string;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -129763,6 +120157,15 @@ export namespace Schemas {
      * @minimum 1
      */
     version?: number;
+    };
+
+    export type AeoPromptsOverviewParams = {
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
     };
 
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {
@@ -130127,7 +120530,48 @@ export namespace Schemas {
     timestamp_hint?: string;
     };
 
+    export type AiObservabilityTracesClustersRetrieveParams = {
+    /**
+     * When the trace started, as the trace resource's createdAt. Bounds which clustering runs are read.
+     */
+    created_at: string;
+    };
+
+    export type AiObservabilityTracesFeedbackRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
     export type AiObservabilityTracesNodesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesPullRequestRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesSearchRetrieveParams = {
+    /**
+     * The text to find in the trace's steps, ignoring case.
+     * @minLength 1
+     * @maxLength 200
+     */
+    q: string;
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesSummaryCreateParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
@@ -130187,6 +120631,7 @@ export namespace Schemas {
     export type AnnotationsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -130202,6 +120647,7 @@ export namespace Schemas {
     export type AnnouncementsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -130281,6 +120727,7 @@ export namespace Schemas {
     export type AutoresearchListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -130292,6 +120739,7 @@ export namespace Schemas {
     export type AutoresearchModelsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -130303,6 +120751,7 @@ export namespace Schemas {
     export type AutoresearchRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -130314,6 +120763,7 @@ export namespace Schemas {
     export type AutoresearchSuggestionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -130325,6 +120775,7 @@ export namespace Schemas {
     export type AutoresearchTrainingRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -130354,6 +120805,7 @@ export namespace Schemas {
     export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -130458,6 +120910,11 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -130489,6 +120946,11 @@ export namespace Schemas {
      * @maximum 500
      */
     limit?: number;
+    /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number;
     /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
@@ -130733,6 +121195,7 @@ export namespace Schemas {
     export type BusinessKnowledgeSourcesDocumentsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 5000
      */
     limit?: number;
     /**
@@ -130760,6 +121223,7 @@ export namespace Schemas {
     kind?: CanvasesListKind;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -130961,6 +121425,7 @@ export namespace Schemas {
     export type CanvasesVersionsRetrieveParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -131082,6 +121547,20 @@ export namespace Schemas {
      * @minimum 1
      */
     page?: number;
+    };
+
+    export type CohortsCalculationHistoryRetrieveParams = {
+    /**
+     * Number of calculation runs to return. Defaults to 100, at most 500.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of calculation runs to skip. Defaults to 0.
+     * @minimum 0
+     */
+    offset?: number;
     };
 
     export type CohortsPersonsRetrieveParams = {
@@ -131296,6 +121775,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ConversationsMacrosListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ConversationsTicketsListParams = {
     /**
      * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `skipped_team_replied`, `skipped_channel_excluded`, `blocked_unsafe`, `blocked_unsafe_reply`, `clarified`, `suggested_clarification`, `in_progress`.
@@ -131331,6 +121821,7 @@ export namespace Schemas {
     emails?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -131416,6 +121907,7 @@ export namespace Schemas {
     export type ConversationsTicketsMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number;
     /**
@@ -131460,13 +121952,25 @@ export namespace Schemas {
     export type CustomPropertyDefinitionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Return all definitions in one response when set to none.
+     */
+    pagination?: CustomPropertyDefinitionsListPagination;
     };
+
+    export type CustomPropertyDefinitionsListPagination = typeof CustomPropertyDefinitionsListPagination[keyof typeof CustomPropertyDefinitionsListPagination];
+
+
+    export const CustomPropertyDefinitionsListPagination = {
+      None: 'none',
+    } as const;
 
     export type CustomPropertyDefinitionsValuesRetrieveParams = {
     /**
@@ -131482,6 +121986,7 @@ export namespace Schemas {
     export type CustomPropertySourcesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -131493,6 +121998,7 @@ export namespace Schemas {
     export type CustomPropertySourcesRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -131508,6 +122014,7 @@ export namespace Schemas {
     export type CustomerJourneysListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -131519,6 +122026,7 @@ export namespace Schemas {
     export type CustomerProfileConfigsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -131791,6 +122299,18 @@ export namespace Schemas {
 
 
     export const DashboardsDestroyFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsAddInsightCreateParams = {
+    format?: DashboardsAddInsightCreateFormat;
+    };
+
+    export type DashboardsAddInsightCreateFormat = typeof DashboardsAddInsightCreateFormat[keyof typeof DashboardsAddInsightCreateFormat];
+
+
+    export const DashboardsAddInsightCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -132189,17 +122709,6 @@ export namespace Schemas {
     table_name?: string;
     };
 
-    export type DataColorThemesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type DataDeletionRequestsListParams = {
     /**
      * Number of results to return per page.
@@ -132239,6 +122748,7 @@ export namespace Schemas {
     engine?: DataModelingJobsListEngine;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -132367,6 +122877,26 @@ export namespace Schemas {
      * @minLength 1
      */
     saved_query_ids?: string;
+    /**
+     * Column to sort models by.
+     *
+     * * `name` - Model
+     * * `read_bytes` - Bytes read
+     * * `clickhouse_read_bytes` - ClickHouse bytes
+     * * `managed_warehouse_read_bytes` - Managed warehouse bytes
+     * * `cpu_microseconds` - CPU time
+     * * `runs` - Runs
+     * @minLength 1
+     */
+    sort_by?: DataModelingUsageListSortBy;
+    /**
+     * Sort direction. Unmeasured values are always last.
+     *
+     * * `asc` - Ascending
+     * * `desc` - Descending
+     * @minLength 1
+     */
+    sort_direction?: DataModelingUsageListSortDirection;
     };
 
     export type DataModelingUsageListEngine = typeof DataModelingUsageListEngine[keyof typeof DataModelingUsageListEngine];
@@ -132376,6 +122906,26 @@ export namespace Schemas {
       All: 'all',
       Clickhouse: 'clickhouse',
       ManagedWarehouse: 'managed_warehouse',
+    } as const;
+
+    export type DataModelingUsageListSortBy = typeof DataModelingUsageListSortBy[keyof typeof DataModelingUsageListSortBy];
+
+
+    export const DataModelingUsageListSortBy = {
+      Name: 'name',
+      ReadBytes: 'read_bytes',
+      ClickhouseReadBytes: 'clickhouse_read_bytes',
+      ManagedWarehouseReadBytes: 'managed_warehouse_read_bytes',
+      CpuMicroseconds: 'cpu_microseconds',
+      Runs: 'runs',
+    } as const;
+
+    export type DataModelingUsageListSortDirection = typeof DataModelingUsageListSortDirection[keyof typeof DataModelingUsageListSortDirection];
+
+
+    export const DataModelingUsageListSortDirection = {
+      Asc: 'asc',
+      Desc: 'desc',
     } as const;
 
     export type DataQualityChecksListParams = {
@@ -133078,6 +123628,11 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -133117,7 +123672,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133132,7 +123687,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133147,7 +123702,34 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsAuthorLlmSpendParams = {
+    /**
+     * GitHub handle whose pull requests to list.
+     */
+    author: string;
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Maximum pull requests to return, 1 to 200. Defaults to 100.
+     */
+    limit?: number;
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133170,20 +123752,28 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
 
     export type EngineeringAnalyticsBrokenTestsParams = {
     /**
+     * Optional exact branch name. Keeps only tests that failed on it, but the counts still cover every branch, so a row shows whether the test also fails elsewhere. Applied before the limit.
+     */
+    branch?: string;
+    /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
+    /**
+     * Optional case-insensitive substring of the test id to keep, e.g. 'test_cohort' or 'posthog/api/test/test_user.py'. Applied before the limit, so a test past the cap is still found.
+     */
+    test?: string;
     };
 
     export type EngineeringAnalyticsCiCardsParams = {
@@ -133192,7 +123782,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133219,7 +123809,7 @@ export namespace Schemas {
      */
     repo: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133296,7 +123886,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133323,7 +123913,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133350,9 +123940,20 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
+    };
+
+    export type EngineeringAnalyticsDepotCiUsageParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
     };
 
     export type EngineeringAnalyticsDoraParams = {
@@ -133381,7 +123982,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133396,6 +123997,10 @@ export namespace Schemas {
     } as const;
 
     export type EngineeringAnalyticsFlakyTestsParams = {
+    /**
+     * Optional exact branch name. Keeps only tests that failed on it, but the counts still cover every branch, so a row shows whether the test also fails elsewhere. Applied before the limit.
+     */
+    branch?: string;
     /**
      * Window start: relative ('-7d', '-30d') or ISO8601. Defaults to -7d; the window may span at most 30 days.
      */
@@ -133413,6 +124018,10 @@ export namespace Schemas {
      */
     min_failed_prs?: number;
     /**
+     * Optional pull request number. Keeps only tests that failed in that PR's CI runs, but the counts still cover every PR. Pass min_failed_prs=1 too, so a test that failed on this PR alone qualifies. Applied before the limit.
+     */
+    pr_number?: number;
+    /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string;
@@ -133421,9 +124030,13 @@ export namespace Schemas {
      */
     runner?: EngineeringAnalyticsFlakyTestsRunner;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
+    /**
+     * Optional case-insensitive substring of the test id to keep, e.g. 'test_cohort' or 'posthog/api/test/test_user.py'. Applied before the limit, so a test past the cap is still found.
+     */
+    test?: string;
     };
 
     export type EngineeringAnalyticsFlakyTestsRunner = typeof EngineeringAnalyticsFlakyTestsRunner[keyof typeof EngineeringAnalyticsFlakyTestsRunner];
@@ -133456,7 +124069,7 @@ export namespace Schemas {
      */
     run_scope?: EngineeringAnalyticsJobAggregatesRunScope;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -133511,6 +124124,25 @@ export namespace Schemas {
       DepotCi: 'depot_ci',
     } as const;
 
+    export type EngineeringAnalyticsLlmSpendCoverageParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsMasterFailuresParams = {
     /**
      * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
@@ -133529,7 +124161,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133544,7 +124176,7 @@ export namespace Schemas {
      */
     repo: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133559,7 +124191,7 @@ export namespace Schemas {
      */
     repo: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133574,7 +124206,7 @@ export namespace Schemas {
      */
     repo: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133589,7 +124221,7 @@ export namespace Schemas {
      */
     repo: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133620,7 +124252,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133651,7 +124283,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -133675,7 +124307,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133698,7 +124330,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133721,7 +124353,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133736,7 +124368,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -133759,7 +124391,7 @@ export namespace Schemas {
      */
     run_id: number;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133790,7 +124422,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -133825,7 +124457,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133848,7 +124480,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133859,7 +124491,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133886,7 +124518,7 @@ export namespace Schemas {
      */
     run_scope?: EngineeringAnalyticsWorkflowHealthRunScope;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -133923,7 +124555,7 @@ export namespace Schemas {
      */
     run_id: number;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133950,7 +124582,7 @@ export namespace Schemas {
      */
     run_id: number;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -133985,7 +124617,7 @@ export namespace Schemas {
      */
     run_scope?: EngineeringAnalyticsWorkflowRunActivityRunScope;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -134026,7 +124658,7 @@ export namespace Schemas {
      */
     run_scope?: EngineeringAnalyticsWorkflowRunnerCostsRunScope;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -134067,7 +124699,7 @@ export namespace Schemas {
      */
     run_scope?: EngineeringAnalyticsWorkflowRunsRunScope;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -134152,6 +124784,7 @@ export namespace Schemas {
     issue_id?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -134216,6 +124849,7 @@ export namespace Schemas {
     export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -134288,6 +124922,7 @@ export namespace Schemas {
     export type ErrorTrackingReleasesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -134311,6 +124946,7 @@ export namespace Schemas {
     issue_ids?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -134326,6 +124962,7 @@ export namespace Schemas {
     export type ErrorTrackingStackFramesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -134348,6 +124985,7 @@ export namespace Schemas {
     export type ErrorTrackingSymbolSetsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -135039,6 +125677,11 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -135181,6 +125824,10 @@ export namespace Schemas {
      */
     created_by_id?: string;
     /**
+     * Pass `true` to list only soft-deleted flags, which can be restored, archived or not. When omitted, deleted flags are excluded.
+     */
+    deleted?: FeatureFlagsListDeleted;
+    /**
      * When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.
      */
     eligible_for_experiment?: FeatureFlagsListEligibleForExperiment;
@@ -135236,6 +125883,14 @@ export namespace Schemas {
 
 
     export const FeatureFlagsListArchived = {
+      False: 'false',
+      True: 'true',
+    } as const;
+
+    export type FeatureFlagsListDeleted = typeof FeatureFlagsListDeleted[keyof typeof FeatureFlagsListDeleted];
+
+
+    export const FeatureFlagsListDeleted = {
       False: 'false',
       True: 'true',
     } as const;
@@ -135355,6 +126010,7 @@ export namespace Schemas {
     created_by_ids?: number[];
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -135478,6 +126134,7 @@ export namespace Schemas {
     export type FileDownloadBatchExportsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -135512,6 +126169,11 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -135529,6 +126191,7 @@ export namespace Schemas {
     include_tags?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -135711,6 +126374,7 @@ export namespace Schemas {
     kind?: string;
     /**
      * Number of results to return per page.
+     * @maximum 250
      */
     limit?: number;
     /**
@@ -135957,6 +126621,11 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -135984,6 +126653,7 @@ export namespace Schemas {
     latest_send_first?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -136195,6 +126865,11 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -136394,6 +127069,7 @@ export namespace Schemas {
     export type HogFlowsProposalsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -136419,6 +127095,7 @@ export namespace Schemas {
     export type HogFlowsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -136526,6 +127203,11 @@ export namespace Schemas {
      * @maximum 500
      */
     limit?: number;
+    /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number;
     /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
@@ -137475,6 +128157,14 @@ export namespace Schemas {
      * Optional case-insensitive repository name search query.
      */
     search?: string;
+    };
+
+    export type IntegrationsGithubRepositoryAccessRetrieveParams = {
+    /**
+     * Repository in owner/repo format. Omit to check access to any repository.
+     * @minLength 1
+     */
+    repository?: string;
     };
 
     export type IntegrationsGithubTeamsRetrieveParams = {
@@ -138737,6 +129427,7 @@ export namespace Schemas {
     export type McpRegistryServersListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number;
     /**
@@ -139149,6 +129840,7 @@ export namespace Schemas {
     created_before?: string;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -139208,6 +129900,7 @@ export namespace Schemas {
     include_matched_fields?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -139462,6 +130155,7 @@ export namespace Schemas {
     format?: PersonsDeletionStatusListFormat;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -139523,18 +130217,6 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type PersonsResetPersonDistinctIdCreateParams = {
-    format?: PersonsResetPersonDistinctIdCreateFormat;
-    };
-
-    export type PersonsResetPersonDistinctIdCreateFormat = typeof PersonsResetPersonDistinctIdCreateFormat[keyof typeof PersonsResetPersonDistinctIdCreateFormat];
-
-
-    export const PersonsResetPersonDistinctIdCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type PersonsValuesRetrieveParams = {
     format?: PersonsValuesRetrieveFormat;
     /**
@@ -139562,6 +130244,7 @@ export namespace Schemas {
     legacy_configuration_id?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -139572,14 +130255,50 @@ export namespace Schemas {
 
     export type PluginConfigsLogsListParams = {
     /**
-     * Number of results to return per page.
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Maximum number of log entries to return (1-1000, default 100).
+     * @minimum 1
+     * @maximum 1000
      */
     limit?: number;
     /**
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     */
+    search?: string;
+    /**
+     * Log types to include. Repeat the parameter to include more than one type.
+     */
+    type_filter?: PluginConfigsLogsListTypeFilterItem[];
     };
+
+    /**
+     * * `DEBUG` - Debug
+     * * `LOG` - Log
+     * * `INFO` - Info
+     * * `WARN` - Warn
+     * * `ERROR` - Error
+     */
+    export type PluginConfigsLogsListTypeFilterItem = typeof PluginConfigsLogsListTypeFilterItem[keyof typeof PluginConfigsLogsListTypeFilterItem];
+
+
+    export const PluginConfigsLogsListTypeFilterItem = {
+      Debug: 'DEBUG',
+      Log: 'LOG',
+      Info: 'INFO',
+      Warn: 'WARN',
+      Error: 'ERROR',
+    } as const;
 
     export type PrecomputeDebugStateParams = {
     /**
@@ -139680,6 +130399,7 @@ export namespace Schemas {
     is_numerical?: boolean | null;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -140026,6 +130746,8 @@ export namespace Schemas {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
      * @minLength 1
      */
     origin_product?: SandboxCustomImagesListOriginProduct;
@@ -140061,6 +130783,8 @@ export namespace Schemas {
       SpaceSetup: 'space_setup',
       BusinessKnowledge: 'business_knowledge',
       MetricsImport: 'metrics_import',
+      KnowledgeWriter: 'knowledge_writer',
+      ContextLayer: 'context_layer',
     } as const;
 
     export type SandboxListParams = {
@@ -140179,7 +130903,7 @@ export namespace Schemas {
 
     export type SdkHealthReportRetrieveParams = {
     /**
-     * When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. A background job refreshes this data once a day, so the cached answer is usually current. Use sparingly.
+     * When true, bypasses the cache and re-reads SDK usage. The cached answer is at most an hour old, so use this sparingly.
      */
     force_refresh?: boolean;
     };
@@ -140244,6 +130968,7 @@ export namespace Schemas {
     created_by?: number;
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -140316,6 +131041,114 @@ export namespace Schemas {
      */
     version?: number;
     };
+
+    export type SignalsActivitySummaryMembersSearchParams = {
+    /**
+     * Members to leave out, such as people you already checked.
+     */
+    exclude_user_uuids?: string[];
+    /**
+     * Add the one-page markdown profile to each result. Set it only for the people you want to read.
+     */
+    include_profile?: boolean;
+    /**
+     * The most results to return, best match first.
+     * @minimum 1
+     * @maximum 25
+     */
+    limit?: number;
+    /**
+     * Only members who work in or visit this product.
+     *
+     * * `product_analytics` - Product Analytics
+     * * `dashboards` - Dashboards
+     * * `web_analytics` - Web Analytics
+     * * `session_replay` - Session Replay
+     * * `heatmaps` - Heatmaps
+     * * `error_tracking` - Error Tracking
+     * * `experiments` - Experiments
+     * * `feature_flags` - Feature Flags
+     * * `early_access_features` - Early Access Features
+     * * `surveys` - Surveys
+     * * `product_tours` - Product Tours
+     * * `notebooks` - Notebooks
+     * * `cohorts` - Cohorts
+     * * `persons` - Persons
+     * * `data_management` - Data Management
+     * * `data_warehouse` - Data Warehouse
+     * * `data_pipelines` - Data Pipelines
+     * * `workflows` - Workflows
+     * * `ai_observability` - Ai Observability
+     * * `mcp_analytics` - Mcp Analytics
+     * * `logs` - Logs
+     * * `tracing` - Tracing
+     * * `endpoints` - Endpoints
+     * * `revenue_analytics` - Revenue Analytics
+     * * `customer_analytics` - Customer Analytics
+     * * `inbox` - Inbox
+     * * `canvases` - Canvases
+     * * `support` - Support
+     * @minLength 1
+     */
+    product?: SignalsActivitySummaryMembersSearchProduct;
+    /**
+     * Natural language or keywords, such as an object name, a topic or a product area. Without a query, the search lists members with a summary, the newest summary first.
+     * @maxLength 500
+     */
+    query?: string;
+    /**
+     * `hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and returns 503 when the vector search fails. `keyword` matches query terms in the profile, the headline, the theme labels and the names of owned and watched objects.
+     *
+     * * `hybrid` - Hybrid
+     * * `semantic` - Semantic
+     * * `keyword` - Keyword
+     * @minLength 1
+     */
+    search_mode?: SignalsActivitySummaryMembersSearchSearchMode;
+    };
+
+    export type SignalsActivitySummaryMembersSearchProduct = typeof SignalsActivitySummaryMembersSearchProduct[keyof typeof SignalsActivitySummaryMembersSearchProduct];
+
+
+    export const SignalsActivitySummaryMembersSearchProduct = {
+      ProductAnalytics: 'product_analytics',
+      Dashboards: 'dashboards',
+      WebAnalytics: 'web_analytics',
+      SessionReplay: 'session_replay',
+      Heatmaps: 'heatmaps',
+      ErrorTracking: 'error_tracking',
+      Experiments: 'experiments',
+      FeatureFlags: 'feature_flags',
+      EarlyAccessFeatures: 'early_access_features',
+      Surveys: 'surveys',
+      ProductTours: 'product_tours',
+      Notebooks: 'notebooks',
+      Cohorts: 'cohorts',
+      Persons: 'persons',
+      DataManagement: 'data_management',
+      DataWarehouse: 'data_warehouse',
+      DataPipelines: 'data_pipelines',
+      Workflows: 'workflows',
+      AiObservability: 'ai_observability',
+      McpAnalytics: 'mcp_analytics',
+      Logs: 'logs',
+      Tracing: 'tracing',
+      Endpoints: 'endpoints',
+      RevenueAnalytics: 'revenue_analytics',
+      CustomerAnalytics: 'customer_analytics',
+      Inbox: 'inbox',
+      Canvases: 'canvases',
+      Support: 'support',
+    } as const;
+
+    export type SignalsActivitySummaryMembersSearchSearchMode = typeof SignalsActivitySummaryMembersSearchSearchMode[keyof typeof SignalsActivitySummaryMembersSearchSearchMode];
+
+
+    export const SignalsActivitySummaryMembersSearchSearchMode = {
+      Hybrid: 'hybrid',
+      Semantic: 'semantic',
+      Keyword: 'keyword',
+    } as const;
 
     export type SignalsAnomaliesInsightRetrieveParams = {
     /**
@@ -140435,7 +131268,7 @@ export namespace Schemas {
      */
     already_addressed?: boolean;
     /**
-     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started.
+     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user claimed: their own claims and claims by MCP agents acting for them. Internal task claims are not included.
      */
     assignee?: SignalsReportsListAssignee;
     /**
@@ -140451,7 +131284,7 @@ export namespace Schemas {
      */
     created_after?: string;
     /**
-     * Report ids to leave out of `results` and `count`, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.
+     * Report ids to leave out of the results and counts, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.
      * @maxItems 100
      */
     exclude?: string[];
@@ -140473,6 +131306,7 @@ export namespace Schemas {
     include_unlisted?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -140512,7 +131346,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.
+     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills.
      */
     sort?: string;
     /**
@@ -140650,12 +131484,136 @@ export namespace Schemas {
       email: string;
     }};
 
+    export type SignalsReportsForMeRetrieveParams = {
+    /**
+     * Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always starts a new build, and an unfocused request never reuses it. Pass `wait_seconds` to wait for it.
+     * @maxLength 2000
+     */
+    focus?: string;
+    /**
+     * The most reports to return, best first. Defaults to 25. Values above the configured maximum (50) use the maximum.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Start a new build even when the stored one is current. The build runs in the background, so the response has `building: true`. Pass `wait_seconds` to wait for it.
+     */
+    refresh?: boolean;
+    /**
+     * When the request starts a build or one is running, wait for its list until this many seconds after the request started. Defaults to 0, which does not wait. A build usually takes 10 to 60 seconds.
+     * @minimum 0
+     * @maximum 30
+     */
+    wait_seconds?: number;
+    };
+
     export type SignalsReportsPrCiStatusesParams = {
     /**
      * Comma-separated report UUIDs to resolve CI state for, at most 100 per request.
      */
     report_ids: string;
     };
+
+    export type SignalsReportsSectionCountsRetrieveParams = {
+    /**
+     * Comma-separated actionability judgments to include. Valid values: immediately_actionable, requires_human_input, not_actionable. Reports without a judgment are excluded.
+     */
+    actionability?: string;
+    /**
+     * Filter by whether the latest actionability judgment says the issue is already being handled. False also includes older reports where that judgment did not record a value.
+     */
+    already_addressed?: boolean;
+    /**
+     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user claimed: their own claims and claims by MCP agents acting for them. Internal task claims are not included.
+     */
+    assignee?: SignalsReportsSectionCountsRetrieveAssignee;
+    /**
+     * Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.
+     */
+    channel_id?: string;
+    /**
+     * ISO 8601 datetime. Keeps reports created at or after this time.
+     */
+    created_after?: string;
+    /**
+     * Report ids to leave out of the results and counts, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.
+     * @maxItems 100
+     */
+    exclude?: string[];
+    /**
+     * Include reports kept out of the shared inbox. A report is kept out when the scout that authored it turned off its `inbox` output destination. Defaults to false. Fetching a report by id always works, whatever this value is.
+     */
+    include_unlisted?: boolean;
+    /**
+     * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
+     */
+    priority?: string;
+    /**
+     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     */
+    ranking_min_lift?: string;
+    /**
+     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     */
+    ranking_min_probability?: string;
+    /**
+     * Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.
+     */
+    scope?: string;
+    /**
+     * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
+     */
+    scout?: string;
+    /**
+     * Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at least one of their contributing signals was authored by a scout whose skill_name starts with this prefix — new scouts in the family match without callers listing every name. Combines with the other filters as an AND.
+     */
+    scout_prefix?: string;
+    /**
+     * Case-insensitive substring match against report title and summary.
+     */
+    search?: string;
+    /**
+     * Comma-separated list of source record ids. Reports are kept if at least one of their contributing signals came from one of these records — e.g. pass a support ticket's UUID to see what the inbox already found for that ticket. Requires exactly one source_product, since a source id is only unique within its product.
+     */
+    source_id?: string;
+    /**
+     * Comma-separated list of source products to include. Reports are kept if at least one of their contributing signals comes from one of these products (e.g. error_tracking, session_replay).
+     */
+    source_product?: string;
+    /**
+     * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
+     */
+    suggested_reviewers?: string;
+    /**
+     * Only reports associated with this task (via the report's task associations).
+     */
+    task_id?: string;
+    /**
+     * PostHog user UUID used when scope=teammate.
+     */
+    teammate_uuid?: string;
+    /**
+     * Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.
+     */
+    unclaimed?: boolean;
+    /**
+     * Filter by the current user's report read state.
+     */
+    unread?: boolean;
+    /**
+     * When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold.
+     */
+    use_priority_preference?: boolean;
+    };
+
+    export type SignalsReportsSectionCountsRetrieveAssignee = typeof SignalsReportsSectionCountsRetrieveAssignee[keyof typeof SignalsReportsSectionCountsRetrieveAssignee];
+
+
+    export const SignalsReportsSectionCountsRetrieveAssignee = {
+      Me: 'me',
+      Mine: 'mine',
+    } as const;
 
     export type SignalsScoutConfigListParams = {
     /**
@@ -140863,15 +131821,6 @@ export namespace Schemas {
     report_id: string;
     };
 
-    export type SignalsScoutRunsCostsParams = {
-    /**
-     * Window in days over runs' `created_at` (default 7). Only 7 is accepted today — it matches the window the roster's fleet headline spans, so every number on the page describes one span.
-     * @minimum 7
-     * @maximum 7
-     */
-    window_days?: number;
-    };
-
     export type SignalsScoutRunsRecentEmissionsParams = {
     /**
      * ISO-8601 inclusive lower bound on `emitted_at`. Omit to skip the lower bound.
@@ -140984,6 +131933,25 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type SlackAppWorkspaceSetupRetrieveParams = {
+    /**
+     * Where the Slack install started. slack_page adds the steps for a person who sets up Slack on purpose.
+     *
+     * * `slack_page` - The Slack page in PostHog
+     * * `other` - Another place, such as a channel picker
+     * @minLength 1
+     */
+    entry?: SlackAppWorkspaceSetupRetrieveEntry;
+    };
+
+    export type SlackAppWorkspaceSetupRetrieveEntry = typeof SlackAppWorkspaceSetupRetrieveEntry[keyof typeof SlackAppWorkspaceSetupRetrieveEntry];
+
+
+    export const SlackAppWorkspaceSetupRetrieveEntry = {
+      SlackPage: 'slack_page',
+      Other: 'other',
+    } as const;
 
     export type StamphogDigestRunsListParams = {
     /**
@@ -141127,6 +132095,7 @@ export namespace Schemas {
     insights?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -141526,6 +132495,8 @@ export namespace Schemas {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
@@ -141679,6 +132650,8 @@ export namespace Schemas {
       SpaceSetup: 'space_setup',
       BusinessKnowledge: 'business_knowledge',
       MetricsImport: 'metrics_import',
+      KnowledgeWriter: 'knowledge_writer',
+      ContextLayer: 'context_layer',
     } as const;
 
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];
@@ -141710,11 +132683,13 @@ export namespace Schemas {
 
     /**
      * * `autoresearch` - autoresearch
+     * * `context_layer` - context_layer
      * * `error_tracking` - error_tracking
      * * `eval_clusters` - eval_clusters
      * * `experiments` - experiments
      * * `hogdesk` - hogdesk
      * * `image_builder` - image_builder
+     * * `knowledge_writer` - knowledge_writer
      * * `loop` - loop
      * * `mcp_analytics` - mcp_analytics
      * * `onboarding` - onboarding
@@ -141740,11 +132715,13 @@ export namespace Schemas {
 
     export const TasksListSourcesItem = {
       Autoresearch: 'autoresearch',
+      ContextLayer: 'context_layer',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       Experiments: 'experiments',
       Hogdesk: 'hogdesk',
       ImageBuilder: 'image_builder',
+      KnowledgeWriter: 'knowledge_writer',
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
       Onboarding: 'onboarding',
@@ -142041,6 +133018,13 @@ export namespace Schemas {
     room: string;
     };
 
+    export type TodayHighlightsRetrieveParams = {
+    /**
+     * Retry failed sources when progressive loading is enabled. An active computation is reused.
+     */
+    refresh?: boolean;
+    };
+
     export type TodayReportsKeyClausesRetrieveParams = {
     /**
      * Whether to mark the impact sentence. Pass false when the page shows an impact number instead.
@@ -142107,7 +133091,6 @@ export namespace Schemas {
     offset?: number;
     /**
      * Search filter for attribute names.
-     * @minLength 1
      */
     search?: string;
     /**
@@ -142190,7 +133173,6 @@ export namespace Schemas {
     offset?: number;
     /**
      * Search filter for attribute values.
-     * @minLength 1
      */
     value?: string;
     };
@@ -142272,6 +133254,7 @@ export namespace Schemas {
     export type UptimeMonitorsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -142323,6 +133306,97 @@ export namespace Schemas {
       Unsnooze: 'unsnooze',
     } as const;
 
+    export type VisionGroupsListParams = {
+    /**
+     * Split each group's window counts by experiment variant in `variants`. Use it on experiment scanners.
+     */
+    by_variant?: boolean;
+    /**
+     * Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Also count routine observations, so groups describe ordinary behavior and not only issues. Use it for experiment scanners, where the question is how each variant's users behave.
+     */
+    include_routine?: boolean;
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Rows to skip, for the next page.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * `people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).
+     *
+     * * `people` - People
+     * * `observations` - Observations
+     * * `growth` - Growth
+     * * `recent` - Recent
+     * @minLength 1
+     */
+    order?: VisionGroupsListOrder;
+    /**
+     * Only this scanner's clusters. Defaults to every scanner you can read.
+     */
+    scanner_id?: string;
+    /**
+     * Experiment scanners only: count only members attributed to these variant keys (comma-separated). `__unattributed__` matches members with no attributed variant.
+     * @minLength 1
+     */
+    variant?: string;
+    };
+
+    export type VisionGroupsListOrder = typeof VisionGroupsListOrder[keyof typeof VisionGroupsListOrder];
+
+
+    export const VisionGroupsListOrder = {
+      People: 'people',
+      Observations: 'observations',
+      Growth: 'growth',
+      Recent: 'recent',
+    } as const;
+
+    export type VisionGroupsRetrieveParams = {
+    /**
+     * Split each group's window counts by experiment variant in `variants`. Use it on experiment scanners.
+     */
+    by_variant?: boolean;
+    /**
+     * Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Also count routine observations, so groups describe ordinary behavior and not only issues. Use it for experiment scanners, where the question is how each variant's users behave.
+     */
+    include_routine?: boolean;
+    /**
+     * Only this scanner's clusters. Defaults to every scanner you can read.
+     */
+    scanner_id?: string;
+    /**
+     * Experiment scanners only: count only members attributed to these variant keys (comma-separated). `__unattributed__` matches members with no attributed variant.
+     * @minLength 1
+     */
+    variant?: string;
+    };
+
     export type VisionObservationsListParams = {
     /**
      * Number of results to return per page.
@@ -142356,9 +133430,17 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string;
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: boolean;
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
-    labeled?: string;
+    labeled?: boolean;
     /**
      * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
      */
@@ -142388,6 +133470,10 @@ export namespace Schemas {
      */
     tags?: string;
     /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string;
+    /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
@@ -142400,7 +133486,11 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string;
+    /**
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
     };
@@ -142594,6 +133684,14 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string;
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: boolean;
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: boolean;
@@ -142634,6 +133732,10 @@ export namespace Schemas {
      */
     tags?: string;
     /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string;
+    /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
@@ -142646,7 +133748,11 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string;
+    /**
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
     };
@@ -142665,9 +133771,17 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string;
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: boolean;
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
-    labeled?: string;
+    labeled?: boolean;
     /**
      * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
      */
@@ -142697,6 +133811,10 @@ export namespace Schemas {
      */
     tags?: string;
     /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string;
+    /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
@@ -142709,7 +133827,11 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string;
+    /**
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
     };
@@ -142727,6 +133849,14 @@ export namespace Schemas {
      * Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone.
      */
     date_to?: string;
+    /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string;
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: boolean;
     /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
@@ -142760,6 +133890,10 @@ export namespace Schemas {
      */
     tags?: string;
     /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string;
+    /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
@@ -142772,7 +133906,11 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string;
+    /**
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
     };
@@ -142815,9 +133953,17 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string;
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: boolean;
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
-    labeled?: string;
+    labeled?: boolean;
     /**
      * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
      */
@@ -142847,6 +133993,10 @@ export namespace Schemas {
      */
     tags?: string;
     /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string;
+    /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
@@ -142859,16 +134009,25 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string;
+    /**
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
     };
 
-    export type VisionScannersWatchFeedRetrieveParams = {
+    export type VisionScannersHighlightFeedRetrieveParams = {
     /**
      * The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.
      */
     as_of?: string;
+    /**
+     * Comma-separated kinds of moment to include: `failure` (errors, failed requests, dead ends), `struggle` (repeated attempts, rage clicks, abandoned forms), `revenue` (failed payments, cancellations, usage limits). Defaults to all three. A pick keeps its rank within its scanner, so leaving a kind out drops its sessions without promoting weaker ones.
+     * @minLength 1
+     */
+    categories?: string;
     /**
      * Comma-separated user IDs. Restrict the feed to observations from scanners those users created.
      * @minLength 1
@@ -142911,12 +134070,7 @@ export namespace Schemas {
      * * `experiment` - Experiment
      * @minLength 1
      */
-    scanner_type?: VisionScannersWatchFeedRetrieveScannerType;
-    /**
-     * Case-insensitive text to match against the scan's own words (title, summary, reasoning, and the notability sentence) and the scanner's name. Applied before ranking, so it searches the whole window rather than the items that would have surfaced without it.
-     * @minLength 1
-     */
-    search?: string;
+    scanner_type?: VisionScannersHighlightFeedRetrieveScannerType;
     /**
      * Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.
      * @minLength 1
@@ -142924,10 +134078,10 @@ export namespace Schemas {
     tags?: string;
     };
 
-    export type VisionScannersWatchFeedRetrieveScannerType = typeof VisionScannersWatchFeedRetrieveScannerType[keyof typeof VisionScannersWatchFeedRetrieveScannerType];
+    export type VisionScannersHighlightFeedRetrieveScannerType = typeof VisionScannersHighlightFeedRetrieveScannerType[keyof typeof VisionScannersHighlightFeedRetrieveScannerType];
 
 
-    export const VisionScannersWatchFeedRetrieveScannerType = {
+    export const VisionScannersHighlightFeedRetrieveScannerType = {
       Monitor: 'monitor',
       Classifier: 'classifier',
       Scorer: 'scorer',
@@ -142935,9 +134089,75 @@ export namespace Schemas {
       Experiment: 'experiment',
     } as const;
 
+    export type VisionThemesListParams = {
+    /**
+     * Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Rows to skip, for the next page.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * `people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).
+     *
+     * * `people` - People
+     * * `observations` - Observations
+     * * `growth` - Growth
+     * * `recent` - Recent
+     * @minLength 1
+     */
+    order?: VisionThemesListOrder;
+    /**
+     * Only this scanner's clusters. Defaults to every scanner you can read.
+     */
+    scanner_id?: string;
+    };
+
+    export type VisionThemesListOrder = typeof VisionThemesListOrder[keyof typeof VisionThemesListOrder];
+
+
+    export const VisionThemesListOrder = {
+      People: 'people',
+      Observations: 'observations',
+      Growth: 'growth',
+      Recent: 'recent',
+    } as const;
+
+    export type VisionThemesRetrieveParams = {
+    /**
+     * Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Only this scanner's clusters. Defaults to every scanner you can read.
+     */
+    scanner_id?: string;
+    };
+
     export type VisualReviewReposListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -142953,6 +134173,7 @@ export namespace Schemas {
     identifier?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -143012,6 +134233,7 @@ export namespace Schemas {
     export type VisualReviewReposRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -143060,6 +134282,7 @@ export namespace Schemas {
     commit_sha?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -143097,6 +134320,7 @@ export namespace Schemas {
     identifier: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -143116,6 +134340,7 @@ export namespace Schemas {
     include_quarantined?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 10000
      */
     limit?: number;
     /**
@@ -143139,6 +134364,7 @@ export namespace Schemas {
     identifier: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -143195,6 +134421,19 @@ export namespace Schemas {
     export type WarehouseMigrationsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type WarehouseMigrationsItemsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -143238,6 +134477,7 @@ export namespace Schemas {
     export type WarehouseSavedQueryDraftsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -143263,6 +134503,7 @@ export namespace Schemas {
     kind?: WarehouseSuggestionsListKind;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -143320,6 +134561,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Only return self-managed tables that a managed source will import on its first sync.
+     */
+    pending_source?: boolean;
     /**
      * A search term.
      */
@@ -143508,6 +134753,7 @@ export namespace Schemas {
     created_after?: string;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -143545,7 +134791,7 @@ export namespace Schemas {
     export type WizardSessionsListParams = {
     /**
      * Maximum number of sessions to return.
-     * @minimum 0
+     * @minimum 1
      * @maximum 200
      */
     limit?: number;
@@ -143587,6 +134833,13 @@ export namespace Schemas {
      * @minLength 1
      */
     workflow_id: string;
+    };
+
+    export type WorkflowImportsForWorkflowRetrieveParams = {
+    /**
+     * The workflow to read the import of.
+     */
+    hog_flow_id: string;
     };
 
     export type PublicHogFunctionTemplatesListParams = {
