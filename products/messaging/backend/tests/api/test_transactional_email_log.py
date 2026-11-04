@@ -8,6 +8,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -142,6 +143,22 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert [r["message_id"] for r in inside["results"]] == [message_id]
         assert outside["results"] == []
+
+    @parameterized.expand(
+        [
+            ("list", ""),
+            ("stats", "stats/?group_by=template"),
+            ("results", "results/?event=purchase&workflow_id={workflow_id}"),
+        ]
+    )
+    def test_a_full_query_slot_answers_429(self, _flag, _name, path):
+        with patch(
+            "products.messaging.backend.presentation.query_concurrency.app_org_concurrency_slot",
+            side_effect=ConcurrencyLimitExceeded("Exceeded maximum concurrency limit"),
+        ):
+            response = self.client.get(self._url(path.format(workflow_id=self.workflow_id)))
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, response.json()
 
     def test_shows_one_send_with_its_timeline(self, _flag):
         message_id = self._send(

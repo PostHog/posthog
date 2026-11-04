@@ -29,6 +29,7 @@ from products.messaging.backend.facade.transactional_email_log import (
     transactional_email_results,
     transactional_email_stats,
 )
+from products.messaging.backend.presentation.query_concurrency import query_concurrency_slots
 from products.messaging.backend.presentation.views.message_templates import require_transactional_email_api
 from products.workflows.backend.facade.api import get_viewable_workflow_ids
 
@@ -216,17 +217,18 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         query = request.validated_query_data
-        entries, has_more = list_transactional_emails(
-            self.team_id,
-            search=query.get("search"),
-            status=EmailDeliveryStatus(query["status"]) if query.get("status") else None,
-            workflow_id=str(query["workflow_id"]) if query.get("workflow_id") else None,
-            date_from=query.get("date_from"),
-            date_to=query.get("date_to"),
-            limit=query["limit"],
-            offset=query["offset"],
-            workflow_ids=self._workflow_ids(),
-        )
+        with query_concurrency_slots(self.team):
+            entries, has_more = list_transactional_emails(
+                self.team_id,
+                search=query.get("search"),
+                status=EmailDeliveryStatus(query["status"]) if query.get("status") else None,
+                workflow_id=str(query["workflow_id"]) if query.get("workflow_id") else None,
+                date_from=query.get("date_from"),
+                date_to=query.get("date_to"),
+                limit=query["limit"],
+                offset=query["offset"],
+                workflow_ids=self._workflow_ids(),
+            )
         return Response(
             TransactionalEmailLogListSerializer(
                 {"results": [_entry_data(entry) for entry in entries], "has_more": has_more}
@@ -278,13 +280,14 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["GET"])
     def stats(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         query = request.validated_query_data
-        rows = transactional_email_stats(
-            self.team_id,
-            EmailStatsGroupBy(query["group_by"]),
-            date_from=query.get("date_from"),
-            date_to=query.get("date_to"),
-            workflow_ids=self._workflow_ids(),
-        )
+        with query_concurrency_slots(self.team):
+            rows = transactional_email_stats(
+                self.team_id,
+                EmailStatsGroupBy(query["group_by"]),
+                date_from=query.get("date_from"),
+                date_to=query.get("date_to"),
+                workflow_ids=self._workflow_ids(),
+            )
         return Response(TransactionalEmailStatsSerializer({"results": [asdict(row) for row in rows]}).data)
 
     @validated_request(
@@ -303,14 +306,15 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         workflow_id = str(query["workflow_id"])
         if workflow_id not in self._workflow_ids():
             raise NotFound()
-        outcome = transactional_email_results(
-            self.team,
-            cast(User, request.user),
-            workflow_id,
-            query["event"],
-            window_days=query["window_days"],
-            revenue_property=query.get("revenue_property") or None,
-            date_from=query.get("date_from"),
-            date_to=query.get("date_to"),
-        )
+        with query_concurrency_slots(self.team):
+            outcome = transactional_email_results(
+                self.team,
+                cast(User, request.user),
+                workflow_id,
+                query["event"],
+                window_days=query["window_days"],
+                revenue_property=query.get("revenue_property") or None,
+                date_from=query.get("date_from"),
+                date_to=query.get("date_to"),
+            )
         return Response(TransactionalEmailResultsSerializer(asdict(outcome)).data)
