@@ -16,16 +16,18 @@ describe('reportNotesLogic', () => {
     let listQueries: URLSearchParams[]
     let scoutNoteBodies: Record<string, unknown>[]
     let artefactBodies: Record<string, unknown>[]
+    let notesOnServer: Record<string, unknown>[]
 
     beforeEach(() => {
         listQueries = []
         scoutNoteBodies = []
         artefactBodies = []
+        notesOnServer = []
         useMocks({
             get: {
                 [NOTES_URL]: ({ request }) => {
                     listQueries.push(new URL(request.url).searchParams)
-                    return [200, []]
+                    return [200, notesOnServer]
                 },
                 '/api/projects/:team_id/signals/scout/configs/': () => [200, []],
             },
@@ -84,5 +86,21 @@ describe('reportNotesLogic', () => {
         expect(scoutNoteBodies).toEqual(scoutNotes)
         expect(artefactBodies).toEqual(artefacts)
         expect(logic.values.lastSaveFailed).toBe(false)
+    })
+
+    it('reads the notes back when a retire fails, since the delete may still have landed', async () => {
+        notesOnServer = [{ id: 'note-1', origin: 'human', content: `About ${REPORT_ID}` }]
+        logic.actions.loadNotes()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.activeNoteIds.has('note-1')).toBe(true)
+
+        // The delete landed and the response did not, so the optimistic flag alone would be undone
+        // and the entry would read active again.
+        useMocks({ delete: { [`${NOTES_URL}:id/`]: () => [500, {}] } })
+        notesOnServer = []
+        logic.actions.retireNote('note-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.activeNoteIds.has('note-1')).toBe(false)
     })
 })

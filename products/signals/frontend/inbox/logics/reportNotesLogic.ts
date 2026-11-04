@@ -17,6 +17,7 @@ import type { ScoutNoteApi, SignalScoutConfigApi } from 'products/signals/fronte
 import { captureInboxReportAction, captureScoutAction } from '../inboxAnalytics'
 import { withPanelLoadTimeout } from '../utils/panelLoadTimeout'
 import { prettifyScoutSkillName, scoutDisplayName } from '../utils/scoutRunsWindow'
+import { withInboxWriteTimeout } from '../utils/writeTimeout'
 import { inboxReportDetailLogic } from './inboxReportDetailLogic'
 import { NOTES_FETCH_LIMIT } from './scoutNotesLogic'
 
@@ -37,6 +38,7 @@ export interface reportNotesLogicValues {
     activeNoteIds: Set<string>
     lastSaveFailed: boolean
     notes: ScoutNoteApi[]
+    notesCapped: boolean
     notesLoadFailed: boolean
     notesLoading: boolean
     notesResolved: boolean
@@ -107,6 +109,7 @@ export interface reportNotesLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         activeNoteIds: (notes: ScoutNoteApi[], retiredNoteIds: string[]) => Set<string>
+        notesCapped: (notes: ScoutNoteApi[]) => boolean
         scoutNamesBySkill: (scoutConfigs: SignalScoutConfigApi[] | null) => Record<string, string>
     }
 }
@@ -258,6 +261,9 @@ export const reportNotesLogic = kea<reportNotesLogicType>([
             (notes: ScoutNoteApi[], retiredNoteIds: string[]): Set<string> =>
                 new Set(notes.map((note) => note.id).filter((id) => !retiredNoteIds.includes(id))),
         ],
+        // One request, newest first. A report that somehow fills it leaves older notes out, so an
+        // entry whose note is missing cannot be called retired.
+        notesCapped: [(s) => [s.notes], (notes: ScoutNoteApi[]): boolean => notes.length >= NOTES_FETCH_LIMIT],
         scoutNamesBySkill: [
             (s) => [s.scoutConfigs],
             (scoutConfigs: SignalScoutConfigApi[] | null): Record<string, string> =>
@@ -276,16 +282,26 @@ export const reportNotesLogic = kea<reportNotesLogicType>([
             const detailLogic = inboxReportDetailLogic.findMounted({ reportId: props.reportId })
             try {
                 if (scoutTarget === null) {
-                    await signalsReportArtefactsCreate(String(teamId), props.reportId, {
-                        artefact_type: 'note',
-                        content: { note: content },
-                    })
+                    await withInboxWriteTimeout('note', (options) =>
+                        signalsReportArtefactsCreate(
+                            String(teamId),
+                            props.reportId,
+                            { artefact_type: 'note', content: { note: content } },
+                            options
+                        )
+                    )
                 } else {
-                    await signalsScoutNotesCreate(String(teamId), {
-                        content,
-                        report_id: props.reportId,
-                        ...(scoutTarget !== EVERY_SCOUT ? { skill_name: scoutTarget } : {}),
-                    })
+                    await withInboxWriteTimeout('note', (options) =>
+                        signalsScoutNotesCreate(
+                            String(teamId),
+                            {
+                                content,
+                                report_id: props.reportId,
+                                ...(scoutTarget !== EVERY_SCOUT ? { skill_name: scoutTarget } : {}),
+                            },
+                            options
+                        )
+                    )
                 }
                 const noteTarget =
                     scoutTarget === null
@@ -326,6 +342,10 @@ export const reportNotesLogic = kea<reportNotesLogicType>([
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to add the note')
                 actions.addNoteFailed()
+                // A write that timed out can still have landed, so read both surfaces back rather
+                // than trust the local copy.
+                actions.loadNotes()
+                detailLogic?.actions.loadReportArtefacts()
             } finally {
                 actions.addNoteFinished()
             }
@@ -338,7 +358,9 @@ export const reportNotesLogic = kea<reportNotesLogicType>([
             const skillName = values.notes.find((note) => note.id === noteId)?.skill_name
             // Optimistic: `retiredNoteIds` marks the entry inactive at once; a failed delete undoes it.
             try {
-                await signalsScoutNotesDestroy(String(teamId), noteId)
+                await withInboxWriteTimeout('retire_note', (options) =>
+                    signalsScoutNotesDestroy(String(teamId), noteId, options)
+                )
                 captureScoutAction({
                     actionType: 'delete_note',
                     surface: 'report_detail',
@@ -348,6 +370,8 @@ export const reportNotesLogic = kea<reportNotesLogicType>([
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to retire the note')
                 actions.retireNoteFailed(noteId)
+                // The delete may still have landed, so let the next read decide the entry's status.
+                actions.loadNotes()
             }
         },
     })),

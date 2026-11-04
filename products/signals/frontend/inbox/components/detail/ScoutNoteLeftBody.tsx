@@ -20,10 +20,12 @@ export function ScoutNoteLeftBody({
     content: ScoutNoteLeftContent
 }): JSX.Element {
     const logic = reportNotesLogic({ reportId })
-    const { activeNoteIds, notesResolved, notesLoadFailed, scoutNamesBySkill } = useValues(logic)
+    const { activeNoteIds, notesResolved, notesLoadFailed, notesCapped, scoutNamesBySkill } = useValues(logic)
     const { retireNote } = useActions(logic)
-    // Unknown until the notes load. A failed load says nothing rather than claim the note is retired.
-    const status = !notesResolved || notesLoadFailed ? null : activeNoteIds.has(content.scout_note_id)
+    // Unknown until the notes load. A failed load says nothing rather than claim the note is retired,
+    // and neither does a capped read, which can leave an older active note out of what it returned.
+    const read = notesResolved && !notesLoadFailed
+    const status = !read ? null : activeNoteIds.has(content.scout_note_id) ? true : notesCapped ? null : false
 
     return (
         <div className="w-full">
