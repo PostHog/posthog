@@ -279,6 +279,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.stamphog.backend.presentation.views.DigestRunViewSet",
     "products.stamphog.backend.presentation.views.PullRequestViewSet",
     "products.stamphog.backend.presentation.views.ReviewRunViewSet",
+    # Paginated with -created_at, -id ordering and a page-boundary test.
+    "products.stamphog.backend.presentation.views.RoutingRunViewSet",
     "products.stamphog.backend.presentation.views.StamphogRepoConfigViewSet",
     "products.messaging.backend.presentation.views.message_templates.MessageTemplatesViewSet",
     "products.streamlit_apps.backend.presentation.views.StreamlitAppViewSet",

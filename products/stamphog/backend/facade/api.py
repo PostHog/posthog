@@ -700,7 +700,8 @@ def list_routing_runs(
     `owner` keeps the runs that decided about that owner, as owners.yaml spells it (`team-devex`, `@alice`).
     `team_id` must be canonical, as every view passes it, so the reads skip the team lookup.
     """
-    qs = _routing_runs(team_id, with_files=False).order_by("-created_at")
+    # Run ids are uuid7, so the id breaks a created_at tie in time order and a page boundary never splits a tie.
+    qs = _routing_runs(team_id, with_files=False).order_by("-created_at", "-id")
     if repository:
         qs = qs.filter(pull_request__repo_config__repository=repository)
     if pr_number is not None:

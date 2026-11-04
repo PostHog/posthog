@@ -8,6 +8,7 @@ from unittest.mock import call, patch
 from django.core import signing
 from django.db import transaction
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -1348,6 +1349,13 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             "model_cut",
             "Only renames an import.",
         )
+
+    def test_runs_created_at_the_same_time_page_without_gaps(self) -> None:
+        RoutingRun.objects.unscoped().filter(team_id=self.team.id).update(created_at=timezone.now())
+
+        pages = [self.client.get(self.url, {"limit": 1, "offset": offset}).json()["results"] for offset in (0, 1)]
+
+        assert [run["pr_number"] for page in pages for run in page] == [2, 1]
 
     def test_one_run_lists_the_files_each_owner_owns(self) -> None:
         response = self.client.get(f"{self.url}{self.run_one.id}/")
