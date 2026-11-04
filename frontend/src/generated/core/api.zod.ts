@@ -10,6 +10,43 @@
 import * as zod from 'zod'
 
 /**
+ * Approve a device grant for one project. The token gets the scopes `lookup` showed.
+ */
+export const oauthDeviceApproveCreateBodyUserCodeMax = 20
+
+export const OauthDeviceApproveCreateBody = /* @__PURE__ */ zod.object({
+    user_code: zod
+        .string()
+        .max(oauthDeviceApproveCreateBodyUserCodeMax)
+        .describe("The code the device shows, as the person typed it. Case and dashes don't matter."),
+    project_id: zod.number().describe('The project the token is scoped to.'),
+})
+
+/**
+ * Refuse a device grant, so the client's next poll gets `access_denied`.
+ */
+export const oauthDeviceDenyCreateBodyUserCodeMax = 20
+
+export const OauthDeviceDenyCreateBody = /* @__PURE__ */ zod.object({
+    user_code: zod
+        .string()
+        .max(oauthDeviceDenyCreateBodyUserCodeMax)
+        .describe("The code the device shows, as the person typed it. Case and dashes don't matter."),
+})
+
+/**
+ * Show what a device code asks for, so the person can check it before approving.
+ */
+export const oauthDeviceLookupCreateBodyUserCodeMax = 20
+
+export const OauthDeviceLookupCreateBody = /* @__PURE__ */ zod.object({
+    user_code: zod
+        .string()
+        .max(oauthDeviceLookupCreateBodyUserCodeMax)
+        .describe("The code the device shows, as the person typed it. Case and dashes don't matter."),
+})
+
+/**
  * Manage CIMD verification tokens for an organization.
  *
  * A partner embeds the plaintext token in their CIMD metadata document as
@@ -434,6 +471,8 @@ export const invitesCreateBodyTargetEmailMax = 254
 
 export const invitesCreateBodyFirstNameMax = 30
 
+export const invitesCreateBodyMessageMax = 1000
+
 export const invitesCreateBodySendEmailDefault = true
 export const invitesCreateBodyCombinePendingInvitesDefault = false
 
@@ -444,7 +483,11 @@ export const InvitesCreateBody = /* @__PURE__ */ zod.object({
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
-    message: zod.string().nullish(),
+    message: zod
+        .string()
+        .max(invitesCreateBodyMessageMax)
+        .nullish()
+        .describe('Optional personal message in the invite email.'),
     private_project_access: zod
         .unknown()
         .optional()
@@ -457,6 +500,8 @@ export const invitesBulkCreateBodyTargetEmailMax = 254
 
 export const invitesBulkCreateBodyFirstNameMax = 30
 
+export const invitesBulkCreateBodyMessageMax = 1000
+
 export const invitesBulkCreateBodySendEmailDefault = true
 export const invitesBulkCreateBodyCombinePendingInvitesDefault = false
 
@@ -467,7 +512,11 @@ export const InvitesBulkCreateBody = /* @__PURE__ */ zod.object({
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
-    message: zod.string().nullish(),
+    message: zod
+        .string()
+        .max(invitesBulkCreateBodyMessageMax)
+        .nullish()
+        .describe('Optional personal message in the invite email.'),
     private_project_access: zod
         .unknown()
         .optional()

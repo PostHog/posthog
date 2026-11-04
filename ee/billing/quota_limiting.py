@@ -39,7 +39,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_mcp_event_count_in_period,
     iter_billable_teams,
 )
-from posthog.usage_counters import UsageCounter, UsageCounterService, log_usage_counter_comparisons
+from posthog.usage_counters import UsageCounter, UsageCounterMode, UsageCounterPlan, UsageCounterService
 from posthog.utils import DayRange, get_current_day, get_previous_day
 
 from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
@@ -1419,17 +1419,14 @@ class _QuotaUsageCounts:
     offline_by_org: dict[str, dict[int, int]]
 
 
-def _fetch_quota_usage_counts(
-    service: UsageCounterService, period: DayRange, *, compare_counters: bool
-) -> _QuotaUsageCounts:
-    # A complete plan also runs the legacy comparison queries, which the quota decision does not use.
-    plan = service.resolve_plan(period, caller="quota_limiting", complete=False, counters=QUOTA_USAGE_COUNTERS)
+def _fetch_quota_usage_counts(service: UsageCounterService, period: DayRange) -> _QuotaUsageCounts:
+    plan = UsageCounterPlan(
+        period=period, caller="quota_limiting", modes=dict.fromkeys(QUOTA_USAGE_COUNTERS, UsageCounterMode.LEGACY)
+    )
     offline_usage = _timed_query(
         "offline_evaluation_usage", get_offline_evaluation_usage, period.start, period.start + timedelta(days=1)
     )
     counter_report = _timed_query("usage_counters", service.fetch_report, period, plan=plan)
-    if compare_counters:
-        log_usage_counter_comparisons(counter_report, caller="quota_limiting", date=period.start.date().isoformat())
 
     api_queries_usage = _timed_query(
         "api_queries_metrics", get_teams_with_api_queries_metrics, period.start, period.end
@@ -1524,7 +1521,7 @@ class _YesterdaysCounts:
             return {org_id: json.loads(value) for org_id, value in zip(ordered_ids, stored) if value}
 
         if self._counts is None:
-            self._counts = _fetch_quota_usage_counts(self._service, self._range, compare_counters=False)
+            self._counts = _fetch_quota_usage_counts(self._service, self._range)
         reports = _aggregate_quota_usage(
             teams, self._counts.by_team, offline_usage=self._counts.offline_by_org, organizations=organizations
         )
@@ -1571,7 +1568,7 @@ def update_all_orgs_billing_quotas(
     tag_queries(product=Product.BILLING, feature=Feature.QUOTA_LIMITING)
     logger.info("quota_limiting_run", phase="queries", status="start")
     queries_start = time()
-    todays_counts = _fetch_quota_usage_counts(service, period, compare_counters=True)
+    todays_counts = _fetch_quota_usage_counts(service, period)
     all_data = todays_counts.by_team
     offline_usage = todays_counts.offline_by_org
     yesterdays_counts = _YesterdaysCounts(service, today=period)

@@ -61,9 +61,9 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     create_warehouse_table_row,
     seeding_object_storage,
 )
-from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP
 from products.signals.backend.facade.api import set_signal_source_types_enabled, validate_signal_input
+from products.signals.backend.facade.taxonomy import ReportPriority, SignalRemediation
 from products.signals.backend.models import SignalEmissionRecord, SignalSourceConfig
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,

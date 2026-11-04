@@ -1,16 +1,13 @@
 import { useActions, useValues } from 'kea'
 
+import { IconCalendar } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import {
     INBOX_CREATED_WINDOW_OPTIONS,
-    INBOX_MODEL_SORT_OPTIONS,
     INBOX_PRIORITY_OPTIONS,
-    INBOX_SORT_OPTIONS,
     inboxPriorityFilterLabel,
-    inboxSortOptionKey,
     PRIORITY_ACCENT,
-    InboxSortOption,
     PRIORITY_MEANING,
 } from '../../filterOptions'
 import { InboxCreatedWindow, inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
@@ -35,83 +32,83 @@ const PRIORITY_SELECT_OPTIONS = [
     })),
 ]
 
-// No icons: the trigger reads out the active option, and an icon there would crowd the label the
-// order is already stated in.
-const toSortSelectOption = (option: InboxSortOption): { value: string; label: string; tooltip?: string } => ({
-    value: inboxSortOptionKey(option.field, option.direction),
-    label: option.label,
-    tooltip: option.description,
-})
-const SORT_SELECT_OPTIONS = INBOX_SORT_OPTIONS.map(toSortSelectOption)
-const SORT_SELECT_SECTIONS_WITH_MODEL = [
-    { options: SORT_SELECT_OPTIONS },
-    { title: 'Model scores', options: INBOX_MODEL_SORT_OPTIONS.map(toSortSelectOption) },
-]
-const ALL_SORT_OPTIONS = [...INBOX_SORT_OPTIONS, ...INBOX_MODEL_SORT_OPTIONS]
-
 const ANY_TIME = null
 const CREATED_WINDOW_SELECT_OPTIONS: { value: InboxCreatedWindow | null; label: string }[] = [
     { value: ANY_TIME, label: 'Any time' },
     ...INBOX_CREATED_WINDOW_OPTIONS.map(({ value, label }) => ({ value, label })),
 ]
 
+function createdWindowLabel(window: InboxCreatedWindow | null): string {
+    return CREATED_WINDOW_SELECT_OPTIONS.find((option) => option.value === window)?.label ?? 'Any time'
+}
+
+function PanelField({ label, children }: { label: string; children: JSX.Element }): JSX.Element {
+    return (
+        <div className="flex items-center justify-between gap-4">
+            <span className="text-sm text-secondary">{label}</span>
+            {children}
+        </div>
+    )
+}
+
 /**
- * What narrows the report list: priority, then source, then report state, then sort order, then the created-in window. Filter state is
- * persisted via `inboxFiltersLogic`, and the list reloads on change.
+ * What narrows the report list: report state, then priority, then the created-in window, then source.
+ * Filter state is persisted via `inboxFiltersLogic`, and the list reloads on change.
  *
- * Reviewer scope is deliberately not here. It sits with triage mode on the other side of the row,
- * because it picks whose inbox this is rather than narrowing the one you are looking at.
+ * Source goes last because its label grows with the selected scout name. Anywhere earlier, a long name
+ * pushes the controls after it to the right.
+ *
+ * Sort and reviewer scope are deliberately not here. Sort orders the list rather than narrowing it,
+ * and scope picks whose inbox this is, so both sit after a divider at the end of the row.
  */
-export function InboxReportFilters(): JSX.Element {
-    const {
-        activeSortField,
-        activeSortDirection,
-        priorityFilter,
-        modelSortAvailable,
-        timeWindowAvailable,
-        createdWindow,
-        sourceFilterAvailable,
-    } = useValues(inboxFiltersLogic)
-    const { setSort, setPriorityFilter, setCreatedWindow } = useActions(inboxFiltersLogic)
-    const sortOptions = modelSortAvailable ? ALL_SORT_OPTIONS : INBOX_SORT_OPTIONS
+export function InboxReportFilters({ layout = 'row' }: { layout?: 'row' | 'panel' }): JSX.Element {
+    const { priorityFilter, timeWindowAvailable, createdWindow, sourceFilterAvailable } = useValues(inboxFiltersLogic)
+    const { setPriorityFilter, setCreatedWindow } = useActions(inboxFiltersLogic)
+    const panel = layout === 'panel'
+    const field = (label: string, control: JSX.Element): JSX.Element =>
+        panel ? <PanelField label={label}>{control}</PanelField> : control
 
     return (
-        <div className="flex flex-wrap items-center gap-2">
-            <LemonSelect
-                size="small"
-                value={priorityFilter.length === 1 ? priorityFilter[0] : ALL_PRIORITIES}
-                onChange={(priority) => setPriorityFilter(priority ? [priority as SignalReportPriority] : [])}
-                options={PRIORITY_SELECT_OPTIONS}
-                // A shared link can carry several priorities, which no single option represents.
-                // Read the selection out of the filter itself so the button never understates it.
-                renderButtonContent={() => inboxPriorityFilterLabel(priorityFilter)}
-                data-attr="inbox-filter-priority"
-            />
-            {sourceFilterAvailable && <InboxSourceFilter />}
-            <InboxStateFilter />
-            <LemonSelect
-                size="small"
-                value={inboxSortOptionKey(activeSortField, activeSortDirection)}
-                onChange={(key) => {
-                    const option = sortOptions.find((o) => inboxSortOptionKey(o.field, o.direction) === key)
-                    if (option) {
-                        setSort(option.field, option.direction)
-                    }
-                }}
-                options={modelSortAvailable ? SORT_SELECT_SECTIONS_WITH_MODEL : SORT_SELECT_OPTIONS}
-                renderButtonContent={(leaf) => `Sort: ${leaf?.label ?? ''}`}
-                data-attr="inbox-sort"
-            />
-            {timeWindowAvailable && (
+        <div className={panel ? 'flex flex-col gap-2' : 'flex flex-wrap items-center gap-2'}>
+            {field('Status', <InboxStateFilter />)}
+            {field(
+                'Priority',
                 <LemonSelect
                     size="small"
-                    value={createdWindow}
-                    onChange={(window) => setCreatedWindow(window)}
-                    options={CREATED_WINDOW_SELECT_OPTIONS}
-                    renderButtonContent={(leaf) => `Created: ${leaf?.label ?? 'Any time'}`}
-                    data-attr="inbox-filter-created-window"
+                    value={priorityFilter.length === 1 ? priorityFilter[0] : ALL_PRIORITIES}
+                    onChange={(priority) => setPriorityFilter(priority ? [priority as SignalReportPriority] : [])}
+                    options={PRIORITY_SELECT_OPTIONS}
+                    // A shared link can carry several priorities, which no single option represents.
+                    // Read the selection out of the filter itself so the button never understates it.
+                    renderButtonContent={() => inboxPriorityFilterLabel(priorityFilter)}
+                    data-attr="inbox-filter-priority"
                 />
             )}
+            {timeWindowAvailable &&
+                field(
+                    'Created',
+                    <LemonSelect
+                        size="small"
+                        value={createdWindow}
+                        onChange={(window) => setCreatedWindow(window)}
+                        options={CREATED_WINDOW_SELECT_OPTIONS}
+                        icon={<IconCalendar />}
+                        tooltip={panel ? undefined : `Created: ${createdWindowLabel(createdWindow)}`}
+                        // The window value ("7d") doubles as the short label in a narrow container.
+                        renderButtonContent={(leaf) =>
+                            panel ? (
+                                (leaf?.label ?? 'Any time')
+                            ) : (
+                                <>
+                                    <span className="@2xl:hidden">{leaf?.value ?? 'Any time'}</span>
+                                    <span className="hidden @2xl:inline">{leaf?.label ?? 'Any time'}</span>
+                                </>
+                            )
+                        }
+                        data-attr="inbox-filter-created-window"
+                    />
+                )}
+            {sourceFilterAvailable && field('Source', <InboxSourceFilter />)}
         </div>
     )
 }

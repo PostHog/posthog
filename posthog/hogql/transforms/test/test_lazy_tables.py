@@ -1,5 +1,6 @@
 import re
 import json
+from collections import Counter
 from typing import Any
 from uuid import UUID
 
@@ -18,7 +19,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, SessionsV2JoinMode, SessionTableVersion
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -38,6 +39,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models import Organization, PropertyDefinition, Team
+from posthog.schema_enums import PersonsArgMaxVersion
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 
@@ -65,7 +67,69 @@ class TestNamespacedLazyTables(SimpleTestCase):
         actual = self._compile(query.format(table=f"posthog.{table}"))
         self.assertEqual(actual.replace(f"posthog__{table}", table), expected)
 
-    def _compile(self, query: str) -> str:
+    @parameterized.expand(
+        [
+            (name, query, HogQLQueryModifiers(personsArgMaxVersion=version))
+            for name, query in (
+                ("unused", "WITH raw_persons AS (SELECT 7 AS marker) SELECT id FROM persons"),
+                (
+                    "used",
+                    "WITH raw_persons AS (SELECT 7 AS marker) SELECT persons.id FROM persons CROSS JOIN raw_persons",
+                ),
+                (
+                    "materialized",
+                    "WITH raw_persons AS MATERIALIZED (SELECT 7 AS marker) SELECT id FROM persons",
+                ),
+                (
+                    "filter",
+                    "WITH raw_persons AS (SELECT id FROM persons) SELECT id FROM persons WHERE id IN (SELECT id FROM raw_persons)",
+                ),
+                (
+                    "promoted_filter",
+                    "WITH members AS MATERIALIZED (SELECT id FROM persons) SELECT p.id FROM persons AS p "
+                    "INNER JOIN members AS m ON p.id = m.id AND p.id IN (SELECT id FROM members)",
+                ),
+            )
+            for version in (PersonsArgMaxVersion.V1, PersonsArgMaxVersion.V2)
+        ]
+        + [
+            ("groups", "WITH raw_groups AS (SELECT 7 AS marker) SELECT key FROM groups", HogQLQueryModifiers()),
+            (
+                "identities",
+                "WITH raw_person_distinct_ids AS (SELECT 7 AS marker) SELECT person_id FROM person_distinct_ids",
+                HogQLQueryModifiers(),
+            ),
+            (
+                "cohorts",
+                "WITH raw_cohort_people AS (SELECT 7 AS marker) SELECT person_id FROM cohort_people",
+                HogQLQueryModifiers(),
+            ),
+            (
+                "logs",
+                "WITH log_entries AS (SELECT 7 AS marker) SELECT message FROM console_logs_log_entries",
+                HogQLQueryModifiers(),
+            ),
+            (
+                "replay",
+                "WITH raw_session_replay_events AS (SELECT 7 AS marker) SELECT session_id FROM session_replay_events",
+                HogQLQueryModifiers(),
+            ),
+        ]
+        + [
+            (
+                f"sessions_{version.value}",
+                "WITH raw_sessions AS (SELECT 7 AS marker) SELECT session.$session_duration FROM events",
+                HogQLQueryModifiers(sessionTableVersion=version),
+            )
+            for version in (SessionTableVersion.V1, SessionTableVersion.V2, SessionTableVersion.V3)
+        ]
+    )
+    def test_ctes_do_not_shadow_generated_backing_tables(
+        self, _name: str, query: str, modifiers: HogQLQueryModifiers
+    ) -> None:
+        self._compile(query, modifiers)
+
+    def _compile(self, query: str, modifiers: HogQLQueryModifiers | None = None) -> str:
         context = HogQLContext(
             team_id=1,
             team=Team(id=1, organization=Organization()),
@@ -73,9 +137,14 @@ class TestNamespacedLazyTables(SimpleTestCase):
             enable_select_queries=True,
             use_new_events_schema=False,
             apply_events_retention_floor=False,
+            modifiers=modifiers or HogQLQueryModifiers(),
             restricted_properties=set(),
         )
-        with patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()):
+        with (
+            patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()),
+            patch("products.cohorts.backend.models.cohort.Cohort.objects") as cohorts,
+        ):
+            cohorts.filter.return_value.exclude.return_value.values_list.return_value = []
             return prepare_and_print_ast(parse_select(query), context, "clickhouse")[0]
 
 
@@ -151,6 +220,66 @@ class TestWrappedEventJoins(SimpleTestCase):
             printed, _ = self._compile(f"SELECT {select} {WRAPPED_JOIN} {clause}", native=native)
             assert self._exports(printed, "joined", native) == expected, printed
 
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_exports_json_text_for_reads_that_parse_it(self, _name: str, native: bool) -> None:
+        printed, _ = self._compile(
+            "SELECT JSONExtractRaw(joined.properties, 'a'), JSONExtractString(joined.properties, 'a', 'b'), "
+            "JSONExtractRaw(joined.properties, 'amount'), toJSONString(joined.properties.amount), "
+            f"toJSONString(joined.properties.a), joined.properties.a {WRAPPED_JOIN}",
+            native=native,
+        )
+        outer = printed.split(" FROM ", 1)[0]
+        # Alias names echo the HogQL source, so they are stripped before counting the calls that remain outside.
+        assert re.sub(r" AS `[^`]*`", "", outer).count("toJSONString(") == 1, printed
+        assert "toJSONString(accurateCastOrNull(joined.properties___amount" in outer, printed
+        assert re.search(r", joined\.properties___a(_\d+)? AS a$", outer), printed
+        inner = self._wrapper_select_list(printed, "joined", native)
+        assert "accurateCastOrNull" not in inner, printed
+        if native:
+            assert "JSONExtractRaw(ifNull(joined.properties___a, ''))" in outer, printed
+            assert "JSONExtractString(ifNull(joined.properties___a, ''), %(hogql_val_" in outer, printed
+            assert "JSONExtractRaw(ifNull(joined.properties___amount, ''))" in outer, printed
+            assert self._export_counts(printed, "joined", native) == {"properties___a": 2, "properties___amount": 2}
+            assert "toJSONString(joined.properties.^a)" in inner, printed
+            assert "JSONExtractKeysAndValuesRaw" not in inner, printed
+        else:
+            assert "JSONExtractRaw(joined.properties, %(hogql_val_" in outer, printed
+            assert self._export_counts(printed, "joined", native) == {
+                "properties": 1,
+                "properties___a": 2,
+                "properties___amount": 1,
+            }
+            assert "toJSONString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(joined.properties, %(hogql_val_" in inner
+
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_grouped_clauses_export_the_value_under_a_serialization(self, _name: str, native: bool) -> None:
+        printed, _ = self._compile(
+            "SELECT toJSONString(joined.properties.a) AS a, JSONExtractString(joined.properties, 'label') AS label, "
+            f"any(toJSONString(joined.properties.arr)), count() {WRAPPED_JOIN} GROUP BY joined.properties.a, label "
+            "HAVING toJSONString(joined.properties.a) != '' ORDER BY toJSONString(joined.properties.a)",
+            native=native,
+        )
+        outer = re.sub(r" AS `[^`]*`", "", printed.split(" FROM ", 1)[0])
+        assert "toJSONString(joined.properties___a) AS a" in outer, printed
+        assert "any(joined.properties___arr)" in outer, printed
+        tail = printed.rsplit(") AS joined ON ", 1)[1]
+        assert "GROUP BY joined.properties___a," in tail, printed
+        assert tail.count("toJSONString(joined.properties___a)") == 2, printed
+        inner = self._wrapper_select_list(printed, "joined", native)
+        if native:
+            assert "JSONExtractString(ifNull(toJSONString(joined.properties___label), ''))" in outer, printed
+            assert self._exports(printed, "joined", native) == {
+                "properties___a",
+                "properties___label",
+                "properties___arr",
+            }
+            assert "toString(joined.properties.a)" in inner, printed
+            assert "toString(joined.properties.arr)" not in inner, printed
+        else:
+            assert "JSONExtractString(joined.properties, %(hogql_val_" in outer, printed
+            assert self._exports(printed, "joined", native) == {"properties___a", "properties", "properties___arr"}
+            assert inner.count("toJSONString(") == 1, printed
+
     def test_decides_exports_per_source(self) -> None:
         printed, _ = self._compile(
             "SELECT b.properties, c.properties.amount FROM events AS a "
@@ -188,6 +317,14 @@ class TestWrappedEventJoins(SimpleTestCase):
             "AS joined ON equals(initial__pdi.person_id, joined.pdi___person_id) WHERE equals(initial.team_id, 1) LIMIT 50000"
         )
 
+    def test_moves_the_sample_clause_into_the_wrapper(self) -> None:
+        printed, _ = self._compile(
+            "SELECT count() FROM events AS initial JOIN events AS joined SAMPLE 0.1 "
+            "ON initial.person_id = joined.person_id"
+        )
+        assert "FROM events AS joined SAMPLE 0.1 " in printed, printed
+        assert printed.count("SAMPLE") == 1, printed
+
     def test_corrects_the_person_id_inside_the_wrapper_only(self) -> None:
         printed, _ = self._compile(f"SELECT joined.person_id {WRAPPED_JOIN}")
         assert printed.startswith(
@@ -215,10 +352,9 @@ class TestWrappedEventJoins(SimpleTestCase):
         printed, context = self._compile(
             f"SELECT joined.properties.a.b, joined.properties.a___b, joined.properties.arr[1] {WRAPPED_JOIN}"
         )
-        assert self._exports(printed, "joined", native=False) == {
-            "properties___a___b",
-            "properties___a___b_2",
-            "properties___arr___1",
+        assert self._export_counts(printed, "joined", native=False) == {
+            "properties___a___b": 2,
+            "properties___arr___1": 1,
         }
         assert 1 in context.values.values()
         assert "1" not in context.values.values()
@@ -322,6 +458,10 @@ class TestWrappedEventJoins(SimpleTestCase):
         names = {name.strip("`") for name in re.findall(r" AS (`[^`]+`|\w+)", select_list)}
         return names - JOIN_KEY_EXPORTS
 
+    def _export_counts(self, printed: str, alias: str, native: bool) -> dict[str, int]:
+        """The exports by name, with the counter a taken name gets removed, so a test pins the columns and not a suffix."""
+        return dict(Counter(re.sub(r"(?<=[^_])_\d+$", "", name) for name in self._exports(printed, alias, native)))
+
 
 class TestLazyJoins(BaseTest):
     snapshot: Any
@@ -356,10 +496,32 @@ class TestLazyJoins(BaseTest):
                 "sum(related.properties.amount) OVER (PARTITION BY related.$session_id)",
                 (7.0,),
             ),
+            (
+                "json_functions",
+                "JSONExtractRaw(related.properties, 'a'), JSONExtractString(related.properties, 'a', 'b'), "
+                "JSONLength(related.properties, 'a'), JSONExtractRaw(related.properties, 'amount'), "
+                "toJSONString(related.properties.amount), toJSONString(related.properties.rating)",
+                ('{"b":"nested"}', "nested", 1, '"7"', "7", None),
+            ),
+            (
+                "grouped",
+                "toJSONString(related.properties.label), JSONExtractString(related.properties, 'label'), "
+                "toJSONString(related.properties.amount), any(toJSONString(related.properties.label)), "
+                "any(JSONExtractRaw(related.properties, 'a')), count()",
+                ('"ready"', "ready", "7", '"ready"', '{"b":"nested"}', 1),
+                "GROUP BY toJSONString(related.properties.label), JSONExtractString(related.properties, 'label'), "
+                "toJSONString(related.properties.amount)",
+            ),
+            (
+                "grouped_by_key",
+                "toJSONString(related.properties.label), toJSONString(related.properties.a), count()",
+                ('"ready"', '"{\\"b\\":\\"nested\\"}"', 1),
+                "GROUP BY related.properties.label, related.properties.a",
+            ),
         ]
     )
     def test_wrapped_events_join_executes_exported_property_reads(
-        self, _name: str, select: str, expected: tuple[object, ...]
+        self, _name: str, select: str, expected: tuple[object, ...], clause: str = ""
     ) -> None:
         for name, property_type in [
             ("amount", "Numeric"),
@@ -388,7 +550,7 @@ class TestLazyJoins(BaseTest):
         result = execute_hogql_query(
             f"SELECT {select} FROM events AS source "
             "JOIN events AS related ON source.person_id = related.person_id "
-            "WHERE source.uuid = {event_uuid} AND related.uuid = {event_uuid}",
+            f"WHERE source.uuid = {{event_uuid}} AND related.uuid = {{event_uuid}} {clause}",
             team=self.team,
             placeholders={"event_uuid": ast.Constant(value=event_uuid)},
             modifiers=HogQLQueryModifiers(
@@ -572,6 +734,24 @@ class TestLazyJoins(BaseTest):
         assert [warning.message for warning in context.warnings] == [
             'SAMPLE clause ignored: the "sessions" table is computed on the fly and cannot be sampled'
         ]
+
+    @parameterized.expand(
+        [
+            ("v3", HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3)),
+            (
+                "v2_uuid_join",
+                HogQLQueryModifiers(
+                    sessionTableVersion=SessionTableVersion.V2, sessionsV2JoinMode=SessionsV2JoinMode.UUID
+                ),
+            ),
+        ]
+    )
+    def test_join_from_a_lazy_join_reads_the_extra_source_field_it_declares(
+        self, _name: str, modifiers: HogQLQueryModifiers
+    ):
+        printed = self._print_select("SELECT events.session.$session_duration FROM session_replay_events", modifiers)
+
+        assert "$session_id_uuid" in printed
 
     def _print_select(self, select: str, modifiers: HogQLQueryModifiers | None = None):
         expr = parse_select(select)

@@ -43,6 +43,7 @@ jest.mock('@/ui/appearanceStore', () => ({
 jest.mock('@/features/ai/AiApprovalDialog', () => ({ AiApprovalDialog: () => null }))
 jest.mock('@/features/updates/useAutomaticUpdates', () => ({ useAutomaticUpdates: jest.fn() }))
 jest.mock('@/features/chat/draftPersistence', () => ({}))
+jest.mock('@/features/offlineCache', () => ({ installOfflineCache: jest.fn() }))
 jest.mock('@/features/hedgehog/useHedgehogWidgetSync', () => ({ useHedgehogWidgetSync: jest.fn() }))
 jest.mock('@/features/notifications/pushRegistration', () => ({ configureNotifications: jest.fn() }))
 jest.mock('@/features/notifications/useNotificationRouting', () => ({ useNotificationRouting: jest.fn() }))

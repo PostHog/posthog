@@ -18,21 +18,23 @@ import {
 import { ApiRequestTiming, ApiRequestTimingRecorder } from 'lib/apiRequestTiming'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { SURVEY_PAGE_SIZE } from 'lib/constants'
 import { apiStatusLogic, awaitReauthentication, isUserActionInProgress } from 'lib/logic/apiStatusLogic'
-import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
+import { HogQLQueryString } from 'lib/utils/hogql'
+import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/utils/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
-import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
+import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     AggregatedSpanRow,
     AnyResponseType,
@@ -69,7 +71,6 @@ import {
     SpanTreeNode,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -129,6 +130,7 @@ import {
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
+    type ExternalDataSourceType,
     FeatureFlagType,
     FileSystemDeleteResponse,
     GoogleAdsConversionActionType,
@@ -229,7 +231,7 @@ import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
-import {
+import type {
     SignalReport,
     SignalReportArtefact,
     SignalReportArtefactResponse,
@@ -241,10 +243,7 @@ import type {
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
-import type {
-    ExternalDataSourceTypeEnumApi,
-    SourceConfigMapResponseApi,
-} from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type { SourceConfigMapResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
@@ -342,6 +341,13 @@ export class RecordingDeletedError extends Error {
         super('Recording has been permanently deleted')
         this.name = 'RecordingDeletedError'
     }
+}
+
+function asRecordingDeletedError(e: unknown): unknown {
+    if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
+        return new RecordingDeletedError(e.data?.deleted_at ?? null, e.data?.deleted_by ?? null)
+    }
+    return e
 }
 
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
@@ -3660,16 +3666,6 @@ const api = {
         determineListUrl(params: PersonListParams = {}): string {
             return new ApiRequest().persons().withQueryString(toParams(params)).assembleFullUrl()
         },
-        async resetPersonDistinctId(distinctId: string): Promise<void> {
-            return await new ApiRequest()
-                .persons()
-                .withAction('reset_person_distinct_id')
-                .create({
-                    data: {
-                        distinct_id: distinctId,
-                    },
-                })
-        },
         async getByDistinctIds(distinctIds: string[]): Promise<Record<string, PersonType>> {
             const response = await new ApiRequest()
                 .persons()
@@ -3764,22 +3760,24 @@ const api = {
                 insightId,
                 recordingId,
                 notebookShortId,
+                teamId,
             }: {
                 dashboardId?: DashboardType['id']
                 insightId?: InsightModel['id']
                 recordingId?: SessionRecordingType['id']
                 notebookShortId?: NotebookType['short_id']
+                teamId?: TeamType['id']
             },
             data: Partial<SharingConfigurationType>
         ): Promise<SharingConfigurationType | null> {
             return dashboardId
-                ? new ApiRequest().dashboardSharing(dashboardId).update({ data })
+                ? new ApiRequest().dashboardSharing(dashboardId, teamId).update({ data })
                 : insightId
-                  ? new ApiRequest().insightSharing(insightId).update({ data })
+                  ? new ApiRequest().insightSharing(insightId, teamId).update({ data })
                   : recordingId
-                    ? new ApiRequest().recordingSharing(recordingId).update({ data })
+                    ? new ApiRequest().recordingSharing(recordingId, teamId).update({ data })
                     : notebookShortId
-                      ? new ApiRequest().notebookSharing(notebookShortId).update({ data })
+                      ? new ApiRequest().notebookSharing(notebookShortId, teamId).update({ data })
                       : null
         },
 
@@ -4392,7 +4390,11 @@ const api = {
             recordingId: SessionRecordingType['id'],
             headers: Record<string, string> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
-            return await new ApiRequest().recording(recordingId).withAction('snapshots').get({ headers })
+            try {
+                return await new ApiRequest().recording(recordingId).withAction('snapshots').get({ headers })
+            } catch (e) {
+                throw asRecordingDeletedError(e)
+            }
         },
 
         async getSnapshots(
@@ -4408,10 +4410,7 @@ const api = {
                     .withQueryString(params)
                     .getResponse({ headers })
             } catch (e) {
-                if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
-                    throw new RecordingDeletedError(e.data?.deleted_at ?? null, e.data?.deleted_by ?? null)
-                }
-                throw e
+                throw asRecordingDeletedError(e)
             }
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
@@ -5687,7 +5686,7 @@ const api = {
             return await new ApiRequest().externalDataSource(sourceId).update({ data })
         },
         async database_schema(
-            source_type: ExternalDataSourceTypeEnumApi,
+            source_type: ExternalDataSourceType,
             payload: Record<string, any>
         ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
@@ -5699,7 +5698,7 @@ const api = {
             return await new ApiRequest().externalDataSources().withAction('wizard').get()
         },
         async source_prefix(
-            source_type: ExternalDataSourceTypeEnumApi,
+            source_type: ExternalDataSourceType,
             prefix: string
         ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
@@ -5709,7 +5708,7 @@ const api = {
         },
         async check_cdc_prerequisites(
             payload: {
-                source_type: ExternalDataSourceTypeEnumApi
+                source_type: ExternalDataSourceType
                 cdc_management_mode: 'posthog' | 'self_managed'
                 tables?: string[]
                 cdc_slot_name?: string | null
@@ -6531,22 +6530,33 @@ const api = {
             throw new Error(`Query kind mismatch: path kind "${pathKind}" does not match body kind "${bodyKind}".`)
         }
 
+        const data = {
+            query,
+            client_query_id: queryOptions?.clientQueryId,
+            refresh: queryOptions?.refresh,
+            filters_override: queryOptions?.filtersOverride,
+            variables_override: queryOptions?.variablesOverride,
+            limit_context: queryOptions?.limitContext,
+        }
+        if (bodyKind === NodeKind.ActorsQuery && query.source?.kind === NodeKind.AccountUsersQuery) {
+            const { getAccountsPersonsQueryCreateUrl } =
+                await import('products/customer_analytics/frontend/generated/api')
+            return await api.create(
+                getAccountsPersonsQueryCreateUrl(
+                    String(ApiConfig.getCurrentTeamId()),
+                    encodeURIComponent(query.source.accountId)
+                ),
+                data,
+                queryOptions?.requestOptions
+            )
+        }
+
         const apiRequest =
             bodyKind === NodeKind.AccountsTableQuery
                 ? new ApiRequest().accountsTableQuery()
                 : new ApiRequest().query(undefined, bodyKind)
 
-        return await apiRequest.create({
-            ...queryOptions?.requestOptions,
-            data: {
-                query,
-                client_query_id: queryOptions?.clientQueryId,
-                refresh: queryOptions?.refresh,
-                filters_override: queryOptions?.filtersOverride,
-                variables_override: queryOptions?.variablesOverride,
-                limit_context: queryOptions?.limitContext,
-            },
-        })
+        return await apiRequest.create({ ...queryOptions?.requestOptions, data })
     },
 
     async queryHogQL<T = any[]>(

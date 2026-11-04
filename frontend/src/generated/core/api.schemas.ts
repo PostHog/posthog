@@ -31,6 +31,80 @@ export interface ConnectedAppApi {
     is_self_registered: boolean
 }
 
+export interface DeviceApprovalApi {
+    /**
+     * The code the device shows, as the person typed it. Case and dashes don't matter.
+     * @maxLength 20
+     */
+    user_code: string
+    /** The project the token is scoped to. */
+    project_id: number
+}
+
+/**
+ * * `authorized` - Authorized
+ * * `denied` - Denied
+ */
+export type DeviceDecisionEnumApi = (typeof DeviceDecisionEnumApi)[keyof typeof DeviceDecisionEnumApi]
+
+export const DeviceDecisionEnumApi = {
+    Authorized: 'authorized',
+    Denied: 'denied',
+} as const
+
+export interface DeviceDecisionApi {
+    /** The device grant's status after the decision.
+     *
+     * * `authorized` - Authorized
+     * * `denied` - Denied */
+    status: DeviceDecisionEnumApi
+}
+
+export interface DeviceUserCodeApi {
+    /**
+     * The code the device shows, as the person typed it. Case and dashes don't matter.
+     * @maxLength 20
+     */
+    user_code: string
+}
+
+export interface GrantedScopesApi {
+    /**
+     * The project these scopes work in. Null when the connection is not limited to projects.
+     * @nullable
+     */
+    project_id: number | null
+    /**
+     * The organization these scopes work in, for a connection limited to organizations. Null when the connection is not limited to organizations.
+     * @nullable
+     */
+    organization_id: string | null
+    /** The scopes granted in the project. */
+    scopes: string[]
+}
+
+export interface DeviceGrantDetailsApi {
+    /** The code, in the form the device shows it. */
+    user_code: string
+    /** The client that started the device grant. */
+    client_id: string
+    /** The client's display name. */
+    client_name: string
+    /**
+     * The client's logo, if it declared one.
+     * @nullable
+     */
+    logo_uri: string | null
+    /** Whether PostHog has verified the client. */
+    is_verified: boolean
+    /** The scopes the token will carry if the person approves. */
+    scopes: string[]
+    /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones, and the page lists only the new ones. */
+    granted_scopes: GrantedScopesApi[]
+    /** When the code expires. */
+    expires_at: string
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -494,13 +568,19 @@ export interface OrganizationInviteApi {
     /** @maxLength 30 */
     first_name?: string
     readonly emailing_attempt_made: boolean
+    /** True when the email provider reported the target address as suppressed at send time. */
+    readonly email_suppressed: boolean
     level?: OrganizationMembershipLevelEnumApi
     /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
     readonly is_expired: boolean
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
-    /** @nullable */
+    /**
+     * Optional personal message in the invite email.
+     * @maxLength 1000
+     * @nullable
+     */
     message?: string | null
     /** List of team IDs and corresponding access levels to private projects. */
     private_project_access?: unknown
@@ -1836,6 +1916,13 @@ export interface TeamWorkflowsConfigApi {
      * @nullable
      */
     marketing_frequency_cap_window_days?: number | null
+    /**
+     * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away.
+     * @minimum 1
+     * @maximum 168
+     * @nullable
+     */
+    marketing_frequency_cap_hold_hours?: number | null
 }
 
 export interface TeamFeatureFlagPolicyConfigApi {
@@ -2009,6 +2096,7 @@ export interface ProjectCreateRequestApi {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -3005,6 +3093,7 @@ export interface ProjectBackwardCompatApi {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -3895,6 +3984,7 @@ export interface PatchedProjectBackwardCompatApi {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -6396,7 +6486,20 @@ export interface UserCodexConnectRequestApi {
     tokens: UserCodexAuthTokensApi
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface GitHubBranchesResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** List of branch names */
     branches: string[]
     /**
@@ -6429,7 +6532,20 @@ export interface GitHubRepoApi {
     can_push?: boolean
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface GitHubReposResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
@@ -6981,6 +7097,7 @@ export type FileSystemListParams = {
     include_tags?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -7100,6 +7217,7 @@ export type PropertyDefinitionsListParams = {
     is_numerical?: boolean | null
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

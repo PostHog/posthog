@@ -1,6 +1,6 @@
 """Verifies that the workflow activity persists the agent's verdict onto the AlertCheck."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import NonAtomicBaseTest
@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from posthog.schema import AlertState
 
+from posthog.models.scoping import team_scope
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 from posthog.temporal.ai.anomaly_investigation.runner import InvestigationRunResult
 from posthog.temporal.ai.anomaly_investigation.workflow import (
@@ -26,7 +27,9 @@ from products.alerts.backend.models.alert import (
     InvestigationStatus,
     InvestigationVerdict,
 )
-from products.alerts_platform.backend.facade.contracts import AlertDelivery
+from products.alerts.backend.models.investigation import InsightAlertInvestigation
+from products.alerts_platform.backend.facade import testing as platform_testing
+from products.alerts_platform.backend.facade.contracts import AlertDelivery, AlertDeliveryRequest, SourceKind
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.notebooks.backend.facade.content import is_markdown_notebook_content
@@ -77,10 +80,14 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
     @patch("temporalio.activity.info")
     async def test_true_positive_verdict_is_persisted(self, mock_info, _heartbeat, mock_run, _prepare) -> None:
         mock_info.return_value.heartbeat_timeout = None
+        # Longer than the chat teaser, so a clip on the stored value would fail the summary assertion.
+        summary = (
+            "- **Confirmed spike** caused by campaign launch.\n" + "- Traffic came from the `pricing` page.\n" * 20
+        )
         mock_run.return_value = InvestigationRunResult(
             report=InvestigationReport(
                 verdict="true_positive",
-                summary="Confirmed spike caused by campaign launch.",
+                summary=summary,
                 hypotheses=[],
                 recommendations=[],
             ),
@@ -100,7 +107,7 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         await sync_to_async(self.alert_check.refresh_from_db)()
         assert self.alert_check.investigation_status == InvestigationStatus.DONE
         assert self.alert_check.investigation_verdict == InvestigationVerdict.TRUE_POSITIVE
-        assert self.alert_check.investigation_summary == "Confirmed spike caused by campaign launch."
+        assert self.alert_check.investigation_summary == summary.strip()
         assert self.alert_check.investigation_notebook_id is not None
 
         # A follow-up agent appends through the MCP cell tools, which only accept a markdown notebook.
@@ -342,3 +349,98 @@ class TestVerdictChangeFollowup(NonAtomicBaseTest):
 
         self.alert_check.refresh_from_db()
         assert self.alert_check.targets_notified == {}
+
+
+class TestPlatformEvaluationInvestigation(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.insight = Insight.objects.create(team=self.team, name="test insight")
+        self.alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight=self.insight,
+            name="anomaly alert",
+            detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
+            investigation_agent_enabled=True,
+            investigation_gates_notifications=True,
+            created_by=self.user,
+        )
+        with team_scope(self.team.id):
+            configuration = platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="anomaly alert",
+                source_kind=SourceKind.INSIGHT,
+                check_interval_minutes=60,
+                next_check_at=datetime.now(UTC),
+            )
+        self.request = AlertDeliveryRequest(
+            source=SourceKind.INSIGHT,
+            team_id=self.team.id,
+            configuration_id=str(configuration.id),
+            evaluation_key="slot:now",
+            destination_alert_id=str(self.alert.id),
+            event_ids_by_kind={"firing": "$insight_alert_firing"},
+            owned_by_platform=True,
+        )
+        platform_testing.hold_delivery(
+            self.request, held_at=datetime.now(UTC), release_after=datetime.now(UTC) + timedelta(minutes=90)
+        )
+        self.episode_started_at = datetime(2026, 10, 20, 9, tzinfo=UTC)
+        self.investigation = InsightAlertInvestigation.objects.for_team(self.team.id).create(
+            team=self.team,
+            alert_configuration=self.alert,
+            configuration_id=configuration.id,
+            evaluation_key="slot:now",
+            episode_started_at=self.episode_started_at,
+            kind=InsightAlertInvestigation.Kind.AGENT,
+            status=InvestigationStatus.PENDING,
+            evaluated={"value": 42.0, "triggered_dates": ["2026-10-20"], "interval": "day"},
+        )
+
+    def _record_verdict(self) -> None:
+        InsightAlertInvestigation.objects.for_team(self.team.id).filter(id=self.investigation.id).update(
+            status=InvestigationStatus.DONE, verdict=InvestigationVerdict.TRUE_POSITIVE
+        )
+
+    @parameterized.expand(
+        [("first run", InvestigationStatus.PENDING), ("retry after the verdict", InvestigationStatus.DONE)]
+    )
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.ai.anomaly_investigation.workflow.signals.emit_signal")
+    @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
+    @patch("temporalio.activity.heartbeat")
+    @patch("temporalio.activity.info")
+    async def test_a_verdict_hands_the_held_firing_back_to_the_workflow(
+        self, _name, status, mock_info, _heartbeat, mock_run, mock_emit
+    ) -> None:
+        mock_info.return_value.heartbeat_timeout = None
+        mock_run.return_value = InvestigationRunResult(
+            report=InvestigationReport(
+                verdict="true_positive", summary="Confirmed.", hypotheses=[], recommendations=[]
+            ),
+            tool_calls_used=0,
+            model="test-model",
+        )
+        if status == InvestigationStatus.DONE:
+            await sync_to_async(self._record_verdict)()
+
+        deliveries = await investigate_anomaly_activity(
+            AnomalyInvestigationWorkflowInputs(
+                team_id=self.team.id, alert_id=self.alert.id, investigation_id=self.investigation.id
+            )
+        )
+
+        assert deliveries == [self.request]
+        await sync_to_async(self.investigation.refresh_from_db)()
+        assert (self.investigation.status, self.investigation.verdict) == (
+            InvestigationStatus.DONE,
+            InvestigationVerdict.TRUE_POSITIVE,
+        )
+        assert mock_run.called is (status == InvestigationStatus.PENDING)
+        if status == InvestigationStatus.PENDING:
+            assert self.investigation.notebook_id is not None
+            kwargs = mock_emit.await_args.kwargs
+            assert kwargs["source_id"] == f"{self.investigation.configuration_id}:{self.episode_started_at.isoformat()}"
+            assert kwargs["extra"]["investigation_id"] == str(self.investigation.id)
+            assert "alert_check_id" not in kwargs["extra"]

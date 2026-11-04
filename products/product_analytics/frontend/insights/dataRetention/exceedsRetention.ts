@@ -1,13 +1,13 @@
 import { dayjs } from 'lib/dayjs'
 
-import { Node } from '~/queries/schema/schema-general'
 import {
     isAnyDataWarehouseNode,
     isDataVisualizationNode,
     isHogQLQuery,
     isInsightQueryWithSeries,
     isInsightVizNode,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import { Node } from '~/queries/schema/schema-general'
 
 /** Whether one insight's date range reaches past the team's events retention window.
  *

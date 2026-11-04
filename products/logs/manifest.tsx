@@ -10,6 +10,12 @@ import type { LogsSceneActiveTab } from './frontend/logsSceneLogic'
 
 export const manifest: ProductManifest = {
     name: 'Logs',
+    globalModals: {
+        LogsViewerModal: () =>
+            import('./frontend/components/LogsViewer/LogsViewerModal/LogsViewerModalHost').then(
+                (module) => module.LogsViewerModalHost
+            ),
+    },
     scenes: {
         Logs: {
             import: () => import('./frontend/LogsScene'),
@@ -100,6 +106,7 @@ export const manifest: ProductManifest = {
             iconType: 'logs' as FileSystemIconType,
             iconColor: ['var(--color-product-logs-light)', 'var(--color-product-logs-dark)'] as FileSystemIconColor,
             href: urls.logs(),
+            searchKeywords: ['logging'],
             searchTabs: [
                 { name: 'Alerts', href: urls.logs('alerts') },
                 { name: 'SQL', href: urls.logs('sql') },
