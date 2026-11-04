@@ -5744,6 +5744,8 @@ export interface IntegrationType {
     installation_shared?: IntegrationConfigApi['installation_shared']
     /** GitHub only. `unavailable` once the App was removed or suspended on GitHub. */
     installation_status?: IntegrationConfigApi['installation_status']
+    /** Linear only. True when the workspace last authorized PostHog before the app had webhooks. */
+    needs_webhook_reconnect?: IntegrationConfigApi['needs_webhook_reconnect']
 }
 
 export interface EmailIntegrationDomainGroupedType {
@@ -6140,6 +6142,7 @@ export enum ActivityScope {
     ORGANIZATION_INVITE = 'OrganizationInvite',
     ORGANIZATION_DOMAIN = 'OrganizationDomain',
     OAUTH_APPLICATION = 'OAuthApplication',
+    WORKLOAD_TRUST_POLICY = 'WorkloadTrustPolicy',
     LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',
@@ -6264,6 +6267,7 @@ export interface DataModelingNode {
     last_run_status?: DataModelingJobStatus
     last_run_error?: string | null
     sync_interval?: DataModelingSyncInterval
+    pinned?: boolean
     suspended?: NodeApiSuspended
     /** Set on endpoint nodes stamped at materialization enable; older nodes carry only the name */
     endpoint?: NodeEndpointApi | null

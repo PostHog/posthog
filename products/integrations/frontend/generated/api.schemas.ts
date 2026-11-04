@@ -204,6 +204,11 @@ export interface IntegrationConfigApi {
     readonly installation_shared: boolean | null
     /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
     readonly installation_status: InstallationStatusEnumApi | null
+    /**
+     * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+     * @nullable
+     */
+    readonly needs_webhook_reconnect: boolean | null
 }
 
 export interface PaginatedIntegrationConfigListApi {
@@ -400,6 +405,11 @@ export interface IntegrationConfigCreateApi {
     readonly installation_shared: boolean | null
     /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
     readonly installation_status: InstallationStatusEnumApi | null
+    /**
+     * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+     * @nullable
+     */
+    readonly needs_webhook_reconnect: boolean | null
 }
 
 export interface SlackChannelApi {
@@ -472,6 +482,11 @@ export interface PatchedIntegrationConfigApi {
     readonly installation_shared?: boolean | null
     /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
     readonly installation_status?: InstallationStatusEnumApi | null
+    /**
+     * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+     * @nullable
+     */
+    readonly needs_webhook_reconnect?: boolean | null
 }
 
 /**

@@ -19,7 +19,7 @@ use cohort_stream_processor::consumers::{
     BootReadiness, CascadeRoute, CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer,
     FollowerRoute, MergeRoute, SeedFollowerConsumer, TransferRoute,
 };
-use cohort_stream_processor::filters::{run_refresh_loop, CatalogHandle};
+use cohort_stream_processor::filters::CatalogHandle;
 use cohort_stream_processor::merge::gc::MergeGcSweeper;
 use cohort_stream_processor::merge::redrive::RedriveSweeper;
 use cohort_stream_processor::observability;
@@ -164,10 +164,16 @@ async fn async_main(config: Config) -> Result<()> {
         None
     };
 
-    let catalog = Arc::new(CatalogHandle::with_allowlist(
+    let pool = get_pool_with_config(&config.database_url, config.pool_config())
+        .context("creating posthog_cohort database pool")?;
+
+    let (catalog, mut catalog_refresher) = CatalogHandle::with_refresher(
         config.team_allowlist.clone(),
+        pool,
+        config.filter_catalog_refresh_interval(),
+        config.filter_catalog_refresh_jitter(),
         config.cohort_cascade_enabled,
-    ));
+    );
     let boot_readiness = BootReadiness::new(catalog.clone());
 
     // Bound before the restore, which can outlast the startup probe. `/_health` answers throughout;
@@ -191,10 +197,7 @@ async fn async_main(config: Config) -> Result<()> {
             .await
     });
 
-    let pool = get_pool_with_config(&config.database_url, config.pool_config())
-        .context("creating posthog_cohort database pool")?;
-
-    match catalog.refresh(&pool).await {
+    match catalog_refresher.refresh().await {
         Ok(stats) => info!(
             teams = stats.teams,
             unique_conditions = stats.unique_conditions,
@@ -501,20 +504,7 @@ async fn async_main(config: Config) -> Result<()> {
 
     let guard = manager.monitor_background();
 
-    let refresh_catalog = catalog.clone();
-    let refresh_pool = pool.clone();
-    let refresh_interval = config.filter_catalog_refresh_interval();
-    let refresh_jitter = config.filter_catalog_refresh_jitter();
-    tokio::spawn(async move {
-        run_refresh_loop(
-            refresh_catalog,
-            refresh_pool,
-            refresh_interval,
-            refresh_jitter,
-            catalog_handle_lifecycle,
-        )
-        .await;
-    });
+    tokio::spawn(catalog_refresher.run(catalog_handle_lifecycle));
 
     // Hold the first eviction pass past the boot window so its read burst doesn't stack on backlog
     // catch-up; only the eviction sweep is delayed.

@@ -27,6 +27,13 @@ CONSTANCE_CONFIG = {
         "Changes reach workers within about a minute and affect newly compiled queries only.",
         bool,
     ),
+    "HOGQL_PROPERTIES_NARROWING_ENABLED": (
+        get_from_env("HOGQL_PROPERTIES_NARROWING_ENABLED", True, type_cast=str_to_bool),
+        "Whether a HogQL subquery exports only the keys read of the events properties blob. "
+        "Disable to export the whole blob again while unused subquery columns are still pruned. "
+        "Changes reach workers within about a minute and affect newly compiled queries only.",
+        bool,
+    ),
     "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED": (
         get_from_env("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED", True, type_cast=str_to_bool),
         "Whether insight query runners share one HogQL database across execution, response printing, "
@@ -430,6 +437,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "GROWTH_RESCORE_WEBHOOK_SECRET",
     "HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED",
     "HOGQL_PROJECTION_OPTIMIZATION_ENABLED",
+    "HOGQL_PROPERTIES_NARROWING_ENABLED",
     "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED",
     "HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS",
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",

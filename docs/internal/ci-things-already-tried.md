@@ -470,6 +470,9 @@ The Dagster path validator also uses a sparse checkout of every internal Python 
 `ci-rust.yml` also uses it on the build and test jobs, but that came before this PR.
 The large Python and frontend test jobs do not use it. Their checkout is complete.
 
+Desktop agent release verification keeps the standalone `packages/agent/` workspace, its build action, `.nvmrc`, and the desktop lockfile used for caching.
+Validate its frozen install, workspace build, and agent tests from the sparse tree when changing those inputs.
+
 The HCL schema guard checks out `posthog/clickhouse/hcl/`, which contains its scripts, manifest, layers, golden dumps, and generated SQL.
 Keep the full directory so every environment and role remains available to validation and drift checks.
 
@@ -477,7 +480,7 @@ OpenAPI codegen tests keep root files, every package manifest, patches, the pnpm
 
 If you propose this again, name the jobs and prove that each one reads only the included paths. A test job can read more of the tree than an exclusion list expects.
 
-Storybook's `select-stories` job checks out only `.nvmrc` from the PR head. It keeps the bounded blobless history for changed-path detection, downloads the module graph, and runs the selector from a separate trusted base checkout. Source files do not need to exist in the PR worktree for this job.
+Storybook's `select-stories` job checks out only `.nvmrc` from the PR head. It keeps the bounded blobless history for changed-path detection, downloads the module graph, and runs the selector from a separate trusted base checkout, which also carries `common/storybook/storybook-timings.json`. Source files do not need to exist in the PR worktree for this job. The manifest is there because it sizes the shard count, and a file count cannot size that: the stories a frontend diff affects carry about twice the render time per story that the average story does. It is read from the base checkout so the nightly refresh applies to branches behind master and a fork cannot steer the shard count.
 
 _Also asked as:_ sparse-checkout, partial clone, do not check out the whole repo, speed up the checkout step
 

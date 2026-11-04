@@ -119,12 +119,6 @@ class TestExportedProperties(BaseTest):
                 "count()",
             ),
             (
-                "union_branches_matched_by_position",
-                "SELECT a.email FROM (SELECT properties AS a, properties AS b FROM events UNION ALL SELECT properties AS b, properties AS a FROM events)",
-                f"{EMAIL_MAP} AS b",
-                "JSONExtractRaw(a['email'])",
-            ),
-            (
                 "eight_chained_ctes",
                 f"WITH c1 AS {STAR_EVENTS}, "
                 + ", ".join(f"c{n} AS (SELECT * FROM c{n - 1})" for n in range(2, 9))
@@ -187,6 +181,10 @@ class TestExportedProperties(BaseTest):
                 "SELECT x.a.email, x.e FROM (SELECT a, b.email AS e FROM (SELECT properties AS a, properties AS b FROM (SELECT properties FROM events)) "
                 "UNION ALL SELECT DISTINCT properties AS a, '' AS e FROM events) AS x",
             ),
+            (
+                "union_branch_column_matched_by_name_at_another_position",
+                "SELECT a.email FROM (SELECT properties AS a, properties AS b FROM events UNION ALL SELECT properties AS b, properties AS a FROM events)",
+            ),
             ("query_output", "SELECT properties FROM (SELECT properties FROM events)"),
             ("read_by_position", f"SELECT properties.arr[1] FROM {STAR_EVENTS}"),
             ("native_flag_map", "SELECT properties.$feature_flags FROM (SELECT properties FROM events)", True),
@@ -221,6 +219,16 @@ class TestExportedProperties(BaseTest):
             assert "map('email', " in optimized, optimized
             assert "events.distinct_id AS distinct_id" not in optimized, optimized
             assert self._print(select, native=native, pruning=False) == unoptimized
+
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_narrowing_kill_switch_keeps_the_blob_and_the_pruning(self, _name: str, native: bool) -> None:
+        select = f"SELECT properties.email FROM {STAR_EVENTS}"
+        with override_instance_config("HOGQL_PROPERTIES_NARROWING_ENABLED", False):
+            printed = self._print(select, native=native)
+        assert "map('email', " not in printed, printed
+        assert "events.distinct_id AS distinct_id" not in printed, printed
+        with override_instance_config("HOGQL_PROPERTIES_NARROWING_ENABLED", True):
+            assert "map('email', " in self._print(select, native=native)
 
     def test_native_export_reads_one_subcolumn(self) -> None:
         printed = self._print(f"SELECT properties.utm_source FROM {STAR_EVENTS}", native=True)
