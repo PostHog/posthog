@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
+import { LemonButton } from '@posthog/lemon-ui'
 import { ScatterChart } from '@posthog/quill-charts'
 import type { ScatterAreaSelection, ScatterChartConfig, ScatterPointDatum } from '@posthog/quill-charts'
 
@@ -16,8 +17,8 @@ const handleChartError = makeChartErrorHandler('mcp-intent-map-scatter')
 
 /** Topic bubbles at the base zoom; a drag selection pins the axes and loads the intents inside. */
 export function IntentScatterPlot(): JSX.Element {
-    const { topicSeries, pointSeries, zoom, topicId, mapLoading, topics } = useValues(intentMapLogic)
-    const { setZoom, selectTopic, setTopicId } = useActions(intentMapLogic)
+    const { topicSeries, pointSeries, zoom, topicId, mapLoading, mapError, topics } = useValues(intentMapLogic)
+    const { setZoom, selectTopic, setTopicId, loadMap } = useActions(intentMapLogic)
     const theme = useChartTheme()
     const [pinned, setPinned] = useState<ScatterAreaSelection | null>(null)
 
@@ -51,6 +52,20 @@ export function IntentScatterPlot(): JSX.Element {
             return
         }
         selectTopic(meta.topicId)
+    }
+
+    if (mapError && !mapLoading) {
+        return (
+            <div
+                className="flex h-full flex-col items-center justify-center gap-2 text-secondary text-sm"
+                data-attr="mcp-intent-map-error"
+            >
+                <span>The intent map couldn't load.</span>
+                <LemonButton size="small" type="secondary" onClick={() => loadMap()}>
+                    Try again
+                </LemonButton>
+            </div>
+        )
     }
 
     if (!mapLoading && topics.length === 0 && pointSeries.length === 0) {
