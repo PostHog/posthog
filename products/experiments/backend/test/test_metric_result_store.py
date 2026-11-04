@@ -107,6 +107,7 @@ class TestMetricResultStore(BaseTest):
         completed_at: datetime,
         samples: int,
         display_key: str | None = None,
+        status: str = ExperimentMetricResult.Status.COMPLETED,
     ) -> ExperimentMetricResult:
         return ExperimentMetricResult.objects.create(
             experiment=experiment,
@@ -115,7 +116,7 @@ class TestMetricResultStore(BaseTest):
             display_key=display_key,
             query_from=_START,
             query_to=query_to,
-            status=ExperimentMetricResult.Status.COMPLETED,
+            status=status,
             result=_stored_result(samples),
             completed_at=completed_at,
         )
@@ -583,6 +584,7 @@ class TestMetricResultStore(BaseTest):
             ("run_result", True, ExperimentMetricResult.Status.COMPLETED),
             ("run_failure", True, ExperimentMetricResult.Status.FAILED),
             ("daily_point", False, ExperimentMetricResult.Status.COMPLETED),
+            ("daily_failure", False, ExperimentMetricResult.Status.FAILED),
             ("daily_metric_result", False, ExperimentMetricResult.Status.COMPLETED),
             ("sync_copy", True, ExperimentMetricResult.Status.COMPLETED),
         ]
@@ -593,7 +595,7 @@ class TestMetricResultStore(BaseTest):
         experiment = self._experiment()
         calculation_config = get_metric_calculation_config(experiment, "m1")
         assert calculation_config is not None
-        self._row(experiment, "another-fingerprint", query_to=_WINDOW, completed_at=_WINDOW, samples=1)
+        self._row(experiment, "another-fingerprint", query_to=_WINDOW, completed_at=_WINDOW, samples=1, status=status)
 
         self._write(writer, experiment, calculation_config)
 
@@ -609,34 +611,41 @@ class TestMetricResultStore(BaseTest):
         else:
             assert (row.result, row.error_message, row.completed_at) == (None, "boom", None)
 
-    @parameterized.expand([("held_by_a_recalculation", True), ("held_by_the_same_daily_key", False)])
-    def test_a_daily_failure_replaces_a_completed_row_only_under_its_own_key(
-        self, _name: str, held_by_recalculation: bool
+    @parameterized.expand(
+        [
+            (f"{writer}_{held_by}", writer, held_by, reader)
+            for writer in ("run_failure", "daily_failure")
+            for held_by, reader in (
+                ("a_version_1_recalculation", "for_run"),
+                ("the_same_recalculation_key", "for_run"),
+                ("a_version_1_daily_point", "timeseries"),
+                ("the_same_daily_key", "timeseries"),
+            )
+        ]
+    )
+    def test_a_failure_keeps_the_completed_row_that_holds_its_window(
+        self, _name: str, writer: str, held_by: str, reader: str
     ) -> None:
         experiment = self._experiment()
         calculation_config = get_metric_calculation_config(experiment, "m1")
         assert calculation_config is not None
-        key = calculation_config.calculation_key()
-        held_fingerprint = _recalc_fingerprint(key) if held_by_recalculation else key
+        held_fingerprint = {
+            "a_version_1_recalculation": _recalc_fingerprint(calculation_config.key_for_version(1)),
+            "the_same_recalculation_key": _recalc_fingerprint(calculation_config.calculation_key()),
+            "a_version_1_daily_point": calculation_config.key_for_version(1),
+            "the_same_daily_key": calculation_config.calculation_key(),
+        }[held_by]
         self._row(experiment, held_fingerprint, query_to=_WINDOW, completed_at=_WINDOW, samples=1)
 
-        self._write("daily_failure", experiment, calculation_config)
+        self._write(writer, experiment, calculation_config)
 
         row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid="m1", query_to=_WINDOW)
-        if held_by_recalculation:
-            assert (row.fingerprint, row.status, _samples(row)) == (
-                held_fingerprint,
-                ExperimentMetricResult.Status.COMPLETED,
-                [1],
-            )
-            assert self._read("for_run", experiment, calculation_config) == [1]
-        else:
-            assert (row.fingerprint, row.status, row.result, row.error_message) == (
-                key,
-                ExperimentMetricResult.Status.FAILED,
-                None,
-                "boom",
-            )
+        assert (row.fingerprint, row.status, row.error_message) == (
+            held_fingerprint,
+            ExperimentMetricResult.Status.COMPLETED,
+            None,
+        )
+        assert self._read(reader, experiment, calculation_config) == [1]
 
     @parameterized.expand(
         [
@@ -656,21 +665,18 @@ class TestMetricResultStore(BaseTest):
             ExperimentMetricsRecalculation.objects.filter(id=run.id).update(status=status)
         self._row(experiment, "fingerprint-from-the-superseding-run", query_to=_WINDOW, completed_at=_WINDOW, samples=1)
 
-        MetricResultStore(experiment_id=experiment.id).record_run_failure(
+        # A failure never replaces a completed row, so only a result write needs the terminal-run guard.
+        stored = MetricResultStore(experiment_id=experiment.id).record_run_result(
             str(run.id),
             calculation_config,
             window=_WINDOW,
             query_from=_START,
-            error_message="the orphan's late failure",
+            result=_stored_result(9),
             query_id=None,
         )
 
         row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid="m1", query_to=_WINDOW)
-        assert (row.fingerprint, row.status, row.error_message) == (
-            "fingerprint-from-the-superseding-run",
-            ExperimentMetricResult.Status.COMPLETED,
-            None,
-        )
+        assert (stored, row.fingerprint, _samples(row)) == (False, "fingerprint-from-the-superseding-run", [1])
 
 
 def _patch_key_version_flag(state: bool | None | Exception) -> AbstractContextManager[Any]:

@@ -43,6 +43,12 @@ An ended experiment keeps its compatible stored result when project settings cha
 Opening its results page does not request a replacement.
 The page marks results from earlier settings or unrecorded settings and offers an explicit recalculation.
 Such results stay visible and are never relabeled as current.
+That recalculation updates the latest results only; time series points keep their stored values until a timeseries backfill recalculates them.
+When the experiment is over the recalculation age limit, the latest response sets `exceeds_recalculation_age_limit`, and the page explains that the stored results stay as they are instead of offering the recalculation.
+
+A failed recalculation never replaces a completed result row.
+The row keeps its result and fingerprint, the run records the failure in `metric_errors` and counts the metric as failed, and the page keeps showing the stored result.
+A failed daily calculation also leaves a completed row at its window in place.
 
 The API reports this provenance as `configuration_status` on each recalculation result and as `configuration_by_day` on the timeseries results: `current`, `previous` or `unknown`.
 Under version 1, every result under the version 1 key reports `current`.

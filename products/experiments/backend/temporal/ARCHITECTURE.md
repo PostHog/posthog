@@ -105,7 +105,7 @@ So every run of a stopped experiment uses the same `(experiment, metric_uuid, qu
 
 - **Same config, completed row:** the reload skips the query and keeps the row. It never recomputes the fixed window, so late events and data warehouse corrections for that window do not reach the stored result.
 - **Same config, failed row:** the reload recomputes the metric and updates the row in place.
-- **Config or stats change:** the fingerprint changes, so no completed row matches and the reload recomputes. The unique key `(experiment, metric_uuid, query_to)` does not include the fingerprint, so the new result replaces the old row in place, fingerprint included.
+- **Config or stats change:** the fingerprint changes, so no completed row matches and the reload recomputes. The unique key `(experiment, metric_uuid, query_to)` does not include the fingerprint, so the new result replaces the old row in place, fingerprint included. A failure keeps the old completed row and goes to `metric_errors` only, so the run still reads the earlier result.
 
 The snapshot for such an experiment is the one row at `end_date` for the current config, not a distinct frozen copy per `recalculation_id`.
 
@@ -127,14 +127,14 @@ Every writer (the calc activity, the daily activities, the backfill and the time
 A row that holds the window under another fingerprint is therefore updated in place, so no write can fail on the unique constraint or create a second row for a window.
 A daily write and a recalculation share a window only when an experiment stops while its daily run is in flight, so both use `end_date`.
 A successful daily write then takes over the recalculation's row, and the next reload recomputes that metric.
-A failed daily write leaves a completed row under another fingerprint in place, because it has no result to replace it with.
+A failed write, daily or recalculation, leaves any completed row in place, because it has no result to replace it with.
 The calc activity's write keeps its lock order and its terminal-run guard (see [cancellation and result-write protection](../../../../docs/internal/experiment-metric-recalculation.md)).
 
 Backfill requests lock the experiment while checking for an active job by metric UUID, deleting its daily results, and creating the new job in one transaction. Failed job creation preserves the existing results. The active-job unique index includes the metric UUID as well as the experiment and calculation key, so equivalent metrics can backfill independently. Keeping the key in the index allows existing jobs for one UUID under different keys to coexist during a rolling deployment; the locked UUID lookup prevents new requests from adding another job for that metric.
 
 ### Counters are derived, not stored
 
-`completed_metrics` and `failed_metrics` aren't columns on the recalc row. They're computed at read time from `ExperimentMetricResult` rows (`status=COMPLETED` for completed, `status=FAILED` plus discovery-step failures from `metric_errors` for failed). This eliminates a class of bug: when Temporal retries an activity, there's no counter to double-increment. The only thing that matters is whether the result row exists.
+`completed_metrics` and `failed_metrics` aren't columns on the recalc row. They're computed at read time from `ExperimentMetricResult` rows and `metric_errors`: a metric with a `status=FAILED` row or a `metric_errors` entry counts as failed, and any other metric with a `status=COMPLETED` row counts as completed. A failed calculation keeps the completed row that held its window, so its `metric_errors` entry is what counts it as failed. A rejected run carries the earlier run's rows, so its error counts only for a metric without a row. This eliminates a class of bug: when Temporal retries an activity, there's no counter to double-increment.
 
 ### Idempotency + concurrency at the API boundary
 

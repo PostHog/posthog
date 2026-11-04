@@ -38,7 +38,7 @@ When a schedule triggers, it starts a workflow that:
 Each metric activity stores its result through the experiments facade (`record_daily_metric_result`, `record_daily_metric_failure`).
 The write looks the row up on `(experiment, metric_uuid, query_to)` and stores the calculation key as the row's fingerprint.
 A row that already holds that window under another fingerprint, such as a recalculation result at the same window, is updated in place instead of failing on the unique constraint.
-A failed write is the exception: it leaves a completed row under another fingerprint in place, so a transient failure cannot replace a recalculation result.
+A failed write is the exception: it leaves any completed row in place, whatever its fingerprint, so a transient failure cannot replace a stored result.
 
 Discovery queues each metric with its calculation key, and the activity reads the settings again when it builds the query runner.
 Before the query runs, the activity checks that the runner's settings still give the queued key, in the key version of that key.

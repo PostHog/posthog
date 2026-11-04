@@ -128,9 +128,11 @@ _recalculation_stale_cleanup_counter = Counter(
 def _derive_counters(recalc: ExperimentMetricsRecalculation, results: list[dict] | None = None) -> tuple[int, int]:
     """Counters are not stored on the row (PR1 contract): they're derived on read from result rows + errors.
 
-    `completed_metrics` = ExperimentMetricResult rows with status=COMPLETED for this run's fingerprints.
-    `failed_metrics`    = ExperimentMetricResult rows with status=FAILED + metric_errors keys that never made
-                          it to a result row (discovery-step failures).
+    `failed_metrics`    = metrics with an ExperimentMetricResult row with status=FAILED or a `metric_errors` entry.
+                          A failed attempt keeps the completed row that held its window, so the entry is what records
+                          the failure. A rejected run carries the rows of the run before it, so its error counts only
+                          for a metric without a row.
+    `completed_metrics` = metrics with an ExperimentMetricResult row with status=COMPLETED that did not fail.
 
     Accepts an optional pre-computed `results` list to avoid recomputing fingerprints on the GET path where
     the same list is also surfaced to the client.
@@ -141,11 +143,18 @@ def _derive_counters(recalc: ExperimentMetricsRecalculation, results: list[dict]
     row), not from result rows.
     """
     rows = results if results is not None else get_run_results(recalc)
-    completed = sum(1 for r in rows if r["status"] == ExperimentMetricResult.Status.COMPLETED)
-    failed_in_rows = sum(1 for r in rows if r["status"] == ExperimentMetricResult.Status.FAILED)
-    uuids_with_row = {r["metric_uuid"] for r in rows}
-    discovery_only_failures = sum(1 for uuid in (recalc.metric_errors or {}) if uuid not in uuids_with_row)
-    return completed, failed_in_rows + discovery_only_failures
+    status_by_uuid = {r["metric_uuid"]: r["status"] for r in rows}
+    failed = {uuid for uuid, status in status_by_uuid.items() if status == ExperimentMetricResult.Status.FAILED}
+    for uuid, error in (recalc.metric_errors or {}).items():
+        rejected = isinstance(error, dict) and error.get("error_type") == RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
+        if not (rejected and uuid in status_by_uuid):
+            failed.add(uuid)
+    completed = sum(
+        1
+        for uuid, status in status_by_uuid.items()
+        if status == ExperimentMetricResult.Status.COMPLETED and uuid not in failed
+    )
+    return completed, len(failed)
 
 
 def get_live_query_progress(recalc: ExperimentMetricsRecalculation) -> dict | None:
@@ -389,6 +398,20 @@ def _recalculation_max_age(experiment: Experiment) -> timedelta | None:
     return RECALCULATION_MAX_EXPERIMENT_AGE if enabled else None
 
 
+def _age_over_limit(experiment: Experiment, max_age: timedelta | None) -> timedelta | None:
+    """The age of the experiment when it is older than `max_age`, otherwise None."""
+    if max_age is None or experiment.start_date is None:
+        return None
+    age = timezone.now() - experiment.start_date
+    return age if age > max_age else None
+
+
+def exceeds_recalculation_age_limit(experiment: Experiment) -> bool:
+    """Whether `request_recalculation` rejects this experiment because it started too long ago. Saved results stay
+    readable either way."""
+    return _age_over_limit(experiment, _recalculation_max_age(experiment)) is not None
+
+
 def _capture_recalculation_rejected(
     recalc: ExperimentMetricsRecalculation, user: User | None, experiment_age: timedelta, max_age: timedelta
 ) -> None:
@@ -549,8 +572,7 @@ def _request_recalculation(
             transaction.on_commit(lambda: _cancel_superseded_workflows([str(stale_id) for stale_id in stale_ids]))
 
         # After the stale cleanup, so a stale run of an old experiment is failed and its workflow cancelled too.
-        experiment_age = timezone.now() - experiment.start_date if experiment.start_date is not None else None
-        if max_age is not None and experiment_age is not None and experiment_age > max_age:
+        if max_age is not None and (experiment_age := _age_over_limit(experiment, max_age)) is not None:
             rejected = _create_rejected_recalculation(experiment, user, trigger, experiment_age, max_age)
             return build_job_payload(rejected, is_existing=False)
 

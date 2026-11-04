@@ -350,27 +350,47 @@ describe('experimentMetricsLogic', () => {
             jest.useRealTimers()
         })
 
-        it('surfaces per-metric errors when the latest run loaded on mount is a partial failure', async () => {
-            useMocks({
-                get: {
-                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
-                        200,
-                        partialFailureRecalculation,
-                    ],
-                },
-            })
-            mountLogic()
+        it.each([
+            {
+                name: 'shows the error of a metric whose row failed',
+                primaryRow: partialFailureRecalculation.results[0],
+                expectedResult: null,
+                expectedError: { detail: 'boom', retriable: false },
+            },
+            {
+                name: 'shows the saved result of a metric whose calculation failed',
+                primaryRow: completedRecalculation.results[0],
+                expectedResult: primaryResult,
+                expectedError: null,
+            },
+        ])(
+            '$name when the latest run loaded on mount is a partial failure',
+            async ({ primaryRow, expectedResult, expectedError }) => {
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            {
+                                ...partialFailureRecalculation,
+                                results: [primaryRow, partialFailureRecalculation.results[1]],
+                            },
+                        ],
+                    },
+                })
+                mountLogic()
 
-            await expectLogic(logic)
-                .toDispatchActions(['setCurrentRecalculation', 'setPrimaryMetricsResultsErrors'])
-                // Every metric has a result row, failed or not, so the failure alone must not start a new run.
-                .toNotHaveDispatchedActions(['triggerRecalculation'])
+                await expectLogic(logic)
+                    .toDispatchActions(['setCurrentRecalculation', 'setPrimaryMetricsResultsErrors'])
+                    // Every metric has a result row, failed or not, so the failure alone must not start a new run.
+                    .toNotHaveDispatchedActions(['triggerRecalculation'])
 
-            // The successful secondary metric loads its result.
-            expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
-            // The failed primary metric must keep its error for the in-row box, not be cleared by its null result.
-            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom', retriable: false })
-        })
+                // The successful secondary metric loads its result.
+                expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
+                // The failed primary metric must keep its error for the in-row box, not be cleared by its null result.
+                expect(logic.values.primaryMetricsResults[0]).toEqual(expectedResult)
+                expect(logic.values.primaryMetricsResultsErrors[0]).toEqual(expectedError)
+            }
+        )
 
         it('shows no error toast on 404 (a fresh recalc is triggered instead)', async () => {
             useMocks({
@@ -622,9 +642,13 @@ describe('experimentMetricsLogic', () => {
             jest.useRealTimers()
         })
 
-        it.each(['current', 'previous', 'unknown'] as const)(
-            'displays %s results without automatically recalculating',
-            async (configurationStatus) => {
+        it.each([
+            { configurationStatus: 'current', ageLimitExceeded: false },
+            { configurationStatus: 'previous', ageLimitExceeded: false },
+            { configurationStatus: 'unknown', ageLimitExceeded: true },
+        ] as const)(
+            'displays $configurationStatus results without automatically recalculating',
+            async ({ configurationStatus, ageLimitExceeded }) => {
                 // freshCompletedRecalculation has result_source 'recalculation' (a real run) with all metrics
                 // resolved, so neither the config-change heal path nor the timeseries-fallback path fires.
                 useMocks({
@@ -633,6 +657,7 @@ describe('experimentMetricsLogic', () => {
                             200,
                             {
                                 ...freshCompletedRecalculation,
+                                exceeds_recalculation_age_limit: ageLimitExceeded,
                                 results: freshCompletedRecalculation.results.map((result) => ({
                                     ...result,
                                     configuration_status: configurationStatus,
@@ -649,6 +674,7 @@ describe('experimentMetricsLogic', () => {
                 expect(logic.values.resultConfigurationNotice).toBe(
                     configurationStatus === 'current' ? null : configurationStatus
                 )
+                expect(logic.values.recalculationAgeLimitExceeded).toBe(ageLimitExceeded)
             }
         )
 
@@ -925,6 +951,8 @@ describe('experimentMetricsLogic', () => {
                 .toNotHaveDispatchedActions(['pollRecalculation'])
 
             expect(logic.values.recalculationRejectionMessage).toEqual(REJECTION_MESSAGE)
+            // The create response has no age limit field, so the rejection itself must mark the limit.
+            expect(logic.values.recalculationAgeLimitExceeded).toBe(true)
             expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
             expect(logic.values.primaryMetricsResultsErrors[0]).toBeNull()
             expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)

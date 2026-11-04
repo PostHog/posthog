@@ -271,6 +271,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert latest["id"] == body["id"]
         assert latest["metric_errors"]["m1"]["error_type"] == "recalculation_window_too_long"
         assert [(r["metric_uuid"], r["result"]) for r in latest["results"]] == [("m1", {"ok": True})]
+        assert (latest["completed_metrics"], latest["failed_metrics"]) == (1, 0)
+        assert latest["exceeds_recalculation_age_limit"] is True
 
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
     @mock.patch("products.experiments.backend.recalculation.asyncio.run")

@@ -60,7 +60,7 @@ export type RecalculationPayload = Omit<ExperimentMetricsRecalculationJobApi, 'i
     Partial<
         Pick<ExperimentMetricsRecalculationRunApi, 'metric_retries' | 'results' | 'rows_read' | 'estimated_rows_total'>
     > &
-    Partial<Pick<ExperimentMetricsRecalculationLatestApi, 'result_source'>>
+    Partial<Pick<ExperimentMetricsRecalculationLatestApi, 'result_source' | 'exceeds_recalculation_age_limit'>>
 
 /**
  * This logic can only handle state when an experiment is present.
@@ -256,23 +256,26 @@ const resolveResultByUuid = (
  * Resolver: a metric's failure as `{ detail, retriable }` (the MetricErrorState shape), or null. `metric_errors`
  * wins (it covers FAILED rows AND discovery-step failures absent from `results`), falling back to a
  * failed row's error_message. A rejected run carries the earlier run's rows, so its error is dropped on a
- * metric that has a row: the banner shows the message and the cell keeps the earlier result.
+ * metric that has a row: the banner shows the message and the cell keeps the earlier result. A failed calculation
+ * keeps the completed row that held its window, so its error is dropped on a metric whose row is completed and the
+ * cell keeps the saved result.
  * `_shown_failure` in products/experiments/backend/health/latest_calculation.py repeats this rule for the health
  * checks, so change both together.
  */
 const resolveErrorByUuid = (recalculation: RecalculationPayload): ResolveByUuid<MetricErrorState> => {
     const metricErrors = metricErrorEntries(recalculation)
-    const uuidsWithRow = new Set((recalculation.results ?? []).map((r) => r.metric_uuid))
+    const rowStatusByUuid = new Map((recalculation.results ?? []).map((r) => [r.metric_uuid, r.status]))
     const failedResultMessageByUuid = new Map(
         (recalculation.results ?? [])
             .filter((r) => r.status === 'failed' && r.error_message)
             .map((r) => [r.metric_uuid, r.error_message as string])
     )
     return (uuid) => {
-        const entry =
-            metricErrors[uuid]?.error_type === RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE && uuidsWithRow.has(uuid)
-                ? undefined
-                : metricErrors[uuid]
+        const rowStatus = rowStatusByUuid.get(uuid)
+        const rowKept =
+            rowStatus === 'completed' ||
+            (rowStatus !== undefined && metricErrors[uuid]?.error_type === RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE)
+        const entry = rowKept ? undefined : metricErrors[uuid]
         const message = entry?.message ?? failedResultMessageByUuid.get(uuid)
         return message ? { detail: message, retriable: entry?.retriable === true } : null
     }
@@ -307,6 +310,7 @@ export interface experimentMetricsLogicValues {
         completed: number
         total: number
     }
+    recalculationAgeLimitExceeded: boolean
     recalculationRejectionMessage: string | null
     refreshEligibilityTick: number
     resultConfigurationNotice: 'previous' | 'unknown' | null
@@ -381,6 +385,7 @@ export interface experimentMetricsLogicMeta {
         }
         totalMetricsCount: (arg: any) => number
         recalculationRejectionMessage: (currentRecalculation: RecalculationPayload | null) => string | null
+        recalculationAgeLimitExceeded: (currentRecalculation: RecalculationPayload | null) => boolean
         lastRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
         nextAllowedManualRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
         isManualRefreshBlocked: (
@@ -565,6 +570,12 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         recalculationRejectionMessage: [
             (s) => [s.currentRecalculation],
             (recalc: RecalculationPayload | null): string | null => (recalc ? rejectionMessage(recalc) : null),
+        ],
+        // Only the latest payload carries the field, so a rejected run marks the limit too.
+        recalculationAgeLimitExceeded: [
+            (s) => [s.currentRecalculation],
+            (recalc: RecalculationPayload | null): boolean =>
+                !!recalc && (recalc.exceeds_recalculation_age_limit === true || rejectionMessage(recalc) !== null),
         ],
         lastRefresh: [
             (s) => [s.currentRecalculation],
@@ -892,6 +903,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     posthog.capture('experiment results configuration notice shown', {
                         experiment_id: props.experiment.id,
                         notice,
+                        age_limit_exceeded: values.recalculationAgeLimitExceeded,
                     })
                 }
                 // Re-enable the reload button the moment the window closes, not on the next data load.
