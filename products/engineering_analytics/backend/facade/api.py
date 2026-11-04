@@ -41,6 +41,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CurrentBranchHealth,
     DeliveryComparison,
     DeliverySummary,
+    DepotCIRepoUsage,
     DoraOverview,
     FlakyTestList,
     GitHubSource,
@@ -98,6 +99,11 @@ def _authorized_source(
     return logic.CuratedGitHubSource.for_team(
         team, source_id=source_id, repo=repo, user_access_control=user_access_control, query_limit=query_limit
     )
+
+
+def enable(*, team: Team) -> None:
+    """Opt the team in: create its managed viewset and sync the views once. Idempotent."""
+    logic.enroll(team)
 
 
 def get_ci_signals_config(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> CISignalsConfig:
@@ -887,3 +893,15 @@ def get_github_team_roster(*, team: Team, user_access_control: "UserAccessContro
     insists on. An unsynced snapshot comes back as ``synced=False``, never an error.
     """
     return logic.build_github_team_roster(team=team, user_access_control=user_access_control)
+
+
+def get_depot_ci_usage(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[DepotCIRepoUsage]:
+    return logic.build_depot_ci_usage(
+        team=team, date_from=date_from, date_to=date_to, user_access_control=user_access_control
+    )

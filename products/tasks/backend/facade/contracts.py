@@ -219,6 +219,7 @@ class TaskRunDTO:
     workflow_id: str = ""
     mode: str = "background"
     task_origin_product: str | None = None
+    task_created_at: datetime | None = None
     created_by_id: int | None = None
     created_by_distinct_id: str | None = None
     pr_url: str | None = None
@@ -853,6 +854,7 @@ class TaskRunSandboxConnectionDTO:
 
 SPACE_SETUP_SCOPES = (
     "task:write",
+    "inbox:write",
     "canvas:write",
     "hog_flow:write",
     # workflows-schedule-create and workflows-test-run require these beside hog_flow:write.

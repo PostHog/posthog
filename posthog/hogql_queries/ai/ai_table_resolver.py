@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, Any
 
 from prometheus_client import Counter, Histogram
 
+from posthog.schema import HogQLQueryModifiers, MaterializationMode
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -34,7 +36,6 @@ AI_EVENTS_QUERY_DURATION_SECONDS = Histogram(
 
 if TYPE_CHECKING:
     from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
-    from posthog.hogql.modifiers import HogQLQueryModifiers
     from posthog.hogql.timings import HogQLTimings
 
     from posthog.clickhouse.client.connection import Workload
@@ -68,6 +69,14 @@ class AIEventsExpiredError(AIEventsUnavailableError):
 
 class AIEventsNotFoundError(AIEventsUnavailableError):
     """The requested AI events were not found in either ai_events or the shared events table."""
+
+
+def _without_materialized_columns(modifiers: HogQLQueryModifiers | None) -> HogQLQueryModifiers:
+    # The materialized-column registry lists the columns of the main cluster. On the ai-events cluster, `person` is a
+    # Distributed shim created from the base table DDL, so it has no mat_*/pmat_* columns and a read of one fails.
+    ai_modifiers = modifiers.model_copy() if modifiers is not None else HogQLQueryModifiers()
+    ai_modifiers.materializationMode = MaterializationMode.DISABLED
+    return ai_modifiers
 
 
 def query_ai_events(
@@ -146,7 +155,11 @@ def query_ai_events(
         tag_queries(ai_query_source="dedicated_table")
         ai_placeholders = {k: rewrite_expr_for_ai_events_table(v) for k, v in placeholders.items()}
         with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source="dedicated_table").time():
-            result = execute_hogql_query(query=query, placeholders=ai_placeholders, **kwargs)
+            result = execute_hogql_query(
+                query=query,
+                placeholders=ai_placeholders,
+                **{**kwargs, "modifiers": _without_materialized_columns(modifiers)},
+            )
         if result.results:
             AI_EVENTS_QUERY_TOTAL.labels(source="dedicated_table").inc()
             return result

@@ -16,16 +16,18 @@ import {
     RESOLVE_REASON_OPTIONS,
     type ResolveReason,
 } from '@/model/verdictReasons'
+import { INBOX_PANE_WIDTH, NAV_RAIL_WIDTH, READING_WIDTH } from '@/ui/adaptiveLayout'
 import { ChartCanvasBudget } from '@/ui/chart/budget/ChartCanvasBudget'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { OverlayHost } from '@/ui/OverlayPortal'
+import { SceneFrame } from '@/ui/SceneFrame'
 import { LoadingView, StateView } from '@/ui/StateView'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout } from '@/ui/tokens'
+import { useAppLayout } from '@/ui/useAppLayout'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
-
 import { ActionBar, type TaskChatEntry } from '../handoff/ActionBar'
 import { actionBarStateFor } from '../handoff/actionBarState'
 import { HandoffSheet } from '../handoff/HandoffSheet'
@@ -33,11 +35,15 @@ import { useDecisionAnswer, useHandoffNotice } from '../handoff/hooks'
 import { useReportWithLiveRun } from '../handoff/useReportWithLiveRun'
 import { useInboxItems, useMarkReadOnOpen } from '../inbox/hooks'
 import { useInboxFilters } from '../inbox/inboxFiltersStore'
+import { ReportInbox } from '../inbox/ReportInbox'
 import { PrioritySheet } from '../priority/PrioritySheet'
 import { AssigneeSheet } from '../reviewers/AssigneeSheet'
 import { useGithubOnlyReviewerCount, useReportReviewersQuery } from '../reviewers/hooks'
+import { ReportNavigation } from '../tabs/ReportNavigation'
 import { VerdictSheet } from '../verdict/VerdictSheet'
 import { dismissCopy, hasOpenPullRequest, resolveCopy } from '../verdict/verdictCopy'
+import { useFeatureAccess } from '../views/useViewsAccess'
+import { ViewsReauthState } from '../views/ViewsReauthState'
 import { Activity } from './Activity'
 import { hasReportDetail } from './details/hasReportDetail'
 import { Evidence } from './Evidence'
@@ -73,11 +79,41 @@ function goBackOrInbox(router: ReturnType<typeof useRouter>): void {
 export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElement {
     const demo = useDataMode() === 'demo'
     const focused = useIsFocused()
+    const { rail, railSide, paired, reportNavigation: navigation } = useAppLayout()
     return (
         <OverlayHost>
-            <ChartCanvasBudget active={focused}>
-                {isReportId(reportId, demo) ? <ReportContent reportId={reportId} from={from} /> : <ReportNotFound />}
-            </ChartCanvasBudget>
+            <View
+                style={{
+                    flex: 1,
+                    paddingBottom: navigation && !rail ? 100 : 0,
+                    paddingLeft: rail && railSide === 'left' ? NAV_RAIL_WIDTH : 0,
+                    paddingRight: rail && railSide === 'right' ? NAV_RAIL_WIDTH : 0,
+                }}
+            >
+                <View style={{ flex: 1, flexDirection: 'row' }}>
+                    <SceneFrame
+                        style={{
+                            flexGrow: 0,
+                            flexShrink: 0,
+                            flexBasis: INBOX_PANE_WIDTH,
+                            width: INBOX_PANE_WIDTH,
+                            display: paired ? 'flex' : 'none',
+                        }}
+                    >
+                        <ReportInbox selectedReportId={reportId} active={paired && focused} />
+                    </SceneFrame>
+                    <SceneFrame>
+                        <ChartCanvasBudget active={focused}>
+                            {isReportId(reportId, demo) ? (
+                                <ReportContent reportId={reportId} from={from} />
+                            ) : (
+                                <ReportNotFound />
+                            )}
+                        </ChartCanvasBudget>
+                    </SceneFrame>
+                </View>
+            </View>
+            {navigation ? <ReportNavigation /> : null}
         </OverlayHost>
     )
 }
@@ -111,6 +147,7 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
     const colors = useColors()
     const router = useRouter()
     const viewer = useViewer()
+    const access = useFeatureAccess('inbox')
     const query = useReportWithLiveRun(reportId)
     // The same filters as the inbox, so Previous and Next follow the order the inbox shows.
     const inbox = useInboxItems({ filters: useInboxFilters() })
@@ -158,6 +195,15 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
     const completeOverlay = (): void => {
         sheets.completed()
         closeOverlay()
+    }
+
+    if (access.state !== 'ok') {
+        return (
+            <View style={styles.screen}>
+                <TopChrome onBack={goBack} />
+                <ViewsReauthState access={access} feature="inbox" />
+            </View>
+        )
     }
 
     const report = query.data
@@ -430,6 +476,9 @@ const useStyles = createStyles(({ colors }) => ({
         flex: 1,
     },
     content: {
+        width: '100%',
+        maxWidth: READING_WIDTH,
+        alignSelf: 'center',
         paddingHorizontal: layout.detailGutter,
         paddingBottom: 28,
     },

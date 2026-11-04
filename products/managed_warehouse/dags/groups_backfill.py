@@ -179,6 +179,9 @@ def ensure_groups_table(
     if not config.skip_schema_validation:
         rows = conn.execute(sql.SQL("DESCRIBE {}").format(table)).fetchall()
         actual = {str(row[0]): str(row[1]) for row in rows}
+        # A table converted for Trino holds SMALLINT, and DuckLake accepts this export's UTINYINT files into it.
+        if actual.get("group_type_index") == "SMALLINT":
+            actual["group_type_index"] = GROUPS_COLUMN_TYPES["group_type_index"]
         if actual != GROUPS_COLUMN_TYPES:
             raise ValueError(f"Groups table schema mismatch: expected {GROUPS_COLUMN_TYPES}, got {actual}")
 

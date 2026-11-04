@@ -295,6 +295,127 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
 
 
 @pytest.mark.ee
+class TestSavedQueryLineageAccessControl(WarehouseAccessControlTestMixin):
+    resource = "warehouse_objects"
+
+    def _saved_query(self, name: str) -> DataWarehouseSavedQuery:
+        return DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=name,
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            created_by=self.user,
+        )
+
+    def setUp(self):
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="lineage_source",
+            connection_id="lineage_connection",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="lineage_",
+        )
+        self.table = DataWarehouseTable.objects.create(
+            name="lineage_table", team=self.team, external_data_source=self.source
+        )
+        self.upstream = self._saved_query("lineage_upstream")
+        self.middle = self._saved_query("lineage_middle")
+        self.downstream = self._saved_query("lineage_downstream")
+
+        dag = DAG.objects.create(team=self.team, name="lineage_access_control")
+        events_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            name="events",
+            type=NodeType.TABLE,
+            properties={"origin": "posthog"},
+        )
+        table_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            name=self.table.name,
+            type=NodeType.TABLE,
+            properties={"origin": "warehouse", "warehouse_table_id": str(self.table.id)},
+        )
+        upstream_node = Node.objects.create(
+            team=self.team, dag=dag, name=self.upstream.name, saved_query=self.upstream, type=NodeType.VIEW
+        )
+        middle_node = Node.objects.create(
+            team=self.team, dag=dag, name=self.middle.name, saved_query=self.middle, type=NodeType.VIEW
+        )
+        downstream_node = Node.objects.create(
+            team=self.team, dag=dag, name=self.downstream.name, saved_query=self.downstream, type=NodeType.VIEW
+        )
+        for source, target in (
+            (events_node, upstream_node),
+            (table_node, upstream_node),
+            (upstream_node, middle_node),
+            (middle_node, downstream_node),
+        ):
+            Edge.objects.create(team=self.team, dag=dag, source=source, target=target)
+
+    def _lineage(self, user: User, saved_query: DataWarehouseSavedQuery, action: str, **data: int) -> set[str]:
+        self.client.force_login(user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/warehouse_saved_queries/{saved_query.id}/{action}/",
+            data,
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return set(response.json()[action])
+
+    def _dependencies(self, user: User, saved_query: DataWarehouseSavedQuery) -> dict[str, int]:
+        self.client.force_login(user)
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/warehouse_saved_queries/{saved_query.id}/dependencies/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return response.json()
+
+    def test_lineage_withholds_denied_resources_without_pruning_the_walk(self):
+        self.assertEqual(
+            self._lineage(self.user, self.downstream, "ancestors"),
+            {"events", str(self.table.id), str(self.upstream.id), str(self.middle.id)},
+        )
+        self.assertEqual(
+            self._lineage(self.user, self.upstream, "descendants"),
+            {str(self.middle.id), str(self.downstream.id)},
+        )
+
+        self._create_access_control(self.viewer_user, access_level="editor")
+        self._create_access_control(
+            self.viewer_user,
+            resource="warehouse_view",
+            resource_id=str(self.middle.id),
+            access_level="none",
+        )
+        self._create_access_control(
+            self.viewer_user,
+            resource="external_data_source",
+            resource_id=str(self.source.id),
+            access_level="none",
+        )
+
+        self.assertEqual(
+            self._lineage(self.viewer_user, self.downstream, "ancestors"),
+            {"events", str(self.upstream.id)},
+        )
+        self.assertEqual(
+            self._lineage(self.viewer_user, self.upstream, "descendants"),
+            {str(self.downstream.id)},
+        )
+
+        immediate_ancestors = self._lineage(self.viewer_user, self.upstream, "ancestors", level=1)
+        immediate_descendants = self._lineage(self.viewer_user, self.upstream, "descendants", level=1)
+        dependencies = self._dependencies(self.viewer_user, self.upstream)
+        self.assertEqual(immediate_ancestors, {"events"})
+        self.assertEqual(immediate_descendants, set())
+        self.assertEqual(dependencies["upstream_count"], len(immediate_ancestors))
+        self.assertEqual(dependencies["downstream_count"], len(immediate_descendants))
+
+
+@pytest.mark.ee
 class TestDataWarehouseSavedQueryFolderAccessControl(WarehouseAccessControlTestMixin):
     # Folder resource-level AC goes through warehouse_table via inheritance.
     # Object-level AC on specific folders still keys on "warehouse_view".

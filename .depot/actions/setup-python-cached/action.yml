@@ -59,7 +59,7 @@ runs:
         # Save only on the default branch, for the same reasons as the pnpm
         # store save in pnpm-install.
         - name: Save Python tool cache
-          if: github.ref == 'refs/heads/master' && steps.python-version.outputs.version != '' && steps.python-toolcache.outputs.cache-hit != 'true'
+          if: github.ref == 'refs/heads/master' && github.event_name != 'api' && steps.python-version.outputs.version != '' && steps.python-toolcache.outputs.cache-hit != 'true'
           uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ runner.tool_cache }}/Python/${{ steps.python-version.outputs.version }}

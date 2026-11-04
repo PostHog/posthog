@@ -10,10 +10,12 @@ from products.tasks.backend.tasks.sandbox_images import (
     refresh_dev_stack_image_task,
     refresh_stale_sandbox_custom_images_task,
 )
+from products.tasks.backend.tasks.tasks import settle_overdue_sandbox_compute_task
 
 __all__ = [
     "bake_dev_stack_image_task",
     "refresh_dev_stack_image_task",
     "refresh_stale_sandbox_custom_images_task",
+    "settle_overdue_sandbox_compute_task",
     "sweep_inactive_tasks_task",
 ]

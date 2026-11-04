@@ -56,6 +56,11 @@ def _action_ids(nodes: dict[str, dict[str, Any]]) -> list[int]:
     return [int(node["id"]) for node in nodes.values() if node["kind"] == "ActionsNode"]
 
 
+def key_metric_names(team: Team) -> dict[str, str]:
+    nodes = _configured_nodes(team)
+    return {key: node.get("custom_name") or name for key, name in KEY_METRICS.items() if (node := nodes.get(key))}
+
+
 def _anchored(filters: Any, team: Team, anchor: datetime) -> Any:
     if isinstance(filters, list):
         return [_anchored(item, team, anchor) for item in filters]

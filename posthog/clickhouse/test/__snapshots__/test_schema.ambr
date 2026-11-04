@@ -176,6 +176,31 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_email_status_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_email_status_events
+  (
+      team_id Int64,
+      message_id UUID,
+      status LowCardinality(String),
+      version UInt64,
+      created_at DateTime64(6, 'UTC'),
+      status_at DateTime64(6, 'UTC'),
+      reason String,
+      recipient String,
+      function_id String,
+      sending_domain LowCardinality(String)
+  )
+  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_email_status_test', kafka_group_name = 'clickhouse_email_status_events', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100,
+           kafka_num_consumers = 1,
+           kafka_thread_per_consumer = 1,
+           kafka_poll_timeout_ms = 10000,
+           kafka_max_block_size = 100000
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_error_tracking_fingerprint_issue_state]
   '''
   
@@ -1613,12 +1638,90 @@
   
   '''
 # ---
+# name: test_create_table_query[email_status_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS email_status_events
+  (
+      team_id Int64,
+      message_id UUID,
+      status LowCardinality(String),
+      version UInt64,
+      created_at DateTime64(6, 'UTC'),
+      status_at DateTime64(6, 'UTC'),
+      reason String,
+      recipient String,
+      function_id String,
+      sending_domain LowCardinality(String)
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'email_status_events_data')
+  
+  '''
+# ---
+# name: test_create_table_query[email_status_events_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS email_status_events_data
+  (
+      team_id Int64,
+      message_id UUID,
+      status LowCardinality(String),
+      version UInt64,
+      created_at DateTime64(6, 'UTC'),
+      status_at DateTime64(6, 'UTC'),
+      reason String,
+      recipient String,
+      function_id String,
+      sending_domain LowCardinality(String)
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.email_status_events_data', '{replica}-{shard}')
+  PARTITION BY toYYYYMMDD(created_at)
+  ORDER BY (team_id, created_at, message_id, status_at)
+  
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[email_status_events_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS email_status_events_mv
+  TO email_status_events_data
+  AS SELECT
+      team_id,
+      message_id,
+      status,
+      version,
+      created_at,
+      status_at,
+      reason,
+      recipient,
+      function_id,
+      sending_domain,
+      _timestamp,
+      _offset,
+      _partition
+  FROM kafka_email_status_events
+  
+  '''
+# ---
 # name: test_create_table_query[email_status_mv]
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS email_status_mv
   TO email_status_data
-  AS SELECT
+  AS 
+  SELECT
       team_id,
       message_id,
       status,
@@ -1630,6 +1733,7 @@
       _offset,
       _partition
   FROM kafka_email_status
+  WHERE status NOT IN ('opened', 'clicked')
   
   '''
 # ---
@@ -2119,6 +2223,13 @@
   
       -- Per-entity exposure data
       entity_id String,
+  
+      -- distinct_id of the first exposure event, the key a person-overrides lookup needs to
+      -- find this row's current person.
+      distinct_id String,
+      -- The entity's person, kept separate from entity_id so it can be rewritten after a person
+      -- merge: entity_id is in the sorting key, which ClickHouse refuses to UPDATE.
+      person_id UUID DEFAULT toUUIDOrZero(entity_id),
       variant String,
       first_exposure_time DateTime64(6, 'UTC'),
       last_exposure_time DateTime64(6, 'UTC'),
@@ -2147,6 +2258,13 @@
   
       -- Per-event data
       entity_id String,
+  
+      -- distinct_id of the source event, the key a person-overrides lookup needs to
+      -- find this row's current person.
+      distinct_id String,
+      -- The entity's person, kept separate from entity_id so it can be rewritten after a person
+      -- merge: entity_id is in the sorting key, which ClickHouse refuses to UPDATE.
+      person_id UUID DEFAULT toUUIDOrZero(entity_id),
       timestamp DateTime64(6, 'UTC'),
       event_uuid UUID,
       session_id String,
@@ -2684,6 +2802,31 @@
       reason String
   )
   ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_email_status_test', kafka_group_name = 'clickhouse_email_status', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100,
+           kafka_num_consumers = 1,
+           kafka_thread_per_consumer = 1,
+           kafka_poll_timeout_ms = 10000,
+           kafka_max_block_size = 100000
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_email_status_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_email_status_events
+  (
+      team_id Int64,
+      message_id UUID,
+      status LowCardinality(String),
+      version UInt64,
+      created_at DateTime64(6, 'UTC'),
+      status_at DateTime64(6, 'UTC'),
+      reason String,
+      recipient String,
+      function_id String,
+      sending_domain LowCardinality(String)
+  )
+  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_email_status_test', kafka_group_name = 'clickhouse_email_status_events', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100,
            kafka_num_consumers = 1,
            kafka_thread_per_consumer = 1,
@@ -5211,7 +5354,6 @@
       anyLast(histogram_bounds) AS histogram_bounds,
       any(_topic) AS _topic,
       groupArray(10000)(timestamp) AS timestamp_arr,
-      groupArray(10000)(observed_timestamp) AS observed_timestamp_arr,
       groupArray(10000)(value) AS value_arr,
       groupArray(10000)(count) AS count_arr,
       groupArray(10000)(histogram_counts) AS histogram_counts_arr,
@@ -8269,6 +8411,13 @@
   
       -- Per-entity exposure data
       entity_id String,
+  
+      -- distinct_id of the first exposure event, the key a person-overrides lookup needs to
+      -- find this row's current person.
+      distinct_id String,
+      -- The entity's person, kept separate from entity_id so it can be rewritten after a person
+      -- merge: entity_id is in the sorting key, which ClickHouse refuses to UPDATE.
+      person_id UUID DEFAULT toUUIDOrZero(entity_id),
       variant String,
       first_exposure_time DateTime64(6, 'UTC'),
       last_exposure_time DateTime64(6, 'UTC'),
@@ -8302,6 +8451,13 @@
   
       -- Per-event data
       entity_id String,
+  
+      -- distinct_id of the source event, the key a person-overrides lookup needs to
+      -- find this row's current person.
+      distinct_id String,
+      -- The entity's person, kept separate from entity_id so it can be rewritten after a person
+      -- merge: entity_id is in the sorting key, which ClickHouse refuses to UPDATE.
+      person_id UUID DEFAULT toUUIDOrZero(entity_id),
       timestamp DateTime64(6, 'UTC'),
       event_uuid UUID,
       session_id String,
@@ -12043,6 +12199,35 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[email_status_events_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS email_status_events_data
+  (
+      team_id Int64,
+      message_id UUID,
+      status LowCardinality(String),
+      version UInt64,
+      created_at DateTime64(6, 'UTC'),
+      status_at DateTime64(6, 'UTC'),
+      reason String,
+      recipient String,
+      function_id String,
+      sending_domain LowCardinality(String)
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.email_status_events_data', '{replica}-{shard}')
+  PARTITION BY toYYYYMMDD(created_at)
+  ORDER BY (team_id, created_at, message_id, status_at)
+  
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[error_tracking_issue_fingerprint_overrides]
   '''
   
@@ -14198,6 +14383,13 @@
   
       -- Per-entity exposure data
       entity_id String,
+  
+      -- distinct_id of the first exposure event, the key a person-overrides lookup needs to
+      -- find this row's current person.
+      distinct_id String,
+      -- The entity's person, kept separate from entity_id so it can be rewritten after a person
+      -- merge: entity_id is in the sorting key, which ClickHouse refuses to UPDATE.
+      person_id UUID DEFAULT toUUIDOrZero(entity_id),
       variant String,
       first_exposure_time DateTime64(6, 'UTC'),
       last_exposure_time DateTime64(6, 'UTC'),
@@ -14231,6 +14423,13 @@
   
       -- Per-event data
       entity_id String,
+  
+      -- distinct_id of the source event, the key a person-overrides lookup needs to
+      -- find this row's current person.
+      distinct_id String,
+      -- The entity's person, kept separate from entity_id so it can be rewritten after a person
+      -- merge: entity_id is in the sorting key, which ClickHouse refuses to UPDATE.
+      person_id UUID DEFAULT toUUIDOrZero(entity_id),
       timestamp DateTime64(6, 'UTC'),
       event_uuid UUID,
       session_id String,

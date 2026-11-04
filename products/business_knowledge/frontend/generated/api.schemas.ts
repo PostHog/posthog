@@ -120,6 +120,48 @@ export interface GapTopicActionResultApi {
     readonly updated: number
 }
 
+/**
+ * * `running` - Reading past tickets
+ * * `completed` - Read every past ticket
+ */
+export type LearningBackfillStatusEnumApi =
+    (typeof LearningBackfillStatusEnumApi)[keyof typeof LearningBackfillStatusEnumApi]
+
+export const LearningBackfillStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+} as const
+
+export interface LearningBackfillProgressApi {
+    /** `running` while PostHog reads past tickets. `completed` once every ticket in the window is read.
+     *
+     * * `running` - Reading past tickets
+     * * `completed` - Read every past ticket */
+    status: LearningBackfillStatusEnumApi
+    /** When someone started learning from past tickets. */
+    started_at: string
+    /**
+     * When every past ticket was read. Null while the run continues.
+     * @nullable
+     */
+    finished_at: string | null
+    /** Tickets analyzed since the run started, including tickets from the regular 7-day pass. */
+    tickets_read: number
+    /** Tickets that are being analyzed now. */
+    tickets_in_progress: number
+    /** Analyzed tickets that added a learned source to business knowledge. */
+    knowledge_created: number
+}
+
+export interface BusinessKnowledgeSettingsApi {
+    /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Requires Support to be enabled for this environment. */
+    learn_from_support_enabled: boolean
+    /** Whether Support is enabled for this environment. Learning cannot be turned on while this is false. */
+    readonly support_enabled: boolean
+    /** The last run of learning from past tickets. Null when none ran since learning was turned on. */
+    readonly learning_backfill: LearningBackfillProgressApi | null
+}
+
 export interface KnowledgeLibraryApi {
     /** Library id. */
     id: string
@@ -391,13 +433,6 @@ export interface SandboxRunStartedApi {
     task_id: string
     /** Run id for this question. */
     run_id: string
-}
-
-export interface BusinessKnowledgeSettingsApi {
-    /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Requires Support to be enabled for this environment. */
-    learn_from_support_enabled: boolean
-    /** Whether Support is enabled for this environment. Learning cannot be turned on while this is false. */
-    readonly support_enabled: boolean
 }
 
 export interface PatchedBusinessKnowledgeSettingsUpdateApi {
@@ -750,6 +785,7 @@ export const BusinessKnowledgeSourcesListSourceType = {
 export type BusinessKnowledgeSourcesDocumentsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 5000
      */
     limit?: number
     /**

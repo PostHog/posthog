@@ -1,5 +1,6 @@
 import type {
     ApiConnection,
+    ApiKeyAccess,
     ApiToolError,
     ApiToolLibrary,
     ApiToolResult,
@@ -32,7 +33,7 @@ export interface ToolRow {
 }
 
 const SCOPES_HINT =
-    'Run `hog auth login` to create a key with the scopes the API tools need, or add the scopes to the key in PostHog under Settings, Personal API keys.'
+    'For a personal API key, add the scopes to it in PostHog under Settings, Personal API keys. For a login, run `hog auth login` again and keep these scopes when you approve it.'
 
 // "Events & properties" becomes "events-properties".
 export function groupSlug(name: string): string {
@@ -107,12 +108,14 @@ export async function apiConnection(
             throw new HogError('invalid_input', `${flag} is empty.`, `Pass an ID, or leave out ${flag}.`, EXIT_USAGE)
         }
     }
-    const credentials = await ctx.credentials()
+    const session = await ctx.session()
+    const apiKey = await session.token()
+    const key = session.current
     // The saved project can belong to another organization, so an organization override drops it.
-    const projectId = scope.projectId ?? (scope.organizationId ? undefined : credentials.projectId)
+    const projectId = scope.projectId ?? (scope.organizationId ? undefined : key.projectId)
     return {
-        apiKey: credentials.apiKey,
-        host: credentials.host,
+        apiKey,
+        host: key.host,
         ...(projectId ? { projectId } : {}),
         ...(scope.organizationId ? { organizationId: scope.organizationId } : {}),
         clientName: 'hog',
@@ -120,12 +123,26 @@ export async function apiConnection(
     }
 }
 
-export function missingScopesError(tool: string, scopes: readonly string[]): HogError {
-    return new HogError(
-        'missing_scopes',
-        `The personal API key needs ${scopes.join(', ')} to call ${tool}.`,
-        SCOPES_HINT
+// A tool can send several requests, so only a tool that is safe to run twice runs again after a 401.
+export async function withApiConnection<T>(
+    ctx: Context,
+    scope: { projectId?: string | undefined; organizationId?: string | undefined },
+    canRunTwice: boolean,
+    call: (connection: ApiConnection) => Promise<ApiToolResult<T>>
+): Promise<ApiToolResult<T>> {
+    const connection = await apiConnection(ctx, scope)
+    if (!canRunTwice) {
+        return call(connection)
+    }
+    const session = await ctx.session()
+    return session.send(
+        (apiKey) => call({ ...connection, apiKey }),
+        (result) => !result.ok && result.error.code === 'api_error' && result.error.status === 401
     )
+}
+
+export function missingScopesError(tool: string, scopes: readonly string[]): HogError {
+    return new HogError('missing_scopes', `Your credentials need ${scopes.join(', ')} to call ${tool}.`, SCOPES_HINT)
 }
 
 export function toHogError(error: ApiToolError, tool?: string): HogError {
@@ -175,6 +192,18 @@ export function unwrap<T>(result: ApiToolResult<T>, tool?: string): T {
 
 const SCOPE_LOOKUP_MS = 10_000
 
+// What the credentials can reach. PostHog's key lookup only answers for a personal API key, so a
+// credential that knows its own access answers first.
+export async function credentialAccess(
+    ctx: Context,
+    library: ApiToolLibrary,
+    connection: ApiConnection,
+    options?: { signal?: AbortSignal }
+): Promise<ApiToolResult<ApiKeyAccess>> {
+    const access = (await ctx.credentials()).key.access()
+    return access ? { ok: true, value: access } : library.keyAccess(connection, options)
+}
+
 // Undefined when the scopes are unknown, so browsing still works on a failed or stalled lookup.
 export async function grantedScopes(ctx: Context, library: ApiToolLibrary): Promise<string[] | undefined> {
     let connection: ApiConnection
@@ -195,9 +224,9 @@ export async function grantedScopes(ctx: Context, library: ApiToolLibrary): Prom
             resolve(undefined)
         }, SCOPE_LOOKUP_MS)
     })
-    const lookup = library
-        .keyAccess(connection, { signal: deadline.signal })
-        .then((result) => (result.ok ? result.value.scopes : undefined))
+    const lookup = credentialAccess(ctx, library, connection, { signal: deadline.signal }).then((result) =>
+        result.ok ? result.value.scopes : undefined
+    )
     try {
         return await Promise.race([lookup, stalled])
     } finally {
