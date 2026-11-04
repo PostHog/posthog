@@ -101,7 +101,7 @@ class BookActivityMatrixQueryRunner(AnalyticsQueryRunner[BookActivityMatrixQuery
         if not accounts:
             return self._response(rows, columns, [], [], None, truncated, BookActivityMatrixEmptyReason.EMPTY_BOOK)
 
-        account_by_key = {account.external_id: str(account.id) for account in accounts}
+        account_by_key = {account.external_id: str(account.id) for account in accounts if account.external_id}
         tag_queries(product=Product.CUSTOMER_ANALYTICS, feature=Feature.QUERY)
         response = execute_hogql_query(
             query_type="BookActivityMatrixQuery",
