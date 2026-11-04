@@ -68,6 +68,7 @@ export interface RerunFilter {
 
 export interface RerunRequest {
     filter: RerunFilter
+    replay_code_sends?: boolean
 }
 
 /**
