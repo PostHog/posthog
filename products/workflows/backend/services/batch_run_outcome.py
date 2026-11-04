@@ -21,12 +21,15 @@ from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.contracts import WorkflowBatchJobNotFound
 from products.workflows.backend.facade.enums import HogFlowBatchJobState
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.batch_jobs import get_batch_job, set_batch_job_status
 
 logger = structlog.get_logger(__name__)
 
 # The executor records run-level metrics without a step, so ClickHouse stores an empty instance_id.
 RUN_LEVEL_INSTANCE_ID = ""
+# The executor records `failed` for every action type, so only these steps count as a send that errored.
+SEND_ACTION_TYPES = frozenset({"function_email", "function_sms", "function_push"})
 
 BATCH_RUN_OUTCOMES = Counter(
     "workflows_batch_run_outcome_total",
@@ -41,13 +44,14 @@ class BatchRunSendCounts:
     started: int
     # Child runs that ended: the run-level `succeeded` and `failed` metrics, plus `canceled`.
     finished: int
-    # The highest step-level `failed` count. With on_error set to continue, an errored run still counts as
-    # succeeded at run level, and the maximum, unlike a sum, counts a run that errors at two steps once.
+    # The highest `failed` count of any send step. With on_error set to continue, an errored run still counts
+    # as succeeded at run level. The maximum, unlike a sum, counts a run that errors at two send steps once.
     errored: int
 
     @property
     def settled(self) -> bool:
-        return self.finished >= self.started
+        # No `triggered` metric yet can also mean the metrics have not reached ClickHouse, so keep checking.
+        return self.started > 0 and self.finished >= self.started
 
     @property
     def outcome(self) -> HogFlowBatchJobState:
@@ -58,7 +62,9 @@ class BatchRunSendCounts:
         return HogFlowBatchJobState.PARTIALLY_FAILED
 
 
-def batch_run_send_counts_from_rows(rows: list[tuple[str, str, int]]) -> BatchRunSendCounts:
+def batch_run_send_counts_from_rows(
+    rows: list[tuple[str, str, int]], send_step_ids: frozenset[str]
+) -> BatchRunSendCounts:
     """Fold `(instance_id, metric_name, count)` rows of one batch run into its send counts."""
     started = finished = 0
     errored_by_step: dict[str, int] = {}
@@ -71,12 +77,21 @@ def batch_run_send_counts_from_rows(rows: list[tuple[str, str, int]]) -> BatchRu
                 started += count
             elif metric_name in ("succeeded", "failed"):
                 finished += count
-        elif metric_name == "failed":
+        elif metric_name == "failed" and instance_id in send_step_ids:
             errored_by_step[instance_id] = errored_by_step.get(instance_id, 0) + count
     return BatchRunSendCounts(started=started, finished=finished, errored=max(errored_by_step.values(), default=0))
 
 
-def fetch_batch_run_send_counts(*, team_id: int, batch_job_id: UUID, run_created_at: datetime) -> BatchRunSendCounts:
+def send_step_ids(*, team_id: int, hog_flow_id: UUID) -> frozenset[str]:
+    actions = HogFlow.objects.filter(team_id=team_id, id=hog_flow_id).values_list("actions", flat=True).first()
+    return frozenset(
+        action["id"] for action in actions or [] if isinstance(action, dict) and action.get("type") in SEND_ACTION_TYPES
+    )
+
+
+def fetch_batch_run_send_counts(
+    *, team_id: int, batch_job_id: UUID, run_created_at: datetime, send_step_ids: frozenset[str]
+) -> BatchRunSendCounts:
     # The table keeps one timestamp per collapsed clock hour, so the lower bound is the start of the
     # hour the run was created in. A bound in the middle of that hour could drop the run's first rows.
     after = run_created_at.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
@@ -96,7 +111,7 @@ def fetch_batch_run_send_counts(*, team_id: int, batch_job_id: UUID, run_created
             workload=Workload.OFFLINE,
             team_id=team_id,
         )
-    return batch_run_send_counts_from_rows([(str(row[0]), str(row[1]), int(row[2])) for row in rows])
+    return batch_run_send_counts_from_rows([(str(row[0]), str(row[1]), int(row[2])) for row in rows], send_step_ids)
 
 
 def settle_batch_job_outcome(*, team_id: int, batch_job_id: str, final_check: bool) -> bool:
@@ -112,7 +127,12 @@ def settle_batch_job_outcome(*, team_id: int, batch_job_id: str, final_check: bo
         return True
     if job.status != HogFlowBatchJobState.COMPLETED:
         return True
-    counts = fetch_batch_run_send_counts(team_id=team_id, batch_job_id=job.id, run_created_at=job.created_at)
+    counts = fetch_batch_run_send_counts(
+        team_id=team_id,
+        batch_job_id=job.id,
+        run_created_at=job.created_at,
+        send_step_ids=send_step_ids(team_id=team_id, hog_flow_id=job.hog_flow_id),
+    )
     if not counts.settled and not final_check:
         return False
     outcome = counts.outcome

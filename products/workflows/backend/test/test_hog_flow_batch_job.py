@@ -392,7 +392,11 @@ class TestBatchRunOutcome(ClickhouseTestMixin, BaseTest):
     def _completed_run(
         self, step_failures: dict[str, int], *, started: int, finished: int, aborted: int
     ) -> HogFlowBatchJob:
-        hog_flow = HogFlow.objects.create(team=self.team, name="Broadcast", actions=[])
+        hog_flow = HogFlow.objects.create(
+            team=self.team,
+            name="Broadcast",
+            actions=[{"id": "email", "type": "function_email"}, {"id": "webhook", "type": "function"}],
+        )
         with patch(
             "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
         ):
@@ -424,6 +428,7 @@ class TestBatchRunOutcome(ClickhouseTestMixin, BaseTest):
             ("every_send_errored", {"email": 3}, 0, "failed"),
             ("every_send_errored_and_aborted_the_run", {"email": 3}, 3, "failed"),
             ("the_same_people_errored_at_two_steps", {"email": 2, "webhook": 2}, 0, "partially_failed"),
+            ("every_send_delivered_and_a_later_webhook_errored", {"webhook": 3}, 0, "completed"),
         ]
     )
     def test_settled_run_status_follows_its_errored_sends(self, _name, step_failures, aborted, expected_status):
@@ -433,9 +438,17 @@ class TestBatchRunOutcome(ClickhouseTestMixin, BaseTest):
         job.refresh_from_db()
         assert job.status == expected_status
 
-    @parameterized.expand([(False, False, "completed"), (True, True, "partially_failed")])
-    def test_unsettled_run_keeps_its_status_until_the_final_check(self, final_check, settled, expected_status):
-        job = self._completed_run({"email": 1}, started=3, finished=1, aborted=0)
+    @parameterized.expand(
+        [
+            ("still_sending", 3, False, False, "completed"),
+            ("still_sending_final_check", 3, True, True, "partially_failed"),
+            ("metrics_not_arrived", 0, False, False, "completed"),
+        ]
+    )
+    def test_unsettled_run_keeps_its_status_until_the_final_check(
+        self, _name, started, final_check, settled, expected_status
+    ):
+        job = self._completed_run({"email": 1}, started=started, finished=min(started, 1), aborted=0)
 
         outcome_written = settle_batch_job_outcome(
             team_id=self.team.id, batch_job_id=str(job.id), final_check=final_check
