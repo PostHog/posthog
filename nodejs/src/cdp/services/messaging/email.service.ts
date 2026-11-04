@@ -490,7 +490,7 @@ function sandboxRecipientsOf(params: CyclotronInvocationQueueParametersEmailType
     return [params.to.email.trim(), ...sandboxAddressList(params.cc), ...sandboxAddressList(params.bcc)]
 }
 
-type SandboxRecipientBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off'>
+type SandboxRecipientBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off' | 'paused'>
 
 type SesRoute = {
     tenantName: string
@@ -527,6 +527,12 @@ const SANDBOX_RECIPIENT_BLOCK_COPY: Record<
         guidance: 'Verify your own domain to send more.',
     },
 }
+
+const SANDBOX_PAUSE_SKIP_MESSAGES = {
+    paused: 'Skipping send: the sandbox sender is paused right now. Verify your own domain to keep sending.',
+    check_failed:
+        'Skipping send: could not check whether the sandbox sender is paused. Try again later, or verify your own domain to keep sending.',
+} as const
 
 const SANDBOX_CAP_SKIP_MESSAGES = {
     project_cap_reached:
@@ -706,6 +712,9 @@ export class EmailService {
                     'sending_suspended'
                 )
                 await this.sandboxSender?.captureBlocked(invocation.teamId, isTest, 'switch_off', 0)
+                return result
+            }
+            if (isSandbox && !(await this.passesSandboxPauseGate(result, isTest))) {
                 return result
             }
 
@@ -937,9 +946,9 @@ export class EmailService {
                     if (!capGrant) {
                         return result
                     }
-                    const deliverTo = await this.checkSandboxRecipients(result, deliveryRecipients, isTest, {
-                        fresh: true,
-                    })
+                    const deliverTo = (await this.passesSandboxPauseGate(result, isTest, { fresh: true }))
+                        ? await this.checkSandboxRecipients(result, deliveryRecipients, isTest, { fresh: true })
+                        : null
                     if (!deliverTo) {
                         await this.sandboxSender!.returnDailyCaps(capGrant)
                         return result
@@ -1255,6 +1264,22 @@ export class EmailService {
         }
         await this.blockSandboxRecipients(result, blockedRecipients, reason, isTest)
         return null
+    }
+
+    // The check right before delivery passes `fresh`, like the member check, so a pause the worker
+    // missed the reload message for still stops the send.
+    private async passesSandboxPauseGate(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        isTest: boolean,
+        { fresh = false }: { fresh?: boolean } = {}
+    ): Promise<boolean> {
+        const gate = await this.sandboxSender!.pauseGate({ fresh })
+        if (gate === 'open') {
+            return true
+        }
+        this.skipSandboxSend(result, isTest, SANDBOX_PAUSE_SKIP_MESSAGES[gate], 'sending_suspended')
+        await this.sandboxSender!.captureBlocked(result.invocation.teamId, isTest, gate, 0)
+        return false
     }
 
     private async blockSandboxRecipients(

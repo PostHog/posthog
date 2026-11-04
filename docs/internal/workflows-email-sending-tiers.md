@@ -97,6 +97,9 @@ A reached allowance skips the send instead of delaying it. A limiter error, or a
 The worker checks members after the claim and gives the claim back when that check skips the send.
 An SES throttle response also gives the claim back before the delivery retry. Returns are deduplicated, and Valkey ignores a return that arrives more than five minutes after it was issued.
 Test sends run inline in the CDP API, so a sandbox-enabled CDP API opens the SES Valkey pool (`SES_RATE_LIMITER_VALKEY_*`) for the allowances. Without it, every sandbox test send skips.
+Every sandbox send, test sends included, skips while the shared sandbox SES tenant is paused (`DISABLED`), or when the pause state cannot be read. A tenant Django has never synced counts as open, and SES enforces its own state.
+The worker checks the pause again after the daily allowance claim and gives the claim back when the pause blocks delivery.
+Own-sender sends do not read the pause state.
 Each delivered send emits a `workflows sandbox email sent` event.
 Live workflow sends record `email_sent`, so workflow reports count them, and also `email_sandbox_sent`, so the sending tier and the sending allowance can leave them out; test sends record neither.
 The CDP API's SES webhook captures `workflows sandbox email delivered` for a delivery on `SES_SANDBOX_CONFIGURATION_SET`, test sends included. Without that setting on the CDP API, the event never fires.

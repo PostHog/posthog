@@ -43,6 +43,7 @@ export type SandboxEmailBlockReason =
     | 'recipient_unverified'
     | 'check_failed'
     | 'cap_reached'
+    | 'paused'
 
 export type SandboxDailyCapGrant = { type: 'granted'; claim: IssuedClaim; buckets: ClaimRequest[] }
 
