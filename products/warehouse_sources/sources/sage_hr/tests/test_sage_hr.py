@@ -327,6 +327,21 @@ class TestFanOutEndpoints:
         assert len({row["id"] for row in first}) == 4
         assert [row["id"] for row in first] == [row["id"] for row in second]
 
+    def test_resumed_compensation_ids_match_an_uninterrupted_walk(self, monkeypatch: Any) -> None:
+        salary: dict[str, Any] = {"start_date": "2024-01-01", "amount": 1000, "category": "Salary"}
+        pages: dict[str, tuple[list[dict], int | None]] = {
+            "/employees?page=1": ([{"id": 5}], None),
+            "/employees/5/compensations?page=1": ([salary], 2),
+            "/employees/5/compensations?page=2": ([dict(salary)], None),
+        }
+        uninterrupted = _FakeResumableManager()
+        full_rows = self._collect(uninterrupted, monkeypatch, pages, "compensations")
+
+        resumed_rows = self._collect(_FakeResumableManager(uninterrupted.saved[0]), monkeypatch, pages, "compensations")
+
+        assert len({row["id"] for row in full_rows}) == 2
+        assert [row["id"] for row in resumed_rows] == [full_rows[1]["id"]]
+
 
 class TestCheckAccess:
     def _patch_session(self, monkeypatch: Any, response: Any) -> MagicMock:
