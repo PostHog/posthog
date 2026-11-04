@@ -341,7 +341,12 @@ The answer goes as a `permission_response` command and shows in the thread as th
 
 ## Errors
 
-- A send, answer or stop that fails shows one notice line above the composer.
+`ChatErrorNotice` owns the message surface, screen-reader alert, optional recovery actions and 44pt Dismiss button.
+`SessionDecisionPanel` supplies the message and callbacks. Recovery actions wrap below the message on narrow screens.
+New-chat suggestions scroll above the notice and composer. Tap empty space or drag the suggestions area to dismiss the keyboard.
+Tapping a suggestion still fills the draft in one tap.
+
+- A send, answer or stop that fails shows a bordered notice above the composer, wrapping to fit its full text.
   A failed send also sets `unsentText`; the sheet puts it back into an empty input once.
 - **PostHog Desktop gate.** `run/` and `user_message` answer 403 `code_access_required` for a user the gate refuses.
   The message is under `error`, and the app shows it as is, because it names the reason (Startup plan, prepaid credits).
