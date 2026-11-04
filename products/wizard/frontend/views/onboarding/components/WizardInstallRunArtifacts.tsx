@@ -35,7 +35,7 @@ export function WizardInstallRunArtifacts({
     }
     const pullRequest = artifacts.find((artifact) => artifact.artifact_type === 'pull_request')
     return (
-        <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-primary pt-2">
+        <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-primary pt-2 ph-no-capture">
             <ul className="m-0 min-w-0 flex-1 list-none space-y-1 p-0">
                 {artifacts.map((artifact) => {
                     if (artifact.artifact_type === 'pull_request') {
