@@ -40,7 +40,6 @@ Pick the role by **which cluster owns the object**, not by its type alone:
 - `[NodeRole.INGESTION_SMALL]`: writable tables, Kafka tables and materialized views for lower-volume topics.
   It also runs the person, distinct ID and groups consumers.
   Do not put a full-topic consumer here because its dependencies are here. Create them on the consumer's role.
-  Do not copy the placement in `0251`.
 - `[NodeRole.APM]`: the `ingestion-apm` nodes, the metrics ingestion layer. Kafka tables, `Null` input
   tables, materialized views and writable `Distributed` tables that write into storage on `LOGS`.
   Stateless like the other ingestion nodes, so storage tables never go here.

@@ -65,7 +65,6 @@ If a writable table or dictionary is on another role, create it on the consumer'
 A filter in the materialized view does not reduce this load, because the Kafka engine reads and parses every message before the view runs.
 The memory limit is server-wide, so one heavy consumer can stall every consumer on its node.
 
-Migration 0251 created a full-topic consumer on `INGESTION_SMALL`. Do not copy that placement.
 The `INGESTION_SMALL` examples later in this file show the call shape, not a placement.
 
 # Local setup parity
