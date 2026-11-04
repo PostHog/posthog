@@ -18,7 +18,7 @@ export function WizardRunSidebarWidget({ projectId }: { projectId: string }): JS
             key={`${projectId}.${user?.id}`}
             runs={visibleRuns}
             tasksByRunId={tasksByRunId}
-            onStateClick={clickState}
+            onStateClick={() => clickState('navbar_sidebar')}
             onDismissRuns={dismissRuns}
         />
     )
