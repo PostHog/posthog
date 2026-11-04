@@ -18634,6 +18634,7 @@ export namespace Endpoints {
                 id: string;
                 latest_send_first: boolean;
                 limit: number;
+                name: string;
                 offset: number;
                 optimization_enabled: boolean;
                 origin_product: "broadcasts" | "loops" | "transactional_emails";
