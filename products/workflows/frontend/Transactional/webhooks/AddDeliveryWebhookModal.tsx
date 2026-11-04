@@ -93,10 +93,14 @@ export function AddDeliveryWebhookModal(): JSX.Element {
                         mode="multiple"
                         options={transactionalEmailOptions}
                         loading={transactionalEmailOptionsLoading}
+                        // The select also shows this when a search matches nothing, so it is set only for an empty list.
                         emptyStateComponent={
-                            <p className="text-secondary italic p-1 m-0">
-                                You have no transactional emails yet. This webhook gets updates for every one you add.
-                            </p>
+                            !transactionalEmailOptionsLoading && transactionalEmailOptions.length === 0 ? (
+                                <p className="text-secondary italic p-1 m-0">
+                                    You have no transactional emails yet. This webhook gets updates for every one you
+                                    add.
+                                </p>
+                            ) : undefined
                         }
                         placeholder="All transactional emails"
                         data-attr="transactional-webhook-emails"
