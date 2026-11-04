@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -9,9 +11,13 @@ import { deliveryWebhooksLogic } from './deliveryWebhooksLogic'
 describe('deliveryWebhooksLogic', () => {
     let logic: ReturnType<typeof deliveryWebhooksLogic.build>
     let created: Record<string, any>[]
+    let requestedTeamIds: Set<string>
+    // An environment that is not its project's primary one, so a request by project ID goes to the wrong one.
+    const environment = { ...MOCK_DEFAULT_TEAM, id: 2001 }
 
     beforeEach(() => {
         created = []
+        requestedTeamIds = new Set()
         useMocks({
             get: {
                 '/api/projects/:team_id/hog_function_templates/template-webhook/': {
@@ -20,13 +26,14 @@ describe('deliveryWebhooksLogic', () => {
                     inputs_schema: [{ key: 'url', type: 'string' }],
                     icon_url: '/static/services/webhook.svg',
                 },
-                '/api/projects/:team_id/messaging_templates/': ({ request }) => {
+                '/api/projects/:team_id/messaging_templates/': ({ request, params }) => {
+                    requestedTeamIds.add(String(params.team_id))
                     const offset = new URL(request.url).searchParams.get('offset')
                     return offset === '0'
                         ? [
                               200,
                               {
-                                  next: 'http://localhost/api/projects/997/messaging_templates/?limit=100&offset=2',
+                                  next: 'http://localhost/api/projects/2001/messaging_templates/?limit=100&offset=2',
                                   results: [
                                       {
                                           id: 'template-receipt',
@@ -57,14 +64,15 @@ describe('deliveryWebhooksLogic', () => {
                 },
             },
             post: {
-                '/api/projects/:team_id/hog_functions/': async ({ request }) => {
+                '/api/projects/:team_id/hog_functions/': async ({ request, params }) => {
+                    requestedTeamIds.add(String(params.team_id))
                     const body = (await request.json()) as Record<string, any>
                     created.push(body)
                     return [201, { id: 'new-webhook', ...body }]
                 },
             },
         })
-        initKeaTests()
+        initKeaTests(true, environment)
         logic = deliveryWebhooksLogic()
         logic.mount()
     })
@@ -91,6 +99,7 @@ describe('deliveryWebhooksLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(created).toHaveLength(1)
+        expect([...requestedTeamIds]).toEqual([String(environment.id)])
         const [webhook] = created
         expect(webhook.template_id).toEqual('template-webhook')
         expect(webhook.inputs.url.value).toEqual('https://example.com/hooks')
