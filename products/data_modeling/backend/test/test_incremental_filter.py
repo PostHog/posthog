@@ -5,7 +5,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.visitor import clear_locations
 
 from products.data_modeling.backend.logic.incremental_filter import (
@@ -15,6 +15,7 @@ from products.data_modeling.backend.logic.incremental_filter import (
 )
 
 SINCE = datetime(2026, 8, 1, tzinfo=UTC)
+UNTIL = datetime(2026, 8, 2, tzinfo=UTC)
 
 
 def _inner_selects(node: ast.Expr) -> list[ast.SelectQuery]:
@@ -122,6 +123,34 @@ class TestInjectIncrementalFilter(SimpleTestCase):
             right=ast.Constant(value=SINCE),
             op=ast.CompareOperationOp.GtEq,
         )
+
+    @parameterized.expand(
+        [
+            ("upper_bound", False, "{key} >= {since} AND {key} < {until}"),
+            ("null_keys_included", True, "({key} >= {since} AND {key} < {until}) OR isNull({key})"),
+        ]
+    )
+    def test_a_bounded_window_filters_the_source_and_the_guard(
+        self, _name: str, include_null_keys: bool, expected_template: str
+    ) -> None:
+        node = inject_incremental_filter(
+            "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day",
+            incremental_key="day",
+            since=SINCE,
+            until=UNTIL,
+            include_null_keys=include_null_keys,
+        )
+
+        def expected(key: ast.Expr) -> ast.Expr:
+            bounds = {"key": key, "since": ast.Constant(value=SINCE), "until": ast.Constant(value=UNTIL)}
+            return clear_locations(parse_expr(expected_template, placeholders=bounds))
+
+        (inner,) = _inner_selects(node)
+        assert inner.where is not None
+        assert clear_locations(inner.where) == expected(parse_expr("toStartOfDay(timestamp)"))
+        assert isinstance(node, ast.SelectQuery)
+        assert node.where is not None
+        assert clear_locations(node.where) == expected(ast.Field(chain=[GUARD_ALIAS, "day"]))
 
     def test_rejects_a_key_the_query_does_not_produce(self) -> None:
         with self.assertRaises(IncrementalFilterError):
