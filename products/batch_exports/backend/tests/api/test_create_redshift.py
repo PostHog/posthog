@@ -411,27 +411,28 @@ def test_create_redshift_batch_export_validates_copy_integration_ids(
         integration_id = 999999
         expected_status = status.HTTP_400_BAD_REQUEST
 
+    copy_inputs: dict[str, Any] = {
+        "s3_bucket": "my-production-s3-bucket",
+        "region_name": "us-east-1",
+        "s3_key_prefix": "posthog-events/",
+        "bucket_credentials": integration_id,
+        "authorization": integration_id,
+    }
     destination_data: dict[str, Any] = {
         "type": "Redshift",
         "config": {
             "database": "my-db",
             "host": "localhost",
             "mode": "COPY",
-            "copy_inputs": {
-                "s3_bucket": "my-production-s3-bucket",
-                "region_name": "us-east-1",
-                "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": integration_id,
-                "authorization": integration_id,
-            },
+            "copy_inputs": copy_inputs,
         },
         "integration": aws_redshift_integration.id,
     }
 
     if copy_credential_source == "iam_role":
-        destination_data["config"]["copy_inputs"]["authorization"] = "arn:aws:iam::000000000000:role/test-copy"
+        copy_inputs["authorization"] = "arn:aws:iam::000000000000:role/test-copy"
     elif copy_credential_source.startswith("inline_"):
-        destination_data["config"]["copy_inputs"][copy_credential_source.removeprefix("inline_")] = {
+        copy_inputs[copy_credential_source.removeprefix("inline_")] = {
             "aws_access_key_id": "test-access-key",
             "aws_secret_access_key": "test-secret-key",
         }

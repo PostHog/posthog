@@ -96,7 +96,7 @@ def test_can_patch_redshift_batch_export_with_legacy_copy_credentials(
         client,
         team.pk,
         batch_export["id"],
-        {"destination": {"type": "Redshift", "config": config}},
+        {"destination": {"type": "Redshift", "config": config, "integration": destination.integration_id}},
     )
     assert response.status_code == status.HTTP_200_OK, response.json()
 
@@ -167,7 +167,13 @@ def test_patching_redshift_batch_export_rejects_changed_inline_copy_credentials(
         client,
         team.pk,
         batch_export["id"],
-        {"destination": {"type": "Redshift", "config": {"copy_inputs": {field_name: credentials}}}},
+        {
+            "destination": {
+                "type": "Redshift",
+                "config": {"copy_inputs": {field_name: credentials}},
+                "integration": destination.integration_id,
+            }
+        },
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     detail = response.json()["detail"]
