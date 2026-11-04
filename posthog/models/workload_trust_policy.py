@@ -16,7 +16,8 @@ from posthog.scopes import UNPRIVILEGED_SCOPES
 # - `workload_trust_policy` would let a workload change the policy behind its token.
 # - `task:write` starts an agent run from a prompt the caller writes, with its own longer-lived owner token.
 #   `conversation:write` (PostHog AI can create such a task), `signal_scout:write`,
-#   `business_knowledge:write` and `autoresearch:write` start the same kind of run.
+#   `business_knowledge:write`, `autoresearch:write` and `hog_flow:write` (a workflow can create a task) start the
+#   same kind of run.
 # - `conversation:read` and `task:read` read the owner's private PostHog AI chats and tasks, because the token
 #   acts as the owner. Add them back if a workload needs them.
 # - `project:write` lets a token rotate the project's secret token.
@@ -34,6 +35,7 @@ WORKLOAD_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
         "business_knowledge:write",
         "conversation:read",
         "conversation:write",
+        "hog_flow:write",
         "project:write",
         "sharing_configuration:read",
         "sharing_configuration:write",
