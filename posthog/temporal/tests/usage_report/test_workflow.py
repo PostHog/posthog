@@ -70,6 +70,7 @@ from posthog.temporal.usage_report.workflow import (
 from posthog.usage_counters import (
     COUNTER_FLAG_NAMES,
     LEGACY_QUERY_NAMES,
+    PLAN_DEFERRED_COUNTERS,
     UsageCounter,
     UsageCounterMode,
     UsageCounterPlan,
@@ -478,6 +479,7 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
         assert plans[0].modes == {
             counter: expected_mode if counter in COUNTER_FLAG_NAMES else UsageCounterMode.LEGACY
             for counter in UsageCounter
+            if counter not in PLAN_DEFERRED_COUNTERS
         }
     assert aggregate_payloads[0].ctx.usage_counter_plan == (plans[0] if plans else None)
 

@@ -11,6 +11,7 @@ from parameterized import parameterized
 from posthog.tasks import usage_report
 from posthog.usage_counters import (
     COUNTER_FLAG_NAMES,
+    PLAN_DEFERRED_COUNTERS,
     SHADOW_FAILURES,
     UsageCounter,
     UsageCounterCaller,
@@ -217,13 +218,14 @@ class TestUsageCounterReport(SimpleTestCase):
             report = service.fetch_report(period, plan=plan)
             assert flag.call_count == len(COUNTER_FLAG_NAMES)
 
+        planned_counters = [counter for counter in UsageCounter if counter not in PLAN_DEFERRED_COUNTERS]
         assert report.counts == {
-            **{key: [] for key in (*UsageCounter, *SANDBOX_COMPUTE_RESOURCE_KEYS)},
+            **{key: [] for key in (*planned_counters, *SANDBOX_COMPUTE_RESOURCE_KEYS)},
             UsageCounter.CDP_INVOCATIONS.value: [(1, 12)],
             UsageCounter.WORKFLOW_EMAILS.value: [(1, 3)],
         }
         assert report.usage_sources == {
-            **{counter.value.removeprefix("teams_with_"): "legacy" for counter in UsageCounter},
+            **{counter.value.removeprefix("teams_with_"): "legacy" for counter in planned_counters},
             "cdp_billable_invocations_in_period": "both",
         }
         assert report.counter_comparisons == (
@@ -397,6 +399,7 @@ class TestUsageCounterReport(SimpleTestCase):
                     legacy_by_team={}, realtime_by_team={}
                 )
                 for counter in COUNTER_FLAG_NAMES
+                if counter not in PLAN_DEFERRED_COUNTERS
             }
 
     @parameterized.expand([("success",), ("records",), ("legacy_comparison",)])

@@ -68,6 +68,10 @@ LEGACY_QUERY_NAMES = {
     UsageCounter.LOGS_RETENTION_30D_BYTES: "logs_retention_bytes",
     UsageCounter.SANDBOX_COMPUTE_CREDITS: "sandbox_compute_usage",
 }
+# Temporal workers decode a plan's modes into UsageCounter, so a worker without a counter rejects any plan that names it.
+# During a rolling deploy or a rollback, older workers still run, so a new counter stays out of plans until every worker
+# can decode it. Usage reports v2 reads these counters from their legacy query specs meanwhile.
+PLAN_DEFERRED_COUNTERS = frozenset({UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS})
 
 
 class UsageCounterMode(StrEnum):
@@ -328,7 +332,11 @@ class UsageCounterService:
         return UsageCounterPlan(
             period=period,
             caller="usage_reports_v2",
-            modes={counter: mode for counter, mode in modes.items() if counters is None or counter in counters},
+            modes={
+                counter: mode
+                for counter, mode in modes.items()
+                if counter not in PLAN_DEFERRED_COUNTERS and (counters is None or counter in counters)
+            },
             complete=complete,
         )
 
