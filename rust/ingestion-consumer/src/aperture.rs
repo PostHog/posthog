@@ -60,7 +60,7 @@ pub fn ring_slice(
     let covered = take_units(healthy_spans, arc.len);
 
     let full_weight = NonZeroU64::new(arc.units_per_worker)?;
-    let candidates: Vec<Candidate> = sum_by_position(covered)
+    let candidates: Vec<Candidate> = sum_by_position(covered, ring.len())
         .into_iter()
         .filter_map(|(position, units)| {
             let weight = NonZeroU64::new(units)?;
@@ -83,15 +83,23 @@ fn take_units(
 }
 
 /// The units of each position, in the order of each position's first span.
-fn sum_by_position(spans: impl Iterator<Item = (usize, u64)>) -> Vec<(usize, u64)> {
-    let mut sums: Vec<(usize, u64)> = Vec::new();
+/// Every span must hold at least one unit.
+fn sum_by_position(
+    spans: impl Iterator<Item = (usize, u64)>,
+    ring_len: usize,
+) -> Vec<(usize, u64)> {
+    let mut units_at = vec![0u64; ring_len];
+    let mut order = Vec::new();
     for (position, units) in spans {
-        match sums.iter_mut().find(|(seen, _)| *seen == position) {
-            Some((_, sum)) => *sum += units,
-            None => sums.push((position, units)),
+        if units_at[position] == 0 {
+            order.push(position);
         }
+        units_at[position] += units;
     }
-    sums
+    order
+        .into_iter()
+        .map(|position| (position, units_at[position]))
+        .collect()
 }
 
 /// One peer's arc of the ring, in units.
