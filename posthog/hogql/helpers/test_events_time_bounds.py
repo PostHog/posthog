@@ -68,6 +68,7 @@ class TestReadsEventsWithoutLowerBound(BaseTest):
             ("lazy_person_join", f"select person.properties.email from events where timestamp > {RECENT}", False),
             ("uuid_lookup", f"select * from events where uuid = '{EVENT_UUID}'", False),
             ("uuid_in_lookup", f"select * from events where uuid in ('{EVENT_UUID}')", False),
+            ("uuid_or_lookup", f"select * from events where uuid = '{EVENT_UUID}' or uuid = '{EVENT_UUID}'", False),
             ("constant_to_date", "select count() from events where timestamp >= toDate('2026-01-01')", False),
             ("constant_subtract_days", "select count() from events where timestamp >= subtractDays(now(), 7)", False),
             ("constant_uppercase_now", "select count() from events where timestamp > NOW() - interval 7 day", False),

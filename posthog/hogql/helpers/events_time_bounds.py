@@ -57,8 +57,7 @@ def reads_events_without_lower_bound(
             if clause is None:
                 continue
             for conjunct in top_level_conjuncts(clause):
-                restricted |= _lower_bounded_tables(conjunct, context, scan)
-                restricted |= _uuid_lookup_tables(conjunct)
+                restricted |= _restricted_tables(conjunct, context, scan)
     return not reads <= restricted
 
 
@@ -221,14 +220,18 @@ def _is_constant(expr: ast.Expr) -> bool:
     return _ConstantVisitor().visit(expr)
 
 
-def _lower_bounded_tables(expr: ast.Expr, context: HogQLContext, scan: _SelectScan) -> set[int]:
+def _restricted_tables(expr: ast.Expr, context: HogQLContext, scan: _SelectScan) -> set[int]:
     if isinstance(expr, ast.Or) or (isinstance(expr, ast.Call) and expr.name == "or"):
         branches = expr.exprs if isinstance(expr, ast.Or) else expr.args
-        bounded_per_branch = [
-            set().union(*(_lower_bounded_tables(conjunct, context, scan) for conjunct in top_level_conjuncts(branch)))
+        restricted_per_branch = [
+            set().union(*(_restricted_tables(conjunct, context, scan) for conjunct in top_level_conjuncts(branch)))
             for branch in branches
         ]
-        return set.intersection(*bounded_per_branch) if bounded_per_branch else set()
+        return set.intersection(*restricted_per_branch) if restricted_per_branch else set()
+    return _lower_bounded_tables(expr, context, scan) | _uuid_lookup_tables(expr)
+
+
+def _lower_bounded_tables(expr: ast.Expr, context: HogQLContext, scan: _SelectScan) -> set[int]:
     if isinstance(expr, ast.CompareOperation):
         bounded: set[int] = set()
         if expr.op in _LOWER_BOUND_OPS and _is_constant(expr.right):
