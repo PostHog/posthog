@@ -695,11 +695,12 @@ jobs:
             - semgrep-test-rules
             - semgrep-desktop
         name: Semgrep Checks Pass
-        # Last job on the lane, and it only reads `needs` results: no checkout, no fork
-        # code, no secrets, so an ambient cache credential has nothing to reach. Its
-        # GitHub-hosted queue is a median 1.4 min (p90 4.6) of pure lane time, because
-        # 62% of pull requests end their required-check lane on this check.
-        runs-on: depot-ubuntu-24.04
+        # Last job on the lane, and it only reads `needs` results. Its GitHub-hosted
+        # queue is a median 1.4 min (p90 4.6) of pure lane time, because 62% of pull
+        # requests end their required-check lane on this check. Fork pull requests
+        # stay on GitHub-hosted because the fork author controls the workflow's step
+        # script, and Depot injects cache credentials ambiently.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:
