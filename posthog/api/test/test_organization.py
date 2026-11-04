@@ -25,6 +25,7 @@ from posthog.api.organization import (
 )
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
@@ -614,6 +615,42 @@ class TestOrganizationAPI(APIBaseTest):
             OrganizationIPRestrictions.objects.get(organization=self.organization).ip_restrictions,
             ["203.0.113.4", "10.0.0.0/8"],
         )
+
+        created = ActivityLog.objects.get(scope="OrganizationIPRestrictions", activity="created")
+        assert created.user_id == self.user.id
+        assert created.organization_id == self.organization.id
+        assert created.detail is not None
+        assert created.detail["changes"] == [
+            {
+                "type": "OrganizationIPRestrictions",
+                "field": "IP allowlist",
+                "action": "created",
+                "before": None,
+                "after": ["203.0.113.4", "10.0.0.0/8"],
+            },
+            {
+                "type": "OrganizationIPRestrictions",
+                "field": "IP restrictions enabled",
+                "action": "created",
+                "before": None,
+                "after": True,
+            },
+        ]
+        updated_response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/",
+            {"ip_restrictions": ["203.0.113.0/24"], "ip_restrictions_enabled": False},
+            format="json",
+            REMOTE_ADDR="203.0.113.4",
+        )
+        assert updated_response.status_code == status.HTTP_200_OK
+        updated = ActivityLog.objects.get(scope="OrganizationIPRestrictions", activity="updated")
+        assert updated.user_id == self.user.id
+        assert updated.organization_id == self.organization.id
+        assert updated.detail is not None
+        assert {change["field"]: (change["before"], change["after"]) for change in updated.detail["changes"]} == {
+            "IP allowlist": (["203.0.113.4", "10.0.0.0/8"], ["203.0.113.0/24"]),
+            "IP restrictions enabled": (True, False),
+        }
 
     @parameterized.expand(
         [
