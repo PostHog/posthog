@@ -9,6 +9,7 @@ import json
 import base64
 import hashlib
 import binascii
+from collections.abc import Iterable
 from datetime import timedelta
 from typing import Any
 
@@ -737,9 +738,9 @@ class AgentOperationService:
         return self._attach_run(operation, routed, State.QUEUED if routed.just_created_run else State.RUNNING)
 
 
-def _reconcile_each(operations: QuerySet[AgentOperation]) -> int:
+def _reconcile_each(operations: Iterable[AgentOperation]) -> int:
     count = 0
-    for operation in operations.select_related("team", "user"):
+    for operation in operations:
         try:
             AgentOperationService(operation.team, operation.user).reconcile(operation)
             count += 1
@@ -751,9 +752,9 @@ def _reconcile_each(operations: QuerySet[AgentOperation]) -> int:
 def stop_operations_for_revoked_credential(kind: str, ref: str) -> None:
     """Stop the active operations that a now-revoked credential started, so their sandboxes lose access."""
     _reconcile_each(
-        AgentOperation.objects.unscoped().filter(
-            parent_credential_kind=kind, parent_credential_ref=ref, state__in=AgentOperation.ACTIVE_STATES
-        )
+        AgentOperation.objects.unscoped()
+        .filter(parent_credential_kind=kind, parent_credential_ref=ref, state__in=AgentOperation.ACTIVE_STATES)
+        .select_related("team", "user")
     )
 
 
@@ -768,17 +769,16 @@ def stop_operations_for_revoked_oauth(user_id: int | None) -> None:
     )
     if user_id is not None:
         operations = operations.filter(user_id=user_id)
-    _reconcile_each(operations)
+    _reconcile_each(operations.select_related("team", "user"))
 
 
 def reconcile_unwatched_operations() -> int:
     """Reconcile the active operations that no client read recently or that passed their deadline."""
     now = timezone.now()
-    ids = list(
+    return _reconcile_each(
         AgentOperation.objects.unscoped()
         .filter(state__in=AgentOperation.ACTIVE_STATES)
         .filter(Q(updated_at__lt=now - UNWATCHED_AFTER) | Q(deadline_at__lte=now))
-        .order_by("updated_at")
-        .values_list("id", flat=True)[:SWEEP_BATCH_SIZE]
+        .select_related("team", "user")
+        .order_by("updated_at")[:SWEEP_BATCH_SIZE]
     )
-    return _reconcile_each(AgentOperation.objects.unscoped().filter(id__in=ids))
