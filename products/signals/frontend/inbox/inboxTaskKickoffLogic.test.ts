@@ -129,7 +129,7 @@ describe('inboxTaskKickoffLogic', () => {
 
         afterEach(() => logic.unmount())
 
-        it('opens an editable metric suggestion for the selected check without starting a task', async () => {
+        it('opens an editable metric suggestion for the selected check without copying its stored title', async () => {
             const check = {
                 id: 'check-checkout',
                 title: 'Checkout errors stay low',
@@ -141,7 +141,7 @@ describe('inboxTaskKickoffLogic', () => {
             expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
             expect(logic.values.reportChatContext?.report.id).toBe(report.id)
             expect(logic.values.reportDiscussionDraft).toBe(
-                'For follow-up check "Checkout errors stay low" (check ID: check-checkout), I suggest a better metric:\n\n'
+                'For follow-up check (check ID: check-checkout), I suggest a better metric:\n\n'
             )
             expect(logic.values.reportDiscussionIntent).toBe('check_metrics')
             expect(createdTasks).toHaveLength(0)
@@ -158,6 +158,7 @@ describe('inboxTaskKickoffLogic', () => {
             async (relationship) => {
                 const originalPath = router.values.location.pathname
                 if (relationship === 'discussion') {
+                    logic.actions.setReportDiscussionDraft('Explain the recommendation', 'check_metrics')
                     attachedContextLogic.actions.registerContext('test-picker', [
                         { type: 'insight', key: 'insight-one', label: 'Conversion rate' },
                     ])
@@ -182,6 +183,8 @@ describe('inboxTaskKickoffLogic', () => {
                     pending_user_message: expect.any(String),
                 })
                 if (relationship === 'discussion') {
+                    expect(logic.values.reportDiscussionDraft).toBe('')
+                    expect(logic.values.reportDiscussionIntent).toBeNull()
                     expect(createdTasks[0]).toMatchObject({
                         description: expect.stringContaining('- insight insight-one ("Conversion rate")'),
                         signal_report_discussion_question: 'Explain the recommendation',
@@ -365,6 +368,7 @@ describe('inboxTaskKickoffLogic', () => {
                 logic.actions.openReportDiscussion(report, 'https://example.com/report')
             ).toFinishAllListeners()
 
+            logic.actions.setReportDiscussionDraft('Keep this proposed metric.', 'check_metrics')
             await expectLogic(logic, () =>
                 logic.actions.discussReport(
                     report,
@@ -382,6 +386,8 @@ describe('inboxTaskKickoffLogic', () => {
             expect(startedRuns).toHaveLength(1)
             expect(logic.values.reportWarmLease).toMatchObject({ reportId: report.id })
             expect(logic.values.isDiscussing).toBe(false)
+            expect(logic.values.reportDiscussionDraft).toBe('Keep this proposed metric.')
+            expect(logic.values.reportDiscussionIntent).toBe('check_metrics')
             expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toBeNull()
 
             const toastOptions = toastSuccess.mock.calls[0][1] as { button: { action: () => void } }

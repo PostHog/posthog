@@ -492,6 +492,9 @@ export interface inboxTaskKickoffLogicActions {
         report: SignalReport
         reportUrl: string
     }
+    clearReportDiscussionDraft: () => {
+        value: true
+    }
     createPrFailure: () => {
         value: true
     }
@@ -635,6 +638,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
         openReportDiscussion: (report: SignalReport, reportUrl: string) => ({ report, reportUrl }),
         openReportCheckMetricSuggestion: (report: SignalReport, check: SignalReportCheckApi) => ({ report, check }),
         setReportDiscussionDraft: (draft: string, intent?: ReportDiscussionIntent) => ({ draft, intent }),
+        clearReportDiscussionDraft: true,
         openReportTask: (report: SignalReport, taskId: string, runId: string, streamKey?: string) => ({
             report,
             taskId,
@@ -678,7 +682,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             {
                 setReportDiscussionDraft: (_, { draft }) => draft,
                 alignReportDiscussion: () => '',
-                discussReportSuccess: () => '',
+                clearReportDiscussionDraft: () => '',
             },
         ],
         reportDiscussionIntent: [
@@ -686,7 +690,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             {
                 setReportDiscussionDraft: (state, { intent }) => intent ?? state,
                 alignReportDiscussion: () => null,
-                discussReportSuccess: () => null,
+                clearReportDiscussionDraft: () => null,
             },
         ],
         reportChatContext: [
@@ -774,7 +778,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
             )
             actions.setReportDiscussionDraft(
-                `For follow-up check "${check.title}" (check ID: ${check.id}), I suggest a better metric:\n\n`,
+                `For follow-up check (check ID: ${check.id}), I suggest a better metric:\n\n`,
                 'check_metrics'
             )
         },
@@ -1012,6 +1016,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     // leading instruction block, so this is the message text alone.
                     stream.actions.startOptimisticRun(messageText)
                     actions.openReportTask(report, taskId, runId, streamKey)
+                    actions.clearReportDiscussionDraft()
                 }
                 captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'success' })
                 actions.discussReportSuccess()
