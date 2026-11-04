@@ -105,6 +105,7 @@ rules:
                               |BatchImport
                               |BriefConfig
                               |ButtonTile
+                              |WorkloadTrustPolicy
                               |Canvas
                               |CanvasBuild
                               |CanvasHomePreference
@@ -613,6 +614,7 @@ rules:
                         |BatchImport
                         |BriefConfig
                         |ButtonTile
+                        |WorkloadTrustPolicy
                         |Canvas
                         |CanvasBuild
                         |CanvasHomePreference

@@ -189,11 +189,12 @@ jobs:
                         - '.github/actions/setup-uv/**'
 
             # Affected-crate detection is the only step below that reads the tree, and only a
-            # rust/ or proto/ change reaches it. The resolver supplies the merge base and
+            # rust/ or proto/ change that does not already require Node.js checks reaches it.
+            # The resolver supplies the merge base and
             # complete change set, so this checkout needs no history.
             # The cone is a superset of the tree ci-rust.yml's affected job gives the same binary.
             - name: Check out the Rust tree for affected-crate detection
-              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true' && steps.filter.outputs.nodejs != 'true'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
@@ -207,7 +208,7 @@ jobs:
 
             - name: Resolve the Rust changed files
               id: rust-changed-files
-              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true' && steps.filter.outputs.nodejs != 'true'
               continue-on-error: true
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
@@ -223,7 +224,7 @@ jobs:
             - name: Install rust for affected-crate detection
               # Not needed on schedule either: the decision step below already returns
               # nodejs=true there without consulting the affected-crate set.
-              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true' && steps.filter.outputs.nodejs != 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
@@ -232,7 +233,7 @@ jobs:
               id: rust-affected
               # Not needed on schedule either: the decision step below already returns
               # nodejs=true there without consulting the affected-crate set.
-              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true' && steps.filter.outputs.nodejs != 'true'
               uses: ./.github/actions/rust-compute-affected
               with:
                   event-name: ${{ github.event_name }}
@@ -613,57 +614,7 @@ jobs:
             - name: Create Kafka topics
               run: docker compose -f docker-compose.dev.yml up kafka-init
 
-            - name: Fetch base branch for diff
-              if: github.event_name == 'pull_request'
-              env:
-                  BASE_REF: ${{ github.base_ref }}
-              run: git fetch origin "$BASE_REF" --depth=1
-
-            - name: Check for migrations in this PR
-              id: check_migrations
-              if: github.event_name == 'pull_request'
-              env:
-                  BASE_REF: ${{ github.base_ref }}
-              run: |
-                  if git diff --name-only "origin/$BASE_REF..HEAD" | grep -E '(migrations/|rust/.*migrate)'; then
-                    echo "has_migrations=true" >> $GITHUB_OUTPUT
-                  else
-                    echo "has_migrations=false" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Set up databases (fast path - restore schema)
-              if: github.event_name == 'pull_request' && steps.check_migrations.outputs.has_migrations == 'false'
-              env:
-                  TEST: 'true'
-                  SECRET_KEY: 'abcdef' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
-                  # Downloading an artifact requires the Actions permission, which the setup-actions app does not hold
-                  GH_TOKEN: ${{ github.token }}
-              run: |
-                  # Download pre-migrated schema from CI
-                  ./bin/hogli db:download-schema
-
-                  # Create test databases
-                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
-                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE test_posthog;"
-
-                  # Restore schema to test database
-                  echo "Restoring schema to test_posthog database..."
-                  gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog test_posthog
-                  echo "✅ Schema restored"
-
-                  # Run Rust migrations for test databases
-                  cd nodejs && pnpm run setup:test:rust
-
-                  # Create dedicated persons database for postgres-parity tests
-                  pnpm run setup:test:persons-parity
-
-                  # Set up ClickHouse test database and schema
-                  cd .. && TEST=1 SECRET_KEY='abcdef' python manage.py setup_test_environment --only-clickhouse
-
-            - name: Set up databases (slow path - run migrations)
-              if: github.event_name != 'pull_request' || steps.check_migrations.outputs.has_migrations == 'true'
+            - name: Set up databases
               env:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
@@ -928,54 +879,7 @@ jobs:
             - name: Create Kafka topics
               run: docker compose -f docker-compose.dev.yml up kafka-init
 
-            - name: Fetch base branch for diff
-              if: github.event_name == 'pull_request'
-              env:
-                  BASE_REF: ${{ github.base_ref }}
-              run: git fetch origin "$BASE_REF" --depth=1
-
-            - name: Check for migrations in this PR
-              id: check_migrations
-              if: github.event_name == 'pull_request'
-              env:
-                  BASE_REF: ${{ github.base_ref }}
-              run: |
-                  if git diff --name-only "origin/$BASE_REF..HEAD" | grep -E '(migrations/|rust/.*migrate)'; then
-                    echo "has_migrations=true" >> $GITHUB_OUTPUT
-                  else
-                    echo "has_migrations=false" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Set up databases (fast path - restore schema)
-              if: github.event_name == 'pull_request' && steps.check_migrations.outputs.has_migrations == 'false'
-              env:
-                  TEST: 'true'
-                  SECRET_KEY: 'abcdef' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
-                  # Downloading an artifact requires the Actions permission, which the setup-actions app does not hold
-                  GH_TOKEN: ${{ github.token }}
-              run: |
-                  # Download pre-migrated schema from CI
-                  ./bin/hogli db:download-schema
-
-                  # Create test databases
-                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
-                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE test_posthog;"
-
-                  # Restore schema to test database
-                  echo "Restoring schema to test_posthog database..."
-                  gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog test_posthog
-                  echo "✅ Schema restored"
-
-                  # Run Rust migrations for test databases
-                  cd nodejs && pnpm run setup:test:rust
-
-                  # Set up ClickHouse test database and schema
-                  cd .. && TEST=1 SECRET_KEY='abcdef' python manage.py setup_test_environment --only-clickhouse
-
-            - name: Set up databases (slow path - run migrations)
-              if: github.event_name != 'pull_request' || steps.check_migrations.outputs.has_migrations == 'true'
+            - name: Set up databases
               env:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only

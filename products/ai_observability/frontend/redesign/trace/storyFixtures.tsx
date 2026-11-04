@@ -381,6 +381,7 @@ export const FIXTURE_TRACE: SampleTraceFixture = {
         name: 'answer-billing-question',
         hasError: false,
         backLink: { label: 'Back to traces', href: '/traces' },
+        copyAction: { loading: false, onCopy: () => {} },
         exportAction: { loading: false, onExport: () => {} },
     },
     summary: {
