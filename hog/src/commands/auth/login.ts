@@ -110,6 +110,14 @@ export default defineCommand({
     async run({ options, ctx }): Promise<LoginResult> {
         const prompts = ctx.prompts
 
+        if (options.wait && options.readOnly) {
+            throw new HogError(
+                'read_only_with_wait',
+                '--read-only sets what a new login asks for, and --wait finishes the login that already started.',
+                'Run `hog auth login --read-only` to start a read-only login, then `hog auth login --wait`.',
+                EXIT_USAGE
+            )
+        }
         if (options.wait) {
             return finish(ctx, await resumeApproval(ctx, loginWait(ctx.runtime)))
         }
@@ -151,6 +159,14 @@ export default defineCommand({
                 }
             )
             if (choice === 'key') {
+                if (options.readOnly) {
+                    throw new HogError(
+                        'read_only_with_key',
+                        "--read-only can't limit a personal API key: the key keeps the scopes it has in PostHog.",
+                        'Approve a read-only login in the browser instead, or create a key with read scopes only.',
+                        EXIT_USAGE
+                    )
+                }
                 return keyLogin(ctx, prompts)
             }
             host = REGIONS[choice]

@@ -154,6 +154,14 @@ describe('hog auth login', () => {
         ['an agent without a region', ['auth', 'login'], { CLAUDECODE: '1' }, {}, 2, 'region_required'],
         ['a CI job', ['auth', 'login', '--region', 'us'], { CI: 'true' }, {}, 1, 'login_needs_a_person'],
         ['--wait with no login started', ['auth', 'login', '--wait'], { CLAUDECODE: '1' }, {}, 1, 'no_pending_login'],
+        [
+            '--read-only with --wait',
+            ['auth', 'login', '--wait', '--read-only'],
+            { CLAUDECODE: '1' },
+            { [PENDING_FILE]: PENDING },
+            2,
+            'read_only_with_wait',
+        ],
     ])('%s fails with a hint', async (_name, argv, env, files, exitCode, code) => {
         const result = await runHog(argv, { env, files, respond: deviceFlow(0) })
         expect(result.exitCode).toBe(exitCode)
