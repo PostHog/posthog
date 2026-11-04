@@ -61,7 +61,7 @@ jobs:
                   enable-cache: false
 
             - name: Install Python dependencies
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --no-dev --package hogli --package owners-yaml
 
             - name: Lint every ownership file against the GitHub org
               id: lint
