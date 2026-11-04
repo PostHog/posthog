@@ -3838,6 +3838,7 @@ export const SignalSourceProductApi = {
  * * `ci_duration_regression` - ci_duration_regression
  * * `search_opportunity` - search_opportunity
  * * `check_failed` - check_failed
+ * * `monitoring_unresolved` - monitoring_unresolved
  * * `incident` - incident
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
@@ -3866,6 +3867,7 @@ export const SignalSourceTypeApi = {
     CiDurationRegression: 'ci_duration_regression',
     SearchOpportunity: 'search_opportunity',
     CheckFailed: 'check_failed',
+    MonitoringUnresolved: 'monitoring_unresolved',
     Incident: 'incident',
 } as const
 
@@ -4070,6 +4072,13 @@ export interface CheckFailedSignalExtraApi {
     threshold?: string | null
 }
 
+export interface MonitoringUnresolvedSignalExtraApi {
+    /** Original Closed report whose implementation remains unverified. */
+    report_id: string
+    /** Monitoring attempt that durably requested this investigation. */
+    attempt_id: string
+}
+
 export type LogsAlertStateChangeSignalExtraActionEnumApi =
     (typeof LogsAlertStateChangeSignalExtraActionEnumApi)[keyof typeof LogsAlertStateChangeSignalExtraActionEnumApi]
 
@@ -4139,7 +4148,6 @@ export const InvestigationVerdictEnumApi = {
 export interface AnalyticsAnomalyInvestigationSignalExtraApi {
     alert_id: string
     alert_name: string
-    alert_check_id: string
     insight_id: string
     detector_type: string
     verdict: InvestigationVerdictEnumApi
@@ -4148,6 +4156,9 @@ export interface AnalyticsAnomalyInvestigationSignalExtraApi {
     insight_short_id?: string | null
     triggered_dates?: string[] | null
     notebook_short_id?: string | null
+    alert_check_id?: string | null
+    investigation_id?: string | null
+    evaluation_key?: string | null
 }
 
 export type HealthCheckSignalExtraSeverityEnumApi =
@@ -4959,6 +4970,7 @@ export type SignalExtraApi =
     | EndpointBreakdownLimitExceededSignalExtraApi
     | SignalsScoutSignalExtraApi
     | CheckFailedSignalExtraApi
+    | MonitoringUnresolvedSignalExtraApi
     | LogsAlertStateChangeSignalExtraApi
     | ReplayVisionScannerFindingSignalExtraApi
     | AnalyticsAnomalyInvestigationSignalExtraApi
@@ -5243,6 +5255,7 @@ export interface SignalNodeApi {
      * * `ci_duration_regression` - ci_duration_regression
      * * `search_opportunity` - search_opportunity
      * * `check_failed` - check_failed
+     * * `monitoring_unresolved` - monitoring_unresolved
      * * `incident` - incident */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
@@ -10681,7 +10694,7 @@ export const SignalSourceSyncStatusEnumApi = {
 } as const
 
 /**
- * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint.
+ * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key.
  */
 export type SignalSourceConfigApiConfig = { [key: string]: unknown }
 
@@ -10695,7 +10708,7 @@ export interface SignalSourceConfigApi {
     source_product: SignalSourceProductEnumApi
     source_type: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
-    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
+    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key. */
     config?: SignalSourceConfigApiConfig
     /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
     config_set?: SignalSourceConfigApiConfigSet
@@ -10717,7 +10730,7 @@ export interface PaginatedSignalSourceConfigListApi {
 }
 
 /**
- * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint.
+ * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key.
  */
 export type PatchedSignalSourceConfigApiConfig = { [key: string]: unknown }
 
@@ -10731,7 +10744,7 @@ export interface PatchedSignalSourceConfigApi {
     source_product?: SignalSourceProductEnumApi
     source_type?: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
-    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
+    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key. */
     config?: PatchedSignalSourceConfigApiConfig
     /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
     config_set?: PatchedSignalSourceConfigApiConfigSet
