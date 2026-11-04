@@ -56,7 +56,7 @@ from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredential
 from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
 from posthog.auth import ACCOUNT_BLOCKED_DETAIL
 from posthog.caching.login_device_cache import check_and_cache_login_device
-from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
+from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, POSTHOG_INTERNAL_EMAIL_SUFFIX
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
@@ -1594,14 +1594,18 @@ def social_reauth_complete(strategy: DjangoStrategy, backend, user: User | None 
         capture_exception(e)
 
 
-def social_sync_staff_from_google_workspace(
-    backend: BaseAuth, user: User | None = None, response: dict[str, Any] | None = None, **kwargs: Any
+def social_grant_staff_to_google_workspace_members(
+    backend: BaseAuth, response: dict[str, Any], user: User | None = None, **kwargs: Any
 ) -> None:
-    if not settings.STAFF_FROM_GOOGLE_WORKSPACE or backend.name != "google-oauth2" or user is None:
-        return
-    is_workspace_member = (response or {}).get("hd") in settings.ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS
-    if user.is_staff != is_workspace_member:
-        user.is_staff = is_workspace_member
+    if (
+        settings.CLOUD_DEPLOYMENT == "DEV"
+        and backend.name == "google-oauth2"
+        and user is not None
+        and not user.is_staff
+        and user.email.endswith(POSTHOG_INTERNAL_EMAIL_SUFFIX)
+        and response.get("hd") in settings.ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS
+    ):
+        user.is_staff = True
         user.save(update_fields=["is_staff"])
 
 

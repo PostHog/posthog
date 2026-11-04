@@ -39,8 +39,8 @@ from two_factor.utils import totp_digits
 
 from posthog.api.authentication import (
     password_reset_token_generator,
+    social_grant_staff_to_google_workspace_members,
     social_login_notification,
-    social_sync_staff_from_google_workspace,
 )
 from posthog.api.email_verification import is_email_verification_disabled
 from posthog.api.oauth.cimd import CIMDFetchError
@@ -3358,22 +3358,24 @@ class TestOAuthLoginNotification(APIBaseTest):
             assert len(mail.outbox) == 0
 
 
-class TestSocialSyncStaffFromGoogleWorkspace(TestCase):
+class TestSocialGrantStaffToGoogleWorkspaceMembers(TestCase):
     @parameterized.expand(
         [
-            ("disabled_leaves_staff_unchanged", False, False, "posthog.com", False),
-            ("workspace_member_becomes_staff", True, False, "posthog.com", True),
-            ("account_outside_any_workspace_stays_non_staff", True, False, None, False),
-            ("member_of_another_workspace_loses_staff", True, True, "example.com", False),
+            ("prod_us", "US", "google-oauth2", "jane@posthog.com", "posthog.com", False, False),
+            ("workspace_member", "DEV", "google-oauth2", "jane@posthog.com", "posthog.com", False, True),
+            ("no_workspace", "DEV", "google-oauth2", "jane@posthog.com", None, False, False),
+            ("other_workspace", "DEV", "google-oauth2", "jane@posthog.com", "example.com", False, False),
+            ("non_posthog_email", "DEV", "google-oauth2", "jane@example.com", "posthog.com", False, False),
+            ("other_backend", "DEV", "github", "jane@posthog.com", "posthog.com", False, False),
+            ("existing_staff_kept", "DEV", "google-oauth2", "jane@posthog.com", None, True, True),
         ]
     )
-    def test_sync(self, _name, enabled, was_staff, hosted_domain, expected_is_staff):
-        user = User.objects.create(email="jane@posthog.com", distinct_id=str(uuid.uuid4()), is_staff=was_staff)
-        response = {"email": "jane@posthog.com", **({"hd": hosted_domain} if hosted_domain else {})}
-        backend = type("Backend", (), {"name": "google-oauth2"})()
+    def test_grant(self, _name, cloud_deployment, backend_name, email, hosted_domain, was_staff, expected_is_staff):
+        user = User.objects.create(email=email, distinct_id=str(uuid.uuid4()), is_staff=was_staff)
+        backend = type("Backend", (), {"name": backend_name})()
 
-        with self.settings(STAFF_FROM_GOOGLE_WORKSPACE=enabled, ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS=["posthog.com"]):
-            social_sync_staff_from_google_workspace(backend, user, response)
+        with self.settings(CLOUD_DEPLOYMENT=cloud_deployment, ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS=["posthog.com"]):
+            social_grant_staff_to_google_workspace_members(backend, {"hd": hosted_domain}, user)
 
         user.refresh_from_db()
         assert user.is_staff is expected_is_staff
