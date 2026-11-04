@@ -290,3 +290,7 @@ DATA_WAREHOUSE_V3_COALESCE_MAX_ARROW_BYTES = get_from_env(
 DATA_WAREHOUSE_DESTINATION_PAUSE_AFTER_CONFIGURATION_FAILURES = get_from_env(
     "DATA_WAREHOUSE_DESTINATION_PAUSE_AFTER_CONFIGURATION_FAILURES", 3, type_cast=int
 )
+
+# PostHog's broker role for warehouse sources that connect with a customer's IAM role. PostHog assumes it,
+# then the customer's role with the external ID `posthog-<organization id>`. Empty turns role connections off.
+WAREHOUSE_SOURCES_AWS_ROLE_ARN: str = os.getenv("WAREHOUSE_SOURCES_AWS_ROLE_ARN", "")

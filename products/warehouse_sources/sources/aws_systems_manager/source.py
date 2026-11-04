@@ -10,6 +10,7 @@ from products.warehouse_sources.sources.aws_systems_manager.canonical_descriptio
 from products.warehouse_sources.sources.aws_systems_manager.settings import (
     API_DOCS_URL,
     API_VERSION,
+    AWS_SESSION_ACTIONS,
     ENDPOINTS,
     ERROR_MESSAGES,
     INCREMENTAL_FIELDS,
@@ -57,6 +58,7 @@ class AwsSystemsManagerSource(ResumableSource[AwsSystemsManagerSourceConfig, Sys
     api_docs_url = API_DOCS_URL
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
     credential_kind = "aws-systems-manager"
 
     @property
@@ -96,7 +98,7 @@ class AwsSystemsManagerSource(ResumableSource[AwsSystemsManagerSourceConfig, Sys
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return False, str(error)
         return validate_credentials(config, credentials, self.resolve_api_version(api_version), schema_name)
@@ -112,7 +114,7 @@ class AwsSystemsManagerSource(ResumableSource[AwsSystemsManagerSourceConfig, Sys
     ) -> SourceResponse:
         return aws_systems_manager_source(
             config,
-            resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             inputs.schema_name,
             self.resolve_api_version(inputs.api_version),
             resumable_source_manager,

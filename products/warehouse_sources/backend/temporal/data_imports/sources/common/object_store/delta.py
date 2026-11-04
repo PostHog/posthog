@@ -1,4 +1,5 @@
 import re
+import time
 import dataclasses
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -26,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     DELTA_BATCH_ROWS,
+    DELTA_MISSING_RETRY_DELAYS_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import ReplaceScope
 
@@ -203,7 +205,18 @@ def plan_delta_read(
     `data_filesystem` reads the data files instead of delta-rs. It must be rooted at the table folder.
     """
     with _delta_errors(table_name):
-        table = DeltaTable(uri, storage_options=storage_options)
+        # A writer that replaces the table deletes its folder and writes it again, so a missing
+        # table can come back seconds later.
+        for attempt, delay in enumerate(DELTA_MISSING_RETRY_DELAYS_SECONDS, start=1):
+            try:
+                table = DeltaTable(uri, storage_options=storage_options)
+                break
+            except TableNotFoundError:
+                if logger is not None:
+                    logger.info("Delta table not found, retrying", table=table_name, attempt=attempt)
+                time.sleep(delay)
+        else:
+            table = DeltaTable(uri, storage_options=storage_options)
         version = table.version()
         cursor = ObjectStorageDeltaCursor(version=version, table_id=str(table.metadata().id), file_names=by_file)
         dataset = cast(ds.FileSystemDataset, table.to_pyarrow_dataset(filesystem=data_filesystem))

@@ -11,6 +11,7 @@ from products.warehouse_sources.sources.aws_athena.athena import (
     AthenaImplementation,
     validate_credentials as validate_athena_credentials,
 )
+from products.warehouse_sources.sources.aws_athena.settings import AWS_SESSION_ACTIONS
 from products.warehouse_sources.sources.sdk import (
     AWS_AUTH_NON_RETRYABLE_ERRORS,
     AWS_FLAT_STORED_SELECTS,
@@ -50,6 +51,7 @@ class AwsAthenaSource(SQLSource[AwsAthenaSourceConfig]):
         return _ATHENA_IMPLEMENTATION
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
     credential_kind = "aws-athena"
 
     @property
@@ -69,7 +71,7 @@ class AwsAthenaSource(SQLSource[AwsAthenaSourceConfig]):
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return False, str(error)
         return validate_athena_credentials(config, credentials)

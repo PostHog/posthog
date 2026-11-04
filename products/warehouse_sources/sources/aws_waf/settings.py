@@ -171,3 +171,13 @@ ERROR_MESSAGES = {
         "These credentials lack the AWS read permissions for this table. Grant the permissions listed in the source setup.",
     ),
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "cloudwatch:GetMetricData",
+    "cloudwatch:ListMetrics",
+    "wafv2:Describe*",
+    "wafv2:Get*",
+    "wafv2:List*",
+)

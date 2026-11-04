@@ -7,7 +7,12 @@ from products.warehouse_sources.sources.aws_ses.aws_ses import (
     probe_endpoint_permissions,
     validate_credentials as validate_aws_ses_credentials,
 )
-from products.warehouse_sources.sources.aws_ses.settings import ENDPOINT_DESCRIPTIONS, ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.aws_ses.settings import (
+    AWS_SESSION_ACTIONS,
+    ENDPOINT_DESCRIPTIONS,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.sources.sdk import (
     AWS_AUTH_NON_RETRYABLE_ERRORS,
     AWS_FLAT_STORED_SELECTS,
@@ -58,6 +63,7 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
     api_docs_url = "https://docs.aws.amazon.com/ses/latest/APIReference-V2/Welcome.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
     credential_kind = "aws-ses"
 
     @property
@@ -110,7 +116,7 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return False, str(error)
         return validate_aws_ses_credentials(
@@ -123,7 +129,7 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
         self, config: AwsSesSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return aws_auth_endpoint_reasons(error, endpoints)
         return probe_endpoint_permissions(
@@ -142,7 +148,7 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_ses_source(
-            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             aws_region=config.aws_region,
             endpoint=inputs.schema_name,
             resumable_source_manager=resumable_source_manager,

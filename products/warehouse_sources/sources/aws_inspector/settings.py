@@ -135,3 +135,11 @@ ERROR_MESSAGES = {
     "HTTP 401": "AWS rejected the credentials. Check the access key ID, secret access key, and session token.",
     "HTTP 403": "AWS denied access. Check the IAM permissions for the selected tables.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "inspector2:BatchGet*",
+    "inspector2:Get*",
+    "inspector2:List*",
+)

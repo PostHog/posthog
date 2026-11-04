@@ -29,3 +29,11 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}
 ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     COST_AND_USAGE: "Every line item of the export, from the latest delivery of each billing period in range.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "kms:Decrypt",
+    "s3:Get*",
+    "s3:List*",
+)

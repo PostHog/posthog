@@ -164,3 +164,10 @@ ENDPOINT_DESCRIPTIONS = {
     "trial_components": "Trial components with status, parameters, artifacts, and metric summaries.",
     "monitoring_executions": "Model monitoring executions with status, schedule, endpoint, and failure reason.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "sagemaker:Describe*",
+    "sagemaker:List*",
+)

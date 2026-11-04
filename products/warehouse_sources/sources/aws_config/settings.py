@@ -195,3 +195,12 @@ ERROR_MESSAGES = {
     "SubscriptionRequiredException": "Enable AWS Config in the selected account and region, then try again.",
     "NoAvailableConfigurationRecorderException": "Set up an AWS Config recorder in the selected region, then try again.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "config:Describe*",
+    "config:Get*",
+    "config:List*",
+    "config:Select*",
+)

@@ -7,7 +7,12 @@ from products.warehouse_sources.sources.aws_budgets.aws_budgets import (
     probe_endpoint_permissions,
     validate_credentials as validate_aws_budgets_credentials,
 )
-from products.warehouse_sources.sources.aws_budgets.settings import ENDPOINT_DESCRIPTIONS, ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.aws_budgets.settings import (
+    AWS_SESSION_ACTIONS,
+    ENDPOINT_DESCRIPTIONS,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.sources.sdk import (
     AWS_AUTH_NON_RETRYABLE_ERRORS,
     AWS_FLAT_STORED_SELECTS,
@@ -49,6 +54,7 @@ class AwsBudgetsSource(ResumableSource[AwsBudgetsSourceConfig, AwsBudgetsResumeC
     api_docs_url = "https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_Operations_AWS_Budgets.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
     credential_kind = "aws-budgets"
 
     @property
@@ -92,7 +98,7 @@ class AwsBudgetsSource(ResumableSource[AwsBudgetsSourceConfig, AwsBudgetsResumeC
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return False, str(error)
         return validate_aws_budgets_credentials(credentials, schema_name=schema_name)
@@ -101,7 +107,7 @@ class AwsBudgetsSource(ResumableSource[AwsBudgetsSourceConfig, AwsBudgetsResumeC
         self, config: AwsBudgetsSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return aws_auth_endpoint_reasons(error, endpoints)
         return probe_endpoint_permissions(credentials, endpoints)
@@ -116,7 +122,7 @@ class AwsBudgetsSource(ResumableSource[AwsBudgetsSourceConfig, AwsBudgetsResumeC
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_budgets_source(
-            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             endpoint=inputs.schema_name,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,

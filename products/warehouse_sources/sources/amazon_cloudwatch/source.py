@@ -16,6 +16,7 @@ from products.warehouse_sources.sources.amazon_cloudwatch.amazon_cloudwatch impo
 )
 from products.warehouse_sources.sources.amazon_cloudwatch.settings import (
     AMAZON_CLOUDWATCH_ENDPOINTS,
+    AWS_SESSION_ACTIONS,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -63,6 +64,7 @@ class AmazonCloudWatchSource(ResumableSource[AmazonCloudWatchSourceConfig, Amazo
     api_docs_url = "https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/Welcome.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
     credential_kind = "amazon-cloud-watch"
 
     @property
@@ -148,7 +150,7 @@ class AmazonCloudWatchSource(ResumableSource[AmazonCloudWatchSourceConfig, Amazo
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return False, str(error)
         return validate_amazon_cloudwatch_credentials(
@@ -170,7 +172,7 @@ class AmazonCloudWatchSource(ResumableSource[AmazonCloudWatchSourceConfig, Amazo
         inputs: SourceInputs,
     ) -> SourceResponse:
         return amazon_cloudwatch_source(
-            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             aws_region=config.aws_region,
             log_group_names=config.log_group_names,
             metric_queries=config.metric_queries,

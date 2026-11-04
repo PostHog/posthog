@@ -11,6 +11,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import override_settings
 
+from botocore.exceptions import BotoCoreError
 from parameterized import parameterized
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -40,8 +41,12 @@ from products.warehouse_sources.backend.self_managed_migration import (
     evaluate_tables,
     merge_duplicate_sources,
     migrate_self_managed_tables,
+    resolve_s3_bucket_region,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import source_base
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    ObjectStorageError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
     SelfManagedCredential,
     parse_self_managed_url,
@@ -70,6 +75,51 @@ def _schemas_for(table: DataWarehouseTable) -> list[ExternalDataSchema]:
 def _schema_for(table: DataWarehouseTable) -> ExternalDataSchema:
     [schema] = [schema for schema in _schemas_for(table) if not schema.deleted]
     return schema
+
+
+class TestResolveS3BucketRegion:
+    @parameterized.expand(
+        [
+            ("keyed_region", "key", "eu-west-1", "us-east-1", "eu-west-1", True, False),
+            ("missing_header", "key", None, "eu-west-1", "eu-west-1", True, True),
+            ("empty_key", "", None, "eu-west-1", "eu-west-1", False, True),
+            ("anonymous_error", "key", None, ObjectStorageError("no region"), None, True, True),
+            ("keyed_error", "key", BotoCoreError(), "eu-west-1", "eu-west-1", True, True),
+        ]
+    )
+    def test_resolves_bucket_region(
+        self,
+        _name: str,
+        access_key: str,
+        keyed_result: str | BotoCoreError | None,
+        anonymous_result: str | ObjectStorageError,
+        expected_region: str | None,
+        keyed_called: bool,
+        anonymous_called: bool,
+    ) -> None:
+        credential = SelfManagedCredential(access_key=access_key, access_secret="secret")
+        with patch(f"{MODULE}.boto3.client") as mock_client, patch(f"{MODULE}.lookup_s3_bucket_region") as mock_lookup:
+            if isinstance(keyed_result, BotoCoreError):
+                mock_client.return_value.head_bucket.side_effect = keyed_result
+            else:
+                headers = {"x-amz-bucket-region": keyed_result} if keyed_result is not None else {}
+                mock_client.return_value.head_bucket.return_value = {"ResponseMetadata": {"HTTPHeaders": headers}}
+            if isinstance(anonymous_result, ObjectStorageError):
+                mock_lookup.side_effect = anonymous_result
+            else:
+                mock_lookup.return_value = anonymous_result
+
+            assert resolve_s3_bucket_region("exports", credential) == expected_region
+
+            if keyed_called:
+                mock_client.assert_called_once()
+                mock_client.return_value.head_bucket.assert_called_once_with(Bucket="exports")
+            else:
+                mock_client.assert_not_called()
+            if anonymous_called:
+                mock_lookup.assert_called_once_with("exports")
+            else:
+                mock_lookup.assert_not_called()
 
 
 class _MigrationTest(BaseTest):
