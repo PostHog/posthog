@@ -45,6 +45,10 @@ from products.signals.backend.auto_start import (
 )
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.github_optional import RepositoryAccessTemporarilyUnavailable
+from products.signals.backend.github_readiness import (
+    CheckReportGitHubReadinessInput,
+    check_report_github_readiness_activity,
+)
 from products.signals.backend.issue_dependencies import reports_waiting_on_issues_of
 from products.signals.backend.models import (
     SIGNALS_AT_RUN_INCREMENT,
@@ -449,7 +453,10 @@ class SignalReportSummaryWorkflow:
     ) -> FetchSignalsForReportOutput:
         required_signal_id = inputs.signal_id if workflow.patched("signals-required-refresh-snapshot") else None
         fetch_input = FetchSignalsForReportInput(
-            team_id=inputs.team_id, report_id=inputs.report_id, required_signal_id=required_signal_id
+            team_id=inputs.team_id,
+            report_id=inputs.report_id,
+            required_signal_id=required_signal_id,
+            enabled_sources_only=inputs.github_recovery,
         )
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
@@ -463,7 +470,11 @@ class SignalReportSummaryWorkflow:
             ),
         )
         # patched(): histories recorded before the retry loop have no timers to replay.
-        if fetch_result.signals or not workflow.patched("signals-empty-fetch-retry"):
+        if (
+            fetch_result.signals
+            or fetch_result.fetched_signal_count
+            or not workflow.patched("signals-empty-fetch-retry")
+        ):
             return fetch_result
         for attempt in range(1, EMPTY_FETCH_RETRY_ATTEMPTS + 1):
             log.info("No signals visible in ClickHouse yet, retrying fetch", attempt=attempt)
@@ -525,6 +536,15 @@ class SignalReportSummaryWorkflow:
         ):
             log.info("Report run paused: org over self-driving credits quota", stage="summary_entry")
             return False
+        if workflow.patched("signals-project-research-access") and not await workflow.execute_activity(
+            check_report_github_readiness_activity,
+            CheckReportGitHubReadinessInput(
+                team_id=inputs.team_id, report_id=inputs.report_id, recovery=inputs.github_recovery
+            ),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        ):
+            return False
         claim_before_fetch = workflow.patched("signals-spend-explicit-owner")
         signal_count = 0
         source_products: list[str] = []
@@ -544,6 +564,10 @@ class SignalReportSummaryWorkflow:
                 )
             fetch_result = await self._fetch_signals(inputs, log)
             if not fetch_result.signals:
+                if fetch_result.fetched_signal_count or inputs.github_recovery:
+                    if claim_before_fetch:
+                        await self._revert_report_to_candidate(inputs)
+                    return False
                 # patched(): same marker as the retry loop, so pre-patch histories replay straight to failure.
                 if workflow.patched("signals-empty-fetch-retry") and await workflow.execute_activity(
                     report_has_assigned_signals_activity,
@@ -656,6 +680,20 @@ class SignalReportSummaryWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
             await self._wait_for_task_settlement(inputs)
+            if (
+                repo_result.blocked_reason
+                and not github_optional
+                and workflow.patched("signals-project-research-access")
+            ):
+                await workflow.execute_activity(
+                    check_report_github_readiness_activity,
+                    CheckReportGitHubReadinessInput(
+                        team_id=inputs.team_id, report_id=inputs.report_id, reason=repo_result.blocked_reason
+                    ),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                return False
             if repo_result.repository is None and not github_optional:
                 log.warning(
                     "Report has no repository selected",
@@ -777,6 +815,7 @@ class SignalReportSummaryWorkflow:
                     title=decision.title,
                     summary=decision.summary,
                     processed_signal_count=signal_count,
+                    researched_signal_count=fetch_result.fetched_signal_count,
                     processed_pending_signal_id=fetch_result.processed_pending_signal_id,
                     source_products=source_products,
                     charts=decision.charts,
@@ -1122,6 +1161,7 @@ class MarkReportReadyInput:
     title: str
     summary: str
     processed_signal_count: int
+    researched_signal_count: int | None = None
     processed_pending_signal_id: str | None = None
     source_products: list[str] = field(default_factory=list)
     # Chart payload to write alongside title/summary, in the same transaction: the JSON set to store,
@@ -1278,7 +1318,9 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
             # The pass is only now known to have covered anything, so this is where the count the
             # bucket schedule reads is written. A run that failed or paused earlier leaves the
             # previous value standing and so leaves the report's next bucket where it was.
-            report.signals_researched = input.processed_signal_count
+            report.signals_researched = (
+                input.processed_signal_count if input.researched_signal_count is None else input.researched_signal_count
+            )
             updated_fields = [*updated_fields, "signals_researched"]
             if input.charts is not None:
                 report.charts = input.charts

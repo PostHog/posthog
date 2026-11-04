@@ -6,9 +6,11 @@ import base64
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 from typing import Any
 
 from django.core.cache import cache
+from django.db import transaction
 
 import requests
 import structlog
@@ -124,6 +126,12 @@ def invalidate_github_repository_caches_for_installation(installation_id: str | 
         kind=UserIntegration.IntegrationKind.GITHUB,
         integration_id=installation_id_str,
     ).update(repository_cache_updated_at=None)
+
+
+def enqueue_github_access_recovery(installation_id: str, team_id: int | None = None) -> None:
+    from posthog.tasks.integrations import recover_github_access  # noqa: PLC0415 - integration tasks import this model
+
+    transaction.on_commit(partial(recover_github_access.delay, installation_id, team_id))
 
 
 def github_account_type(owner_type: str | None) -> str | None:
@@ -249,6 +257,7 @@ class GitHubIntegration(GitHubIntegrationBase):
                 logger.exception("github_integration: failed to report integration created")
 
         invalidate_github_repository_caches_for_installation(installation_id)
+        enqueue_github_access_recovery(installation_id, team_id)
 
         return integration
 

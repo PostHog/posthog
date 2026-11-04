@@ -1742,7 +1742,13 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_client_request.side_effect = self.mock_github_client_request(
             permissions={"contents": "read", "metadata": "read"}
         )
-        integration = GitHubIntegration.integration_from_installation_id("INSTALLATION_ID", self.team.id, self.user)
+        with (
+            patch("posthog.tasks.integrations.recover_github_access.delay") as recover,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            integration = GitHubIntegration.integration_from_installation_id("INSTALLATION_ID", self.team.id, self.user)
+            recover.assert_not_called()
+        recover.assert_called_once_with("INSTALLATION_ID", self.team.id)
         assert integration.config["permissions"] == {"contents": "read", "metadata": "read"}
 
         # A permission update to the App shows up on the next hourly token refresh, including for

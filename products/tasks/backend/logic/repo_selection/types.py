@@ -23,6 +23,9 @@ class RepoSelectionResult(BaseModel):
     repository: str | None = Field(
         description="Selected repository in 'owner/repo' format, or null if none of the candidates are relevant."
     )
+    blocked_reason: str | None = Field(
+        default=None, description="Server-recorded access blocker; null for unresolved selection."
+    )
     research_context: ReportResearchContext | None = Field(
         default=None, description="Server-recorded code availability during report research; null for older reports."
     )

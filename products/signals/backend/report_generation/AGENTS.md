@@ -7,7 +7,7 @@ It is exercised locally via management commands, and it is also used by the prod
 
 - `select_repo.py`
   Selects the most relevant GitHub repository for a set of signals.
-  - If no eligible repo passes the source-visibility check: returns `None`. The `self-driving-github-optional` pilot continues research with project data; other projects go to `pending_input`.
+  - If no eligible repo passes the source-visibility check: returns `None`. Missing GitHub access permits project-data research only for eligible projects; other projects suspend new research until access returns. With working GitHub and no match, other projects go to `pending_input`.
   - If 1 eligible repo passes the source-visibility check: returns it directly (no sandbox needed).
   - If multiple eligible repos pass the source-visibility check: spawns a sandbox agent that uses `gh` CLI to explore candidates and pick the best match. Uses `PostHog/.github` as a small dummy repo for the sandbox clone, since the agent only needs `gh` CLI access (not the repo itself).
   - Output: `RepoSelectionResult(repository: str | None, reason: str)`.
@@ -234,3 +234,5 @@ Renders a concise timeline of: prompts, tool calls, tool outputs, agent messages
 - **If you change any command or the flow, update this file to match**
 
 Fix verification may revise only the Expected impact section of the presentation summary; validation preserves all other sections and chart links.
+
+Read [research access and recovery](../../../../docs/internal/signals-pr-lifecycle.md#github-optional-research-access) when changing GitHub prerequisites or publication. The shared server policy governs all run origins; billing remains separate.

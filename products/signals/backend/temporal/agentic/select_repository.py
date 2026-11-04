@@ -1,23 +1,23 @@
+from urllib.parse import urlparse
+
 import structlog
 import temporalio
 import posthoganalytics
 from requests import RequestException
 
 from posthog.dataclasses import frozen
-from posthog.egress.github.transport import GitHubRateLimitError
-from posthog.egress.limiter.policies import Priority
-from posthog.egress.transport.transport import EgressBudgetExhausted
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.event_usage import groups
-from posthog.integrations import IntegrationManager
 from posthog.models import Organization
-from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
+from posthog.models.integration import GitHubIntegrationError
+from posthog.models.integration.github_readiness import GitHubReadinessStatus
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import aretry_on_db_connection_drop, close_db_connections
 
-from products.signals.backend.github_optional import ResearchAccessPolicy, team_has_code_access
+from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.recurrence import recurrence_rejects_repository
 from products.signals.backend.report_generation.select_repo import (
     RepoSelectionResult,
@@ -26,6 +26,7 @@ from products.signals.backend.report_generation.select_repo import (
     select_repository_for_report,
 )
 from products.signals.backend.report_monitoring_provenance import monitoring_repository_sources
+from products.signals.backend.research_telemetry import capture_research_access_event
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPO_DISCOVERY_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -41,6 +42,7 @@ from products.tasks.backend.facade.agents import (
     TruncatedAgentOutputError,
     TurnPollTimeout,
 )
+from products.tasks.backend.facade.github_readiness import get_team_github_readiness
 from products.tasks.backend.facade.repo_selection import (
     RepoSelectionUsageLimitError,
     filter_repository_candidates_for_sources,
@@ -56,6 +58,19 @@ GITHUB_ONLY_DOMAINS = [
     "objects.githubusercontent.com",
     "codeload.github.com",
 ]
+
+
+def _is_github_access_failure(error: Exception) -> bool:
+    if isinstance(
+        error, (GitHubIntegrationError, GitHubRateLimitError, GitHubEgressBudgetExhausted, RepositoryContextUnavailable)
+    ):
+        return True
+    return (
+        isinstance(error, RequestException)
+        and error.request is not None
+        and urlparse(error.request.url or "").hostname in GITHUB_ONLY_DOMAINS
+    )
+
 
 logger = structlog.get_logger(__name__)
 
@@ -77,20 +92,14 @@ async def github_optional_pilot_activity(team_id: int) -> bool:
 
 
 def _pilot_code_availability(team_id: int) -> ReportResearchContext:
-    integrations = IntegrationManager.github.oauth.list(team_id)
-    if not integrations:
-        return ReportResearchContext(mode="data_only", repository_status="no_integration")
-    adapters = [
-        GitHubIntegration(item, source="signals_report_research", priority=Priority.NORMAL) for item in integrations
-    ]
-    if all(
-        adapter.integration.repository_cache_updated_at and adapter.integration.repository_cache == []
-        for adapter in adapters
-    ):
-        return ReportResearchContext(mode="data_only", repository_status="no_repositories")
-    if not team_has_code_access(team_id):
-        return ReportResearchContext(mode="data_only", repository_status="github_unavailable")
-    return ReportResearchContext(mode="code", repository_status="available")
+    readiness = get_team_github_readiness(team_id)
+    if readiness.status == GitHubReadinessStatus.READY:
+        return ReportResearchContext(mode="code", repository_status="available")
+    status = {
+        GitHubReadinessStatus.NOT_CONNECTED: "no_integration",
+        GitHubReadinessStatus.NO_REPOSITORIES: "no_repositories",
+    }.get(readiness.status, "github_unavailable")
+    return ReportResearchContext(mode="data_only", repository_status=status)
 
 
 def _resolve_sandbox_user_id(team_id: int) -> int | None:
@@ -116,7 +125,7 @@ def _repo_selection_failure_reason(error: Exception, *, agent_started: bool) -> 
         return "agent_turn_failed"
     if isinstance(error, SandboxRunFailed):
         return "sandbox_failed"
-    if isinstance(error, (GitHubIntegrationError, GitHubRateLimitError, EgressBudgetExhausted, RequestException)):
+    if isinstance(error, (GitHubIntegrationError, GitHubRateLimitError, GitHubEgressBudgetExhausted, RequestException)):
         return "github_unavailable"
     return "agentic_activity_error"
 
@@ -222,7 +231,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             )
             # Outside the pilot, research resolves its sandbox user from the team's GitHub integration
             # and raises when there is none. A team that disconnected GitHub after the first run must
-            # go back through selection, which returns no repository and asks for a selection.
+            # go back through selection so the workflow can record the connection blocker.
             if (
                 previous is not None
                 and previous.repository is not None
@@ -265,6 +274,13 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                     input.team_id
                 )
                 if availability.mode == "data_only":
+                    await database_sync_to_async(capture_research_access_event, thread_sensitive=False)(
+                        team_id=input.team_id,
+                        report_id=input.report_id,
+                        origin="pipeline",
+                        reason=availability.repository_status,
+                        fallback=True,
+                    )
                     _capture_repo_research_event(
                         "signals_repo_research_completed",
                         team,
@@ -290,6 +306,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 no_repo_result = RepoSelectionResult(
                     repository=None,
                     reason="No GitHub integration connected to a team/user.",
+                    blocked_reason="not_connected",
                 )
                 _capture_repo_research_event(
                     "signals_repo_research_completed",
@@ -356,18 +373,22 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                     if availability.mode == "data_only"
                     else "selection_unresolved",
                 )
+            if result.repository is None and not input.github_optional:
+                readiness = await database_sync_to_async(get_team_github_readiness, thread_sensitive=False)(
+                    input.team_id, verify=True
+                )
+                if readiness.status != GitHubReadinessStatus.READY:
+                    result.blocked_reason = readiness.status
             return result
     except Exception as e:
-        if input.github_optional and isinstance(
-            e,
-            (
-                GitHubIntegrationError,
-                GitHubRateLimitError,
-                EgressBudgetExhausted,
-                RequestException,
-                RepositoryContextUnavailable,
-            ),
-        ):
+        if input.github_optional and _is_github_access_failure(e):
+            await database_sync_to_async(capture_research_access_event, thread_sensitive=False)(
+                team_id=input.team_id,
+                report_id=input.report_id,
+                origin="pipeline",
+                reason="github_unavailable",
+                fallback=True,
+            )
             logger.warning(
                 "signals_repository_unavailable_using_project_data",
                 team_id=input.team_id,

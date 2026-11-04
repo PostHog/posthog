@@ -328,11 +328,24 @@ def complete_signal_pipeline(
 
 def begin_report_spend(*, team_id: int, report_id: str, signal_id: str, billing_exempt: bool = False) -> None:
     with transaction.atomic():
+        report = SignalReport.objects.select_for_update().get(team_id=team_id, id=report_id)
+        if (
+            report.research_blocked_reason is not None
+            and report.triggering_signal_id is not None
+            and report.triggering_signal_id != UUID(signal_id)
+        ):
+            # A newer signal takes over research that GitHub suspended, so the owner kept open for
+            # recovery is done.
+            previous = _locked_ad_hoc_spend(team_id=team_id, signal_id=str(report.triggering_signal_id))
+            if previous.finalized_at is None:
+                apply_report_billing(previous, report)
+                _save_ad_hoc_spend(previous, finalize=True)
+            report.triggering_signal_id = UUID(signal_id)
+            report.save(update_fields=["triggering_signal_id"])
         spend = _locked_ad_hoc_spend(team_id=team_id, signal_id=signal_id)
         if spend.finalized_at is not None:
             return
         spend.billing_exempt = spend.billing_exempt or billing_exempt
-        report = SignalReport.objects.get(team_id=team_id, id=report_id)
         apply_report_billing(spend, report)
         _save_ad_hoc_spend(spend)
 
@@ -340,6 +353,15 @@ def begin_report_spend(*, team_id: int, report_id: str, signal_id: str, billing_
 def finish_report_spend(*, team_id: int, report_id: str, signal_id: str) -> None:
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
+        if (
+            report
+            and report.status == SignalReport.Status.CANDIDATE
+            and report.research_blocked_reason is not None
+            and report.triggering_signal_id == UUID(signal_id)
+        ):
+            # GitHub suspended this research. The recovery run needs an open owner to research
+            # under, so the spend stays open until that run or a newer signal finishes it.
+            return
         spend = _locked_ad_hoc_spend(team_id=team_id, signal_id=signal_id)
         if spend.finalized_at is None:
             if report:

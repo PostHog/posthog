@@ -56,6 +56,11 @@ __all__ = [
 ]
 
 
+def with_server_selection_fields(content: RepoSelectionResult) -> RepoSelectionResult:
+    """Drop any GitHub blocker from a client write: only the research pipeline sets it."""
+    return content.model_copy(update={"blocked_reason": None})
+
+
 def persisted_repo_selection(report_id: str) -> RepoSelectionResult | None:
     """The report's latest ``repo_selection`` artefact, or ``None`` if it has none yet.
 
