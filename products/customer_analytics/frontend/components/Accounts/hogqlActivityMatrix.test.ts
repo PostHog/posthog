@@ -41,6 +41,28 @@ describe('HogQL activity matrix', () => {
         expect(inferHogQLMatrixMapping(['a', 'b', 'series'], mapping)).toEqual(mapping)
     })
 
+    it('keeps stable row keys and uses a separate readable label, with an ID fallback', () => {
+        const mapping = { row: 'person_id', column: 'week', rowLabel: 'email' }
+        const result = getHogQLActivityMatrix(
+            {
+                columns: ['person_id', 'week', 'email'],
+                results: [
+                    ['p1', 'w1', 'alex@example.com'],
+                    ['p2', 'w1', null],
+                ],
+            },
+            mapping
+        )
+        expect(result.props?.rows).toEqual([
+            { key: 'p1', label: 'alex@example.com' },
+            { key: 'p2', label: 'p2' },
+        ])
+        expect(result.props?.rowHeader?.title).toBe('Email')
+        expect(getDotMatrixTileConfig({ source: { kind: 'hogql', query: 'SELECT 1', mapping } }).source).toMatchObject({
+            mapping,
+        })
+    })
+
     it('maps column names independently of their order and sums duplicate cells', () => {
         const result = getHogQLActivityMatrix(
             {

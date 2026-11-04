@@ -8,17 +8,19 @@ import type { DotMatrixSourceMapping } from './dotMatrixTileConfig'
 
 export const DEFAULT_MATRIX_QUERY: string = `SELECT
     person_id AS row,
+    coalesce(nullIf(person.properties.email, ''), nullIf(person.properties.name, ''), toString(person_id)) AS row_label,
     toString(toStartOfWeek(timestamp)) AS column,
     event AS series,
     count() AS value
 FROM events
 WHERE {filters}
-GROUP BY row, column, series
+GROUP BY row, row_label, column, series
 ORDER BY column DESC, row, series
 LIMIT 1000`
 
 export const DEFAULT_MATRIX_MAPPING: DotMatrixSourceMapping = {
     row: 'row',
+    rowLabel: 'row_label',
     column: 'column',
     series: 'series',
     value: 'value',
@@ -37,11 +39,18 @@ export function inferHogQLMatrixMapping(columns: string[], mapping: DotMatrixSou
         named('column', 'week', 'date', 'day', 'month', 'bucket', 'period', 'timestamp') ??
         columns.find((name) => name !== row) ??
         ''
-    const remaining = columns.filter((name) => name !== row && name !== column)
+    const rowLabel = named('row_label', 'email', 'name', 'label')
+    const remaining = columns.filter((name) => name !== row && name !== column && name !== rowLabel)
     const series =
         named('series', 'feature', 'product', 'event', 'category') ?? (remaining.length >= 2 ? remaining[0] : undefined)
     const value = named('value', 'amount', 'count', 'total', 'users') ?? remaining.find((name) => name !== series)
-    return { row, column, ...(series ? { series } : {}), ...(value ? { value } : {}) }
+    return {
+        row,
+        column,
+        ...(rowLabel ? { rowLabel } : {}),
+        ...(series ? { series } : {}),
+        ...(value ? { value } : {}),
+    }
 }
 
 // normalizeDotMatrixData allocates rows x columns cells, so these bound the work before any rendering.
@@ -199,6 +208,7 @@ export function getHogQLActivityMatrix(
     const people: PeopleByCell = new Map()
     let skipped = 0
     const rowKeys = new Set<string>()
+    const rowLabels = new Map<string, string>()
     const columnKeys = new Set<string>()
     const seriesItems = new Map<string, { key: string; label?: string }>()
     for (const record of response.results) {
@@ -220,6 +230,9 @@ export function getHogQLActivityMatrix(
             continue
         }
         rowKeys.add(row)
+        if (mapping.rowLabel) {
+            rowLabels.set(row, axisKey(record[index(mapping.rowLabel)]) ?? rowLabels.get(row) ?? row)
+        }
         columnKeys.add(column)
         const seriesItem = getSeriesAxisItem(seriesValue)
         const series = seriesItem.key
@@ -274,11 +287,18 @@ export function getHogQLActivityMatrix(
         ],
         props: {
             data,
-            rows: rows.map((key) => ({ key })),
+            rows: rows.map((key) => ({ key, ...(mapping.rowLabel ? { label: rowLabels.get(key) ?? key } : {}) })),
             columns: columns.map((key) => ({ key })),
             series,
             fields: { row: 'row', column: 'column', series: 'series', value: 'value' },
-            rowHeader: { title: mapping.row },
+            rowHeader: {
+                title:
+                    mapping.rowLabel === 'row_label'
+                        ? 'Person'
+                        : (mapping.rowLabel ?? mapping.row)
+                              .replace(/_/g, ' ')
+                              .replace(/^./, (letter) => letter.toUpperCase()),
+            },
             sizeThresholds: [data.reduce((min, { value }) => (value > 0 ? Math.min(min, value) : min), 1), 5, 10],
             aggregateSelection: mapping.user
                 ? (cell, selected) => countPeople(people, cell, selected)

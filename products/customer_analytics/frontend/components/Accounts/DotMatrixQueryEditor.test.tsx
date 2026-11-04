@@ -46,5 +46,6 @@ describe('DotMatrixQueryEditor', () => {
             />
         )
         expect(screen.getByTestId('dot-matrix-mapping-user').textContent).toContain('No user column')
+        expect(screen.getByTestId('dot-matrix-mapping-rowLabel').textContent).toContain('Use row key')
     })
 })

@@ -6,13 +6,14 @@ import type { DotMatrixSourceMapping } from './dotMatrixTileConfig'
 
 const FIELDS = [
     { key: 'row', label: 'Row', required: true },
+    { key: 'rowLabel', label: 'Row label', required: false },
     { key: 'column', label: 'Column', required: true },
     { key: 'series', label: 'Series', required: false },
     { key: 'value', label: 'Value', required: false },
     { key: 'user', label: 'User', required: false },
 ] as const
 
-const EMPTY_LABELS = { series: 'Single series', value: 'Count rows', user: 'No user column' }
+const EMPTY_LABELS = { rowLabel: 'Use row key', series: 'Single series', value: 'Count rows', user: 'No user column' }
 
 export function DotMatrixColumnMapping({
     columns,
