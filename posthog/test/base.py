@@ -233,10 +233,7 @@ from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.event_definitions.backend.models.property_definition import (
-    DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
-    PROPERTY_DEFINITIONS_TABLE_SQL,
-)
+from products.event_definitions.backend.sql import DROP_PROPERTY_DEFINITIONS_TABLE_SQL, PROPERTY_DEFINITIONS_TABLE_SQL
 from products.product_analytics.backend.facade.models import Insight
 
 events_cache_tests: list[dict[str, Any]] = []

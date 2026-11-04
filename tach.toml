@@ -1229,7 +1229,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|groups|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|streamlit_apps|subscriptions|tasks|tracing|visual_review|warehouse_sources|workflows)",
+    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|event_definitions|experiments|groups|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|streamlit_apps|subscriptions|tasks|tracing|visual_review|warehouse_sources|workflows)",
 ]
 
 # signals is not isolated, so it gets its own blocks instead of a place in the shared one above.
@@ -1624,12 +1624,37 @@ path = "products.wizard"
 depends_on = ["posthog", "products.event_definitions", "products.security", "products.tasks", "products.warehouse_sources"]
 layer = "modules"
 
+# Legacy leaks — event_definitions' models are the taxonomy substrate, and outside code still reaches them
+# directly. The exits:
+# - Callers in posthog/, ee/ and other products (`hogli product:isolate:scan event_definitions` lists them),
+#   and the ones that read the models through the posthog.models re-exports, move to backend.facade, sliced
+#   by the team that owns the calling code. Tests plant rows through backend.facade.testing.
+# - ee.models.EnterpriseEventDefinition and EnterprisePropertyDefinition subclass the models through
+#   multi-table inheritance. They import the model classes until the enterprise columns move to the base
+#   tables and the subclasses go.
+# - Two frozen migrations import backend.models.property_definition by path: posthog/migrations/0889
+#   (PropertyType as `choices=`) and posthog/clickhouse/migrations/0120 (the DDL, which now lives in
+#   backend.sql and is re-exported there). That module also defines PropertyDefinition, so it cannot take
+#   the permanent-interface marker below. It qualifies only once no caller imports the model from that path
+#   and the model class moves to a module of its own, leaving the frozen names behind.
+# The block keeps backend:contract-check off until it is gone.
 [[interfaces]]
 expose = [
-    "backend\\.logic\\.event_property_purge.*",
-    "backend\\.logic\\.placeholder.*",
     "backend\\.models.*",
-    "backend\\.property_type.*",
+]
+from = [
+    "products.event_definitions",
+]
+
+# isolation:permanent-interface
+# event_definitions exposes its ClickHouse DDL (backend.sql) to core's ClickHouse schema registry and the
+# test base. The module holds the property_definitions table DDL and nothing else. turbo.json must keep
+# backend/sql.py in the contract-check inputs when that narrowing lands (IsolationChainCheck enforces it).
+# The frozen migration 0120 reaches the same constants through backend.models.property_definition, which
+# the legacy-leak block above still exposes.
+[[interfaces]]
+expose = [
+    "backend\\.sql.*",
 ]
 from = [
     "products.event_definitions",
