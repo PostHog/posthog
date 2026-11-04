@@ -19,7 +19,7 @@ from pydantic import (
 )
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.response import Response
 
 from posthog.schema import (
@@ -42,7 +42,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.email import is_email_available
 from posthog.event_usage import get_request_analytics_properties
-from posthog.exceptions import as_drf_validation_error
+from posthog.exceptions import InsufficientScope, as_drf_validation_error
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -430,9 +430,10 @@ def _require_write_scope_for_charged_simulation(request, detector_config: Any) -
     # Session auth carries no scopes; it is gated by team membership and access control.
     if key_scopes is None or "*" in key_scopes or "alert:write" in key_scopes:
         return
-    raise PermissionDenied(
-        "Simulating the AI detector makes a model call, so it needs the 'alert:write' scope. "
-        "A statistical detector simulates with 'alert:read'."
+    raise InsufficientScope(
+        ["alert:write"],
+        detail="Simulating the AI detector makes a model call, so it needs the 'alert:write' scope. "
+        "A statistical detector simulates with 'alert:read'.",
     )
 
 
@@ -444,7 +445,7 @@ def _require_metrics_scope_for_programmatic_auth(context: dict[str, Any], insigh
     if insight.alertable_query_kind != NodeKind.METRICS_QUERY:
         return
     if _token_lacks_metrics_scope(context["request"]):
-        raise PermissionDenied("API key missing required scope 'metrics:read'")
+        raise InsufficientScope(["metrics:read"])
 
 
 class AlertConfigUnion(RootModel):

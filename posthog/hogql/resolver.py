@@ -454,6 +454,18 @@ class FieldCollector(TraversingVisitor):
         return node
 
 
+class CteReferenceBinder(TraversingVisitor):
+    def __init__(self, names: set[str]) -> None:
+        self.names = names
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if isinstance(node.table, ast.Field) and node.table_schema is None:
+            name = ".".join(str(part) for part in node.table.chain)
+            if name in self.names:
+                node.cte_name = name
+        super().visit_join_expr(node)
+
+
 class Resolver(CloningVisitor):
     """The Resolver visits an AST and 1) resolves all fields, 2) assigns types to nodes, 3) expands all CTEs."""
 
@@ -1517,7 +1529,17 @@ class Resolver(CloningVisitor):
                 if self.dialect == "trino" and node.table_args is not None
                 else None
             )
-            cte_table = self.ctes.get(".".join(table_name_chain)) if internal_table_function is None else None
+            cte_table = (
+                self.ctes.get(".".join(table_name_chain))
+                if internal_table_function is None and node.table_schema is None
+                else None
+            )
+            # Only bound references can carry an outer CTE into a generated lazy query.
+            if cte_table is None and node.cte_name is not None:
+                for inherited_scope in reversed(self.scopes):
+                    cte_table = (inherited_scope.ctes or {}).get(node.cte_name)
+                    if cte_table is not None:
+                        break
             if cte_table:
                 assert isinstance(cte_table.expr.type, ast.SelectQueryType | ast.SelectSetQueryType)
                 # Use CTETableType so that fields are properly qualified with the CTE name when printed
@@ -1543,6 +1565,7 @@ class Resolver(CloningVisitor):
                 node.type = node_type
                 node.table = clone_expr(cast(ast.Field, node.table))
                 node.table.type = cte_table_type
+                node.cte_name = cte_table.name
                 node.next_join = self.visit(node.next_join)
                 node.alias = table_alias
 
@@ -1558,7 +1581,7 @@ class Resolver(CloningVisitor):
                     or resolve_internal_trino_logical_table(table_name_chain, self.context)
                 )
             else:
-                database_table = None
+                database_table = node.table_schema
 
             if database_table is None:
                 try:
@@ -1602,6 +1625,9 @@ class Resolver(CloningVisitor):
 
             if isinstance(database_table, LazyTable):
                 if isinstance(database_table, PersonsTable):
+                    # Promotion moves predicates before resolution, so preserve their CTE bindings first.
+                    if node.constraint is not None:
+                        CteReferenceBinder(set(self.ctes)).visit(node.constraint)
                     # Check for inlineable exprs in the join on the persons table
                     database_table = database_table.create_new_table_with_filter(node)
                 node_table_type: ast.TableType | ast.LazyTableType = ast.LazyTableType(table=database_table)
