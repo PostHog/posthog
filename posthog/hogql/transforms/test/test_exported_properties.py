@@ -220,6 +220,16 @@ class TestExportedProperties(BaseTest):
             assert "events.distinct_id AS distinct_id" not in optimized, optimized
             assert self._print(select, native=native, pruning=False) == unoptimized
 
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_narrowing_kill_switch_keeps_the_blob_and_the_pruning(self, _name: str, native: bool) -> None:
+        select = f"SELECT properties.email FROM {STAR_EVENTS}"
+        with override_instance_config("HOGQL_PROPERTIES_NARROWING_ENABLED", False):
+            printed = self._print(select, native=native)
+        assert "map('email', " not in printed, printed
+        assert "events.distinct_id AS distinct_id" not in printed, printed
+        with override_instance_config("HOGQL_PROPERTIES_NARROWING_ENABLED", True):
+            assert "map('email', " in self._print(select, native=native)
+
     def test_native_export_reads_one_subcolumn(self) -> None:
         printed = self._print(f"SELECT properties.utm_source FROM {STAR_EVENTS}", native=True)
         assert "map('utm_source', " in printed, printed
