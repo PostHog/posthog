@@ -10115,21 +10115,21 @@ snapshots:
     scenes-app-ai-observability-trace-view-trace-tree--with-search-matches--light:
         hash: v1.k794b7964.256649d42ee8d767ea2e76aea6a996c3bb484fda062549d98232f777b626db20.fMY_pk-8vczLIfWg6X_0rG2JJdaG3kmVSpo16joT90w
     scenes-app-ai-observability-trace-view-trace-view--error-trace--dark:
-        hash: v1.k794b7964.caf990e38d05173541881510b22dea4c65b70db0c69b617cf5bf227f1c69825a.BlrORTET_6u32l8l2RLY3EhQFke3ZoJ1wbC8vl-GU-A
+        hash: v1.k794b7964.19c16f278e93c98c9f71a52a14f04f89d03538b1b17937b67eaa9d819cfef778.NiSEm-dm3ZZpo46sRBxAaQq7nDYAvXT3tzfRfS5gSOU
     scenes-app-ai-observability-trace-view-trace-view--error-trace--light:
-        hash: v1.k794b7964.39b069183caf0c42083220b9a48538e891c9d38bffb4086d96222ac1d12975ee.ZD5WabzT0H75834dEaEkbekLQaL4vfUf-6V-bA9rZCs
+        hash: v1.k794b7964.ed028042cc4207a323d65dae0301db93851a34bb96bf3f9cc5b24c5cb077cf08.MTZ5Q5q1uWoeN_vyImRaZ2Eq47lcbh4Ydahd-C1whAA
     scenes-app-ai-observability-trace-view-trace-view--feedback-mode--dark:
         hash: v1.k794b7964.fa9e765d90669b4f486795580eec3fd2af292116033f9ded266f196e44e97277.e0tAOWx5plfJLW63iLmBsgV-0A1dmhDJPI11eKDht3s
     scenes-app-ai-observability-trace-view-trace-view--feedback-mode--light:
         hash: v1.k794b7964.4cc0d03d9c1beb45073f475cccf44252245383c468f4a239a1b30c7343fd9ae2.F-jj5TdzgFjHZxmXIvrfqyILazO4I-uN9KjmvJdSWPM
     scenes-app-ai-observability-trace-view-trace-view--fills-short-host--dark:
-        hash: v1.k794b7964.9e0b000ae88002006a68108afa565e70a952ef84a955e24c4a1e447e9dda39e5.YqWJUnnrBANrcCTjw0UgsXFaB18gm_vJOyg_iYmGGwk
+        hash: v1.k794b7964.de49c2b14dd27f092a0cb793d8c8c7da54d2f1190985774b37c2631fe499bfb7.jLWss0gOgRsHTuTi2ne2A69nZd-mCSzy6q-Ikd2mhec
     scenes-app-ai-observability-trace-view-trace-view--fills-short-host--light:
-        hash: v1.k794b7964.64783b1bb137693bcb2fbe2dd1031e391dfa5d0ca21cbeeff72451330ce5e170.qsha2FkM50UQV2Yq6qEfhgrkSxrxHtx39BuRjSSA1iI
+        hash: v1.k794b7964.168ac240399cc3467412ea752369b8c2e21e3bd3cfd1a025bc818ae2b6d840d7.cm_unReW3K0ECwFJVKpOuOnT7JmDVYyQFv3oV7SFWV4
     scenes-app-ai-observability-trace-view-trace-view--generation-selected--dark:
-        hash: v1.k794b7964.65335c8deb870f950d3828218223118b14454cc532c7816cb9ac93825b468c60.Y0wK0sq6TrejF4vNRblsP3WgHJ_0Aws1ApizOcmv8aw
+        hash: v1.k794b7964.c1a7f83c69cb285d3670ad7e5ceb735bbc0610b648e2dfd31c89b864d0ed3ba7.oxu0JsjKwRRM0UlRIhnbFujwLktFHCksE9FD6W_Eo7I
     scenes-app-ai-observability-trace-view-trace-view--generation-selected--light:
-        hash: v1.k794b7964.2b4165665a2b86f5d7e0241a7f1a86b9e748b7967a8e7f2e9849ef1b546b6129.N3NQV8dWyC1oDbqanYczwFIt0VRUCT3w4DyvIYKMxSA
+        hash: v1.k794b7964.7f9233ae1829ed1e434abadf0a6bc110c2dd632219686422fa34243616a4a299.QYdtMu8h66hrA1fWu62-vOfasgUXVVS7q1CH-ja3zS8
     scenes-app-ai-observability-trace-view-trace-view--load-error--dark:
         hash: v1.k794b7964.c4e963947f61276470d35e280b1b69130365cde0f3153efba7bfbab805e496de.B2FhLvOWBsI-x3axjIDbfrTFGaYKLtFR32l7sn4SCfI
     scenes-app-ai-observability-trace-view-trace-view--load-error--light:
@@ -10147,9 +10147,9 @@ snapshots:
     scenes-app-ai-observability-trace-view-trace-view--narrow-with-evals--light:
         hash: v1.k794b7964.fbd4bcd590d83be66e736aab9b901fb75b23748913eba00c50fb2263e4f6e8c7.fEQ-3NL7mZ3Dv2VVm8NOoT0mOnwreZLsKFyBRxhN5ss
     scenes-app-ai-observability-trace-view-trace-view--narrow-with-search--dark:
-        hash: v1.k794b7964.41390e62aaf2ad7fcb58909feb122a930b662e6cd6dd08abf0780862c937b95e.zpRvO4hTWahRHHvihrPtZmINxhXTYdcRyIrKncHGJ60
+        hash: v1.k794b7964.c6b590ef8c56c6239fd6430c1628c6d17ccf87a88ee51cc2421cb80255a2d5f9.gKOwqlexsCJFzN6qFx5C5xIhxh01TVlw-nqjpsGmd4w
     scenes-app-ai-observability-trace-view-trace-view--narrow-with-search--light:
-        hash: v1.k794b7964.6bbe496e6b6a810842cf73eefed746e9537f0b961371849fee8c82d986d73fea.zYJ3kr6DtmtcbN2S7b0oVJ7eIcghERdiARkesuwdFGM
+        hash: v1.k794b7964.9b5167c3fda29c9e1f0ef3427573c4915b3ec336ec16d29952bf43e63b7d7f96.-lSXpzcUgZnrERNvuz0WgpaeIy3STckK2UaKr3xRdps
     scenes-app-ai-observability-trace-view-trace-view--sample-anthropic-thinking-tool-use--dark:
         hash: v1.k794b7964.1a371a2a02a8f0219aff1401f27d95bf7a351189dd84a6c1461ca26f36601b65.SNmwL7EKMN8FACCLahr_9rg4MS08Ug1duIqvb5QEBNI
     scenes-app-ai-observability-trace-view-trace-view--sample-anthropic-thinking-tool-use--light:
