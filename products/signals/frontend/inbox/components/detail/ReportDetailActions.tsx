@@ -12,15 +12,13 @@ import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
-import { reportNotesLogic } from '../../logics/reportNotesLogic'
-import { scoutNoteWriteDisabledReason } from '../../logics/scoutNotesLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { canMonitorReport, canResolveReport } from '../../utils/reportActions'
 import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
 import { setReportState } from '../../utils/writeTimeout'
 import { useReportDismiss } from '../cards/useReportDismiss'
 import { useReportRefund } from '../cards/useReportRefund'
-import { openLeaveReportNoteDialog } from './LeaveReportNoteDialog'
+import { openAddReportNoteDialog } from './AddReportNoteDialog'
 import { useReportResolve } from './useReportResolve'
 
 /**
@@ -50,7 +48,6 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     const { loadSelectedReport } = useActions(inboxSceneLogic)
     const [isRestoring, setIsRestoring] = useState(false)
     const reportScoutName = report.scout_name ?? null
-    const { savingNote } = useValues(reportNotesLogic({ reportId: report.id, reportScoutName }))
 
     const isDismissed = report.status === SignalReportStatus.SUPPRESSED
     // Resolved reports are terminal – nothing to dismiss, restore, or resolve.
@@ -99,15 +96,13 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         },
     })
 
-    // Offered in every state: a note steers the scouts' next runs whatever became of this report.
-    const leaveNote: ReportDetailAction = {
-        key: 'leave_note',
-        label: 'Leave a note',
+    // Offered in every state: a note adds context, or steers the scouts, whatever became of this report.
+    const addNote: ReportDetailAction = {
+        key: 'add_note',
+        label: 'Add note',
         icon: <IconPencil />,
-        loading: savingNote,
-        tooltip: 'Tell the scouts something about this report. They read it on their next run.',
-        disabledReason: scoutNoteWriteDisabledReason(),
-        onClick: () => openLeaveReportNoteDialog({ reportId: report.id, reportScoutName }),
+        tooltip: "Add a note to this report's activity, and send it to the scouts if you like",
+        onClick: () => openAddReportNoteDialog({ reportId: report.id, reportScoutName }),
     }
 
     const refund: ReportDetailAction = {
@@ -157,7 +152,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     // A resolved report is terminal, so only Discuss (rendered separately) applies. Its PR can
     // still be refunded (auto-approved by design; the weekly review watches refunded-then-merged).
     if (isResolved) {
-        return [...(canRefund ? [refund] : []), leaveNote]
+        return [...(canRefund ? [refund] : []), addNote]
     }
 
     // An already-dismissed report offers Restore instead of Dismiss (and no Create PR). A refunded
@@ -178,7 +173,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
                           onClick: () => void onRestoreClick(),
                       },
                   ]),
-            leaveNote,
+            addNote,
         ]
     }
 
@@ -241,6 +236,6 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             ...action,
             disabledReason: action.disabledReason ?? (updating ? 'Updating report…' : undefined),
         })),
-        leaveNote,
+        addNote,
     ]
 }

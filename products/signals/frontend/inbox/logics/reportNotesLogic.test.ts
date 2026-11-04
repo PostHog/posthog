@@ -7,17 +7,20 @@ import { initKeaTests } from '~/test/init'
 import { EVERY_SCOUT, reportNotesLogic } from './reportNotesLogic'
 
 const NOTES_URL = '/api/projects/:team_id/signals/scout/notes/'
+const ARTEFACTS_URL = '/api/projects/:team_id/signals/reports/:report_id/artefacts/'
 const REPORT_ID = '0b9f8a52-3c1e-4d7a-9f60-2a4e1c7b8d01'
 const REPORT_SCOUT = 'signals-scout-checkout'
 
 describe('reportNotesLogic', () => {
     let logic: ReturnType<typeof reportNotesLogic.build>
     let listQueries: URLSearchParams[]
-    let createdBodies: Record<string, unknown>[]
+    let scoutNoteBodies: Record<string, unknown>[]
+    let artefactBodies: Record<string, unknown>[]
 
     beforeEach(() => {
         listQueries = []
-        createdBodies = []
+        scoutNoteBodies = []
+        artefactBodies = []
         useMocks({
             get: {
                 [NOTES_URL]: ({ request }) => {
@@ -29,13 +32,18 @@ describe('reportNotesLogic', () => {
             post: {
                 [NOTES_URL]: async ({ request }) => {
                     const body = (await request.json()) as Record<string, unknown>
-                    createdBodies.push(body)
+                    scoutNoteBodies.push(body)
                     return [201, { id: 'note-1', origin: 'human', ...body }]
+                },
+                [ARTEFACTS_URL]: async ({ request }) => {
+                    const body = (await request.json()) as Record<string, unknown>
+                    artefactBodies.push(body)
+                    return [201, { id: 'artefact-1', type: 'note', content: body.content }]
                 },
             },
         })
         initKeaTests()
-        logic = reportNotesLogic({ reportId: REPORT_ID, reportScoutName: REPORT_SCOUT })
+        logic = reportNotesLogic({ reportId: REPORT_ID })
         logic.mount()
     })
 
@@ -46,21 +54,35 @@ describe('reportNotesLogic', () => {
     it('finds notes by the report id they quote, across every scout', async () => {
         await expectLogic(logic).toFinishAllListeners()
 
-        // A `skill_name` here would hide notes the report's dismissals and ratings sent to other scouts.
+        // A `skill_name` here would miss notes sent to other scouts, so their entries would read inactive.
         expect(listQueries[0].get('text')).toEqual(REPORT_ID)
         expect(listQueries[0].has('skill_name')).toBe(false)
     })
 
     it.each([
-        { target: REPORT_SCOUT, expectedSkillName: REPORT_SCOUT },
-        { target: EVERY_SCOUT, expectedSkillName: undefined },
-    ])('leaves a note for $target tied to the report', async ({ target, expectedSkillName }) => {
-        await logic.asyncActions.createNote('Focus on the new checkout flow', target)
+        {
+            name: 'a note for the report scout goes to the scouts, tied to the report',
+            scoutTarget: REPORT_SCOUT,
+            scoutNotes: [{ content: 'Focus on the new checkout flow', report_id: REPORT_ID, skill_name: REPORT_SCOUT }],
+            artefacts: [],
+        },
+        {
+            name: 'a note for every scout leaves the target blank',
+            scoutTarget: EVERY_SCOUT,
+            scoutNotes: [{ content: 'Focus on the new checkout flow', report_id: REPORT_ID }],
+            artefacts: [],
+        },
+        {
+            name: 'a note kept on the report never reaches the scouts',
+            scoutTarget: null,
+            scoutNotes: [],
+            artefacts: [{ artefact_type: 'note', content: { note: 'Focus on the new checkout flow' } }],
+        },
+    ])('$name', async ({ scoutTarget, scoutNotes, artefacts }) => {
+        await logic.asyncActions.addNote('Focus on the new checkout flow', scoutTarget, REPORT_SCOUT)
 
-        // Without `report_id` the note would not name the report, and the report's activity log would miss it.
-        expect(createdBodies).toEqual([
-            { content: 'Focus on the new checkout flow', report_id: REPORT_ID, skill_name: expectedSkillName },
-        ])
+        expect(scoutNoteBodies).toEqual(scoutNotes)
+        expect(artefactBodies).toEqual(artefacts)
         expect(logic.values.lastSaveFailed).toBe(false)
     })
 })

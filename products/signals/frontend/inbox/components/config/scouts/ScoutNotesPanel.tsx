@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconChevronDown, IconChevronRight, IconPencil } from '@posthog/icons'
-import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight, IconPencil, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
 
 import type { ScoutNoteApi } from 'products/signals/frontend/generated/api.schemas'
@@ -12,13 +13,14 @@ import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import {
     isDirectScoutNote,
     NOTES_FETCH_LIMIT,
+    scoutNoteOriginLabel,
     scoutNoteWriteDisabledReason,
     scoutNotesLogic,
 } from '../../../logics/scoutNotesLogic'
 import { linkReportIdsInNote } from '../../../utils/scoutMemoryPresentation'
 import { OpenScratchpadButton } from './OpenScratchpadButton'
 import { ScoutNoteComposer } from './ScoutNoteComposer'
-import { ScoutNoteRow } from './ScoutNoteRow'
+import { ScoutNoteContent } from './ScoutNoteContent'
 
 /**
  * The dialog closes itself only once the note saved. A failed request leaves it open with the text
@@ -222,6 +224,64 @@ function ScoutNoteList({
                 <span className="border-t border-primary px-3 py-2 text-[11px] text-muted">
                     Showing the newest {NOTES_FETCH_LIMIT} notes.
                 </span>
+            )}
+        </div>
+    )
+}
+
+function ScoutNoteRow({
+    note,
+    content,
+    onDelete,
+}: {
+    note: ScoutNoteApi
+    content: string
+    onDelete: () => void
+}): JSX.Element {
+    const direct = isDirectScoutNote(note)
+    const disabledReason = scoutNoteWriteDisabledReason()
+
+    return (
+        <div className="flex gap-3 border-b border-primary px-3 py-2.5 last:border-b-0">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
+                    {direct ? (
+                        <span className="font-medium text-secondary">{note.created_by_name ?? 'Someone'}</span>
+                    ) : (
+                        <LemonTag size="small" type="option">
+                            {scoutNoteOriginLabel(note.origin)}
+                        </LemonTag>
+                    )}
+                    {note.created_at && <TZLabel time={note.created_at} />}
+                    {note.expires_at && (
+                        <Tooltip title="This note retires itself, so time-boxed steering doesn't linger">
+                            <span>
+                                expires <TZLabel time={note.expires_at} />
+                            </span>
+                        </Tooltip>
+                    )}
+                </div>
+                <ScoutNoteContent content={content} />
+            </div>
+            {/* Only a note someone left here is retired here. A derived one is a record of what
+                happened in the inbox, and deleting it would rewrite that. */}
+            {direct && (
+                <Tooltip title="Retire this note">
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconTrash />}
+                        disabledReason={disabledReason}
+                        onClick={() =>
+                            LemonDialog.open({
+                                title: 'Retire this note?',
+                                description: 'Scouts stop reading it from their next run onward.',
+                                primaryButton: { children: 'Retire', status: 'danger', onClick: onDelete },
+                                secondaryButton: { children: 'Cancel' },
+                            })
+                        }
+                        aria-label="Retire note"
+                    />
+                </Tooltip>
             )}
         </div>
     )
