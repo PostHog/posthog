@@ -206,7 +206,6 @@ describe('applicationObservabilityLogic', () => {
             expect(logic.values.usageRows.map((row) => row.service_name)).toEqual(['proxy', 'api'])
             expect(usageRequests).toHaveLength(1)
             expect(usageRequests[0]).toContain('date_from=')
-            // Logs and metrics often carry no environment, so usage must not filter on one.
             expect(usageRequests[0]).not.toContain('environment=')
         })
 

@@ -166,10 +166,15 @@ class ServiceUsageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
 
     scope_object = "tracing"
+    # The response carries logs and metrics data too. Scopes gate tokens; access control gates members.
+    required_scopes = ["tracing:read", "logs:read", "metrics:read"]
 
     @extend_schema(parameters=[WindowRequestSerializer], responses={200: ServiceUsageResponseSerializer})
     def list(self, request: Request, *args, **kwargs) -> Response:
         _check_flag(self.team, cast(User, request.user))
+        for resource in ("logs", "metrics"):
+            if not self.user_access_control.check_access_level_for_resource(resource, "viewer"):
+                raise PermissionDenied(f"You do not have access to {resource}.")
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         window = _window(WindowRequestSerializer(data=request.query_params))
 
