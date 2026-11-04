@@ -12,10 +12,35 @@ import {
     DOT_MATRIX_MAX_ROWS,
     DOT_MATRIX_MAX_SERIES,
     getHogQLActivityMatrix,
+    inferHogQLMatrixMapping,
     getHogQLLimitNotice,
 } from './hogqlActivityMatrix'
 
 describe('HogQL activity matrix', () => {
+    it.each([
+        [['who', 'period'], { row: 'who', column: 'period' }],
+        [
+            ['amount', 'week', 'person', 'feature'],
+            { row: 'person', column: 'week', series: 'feature', value: 'amount' },
+        ],
+        [['a', 'b', 'c'], { row: 'a', column: 'b', value: 'c' }],
+        [['a', 'b', 'c', 'd'], { row: 'a', column: 'b', series: 'c', value: 'd' }],
+    ])('maps result columns by name, then position (%j)', (columns, expected) => {
+        expect(
+            inferHogQLMatrixMapping(columns as string[], {
+                row: 'row',
+                column: 'column',
+                series: 'series',
+                value: 'value',
+            })
+        ).toEqual(expected)
+    })
+
+    it('keeps valid manual mappings when a query runs again', () => {
+        const mapping = { row: 'b', column: 'a' }
+        expect(inferHogQLMatrixMapping(['a', 'b', 'series'], mapping)).toEqual(mapping)
+    })
+
     it('maps column names independently of their order and sums duplicate cells', () => {
         const result = getHogQLActivityMatrix(
             {

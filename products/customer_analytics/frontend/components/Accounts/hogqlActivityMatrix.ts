@@ -24,6 +24,26 @@ export const DEFAULT_MATRIX_MAPPING: DotMatrixSourceMapping = {
     value: 'value',
 }
 
+export function inferHogQLMatrixMapping(columns: string[], mapping: DotMatrixSourceMapping): DotMatrixSourceMapping {
+    if (columns.includes(mapping.row) && columns.includes(mapping.column)) {
+        return Object.fromEntries(
+            Object.entries(mapping).filter(([, name]) => columns.includes(name))
+        ) as unknown as DotMatrixSourceMapping
+    }
+    const named = (...names: string[]): string | undefined =>
+        columns.find((column) => names.includes(column.toLowerCase()))
+    const row = named('row', 'person', 'person_id', 'user', 'user_id', 'account', 'account_id') ?? columns[0] ?? ''
+    const column =
+        named('column', 'week', 'date', 'day', 'month', 'bucket', 'period', 'timestamp') ??
+        columns.find((name) => name !== row) ??
+        ''
+    const remaining = columns.filter((name) => name !== row && name !== column)
+    const series =
+        named('series', 'feature', 'product', 'event', 'category') ?? (remaining.length >= 2 ? remaining[0] : undefined)
+    const value = named('value', 'amount', 'count', 'total', 'users') ?? remaining.find((name) => name !== series)
+    return { row, column, ...(series ? { series } : {}), ...(value ? { value } : {}) }
+}
+
 // normalizeDotMatrixData allocates rows x columns cells, so these bound the work before any rendering.
 export const DOT_MATRIX_MAX_ROWS = 500
 export const DOT_MATRIX_MAX_COLUMNS = 104

@@ -96,9 +96,7 @@ describe('accountDotMatrixTileLogic', () => {
             .toDispatchActions(['loadMatrixSuccess'])
             .toFinishAllListeners()
             .toMatchValues({ matrixResultLoading: false })
-        logic.actions.saveQuery()
-        expect(logic.values.config.source).toBeNull()
-        logic.actions.setMappingDraft({ row: 'who', column: 'period' })
+        expect(logic.values.mappingDraft).toEqual({ row: 'who', column: 'period' })
         expect(logic.values.querySaveError).toBeNull()
         await expectLogic(logic, () => logic.actions.saveQuery()).toDispatchActions(['applyQuery'])
         const saved = logic.values.config

@@ -39,7 +39,12 @@ import {
 } from './dotMatrixTileConfig'
 import { getDotMatrixTilePresentation } from './dotMatrixTilePresentation'
 import { queryDotMatrixSource, type DotMatrixTileResult } from './dotMatrixTileQuery'
-import { DEFAULT_MATRIX_MAPPING, DEFAULT_MATRIX_QUERY, getHogQLActivityMatrix } from './hogqlActivityMatrix'
+import {
+    DEFAULT_MATRIX_MAPPING,
+    DEFAULT_MATRIX_QUERY,
+    getHogQLActivityMatrix,
+    inferHogQLMatrixMapping,
+} from './hogqlActivityMatrix'
 
 export interface AccountDotMatrixTileLogicProps extends AccountViewTileLogicProps {
     instanceId: string
@@ -536,6 +541,14 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
                     actions.runQuery()
                 } else {
                     actions.loadMatrix()
+                }
+            },
+            loadMatrixSuccess: ({ matrixResult }) => {
+                if (values.queryEditorOpen && matrixResult?.kind === 'hogql') {
+                    const columns = (matrixResult.result.columns ?? []).filter(
+                        (name): name is string => typeof name === 'string'
+                    )
+                    actions.setMappingDraft(inferHogQLMatrixMapping(columns, values.mappingDraft))
                 }
             },
             loadMatrixFailure: ({ errorObject }) => {
