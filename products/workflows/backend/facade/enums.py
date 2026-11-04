@@ -39,7 +39,10 @@ class HogFlowBatchJobState(LabeledStrEnum):
     QUEUED = "queued"
     ACTIVE = "active"
     COMPLETED = "completed"
+    # Set after a completed run settles with some of its sends errored, and the rest sent.
+    PARTIALLY_FAILED = "partially_failed", "Partially failed"
     CANCELLED = "cancelled"
+    # The run could not fan out to its audience, or it settled with every send errored.
     FAILED = "failed"
 
 

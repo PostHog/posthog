@@ -1,11 +1,12 @@
 from unittest.mock import patch
 
+from django.db import DatabaseError
 from django.test import TestCase
 
 from parameterized import parameterized
 from rest_framework import exceptions
 
-from posthog.errors import ClickHouseQueryTimeOut
+from posthog.errors import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.models.user import User
 
 from products.workflows.backend.facade.enums import HogFlowBatchJobAudienceStatus, HogFlowBatchJobState
@@ -17,10 +18,13 @@ from products.workflows.backend.services.batch_audience_snapshot import (
     resolve_audience_snapshot,
 )
 from products.workflows.backend.services.batch_jobs import set_batch_job_status
+from products.workflows.backend.tasks.batch_jobs import resolve_batch_job_audience_snapshot
 
 PERSON_IDS = [f"0197000{i}-0000-0000-0000-000000000000" for i in range(1, 8)]
 
 QUERY = "products.workflows.backend.services.batch_audience_snapshot.get_batch_audience_person_ids_snapshot"
+EXECUTE_QUERY = "products.workflows.backend.services.batch_audience.execute_hogql_query"
+REPLACE_MEMBERS = "products.workflows.backend.services.batch_audience_snapshot._replace_audience_members"
 RESOLVE_TASK = "products.workflows.backend.tasks.batch_jobs.resolve_batch_job_audience_snapshot.delay"
 DELETE_TASK = "products.workflows.backend.tasks.batch_jobs.delete_batch_job_audience_snapshot.delay"
 DISPATCH = (
@@ -107,6 +111,22 @@ class TestBatchAudienceSnapshot(TestCase):
         assert expected_reason in (job.audience_error or "")
         assert "connection reset" not in (job.audience_error or "")
 
+    def test_resolve_rejects_a_flag_condition_before_querying(self, _dispatch):
+        job = self._job(
+            audience_status=HogFlowBatchJobAudienceStatus.RESOLVING,
+            filters={"properties": [{"key": "beta", "type": "flag", "value": "true", "operator": "exact"}]},
+        )
+
+        with patch(EXECUTE_QUERY) as mock_execute:
+            resolve_audience_snapshot(
+                team_id=self.team.pk, batch_job_id=str(job.id), dedupe_key=None, max_audience_size=100
+            )
+
+        mock_execute.assert_not_called()
+        job.refresh_from_db()
+        assert job.audience_status == HogFlowBatchJobAudienceStatus.FAILED
+        assert "Feature flags can't be used" in (job.audience_error or "")
+
     def test_request_releases_the_claim_when_the_task_cannot_be_queued(self, _dispatch):
         job = self._job()
 
@@ -136,6 +156,70 @@ class TestBatchAudienceSnapshot(TestCase):
         job.refresh_from_db()
         assert job.audience_status == HogFlowBatchJobAudienceStatus.RESOLVING
         assert self._members(job) == []
+
+    @parameterized.expand(
+        [
+            ("stores_an_audience", {"return_value": PERSON_IDS}),
+            ("fails_its_query", {"side_effect": ClickHouseQueryTimeOut("timed out")}),
+        ]
+    )
+    def test_a_redelivered_task_leaves_the_ready_audience_alone(self, _dispatch, _name, second_query):
+        job = self._job(audience_status=HogFlowBatchJobAudienceStatus.RESOLVING)
+        first_delivery = PERSON_IDS[:2]
+
+        def first_delivery_publishes_during_the_query(*_args, **_kwargs):
+            with patch(QUERY, return_value=first_delivery):
+                resolve_audience_snapshot(
+                    team_id=self.team.pk, batch_job_id=str(job.id), dedupe_key=None, max_audience_size=100
+                )
+            if "side_effect" in second_query:
+                raise second_query["side_effect"]
+            return second_query["return_value"]
+
+        with patch(QUERY, side_effect=first_delivery_publishes_during_the_query):
+            resolve_audience_snapshot(
+                team_id=self.team.pk, batch_job_id=str(job.id), dedupe_key=None, max_audience_size=100
+            )
+
+        job.refresh_from_db()
+        assert job.audience_status == HogFlowBatchJobAudienceStatus.READY
+        assert job.audience_size == len(first_delivery)
+        assert self._members(job) == first_delivery
+
+    @parameterized.expand(
+        [
+            ("clickhouse_at_capacity", {"side_effect": ClickHouseAtCapacity()}, {}, "Audience query failed"),
+            (
+                "database_error_while_storing",
+                {"return_value": PERSON_IDS},
+                {"side_effect": DatabaseError("connection lost")},
+                "Audience couldn't be saved",
+            ),
+        ]
+    )
+    def test_a_failure_that_clears_on_its_own_is_retried_and_the_last_retry_fails_the_audience(
+        self, _dispatch, _name, query, replace_members, expected_reason
+    ):
+        job = self._job(audience_status=HogFlowBatchJobAudienceStatus.RESOLVING)
+
+        with patch(QUERY, **query), patch(REPLACE_MEMBERS, **replace_members):
+            with self.assertRaises(Exception):
+                resolve_audience_snapshot(
+                    team_id=self.team.pk, batch_job_id=str(job.id), dedupe_key=None, max_audience_size=100
+                )
+            job.refresh_from_db()
+            assert job.audience_status == HogFlowBatchJobAudienceStatus.RESOLVING
+
+            last_attempt = resolve_batch_job_audience_snapshot.apply(
+                args=(self.team.pk, str(job.id), None, 100),
+                retries=resolve_batch_job_audience_snapshot.max_retries,
+                throw=False,
+            )
+
+        assert last_attempt.failed()
+        job.refresh_from_db()
+        assert job.audience_status == HogFlowBatchJobAudienceStatus.FAILED
+        assert expected_reason in (job.audience_error or "")
 
     def test_resolve_skips_a_run_that_already_ended(self, _dispatch):
         job = self._job(status=HogFlowBatchJobState.CANCELLED, audience_status=HogFlowBatchJobAudienceStatus.RESOLVING)

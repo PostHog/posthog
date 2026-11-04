@@ -1,6 +1,6 @@
 """Daily modeling dataset for the Self-driving Inbox report-ranking model.
 
-Eleven assets on one daily partition, each writing Parquet under the configured S3 prefix:
+Twelve assets on one daily partition, each writing Parquet under the configured S3 prefix:
 
     inbox_report_state/v1/dt=D/             Postgres spine + report-state columns
     inbox_report_embeddings/v1/dt=D/        report_id -> small-1536 vector as of snapshot end
@@ -13,6 +13,7 @@ Eleven assets on one daily partition, each writing Parquet under the configured 
     inbox_project_vectors/v1/dt=D/          per-team mean report vectors of past engagement, by kind
     inbox_user_vectors/v1/dt=D/             per-user mean report vectors of past engagement, by kind
     inbox_activity_summary_vectors/v1/dt=D/ one row per activity summary vector generated during D
+    inbox_activity_summary_profile_vectors/v1/dt=D/  the same shape, for the rendering with the profile
 
 inbox_engagement_export writes no dataset object. It sends the dt=D engagement moments of the other
 region's reports to the serving mirror store, for that region's project vectors.
@@ -28,6 +29,7 @@ inbox_user_vectors is an (organization, user, kind) leaf with its own schema ver
 embeddings and interactions snapshots.
 inbox_activity_summary_vectors is a (team, user, day) leaf with its own schema version: the durable
 copy of the per-user activity summary vectors, which the source table drops after its 3-month TTL.
+inbox_activity_summary_profile_vectors is the same leaf for the rendering with the profile.
 
 Partition dt=D is a full snapshot of the eligible report inventory (promoted or ever-labeled),
 with every label aggregate bounded `event_time < D+1 00:00 UTC`. Label columns are cumulative,
@@ -90,6 +92,7 @@ from posthog.models import OrganizationMembership, Team, User
 from products.signals.backend.activity_summary.tick import (
     EMBEDDING_DOCUMENT_TYPE as ACTIVITY_SUMMARY_DOCUMENT_TYPE,
     EMBEDDING_RENDERING as ACTIVITY_SUMMARY_RENDERING,
+    EMBEDDING_RENDERING_PROFILE as ACTIVITY_SUMMARY_RENDERING_PROFILE,
 )
 from products.signals.backend.models import (
     SignalReport,
@@ -201,6 +204,7 @@ PROJECT_VECTORS_TABLE = "inbox_project_vectors"
 USER_VECTORS_TABLE = "inbox_user_vectors"
 ENGAGEMENT_EXPORT = "inbox_engagement_export"
 ACTIVITY_SUMMARY_VECTORS_TABLE = "inbox_activity_summary_vectors"
+ACTIVITY_SUMMARY_PROFILE_VECTORS_TABLE = "inbox_activity_summary_profile_vectors"
 
 # The reviewers asset is a leaf with its own columns, so its schema moves apart from
 # FEATURE_SCHEMA_VERSION. The same rule applies: additive nullable columns bump it.
@@ -210,6 +214,7 @@ REVIEWERS_SCHEMA_VERSION = 1
 ENGAGEMENT_EXPORT_SCHEMA_VERSION = 2
 # The activity summary vectors are a (team, user, day) leaf, so their shape moves apart too.
 ACTIVITY_SUMMARY_VECTORS_SCHEMA_VERSION = 1
+ACTIVITY_SUMMARY_PROFILE_VECTORS_SCHEMA_VERSION = 1
 # Every document type that carries an activity summary vector. A backfilled type joins this tuple,
 # and its rows say so through `source`.
 ACTIVITY_SUMMARY_DOCUMENT_TYPES = (ACTIVITY_SUMMARY_DOCUMENT_TYPE,)
@@ -1594,9 +1599,12 @@ def inbox_user_vectors(context: dagster.AssetExecutionContext) -> None:
     )
 
 
-def activity_summary_vectors_table(partition_key: str, consent_team_ids: Collection[int]) -> tuple[pa.Table, int]:
-    """The activity summary vectors generated during dt=D for the teams in `consent_team_ids`, one row
-    per document, and the number of rows skipped because their document_id names no user."""
+def activity_summary_vectors_table(
+    partition_key: str, rendering: str, consent_team_ids: Collection[int]
+) -> tuple[pa.Table, int]:
+    """The activity summary vectors of one rendering generated during dt=D for the teams in
+    `consent_team_ids`, one row per document, and the number of rows skipped because their document_id
+    names no user."""
     window_start, window_end = snapshot_bounds(partition_key)
     results = (
         cast(
@@ -1606,7 +1614,7 @@ def activity_summary_vectors_table(partition_key: str, consent_team_ids: Collect
                 {
                     "product": EMBEDDING_PRODUCT,
                     "document_types": list(ACTIVITY_SUMMARY_DOCUMENT_TYPES),
-                    "rendering": ACTIVITY_SUMMARY_RENDERING,
+                    "rendering": rendering,
                     "window_start": window_start.replace(tzinfo=None),
                     "window_end": window_end.replace(tzinfo=None),
                     "team_ids": sorted(consent_team_ids),
@@ -1679,32 +1687,23 @@ def merge_activity_summary_vectors(existing: pa.Table, fresh: pa.Table, consent_
     return pa.concat_tables([fresh, existing.filter(keep)])
 
 
-@dagster.asset(name=ACTIVITY_SUMMARY_VECTORS_TABLE, **COMMON_ASSET_KWARGS)
-def inbox_activity_summary_vectors(context: dagster.AssetExecutionContext) -> None:
-    """One row per activity summary vector generated during dt=D, for user vectors in ranking training.
-
-    The source table drops a vector 3 months after its timestamp, and `UserActivitySummaryVersion`
-    keeps only the newest versions of a pair, so this partition is the durable history: a vector
-    that is not copied before it expires cannot be rebuilt. Partition D holds only the vectors
-    generated during D, not a cumulative snapshot. Training reads the union of partitions and takes
-    the vector a user had at a moment through `activity_vector_as_of`.
-
-    A leaf: nothing joins it, and it carries no summary text. A re-run replaces the rows the source
-    still returns and keeps the rest (`merge_activity_summary_vectors`).
-    """
+def _snapshot_activity_summary_vectors(
+    context: dagster.AssetExecutionContext, table_name: str, rendering: str, schema_version: int, query_type: str
+) -> None:
+    """Write one activity summary rendering's vectors of dt=D, shared by the two vector assets."""
     if skip_unconfigured(context):
         return
-    tag_dagster_queries(context, query_type="inbox_ranking_activity_summary_vectors")
+    tag_dagster_queries(context, query_type=query_type)
     partition_key = context.partition_key
     consent_team_ids = training_consent_team_ids()
-    fresh, malformed = activity_summary_vectors_table(partition_key, consent_team_ids)
+    fresh, malformed = activity_summary_vectors_table(partition_key, rendering, consent_team_ids)
 
     bucket = dataset_bucket()
-    key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, ACTIVITY_SUMMARY_VECTORS_TABLE, partition_key)
+    key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, table_name, partition_key)
     client = s3_client()
     existing = read_parquet_if_exists(client, bucket, key)
     table = fresh if existing is None else merge_activity_summary_vectors(existing, fresh, consent_team_ids)
-    write_parquet(client, bucket, key, table, schema_version=ACTIVITY_SUMMARY_VECTORS_SCHEMA_VERSION)
+    write_parquet(client, bucket, key, table, schema_version=schema_version)
 
     team_ids = table.column("team_id").to_pylist()
     user_ids = table.column("user_id").to_pylist()
@@ -1720,6 +1719,42 @@ def inbox_activity_summary_vectors(context: dagster.AssetExecutionContext) -> No
             "training_consent_teams": dagster.MetadataValue.int(len(consent_team_ids)),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
+    )
+
+
+@dagster.asset(name=ACTIVITY_SUMMARY_VECTORS_TABLE, **COMMON_ASSET_KWARGS)
+def inbox_activity_summary_vectors(context: dagster.AssetExecutionContext) -> None:
+    """One row per activity summary vector generated during dt=D, for user vectors in ranking training.
+
+    The source table drops a vector 3 months after its timestamp, and `UserActivitySummaryVersion`
+    keeps only the newest versions of a pair, so this partition is the durable history: a vector
+    that is not copied before it expires cannot be rebuilt. Partition D holds only the vectors
+    generated during D, not a cumulative snapshot. Training reads the union of partitions and takes
+    the vector a user had at a moment through `activity_vector_as_of`.
+
+    A leaf: nothing joins it, and it carries no summary text. A re-run replaces the rows the source
+    still returns and keeps the rest (`merge_activity_summary_vectors`).
+    """
+    _snapshot_activity_summary_vectors(
+        context,
+        ACTIVITY_SUMMARY_VECTORS_TABLE,
+        ACTIVITY_SUMMARY_RENDERING,
+        ACTIVITY_SUMMARY_VECTORS_SCHEMA_VERSION,
+        query_type="inbox_ranking_activity_summary_vectors",
+    )
+
+
+@dagster.asset(name=ACTIVITY_SUMMARY_PROFILE_VECTORS_TABLE, **COMMON_ASSET_KWARGS)
+def inbox_activity_summary_profile_vectors(context: dagster.AssetExecutionContext) -> None:
+    """The same leaf as `inbox_activity_summary_vectors`, for the rendering with the profile, so a
+    backtest can compare the two user vectors on the same builds. The tick emits this rendering only
+    while `emit_profile_embeddings` is on, so a day without it writes an empty object."""
+    _snapshot_activity_summary_vectors(
+        context,
+        ACTIVITY_SUMMARY_PROFILE_VECTORS_TABLE,
+        ACTIVITY_SUMMARY_RENDERING_PROFILE,
+        ACTIVITY_SUMMARY_PROFILE_VECTORS_SCHEMA_VERSION,
+        query_type="inbox_ranking_activity_summary_profile_vectors",
     )
 
 
@@ -2019,6 +2054,7 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
         USER_VECTORS_TABLE,
         ENGAGEMENT_EXPORT,
         ACTIVITY_SUMMARY_VECTORS_TABLE,
+        ACTIVITY_SUMMARY_PROFILE_VECTORS_TABLE,
     ],
     # The seven label streams run sequentially and each may take its full 600s query timeout, so an
     # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and

@@ -94,6 +94,7 @@ def set_batch_job_status(
 
 TERMINAL_BATCH_JOB_STATES = {
     HogFlowBatchJobState.COMPLETED,
+    HogFlowBatchJobState.PARTIALLY_FAILED,
     HogFlowBatchJobState.FAILED,
     HogFlowBatchJobState.CANCELLED,
 }
@@ -136,11 +137,17 @@ def filter_by_broadcast_status(queryset: QuerySet[HogFlow], statuses: Collection
         "archived": Q(status=HogFlow.State.ARCHIVED),
         "sending": live & Q(_latest_run_status__in=running),
         "sent": live & Q(_latest_run_status=HogFlowBatchJobState.COMPLETED, _has_pending_schedule=False),
+        # Kept apart from failed, because a sender who sees Failed can resend and reach the same people twice.
+        "partially_sent": live
+        & Q(_latest_run_status=HogFlowBatchJobState.PARTIALLY_FAILED, _has_pending_schedule=False),
         "scheduled": live
         & (
             (
                 Q(_has_pending_schedule=True)
-                & (Q(_latest_run_status__isnull=True) | Q(_latest_run_status=HogFlowBatchJobState.COMPLETED))
+                & (
+                    Q(_latest_run_status__isnull=True)
+                    | Q(_latest_run_status__in=[HogFlowBatchJobState.COMPLETED, HogFlowBatchJobState.PARTIALLY_FAILED])
+                )
             )
             | (nothing_to_come & ~Q(origin_product="broadcasts"))
         ),
@@ -160,10 +167,12 @@ def hog_flow_ids_with_broadcast_status(*, team_id: int, statuses: Collection[str
 
 
 def annotate_latest_send(queryset: QuerySet[HogFlow]) -> QuerySet[HogFlow]:
-    """Adds `_latest_send_at`: when the workflow's newest completed run finished, or null."""
+    """Adds `_latest_send_at`: when the workflow's newest run that sent to anyone finished, or null."""
     latest_send = (
         HogFlowBatchJob.objects.filter(
-            team_id=OuterRef("team_id"), hog_flow_id=OuterRef("pk"), status=HogFlowBatchJobState.COMPLETED
+            team_id=OuterRef("team_id"),
+            hog_flow_id=OuterRef("pk"),
+            status__in=[HogFlowBatchJobState.COMPLETED, HogFlowBatchJobState.PARTIALLY_FAILED],
         )
         .order_by("-updated_at")
         .values("updated_at")[:1]

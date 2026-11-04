@@ -7,9 +7,10 @@ import { getTask, type TaskApi } from '@/api/tasks'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
 import { useDemoReportQuery } from '@/demo/hooks'
+import { useConnectivity } from '@/lib/connectivity'
 import { toError } from '@/lib/errors'
 import { type ReportTaskInput, reportTaskId, reportView } from '@/model/adapters/report'
-import { errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
+import { connectionLoadingQuery, errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
 import type { InboxItem, QueryState, ReportActions, ReportView } from '@/model/types'
 
 import { useHandoffActions } from '../handoff/hooks'
@@ -31,6 +32,7 @@ type TaskWithCreator = TaskApi & Pick<ReportTaskInput, 'created_by'>
 // page, because they are the evidence then.
 function useLiveReport(reportId: string, enabled: boolean, refreshWhileVisible: boolean): QueryState<ReportView> {
     const scope = useProjectScope()
+    const offline = useConnectivity((state) => state.status === 'offline')
     const appActive = useAppActive()
     const active = enabled && appActive && scope !== null
     const queryClient = useQueryClient()
@@ -119,7 +121,7 @@ function useLiveReport(reportId: string, enabled: boolean, refreshWhileVisible: 
             report.isFetching || artefacts.isFetching || page.isFetching || signals.isFetching || task.isFetching
         return successQuery(view, { refetch, isRefetching })
     }
-    return { ...loadingQuery<ReportView>(), refetch }
+    return connectionLoadingQuery<ReportView>(offline, refetch)
 }
 
 export function useReport(reportId: string, refreshWhileVisible = false, enabled = true): QueryState<ReportView> {

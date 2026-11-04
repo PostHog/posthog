@@ -19,12 +19,12 @@ from posthog.models.user import User
 from products.alerts.backend.judge import (
     EarlierFlag,
     JudgeAttribution,
-    LLMDetectorMisconfiguredError,
+    LLMDetectorPausedError,
     LLMDetectorUnavailableError,
     SeriesContext,
     SeriesJudgment,
 )
-from products.alerts.backend.judge.llm import MAX_RATIONALE_CHARS, LLMSeriesJudge
+from products.alerts.backend.judge.llm import LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE, MAX_RATIONALE_CHARS, LLMSeriesJudge
 from products.alerts.backend.judge.prompt import (
     INSTRUCTIONS_FENCE,
     MAX_EARLIER_RATIONALE_CHARS,
@@ -53,9 +53,15 @@ def _fake_user() -> Any:
     return user
 
 
+_CREDIT_CHECK = "ee.billing.quota_limiting.is_team_over_ai_credit_budget"
+
+
 @pytest.fixture(autouse=True)
 def _in_the_rollout() -> Iterator[None]:
-    with patch("products.alerts.backend.llm_detector_limits.posthoganalytics.feature_enabled", return_value=True):
+    with (
+        patch("products.alerts.backend.llm_detector_limits.posthoganalytics.feature_enabled", return_value=True),
+        patch(_CREDIT_CHECK, return_value=False),
+    ):
         yield
 
 
@@ -135,12 +141,12 @@ class TestLLMJudgeFailureIsLoud:
     def test_call_is_refused_without_ai_processing_consent(self, _name: str, approved: bool | None) -> None:
         attribution = _attribution(team=_fake_team(ai_processing_approved=approved))
 
-        with pytest.raises(LLMDetectorMisconfiguredError, match="AI data processing is turned off"):
+        with pytest.raises(LLMDetectorPausedError, match="AI data processing is turned off"):
             LLMSeriesJudge({"type": "llm"}).judge_latest(SERIES, series=_series(), attribution=attribution)
 
     @parameterized.expand(
         [
-            ("revoked", False, LLMDetectorMisconfiguredError, "not enabled for your account"),
+            ("revoked", False, LLMDetectorPausedError, "not enabled for your account"),
             ("unavailable", None, LLMDetectorUnavailableError, "could not check rollout access"),
         ]
     )
@@ -348,6 +354,28 @@ class TestLLMJudgeVerdictMemo:
                 judge.judge_latest(SERIES, series=_series(), attribution=_attribution(evaluation_id=_SLOT))
 
         assert invoke.call_count == 2
+
+
+@pytest.mark.parametrize(
+    "is_agent_billable,over_budget,expect_call",
+    [
+        (True, True, False),
+        (False, True, True),
+        (True, RuntimeError("redis down"), True),
+    ],
+)
+def test_an_organization_without_ai_credits_makes_no_model_call(
+    is_agent_billable: bool, over_budget: bool | Exception, expect_call: bool
+) -> None:
+    budget_check = {"side_effect": over_budget} if isinstance(over_budget, Exception) else {"return_value": over_budget}
+    attribution = _attribution(is_agent_billable=is_agent_billable)
+    with _mocked_model(_verdict()) as parse, patch(_CREDIT_CHECK, **budget_check):
+        try:
+            LLMSeriesJudge({"type": "llm"}).judge_latest(SERIES, series=_series(), attribution=attribution)
+        except LLMDetectorPausedError as error:
+            assert str(error) == LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE
+
+    assert parse.called is expect_call
 
 
 @pytest.mark.parametrize(

@@ -30,6 +30,7 @@ import { markBootPhase } from 'lib/utils/bootTiming'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { addProjectIdIfMissing, getProjectIdentifierInPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { handleLoginRedirect } from 'lib/utils/loginRedirect'
 import { retryImport } from 'lib/utils/retryImport'
 import { isStableChunkBuild, reloadAfterChunkLoadError } from 'lib/utils/stableChunks'
 import { identifierToHuman } from 'lib/utils/strings'
@@ -56,9 +57,9 @@ import { urls } from 'scenes/urls'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { loadCoreFilterDefinitions } from '~/taxonomy/loadCoreFilterDefinitions'
 import { AccessControlLevel, UserType } from '~/types'
 
-import { handleLoginRedirect } from './authentication/auth/loginLogic'
 import { parseCouponCampaign } from './coupons/utils'
 import { isOnboardingRedirectSuppressed } from './onboarding/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
@@ -73,6 +74,15 @@ interface MountedSceneLogic {
     sceneId: string
     sceneKey?: string
     unmount: () => void
+}
+
+// A failed load must fail the scene, because code that builds queries from an empty taxonomy returns wrong results.
+function loadCoreFilterDefinitionsFor(sceneId: string, loggedIn: boolean): Promise<void> {
+    const sceneConfig = sceneConfigurations[sceneId]
+    if (sceneConfig?.onlyUnauthenticated || (sceneConfig?.allowUnauthenticated && !loggedIn)) {
+        return Promise.resolve()
+    }
+    return retryImport(loadCoreFilterDefinitions)
 }
 
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
@@ -116,7 +126,7 @@ function leaveBlockedOrganizationPath(): boolean {
 
 // `/` and `/home` both resolve the configured homepage through this, so anything asking whether a
 // location is the homepage has to derive it the same way.
-const homepageTargetPathname = (homepage: SceneTab): string => {
+export const homepageTargetPathname = (homepage: SceneTab): string => {
     const targetPathname = addProjectIdIfMissing(homepage.pathname || urls.projectHomepage())
     return removeProjectIdIfPresent(targetPathname) === '/'
         ? addProjectIdIfMissing(urls.projectHomepage())
@@ -125,7 +135,7 @@ const homepageTargetPathname = (homepage: SceneTab): string => {
 
 // Bootstrapped by Django into APP_CONTEXT so the configured homepage is known on first paint,
 // before any async fetch — otherwise urlToAction runs with a null homepage and /home can't redirect.
-const getBootstrappedHomepage = (): SceneTab | null => {
+export const getBootstrappedHomepage = (): SceneTab | null => {
     const homepage = getAppContext()?.homepage
     if (!homepage) {
         return null
@@ -167,6 +177,8 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/agentic',
     // /cli/authorize, /cli/live (CLI auth round-trip).
     '/cli',
+    // /device, where a person approves an OAuth device login (urls.oauthDeviceAuthorize).
+    '/device',
     // /stamphog/install/callback — GitHub App install round-trip carrying a one-time OAuth code;
     // if /onboarding swallows it the installation completes on GitHub but no repos ever connect.
     '/stamphog/install/callback',
@@ -202,6 +214,12 @@ function isFirstProjectWithoutData(user: UserType): boolean {
 export function isOnboardingNotRequiredForPath(pathname: string): boolean {
     const path = removeProjectIdIfPresent(pathname)
     return pathPrefixesOnboardingNotRequiredFor.some((prefix) => path.startsWith(prefix))
+}
+
+export function getOnboardingRedirectNextPath(nextParam: string | null | undefined, location: Location): string {
+    return (
+        getRelativeNextPath(nextParam, location) ?? `${removeProjectIdIfPresent(location.pathname)}${location.search}`
+    )
 }
 
 const DelayedLoadingSpinner = (): JSX.Element => {
@@ -1023,14 +1041,12 @@ export const sceneLogic = kea<sceneLogicType>([
                         !isOnboardingRedirectSuppressed(user) &&
                         !isOnboardingNotRequiredForPath(location.pathname)
                     ) {
-                        const nextUrl =
-                            getRelativeNextPath(params.searchParams.next, location) ??
-                            removeProjectIdIfPresent(location.pathname)
+                        const nextUrl = getOnboardingRedirectNextPath(params.searchParams.next, location)
 
                         // Check if user is coming from a coupon campaign link
-                        const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
-                        if (campaign) {
-                            router.actions.replace(urls.onboarding({ campaign }), { next: nextUrl })
+                        const couponCampaign = nextUrl ? parseCouponCampaign(nextUrl) : null
+                        if (couponCampaign) {
+                            router.actions.replace(urls.onboarding({ campaign: couponCampaign }), { next: nextUrl })
                             return
                         }
 
@@ -1088,7 +1104,10 @@ export const sceneLogic = kea<sceneLogicType>([
                     // Capture the importer in the narrowed scope; the early guard above ensures it's
                     // defined, but that narrowing wouldn't flow into the retryImport closure.
                     const importScene = props.scenes[sceneId]
-                    importedScene = await retryImport(() => importScene())
+                    ;[importedScene] = await Promise.all([
+                        retryImport(() => importScene()),
+                        loadCoreFilterDefinitionsFor(sceneId, !!userLogic.values.user),
+                    ])
                 } catch (error: any) {
                     if (isChunkLoadError(error)) {
                         // Reloaded once in the last 20 seconds and now reloading again? Show network error

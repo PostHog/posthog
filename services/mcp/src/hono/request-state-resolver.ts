@@ -4,7 +4,6 @@ import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
-import { MCP_NO_DATA_INSTALL_NOTICE_FLAG, type NoDataAction } from '@/lib/no-data-guard'
 import { buildMCPAnalyticsGroups, type MCPAnalyticsContext } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -63,15 +62,12 @@ export interface ResolvedState {
     apiKeyScopes: string[]
     isImpersonated?: boolean
     suppressAnalytics?: boolean
-    projectHasData?: boolean | undefined
     /**
-     * The workspace context that the flags and `projectHasData` were resolved against.
+     * The workspace context that the flags were resolved against.
      * A handler such as `switch-project` changes the live context, so tool-call analytics
      * read this snapshot to keep the project group consistent with the variant.
      */
     analyticsContext?: MCPAnalyticsContext | undefined
-    /** Set on the per-call state when the no-data notice blocked or warned this call. */
-    noDataAction?: NoDataAction | undefined
     /** Set on the per-call state: whether the client sent a session or conversation handle. */
     carriedContextHandle?: boolean | undefined
     /** The organization's AI data processing consent; undefined when the org could not be read. */
@@ -84,6 +80,7 @@ export interface ResolvedState {
     sessionContext: MCPSessionContext | null
     allTools: Tool<ZodObjectAny>[]
     scopeGatedTools: ScopeGatedTool[]
+    findScopeGatedTool: (name: string) => ScopeGatedTool | undefined
     flagGatedTools: FlagGatedTool[]
     /**
      * The tools a scout run with a picked tool list holds, from token introspection.
@@ -93,6 +90,7 @@ export interface ResolvedState {
     heldTools?: ReadonlySet<string> | undefined
     /** The task a sandbox token is bound to, from token introspection. */
     sandboxTaskId?: string | undefined
+    supportsStepUp: boolean
     /**
      * Whether the caller's team may reach third-party MCP tools through `exec`.
      * Gated on the same flag as the gateway UI — the tools are the gateway's payoff,
@@ -213,7 +211,6 @@ export class RequestStateResolver {
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
-                MCP_NO_DATA_INSTALL_NOTICE_FLAG,
                 ...GUIDANCE_RULE_FLAGS,
             ]),
         ]
@@ -349,6 +346,14 @@ export class RequestStateResolver {
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions).filter(isHeld) : []
+        // A call to a gated tool reports the missing scope before the tool runs. Tools mode builds
+        // the list only on the first miss instead of scanning the catalog on every request.
+        let toolsModeScopeGatedTools: ScopeGatedTool[] | undefined
+        const findScopeGatedTool = (name: string): ScopeGatedTool | undefined =>
+            (useSingleExec
+                ? scopeGatedTools
+                : (toolsModeScopeGatedTools ??= getScopeGatedTools(apiKeyScopes, filterOptions).filter(isHeld))
+            ).find((tool) => tool.name === name)
         // Only exec redirects a call to a gated tool; tools mode just omits it.
         const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions).filter(isHeld) : []
 
@@ -364,7 +369,6 @@ export class RequestStateResolver {
             apiKeyScopes,
             isImpersonated: _apiKey?.is_impersonated === true,
             suppressAnalytics: props.suppressAnalytics,
-            projectHasData: flagAnalyticsContext?.projectHasData,
             analyticsContext: flagAnalyticsContext,
             aiConsentGiven: aiConsentGiven ?? undefined,
             businessKnowledgeContent,
@@ -374,10 +378,12 @@ export class RequestStateResolver {
             sessionContext,
             allTools,
             scopeGatedTools,
+            findScopeGatedTool,
             flagGatedTools,
             gatewayToolFilter: { tools, features, excludeTools },
             heldTools,
             sandboxTaskId: _apiKey?.sandbox_task_id,
+            supportsStepUp: _apiKey?.supports_step_up === true,
             gatewayToolsEnabled:
                 useSingleExec &&
                 !readOnly &&

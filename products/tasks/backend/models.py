@@ -123,11 +123,13 @@ TASK_OWNERSHIP_VERSION_STATE_KEY = "task_ownership_version"
 TASK_RUN_SUMMARY_STATE_KEY = "task_summary"
 PRIOR_RUN_SUMMARY_STATE_KEY = "prior_run_summary"
 TASK_RUN_TAGS_STATE_KEY = "task_tags"
+TASK_RUN_FINISH_REPORT_STATE_KEY = "finish_report_saved"
 PRIOR_RUN_TAGS_STATE_KEY = "prior_run_tags"
 
 # Stage `Task.create_run` stamps on a person-started signals run, so it resolves a mintable
 # gateway product. Keyed by origin value.
 INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN: dict[str, str] = {"signal_report": "inbox", "signals_chat": "chat"}
+INTERNAL_SIGNALS_AI_STAGE_BY_ORIGIN: dict[str, str] = {"scout_suggestions": "scout_suggestions"}
 
 MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "support_reply": "support",
@@ -459,6 +461,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         METRICS_IMPORT = "metrics_import", "Metrics Import"
         # Docs pull requests written by the knowledge writer. Reserved: only its intake creates these.
         KNOWLEDGE_WRITER = "knowledge_writer", "Knowledge Writer"
+        CONTEXT_LAYER = "context_layer", "Context Layer"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -960,6 +963,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 state["sandbox_template"] = previous_state["sandbox_template"]
             elif carry_sandbox_template and (stored_profile := task.stored_profile) is not None:
                 state["sandbox_template"] = stored_profile.sandbox_templates[0]
+            if task.origin_product == Task.OriginProduct.KNOWLEDGE_WRITER:
+                state["include_live_context"] = False
             if task._resolves_pr_authorship_per_run() and "pr_authorship_mode" not in state:
                 from products.tasks.backend.temporal.process_task.utils import (
                     PrAuthorshipMode,
@@ -992,6 +997,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if interactive_stage and not state.get("ai_stage") and not task.internal:
                 if task.origin_product != Task.OriginProduct.SIGNAL_REPORT or task.signal_report_id:
                     state["ai_stage"] = interactive_stage
+            internal_stage = INTERNAL_SIGNALS_AI_STAGE_BY_ORIGIN.get(task.origin_product)
+            if internal_stage and not state.get("ai_stage") and task.internal:
+                state["ai_stage"] = internal_stage
 
             # A manual resume can share an internal Task with an automated run. Freeze billing
             # on this run so historical PR charges and pipeline attribution do not change.
@@ -2651,6 +2659,8 @@ class TaskRun(models.Model):
         "sandbox_backend",
         "failure_error_type",
         "cancel_requested_at",
+        # A resumed run's turns must be able to replace the previous execution's finish report.
+        TASK_RUN_FINISH_REPORT_STATE_KEY,
     )
 
     def restore_cloud_resume_state(self, prior_state: dict[str, Any]) -> None:
@@ -3595,6 +3605,13 @@ class TaskRun(models.Model):
     def is_terminal(self) -> bool:
         return self.status in {self.Status.COMPLETED, self.Status.FAILED, self.Status.CANCELLED}
 
+    @property
+    def finish_report(self) -> str | None:
+        if not (self.state or {}).get(TASK_RUN_FINISH_REPORT_STATE_KEY):
+            return None
+        report = self.output.get("final_message") if isinstance(self.output, dict) else None
+        return report if isinstance(report, str) and report else None
+
     def delete(self, *args, **kwargs):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
 
@@ -3768,6 +3785,13 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
     class EndedReason(models.TextChoices):
         CLEANUP = "cleanup", "Cleanup"
         REAPED = "reaped", "Reaped"
+        TTL_SWEEP = "ttl_sweep", "TTL sweep"
+
+    class ComputeSettleParkReason(models.TextChoices):
+        HTTP_400 = "http_400", "HTTP 400"
+        HTTP_409 = "http_409", "HTTP 409"
+        ATTEMPTS_EXHAUSTED = "attempts_exhausted", "Attempts exhausted"
+        UNEXPECTED_STATUS = "unexpected_status", "Unexpected status"
 
     # db_constraint=False on the team FK: adding an FK constraint to that hot table
     # locks it and stalls deploys; Django still enforces the relation and on_delete at
@@ -3846,6 +3870,44 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
     provider_usage_measured_at = models.DateTimeField(
         null=True, blank=True, help_text="When provider resource usage was sampled"
     )
+    compute_settled_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the session's compute was settled on the gateway ledger"
+    )
+    compute_settled_usd = models.DecimalField(
+        max_digits=20, decimal_places=6, null=True, blank=True, help_text="Compute amount the ledger recorded"
+    )
+    compute_ledger_entry_id = models.CharField(
+        max_length=64, blank=True, default="", help_text="Gateway ledger entry id of the compute debit"
+    )
+    compute_settle_attempts = models.PositiveIntegerField(
+        default=0, help_text="Gateway 200 responses whose body could not be parsed so far"
+    )
+    compute_settle_attempted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the last reported-spend request was sent; the sweep tries never-attempted rows first",
+    )
+    compute_settle_conflict_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the gateway refused the debit for good; the sweep skips the row"
+    )
+    compute_settle_error = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="Last gateway error text; a 400 stays so the sweep can recognise a repeat",
+    )
+    compute_settle_park_reason = models.CharField(
+        max_length=32,
+        choices=ComputeSettleParkReason,
+        blank=True,
+        default="",
+        help_text="Why settlement stopped retrying the row; empty while the row is not parked",
+    )
+    compute_settle_body = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Reported-spend body frozen before the first attempt so retries replay it unchanged",
+    )
 
     class Meta:
         db_table = "posthog_task_sandbox_session"
@@ -3862,6 +3924,25 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
             ),
             # For per-team/per-origin re-aggregation once pricing decides which origins bill.
             models.Index(fields=["team", "user_attributed_at"], name="sandbox_session_team_attr_idx"),
+            models.Index(
+                fields=["ttl_expires_at"],
+                condition=models.Q(
+                    compute_settled_at__isnull=True,
+                    compute_settle_conflict_at__isnull=True,
+                    user_attributed_at__isnull=False,
+                ),
+                name="sandbox_session_settle_ttl_idx",
+            ),
+            models.Index(
+                models.OrderBy(models.F("compute_settle_attempted_at"), nulls_first=True),
+                models.F("ended_at"),
+                condition=models.Q(
+                    compute_settled_at__isnull=True,
+                    compute_settle_conflict_at__isnull=True,
+                    user_attributed_at__isnull=False,
+                ),
+                name="sandbox_session_settle_rt_idx",
+            ),
         ]
 
     def __str__(self):

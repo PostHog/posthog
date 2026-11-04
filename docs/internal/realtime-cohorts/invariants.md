@@ -232,6 +232,7 @@ Most of these are not enforced by a single test, and a violation usually shows u
   With it off, which is the default, the last message in Kafka order wins.
 - Limit: across a restart or a partition move, version order follows the wall clock.
   A change with no usable version bypasses the ordering.
+  With version writes off, a producer retry can land an older change after a newer one.
 - See [membership output and readers](membership-output-and-readers.md).
 
 **29. Membership rows, snapshot bookkeeping and consumer progress commit together.**

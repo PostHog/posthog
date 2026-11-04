@@ -195,6 +195,8 @@ def grant_realtime_cohort_access(
             row.team_id: row
             for row in RealtimeCohortTeamAccess.objects.select_for_update().filter(team_id__in=requested)
         }
+        # The Rust readers in rust/common/cohort-team-access treat `off` as final, so allowing this
+        # needs a change there first.
         _refuse(
             "Revoked, and its pipeline state was never purged",
             [team_id for team_id, row in rows.items() if row.level == RealtimeCohortLevel.OFF],

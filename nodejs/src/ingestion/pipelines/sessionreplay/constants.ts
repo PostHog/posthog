@@ -22,6 +22,9 @@ export const MAX_SESSION_LENGTH_SECONDS = 24 * 60 * 60
 // sessions that span across the boundary, delayed messages, etc.)
 export const SESSION_TRACKER_REDIS_TTL_SECONDS = 2 * MAX_SESSION_LENGTH_SECONDS
 
+// Mobile SDKs upload queued recordings days later, so a billed mobile session's mark must outlive that upload.
+export const SESSION_TRACKER_MOBILE_BILLED_TTL_SECONDS = 7 * 24 * 60 * 60
+
 // Redis TTL for session blocklist keys
 // Matches session tracker TTL since blocked sessions should persist for same duration
 export const SESSION_FILTER_REDIS_TTL_SECONDS = 2 * MAX_SESSION_LENGTH_SECONDS

@@ -1110,6 +1110,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'scout-trials',
             'signals-report-checks-replace',
             'inbox-report-actions-mcp',
+            'inbox-reports-create-mcp',
             'signals-reviewer-exclusions-mcp',
             'cross-project-dashboards',
             'warehouse-suggestions',
@@ -1133,6 +1134,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'investigate-insight',
             'workflows-customerio-import',
             'mcp-session-recording-console-logs',
+            'support-macros',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1179,7 +1181,7 @@ describe('Tool Filtering - Feature Flags', () => {
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
         expect(allFlags).not.toContain('dashboard-widgets')
-        expect(flags).toHaveLength(35)
+        expect(flags).toHaveLength(36)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

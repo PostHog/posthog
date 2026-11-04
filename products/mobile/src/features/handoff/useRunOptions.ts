@@ -14,6 +14,7 @@ import {
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDemoMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
+import { OfflineError, whileOnline } from '@/lib/connectivity'
 
 import {
     catalogueEntry,
@@ -92,15 +93,18 @@ export async function fetchRunDefaults(
     scope: ProjectScope | null
 ): Promise<ResolvedAiRunDefaultsApi | undefined> {
     try {
-        const config = await queryClient.fetchQuery({
-            queryKey: runOptionKeys.myConfig(scope),
-            queryFn: ({ signal }) => getMyTaskConfig(signal),
-            staleTime: DEFAULTS_STALE_MS,
-            // The hand-off is waiting on this, and a failure only means the server picks the defaults.
-            retry: false,
-        })
+        const config = await whileOnline(() =>
+            queryClient.fetchQuery({
+                queryKey: runOptionKeys.myConfig(scope),
+                queryFn: ({ signal }) => getMyTaskConfig(signal),
+                staleTime: DEFAULTS_STALE_MS,
+                // The hand-off is waiting on this, and a failure only means the server picks the defaults.
+                retry: false,
+            })
+        )
         return config.resolved_ai_run_defaults
-    } catch {
+    } catch (error) {
+        if (error instanceof OfflineError) throw error
         return undefined
     }
 }

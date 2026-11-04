@@ -145,14 +145,15 @@ export interface RecommendationDataGap {
     sourceId: string
     sourceName: string
     table: string
-    description: string
+    // Completes "Turn on <table> to ...".
+    purpose: string
     rules: MarketingAnalyticsRecommendationRule[]
 }
 
 const DATA_GAP_TABLES: Omit<RecommendationDataGap, 'sourceId' | 'sourceName'>[] = [
     {
         table: 'search_term_stats',
-        description: 'Turn on the search terms table to get recommendations about the searches that trigger your ads.',
+        purpose: 'get recommendations about the searches that trigger your ads.',
         rules: [
             'brand_leak',
             'brand_overlap',
@@ -164,13 +165,12 @@ const DATA_GAP_TABLES: Omit<RecommendationDataGap, 'sourceId' | 'sourceName'>[] 
     },
     {
         table: 'search_term_keyword_stats',
-        description:
-            'Turn on the search term keywords table to see which keyword matched each search term that wastes spend.',
+        purpose: 'see which keyword matched each search term that wastes spend.',
         rules: ['spend_without_conversions'],
     },
     {
         table: 'campaign_impression_share_stats',
-        description: 'Turn on the campaign impression share table to tell budget limits from ad rank limits.',
+        purpose: 'tell budget limits from ad rank limits.',
         rules: ['budget_constrained', 'scale_campaign'],
     },
 ]
@@ -215,7 +215,12 @@ export function recommendationsSource(source: ExternalDataSource): MarketingAnal
         if (!queryTable) {
             return null
         }
-        return { sourceType: 'GoogleSearchConsole', queryTable, sitesTable: syncedTable(source, 'sites') }
+        return {
+            sourceType: 'GoogleSearchConsole',
+            queryTable,
+            queryPageTable: syncedTable(source, 'search_analytics_by_query_page'),
+            sitesTable: syncedTable(source, 'sites'),
+        }
     }
     return null
 }

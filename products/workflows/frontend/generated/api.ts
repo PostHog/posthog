@@ -1808,7 +1808,8 @@ export const getInternalHogFlowsBatchJobsStatusUpdateUrl = (teamId: string, batc
  * terminal status, returns 200 without re-writing — the resolver retries
  * this call via cyclotron retry semantics, so safe repeats are required.
  *
- * Accepts: { status: "completed" | "failed" }
+ * Accepts: { status: "completed" | "failed" }. A completed run can later move to
+ * failed or partially_failed, once its child runs show errored sends.
  */
 export const internalHogFlowsBatchJobsStatusUpdate = async (
     teamId: string,

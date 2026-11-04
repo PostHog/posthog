@@ -194,6 +194,7 @@ export const getToolsFromContext = async (
             ...toolBase,
             title: definition.title,
             description: definition.description,
+            searchKeywords: definition.search_keywords,
             scopes: definition.required_scopes ?? [],
             annotations: definition.annotations,
         }

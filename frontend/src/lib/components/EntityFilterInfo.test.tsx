@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ActionFilter, EntityFilter, EntityTypes } from '~/types'
+import { EntityTypes } from '~/types'
 
 import { DisplayableEntity, EntityFilterInfo } from './EntityFilterInfo'
 
@@ -145,7 +145,7 @@ describe('EntityFilterInfo', () => {
     it.each([
         ['null', null],
         ['undefined', undefined],
-    ] as [string, EntityFilter | ActionFilter | null | undefined][])(
+    ] as [string, DisplayableEntity | null | undefined][])(
         'renders nothing without throwing for a %s filter',
         (_, filter) => {
             const { container } = render(<EntityFilterInfo filter={filter} />)

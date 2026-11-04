@@ -5,8 +5,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
-import { hogql } from '~/queries/utils'
+import { hogql } from 'lib/utils/hogql'
 
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'

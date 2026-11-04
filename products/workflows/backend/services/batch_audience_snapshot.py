@@ -4,13 +4,15 @@ from itertools import batched
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import DatabaseError, transaction
 from django.utils import timezone
 
 import structlog
+from clickhouse_driver.errors import UnknownPacketFromServerError
 from rest_framework import exceptions
 
 from posthog.dataclasses import frozen
-from posthog.errors import ClickHouseQueryTimeOut
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled, ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 
 from products.feature_flags.backend.person_sampling import bounded_memory_settings
@@ -29,7 +31,15 @@ logger = structlog.get_logger(__name__)
 AUDIENCE_SNAPSHOT_QUERY_TIMEOUT_SECONDS = 1200
 AUDIENCE_SNAPSHOT_WRITE_CHUNK = 5000
 
-TERMINAL_STATES = {HogFlowBatchJobState.COMPLETED, HogFlowBatchJobState.FAILED, HogFlowBatchJobState.CANCELLED}
+# The query only reads, so a stale pooled socket or a query a deploy cancelled is safe to run again too.
+AUDIENCE_QUERY_TRANSIENT_ERRORS = (*CH_TRANSIENT_ERRORS, UnknownPacketFromServerError, CHQueryErrorQueryWasCancelled)
+
+TERMINAL_STATES = {
+    HogFlowBatchJobState.COMPLETED,
+    HogFlowBatchJobState.PARTIALLY_FAILED,
+    HogFlowBatchJobState.FAILED,
+    HogFlowBatchJobState.CANCELLED,
+}
 
 
 @frozen
@@ -92,7 +102,9 @@ def audience_failure_reason(error: Exception) -> str:
         )
     if isinstance(error, exceptions.ValidationError):
         return f"Audience filters can't be evaluated: {' '.join(_validation_messages(error.detail))}"
-    return "Audience query failed"
+    if isinstance(error, DatabaseError):
+        return "Audience couldn't be saved. Start the run again."
+    return "Audience query failed. Start the run again."
 
 
 def _validation_messages(detail: object) -> list[str]:
@@ -122,29 +134,49 @@ def resolve_audience_snapshot(
             limit=max_audience_size + 1,
             settings=query_settings,
         )
-        _replace_audience_members(job, person_ids)
+    except AUDIENCE_QUERY_TRANSIENT_ERRORS:
+        raise
     except Exception as error:
         logger.exception("batch_audience_snapshot_failed", batch_job_id=str(job.id), team_id=team_id, error=str(error))
         capture_exception(error)
-        HogFlowBatchJob.objects.filter(pk=job.pk).update(
-            audience_status=HogFlowBatchJobAudienceStatus.FAILED,
-            audience_error=audience_failure_reason(error),
-            updated_at=timezone.now(),
+        record_audience_snapshot_failure(
+            team_id=team_id, batch_job_id=str(job.id), reason=audience_failure_reason(error)
         )
         return
-    still_running = (
-        HogFlowBatchJob.objects.filter(pk=job.pk)
-        .exclude(status__in=TERMINAL_STATES)
-        .update(
+    _publish_audience(job, person_ids)
+
+
+def record_audience_snapshot_failure(*, team_id: int, batch_job_id: str, reason: str) -> None:
+    # A redelivered task can fail after the first delivery published, and must not take the ready audience away.
+    HogFlowBatchJob.objects.filter(id=batch_job_id, team_id=team_id).exclude(
+        audience_status=HogFlowBatchJobAudienceStatus.READY
+    ).update(
+        audience_status=HogFlowBatchJobAudienceStatus.FAILED,
+        audience_error=reason,
+        updated_at=timezone.now(),
+    )
+
+
+def _publish_audience(job: HogFlowBatchJob, person_ids: list[str]) -> None:
+    # A redelivered task can run beside the first, and a run that ends waits here, so its cleanup sees these rows.
+    with transaction.atomic():
+        still_open = (
+            HogFlowBatchJob.objects.select_for_update()
+            .filter(pk=job.pk)
+            .exclude(status__in=TERMINAL_STATES)
+            .exclude(audience_status=HogFlowBatchJobAudienceStatus.READY)
+            .values_list("pk", flat=True)
+            .first()
+        )
+        if still_open is None:
+            return
+        _replace_audience_members(job, person_ids)
+        HogFlowBatchJob.objects.filter(pk=job.pk).update(
             audience_status=HogFlowBatchJobAudienceStatus.READY,
             audience_size=len(person_ids),
             audience_error=None,
             updated_at=timezone.now(),
         )
-    )
-    if not still_running:
-        # The run ended while the query ran, and its cleanup already passed.
-        delete_audience_snapshot(team_id=job.team_id, batch_job_id=str(job.id))
 
 
 def _replace_audience_members(job: HogFlowBatchJob, person_ids: list[str]) -> None:
