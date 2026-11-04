@@ -20,8 +20,7 @@ for (const entry of Object.values(MANIFEST)) {
 
 // Full catalog of canonical path templates, embedded in the `url` description so an agent sees every
 // linkable path before it picks one; the `{placeholders}` are the params to fill. Generated from the
-// manifest (itself generated from the frontend's `urls`) so it never drifts. Exec `info` shows a short
-// description instead, because the catalog is most of the tool's size, and `schema` serves it in full.
+// manifest (itself generated from the frontend's `urls`) so it never drifts.
 const URL_CATALOG = [...SCOPE_BY_TEMPLATE.keys()].sort().join('\n')
 
 const URL_DESCRIPTION =
