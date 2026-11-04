@@ -39,7 +39,6 @@ from django.db.models import (
     Exists,
     ExpressionWrapper,
     F,
-    FilteredRelation,
     FloatField,
     IntegerField,
     Max,
@@ -3517,20 +3516,18 @@ def _list_accounts_sorted_by_custom_property(
         DataType.BOOLEAN: "value_bool",
         DataType.DATETIME: "value_datetime",
     }[DATA_TYPE_BY_DISPLAY_TYPE[custom_property_display_types[sort.definition_id]]]
-    sort_value = F(f"_custom_property_sort_value__{value_field}")
-    with_value = queryset.annotate(
-        _custom_property_sort_value=FilteredRelation(
-            "custom_property_values",
-            condition=Q(
-                custom_property_values__team_id=team_id,
-                custom_property_values__definition_id=sort.definition_id,
-                custom_property_values__is_deleted=False,
-            ),
-        ),
+    sort_value = F(f"custom_property_values__{value_field}")
+    # One filter() call, then annotate(), so the sort value reuses the filter's join instead of adding a second one.
+    with_value = queryset.filter(
+        custom_property_values__team_id=team_id,
+        custom_property_values__definition_id=sort.definition_id,
+        custom_property_values__is_deleted=False,
+        **{f"custom_property_values__{value_field}__isnull": False},
+    ).annotate(
         _account_table_sort=(
             Left(sort_value, SORT_VALUE_STR_PREFIX_LENGTH) if value_field == "value_str" else sort_value
         ),
-    ).filter(**{f"_custom_property_sort_value__{value_field}__isnull": False})
+    )
     # The id tiebreaker follows the sort direction so one index scan direction serves both.
     if sort.direction == contracts.AccountTableSortDirection.ASCENDING:
         with_value = with_value.order_by(F("_account_table_sort").asc(), "id")
