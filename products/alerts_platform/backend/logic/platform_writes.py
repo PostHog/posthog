@@ -118,12 +118,12 @@ def _validated(
     return validated
 
 
-def hold_admission_lock(team_id: int, source_kind: SourceKind) -> None:
-    """Serializes a team's admissions for a kind until the caller's transaction ends. A source that
-    also creates alerts outside the platform takes it too, so its count and the platform's agree."""
+def hold_cap_lock(team_id: int, source_kind: SourceKind) -> None:
+    """Serializes a team's cap checks for a kind until the caller's transaction ends. A source that
+    also creates alerts outside the platform takes it too, so two creates cannot both pass a count."""
     # In autocommit the lock ends with its own statement, so it would serialize nothing.
     if not connection.in_atomic_block:
-        raise RuntimeError("The admission lock must be taken inside a transaction.")
+        raise RuntimeError("The cap lock must be taken inside a transaction.")
     # A transaction-scoped advisory lock per team and kind, rather than a lock on the Team row, which
     # foreign-key checks from every child write also take.
     with connection.cursor() as cursor:
@@ -144,7 +144,7 @@ def _admit(
     spec = source_configs.spec(source_kind)
     if spec is None or spec.admit is None:
         return
-    hold_admission_lock(team_id, source_kind)
+    hold_cap_lock(team_id, source_kind)
     spec.admit(team_id=team_id, current=current, edit=edit, check_interval_minutes=check_interval_minutes)
 
 
