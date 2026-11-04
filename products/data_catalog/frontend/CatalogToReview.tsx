@@ -51,14 +51,14 @@ export function CatalogToReview(): JSX.Element | null {
             count: proposedJoins,
             title: pluralize(proposedJoins, 'proposed join'),
             description: 'Joins between tables waiting for someone to accept or reject them.',
-            href: urls.dataCatalog('relationships'),
+            href: combineUrl(urls.dataCatalog('relationships'), { [TABLES_FILTER_PARAM]: PROPOSED_TABLES_FILTER }).url,
         },
         {
             key: 'metrics',
             count: proposedMetrics,
             title: pluralize(proposedMetrics, 'proposed metric'),
             description: 'Metric definitions waiting for approval.',
-            href: urls.dataCatalog('metrics'),
+            href: combineUrl(urls.dataCatalog('metrics'), { [TABLES_FILTER_PARAM]: PROPOSED_TABLES_FILTER }).url,
         },
     ].filter(({ count }) => count > 0)
 
