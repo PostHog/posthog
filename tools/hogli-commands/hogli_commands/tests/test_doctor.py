@@ -17,7 +17,6 @@ from hogli_commands.doctor import (
     _GIT_HOUSEKEEPING_PGREP_PATTERN,
     FLOX_LOG_MAX_AGE_DAYS,
     FLOX_LOG_MAX_TOTAL_BYTES,
-    STALE_RUST_TARGET_DAYS,
     CleanupEstimate,
     GitHealth,
     _binary_arches,
@@ -33,12 +32,10 @@ from hogli_commands.doctor import (
     _docker_reclaimable,
     _estimate_nix_store,
     _estimate_sccache,
-    _estimate_stale_rust_targets,
     _find_service_container,
     _find_volume_mount,
     _format_kv_block,
     _generated_config_path,
-    _get_process_cwds,
     _git_common_dir,
     _git_health,
     _git_housekeeping_running,
@@ -63,6 +60,7 @@ from hogli_commands.doctor import (
     doctor_migrate_volumes,
     doctor_ports,
 )
+from hogli_commands.processes import process_cwds
 
 _QUARTER_BUDGET = FLOX_LOG_MAX_TOTAL_BYTES // 4
 _TWO_FIFTHS_BUDGET = int(FLOX_LOG_MAX_TOTAL_BYTES * 0.4)
@@ -257,25 +255,25 @@ def test_probe_command_imports(commands: dict[str, dict], expected_failure: tupl
     assert expected_failure[1] in error
 
 
-def test_get_process_cwds_skips_lsof_for_empty_input(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_process_cwds_skips_lsof_for_empty_input(monkeypatch: pytest.MonkeyPatch) -> None:
     def fail(*_args: object, **_kwargs: object) -> SimpleNamespace:
         raise AssertionError("lsof must not run for an empty pid list")
 
-    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fail)
-    assert _get_process_cwds([]) == {}
+    monkeypatch.setattr("hogli_commands.processes.subprocess.run", fail)
+    assert process_cwds([]) == {}
 
 
-def test_get_process_cwds_parses_and_batches(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_process_cwds_parses_and_batches(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
     def fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
         captured["cmd"] = cmd
         return SimpleNamespace(returncode=1, stdout="p100\nn/repo/a\np200\nn/repo/b\n", stderr="")
 
-    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+    monkeypatch.setattr("hogli_commands.processes.subprocess.run", fake_run)
 
     # Non-zero rc (a pid vanished) must not discard the records that did resolve.
-    assert _get_process_cwds([100, 200]) == {100: "/repo/a", 200: "/repo/b"}
+    assert process_cwds([100, 200]) == {100: "/repo/a", 200: "/repo/b"}
     # One batched, ANDed lsof call covering every pid — not one call per pid.
     cmd = captured["cmd"]
     assert isinstance(cmd, list)
@@ -2029,58 +2027,3 @@ def test_collect_rust_target_dirs_includes_the_shared_cargo_target_dir(
 
     assert [item.path for item in items] == [shared_target]
     assert items[0].size == 4096
-
-
-def _write_rust_target(target: Path, last_build_epoch: float) -> Path:
-    unit = target / "debug" / ".fingerprint" / "posthog-unit"
-    unit.mkdir(parents=True)
-    (unit / "lib-posthog").write_bytes(b"x" * 1024)
-    os.utime(unit / "lib-posthog", (last_build_epoch, last_build_epoch))
-    month_ago = time.time() - 30 * 24 * 60 * 60
-    for directory in (unit, unit.parent, unit.parent.parent, target):
-        os.utime(directory, (month_ago, month_ago))
-    return target
-
-
-@pytest.mark.parametrize("cargo_target_dir_set", [False, True])
-def test_estimate_stale_rust_targets_offers_only_unused_targets_of_other_worktrees(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolated_git_config: None, cargo_target_dir_set: bool
-) -> None:
-    stale_epoch = time.time() - (STALE_RUST_TARGET_DAYS + 3) * 24 * 60 * 60
-    main = tmp_path / "main"
-    _git(tmp_path, "init", "-q", "-b", "main", str(main))
-    _git(main, "commit", "-q", "--allow-empty", "-m", "init")
-    for name in ("stale", "fresh", "building"):
-        _git(main, "worktree", "add", "-q", "--detach", str(tmp_path / name))
-
-    _write_rust_target(main / "rust" / "target", stale_epoch)
-    stale_target = _write_rust_target(tmp_path / "stale" / "rust" / "target", stale_epoch)
-    # Cargo rewrites fingerprint files in place, so a fresh build leaves the directory mtimes old.
-    _write_rust_target(tmp_path / "fresh" / "rust" / "target", time.time())
-    _write_rust_target(tmp_path / "building" / "rust" / "target", stale_epoch)
-    home = tmp_path / "home"
-    legacy_target = _write_rust_target(home / ".cargo" / "target", stale_epoch)
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
-    if cargo_target_dir_set:
-        monkeypatch.setenv("CARGO_TARGET_DIR", str(legacy_target))
-    else:
-        monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
-
-    cargo_cwd = tmp_path / "building" / "rust" / "capture"
-    cargo_cwd.mkdir()
-    real_run = subprocess.run
-
-    def run_with_cargo_in_building_worktree(args: Sequence[str], *rest: object, **kwargs: object) -> object:
-        if args[0] == "pgrep":
-            return subprocess.CompletedProcess(args, 0, stdout="4242\n", stderr="")
-        if args[0] == "lsof":
-            return subprocess.CompletedProcess(args, 0, stdout=f"p4242\nn{cargo_cwd}\n", stderr="")
-        return real_run(args, *rest, **kwargs)  # type: ignore[call-overload]
-
-    monkeypatch.setattr(subprocess, "run", run_with_cargo_in_building_worktree)
-
-    estimate = _estimate_stale_rust_targets(main)
-
-    expected = [stale_target] if cargo_target_dir_set else [stale_target, legacy_target]
-    assert sorted(item.path.resolve() for item in estimate.items) == sorted(path.resolve() for path in expected)
-    assert estimate.total_size == 1024 * len(expected)

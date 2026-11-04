@@ -18,7 +18,8 @@ the directory never touches git refs, so committed work survives in the shared
 repo — only uncommitted edits in an already-stale tree could be lost. `--mode
 deps` only removes recreatable artifacts, so it has no such gate — it can strip
 deps from a worktree that is idle by the activity signal but still has a live
-dev server/build running.
+dev server running. Both modes skip a worktree where cargo or rustc runs, and
+`--mode deps` keeps a Cargo target that a build used after the cutoff.
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ from pathlib import Path
 import click
 from hogli.manifest import REPO_ROOT
 
+from .cargo_targets import last_cargo_build_epoch, unused_legacy_cargo_target, worktrees_running_cargo
 from .devbox import hogland, mutagen
 from .devbox.coder import (
     delete_workspace,
@@ -286,6 +288,8 @@ def worktrees_clean(
     if box_action:
         pending = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, repo_common, selected_sources)
         _clean_boxes_of_removed_worktrees(pending, box_action, cutoff, dry_run, yes)
+    if mode == "deps":
+        _clean_legacy_cargo_target(cutoff, dry_run, yes)
     protected = _protected_paths(repo_root)
 
     registry = _registered_worktrees(repo_root)
@@ -330,6 +334,18 @@ def worktrees_clean(
     if not stale:
         return
 
+    building = worktrees_running_cargo([wt.path for wt in stale])
+    if building:
+        click.echo(f"Skipping {len(building)} worktree(s) where cargo is running:")
+        for wt in stale:
+            if wt.path in building:
+                click.echo(f"  {wt.source}  {_display_path(wt.path)}")
+        click.echo()
+        stale = [wt for wt in stale if wt.path not in building]
+        if not stale:
+            click.echo("Nothing left to remove.")
+            return
+
     # Full mode is destructive of working-tree state, so refuse worktrees with
     # unsaved work — or whose git state we can't verify — unless the user opts in.
     # (deps mode only removes recreatable artifacts, so it doesn't need this gate.)
@@ -357,7 +373,7 @@ def worktrees_clean(
             return
 
     click.echo(f"Measuring {len(stale)} worktree(s)…")
-    _populate_sizes(stale, mode)
+    _populate_sizes(stale, mode, cutoff)
 
     for wt in sorted(stale, key=lambda w: w.last_activity):
         markers = _listing_markers(wt, mode)
@@ -1056,14 +1072,14 @@ def _listing_markers(wt: Worktree, mode: str) -> str:
     return " · ".join(parts)
 
 
-def _populate_sizes(worktrees: list[Worktree], mode: str) -> None:
+def _populate_sizes(worktrees: list[Worktree], mode: str, cutoff: float) -> None:
     """Fill in .size (and deps items/sizes for deps mode) using a thread pool."""
 
     def work(wt: Worktree) -> None:
         if mode == "full":
             wt.deps_sizes = _du_sizes([wt.path])
         else:
-            wt.deps_items = _collect_deps_items(wt.path)
+            wt.deps_items = [item for item in _collect_deps_items(wt.path) if not _cargo_built_since(item, cutoff)]
             wt.deps_sizes = _du_sizes(wt.deps_items)
         wt.size = sum(wt.deps_sizes.values())
 
@@ -1118,6 +1134,31 @@ def _collect_deps_items(worktree: Path) -> list[Path]:
 
 def _looks_like_cargo_target(path: Path) -> bool:
     return (path / "CACHEDIR.TAG").exists() or (path / "debug").exists() or (path / "release").exists()
+
+
+def _cargo_built_since(path: Path, cutoff: float) -> bool:
+    return path.name == "target" and _looks_like_cargo_target(path) and last_cargo_build_epoch(path) >= cutoff
+
+
+def _clean_legacy_cargo_target(cutoff: float, dry_run: bool, yes: bool) -> None:
+    target = unused_legacy_cargo_target(cutoff)
+    if target is None:
+        return
+
+    size = sum(_du_sizes([target]).values())
+    click.echo(
+        f"Old shared Cargo target {_display_path(target)}: {_format_size(size)}, "
+        f"last build {_ago(last_cargo_build_epoch(target))} ago. Cargo built here while the Flox env set CARGO_TARGET_DIR."
+    )
+    if dry_run:
+        click.echo("[DRY-RUN] Not deleted.\n")
+        return
+    if not yes and not click.confirm("Delete it?", default=False):
+        click.echo()
+        return
+    if _delete_paths([target]) == 0:
+        click.echo(f"✓ Deleted {_display_path(target)}.")
+    click.echo()
 
 
 def _du_sizes(paths: Sequence[Path]) -> dict[str, float]:

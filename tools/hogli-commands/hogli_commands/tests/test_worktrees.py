@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import math
+import time
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,6 +11,7 @@ import pytest
 
 import click
 from hogli_commands import worktrees
+from hogli_commands.cargo_targets import unused_legacy_cargo_target, worktrees_running_cargo
 from hogli_commands.devbox import config as devbox_config
 from hogli_commands.worktrees import (
     Worktree,
@@ -25,6 +28,7 @@ from hogli_commands.worktrees import (
     _is_under,
     _match_worktree_boxes,
     _parse_cutoff,
+    _populate_sizes,
     _reclaimed_bytes,
     _registered_worktrees,
     _resolve_box_action,
@@ -186,6 +190,66 @@ class TestCollectDepsItems:
         assert (worktree / "node_modules").resolve() in items
         assert all(_is_under(item, worktree_resolved) for item in items)
         assert (external / "dist").resolve() not in items
+
+    def test_deps_mode_keeps_a_cargo_target_built_after_the_cutoff(self, tmp_path) -> None:
+        cutoff = time.time() - 7 * 86400
+        worktree = tmp_path / "wt"
+        (worktree / "node_modules").mkdir(parents=True)
+        stale_target = _write_cargo_target(worktree / "rust" / "target", cutoff - 86400)
+        # Cargo rewrites fingerprint files in place, so a fresh build leaves the directory mtimes old.
+        _write_cargo_target(worktree / "cli" / "target", time.time())
+        wt = _make_worktree(worktree)
+
+        _populate_sizes([wt], "deps", cutoff)
+
+        assert sorted(wt.deps_items) == sorted([(worktree / "node_modules").resolve(), stale_target.resolve()])
+
+
+def _write_cargo_target(target: Path, last_build_epoch: float) -> Path:
+    unit = target / "debug" / ".fingerprint" / "posthog-unit"
+    unit.mkdir(parents=True)
+    (unit / "lib-posthog").write_bytes(b"x" * 1024)
+    os.utime(unit / "lib-posthog", (last_build_epoch, last_build_epoch))
+    month_ago = time.time() - 30 * 86400
+    for directory in (unit, unit.parent, unit.parent.parent, target):
+        os.utime(directory, (month_ago, month_ago))
+    return target
+
+
+class TestCargoTargets:
+    def test_worktree_with_cargo_running_below_its_root_is_busy(self, tmp_path, monkeypatch) -> None:
+        idle, building = tmp_path / "idle", tmp_path / "building"
+        cargo_cwd = building / "rust" / "capture"
+        cargo_cwd.mkdir(parents=True)
+        idle.mkdir()
+
+        def fake_run(args, **kwargs):
+            stdout = {"pgrep": "4242\n", "lsof": f"p4242\nn{cargo_cwd}\n"}[args[0]]
+            return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
+
+        monkeypatch.setattr("hogli_commands.cargo_targets.subprocess.run", fake_run)
+
+        assert worktrees_running_cargo([idle, building]) == {building}
+
+    @pytest.mark.parametrize(
+        "cargo_target_dir_set,days_since_build,expected_offered",
+        [(False, 10, True), (True, 10, False), (False, 1, False)],
+        ids=["unused", "cargo_target_dir_set", "built_recently"],
+    )
+    def test_legacy_cargo_target_is_offered_only_when_nothing_builds_there(
+        self, tmp_path, monkeypatch, cargo_target_dir_set: bool, days_since_build: int, expected_offered: bool
+    ) -> None:
+        home = tmp_path / "home"
+        target = _write_cargo_target(home / ".cargo" / "target", time.time() - days_since_build * 86400)
+        monkeypatch.setattr(Path, "home", lambda: home)
+        if cargo_target_dir_set:
+            monkeypatch.setenv("CARGO_TARGET_DIR", str(target))
+        else:
+            monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
+
+        offered = unused_legacy_cargo_target(time.time() - 7 * 86400)
+
+        assert offered == (target if expected_offered else None)
 
 
 class TestRegisteredWorktrees:

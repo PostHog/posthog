@@ -403,6 +403,8 @@ git worktree prune
 ```
 
 To clear old `phw`, Claude Code, Codex, and PostHog Code worktrees in bulk, run `hogli worktrees:clean --before 7d --mode deps --dry-run` to preview, then drop `--dry-run`, or use `--mode full` to remove whole worktrees.
+Both modes skip a worktree where `cargo` or `rustc` is running.
+`--mode deps` keeps a Cargo `target` that a build used after the cutoff, and offers to delete the old shared `~/.cargo/target` when `CARGO_TARGET_DIR` is not set and no build used it after the cutoff.
 
 ## Quick Setup Script
 
