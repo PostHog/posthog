@@ -7,6 +7,7 @@ from typing import Any
 # Keys are compared lowercased with `_` and `-` removed, so `apiKey` and `api_key` match alike.
 _SECRET_KEY_PARTS = (
     "password",
+    "passwd",
     "secret",
     "token",
     "passphrase",
@@ -16,18 +17,25 @@ _SECRET_KEY_PARTS = (
     "privatekey",
     "keystore",
     "truststore",
+    # DSV's `service_authentication` holds `username:password`.
+    "authentication",
 )
 # Secret fields whose names fit no rule above (GitHub personal access tokens, Alchemer's API key).
-_SECRET_KEYS = frozenset({"pat", "pats", "queryparamvalue"})
+_SECRET_KEYS = frozenset({"pat", "pats", "pwd", "queryparamvalue"})
 # Any key that ends in "key" or "keys", maybe with a number (`sasl_plain_key`, `api_keys`, `api_key_2`), is a
-# secret, except these.
+# secret, except these. A singular `primary_key` is a credential in some connectors (Care Quality Commission).
 _NON_SECRET_KEYS = frozenset(
-    {f"{name}{suffix}" for name in ("public", "primary", "partition", "sort") for suffix in ("key", "keys")}
+    {"publickey", "publickeys", "primarykeys", "partitionkey", "partitionkeys", "sortkey", "sortkeys"}
 )
 _KEY_SUFFIX = re.compile(r"keys?\d*$")
-# A URL with a password in it (`scheme://user:password@host`), or a token in its query (an Azure SAS `sig`).
-_URL_WITH_PASSWORD = re.compile(r"://[^/@\s]+:[^/@\s]+@")
-_URL_WITH_TOKEN = re.compile(r"://\S*[?&](sig|signature|token|access_token|api_key|apikey|key)=", re.IGNORECASE)
+# Client certificates authenticate the caller. CA certificates (`ca_cert`, `ssl_root_cert`) are public.
+_CA_TOKENS = frozenset({"ca", "root"})
+_KEY_TOKEN_SPLIT = re.compile(r"[_\-]|(?<=[a-z])(?=[A-Z])")
+# A URL with a password in it (`scheme://user:password@host`, also with an empty user).
+_URL_WITH_PASSWORD = re.compile(r"://[^/@\s]*:[^/@\s]+@")
+_URL_QUERY_PARAM = re.compile(r"[?&]([^=&#\s]+)=")
+# Signed-URL parameters: Azure SAS `sig`, AWS `X-Amz-Signature`, `SharedAccessSignature`.
+_SIGNATURE_PARAM = re.compile(r"(^|[_\-])sig$|signature", re.IGNORECASE)
 
 
 def is_secret_key(key: str) -> bool:
@@ -36,16 +44,20 @@ def is_secret_key(key: str) -> bool:
         return True
     if _KEY_SUFFIX.search(normalized) and normalized not in _NON_SECRET_KEYS:
         return True
+    if "cert" in normalized and not _CA_TOKENS & {token.lower() for token in _KEY_TOKEN_SPLIT.split(key)}:
+        return True
     return any(part in normalized for part in _SECRET_KEY_PARTS)
 
 
 def _is_secret_value(value: Any) -> bool:
     if not isinstance(value, str):
         return False
-    return (
-        (len(value) > 0 and set(value) == {"*"})
-        or bool(_URL_WITH_PASSWORD.search(value))
-        or bool(_URL_WITH_TOKEN.search(value))
+    if len(value) > 0 and set(value) == {"*"}:
+        return True
+    if "://" not in value:
+        return False
+    return bool(_URL_WITH_PASSWORD.search(value)) or any(
+        is_secret_key(name) or _SIGNATURE_PARAM.search(name) for name in _URL_QUERY_PARAM.findall(value)
     )
 
 

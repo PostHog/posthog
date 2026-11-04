@@ -6,7 +6,7 @@ via `metadata.scanner_id` for later natural-language search. monitor/classifier/
 document under `rendering="summary"`. Empty content is skipped. Failures surface to the workflow, which
 logs and swallows them — the observation is already marked succeeded.
 
-The worker's results topic feeds What to watch ranking, see `watch_rank_consumer`.
+The worker's results topic feeds Highlight feed ranking, see `watch_rank_consumer`.
 
 The structured result (monitor `verdict`, scorer `score`, classifier `tags`) is stamped into `metadata` so
 search can filter by exact outcome inside the same ClickHouse ranking query, with no second-pass lookup.

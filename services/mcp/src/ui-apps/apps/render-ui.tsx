@@ -14,9 +14,9 @@ import { loadRenderUiData } from './render-ui-data'
 
 /**
  * Envelope emitted by the `render-ui` server tool. It carries the tool to render
- * and its input — never the data itself. This app fetches the data via
- * `callServerTool` (the same path the list apps use for drill-down) and mounts
- * the matching view from the generated dispatch registry.
+ * and its input, never the data itself. The data arrives preloaded on the result's
+ * app-only `_meta`, or the app fetches it via `callServerTool`, then mounts the
+ * matching view from the generated dispatch registry.
  */
 interface RenderUiEnvelope {
     tool_name: string
@@ -27,22 +27,31 @@ interface RenderUiEnvelope {
 function RenderUiApp(): JSX.Element {
     return (
         <AppWrapper<RenderUiEnvelope> appName="PostHog Render UI">
-            {({ data, app, openLink }) => <RenderUiContent envelope={data!} app={app} openLink={openLink} />}
+            {({ data, resultMeta, app, openLink }) => (
+                <RenderUiContent envelope={data!} resultMeta={resultMeta} app={app} openLink={openLink} />
+            )}
         </AppWrapper>
     )
 }
 
 function RenderUiContent({
     envelope,
+    resultMeta,
     app,
     openLink,
 }: {
     envelope: RenderUiEnvelope
+    resultMeta: Record<string, unknown> | null
     app: App | null
     openLink: (url: string) => void
 }): JSX.Element {
     const [data, setData] = useState<unknown>(null)
-    const [error, setError] = useState<{ reason: string; message: string } | null>(null)
+    const [error, setError] = useState<{
+        reason: string
+        message: string
+        errorName?: string
+        errorCode?: number
+    } | null>(null)
 
     // Key the fetch on serialized values, not `envelope` identity — a parent
     // re-render with a fresh-but-equal envelope object must not refetch.
@@ -60,7 +69,7 @@ function RenderUiContent({
         let cancelled = false
         setData(null)
         setError(null)
-        loadRenderUiData(app, toolName, JSON.parse(toolInputJson) as Record<string, unknown>, appKey)
+        loadRenderUiData(app, toolName, JSON.parse(toolInputJson) as Record<string, unknown>, appKey, resultMeta)
             .then((result) => {
                 if (cancelled) {
                     return
@@ -73,25 +82,36 @@ function RenderUiContent({
             })
             .catch((e: unknown) => {
                 if (!cancelled) {
-                    setError({ reason: 'exception', message: e instanceof Error ? e.message : String(e) })
+                    // Analytics gets only the name and JSON-RPC code: the message can quote response content.
+                    const code = (e as { code?: unknown } | null)?.code
+                    setError({
+                        reason: 'exception',
+                        message: e instanceof Error ? e.message : String(e),
+                        errorName: e instanceof Error ? e.name : typeof e,
+                        errorCode: typeof code === 'number' ? code : undefined,
+                    })
                 }
             })
         return () => {
             cancelled = true
         }
-    }, [app, toolName, toolInputJson, appKey])
+    }, [app, toolName, toolInputJson, appKey, resultMeta])
 
     const render = RENDER_DISPATCH[envelope.app_key]
     const failureReason = render ? error?.reason : 'no_visualization'
+    const errorName = render ? error?.errorName : undefined
+    const errorCode = render ? error?.errorCode : undefined
     useEffect(() => {
         if (failureReason) {
             capture('mcp_ui_app_render_failed', {
                 rendered_tool_name: toolName,
                 app_key: envelope.app_key,
                 reason: failureReason,
+                error_name: errorName,
+                error_code: errorCode,
             })
         }
-    }, [failureReason, toolName, envelope.app_key])
+    }, [failureReason, errorName, errorCode, toolName, envelope.app_key])
 
     if (!render) {
         return <AppErrorState message={`No visualization is available for ${envelope.tool_name}.`} />

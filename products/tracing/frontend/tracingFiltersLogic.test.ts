@@ -36,21 +36,21 @@ describe('tracingFiltersLogic', () => {
     })
 
     describe('view mode', () => {
-        it('defaults to traces', () => {
-            expect(logic.values.viewMode).toBe('traces')
-            expect(logic.values.filters.viewMode).toBe('traces')
-        })
-
-        it('switches to spans', () => {
-            logic.actions.setViewMode('spans')
+        it('defaults to spans', () => {
             expect(logic.values.viewMode).toBe('spans')
             expect(logic.values.filters.viewMode).toBe('spans')
         })
 
-        it('switches back to traces', () => {
-            logic.actions.setViewMode('spans')
+        it('switches to traces', () => {
             logic.actions.setViewMode('traces')
             expect(logic.values.viewMode).toBe('traces')
+            expect(logic.values.filters.viewMode).toBe('traces')
+        })
+
+        it('switches back to spans', () => {
+            logic.actions.setViewMode('traces')
+            logic.actions.setViewMode('spans')
+            expect(logic.values.viewMode).toBe('spans')
         })
     })
 
@@ -124,12 +124,12 @@ describe('tracingFiltersLogic', () => {
             a.mount()
             b.mount()
             try {
-                a.actions.setViewMode('spans')
+                a.actions.setViewMode('traces')
                 a.actions.setServiceNames(['svc-a'])
 
-                expect(a.values.viewMode).toBe('spans')
+                expect(a.values.viewMode).toBe('traces')
                 expect(a.values.filters.serviceNames).toEqual(['svc-a'])
-                expect(b.values.viewMode).toBe('traces')
+                expect(b.values.viewMode).toBe('spans')
                 expect(b.values.filters.serviceNames).toEqual([])
             } finally {
                 a.unmount()

@@ -15,9 +15,9 @@ import posthoganalytics
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority as EgressPriority
 from posthog.event_usage import groups
 from posthog.models import Team, User
-from posthog.models.organization import OrganizationMembership
 from posthog.sync import database_sync_to_async
 from posthog.temporal.oauth import McpScopePreset, grants_scratchpad_write
 from posthog.user_permissions import UserPermissions
@@ -37,13 +37,16 @@ from products.signals.backend.billing import (
     mark_report_billing_exempt,
     system_billing_exempt_reason,
 )
+from products.signals.backend.default_owner import resolve_signals_enabler
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.free_trial import capture_signal_report_free_trial_paused, self_driving_free_trial_enabled
+from products.signals.backend.github_optional import ResearchAccessPolicy
+from products.signals.backend.implementation_repositories import implementation_access_repositories
+from products.signals.backend.issue_dependencies import resolve_issue_dependencies, unresolved_dependency_skip
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     SignalReport,
     SignalReportArtefact,
-    SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -178,6 +181,8 @@ class ReviewerContent(TypedDict):
     # was stamped for it. These route the report but are never eligible to select the autostart task identity.
     is_skill_owner: bool
     is_research_selected: NotRequired[bool]
+    # A fallback when no evidence picked anyone. It routes the report but never selects the task identity.
+    is_default_owner: NotRequired[bool]
     # The scout skill whose run wrote this entry (None when no scout did). Carried so the live owner
     # exclusion still knows the writing scout when the run's best-effort edit tally was lost.
     source_skill: str | None
@@ -319,6 +324,17 @@ def _head_branch_instruction(head_branch: str) -> str:
         "PR from it. This name was pre-generated for this run: PostHog uses it to link the opened PR "
         "back to the run for automated review, and a PR from any other branch name will not be "
         "recognized. Do NOT choose a different branch name."
+    )
+
+
+def _access_repositories_instruction(repository: str, access_repositories: list[str]) -> str:
+    if not access_repositories:
+        return ""
+    names = ", ".join(f"`{name}`" for name in access_repositories)
+    return (
+        f"\n\nYour GitHub credentials also cover {names}, which the project configured for implementation "
+        "tasks, for example to upload PR screenshots. They are not cloned. Use `gh` or clone one yourself "
+        f"when the task needs it. Open the PR on `{repository}` as usual."
     )
 
 
@@ -617,7 +633,11 @@ def _duplicate_already_worked_on(*, team_id: int, chain: list[str]) -> str | Non
         status = statuses.get(candidate)
         if status is None:
             continue
-        if candidate in with_work or status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
+        if candidate in with_work or status in {
+            SignalReport.Status.RESOLVED,
+            SignalReport.Status.CLOSED,
+            SignalReport.Status.MONITORING,
+        }:
             return candidate
     return None
 
@@ -792,7 +812,13 @@ def _create_implementation_task_if_absent(
     # Create the task before the provider issue. A failed task creation must not leave an external
     # issue that says Self-driving started work when no run exists.
     head_branch = _generate_self_driving_head_branch(title)
-    description = description + _head_branch_instruction(head_branch)
+    # Read at creation, so a settings change applies to the next task and never to a running one.
+    access_repositories = implementation_access_repositories(team_id, repository)
+    description = (
+        description
+        + _head_branch_instruction(head_branch)
+        + _access_repositories_instruction(repository, access_repositories)
+    )
 
     exempt_reason: str | None = None
     task_id: str | None = None
@@ -921,6 +947,7 @@ def _create_implementation_task_if_absent(
             # into protected run state so the review carve-out can verify the PR is this run's.
             self_driving_head_branch=head_branch,
             stack_base_branch=stack_base_branch,
+            github_access_repositories=access_repositories,
             # Internal so the run stays out of the default task list; the report surfaces it by id.
             internal=True,
             runtime_adapter=agent_runtime.runtime_adapter,
@@ -1220,6 +1247,7 @@ def _resolve_autostart_assignee(
         r
         for r in reviewers_content
         if not r.get("is_skill_owner")
+        and not r.get("is_default_owner")
         and (not r.get("is_research_selected") or r.get("user_uuid") in confirmed_uuids)
         and not owners.covers(user_uuid=r.get("user_uuid"), github_login=r.get("github_login"))
     ]
@@ -1279,51 +1307,10 @@ def _resolve_autostart_fallback_user(team_id: int) -> User | None:
     Rather than drop the auto-start, run the implementation task under the human who turned signals
     on for this team. Enabling a signal source is the team's opt-in to the signals product, of which
     autonomous PRs are a part, so attributing the task to that member is within the team's consent.
-
-    Resolution, restricted at every tier to *active* org members (still in the org and not
-    deactivated) — the task mints a PostHog OAuth token as this user, so a departed or disabled
-    account can't run it:
-
-    1. The earliest active member who enabled a ``SignalSourceConfig`` for this team (ordered by
-       the source's creation time) — who first turned signals on.
-    2. If none (sources enabled by a system path leave ``created_by`` null), the organization's
-       owner, then an admin — the accountable human for an org that is clearly running signals.
-    3. Otherwise ``None`` — no eligible human, so nothing auto-starts.
-
-    Deterministic within each tier so concurrent evaluations pick the same user.
+    The task mints a PostHog OAuth token as this user, which is why `resolve_signals_enabler` only
+    returns active org members.
     """
-    org_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
-    if org_id is None:
-        return None
-
-    active_member_ids = OrganizationMembership.objects.filter(organization_id=org_id, user__is_active=True).values_list(
-        "user_id", flat=True
-    )
-
-    # Tier 1: the earliest active member who enabled a signal source for this team.
-    enabler_id = (
-        SignalSourceConfig.objects.filter(team_id=team_id, created_by_id__in=active_member_ids)
-        .order_by("created_at")
-        .values_list("created_by_id", flat=True)
-        .first()
-    )
-    if enabler_id is not None:
-        return User.objects.filter(id=enabler_id).first()
-
-    # Tier 2: no active enabler — fall back to the org's owner, then an admin (highest level first).
-    fallback_id = (
-        OrganizationMembership.objects.filter(
-            organization_id=org_id,
-            user__is_active=True,
-            level__gte=OrganizationMembership.Level.ADMIN,
-        )
-        .order_by("-level", "user_id")
-        .values_list("user_id", flat=True)
-        .first()
-    )
-    if fallback_id is not None:
-        return User.objects.filter(id=fallback_id).first()
-    return None
+    return resolve_signals_enabler(team_id)
 
 
 def _resolve_triggering_user(
@@ -1518,11 +1505,22 @@ async def maybe_autostart_implementation_task(
         )
         return AutostartOutcome(status="blocked", reason="Autostart is disabled")
     team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P4
+    if await database_sync_to_async(ResearchAccessPolicy.enabled)(team_id) and not await database_sync_to_async(
+        ResearchAccessPolicy.repository_available, thread_sensitive=False
+    )(team_id, repository, priority=EgressPriority.BATCH):
+        return AutostartOutcome(status="blocked", reason="Connect or repair GitHub access to the selected repository")
 
+    # Dependency lines in the report's GitHub issues become `depends_on` links first, so the link
+    # gates below already see them. A dependency issue that no report holds yet holds the report too.
+    unresolved_issues = await database_sync_to_async(resolve_issue_dependencies, thread_sensitive=False)(
+        team_id=team_id, report_id=report_id, ch_user=ch_user
+    )
     # Between the team's master switch and the quota gate. A team that opted out of auto-start
     # entirely gets no artefact and no gate reason, and a duplicate or a plan parent never counts
     # as quota-held work, because the work was never this report's to do.
     link_skip = await database_sync_to_async(_evaluate_link_gates, thread_sensitive=False)(team_id, report_id)
+    if link_skip is None and unresolved_issues:
+        link_skip = unresolved_dependency_skip(unresolved_issues)
     if link_skip is not None:
         logger.info(
             "self-driving auto-start skipped",
@@ -1734,6 +1732,7 @@ async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerConten
                     reason=entry.get("reason"),
                     is_skill_owner=bool(entry.get("is_skill_owner")),
                     is_research_selected=bool(entry.get("is_research_selected")),
+                    is_default_owner=bool(entry.get("is_default_owner")),
                     source_skill=str(source_skill) if source_skill else None,
                 )
             )

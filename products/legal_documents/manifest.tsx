@@ -1,7 +1,13 @@
-import { ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'LegalDocuments',
+    activityDescribers: {
+        [ActivityScope.LEGAL_DOCUMENT]: () =>
+            import('scenes/settings/organization/activityDescriptions').then(
+                (module) => module.legalDocumentActivityDescriber
+            ),
+    },
     scenes: {
         LegalDocuments: {
             name: 'Legal documents',

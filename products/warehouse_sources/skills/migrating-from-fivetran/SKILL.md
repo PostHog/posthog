@@ -44,7 +44,7 @@ project yet. Tell the user that and stop.
    read-only key in Fivetran: a system key with read access to connections, destinations, and the account works best.
    When they confirm, find the newest migration with `warehouse-migrations-list` and poll `warehouse-migration-get`
    until `status` is `ready`. A large account takes a few minutes. If it is `failed`, read `latest_error` to the user.
-2. **Report.** List the items with `warehouse-migration-items-list`. Lead with what is worth moving:
+2. **Report.** List the items with `warehouse-migration-items-list`, and read every page. Lead with what is worth moving:
    - `as_is`: PostHog takes the connection over with the same tables and schedule.
    - `caveats`: PostHog takes it over, but read each caveat to the user. Common ones are an alpha PostHog source, a
      Fivetran table PostHog does not have, history mode, hashed columns, or a schedule PostHog rounds.
@@ -77,11 +77,12 @@ project yet. Tell the user that and stop.
    before you apply that item. Recommend writing to the same destination type as Fivetran, into the schema
    `posthog_<prefix>` (the item's `proposal.prefix`), so the two tools never write into the same tables while both
    run. Wait for the answer. If the user agrees, share `external-data-destinations-connect-link` with
-   `migration_item_id` set to the item, so the page fills in the connection settings from Fivetran and the user
-   types only the secret. The page does not set the schema. Then create the destination with
-   `external-data-destinations-create`, and pass `posthog_<prefix>` as the schema in its target config, with the
-   other target values in the link's `suggested_config`. Pass the new destination's id as `destination_ids` to
-   apply.
+   `migration_item_id` set to the item and `destination_type` set to its `proposal.destination.type`. The page fills
+   in the connection settings it supports from Fivetran, so the user types only the secret. For any setting the page
+   leaves empty, tell the user the value from `proposal.destination`. The page does not set the schema. Then create
+   the destination with `external-data-destinations-create`, and pass `posthog_<prefix>` as the schema in its target
+   config, with the other target values in the link's `suggested_config`. Pass the new destination's id as
+   `destination_ids` to apply.
    Attached at creation, the destination gets the full history in the first sync. If those tools are not available,
    the data lands in the PostHog warehouse only.
 5. **Move one connection at a time.** Ask which to start with; databases are a good first pick because the user

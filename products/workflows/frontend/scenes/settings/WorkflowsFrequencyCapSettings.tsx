@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -9,15 +9,25 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
+    MAX_FREQUENCY_CAP_HOLD_HOURS,
     MAX_FREQUENCY_CAP_MESSAGES,
     MAX_FREQUENCY_CAP_WINDOW_DAYS,
     frequencyCapFieldError,
+    frequencyCapHoldError,
     toFrequencyCapInputValue,
 } from './frequencyCap'
+import { unsavedSettingsLogic } from './unsavedSettingsLogic'
 
 export function WorkflowsFrequencyCapSettings(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const unsavedGuard = unsavedSettingsLogic({
+        sectionId: 'workflows-frequency-cap',
+        message: 'Leave without saving?\nThe frequency cap you entered will be discarded.',
+    })
+    // useActions alone does not mount a logic, and the guard arms on mount.
+    useMountedLogic(unsavedGuard)
+    const { setHasUnsavedChanges } = useActions(unsavedGuard)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -27,18 +37,26 @@ export function WorkflowsFrequencyCapSettings(): JSX.Element {
         currentTeam?.workflows_config?.marketing_frequency_cap_max_messages
     )
     const savedWindowDays = toFrequencyCapInputValue(currentTeam?.workflows_config?.marketing_frequency_cap_window_days)
+    const savedHoldHours = toFrequencyCapInputValue(currentTeam?.workflows_config?.marketing_frequency_cap_hold_hours)
 
     const [maxMessages, setMaxMessages] = useState<number | null>(savedMaxMessages)
     const [windowDays, setWindowDays] = useState<number | null>(savedWindowDays)
+    const [holdHours, setHoldHours] = useState<number | null>(savedHoldHours)
 
     useEffect(() => {
         setMaxMessages(savedMaxMessages)
         setWindowDays(savedWindowDays)
-    }, [savedMaxMessages, savedWindowDays])
+        setHoldHours(savedHoldHours)
+    }, [savedMaxMessages, savedWindowDays, savedHoldHours])
 
     const maxMessagesError = frequencyCapFieldError(maxMessages, windowDays, MAX_FREQUENCY_CAP_MESSAGES)
     const windowDaysError = frequencyCapFieldError(windowDays, maxMessages, MAX_FREQUENCY_CAP_WINDOW_DAYS)
-    const unchanged = maxMessages === savedMaxMessages && windowDays === savedWindowDays
+    const holdHoursError = frequencyCapHoldError(holdHours)
+    const unchanged = maxMessages === savedMaxMessages && windowDays === savedWindowDays && holdHours === savedHoldHours
+
+    useEffect(() => {
+        setHasUnsavedChanges(!unchanged)
+    }, [unchanged, setHasUnsavedChanges])
 
     return (
         <div className="@container">
@@ -79,6 +97,25 @@ export function WorkflowsFrequencyCapSettings(): JSX.Element {
                         data-attr="workflows-frequency-cap-window-days"
                     />
                 </LemonField.Pure>
+                <LemonField.Pure
+                    className="flex-1 min-w-60"
+                    label="Hold capped messages for up to (hours)"
+                    info="A message over the cap waits for the person's next free slot and sends then. If no slot opens in time, it is skipped. Leave empty to skip capped messages right away."
+                    htmlFor="workflows-frequency-cap-hold-hours"
+                    error={holdHoursError}
+                >
+                    <LemonInput
+                        id="workflows-frequency-cap-hold-hours"
+                        type="number"
+                        min={1}
+                        max={MAX_FREQUENCY_CAP_HOLD_HOURS}
+                        value={holdHours ?? undefined}
+                        onChange={(value) => setHoldHours(toFrequencyCapInputValue(value))}
+                        placeholder="Don't hold"
+                        disabledReason={restrictedReason}
+                        data-attr="workflows-frequency-cap-hold-hours"
+                    />
+                </LemonField.Pure>
             </div>
             <div className="mt-4">
                 <LemonButton
@@ -91,12 +128,13 @@ export function WorkflowsFrequencyCapSettings(): JSX.Element {
                                     currentTeam?.workflows_config?.capture_workflows_engagement_events ?? false,
                                 marketing_frequency_cap_max_messages: maxMessages,
                                 marketing_frequency_cap_window_days: windowDays,
+                                marketing_frequency_cap_hold_hours: holdHours,
                             },
                         })
                     }
                     disabledReason={
                         restrictedReason ??
-                        (maxMessagesError || windowDaysError
+                        (maxMessagesError || windowDaysError || holdHoursError
                             ? 'Fix the fields above to save'
                             : unchanged
                               ? 'No changes to save'
