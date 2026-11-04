@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import type { ReactElement, ReactNode } from 'react'
-import { AppState } from 'react-native'
+import { AppState, Dimensions } from 'react-native'
 
 import { setAuthProvider } from '@/api/client'
 import { useDemoMode } from '@/demo/demoMode'
@@ -23,7 +23,13 @@ jest.mock('expo-notifications', () => ({}))
 jest.mock('expo-router', () => ({
     useFocusEffect: (callback: () => void) => require('react').useEffect(callback, [callback]),
     useIsFocused: () => mockFocused,
-    useRouter: () => ({ push: jest.fn(), setParams: jest.fn(), canGoBack: () => false, replace: jest.fn() }),
+    useRouter: () => ({
+        push: jest.fn(),
+        setParams: jest.fn(),
+        navigate: mockNavigate,
+        canGoBack: () => false,
+        replace: jest.fn(),
+    }),
 }))
 jest.mock('@/auth/useProjectScope', () => {
     const scope = { host: 'https://app.example.com', projectId: 2 }
@@ -31,12 +37,74 @@ jest.mock('@/auth/useProjectScope', () => {
 })
 jest.mock('@/lib/analytics', () => ({ track: jest.fn() }))
 
+const mockNavigate = jest.fn()
 const REPORT = reportFixture()
 let mockFocused = true
 const EXISTING = { uuid: 'existing-user', first_name: 'Existing', last_name: 'Reviewer', email: 'existing@example.com' }
 const ADDED = { uuid: 'added-user', first_name: 'Added', last_name: 'Reviewer', email: 'added@example.com' }
 
 describe('ReportScreen', () => {
+    test.each([
+        { width: 951, height: 669, navigation: true },
+        { width: 874, height: 402, navigation: false },
+    ])('keeps report navigation usable at $width × $height', async ({ width, height, navigation }) => {
+        mockNavigate.mockClear()
+        useDemoMode.getState().setEnabled(true)
+        const previous = Dimensions.get('window')
+        Dimensions.set({ window: { ...previous, width, height } })
+        const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
+        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+            <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        )
+        const view = render(<ReportScreen reportId="demo-report-load-time" from="inbox" />, { wrapper })
+        try {
+            await waitFor(() => expect(screen.getByTestId('report-screen')).toBeTruthy())
+            expect(screen.getByTestId('action-chat')).toBeTruthy()
+            expect(screen.queryByTestId('inbox-chat')).toBeNull()
+            if (navigation) {
+                fireEvent.press(screen.getByTestId('inbox-nav-home'))
+                expect(mockNavigate).toHaveBeenCalledWith('/inbox')
+            } else {
+                expect(screen.queryByTestId('inbox-nav-home')).toBeNull()
+            }
+        } finally {
+            view.unmount()
+            client.clear()
+            Dimensions.set({ window: previous })
+            useDemoMode.getState().setEnabled(false)
+        }
+    })
+
+    test('keeps a verdict note and report instance while the window folds and unfolds', async () => {
+        useDemoMode.getState().setEnabled(true)
+        const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
+        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+            <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        )
+        const previous = Dimensions.get('window')
+        const view = render(<ReportScreen reportId="demo-report-load-time" from="inbox" />, { wrapper })
+        try {
+            await waitFor(() => expect(screen.getByTestId('report-screen')).toBeTruthy())
+            const report = screen.getByTestId('report-screen')
+            fireEvent.press(screen.getByText('Resolve'))
+            fireEvent.changeText(screen.getByTestId('resolve-sheet-note'), 'Keep this note while resizing')
+            for (const size of [
+                { width: 951, height: 669 },
+                { width: 466, height: 678 },
+                { width: 669, height: 951 },
+            ]) {
+                act(() => Dimensions.set({ window: { ...previous, ...size } }))
+                expect(screen.getByTestId('report-screen', { includeHiddenElements: true })).toBe(report)
+                expect(screen.getByTestId('resolve-sheet-note').props.value).toBe('Keep this note while resizing')
+            }
+        } finally {
+            view.unmount()
+            client.clear()
+            Dimensions.set({ window: previous })
+            useDemoMode.getState().setEnabled(false)
+        }
+    })
+
     test.each(['abbreviated', 'full'] as const)('releases canvases when the %s report loses focus', async (kind) => {
         useDemoMode.getState().setEnabled(true)
         const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })

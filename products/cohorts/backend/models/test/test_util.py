@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.db import DEFAULT_DB_ALIAS, OperationalError
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
 from clickhouse_driver.errors import SocketTimeoutError
 from kombu.exceptions import OperationalError as KombuOperationalError
@@ -17,6 +18,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.hogql.hogql import HogQLContext
 
+from posthog.api.cohort import CohortFilters
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorS3Error
 from posthog.exceptions import (
@@ -26,8 +28,12 @@ from posthog.exceptions import (
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
+from posthog.models.event.new_events_schema import events_read_settings
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
+from posthog.settings import CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
 
+from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
     COHORT_QUERY_TIMEOUT_SECONDS,
@@ -35,12 +41,15 @@ from products.cohorts.backend.models.util import (
     ERROR_CODE_MESSAGES,
     CohortErrorCode,
     _recalculate_cohortpeople_for_team,
+    _recalculate_cohortpeople_for_team_hogql,
     _sanitize_query_for_cohort,
     get_all_cohort_dependencies,
     get_friendly_error_message,
     get_nested_cohort_ids,
     get_static_cohort_size,
+    insert_cohort_filter_actors_into_ch,
     insert_cohort_query_actors_into_ch,
+    legacy_groups_to_filters,
     parse_error_code,
     print_cohort_hogql_query,
     run_cohort_query,
@@ -133,6 +142,40 @@ class TestRunCohortQueryStatsScheduling(SimpleTestCase):
             ],
         )
         self.assertEqual(mock_capture.call_count, 2)
+
+
+class TestLegacyGroupsToFilters(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("person_without_operator", {"key": "email", "value": "a@example.com", "type": "person"}),
+            ("cohort_in", {"key": "id", "value": 1, "type": "cohort", "operator": "in"}),
+            ("cohort_not_in", {"key": "id", "value": 1, "type": "cohort", "operator": "not_in"}),
+        ]
+    )
+    def test_converted_filters_pass_filters_validation(self, _name: str, leaf: dict[str, Any]) -> None:
+        filters = legacy_groups_to_filters([{"properties": [leaf]}])
+
+        assert filters is not None
+        CohortFilters.model_validate(filters)
+
+    @parameterized.expand(
+        [
+            ("in", "in", False, False),
+            ("in_with_negation", "in", True, True),
+            ("not_in", "not_in", False, True),
+            ("not_in_with_negation", "not_in", True, True),
+        ]
+    )
+    def test_cohort_in_and_not_in_become_negation(
+        self, _name: str, operator: str, negation: bool, expected_negation: bool
+    ) -> None:
+        leaf_in = {"key": "id", "value": 1, "type": "cohort", "operator": operator, "negation": negation}
+        filters = legacy_groups_to_filters([{"properties": [leaf_in]}])
+
+        assert filters is not None
+        leaf = filters["properties"]["values"][0]["values"][0]
+        assert "operator" not in leaf
+        assert leaf.get("negation", False) is expected_negation
 
 
 class TestCohortUtils(BaseTest):
@@ -692,6 +735,37 @@ class TestCohortUtils(BaseTest):
         self.assertIn("WHERE distinct_id IN", result)
         # Should include settings
         self.assertIn("SETTINGS", result)
+        if not CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertNotIn("json_type_escape_dots_in_keys", result)
+
+        with (
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.id)),
+            patch("posthog.hogql_queries.query_runner.get_query_runner", mock_get_query_runner),
+        ):
+            switched = print_cohort_hogql_query(
+                cohort, HogQLContext(team_id=self.team.id, enable_select_queries=True), team=self.team
+            )
+        self.assertIn("json_type_escape_dots_in_keys=1", switched)
+        self.assertIn("output_format_json_escape_forward_slashes=0", switched)
+
+    def test_recalculate_cohortpeople_hogql_sends_the_native_read_settings_for_a_switched_team(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="switched",
+            groups=[{"properties": [{"key": "$browser", "value": "Chrome", "type": "person"}]}],
+        )
+        history = CohortCalculationHistory.objects.create(
+            team=self.team, cohort=cohort, filters={}, started_at=timezone.now()
+        )
+
+        with (
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.id)),
+            patch("products.cohorts.backend.models.util.sync_execute", return_value=0) as execute,
+        ):
+            _recalculate_cohortpeople_for_team_hogql(cohort, 1, self.team, history)
+        settings = execute.call_args.kwargs["settings"]
+        self.assertEqual(settings["json_type_escape_dots_in_keys"], 1)
+        self.assertEqual(settings["output_format_json_escape_forward_slashes"], 0)
 
     def test_print_cohort_hogql_query_with_select_star_raises_error(self):
         """Test that SELECT * queries without explicit ID columns raise an error"""
@@ -945,11 +1019,29 @@ class TestCohortUtils(BaseTest):
                 "max_bytes_before_external_sort": 21 * 1024**3,
                 "max_bytes_ratio_before_external_group_by": 0,
                 "max_bytes_ratio_before_external_sort": 0,
+                **events_read_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA),
             },
         )
         self.assertEqual(kwargs["workload"], Workload.OFFLINE)
         self.assertEqual(kwargs["ch_user"], ClickHouseUser.COHORTS)
         self.assertEqual(kwargs["team_id"], self.team.id)
+
+    def test_insert_cohort_filter_actors_into_ch_sends_the_native_read_settings_for_a_switched_team(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="switched static",
+            is_static=True,
+            groups=[{"properties": [{"key": "$browser", "value": "Chrome", "type": "person"}]}],
+        )
+
+        with (
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.id)),
+            patch("products.cohorts.backend.models.util.sync_execute") as execute,
+        ):
+            insert_cohort_filter_actors_into_ch(cohort, team=self.team)
+        settings = execute.call_args.kwargs["settings"]
+        self.assertEqual(settings["json_type_escape_dots_in_keys"], 1)
+        self.assertEqual(settings["output_format_json_escape_forward_slashes"], 0)
 
     @parameterized.expand(
         [

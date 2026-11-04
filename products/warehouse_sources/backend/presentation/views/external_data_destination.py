@@ -4,10 +4,11 @@ from urllib.parse import quote
 from django.conf import settings
 from django.db import models, transaction
 from django.db.models import Q
+from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -26,6 +27,16 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
     ExternalDataSourceDestination,
+)
+from products.warehouse_sources.backend.presentation.destination_connect_tokens import (
+    ConnectTokenInvalidIntegration,
+    ConnectTokenNotFound,
+    ConnectTokenOtherUser,
+    DestinationConnectStatus,
+    DestinationConnectToken,
+    complete_connect_token,
+    issue_connect_token,
+    read_connect_token,
 )
 from products.warehouse_sources.backend.presentation.destination_connection_check import (
     CONFIG_FAILURES,
@@ -113,7 +124,66 @@ class DestinationConnectLinkSerializer(serializers.Serializer):
             "so credentials never pass through the agent or the chat."
         )
     )
+    connect_token = serializers.CharField(
+        help_text=(
+            "Secret token in the link. Pass it to the connect link status endpoint to learn which integration the "
+            "user saved. Only the user who asked for the link can read its status."
+        )
+    )
+    expires_at = serializers.DateTimeField(
+        help_text="When the link stops accepting a new connection. Ask for a new link after this time."
+    )
     instructions = serializers.CharField(help_text="Next steps for the agent to relay to the user.")
+
+
+# The fields are not named `token`: PostHog reads a `token` parameter as a project API key.
+class DestinationConnectCompleteRequestSerializer(serializers.Serializer):
+    connect_token = serializers.CharField(max_length=128, help_text="The connect token from the connect link URL.")
+    integration_id = serializers.IntegerField(
+        min_value=1, help_text="Id of the integration the user saved on the connect page."
+    )
+
+
+class DestinationConnectStatusQuerySerializer(serializers.Serializer):
+    connect_token = serializers.CharField(max_length=128, help_text="The connect_token that the connect link returned.")
+
+
+class DestinationConnectStatusSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=DestinationConnectStatus.choices,
+        help_text=(
+            "`pending`: the user has not saved a connection yet. `connected`: the user saved one, and "
+            "integration_id holds it. `expired`: the link is no longer valid, or it is unknown or belongs to "
+            "another user. Ask for a new link."
+        ),
+    )
+    integration_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="Id of the saved integration when status is `connected`. Pass it to destination create.",
+    )
+    integration_kind = serializers.CharField(
+        allow_null=True, help_text="The integration kind the link is for. Null when status is `expired`."
+    )
+    display_name = serializers.CharField(
+        allow_null=True,
+        help_text="Name of the saved connection, such as the account or host, to confirm with the user.",
+    )
+
+
+def _connect_status_payload(record: DestinationConnectToken | None) -> dict[str, Any]:
+    if record is None:
+        return {
+            "status": DestinationConnectStatus.EXPIRED,
+            "integration_id": None,
+            "integration_kind": None,
+            "display_name": None,
+        }
+    return {
+        "status": record.status(timezone.now()),
+        "integration_id": record.integration_id,
+        "integration_kind": record.integration_kind,
+        "display_name": record.display_name,
+    }
 
 
 class SyncedSourceSerializer(serializers.Serializer):
@@ -473,7 +543,7 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     # access to `external_data_source` instead.
     requires_resource_level_access = True
     # Token auth rejects any action missing from these lists.
-    scope_object_read_actions = ["list", "retrieve", "connect_link"]
+    scope_object_read_actions = ["list", "retrieve", "connect_link", "connect_link_status"]
     scope_object_write_actions = [
         "create",
         "update",
@@ -482,6 +552,7 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         "destroy",
         "add_sources",
         "test_connection",
+        "connect_link_complete",
     ]
     # `.unscoped()` is import-safe (the fail-closed manager raises on `.all()` without team
     # context); the mixin scopes every request by team_id.
@@ -529,6 +600,12 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             .distinct()
         )
 
+    def _request_user_id(self) -> int:
+        user_id = self.request.user.pk
+        if user_id is None:
+            raise NotAuthenticated()
+        return user_id
+
     def _assert_can_mutate(self, instance: ExternalDataDestination) -> None:
         """Per-table gate for changing or deleting a shared destination.
 
@@ -567,10 +644,12 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         """Return a secure browser link where the user connects the credentials for a destination.
 
         The page saves an integration and does not create the destination, so secrets never pass
-        through the agent. The agent then creates the destination with the new integration's id.
+        through the agent. The link carries a connect token. The agent reads the saved integration's id
+        with the token from the connect link status endpoint, then creates the destination with it.
         """
         destination_type = request.validated_query_data["destination_type"]
         kind = request.validated_query_data["integration_kind"]
+        connect = issue_connect_token(team_id=self.team_id, user_id=self._request_user_id(), integration_kind=kind)
         target_check = (
             "Creating the destination tests the connection, so a wrong target fails at that step."
             if has_connection_test(destination_type)
@@ -581,20 +660,64 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             "destination_type": destination_type,
             "integration_kind": kind,
             "connect_url": (
-                f"{settings.SITE_URL}/project/{self.team_id}/data-warehouse/connect-destination?kind={quote(kind)}"
+                f"{settings.SITE_URL}/project/{self.team_id}/data-warehouse/connect-destination"
+                f"?kind={quote(kind)}&token={quote(connect.token)}"
             ),
+            "connect_token": connect.token,
+            "expires_at": connect.expires_at,
             "instructions": (
                 f"Share this link with the user. They enter their {destination_type} credentials directly in "
                 "PostHog. Never ask them to paste passwords, keys or tokens into the chat. The page saves the "
-                "connection as an integration and shows its id. It does not create the destination. When the user "
-                "says they are done, ask them for that id. If they cannot give it, call integrations-list with "
-                f"kind='{kind}' and take the entry with the latest created_at (the list is oldest first), then "
-                "confirm its display_name with the user. Then call external-data-destinations-create with "
-                f"type='{destination_type}', a name, that integration id, and the target config that tool lists "
-                f"for {destination_type}. {target_check}"
+                "connection as an integration. It does not create the destination. The user must open the link "
+                "while logged in to PostHog as the same user this session acts as. After you share the link, call "
+                "external-data-destinations-connect-link-status with this connect_token every few seconds until "
+                "status is 'connected' or 'expired'. When it is 'connected', confirm display_name with the user. "
+                "Then call external-data-destinations-create with "
+                f"type='{destination_type}', a name, the integration_id from the status, and the target config that "
+                f"tool lists for {destination_type}. {target_check} When it is 'expired', ask for a new link."
             ),
         }
         return Response(DestinationConnectLinkSerializer(data).data)
+
+    @validated_request(
+        request_serializer=DestinationConnectCompleteRequestSerializer,
+        responses={200: DestinationConnectStatusSerializer},
+    )
+    @action(methods=["POST"], detail=False, pagination_class=None)
+    def connect_link_complete(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """Report the integration the user saved on the connect page, so the agent that sent them can read it.
+
+        The connect page calls this. Repeating the call with the same integration is safe.
+        """
+        try:
+            record = complete_connect_token(
+                team_id=self.team_id,
+                user_id=self._request_user_id(),
+                token=request.validated_data["connect_token"],
+                integration_id=request.validated_data["integration_id"],
+            )
+        except ConnectTokenNotFound:
+            raise NotFound("This connect link is unknown or has expired.")
+        except ConnectTokenOtherUser:
+            raise PermissionDenied("This connect link was created for another user.")
+        except ConnectTokenInvalidIntegration as error:
+            raise ValidationError({"integration_id": str(error)})
+        return Response(DestinationConnectStatusSerializer(_connect_status_payload(record)).data)
+
+    @validated_request(
+        query_serializer=DestinationConnectStatusQuerySerializer,
+        responses={200: DestinationConnectStatusSerializer},
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def connect_link_status(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """Return whether the user saved a connection through a connect link, and which integration it is.
+
+        Never returns credentials or integration config.
+        """
+        record = read_connect_token(
+            team_id=self.team_id, user_id=self._request_user_id(), token=request.validated_query_data["connect_token"]
+        )
+        return Response(DestinationConnectStatusSerializer(_connect_status_payload(record)).data)
 
     @extend_schema(request=AddSourcesRequestSerializer, responses={200: AddSourcesResponseSerializer})
     @action(methods=["POST"], detail=True)

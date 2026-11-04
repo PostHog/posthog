@@ -1,5 +1,9 @@
-import { focusManager, QueryClient } from '@tanstack/react-query'
+import { focusManager, onlineManager, QueryClient } from '@tanstack/react-query'
 import { AppState } from 'react-native'
+
+import { monitorConnectivity } from '@/lib/connectivity'
+
+onlineManager.setEventListener(monitorConnectivity)
 
 // TanStack's default focus listener needs `window` visibility events, which React Native lacks, so the focus state never
 // changed on iOS or Android. App state drives it instead.

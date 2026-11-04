@@ -1,6 +1,6 @@
 import { ApiError } from 'lib/api-error'
 
-import { FilterType, InsightLogicProps, InsightType, TrendsFilterType } from '~/types'
+import { InsightLogicProps } from '~/types'
 
 export function getCapacityRetryAt(tileError: unknown, queryError: unknown): number | null {
     const tileRetryAt = tileError instanceof ApiError ? tileError.retryAfterTimestamp : null
@@ -43,7 +43,3 @@ export const keyForInsightLogicProps =
             : defaultKey
         return props.tabId ? `${baseKey}/tab-${props.tabId}` : baseKey
     }
-
-export function isTrendsFilter(filters?: Partial<FilterType>): filters is Partial<TrendsFilterType> {
-    return filters?.insight === InsightType.TRENDS || (!!filters && !filters.insight)
-}

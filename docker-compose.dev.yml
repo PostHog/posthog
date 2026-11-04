@@ -790,6 +790,8 @@ services:
             # FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED is set.
             REDIS_COMPRESSION_ENABLED: 'true'
             INTERNAL_REQUEST_TOKEN: 'dev-internal-token'
+            # Answer /flags?v=4 with the v4 response, as production does
+            FLAGS_V4_RESPONSE_ENABLED: 'true'
 
     usage-ingestion:
         extends:

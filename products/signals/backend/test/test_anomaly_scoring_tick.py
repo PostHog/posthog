@@ -27,7 +27,12 @@ from posthog.schema import IntervalType
 from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 
 from posthog.clickhouse.client import sync_execute
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models import Organization, Team, User
 from posthog.tasks.alerts.detectors.base import ARTIFACT_SCHEMA_VERSION
 
@@ -50,6 +55,7 @@ from products.signals.backend.anomaly_scores.config import (
 from products.signals.backend.anomaly_scores.due_list import record_scored, refresh_due_list
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID, score_events
 from products.signals.backend.anomaly_scores.queue import (
+    ATTEMPT_COOLDOWN,
     SKIP_COOLDOWN,
     ActiveInsight,
     ActivityReason,
@@ -59,7 +65,9 @@ from products.signals.backend.anomaly_scores.queue import (
     _cooldown_key,
     _fleet_budget_key,
     _project_budget_key,
+    _take_turns,
     _team_loaded_key,
+    _too_expensive_key,
     active_insights,
     eligible_teams,
     is_due,
@@ -67,6 +75,7 @@ from products.signals.backend.anomaly_scores.queue import (
     reserve_queries,
     scored_buckets,
     select_insights,
+    too_expensive_counts,
     within_budget,
 )
 from products.signals.backend.anomaly_scores.scoring import (
@@ -597,6 +606,16 @@ class TestTickSelection(SimpleTestCase):
 
         assert is_due(insight, newest_bucket, timezone, now) is due
 
+    def test_teams_take_turns_in_an_order_that_changes_with_the_tick(self) -> None:
+        team_orders = {1: [11, 12], 1_000_000: [21, 22]}
+        ticks = [NOW + timedelta(minutes=10 * index) for index in range(50)]
+
+        orders = [_take_turns(team_orders, tick) for tick in ticks]
+
+        assert {order[0] for order in orders} == {11, 21}
+        assert all(order in ([11, 21, 12, 22], [21, 11, 22, 12]) for order in orders)
+        assert all(_take_turns(team_orders, tick) == order for tick, order in zip(ticks, orders))
+
 
 class TestScoreEvents(SimpleTestCase):
     def test_a_revisit_emits_every_bucket_after_the_newest_scored_one_of_each_series(self) -> None:
@@ -670,10 +689,16 @@ class TestScoreEvents(SimpleTestCase):
 
 
 class TestRunInsight(SimpleTestCase):
-    def _run(self, error: Exception) -> tuple[str, list[Any], MagicMock, dict[str, Any]]:
+    def setUp(self) -> None:
+        super().setUp()
+        cache.delete(_too_expensive_key(7))
+        self.addCleanup(cache.delete, _too_expensive_key(7))
+
+    def _run(self, error: Exception, too_expensive: int = 0) -> tuple[str, list[Any], MagicMock, dict[str, Any]]:
         tick = "products.signals.backend.anomaly_scores.tick"
         client = MagicMock()
         capture = MagicMock()
+        mark_attempted = MagicMock()
         with (
             patch(f"{tick}.ph_background_capture", return_value=capture),
             patch(
@@ -682,11 +707,14 @@ class TestRunInsight(SimpleTestCase):
             ),
             patch(f"{tick}.Team"),
             patch(f"{tick}.score_insight", side_effect=error),
-            patch(f"{tick}.mark_attempted") as mark_attempted,
+            patch(f"{tick}.mark_attempted", mark_attempted),
+            patch("products.signals.backend.anomaly_scores.queue.mark_attempted", mark_attempted),
             patch(f"{tick}.record_failed") as record_failed,
             patch("products.signals.backend.anomaly_scores.metrics.posthoganalytics.default_client", client),
         ):
-            pick = InsightPick(team_id=1, insight_id=7, scored_through={}, interval=IntervalType.DAY)
+            pick = InsightPick(
+                team_id=1, insight_id=7, scored_through={}, interval=IntervalType.DAY, too_expensive=too_expensive
+            )
             try:
                 status = run_insight(ScoreInsightInput(pick=pick), NOW).status
             except Exception:
@@ -725,6 +753,47 @@ class TestRunInsight(SimpleTestCase):
             "status": expected,
             "queries": 1,
         }
+
+    def test_consecutive_too_expensive_visits_grow_the_cooldown_and_a_success_resets_it(self) -> None:
+        cooldowns = []
+        streaks = []
+        for error in [
+            ClickHouseQueryTimeOut(),
+            ClickHouseAtCapacity(),
+            ClickHouseClusterMemoryLimitExceeded(),
+            ClickHouseQueryMemoryLimitExceeded(),
+            ClickHouseQueryTimeOut(),
+            ClickHouseQueryTimeOut(),
+            ClickHouseQueryTimeOut(),
+        ]:
+            _status, visit_cooldowns, _metrics, pick_event = self._run(error, too_expensive_counts([7]).get(7, 0))
+            cooldowns.append(visit_cooldowns[-1])
+            streaks.append(pick_event["too_expensive_streak"])
+
+        assert cooldowns == [
+            SKIP_COOLDOWN,
+            ATTEMPT_COOLDOWN,
+            ATTEMPT_COOLDOWN,
+            timedelta(days=3),
+            timedelta(days=7),
+            timedelta(days=30),
+            timedelta(days=30),
+        ]
+        assert streaks == [1, 1, 1, 2, 3, 4, 5]
+
+        capture = MagicMock()
+        with (
+            patch("products.signals.backend.anomaly_scores.tick.ph_background_capture", return_value=capture),
+            patch(
+                "products.signals.backend.anomaly_scores.tick._score_pick",
+                return_value=ScoreInsightResult(status="up_to_date", events=0),
+            ),
+        ):
+            pick = InsightPick(team_id=1, insight_id=7, scored_through={}, too_expensive=5)
+            run_insight(ScoreInsightInput(pick=pick), NOW)
+
+        assert too_expensive_counts([7]) == {}
+        assert capture.call_args.kwargs["properties"]["too_expensive_streak"] == 0
 
     def test_a_full_cluster_returns_at_capacity_and_waits_an_hour(self) -> None:
         status, cooldowns, _metrics, _pick_event = self._run(ClickHouseAtCapacity())
@@ -1368,7 +1437,9 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         small_dashboard = Dashboard.objects.create(team=small_team, name="Main")
         DashboardTile.objects.create(dashboard=small_dashboard, insight=small_insight)
         for insight in [*large_insights, small_insight]:
-            cache.delete(_cooldown_key(insight.id))
+            cache.delete_many([_cooldown_key(insight.id), _too_expensive_key(insight.id)])
+        cache.set(_too_expensive_key(small_insight.id), 2)
+        self.addCleanup(cache.delete, _too_expensive_key(small_insight.id))
         config = AnomalyScoringConfig(
             enabled=True,
             organization_ids=(str(self.organization.id),),
@@ -1378,9 +1449,11 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
             selection = select_insights(config, SelectionConfig(weighting=Weighting.WEIGHTED), NOW, limit=2)
 
-        assert [pick.team_id for pick in selection.picks] == [self.team.id, small_team.id]
-        assert selection.picks[0].insight_id in {insight.id for insight in large_insights}
-        assert selection.picks[1].insight_id == small_insight.id
+        picks = {pick.team_id: pick for pick in selection.picks}
+        assert len(selection.picks) == 2 and set(picks) == {self.team.id, small_team.id}
+        assert picks[self.team.id].insight_id in {insight.id for insight in large_insights}
+        assert picks[small_team.id].insight_id == small_insight.id
+        assert [picks[self.team.id].too_expensive, picks[small_team.id].too_expensive] == [0, 2]
         assert selection.candidates == 4
         assert [(team.team_id, team.active, team.active_intervals) for team in selection.census] == [
             (self.team.id, 3, {"day": 3}),
