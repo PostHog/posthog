@@ -43,7 +43,11 @@ from products.data_warehouse.backend.facade.api import (
     unpause_external_data_schedule,
     update_external_job_status,
 )
-from products.warehouse_sources.backend.facade.contracts import ConfigValueError, UndecryptedConfigError
+from products.warehouse_sources.backend.facade.contracts import (
+    ConfigValueError,
+    LegacyHistoryTableError,
+    UndecryptedConfigError,
+)
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
     INCREMENTAL_HISTORY_KEY,
@@ -72,8 +76,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     CDC_RESET_PENDING_KEY,
     HISTORY_NAMING,
     AnySource,
-    HistoryNaming,
-    LegacyHistoryTableError,
     RowFilterValidationError,
     SourceRegistry,
     WebhookSource,
@@ -259,10 +261,9 @@ def _refuse_ineligible_incremental_history(payload: dict[str, Any]) -> None:
         raise ValidationError(refusal)
 
 
-def _incremental_history_naming(instance: ExternalDataSchema) -> HistoryNaming | None:
-    """The naming of the schema's incremental history table, or None when its name is taken."""
+def _refuse_a_legacy_history_table(instance: ExternalDataSchema) -> None:
     try:
-        return incremental_history_naming_unless_taken(instance)
+        incremental_history_naming_unless_taken(instance)
     except LegacyHistoryTableError as e:
         raise ValidationError(str(e)) from e
 
@@ -289,7 +290,7 @@ def _apply_incremental_history_mode(
             raise ValidationError(
                 "This source can't keep a history table, because it replaces rows by file instead of merging them by key."
             )
-        _incremental_history_naming(instance)
+        _refuse_a_legacy_history_table(instance)
         _refuse_ineligible_incremental_history(payload)
         payload[INCREMENTAL_HISTORY_KEY] = True
     payload["cdc_table_mode"] = mode
@@ -585,9 +586,12 @@ def _refuse_reserved_columns(
     history = None
     resolved = None
     if is_history_table_mode(new_mode) or is_history_table_mode(previous_mode):
-        history = resolved = (
-            history_naming_unless_taken(instance) if captures else _incremental_history_naming(instance)
-        )
+        try:
+            history = resolved = (
+                history_naming_unless_taken(instance) if captures else incremental_history_naming_unless_taken(instance)
+            )
+        except LegacyHistoryTableError as e:
+            raise ValidationError(str(e)) from e
         # A CDC schema that kept history keeps writing its registered table. An incremental one always needs the
         # `_history` name.
         if history is None and is_history_table_mode(new_mode) and (not kept_history or not captures):

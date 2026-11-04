@@ -9,13 +9,11 @@ import pyarrow as pa
 import deltalake
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.facade.contracts import LegacyHistoryTableError
 from products.warehouse_sources.backend.models.external_data_schema import INCREMENTAL_HISTORY_KEY, ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import HISTORY_NAMING
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
-from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
-    HistoryTableNameTakenError,
-    LegacyHistoryTableError,
-)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import HistoryTableNameTakenError
 from products.warehouse_sources.backend.temporal.data_imports.incremental_history import (
     IncrementalHistoryUnavailableError,
     attach_history_lanes,

@@ -9,6 +9,7 @@ from uuid import UUID
 
 from django.db.models import Q, QuerySet
 
+from products.warehouse_sources.backend.facade.contracts import LegacyHistoryTableError
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HISTORY_NAMING_OPTION, PH_HISTORY_NAMING, DataWarehouseTable
@@ -37,14 +38,6 @@ class HistoryTableNameTakenError(Exception):
 
     Two registrations under one name hide one of the tables from queries, and the companion registration
     would take the other table's record.
-    """
-
-
-class LegacyHistoryTableError(Exception):
-    """An incremental schema's history table uses the legacy `_cdc` naming.
-
-    Incremental history writes with deltalite's history upsert, which needs the month-partitioned layout of a
-    `_history` table. A legacy table is unpartitioned, so an incremental sync cannot write it.
     """
 
 
