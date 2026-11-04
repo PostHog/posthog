@@ -10,10 +10,9 @@ import { engineeringAnalyticsEnable, engineeringAnalyticsSources } from '../gene
  * requests and workflow runs from a GitHub warehouse source, so a project is set up once
  * it has one connected, synced or not: the scene explains an unsynced source itself.
  *
- * Opening the product with a source connected is the opt-in: it enables the project, which
- * is what lets the background work (view sync, test census, CI failure logs) run for it.
- * The call is idempotent and does nothing for an enabled project. It needs editor access, so
- * a viewer's failure is ignored: the scene still renders, and the next editor enables it.
+ * Opening the product with a source connected is the opt-in that lets background work run for
+ * the project. Enabling needs editor access, so a viewer's failure is ignored and the next editor
+ * enables it.
  */
 export const engineeringAnalyticsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.ENGINEERING_ANALYTICS,

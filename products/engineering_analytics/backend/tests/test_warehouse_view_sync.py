@@ -80,8 +80,7 @@ class TestSyncEngineeringAnalyticsViews(BaseTest):
 
     @patch.object(DataWarehouseManagedViewSet, "sync_views")
     def test_noop_for_unenrolled_team(self, mock_sync) -> None:
-        # The load alone never opts a team in: a team that connected GitHub for another product
-        # must not get this product's views in its warehouse.
+        # A team that connected GitHub for another product must not get this product's views.
         source = self._qualifying_source()
         schema = ExternalDataSchema.objects.get(source=source, name=WORKFLOW_JOBS_SCHEMA)
 

@@ -804,9 +804,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
     @parameterized.expand([("sources", "get"), ("enable", "post")])
     def test_requires_rollout_feature_flag(self, action: str, method: str) -> None:
-        # The whole viewset is gated on the engineering-analytics rollout flag (which the
-        # conftest fixture enables); with the flag off, every endpoint must 403. The opt-in is the
-        # one action that starts background work, so it is proven on its own.
+        # The conftest fixture enables the rollout flag; with it off, every endpoint must 403.
         with mock.patch("posthoganalytics.feature_enabled", return_value=False):
             response = getattr(self.client, method)(self._url(action))
 

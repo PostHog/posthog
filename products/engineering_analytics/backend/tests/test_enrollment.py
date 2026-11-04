@@ -16,8 +16,7 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 class TestEnrolledSources(BaseTest):
     @parameterized.expand([("github", ExternalDataSourceType.GITHUB), ("depot", ExternalDataSourceType.DEPOT)])
     def test_lists_only_enrolled_teams(self, _name: str, source_type: ExternalDataSourceType) -> None:
-        # Both job-log sweeps and the census fan-out start here. An unenrolled team's CI logs and
-        # census events must never reach its project.
+        # Every cross-team sweep starts here, so an unenrolled team's rows must never appear.
         unenrolled = Team.objects.create(organization=self.organization, name="unenrolled")
         create = create_github_source if source_type == ExternalDataSourceType.GITHUB else create_depot_source
         enrolled_source = create(self.team)

@@ -92,7 +92,6 @@ def test_emit_census_events_captures_the_contract_layer_4_reads() -> None:
 class TestCensusFanOut(BaseTest):
     @patch("products.engineering_analytics.backend.tasks.tasks.emit_team_test_census.delay")
     def test_fans_out_only_to_enrolled_teams(self, mock_delay) -> None:
-        # Both teams have a GitHub source; only the enrolled one may get census events in its project.
         unenrolled = Team.objects.create(organization=self.organization, name="unenrolled")
         create_github_source(self.team)
         create_github_source(unenrolled)
