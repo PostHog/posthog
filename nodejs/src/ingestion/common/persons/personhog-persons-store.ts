@@ -149,17 +149,9 @@ const REDIRECT_MAX_ATTEMPTS = 3
 
 const FLUSH_WAIT_ROUND_MS = 1_000
 
-/**
- * How long a flush keeps retrying lanes after its first transport failure
- * that outlasted the gRPC layer's own retries, before it fails the batch to
- * redelivery. Sized past a router pod's full drain, so a rollout or a
- * scale-down costs this process a stall and not an exit, and well under the
- * consumer's poll interval, so a wedged router still fails the batch rather
- * than the group member.
- */
+/** Counted from the first transport failure. Outlasts a router pod's drain, and stays well under the consumer's poll interval. */
 const FLUSH_TRANSIENT_RETRY_BUDGET_MS = 30_000
 
-/** A transport failure the gRPC layer tagged retriable once its own budget ran out. */
 function isTransientTransportError(error: unknown): error is ConnectError & { isRetriable: true } {
     return error instanceof ConnectError && (error as { isRetriable?: boolean }).isRetriable === true
 }
@@ -168,11 +160,8 @@ function isTransientTransportError(error: unknown): error is ConnectError & { is
 class CountedRedirectError extends Error {}
 
 interface WritePass {
-    /** Lanes another writer held or a fence bounced; the round loop waits them out. */
     deferrals: number
-    /** The subset of deferrals a lifecycle fence bounced. */
     fenced: number
-    /** Lanes the transport failed or the expired budget skipped; they stay unwritten. */
     transientFailures: number
 }
 
@@ -1347,9 +1336,8 @@ export class PersonhogPersonsStore implements PersonsStore {
     }
 
     /**
-     * Writes one claimed lane, and absorbs a transport failure for the round loop to retry.
-     * The lanes queued behind a slow failure check the budget here, so a long queue cannot outlive it.
-     * A skipped lane counts as a failure because it stays unwritten: a pass that counted nothing would ack the batch.
+     * Queued lanes check the budget here, so a long queue cannot outlive it.
+     * A skipped lane counts as a failure, because a pass that counted nothing would ack the batch.
      */
     private async writeLaneWithinBudget(
         lane: CapturedLane,

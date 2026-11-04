@@ -26,7 +26,6 @@ import {
     personhogStoreShadowShedCounter,
 } from './personhog-persons-store'
 
-/** The store's flush round interval. */
 const FLUSH_ROUND_MS = 1_000
 
 const counterTotal = async (counter: { get: () => Promise<{ values: { value: number }[] }> }): Promise<number> =>
@@ -3209,8 +3208,6 @@ describe('PersonhogPersonsStore', () => {
     })
 
     describe('a write that fails on the transport after the gRPC retries', () => {
-        // A router pod drain cancels the calls in flight on its sessions and
-        // the gRPC layer's retries land back on it before its endpoint is gone.
         const transportFailure = () =>
             Object.assign(new ConnectError('http/2 stream closed with error code CANCEL', Code.Canceled), {
                 isRetriable: true as const,
