@@ -521,6 +521,18 @@ class _InsightQuerySchema(RootModel):
     ) = PydanticField(discriminator="kind")
 
 
+_METRICS_QUERY_KINDS = frozenset({"MetricsQuery", "MetricsHistogramQuery"})
+METRICS_VARIABLE_VALUES_MESSAGE = (
+    "A saved metrics insight can't store variable values. Keep the $name references in the query, "
+    "and set the values with a dashboard variable or on the alert."
+)
+
+
+def _reject_metrics_variable_values(query: Any) -> None:
+    if isinstance(query, dict) and query.get("kind") in _METRICS_QUERY_KINDS and query.get("variables"):
+        raise ValidationError({"query": [METRICS_VARIABLE_VALUES_MESSAGE]})
+
+
 @extend_schema_field(_InsightQuerySchema)  # type: ignore[arg-type]
 class QueryFieldSerializer(serializers.Serializer):
     def to_representation(self, value):
@@ -723,6 +735,7 @@ class InsightSerializer(InsightBasicSerializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         query = attrs.get("query") if "query" in attrs else None
+        _reject_metrics_variable_values(query)
         # `filters` is read-only, so DRF drops it before validation. The raw payload is the only
         # place a legacy write still shows up, and it has to be answered rather than ignored.
         sent_filters = self.initial_data.get("filters")
