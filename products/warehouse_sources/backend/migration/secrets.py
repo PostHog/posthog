@@ -1,6 +1,7 @@
 import re
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import unquote_plus
 
 # Vendors mask secrets on read, but we do not rely on it: a field that is not masked
 # (a vendor bug or a new field) must still never reach storage.
@@ -17,8 +18,6 @@ _SECRET_KEY_PARTS = (
     "privatekey",
     "keystore",
     "truststore",
-    # DSV's `service_authentication` holds `username:password`.
-    "authentication",
 )
 # Secret fields whose names fit no rule above (GitHub personal access tokens, Alchemer's API key,
 # Open Exchange Rates' app id).
@@ -41,11 +40,13 @@ _SIGNATURE_PARAM = re.compile(r"(^|[_\-])sig$|signature", re.IGNORECASE)
 
 def is_secret_key(key: str) -> bool:
     normalized = re.sub(r"[_\-]", "", key.lower())
-    if normalized.startswith("auth") or normalized in _SECRET_KEYS:
+    tokens = {token.lower() for token in _KEY_TOKEN_SPLIT.split(key)}
+    # A name part that starts with "auth" names a credential: `auth`, `dsv_service_auth`, `shard_authorization_id`.
+    if normalized in _SECRET_KEYS or any(token.startswith("auth") for token in tokens):
         return True
     if _KEY_SUFFIX.search(normalized) and normalized not in _NON_SECRET_KEYS:
         return True
-    if "cert" in normalized and not _CA_TOKENS & {token.lower() for token in _KEY_TOKEN_SPLIT.split(key)}:
+    if "cert" in normalized and not _CA_TOKENS & tokens:
         return True
     return any(part in normalized for part in _SECRET_KEY_PARTS)
 
@@ -57,8 +58,10 @@ def _is_secret_value(value: Any) -> bool:
         return True
     if "://" not in value:
         return False
+    # Names are decoded first, so `%73ig` is checked as `sig`.
+    names = [unquote_plus(name) for name in _URL_QUERY_PARAM.findall(value)]
     return bool(_URL_WITH_PASSWORD.search(value)) or any(
-        is_secret_key(name) or _SIGNATURE_PARAM.search(name) for name in _URL_QUERY_PARAM.findall(value)
+        is_secret_key(name) or _SIGNATURE_PARAM.search(name) for name in names
     )
 
 
