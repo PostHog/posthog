@@ -55,7 +55,7 @@ from posthog.models import Team, User
 from posthog.models.oauth import OAuthApplication, OAuthDeviceGrant, live_oauth_access_tokens, live_oauth_refresh_tokens
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.rate_limit import IPThrottle
-from posthog.scopes import clamp_scopes_to_ceiling, resolve_requested_scopes
+from posthog.scopes import clamp_scopes_to_ceiling, resolve_requested_scopes, scopes_not_covered
 
 logger = structlog.get_logger(__name__)
 
@@ -600,14 +600,10 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
             requested = (grant.scope or "").split()
             kept = serializer.validated_data.get("scopes")
             if kept is not None:
-                # Lowering write access to read is allowed, so a requested `x:write` also allows `x:read`.
-                allowed = {
-                    *requested,
-                    *(scope.removesuffix(":write") + ":read" for scope in requested if scope.endswith(":write")),
-                }
-                if not set(kept) <= allowed:
+                # A requested `x:write` also covers `x:read`, so the person can lower write access to read.
+                if scopes_not_covered(requested, kept):
                     return _invalid_scope("You can only keep scopes the app asked for.")
-                if not set(_required_scopes(requested, application)) <= set(kept):
+                if scopes_not_covered(kept, _required_scopes(requested, application)):
                     return _invalid_scope("The app needs some of the scopes you removed. Keep those to approve.")
                 grant.scope = " ".join(sorted(set(kept)))
             if block := _gateway_blocklist_block(

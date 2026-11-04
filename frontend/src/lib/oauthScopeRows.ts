@@ -2,6 +2,7 @@ import {
     API_SCOPES,
     clampScopeLevel,
     getScopeDescription,
+    groupScopeRows,
     type ScopeAccessLevel,
     type ScopePickerGroup,
     type ScopePickerRow,
@@ -9,7 +10,7 @@ import {
 
 export const IDENTITY_SCOPES = ['openid', 'profile', 'email', 'introspection']
 
-export const scopeObjectKey = (scope: string): string => (scope === '*' ? '*' : scope.split(':')[0])
+const scopeObjectKey = (scope: string): string => (scope === '*' ? '*' : scope.split(':')[0])
 
 export type OAuthScopeRow = ScopePickerRow & {
     /** Full sentence description at the granted level, for the locked (checkmark) list. */
@@ -149,4 +150,17 @@ export function grantedResourceScopes(
         }
         return [`${row.key}:${row.value}`]
     })
+}
+
+// What the consent list shows for the identity scopes a client asked for, such as `openid`.
+export function identityScopeDescriptions(scopes: string[]): string[] {
+    return scopes
+        .filter((scope) => IDENTITY_SCOPES.includes(scope))
+        .map(getScopeDescription)
+        .filter((description): description is string => !!description)
+}
+
+// The adjustable rows in groups, or null when the list is short enough to show flat.
+export function scopeGroupsToShow(adjustableScopeRows: OAuthScopeRow[]): OAuthScopeGroup[] | null {
+    return adjustableScopeRows.length > SCOPE_GROUPING_MIN_ROWS ? groupScopeRows(adjustableScopeRows) : null
 }

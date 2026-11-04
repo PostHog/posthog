@@ -12,6 +12,7 @@ import {
     SCOPE_GROUPING_MIN_ROWS,
     buildOAuthScopeRows,
     grantedResourceScopes,
+    identityScopeDescriptions,
     requiredLevelsFromScopes,
     type OAuthScopeGroup,
     type OAuthScopeRow,
@@ -19,13 +20,7 @@ import {
     type ScopeAccessSelections,
 } from 'lib/oauthScopeRows'
 import { OAUTH_SCOPES_SUPPORTED } from 'lib/oauthScopes.generated'
-import {
-    DEFAULT_OAUTH_SCOPES,
-    getMinimumEquivalentScopes,
-    getScopeDescription,
-    groupScopeRows,
-    type ScopeAccessLevel,
-} from 'lib/scopes'
+import { DEFAULT_OAUTH_SCOPES, getMinimumEquivalentScopes, groupScopeRows, type ScopeAccessLevel } from 'lib/scopes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { userLogic } from 'scenes/userLogic'
 
@@ -748,11 +743,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         ],
         identityScopeDescriptions: [
             (s) => [s.scopes],
-            (scopes: string[]): string[] =>
-                scopes
-                    .filter((scope) => IDENTITY_SCOPES.includes(scope))
-                    .map(getScopeDescription)
-                    .filter(Boolean) as string[],
+            (scopes: string[]): string[] => identityScopeDescriptions(scopes),
         ],
         requiredScopeLevels: [
             (s) => [s.oauthApplication],

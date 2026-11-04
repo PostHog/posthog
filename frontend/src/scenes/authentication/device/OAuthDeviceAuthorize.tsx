@@ -1,13 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
-import { ScopeAccessGroup } from 'lib/components/ScopeAccessRow/ScopeAccessGroup'
-import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
+import { OAuthScopeList } from 'lib/components/ScopeAccessRow/OAuthScopeList'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { SCOPE_GROUPING_MIN_ROWS } from 'lib/oauthScopeRows'
-import { groupScopeRows } from 'lib/scopes'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
@@ -39,6 +35,8 @@ export function OAuthDeviceAuthorize(): JSX.Element {
         identityScopeDescriptions,
         requiredScopeRows,
         adjustableScopeRows,
+        scopeGroups,
+        allScopesRequired,
         scopeSummary,
     } = useValues(oauthDeviceAuthorizeLogic)
     const {
@@ -194,52 +192,17 @@ export function OAuthDeviceAuthorize(): JSX.Element {
                                 ),
                                 content: (
                                     <div className="flex flex-col gap-3">
-                                        {(identityScopeDescriptions.length > 0 || requiredScopeRows.length > 0) && (
-                                            <ul className="space-y-2">
-                                                {identityScopeDescriptions.map((description) => (
-                                                    <li key={description} className="flex items-center gap-2">
-                                                        <IconCheck color="var(--success)" className="shrink-0" />
-                                                        <span className="font-medium">{description}</span>
-                                                    </li>
-                                                ))}
-                                                {requiredScopeRows.map((row) => (
-                                                    <li key={row.key} className="flex items-center gap-2">
-                                                        <IconCheck color="var(--success)" className="shrink-0" />
-                                                        <span className="font-medium">{row.description}</span>
-                                                        <Tooltip
-                                                            title={
-                                                                row.alreadyGranted
-                                                                    ? `You granted this to ${deviceGrant.client_name} before`
-                                                                    : `${deviceGrant.client_name} requires this permission`
-                                                            }
-                                                        >
-                                                            <LemonTag>
-                                                                {row.alreadyGranted ? 'Already granted' : 'Required'}
-                                                            </LemonTag>
-                                                        </Tooltip>
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        )}
-                                        {adjustableScopeRows.length > SCOPE_GROUPING_MIN_ROWS ? (
-                                            <div className="flex flex-col">
-                                                {groupScopeRows(adjustableScopeRows).map((group) => (
-                                                    <ScopeAccessGroup
-                                                        key={group.label}
-                                                        group={group}
-                                                        onChangeRow={setScopeAccess}
-                                                        onChangeGroup={setScopeGroupAccess}
-                                                        dataAttrPrefix="oauth-device-scope-group"
-                                                    />
-                                                ))}
-                                            </div>
-                                        ) : (
-                                            <div className="flex flex-col">
-                                                {adjustableScopeRows.map((row) => (
-                                                    <ScopeAccessRow key={row.key} row={row} onChange={setScopeAccess} />
-                                                ))}
-                                            </div>
-                                        )}
+                                        <OAuthScopeList
+                                            appName={deviceGrant.client_name}
+                                            identityScopeDescriptions={identityScopeDescriptions}
+                                            requiredScopeRows={requiredScopeRows}
+                                            adjustableScopeRows={adjustableScopeRows}
+                                            scopeGroups={scopeGroups}
+                                            allScopesRequired={allScopesRequired}
+                                            onChangeRow={setScopeAccess}
+                                            onChangeGroup={setScopeGroupAccess}
+                                            dataAttrPrefix="oauth-device-scope-group"
+                                        />
                                     </div>
                                 ),
                             },
