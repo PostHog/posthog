@@ -14,7 +14,11 @@ export function RecommendationStepText({ step }: { step: MarketingAnalyticsRecom
                 to={step.url}
                 target="_blank"
                 targetBlankIcon
-                data-attr="marketing-recommendations-step-open-google-ads"
+                data-attr={
+                    step.url.startsWith('https://ads.google.com/')
+                        ? 'marketing-recommendations-step-open-google-ads'
+                        : 'marketing-recommendations-step-open-link'
+                }
             >
                 {step.linkText}
             </Link>

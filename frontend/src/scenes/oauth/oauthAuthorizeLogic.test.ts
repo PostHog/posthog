@@ -256,6 +256,20 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.effectiveScopes).toHaveLength(3)
     })
 
+    it('locks scopes granted before, labels them, and keeps them in the grant under bulk actions', () => {
+        logic.actions.setScopes(['openid', 'insight:write', 'comment:write'])
+        logic.actions.setAlreadyGrantedScopes(['openid', 'insight:write'])
+        logic.actions.setAllScopeAccess('none')
+
+        expect(logic.values.scopeRows.find((r) => r.key === 'insight')).toMatchObject({
+            locked: true,
+            alreadyGranted: true,
+            value: 'write',
+        })
+        expect(logic.values.scopeRows.find((r) => r.key === 'comment')).toMatchObject({ alreadyGranted: false })
+        expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:write'])
+    })
+
     it('clamps an optional write above a required read floor to the floor, never below', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write'])
         withRequiredScopes(['feature_flag:read'])
@@ -330,6 +344,53 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.teamHint).toBeNull()
         expect(logic.values.selectedOrganization).toBe(expectedOrg)
         expect(logic.values.oauthAuthorization.scoped_teams).toEqual(expectedTeams)
+    })
+
+    it.each([
+        {
+            name: 'its projects',
+            requiredAccessLevel: null,
+            earlierAccess: { scoped_teams: [11], scoped_organizations: [] },
+            expected: { access_type: 'teams', scoped_teams: [11] },
+        },
+        {
+            name: 'its organizations',
+            requiredAccessLevel: null,
+            earlierAccess: { scoped_teams: [], scoped_organizations: ['org-b'] },
+            expected: { access_type: 'organizations', scoped_organizations: ['org-b'] },
+        },
+        {
+            name: 'its project when the app requires one',
+            requiredAccessLevel: 'project',
+            earlierAccess: { scoped_teams: [22], scoped_organizations: [] },
+            expected: { access_type: 'teams', scoped_teams: [22] },
+        },
+    ])('a step-up pre-selects the earlier grant: $name', ({ requiredAccessLevel, earlierAccess, expected }) => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            oauth_scope_resolution: {
+                scopes: ['comment:write', 'insight:write', 'openid'],
+                was_defaulted: false,
+                already_granted_scopes: ['insight:write', 'openid'],
+                earlier_access: earlierAccess,
+            },
+        } as AppContext
+        const params = new URLSearchParams({
+            client_id: 'test-client',
+            redirect_uri: 'https://example.com/callback',
+            response_type: 'code',
+            scope: 'comment:write',
+            ...(requiredAccessLevel ? { required_access_level: requiredAccessLevel } : {}),
+        })
+
+        router.actions.push(`/oauth/authorize?${params.toString()}`)
+        logic.actions.loadAllTeamsSuccess(HINT_TEAMS as any)
+
+        expect(logic.values.oauthAuthorization).toMatchObject(expected)
+        expect(logic.values.scopeRows.find((r) => r.key === 'insight')).toMatchObject({
+            alreadyGranted: true,
+            locked: true,
+        })
     })
 
     // Before teams load, a pending hint suppresses the eager current-org selection

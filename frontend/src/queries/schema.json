@@ -3035,7 +3035,7 @@
         },
         "AssistantDataVisualizationColumn": {
             "additionalProperties": false,
-            "description": "A column with number formatting only. Series display settings apply only to Y-axis series.",
+            "description": "A column with a description and number formatting. Series display settings apply only to Y-axis series.",
             "properties": {
                 "column": {
                     "description": "Name of a column returned by the SQL query.",
@@ -3043,15 +3043,29 @@
                 },
                 "settings": {
                     "$ref": "#/definitions/AssistantDataVisualizationColumnSettings",
-                    "description": "Optional number formatting for this column."
+                    "description": "Optional display and number-formatting settings for this column."
                 }
             },
             "required": ["column"],
             "type": "object"
         },
+        "AssistantDataVisualizationColumnDisplaySettings": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "description": "Table column description shown in the header tooltip.",
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "AssistantDataVisualizationColumnSettings": {
             "additionalProperties": false,
             "properties": {
+                "display": {
+                    "$ref": "#/definitions/AssistantDataVisualizationColumnDisplaySettings",
+                    "description": "Display settings for this column."
+                },
                 "formatting": {
                     "$ref": "#/definitions/AssistantDataVisualizationAxisFormatting",
                     "description": "Number-formatting settings for the values in this column."
@@ -18839,6 +18853,10 @@
         "ChartSettings": {
             "additionalProperties": false,
             "properties": {
+                "annotationsScope": {
+                    "$ref": "#/definitions/AnnotationScope",
+                    "description": "Shows only the annotations saved at this level. Unset shows every level."
+                },
                 "barGap": {
                     "type": "number"
                 },
@@ -18961,6 +18979,9 @@
             "additionalProperties": false,
             "properties": {
                 "color": {
+                    "type": "string"
+                },
+                "description": {
                     "type": "string"
                 },
                 "displayType": {
@@ -25325,6 +25346,17 @@
                     "description": "Free-text search across exception type, message, and stack frames.",
                     "type": "string"
                 },
+                "severity": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingQueryIssueSeverity"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter by issue severity."
+                },
                 "status": {
                     "$ref": "#/definitions/ErrorTrackingQueryStatus",
                     "description": "Filter by issue status."
@@ -27131,9 +27163,24 @@
             "additionalProperties": false,
             "description": "What one health check concluded on the exposure answer. Same shape as the experiment's `health.checks`.",
             "properties": {
+                "description": {
+                    "description": "What the check looks for and why it matters. Missing on an answer cached before the field existed.",
+                    "type": "string"
+                },
                 "key": {
                     "$ref": "#/definitions/ExperimentExposureHealthCheckKey",
                     "description": "Stable identifier of the check."
+                },
+                "measurement": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ExperimentExposureHealthMeasurement"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The value that decided a passed check. Null for the other statuses and for a pass without a value."
                 },
                 "name": {
                     "description": "The problem the check looks for, as the health panel lists it.",
@@ -27241,6 +27288,38 @@
         },
         "ExperimentExposureHealthFindingSeverity": {
             "enum": ["critical", "warning", "info"],
+            "type": "string"
+        },
+        "ExperimentExposureHealthMeasurement": {
+            "additionalProperties": false,
+            "description": "The value that decided a passed exposure check, against its threshold.",
+            "properties": {
+                "threshold": {
+                    "description": "The value at which the check reports a finding.",
+                    "type": "number"
+                },
+                "unit": {
+                    "$ref": "#/definitions/ExperimentExposureHealthMeasurementUnit",
+                    "description": "percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test."
+                },
+                "value": {
+                    "description": "The value that the check measured on the experiment.",
+                    "type": "number"
+                },
+                "warns": {
+                    "$ref": "#/definitions/ExperimentExposureHealthMeasurementSide",
+                    "description": "The side of the threshold that reports a finding."
+                }
+            },
+            "required": ["value", "threshold", "unit", "warns"],
+            "type": "object"
+        },
+        "ExperimentExposureHealthMeasurementSide": {
+            "enum": ["above", "below"],
+            "type": "string"
+        },
+        "ExperimentExposureHealthMeasurementUnit": {
+            "enum": ["percentage", "p_value"],
             "type": "string"
         },
         "ExperimentExposureNode": {
@@ -33647,6 +33726,10 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "description": "Exclude reports from the project's internal and test users.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPMissingCapabilitiesQuery",
                     "type": "string"
@@ -37238,6 +37321,10 @@
                     "description": "Google Ads search term table for Performance Max campaigns.",
                     "type": "string"
                 },
+                "queryPageTable": {
+                    "description": "Google Search Console table with one row per query and page, used to find the page that ranks for a search.",
+                    "type": "string"
+                },
                 "queryTable": {
                     "description": "Google Search Console table with one row per query, or per query and page.",
                     "type": "string"
@@ -38516,10 +38603,14 @@
                                 {
                                     "const": "threads",
                                     "type": "string"
+                                },
+                                {
+                                    "const": "th",
+                                    "type": "string"
                                 }
                             ],
-                            "maxItems": 9,
-                            "minItems": 9,
+                            "maxItems": 10,
+                            "minItems": 10,
                             "type": "array"
                         },
                         "idField": {
@@ -40335,7 +40426,8 @@
                 "whatsapp",
                 "audience_network",
                 "facebook_marketplace",
-                "threads"
+                "threads",
+                "th"
             ],
             "type": "string"
         },
@@ -40415,6 +40507,13 @@
                 "type": {
                     "const": "MetricsAlertConfig",
                     "type": "string"
+                },
+                "variables": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/MetricsDashboardVariableSelection"
+                    },
+                    "description": "Values for the `$name` variables in the insight's query.",
+                    "type": "object"
                 }
             },
             "required": ["type"],

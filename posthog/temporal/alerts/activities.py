@@ -60,6 +60,11 @@ from posthog.temporal.alerts.admission import (
     release_evaluation_slot,
     release_evaluation_slots,
 )
+from posthog.temporal.alerts.alert_firing_signal import (
+    AlertFiringSignal,
+    dispatch_alert_firing_signal,
+    prepare_alert_firing_signal,
+)
 from posthog.temporal.alerts.investigation import (
     carried_verdict_suppresses,
     claim_investigation_slot,
@@ -90,10 +95,12 @@ from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config, validate_alert_insight_query
 from products.alerts.backend.facade.api import (
+    LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     LLM_EVALUATE_EXECUTOR,
     LLMDetectorMisconfiguredError,
+    LLMDetectorPausedError,
     LLMDetectorUnavailableError,
     is_llm_detector_config,
 )
@@ -101,6 +108,7 @@ from products.alerts.backend.facade.destinations import count_active_alert_desti
 from products.alerts.backend.facade.email import alert_email_recipients
 from products.alerts.backend.insight_alert_state_machine import apply_unsnooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
+from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -639,12 +647,15 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
     # replaced learns it only on its next slot refresh, so a query that finishes before then still
     # records.
     stopping = threading.Event()
+    # Set by the evaluation thread, and dispatched once that thread returns.
+    firing_signal: AlertFiringSignal | None = None
 
     def _stop_if_cancelled() -> None:
         if stopping.is_set():
             raise _EvaluationStopped()
 
     def _evaluate(alert: AlertConfiguration) -> EvaluateAlertResult:
+        nonlocal firing_signal
         _stop_if_cancelled()
         evaluated_alert = alert
         evaluated_fingerprint = _evaluation_fingerprint(alert)
@@ -686,9 +697,13 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # retry-exhausted path records an errored check, the same outcome as any other
             # evaluation that never produced a value.
             raise
+        except LLMDetectorPausedError as err:
+            # Retrying cannot help, and the alert stays enabled so it resumes once access or credits return.
+            record_ai_detector_check_outcome("paused")
+            error = {"code": LLM_DETECTOR_PAUSED_ERROR_CODE, "message": str(err)}
         except LLMDetectorMisconfiguredError as err:
-            # Same fail-loud outcome as a bad query shape below, counted apart because a
-            # withdrawn consent or rollout is the owner's to fix and never a provider failure.
+            # Same fail-loud outcome as a bad query shape below, counted apart because a missing
+            # creator is the owner's to fix and never a provider failure.
             record_ai_detector_check_outcome("misconfigured")
             invalid_configuration = str(err)
         except AlertExtractionError as err:
@@ -776,6 +791,9 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         # recorded on the check and can't affect the alert outcome.
         if should_run_metrics_investigation:
             run_metrics_alert_investigation(alert, alert_check)
+        firing_signal = prepare_alert_firing_signal(
+            alert, alert_check, previous_state=previous_state, breaches=breaches
+        )
 
         return EvaluateAlertResult(
             alert_check_id=str(alert_check.id),
@@ -810,7 +828,11 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         thread = asyncio.ensure_future(
             database_sync_to_async(_evaluate, thread_sensitive=False, executor=executor)(alert)
         )
-        return await asyncio.shield(thread)
+        result = await asyncio.shield(thread)
+        if firing_signal is not None:
+            # Here, not in the thread: emit_signal needs the default executor that the thread runs on.
+            await dispatch_alert_firing_signal(firing_signal)
+        return result
 
     timeouts = alert_timeouts(inputs.calculation_interval)
 
@@ -1052,7 +1074,9 @@ def dispatch_alert_error_in_app_notifications(alert: AlertConfiguration, alert_c
             else "PostHog will try again at the next scheduled check."
         )
         title = f"{alert_name[:75]} could not be evaluated"
-        if error_code == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE:
+        if error_code == LLM_DETECTOR_PAUSED_ERROR_CODE:
+            body = f"PostHog could not evaluate this alert: {error_message}."
+        elif error_code == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE:
             # A check the AI detector could not complete is not something the owner can fix,
             # so this case drops the advice to review the alert settings.
             body = (
@@ -1162,7 +1186,7 @@ async def run_investigation_safety_net() -> int:
 async def cleanup_alert_checks() -> int:
     @database_sync_to_async(thread_sensitive=False)
     def _cleanup() -> int:
-        return AlertCheck.clean_up_old_checks()
+        return AlertCheck.clean_up_old_checks() + InsightAlertInvestigation.clean_up_old_investigations()
 
     async with Heartbeater():
         return await _cleanup()
