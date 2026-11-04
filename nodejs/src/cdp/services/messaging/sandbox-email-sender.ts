@@ -130,7 +130,7 @@ function protectFooterAncestors(
 ): void {
     const root = document.childNodes.find(defaultTreeAdapter.isElementNode)!
     const visibleLayout =
-        'display:block!important;position:static!important;margin:0!important;overflow:visible!important;height:auto!important;max-height:none!important;clip:auto!important;clip-path:none!important;transform:none!important;opacity:1!important;visibility:visible!important;filter:none!important;contain:none!important;content-visibility:visible!important;mask:none!important;-webkit-mask:none!important;zoom:1!important'
+        'display:block!important;position:static!important;margin:0!important;overflow:visible!important;height:auto!important;max-height:none!important;clip:auto!important;clip-path:none!important;transform:none!important;opacity:1!important;visibility:visible!important;filter:none!important;contain:none!important;content-visibility:visible!important;mask:none!important;-webkit-mask:none!important;mix-blend-mode:normal!important;translate:none!important;scale:none!important;rotate:none!important;zoom:1!important'
     for (const ancestor of [root, body]) {
         const style = ancestor.attrs.find((attribute) => attribute.name === 'style')
         if (style) {
@@ -186,7 +186,7 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
     const paragraph = defaultTreeAdapter.createElement('div', body.namespaceURI, [
         {
             name: 'style',
-            value: 'all:initial!important;display:block!important;visibility:visible!important;opacity:1!important;position:static!important;float:none!important;width:auto!important;height:auto!important;max-height:none!important;overflow:visible!important;margin:0!important;transform:none!important;clip-path:none!important;filter:none!important;mask:none!important;-webkit-mask:none!important;text-indent:0!important;letter-spacing:normal!important;word-spacing:normal!important;text-transform:none!important;text-shadow:none!important;white-space:normal!important;font:12px sans-serif!important;color:#525252!important;background:#fff!important;padding:16px 0!important',
+            value: 'all:initial!important;display:block!important;visibility:visible!important;opacity:1!important;position:relative!important;z-index:2147483647!important;inset:auto!important;float:none!important;width:auto!important;max-width:none!important;min-width:0!important;height:auto!important;max-height:none!important;overflow:visible!important;margin:0!important;transform:none!important;translate:none!important;scale:none!important;rotate:none!important;clip-path:none!important;filter:none!important;mask:none!important;-webkit-mask:none!important;mix-blend-mode:normal!important;text-indent:0!important;letter-spacing:normal!important;word-spacing:normal!important;text-transform:none!important;text-shadow:none!important;white-space:normal!important;font:12px sans-serif!important;color:#525252!important;background:#fff!important;padding:16px 0!important',
         },
     ])
     defaultTreeAdapter.insertText(paragraph, footer)
