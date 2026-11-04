@@ -34,6 +34,10 @@ export type PlayerMessage =
     | { type: 'ready' }
     | { type: 'error'; reason: string }
 
+function isBoundedInteger(value: unknown, minimum: number, maximum: number): value is number {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum && value <= maximum
+}
+
 export function parsePlayerMessage(data: string, blockCount: number): PlayerMessage | null {
     let value: unknown
     try {
@@ -47,18 +51,22 @@ export function parsePlayerMessage(data: string, blockCount: number): PlayerMess
     if (message.type === 'error' && typeof message.reason === 'string') return { type: 'error', reason: message.reason }
     if (
         message.type === 'block' &&
-        Number.isSafeInteger(message.id) &&
-        Number.isSafeInteger(message.index) &&
-        (message.id as number) > 0 &&
-        (message.id as number) <= 10000 &&
-        (message.index as number) >= 0 &&
-        (message.index as number) < blockCount
+        isBoundedInteger(message.id, 1, 10000) &&
+        isBoundedInteger(message.index, 0, blockCount - 1)
     ) {
-        return { type: 'block', id: message.id as number, index: message.index as number }
+        return { type: 'block', id: message.id, index: message.index }
     }
     return null
 }
 
 export function blockChunkScript(id: number, chunk: string, done: boolean): string {
     return `window.__receiveReplayBlock(${id},${JSON.stringify(chunk).replace(/</g, '\\u003c')},${done});true;`
+}
+
+export function blockStatusScript(id: number, loading: boolean): string {
+    return `window.__setReplayBlockLoading(${id},${loading});true;`
+}
+
+export function cancelBlocksScript(): string {
+    return 'window.__cancelReplayBlocks?.();true;'
 }

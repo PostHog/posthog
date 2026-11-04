@@ -38,6 +38,8 @@ the request while previously loaded pages remain visible. The load-more retry re
 
 `send()` also keeps the server clock offset from each response's `Date` header (`src/api/serverClock.ts`) and spends a token from the request's budget family (`src/api/budget.ts`); an empty bucket throws `BudgetExceededError` without sending.
 
+Replay source and block requests wait for the `replay` budget to refill. Canceling the player cancels the wait. Each dispatched request keeps its 30-second deadline. Snapshot blocks use streaming fetch and share received-byte and decoded-text limits across one player attempt.
+
 `runQuery()` applies one deadline to the initial `POST query/` and every status poll. If the server does not answer in
 time, the request is canceled and the caller gets a timeout error. Reviewer edits load artefact pages until the latest
 reviewer assignment is found before sending the replacement list, so GitHub-only reviewers remain assigned.

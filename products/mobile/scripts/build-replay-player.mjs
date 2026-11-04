@@ -3,6 +3,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 
+import { mobileReplayDependencies } from './replay-player-dependencies.mjs'
+
 const app = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const output = path.join(app, 'src/features/replay/player/player.bundle.json')
 const result = await build({
@@ -15,6 +17,7 @@ const result = await build({
     minify: true,
     legalComments: 'inline',
     nodePaths: [path.join(app, 'node_modules')],
+    plugins: [mobileReplayDependencies(app)],
     alias: { '@posthog/replay-shared': path.resolve(app, '../../common/replay-shared/src/index.ts') },
     define: { 'process.env.NODE_ENV': '"production"', 'process.env.LANG': '""', 'process.env': '{}' },
 })

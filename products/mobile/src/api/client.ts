@@ -205,24 +205,41 @@ async function parseBody(response: Response): Promise<unknown> {
     }
 }
 
-export async function apiReadResponse<T>(
+async function readResponse<T>(
+    fetcher: Fetcher,
     path: string,
     init: ApiInit,
-    read: (response: Response) => Promise<T>
+    read: (response: Response, signal: AbortSignal) => Promise<T>
 ): Promise<T> {
     return withAppReloadBlocked(() =>
         requestWithDeadline(async (signal) => {
-            const response = await send(
-                (url, options) => fetch(url, options),
-                path,
-                { ...init, signal },
-                'application/json'
-            )
+            const response = await send(fetcher, path, { ...init, signal }, 'application/json')
             if (signal.aborted) {
                 throw abortError()
             }
-            return read(response)
+            return read(response, signal)
         }, init.signal)
+    )
+}
+
+export function apiReadResponse<T>(
+    path: string,
+    init: ApiInit,
+    read: (response: Response, signal: AbortSignal) => Promise<T>
+): Promise<T> {
+    return readResponse((url, options) => fetch(url, options), path, init, read)
+}
+
+export function apiReadStreamResponse<T>(
+    path: string,
+    init: ApiInit,
+    read: (response: Response, signal: AbortSignal) => Promise<T>
+): Promise<T> {
+    return readResponse(
+        (url, options) => streamingFetch(url, options as Parameters<typeof streamingFetch>[1]) as Promise<Response>,
+        path,
+        init,
+        read
     )
 }
 

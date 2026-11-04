@@ -462,6 +462,9 @@ Argent's `argent-create-flow` skill describes the rules. Replay the whole flow b
 ## Embedded replay renderer
 
 The embedded renderer reuses `common/replay-headless` and `common/replay-shared`. After changing those sources
-or `src/features/replay/player/player.browser.js`, run `node scripts/build-replay-player.mjs` from this directory.
+or `src/features/replay/player/player.browser.js` or `playerRuntime.ts`, run `node scripts/build-replay-player.mjs` from this directory.
 `node scripts/build-replay-player.mjs --check` verifies the bundled asset. The asset is checked in because EAS uploads this
 standalone workspace without the rest of the monorepo. Its JavaScript dependencies are build tools only.
+
+The build resolves renderer dependencies from the mobile workspace even when the monorepo has dependencies installed.
+Run `node --test scripts/replay-player-dependencies.test.mjs` to check resolution against conflicting package installations.

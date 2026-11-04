@@ -2,30 +2,16 @@ import { CorsPlugin, createCorsPlugin } from '@posthog/replay-shared'
 import { HostBridge } from '../../../../../../common/replay-headless/src/host-bridge'
 import { createReplayers } from '../../../../../../common/replay-headless/src/replayer-factory'
 import { ViewportScaler } from '../../../../../../common/replay-headless/src/viewport-scaler'
+import { ReplayBlockBridge, replayWindowAt } from './playerRuntime'
 
 const config = window.__mobileReplayConfig
-const pending = new Map()
-let nextRequest = 0
 const post = (message) => window.ReactNativeWebView.postMessage(JSON.stringify(message))
+const blocks = new ReplayBlockBridge(post)
 
-window.__receiveReplayBlock = (id, text, done) => {
-    const request = pending.get(id)
-    if (!request) return
-    request.parts.push(text)
-    if (done) {
-        pending.delete(id)
-        request.resolve(new Response(request.parts.join('')))
-    }
-}
-window.fetch = (url) => {
-    const match = /^\/__blocks\/(\d+)$/.exec(String(url))
-    if (!match) return Promise.reject(new Error('Unsupported replay request'))
-    const id = ++nextRequest
-    return new Promise((resolve, reject) => {
-        pending.set(id, { resolve, reject, parts: [] })
-        post({ type: 'block', id, index: Number(match[1]) })
-    })
-}
+window.__receiveReplayBlock = (id, text, done) => blocks.receive(id, text, done)
+window.__setReplayBlockLoading = (id, loading) => blocks.setLoading(id, loading)
+window.__cancelReplayBlocks = () => blocks.cancel()
+window.fetch = (url) => blocks.request(String(url))
 window.__posthog_player_emit__ = async (message) => {
     if (message.type === 'loading_progress') post({ type: 'progress', loaded: message.loaded, total: message.total })
 }
@@ -47,6 +33,7 @@ async function init() {
         new HostBridge()
     )
     if (typeof setup === 'string') {
+        blocks.cancel()
         post({ type: 'error', reason: setup })
         return
     }
@@ -67,16 +54,7 @@ async function init() {
     const speeds = document.getElementById('speed')
     seek.max = String(duration)
     const position = () => Math.min(duration, offset + (playing ? (performance.now() - anchor) * speed : 0))
-    const ownerAt = (ts) => {
-        const segment =
-            segments.find((seg) => seg.isActive && ts >= seg.startTimestamp && ts <= seg.endTimestamp) ??
-            segments.find((seg) => ts >= seg.startTimestamp && ts <= seg.endTimestamp)
-        return (
-            windows.find((tab) => tab.windowId === segment?.windowId) ??
-            windows.find((tab) => ts >= tab.firstTimestamp && ts <= tab.lastTimestamp) ??
-            windows[windows.length - 1]
-        )
-    }
+    const ownerAt = (ts) => replayWindowAt(windows, segments, ts)
     const draw = () => {
         const ts = firstTimestamp + offset
         const tab = ownerAt(ts)
@@ -147,4 +125,7 @@ async function init() {
     document.getElementById('controls').hidden = false
     post({ type: 'ready' })
 }
-init().catch(() => post({ type: 'error', reason: 'render_failed' }))
+init().catch(() => {
+    blocks.cancel()
+    post({ type: 'error', reason: 'render_failed' })
+})

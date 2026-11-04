@@ -74,6 +74,16 @@ export function trySpend(family: BudgetFamily, now: number = Date.now()): boolea
     return true
 }
 
+export function budgetRetryAfterMs(family: BudgetFamily, now: number = Date.now()): number {
+    const state = bucketsFor(family, now)
+    return Math.ceil(
+        Math.max(
+            0,
+            ...BUDGETS[family].map((spec, index) => ((1 - (state[index]?.tokens ?? 0)) * spec.windowMs) / spec.capacity)
+        )
+    )
+}
+
 export function resetBudgets(): void {
     buckets.clear()
 }
