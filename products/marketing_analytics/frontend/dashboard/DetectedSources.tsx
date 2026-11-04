@@ -2,8 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { marketingOnboardingLogic } from 'scenes/marketing-analytics/Onboarding/marketingOnboardingLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { MarketingAnalyticsSourceStatusBanner } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
@@ -38,7 +36,6 @@ export function DetectedSources({
     } = useValues(setupPlanLogic)
     const { rescanSources, restoreAllDismissed } = useActions(setupPlanLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { showIntegrations } = useValues(detectedSourcesLogic({ teamId: currentTeamId ?? 0 }))
     const { dismissSource, setShowIntegrations } = useActions(detectedSourcesLogic({ teamId: currentTeamId ?? 0 }))
     const { allAvailableSourcesWithStatus, nativeSources, hasSyncedMarketingSources } =
@@ -67,9 +64,6 @@ export function DetectedSources({
     const openIntegrations = (): void => {
         setManualSourceSearch('')
         setShowIntegrations(true)
-    }
-    if (!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING]) {
-        return null
     }
     if (showIntegrations) {
         return (
