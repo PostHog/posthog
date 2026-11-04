@@ -20,6 +20,8 @@ export interface IssueStatus {
     tooltip: string
 }
 
+export const ISSUE_KIND_ORDER: IssueKind[] = ['suspended', 'failed', 'behind', 'checks']
+
 export const ISSUE_LABELS: Record<IssueKind, string> = {
     suspended: 'Suspended',
     failed: 'Refresh failed',

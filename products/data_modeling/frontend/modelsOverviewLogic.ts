@@ -34,8 +34,12 @@ export interface AttentionSubject {
     failingChecks: DataQualityOverviewCheckApi[]
 }
 
-function problemNode(problem: MaterializationProblem): DataModelingNode {
+export function problemNode(problem: MaterializationProblem): DataModelingNode {
     return problem.kind === 'behind' ? problem.behind.node : problem.attention.node
+}
+
+export function isFailingCheck(check: DataQualityOverviewCheckApi): boolean {
+    return FAILING_CHECK_STATUSES.has(check.last_status ?? '')
 }
 
 function nodeSubjectKey(node: DataModelingNode): string {
@@ -273,8 +277,7 @@ export const modelsOverviewLogic = kea<modelsOverviewLogicType>([
         ],
         failingChecks: [
             (s) => [s.checks],
-            (checks: DataQualityOverviewCheckApi[]): DataQualityOverviewCheckApi[] =>
-                checks.filter((check) => FAILING_CHECK_STATUSES.has(check.last_status ?? '')),
+            (checks: DataQualityOverviewCheckApi[]): DataQualityOverviewCheckApi[] => checks.filter(isFailingCheck),
         ],
         attentionSubjects: [
             (s) => [s.materializationProblems, s.failingChecks, s.nodes],

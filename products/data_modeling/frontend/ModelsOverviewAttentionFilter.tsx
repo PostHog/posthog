@@ -3,9 +3,8 @@ import { useActions, useValues } from 'kea'
 import { ToggleGroup, ToggleGroupItem } from '@posthog/quill'
 
 import { AttentionFilter, modelsOverviewLogic } from './modelsOverviewLogic'
-import { ISSUE_LABELS, IssueKind } from './overviewIssueCopy'
+import { ISSUE_KIND_ORDER, ISSUE_LABELS } from './overviewIssueCopy'
 
-const ISSUE_KIND_ORDER: IssueKind[] = ['suspended', 'failed', 'behind', 'checks']
 const FILTER_LABELS: Record<AttentionFilter, string> = { all: 'All', ...ISSUE_LABELS }
 
 function isAttentionFilter(value: string | undefined): value is AttentionFilter {

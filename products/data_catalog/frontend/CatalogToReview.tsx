@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
 import { IconLightBulb } from '@posthog/icons'
 import {
@@ -17,6 +18,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import { PROPOSED_TABLES_FILTER, TABLES_FILTER_PARAM } from './catalogTableRows'
 import { certificationsLogic } from './certificationsLogic'
 import { metricsLogic } from './metricsLogic'
 import { relationshipsLogic } from './relationshipsLogic'
@@ -42,7 +44,7 @@ export function CatalogToReview(): JSX.Element | null {
             count: proposedCertifications,
             title: pluralize(proposedCertifications, 'proposed certification'),
             description: 'Tables and views waiting for someone to mark them as trusted.',
-            href: urls.dataCatalog('tables'),
+            href: combineUrl(urls.dataCatalog('tables'), { [TABLES_FILTER_PARAM]: PROPOSED_TABLES_FILTER }).url,
         },
         {
             key: 'relationships',

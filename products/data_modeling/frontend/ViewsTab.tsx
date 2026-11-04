@@ -27,7 +27,7 @@ import { NodeSuspensionApi } from './generated/api.schemas'
 import { statusBackgroundClass } from './lineage/nodeStyles'
 import { MODELS_SEARCH_SYNTAX_HELP } from './lineage/SearchSyntaxHelp'
 import { StatusTag } from './lineage/StatusTag'
-import { PAGE_SIZE, ViewTypeFilter, viewsTabLogic } from './viewsTabLogic'
+import { PAGE_SIZE, ViewTypeFilter, deleteDisabledReason, viewsTabLogic } from './viewsTabLogic'
 
 type ViewColumn = LemonTableColumn<DataWarehouseSavedQuerySummary, keyof DataWarehouseSavedQuerySummary | undefined>
 
@@ -41,16 +41,6 @@ const TYPE_FILTER_OPTIONS: { value: ViewTypeFilter; label: string }[] = [
     { value: 'materialized', label: 'Materialized views' },
     { value: 'view', label: 'Views' },
 ]
-
-const getDisabledReason = (view: DataWarehouseSavedQuerySummary): string | undefined => {
-    if (view.managed_viewset_kind !== null) {
-        return `Cannot delete a view that belongs to a managed viewset. You can turn the viewset off in the ${urls.dataWarehouseManagedViewsets()} page.`
-    }
-    if (view.origin === DataWarehouseSavedQueryOrigin.ENDPOINT) {
-        return `Cannot delete a view that belongs to an endpoint. You can disable materialization on this endpoint's page.`
-    }
-    return undefined
-}
 
 function RunHistoryDisplay({
     runHistory,
@@ -283,7 +273,7 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
                                     fullWidth
                                     status="danger"
                                     onClick={() => deleteView(view.id)}
-                                    disabledReason={getDisabledReason(view)}
+                                    disabledReason={deleteDisabledReason(view)}
                                 >
                                     Delete
                                 </LemonButton>

@@ -1,23 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconClock, IconPauseFilled, IconWarning, IconXCircle } from '@posthog/icons'
-import {
-    Badge,
-    Button,
-    DataTable,
-    type DataTableProps,
-    Heading,
-    Item,
-    ItemActions,
-    ItemContent,
-    ItemDescription,
-    Skeleton,
-    Text,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@posthog/quill'
+import { Button, DataTable, type DataTableProps, Heading, Skeleton, Text } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -26,19 +10,11 @@ import { urls } from 'scenes/urls'
 import { nodeEndpointModel } from './endpointModelName'
 import { ModelsOverviewAttentionFilter } from './ModelsOverviewAttentionFilter'
 import { ModelsOverviewEmptyState } from './ModelsOverviewEmptyState'
+import { ModelsOverviewErrorCallout } from './ModelsOverviewErrorCallout'
 import { AttentionSubject, modelsOverviewLogic } from './modelsOverviewLogic'
 import { ModelsOverviewNextStep } from './ModelsOverviewNextStep'
-import {
-    IssueKind,
-    IssueStatus,
-    IssueTone,
-    failingChecksStatus,
-    materializationStatus,
-    subjectDetail,
-    subjectImpact,
-    subjectName,
-    subjectSince,
-} from './overviewIssueCopy'
+import { ModelsOverviewProblemBadges } from './ModelsOverviewProblemBadges'
+import { subjectDetail, subjectImpact, subjectName, subjectSince } from './overviewIssueCopy'
 import { subjectHref } from './subjectHref'
 import { useHoldTallestHeight } from './useHoldTallestHeight'
 
@@ -55,49 +31,9 @@ interface SubjectCellContext {
     row: { original: AttentionSubject }
 }
 
-const BADGE_VARIANTS: Record<IssueTone, 'destructive' | 'warning'> = {
-    danger: 'destructive',
-    warning: 'warning',
-}
-
-const ISSUE_ICONS: Record<IssueKind, typeof IconClock> = {
-    suspended: IconPauseFilled,
-    failed: IconXCircle,
-    behind: IconClock,
-    checks: IconWarning,
-}
-
 function subjectLabel(subject: AttentionSubject): string {
     const endpointModel = subject.node ? nodeEndpointModel(subject.node) : null
     return endpointModel ? `${endpointModel.endpointName} v${endpointModel.version}` : subjectName(subject)
-}
-
-function subjectStatuses(subject: AttentionSubject): IssueStatus[] {
-    return [
-        ...(subject.materialization ? [materializationStatus(subject.materialization)] : []),
-        ...(subject.failingChecks.length > 0 ? [failingChecksStatus(subject.failingChecks)] : []),
-    ]
-}
-
-function ProblemBadges({ subject }: { subject: AttentionSubject }): JSX.Element {
-    return (
-        <div className="flex flex-wrap gap-1">
-            {subjectStatuses(subject).map(({ kind, label, tone, tooltip }) => {
-                const Icon = ISSUE_ICONS[kind]
-                return (
-                    <Tooltip key={kind}>
-                        <TooltipTrigger delay={0} render={<span className="inline-flex" />}>
-                            <Badge variant={BADGE_VARIANTS[tone]}>
-                                <Icon aria-hidden />
-                                {label}
-                            </Badge>
-                        </TooltipTrigger>
-                        <TooltipContent>{tooltip}</TooltipContent>
-                    </Tooltip>
-                )
-            })}
-        </div>
-    )
 }
 
 function NameLink({ subject }: { subject: AttentionSubject }): JSX.Element {
@@ -152,7 +88,7 @@ function SinceText({ subject }: { subject: AttentionSubject }): JSX.Element | nu
 function NarrowLines({ subject }: { subject: AttentionSubject }): JSX.Element {
     return (
         <div className={`${NARROW_ONLY} flex flex-col gap-1`}>
-            <ProblemBadges subject={subject} />
+            <ModelsOverviewProblemBadges subject={subject} />
             <DetailText subject={subject} />
             <SinceText subject={subject} />
             <div className="pt-1">
@@ -181,7 +117,7 @@ const COLUMNS: DataTableProps<AttentionSubject, unknown>['columns'] = [
         enableSorting: false,
         cell: ({ row }: SubjectCellContext) => (
             <span className={`${WIDE_ONLY_BLOCK} w-max`}>
-                <ProblemBadges subject={row.original} />
+                <ModelsOverviewProblemBadges subject={row.original} />
             </span>
         ),
     },
@@ -217,29 +153,6 @@ const COLUMNS: DataTableProps<AttentionSubject, unknown>['columns'] = [
         ),
     },
 ]
-
-function ErrorCallout({
-    message,
-    onRetry,
-    dataAttr,
-}: {
-    message: string
-    onRetry: () => void
-    dataAttr: string
-}): JSX.Element {
-    return (
-        <Item variant="outline" tone="destructive" data-attr={dataAttr}>
-            <ItemContent>
-                <ItemDescription>{message}</ItemDescription>
-            </ItemContent>
-            <ItemActions>
-                <Button variant="outline" onClick={onRetry}>
-                    Try again
-                </Button>
-            </ItemActions>
-        </Item>
-    )
-}
 
 function SubjectTable({ subjects }: { subjects: AttentionSubject[] }): JSX.Element {
     const containerRef = useRef<HTMLDivElement>(null)
@@ -327,7 +240,7 @@ export function ModelsOverviewIssues(): JSX.Element {
             </div>
             <ModelsOverviewAttentionFilter />
             {modelsFailed && (
-                <ErrorCallout
+                <ModelsOverviewErrorCallout
                     message="Your models could not be loaded, so this page cannot say which ones need attention."
                     onRetry={() => {
                         loadNodes()
@@ -337,7 +250,7 @@ export function ModelsOverviewIssues(): JSX.Element {
                 />
             )}
             {overviewError && (
-                <ErrorCallout
+                <ModelsOverviewErrorCallout
                     message="Data quality checks could not be loaded, so this page cannot say whether any are failing."
                     onRetry={() => loadOverview()}
                     dataAttr="models-overview-checks-error"
