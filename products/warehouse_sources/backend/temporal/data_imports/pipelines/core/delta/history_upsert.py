@@ -213,7 +213,7 @@ async def finalize(
         else:
             chunks = min(_MAX_CHUNKS, math.ceil(call_bytes / chunk_target_bytes))
             spilled = await asyncio.to_thread(
-                _spill_chunks, staging_dataset, columns, key_columns, narrow_columns, chunks, Path(directory)
+                _spill_chunks, handle, staging_dataset, columns, key_columns, narrow_columns, chunks, Path(directory)
             )
             sources = [(functools.partial(_read_chunk, path), footprint) for path, footprint in spilled]
         for index, (load, footprint) in enumerate(sources):
@@ -296,6 +296,7 @@ def _open_deltalite(uri: str, storage_options: dict[str, str]) -> Any:
 
 
 def _spill_chunks(
+    handle: Any,
     dataset: ds.Dataset,
     columns: list[str],
     key_columns: Sequence[str],
@@ -305,10 +306,10 @@ def _spill_chunks(
 ) -> list[tuple[Path, int]]:
     """Write the staged rows into one local Arrow file per key bucket, one record batch at a time.
 
-    Returns the files that received rows, in bucket order, each with its call footprint.
+    The history table hashes the keys after it casts them to its own key types, so two staged values that
+    become one table key land in the same bucket. Returns the files that received rows, in bucket order,
+    each with its call footprint.
     """
-    import deltalite  # noqa: PLC0415 - keeps deltalite off the import path of processes that never write with it
-
     paths = [directory / f"chunk-{index}.arrow" for index in range(chunks)]
     footprints = [0] * chunks
     schema = pa.schema([dataset.schema.field(name) for name in columns])
@@ -319,7 +320,7 @@ def _spill_chunks(
         for batch in _scanner(dataset, columns).to_batches():
             if batch.num_rows == 0:
                 continue
-            buckets = deltalite.key_buckets(batch, list(key_columns), chunks)
+            buckets = handle.key_buckets(batch, list(key_columns), chunks)
             # One sort per batch, then a slice per bucket, instead of a filter pass per bucket.
             order = pc.sort_indices(buckets)
             sorted_batch = batch.take(order)
