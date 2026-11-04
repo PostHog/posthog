@@ -11,7 +11,6 @@ from django.db.models import Q, QuerySet
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.pagination import Cursor
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -29,6 +28,7 @@ from posthog.models.activity_logging.activity_log import (
     apply_activity_visibility_restrictions,
 )
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
+from posthog.models.activity_logging.utils import CREDENTIAL_TYPE_CHOICES
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import PremiumFeaturePermission
@@ -109,15 +109,45 @@ def apply_organization_scoped_filter(
         return queryset.filter(team_id=team_id)
 
 
+def credential_type_field() -> serializers.ChoiceField:
+    return serializers.ChoiceField(
+        choices=CREDENTIAL_TYPE_CHOICES,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Kind of credential that authenticated the request that made the change. 'unattributed' means "
+            "the request recorded no credential. Null for changes made outside a request, such as "
+            "background jobs, and for entries recorded before PostHog stored the credential."
+        ),
+    )
+
+
+def credential_id_field() -> serializers.CharField:
+    """The raw `credential_id` column also holds internal ids, so customer-facing serializers read
+    `customer_visible_credential_id` through this field and never declare the column itself."""
+    return serializers.CharField(
+        source="customer_visible_credential_id",
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Id of the credential that authenticated the change: the login session id for 'session', or "
+            "the key id for 'personal_api_key' and 'project_secret_key'. Null for every other credential "
+            "type and for impersonated changes."
+        ),
+    )
+
+
 class ActivityLogSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer()
     unread = serializers.SerializerMethodField()
+    credential_type = credential_type_field()
+    credential_id = credential_id_field()
 
     class Meta:
         model = ActivityLog
-        # An explicit list, so that a new internal column such as `credential_id` stays out. This
+        # An explicit list, so that a new internal column such as `impersonated_by_id` stays out. This
         # serializer also builds the `$activity_log_entry_created` event, so a field listed here
-        # reaches the advanced API, the export and customer destinations at the same time.
+        # reaches the activity log API, the advanced API and customer destinations at the same time.
         fields = [
             "id",
             "user",
@@ -128,6 +158,8 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             "is_system",
             "client",
             "ip_address",
+            "credential_type",
+            "credential_id",
             "activity",
             "item_id",
             "scope",
@@ -169,9 +201,9 @@ class TailFollowingCursorPagination(StableCursorPagination):
     condition: a follower stops when `results` is empty, not when `next` is null. Leaving that on
     by default would make the obvious `while next: ...` loop run forever.
 
-    Known gap: the cursor encodes `created_at` and filters strictly past it, so an entry written
-    later but sharing the last-seen timestamp is not returned. That is inherent to a
-    timestamp-positioned cursor and matches DRF's behavior mid-stream.
+    Known gap: the cursor stores the last-seen `created_at` and `id`, and the next poll reads the
+    rows that sort after both. An entry written later with the same `created_at` comes back only
+    when its `id` sorts after the last-seen one.
     """
 
     # A follower polls this on every request, so a count would scan the activity log each time.
@@ -187,11 +219,8 @@ class TailFollowingCursorPagination(StableCursorPagination):
             return None
         if not self.page:
             # Nothing new since the caller's position, so hand the same cursor back.
-            return self.encode_cursor(self.cursor) if self.cursor else None
-        position = self._get_position_from_instance(self.page[-1], self.ordering)
-        # DRF's stub types Cursor.position as int, but at runtime it holds the string that
-        # _get_position_from_instance returns.
-        return self.encode_cursor(Cursor(offset=0, reverse=False, position=position))  # type: ignore[arg-type]
+            return self.cursor_link(self.current_cursor) if self.current_cursor else None
+        return self.cursor_link(self.next_cursor(self.page))
 
 
 class ActivityLogPageNumberPagination(BoundedPageNumberPagination):
@@ -205,9 +234,7 @@ class ActivityLogPagination(TailFollowingCursorPagination):
     page_size = 100
     page_size_query_param = "page_size"
     max_page_size = 1000
-    # `created_at` is not unique, and DRF encodes only the first ordering field in the cursor,
-    # resolving ties with an offset. That offset is reproducible only when rows sharing a
-    # timestamp come back in a stable order, which Postgres does not otherwise guarantee.
+    # `created_at` is not unique, so `id` breaks ties and the cursor stores both.
     ordering = ("-created_at", "-id")
 
     def __init__(self) -> None:
@@ -511,9 +538,13 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
     user_last_name = serializers.CharField(source="user.last_name", default="")
     user_email = serializers.CharField(source="user.email", default="")
     detail = serializers.SerializerMethodField()
+    credential_type = credential_type_field()
+    credential_id = credential_id_field()
 
     class Meta:
         model = ActivityLog
+        # The export writes columns in this order, and readers of the file can rely on position, so a
+        # new field goes at the end.
         fields = [
             "id",
             "organization_id",
@@ -528,6 +559,8 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
             "client",
             "ip_address",
             "created_at",
+            "credential_type",
+            "credential_id",
         ]
 
     def get_detail(self, obj):

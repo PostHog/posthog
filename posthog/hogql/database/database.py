@@ -889,6 +889,11 @@ class Database(BaseModel):
     # lets a foreign key replace only these (see _ensure_foreign_keys_built), never the id/timestamp
     # mappings event modifiers write, which the eager path preserved.
     _deferred_overridable_expression_field_ids: set[int] = set()
+    # Team whose not-yet-synced warehouse tables explain an unknown table name. Set only at the end of
+    # the build, so build-time lookups never query Postgres. The names load on the first unknown table.
+    _first_sync_lookup_team_id: int | None = None
+    # Name -> whether the first sync failed. None until loaded.
+    _tables_awaiting_first_sync: dict[str, bool] | None = None
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None
@@ -932,6 +937,8 @@ class Database(BaseModel):
         self._revenue_views_build_lock = threading.Lock()
         self._revenue_view_trigger_names = None
         self._deferred_overridable_expression_field_ids = set()
+        self._first_sync_lookup_team_id = None
+        self._tables_awaiting_first_sync = None
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
         self.user_access_control: Optional[UserAccessControl] = None
 
@@ -1011,6 +1018,9 @@ class Database(BaseModel):
                 table_name = ".".join(table_name)
             if self.is_table_access_denied(table_name):
                 raise TableAccessDeniedError(table_name) from e
+            first_sync_failed = self._first_sync_status(table_name)
+            if first_sync_failed is not None:
+                raise QueryError(_awaiting_first_sync_message(table_name, failed=first_sync_failed)) from e
             suggestions = self._suggest_table_names(table_name)
             suffix = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
             raise QueryError(f"Unknown table `{table_name}`.{suffix}") from e
@@ -1117,6 +1127,27 @@ class Database(BaseModel):
                 self._foreign_keys_building_thread = None
             self._foreign_keys_built = True
             self._deferred_foreign_key_tables = []
+
+    def _first_sync_status(self, name: str) -> bool | None:
+        """Whether the first sync of the table under this name failed, or None if no sync will create it.
+
+        Loads the team's not-yet-synced names once per database, so lookups that fail in a loop cost
+        one Postgres query at most. A load failure leaves the plain unknown-table error in place.
+        """
+        if self._first_sync_lookup_team_id is None:
+            return None
+        if self._tables_awaiting_first_sync is None:
+            from products.warehouse_sources.backend.facade.api import tables_awaiting_first_sync  # noqa: PLC0415
+
+            awaiting: dict[str, bool] = {}
+            try:
+                for table in tables_awaiting_first_sync(self._first_sync_lookup_team_id):
+                    for key in (table.names.row_name, table.names.queryable_key):
+                        awaiting[key] = awaiting.get(key, False) or table.first_sync_failed
+            except Exception as e:
+                capture_exception(e)
+            self._tables_awaiting_first_sync = awaiting
+        return self._tables_awaiting_first_sync.get(name)
 
     def _suggest_table_names(self, name: str, *, limit: int = 3) -> list[str]:
         """Return up to `limit` close matches for a mistyped table name.
@@ -2185,11 +2216,12 @@ class Database(BaseModel):
                         .select_related("table", "managed_viewset")
                     )
                     all_saved_queries = list(queryset)
-                    saved_queries = (
-                        all_saved_queries
-                        if is_managed_viewset_enabled
-                        else [sq for sq in all_saved_queries if sq.managed_viewset_id is None]
-                    )
+                    # Raw Trino views hold Trino SQL, which HogQL cannot expand.
+                    saved_queries = [
+                        sq
+                        for sq in all_saved_queries
+                        if (is_managed_viewset_enabled or sq.managed_viewset_id is None) and not sq.is_raw_managed_trino
+                    ]
 
         with timings.measure("endpoint_saved_query", emit_span=True):
             # Endpoint-origin rows are a subset of the non-deleted saved queries fetched above,
@@ -2256,6 +2288,7 @@ class Database(BaseModel):
                 warehouse_tables: list[DataWarehouseTable] = []
                 # The virtual builder reads job_inputs (deferred above); hydrate it here so the
                 # build phase stays query-free.
+                SourceInputsStore.preload([virtual_source])
                 SourceInputsStore.load(virtual_source)
                 with timings.measure("select_virtual_schemas", emit_span=True):
                     # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
@@ -3126,7 +3159,24 @@ class Database(BaseModel):
             database._foreign_key_trigger_names = {name.lower() for name in trigger_names}
             database._foreign_keys_built = False
 
+        # Direct connections query the source itself, so no sync creates their tables.
+        if not database._is_direct_query():
+            database._first_sync_lookup_team_id = team_id
+
         return database
+
+
+def _awaiting_first_sync_message(table_name: str, *, failed: bool) -> str:
+    # Keeps the "Unknown table `x`" prefix, because callers match on it to classify the error.
+    if failed:
+        return (
+            f"Unknown table `{table_name}`: its first sync failed, so the table does not exist yet. "
+            "Open the source page to see why."
+        )
+    return (
+        f"Unknown table `{table_name}`: its first sync has not finished, so the table does not exist yet. "
+        "Check the sync status on the source page."
+    )
 
 
 def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name: str):
@@ -3412,6 +3462,13 @@ def _attach_external_data_sources(
         if defer_job_inputs:
             query = query.defer("job_inputs")
         sources_by_id = {source.pk: source for source in query}
+        if not defer_job_inputs:
+            from products.warehouse_sources.backend.facade.source_inputs import (  # noqa: PLC0415 - avoids the model import cycle
+                SourceInputsStore,
+            )
+
+            # Direct tables call `load` once per table; fetch the credentials rows of all sources up front.
+            SourceInputsStore.preload(sources_by_id.values())
     for table in warehouse_tables:
         if table.external_data_source_id is None:
             continue

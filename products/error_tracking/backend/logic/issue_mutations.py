@@ -54,7 +54,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueMergeResult,
     sync_issues_to_clickhouse,
 )
-from products.error_tracking.backend.notifications import dispatch_issue_assigned_realtime
+from products.error_tracking.backend.notifications import AssignmentActor, dispatch_issue_assigned_realtime
 
 
 class CohortNotFoundError(Exception):
@@ -253,6 +253,7 @@ def transition_issue_status_by_automation(
     expected: "ErrorTrackingIssue.Status",
     status: "ErrorTrackingIssue.Status",
     trigger: Trigger,
+    automation_id: UUID,
 ) -> bool:
     """Move an issue from `expected` to `status` for a change no person made.
 
@@ -260,7 +261,7 @@ def transition_issue_status_by_automation(
     when the issue is no longer in `expected`. So a person or ingestion that changed the status
     after the automation decided is never overwritten.
     """
-    operation = ChangeOperation.for_automation(team_id)
+    operation = ChangeOperation.for_automation(team_id, automation_id)
     with transaction.atomic():
         locked = _lock_issues(team_id, [issue_id], select_related=("team",))
         if not locked or locked[0].status != expected:
@@ -597,7 +598,7 @@ def _assign_one(
         dispatch_issue_assigned_realtime(
             assignment=assignment_after,
             assignee=assignee,
-            assigner=user,
+            actor=AssignmentActor.from_user(user),
         )
 
         transition = prepare_issue_lifecycle_event(

@@ -16,6 +16,18 @@ describe('ModelPicker', () => {
         expect(await screen.findByText('No models available.')).toBeInTheDocument()
     })
 
+    it('keeps the open menu when models start reloading', async () => {
+        const props = { model: '', selectedProviderKeyId: null, onSelect: jest.fn(), groups: [] }
+        const { rerender } = render(<ModelPicker {...props} />)
+
+        await userEvent.click(screen.getByText('Select model'))
+        expect(await screen.findByText('No models available.')).toBeInTheDocument()
+
+        rerender(<ModelPicker {...props} loading />)
+
+        expect(await screen.findByText('Loading models...')).toBeInTheDocument()
+    })
+
     it('selects a typed Azure deployment name that the provider did not list', async () => {
         const onSelect = jest.fn()
         render(

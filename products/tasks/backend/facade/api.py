@@ -235,6 +235,7 @@ _TASK_LOG_READ_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="
 TaskRunStatus = TaskRun.Status
 TaskRunEnvironment = TaskRun.Environment
 TaskOriginProduct = Task.OriginProduct
+TASK_SERVER_ONLY_ORIGIN_PRODUCTS = Task.SERVER_ONLY_ORIGIN_PRODUCTS
 TaskRuntime = Task.Runtime
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
@@ -260,10 +261,12 @@ __all__ = [
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
     "TASK_RUN_SUMMARY_STATE_KEY",
+    "TASK_SERVER_ONLY_ORIGIN_PRODUCTS",
     "TaskOriginProduct",
     "TaskRuntime",
     "TaskRunEnvironment",
     "TaskRunStatus",
+    "ActiveSessionCapRefused",
     "WarmRunActivationUnavailable",
     "append_imported_task_run_log",
     "append_task_run_log",
@@ -281,7 +284,6 @@ __all__ = [
     "own_subscription_cloud_enabled",
     "can_bill_plan_unattended",
     "unattended_model_access_state",
-    "uses_own_subscription",
     "beacon_task_presence",
     "bootstrap_task_run",
     "MAX_SANDBOX_TTL_SECONDS",
@@ -502,6 +504,7 @@ def _task_run_to_dto(run: TaskRun, *, task: Task | None = None) -> contracts.Tas
         workflow_id=run.workflow_id,
         mode=run.mode,
         task_origin_product=parent.origin_product if parent is not None else None,
+        task_created_at=parent.created_at if parent is not None else None,
         created_by_id=parent.created_by_id if parent is not None else None,
         created_by_distinct_id=str(created_by.distinct_id) if created_by is not None else None,
         pr_url=(run.output or {}).get("pr_url"),
@@ -579,6 +582,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "context_window",
         "custom_image_id",
         "disable_repo_hooks",
+        "disable_skills",
         "fast_mode",
         # An imported transcript's provenance and mirror cursor: the viewer marks the run as
         # imported, and the legacy mirror reads its own cursor back through this DTO.
@@ -620,7 +624,14 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
 # `store_skills` is the acting user's skills-store listing, so it is for their sandbox only.
 # `agent_instructions` can carry a member's personal instructions, so the same applies.
 _TASK_RUN_AGENT_STATE_KEYS = frozenset(
-    {"agent_instructions", "end_run_when_done", "initial_prompt_override", "store_skills", "systemPrompt"}
+    {
+        "agent_instructions",
+        "caller_ends_run",
+        "end_run_when_done",
+        "initial_prompt_override",
+        "store_skills",
+        "systemPrompt",
+    }
 )
 
 
@@ -3023,6 +3034,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "scout_trial_judge",
         "scout_trial_private",
         "include_live_context",
+        "disable_skills",
         "analytics_query_context",
         "sandbox_oauth_token_ids",
         # Sandbox run-start lineage and fan-out count. A child sandbox that removed its parent keys
@@ -3202,6 +3214,7 @@ TASK_RUN_FAILURE_ERROR_TYPES = (
     "subscription_usage_limit",
     "task_spend_limit",
     "agent_error",
+    "ActiveSessionCapError",
 )
 
 # `output.pr_merged` is GitHub's word, recorded by the PR webhook (`_record_run_pr_merged`) — never
@@ -3631,6 +3644,7 @@ def update_task_run(
     only_if_not_started: bool = False,
     caller_is_agent: bool = False,
     user_id: int | None = None,
+    include_log_url: bool = True,
 ) -> contracts.TaskRunDetailDTO | None:
     """Apply a PATCH to a run: merge output/state, set completion, then dispatch side effects.
 
@@ -3706,7 +3720,7 @@ def update_task_run(
         if only_if_non_terminal and run.is_terminal:
             if validated_data.get("status") == run.status:
                 transaction.on_commit(lambda: resume_workflow_step_for_run(run))
-            return _task_run_detail_to_dto(run, user_id=user_id)
+            return _task_run_detail_to_dto(run, user_id=user_id, include_log_url=include_log_url)
         old_status = run.status
         old_output = run.output
         old_branch = run.branch
@@ -3866,7 +3880,7 @@ def update_task_run(
     if new_status in _TERMINAL_TASK_RUN_STATUSES:
         resume_workflow_step_for_run(run)
 
-    return _task_run_detail_to_dto(run, user_id=user_id)
+    return _task_run_detail_to_dto(run, user_id=user_id, include_log_url=include_log_url)
 
 
 TASK_RUN_SUMMARY_MAX_CHARS = 1500
@@ -3929,6 +3943,7 @@ def set_task_run_summary(
     *,
     summary: str,
     tags: list[str] | None = None,
+    sync_task_tags: bool = True,
     include_agent_state: bool = False,
     user_id: int | None = None,
     analytics_context_reader: Callable[[object], bool] | None = None,
@@ -3942,7 +3957,7 @@ def set_task_run_summary(
         updates[TASK_RUN_TAGS_STATE_KEY] = list(dict.fromkeys(tags))
     with transaction.atomic():
         run.state = TaskRun.update_state_atomic(run.id, updates=updates)
-        if tags is not None and not run.task.is_scout_experiment:
+        if sync_task_tags and tags is not None and not run.task.is_scout_experiment:
             replace_tags_on_object(tags, run.task)
     run.refresh_from_db()
     run.publish_stream_state_event()
@@ -4028,11 +4043,13 @@ def attach_task_run_input_files(*, team_id: int, run_id: UUID, files: Sequence[c
     run.save(update_fields=["artifacts", "updated_at"])
 
 
-def get_task_by_origin_key(team_id: int, origin_key: str) -> contracts.TaskDetailDTO | None:
+def get_task_by_origin_key(
+    team_id: int, origin_key: str, *, include_latest_run: bool = True
+) -> contracts.TaskDetailDTO | None:
     """The live task carrying ``origin_key`` in ``team_id``, or None. Bypasses visibility: an
     origin key is an idempotency handle for a system writer, not a user-facing lookup."""
     task = Task.objects.filter(team_id=team_id, origin_key=origin_key, deleted=False).first()
-    return _task_detail_to_dto(task) if task is not None else None
+    return _task_detail_to_dto(task, include_latest_run=include_latest_run) if task is not None else None
 
 
 def get_imported_task_run(task_id: str | UUID, team_id: int) -> contracts.TaskRunDetailDTO | None:
@@ -4250,12 +4267,6 @@ def get_run_plan(state: dict[str, Any] | None) -> contracts.RunPlan | None:
     if access.adapter is None:
         return None
     return contracts.RunPlan(plan_name=SUBSCRIPTION_PLAN_NAMES[access.adapter], owner_user_id=access.owner_id)
-
-
-def uses_own_subscription(state: dict[str, Any] | None) -> bool:
-    """Whether a run bills to its owner's plan rather than to PostHog credits."""
-    run_state = state or {}
-    return any(run_state.get(f"{adapter}_model_access") == "own-subscription" for adapter in SUBSCRIPTION_PLAN_NAMES)
 
 
 def ensure_subscription_owner(state: dict[str, Any] | None, actor_user_id: int | None) -> None:
@@ -8103,6 +8114,8 @@ def create_task(
                 raise ComputeBillingLimitError(
                     {"team_id": team_id, "task_id": str(warm_task.id), "run_id": str(warm_run.id)}, reason
                 )
+            if (cap_detail := _active_session_cap_refusal(warm_task)) is not None:
+                raise ActiveSessionCapRefused(cap_detail)
             report_reservation = (
                 _reserve_report_warm_activation(
                     team,
@@ -8955,6 +8968,17 @@ REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED = (
 )
 
 
+ACTIVE_SESSION_CAP_CODE = "active_session_cap"
+
+
+class ActiveSessionCapRefused(Exception):
+    code = ACTIVE_SESSION_CAP_CODE
+
+    def __init__(self, detail: str) -> None:
+        self.detail = detail
+        super().__init__(detail)
+
+
 class WarmRunActivationUnavailable(Exception):
     code = "warm_run_activation_unavailable"
 
@@ -9559,6 +9583,27 @@ def _branches_worked_on(run: TaskRun) -> set[str]:
     return branches
 
 
+def _active_session_cap_refusal(task: Task) -> str | None:
+    from products.tasks.backend.logic.services.warm import (
+        SandboxWarmer,  # noqa: PLC0415 — keep warming deps off the api import path
+    )
+    from products.tasks.backend.metrics import (
+        observe_active_session_cap_hit,  # noqa: PLC0415 — keep prometheus deps off the api import path
+    )
+
+    scope = SandboxWarmer.active_session_cap_hit(
+        task.origin_product,
+        organization_id=task.team.organization_id,
+        created_by_id=task.created_by_id,
+        signal_report_id=task.signal_report_id,
+        task_id=task.id,
+    )
+    if scope is None:
+        return None
+    observe_active_session_cap_hit(task.origin_product, scope)
+    return SandboxWarmer.active_session_cap_detail(task.origin_product, scope, signal_report_id=task.signal_report_id)
+
+
 def run_task(
     task_id: str | UUID,
     team_id: int,
@@ -9606,6 +9651,12 @@ def run_task(
         return contracts.TaskRunResult(
             error=contracts.TaskValidationError(kind="detail", detail=REPORT_WARM_RUN_NOT_ACTIVATED)
         )
+    if not validated_data.get("scheduled_at"):
+        cap_detail = _active_session_cap_refusal(task)
+        if cap_detail is not None:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(kind="detail", detail=cap_detail, code=ACTIVE_SESSION_CAP_CODE)
+            )
     report_id_for_slot_check = (
         str(task.signal_report_id)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT

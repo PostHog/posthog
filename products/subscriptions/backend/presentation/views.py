@@ -209,12 +209,14 @@ class DeliveryConfigSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text=(
-            "Slack insight and dashboard subscriptions only: when true, upload all insight images "
-            "together in the main Slack message instead of posting the first image in the main "
-            "message and the rest as threaded replies. Defaults to false. The request is rejected "
-            "when target_type is not 'slack', when the subscription sets prompt instead of insight "
-            "or dashboard, or when the Slack integration does not hold the files:write permission. "
-            "Omit it unless the user asks for one combined message."
+            "Slack subscriptions only. Insight and dashboard subscriptions: when true, upload all insight "
+            "images together in the main Slack message instead of posting the first image in the main "
+            "message and the rest as threaded replies. Prompt subscriptions: when true, post the chart "
+            "images in the main message with the summary; when false, post them in the first thread "
+            "reply. Defaults to false. The request is rejected when target_type is not 'slack', or when "
+            "an insight or dashboard subscription's Slack integration does not hold the files:write "
+            "permission. "
+            "Omit it unless the user asks for all images or charts in the main message."
         ),
     )
     include_images = serializers.BooleanField(
@@ -625,7 +627,7 @@ def _raise_for_refusal(call: Callable[[], contracts.SubscriptionRecord]) -> cont
     try:
         return call()
     except contracts.SubscriptionRequestInvalidError as refusal:
-        raise ValidationError(as_serializer_error(ValidationError(refusal.detail)))
+        raise ValidationError(as_serializer_error(ValidationError(refusal.detail, code=refusal.code)))
     except contracts.SubscriptionPermissionDeniedError as refusal:
         raise exceptions.PermissionDenied(refusal.message)
     except contracts.SubscriptionQuotaExceededError as refusal:
@@ -970,6 +972,35 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
 
     def partial_update(self, request: Request, **kwargs: object) -> Response:
         return self.update(request, partial=True, **kwargs)
+
+    @extend_schema(
+        extensions={"x-product": "subscriptions"},
+        request=None,
+        responses={200: SubscriptionSerializer},
+        description=(
+            "Make the requesting user the owner of this subscription and enable it. Deliveries run with "
+            "the owner's access, so this is how a subscription continues after its owner left."
+        ),
+    )
+    # Scope is resolved dynamically in dangerously_get_required_scopes so an AI subscription also
+    # requires query:read (enabling it starts the AI HogQL pipeline). A static required_scopes here
+    # would short-circuit that check.
+    @action(methods=["POST"], detail=True)
+    def take_ownership(self, request: Request, **kwargs: object) -> Response:
+        subscription = self._get_subscription()
+        if subscription.deleted:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        updated = _raise_for_refusal(
+            lambda: api.take_subscription_ownership(
+                team=self.team,
+                organization=self.organization,
+                user=cast(User, request.user),
+                viewer=self.user_access_control,
+                subscription_id=subscription.id,
+                analytics_props=get_request_analytics_properties(request),
+            )
+        )
+        return Response(_write_response(updated, partial=True))
 
     @extend_schema(
         extensions={"x-product": "subscriptions"},

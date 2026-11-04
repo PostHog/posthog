@@ -399,6 +399,11 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 "created_at and poe.created_at",
             ),
             (
+                "properties_whose_paths_join_to_one_name",
+                f"SELECT properties.a.b, properties.a___b FROM events WHERE {MIXED}",
+                "properties.a.b and properties.a___b",
+            ),
+            (
                 "properties_and_virtual_properties",
                 f"SELECT properties, person.properties FROM events WHERE {MIXED}",
                 "properties and poe.properties",
@@ -946,6 +951,18 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
                 "AND (event = '$pageview' OR person.properties.email = 'r@x.com') "
                 "AND timestamp >= now() - INTERVAL 5 DAY ORDER BY timestamp",
                 [("recent", "$pageview", None), ("recent", "$feature_flag_called", "flag_evaluations")],
+            ),
+            (
+                "mixed_type_in_that_clickhouse_converts",
+                f"SELECT distinct_id, event, properties.source FROM events WHERE {MIXED} AND 1 IN ('1', '2') "
+                "AND timestamp >= now() - INTERVAL 5 DAY ORDER BY timestamp, distinct_id",
+                [
+                    ("recent", "$pageview", None),
+                    ("recent", "$feature_flag_called", "flag_evaluations"),
+                    ("empty", "$feature_flag_called", "events"),
+                    ("missing", "$feature_flag_called", "events"),
+                    ("number", "$feature_flag_called", "events"),
+                ],
             ),
             (
                 "global_join",

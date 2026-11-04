@@ -40,6 +40,7 @@ import type { GroupType, GroupTypeIndex, OrganizationMemberType, UserType } from
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
 import type { CommandOpenSource } from '../Command/commandLogic'
 import { askAiQuestionFor } from './commandKAskAi'
+import { SearchCorrection, correctedSearch } from './commandKCorrection'
 import { buildFilterOptions, viewAllFor } from './commandKFilterOptions'
 import { ChipSelection, KeyIntent } from './commandKKeys'
 import {
@@ -61,6 +62,7 @@ import {
     resolveQuery,
     tokenAtCursor,
 } from './commandKQuery'
+import { freeWords } from './commandKRanking'
 import {
     CommandKMode,
     CommandKRow,
@@ -75,15 +77,18 @@ import {
     emptyRemoteSlots,
     isSelectable,
     pickDisplayedQuery,
-    rankableSettings,
     resultsSettled,
     themeSearchItem,
 } from './commandKSections'
-import { REMOTE_REQUESTS, RemoteContext, RemoteResults, RemoteSource, settleRequest } from './commandKSources'
+import {
+    REMOTE_REQUESTS,
+    RemoteContext,
+    RemoteResults,
+    RemoteSource,
+    requestDebounceMs,
+    settleRequest,
+} from './commandKSources'
 
-const REMOTE_DEBOUNCE_MS = 150
-const OBJECTS_DEBOUNCE_MS = 50
-const FAST_REQUESTS = ['objects', 'persons']
 const INPUT_HIGHLIGHT_KEY = 'input'
 
 export type CommitVia = 'tab' | 'enter' | 'space' | 'paste' | 'click' | 'typed' | 'see-all'
@@ -98,9 +103,9 @@ export interface commandKSearchLogicValues {
     meFirstMembers: OrganizationMemberType[] // membersLogic
     members: OrganizationMemberType[] | null // membersLogic
     recents: FileSystemEntry[] // recentItemsModel
+    actionItems: SearchItem[] // searchListsLogic
     dataManagementItems: SearchItem[] // searchListsLogic
     healthItems: SearchItem[] // searchListsLogic
-    miscItems: SearchItem[] // searchListsLogic
     newItems: SearchItem[] // searchListsLogic
     peopleItems: SearchItem[] // searchListsLogic
     productsItems: SearchItem[] // searchListsLogic
@@ -137,6 +142,7 @@ export interface commandKSearchLogicValues {
     requestedQueries: Record<string, string>
     resolvedQuery: ResolvedQuery
     resultOpened: boolean
+    searchCorrection: SearchCorrection | null
     sections: CommandKSection[]
     selectableRows: CommandKRow[]
     shownQuery: SectionsQuery | null
@@ -186,6 +192,9 @@ export interface commandKSearchLogicActions {
         newTab: boolean
         row: CommandKRow
         via: CommitVia
+    }
+    applyCorrection: (correction: SearchCorrection) => {
+        correction: SearchCorrection
     }
     applyKeyIntent: (intent: KeyIntent) => {
         intent: KeyIntent
@@ -290,7 +299,11 @@ export interface commandKSearchLogicMeta {
         cursorContext: (text: string, cursor: number, chips: QueryChip[]) => CursorContext
         mode: (cursorContext: CursorContext) => CommandKMode
         resolvedQuery: (text: string, chips: QueryChip[], filterOptions: FilterOptions) => ResolvedQuery
-        localQuery: (resolvedQuery: ResolvedQuery, mode: CommandKMode) => string
+        localQuery: (
+            resolvedQuery: ResolvedQuery,
+            mode: CommandKMode,
+            searchCorrection: SearchCorrection | null
+        ) => string
         askAiQuestion: (text: string, resolvedQuery: ResolvedQuery) => string | null
         remoteContext: (
             currentTeamId: number | null,
@@ -302,7 +315,8 @@ export interface commandKSearchLogicMeta {
             resolvedQuery: ResolvedQuery,
             localQuery: string,
             mode: CommandKMode,
-            remoteContext: RemoteContext
+            remoteContext: RemoteContext,
+            searchCorrection: SearchCorrection | null
         ) => Record<string, string>
         remoteQueries: (requestQueries: Record<string, string>) => Partial<Record<RemoteSource, string>>
         suggestionsSection: (
@@ -322,7 +336,7 @@ export interface commandKSearchLogicMeta {
             dataManagementItems: SearchItem[],
             peopleItems: SearchItem[],
             healthItems: SearchItem[],
-            miscItems: SearchItem[]
+            actionItems: SearchItem[]
         ) => LocalLists
         themeItem: (localQuery: string, isDarkModeOn: boolean) => SearchItem | null
         viewAll: (resolvedQuery: ResolvedQuery) => ViewAll | null
@@ -356,7 +370,8 @@ export interface commandKSearchLogicMeta {
                 query: SectionsQuery
                 stale: boolean
             },
-            featureFlags: FeatureFlagsSet
+            featureFlags: FeatureFlagsSet,
+            searchCorrection: SearchCorrection | null
         ) => CommandKSection[]
         selectableRows: (sections: CommandKSection[]) => CommandKRow[]
         highlightedRow: (selectableRows: CommandKRow[], highlightedKey: string | null) => CommandKRow | null
@@ -395,7 +410,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 'dataManagementItems',
                 'peopleItems',
                 'healthItems',
-                'miscItems',
+                'actionItems',
             ],
             recentItemsModel,
             ['recents'],
@@ -448,6 +463,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         loadFolders: true,
         foldersLoaded: (folders: FileSystemEntry[]) => ({ folders }),
         markResultOpened: true,
+        applyCorrection: (correction: SearchCorrection) => ({ correction }),
     }),
     reducers({
         text: [
@@ -542,6 +558,13 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 markResultOpened: () => true,
             },
         ],
+        searchCorrection: [
+            null as SearchCorrection | null,
+            {
+                applyCorrection: (_, { correction }) => correction,
+                setChipsAndText: (state, { text }) => (state?.from === text.trim() ? state : null),
+            },
+        ],
     }),
     selectors({
         filterOptions: [
@@ -567,9 +590,14 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         ],
         /** The free text the non-object sections search for. Empty while a filter limits the palette to objects. */
         localQuery: [
-            (s) => [s.resolvedQuery, s.mode],
-            (resolved: ResolvedQuery, mode: CommandKMode): string =>
-                (mode === 'search' || mode === 'key') && resolved.filters.length === 0 ? resolved.freeText.trim() : '',
+            (s) => [s.resolvedQuery, s.mode, s.searchCorrection],
+            (resolved: ResolvedQuery, mode: CommandKMode, correction: SearchCorrection | null): string => {
+                const query =
+                    (mode === 'search' || mode === 'key') && resolved.filters.length === 0
+                        ? resolved.freeText.trim()
+                        : ''
+                return query && correction?.from === query ? correction.to : query
+            },
         ],
         askAiQuestion: [
             (s) => [s.text, s.resolvedQuery],
@@ -591,21 +619,27 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         ],
         /** The query each request runs for this input, for the requests that apply to it. */
         requestQueries: [
-            (s) => [s.resolvedQuery, s.localQuery, s.mode, s.remoteContext],
+            (s) => [s.resolvedQuery, s.localQuery, s.mode, s.remoteContext, s.searchCorrection],
             (
                 resolved: ResolvedQuery,
                 localQuery: string,
                 mode: CommandKMode,
-                context: RemoteContext
+                context: RemoteContext,
+                correction: SearchCorrection | null
             ): Record<string, string> => {
+                // Filters come first in backendSearch, so the corrected words replace its end.
+                const corrects =
+                    correction?.from === resolved.freeText.trim() && resolved.backendSearch.endsWith(correction.from)
+                const objectsQuery = corrects
+                    ? resolved.backendSearch.slice(0, -correction.from.length) + correction.to
+                    : resolved.backendSearch
                 const queries: Record<string, string> = {}
                 // Every request searches the current project, so none runs before one is known.
                 if (context.currentTeamId === null) {
                     return queries
                 }
                 for (const request of REMOTE_REQUESTS) {
-                    const query =
-                        request.query === 'objects' ? (mode === 'empty' ? '' : resolved.backendSearch) : localQuery
+                    const query = request.query === 'objects' ? (mode === 'empty' ? '' : objectsQuery) : localQuery
                     if (query && (request.enabled?.(query, context) ?? true)) {
                         queries[request.id] = query
                     }
@@ -657,7 +691,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 s.dataManagementItems,
                 s.peopleItems,
                 s.healthItems,
-                s.miscItems,
+                s.actionItems,
             ],
             (
                 recents: SearchItem[],
@@ -669,7 +703,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 dataManagement: SearchItem[],
                 people: SearchItem[],
                 health: SearchItem[],
-                misc: SearchItem[]
+                actions: SearchItem[]
             ): LocalLists => ({
                 recents,
                 starred,
@@ -680,7 +714,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 'data-management': dataManagement,
                 people,
                 health,
-                misc,
+                actions,
             }),
         ],
         themeItem: [
@@ -719,6 +753,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 s.remote,
                 s.displayedQuery,
                 s.featureFlags,
+                s.searchCorrection,
             ],
             (
                 mode: CommandKMode,
@@ -727,9 +762,13 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 local: LocalLists,
                 remote: RemoteSlots,
                 displayed: { query: SectionsQuery; stale: boolean },
-                featureFlags: FeatureFlagsSet
-            ): CommandKSection[] =>
-                buildSections({
+                featureFlags: FeatureFlagsSet,
+                searchCorrection: SearchCorrection | null
+            ): CommandKSection[] => {
+                const unifiedRanking =
+                    freeWords(displayed.query.remoteQueries.results ?? '').length > 0 &&
+                    featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test'
+                return buildSections({
                     mode,
                     context,
                     suggestions,
@@ -738,10 +777,16 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     ...displayed.query,
                     stale: displayed.stale,
                     personsFirst: !!displayed.query.remoteQueries.persons?.includes('@'),
-                    settingsInResults:
-                        rankableSettings(local, displayed.query.localQuery).length > 0 &&
-                        featureFlags[FEATURE_FLAGS.COMMAND_K_SETTINGS_IN_RESULTS] === 'test',
-                }),
+                    unifiedRanking,
+                    searchCorrection:
+                        searchCorrection &&
+                        (displayed.query.remoteQueries.results ?? displayed.query.localQuery).endsWith(
+                            searchCorrection.to
+                        )
+                            ? searchCorrection
+                            : null,
+                })
+            },
         ],
         selectableRows: [
             (s) => [s.sections],
@@ -770,6 +815,30 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => {
+        // Retries a corrected search only once every source has answered and nothing matched.
+        const correctWhenEmpty = (): void => {
+            const query = values.localQuery
+            const corrected = !values.searchCorrection && query ? correctedSearch(query) : null
+            const settled = Object.entries(values.remoteQueries).every(
+                ([source, sourceQuery]) => !sourceQuery || sourceQuery in values.remote[source as RemoteSource].cache
+            )
+            const failed = Object.entries(values.remoteQueries).some(
+                ([source, sourceQuery]) =>
+                    !!sourceQuery && !!values.remote[source as RemoteSource].failed?.[sourceQuery]
+            )
+            const empty = !values.sections.some((section) => section.rows.some((row) => row.kind === 'item'))
+            if (
+                corrected &&
+                settled &&
+                !failed &&
+                !values.displayedQuery.stale &&
+                empty &&
+                values.featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test'
+            ) {
+                actions.applyCorrection({ from: query, to: corrected })
+            }
+        }
+
         const showSettledQuery = (): void => {
             if (values.shownQuery !== values.currentQuery && resultsSettled(values.currentQuery, values.remote)) {
                 actions.showQuery(values.currentQuery)
@@ -830,7 +899,15 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             }
         }
 
+        // Cached answers arrive inside this loop, so a correction waits until the loop is done.
         const syncRemote = (): void => {
+            cache.syncingRemote = true
+            startRemoteRequests()
+            cache.syncingRemote = false
+            correctWhenEmpty()
+        }
+
+        const startRemoteRequests = (): void => {
             const started: Record<string, string> = {}
             for (const request of REMOTE_REQUESTS) {
                 const query = values.requestQueries[request.id] ?? ''
@@ -862,7 +939,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     )
                     continue
                 }
-                const debounceMs = FAST_REQUESTS.includes(request.id) ? OBJECTS_DEBOUNCE_MS : REMOTE_DEBOUNCE_MS
+                const debounceMs = requestDebounceMs(request, query)
                 // One disposable per request covers the debounce and the fetch, so a newer query
                 // cancels both, and unmounting cancels everything.
                 cache.disposables.add(
@@ -1044,7 +1121,13 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 }
             },
             clearQuery: () => actions.setChipsAndText([], '', 0),
-            remoteLoaded: showSettledQuery,
+            remoteLoaded: () => {
+                showSettledQuery()
+                if (!cache.syncingRemote) {
+                    correctWhenEmpty()
+                }
+            },
+            applyCorrection: () => syncRemote(),
             loadFolders: async () => {
                 if (cache.foldersRequested) {
                     return
@@ -1071,6 +1154,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             posthog.capture('command k search abandoned', {
                 last_mode: values.mode,
                 had_filters: values.chips.length > 0,
+                had_results: values.sections.some((section) => section.rows.some((row) => row.kind === 'item')),
             })
         }
     }),

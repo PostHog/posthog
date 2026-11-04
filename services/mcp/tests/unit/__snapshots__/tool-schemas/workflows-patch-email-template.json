@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
     "properties": {
         "id": {
             "description": "The email template id to edit.",
@@ -10,6 +11,7 @@
             "items": {
                 "oneOf": [
                     {
+                        "additionalProperties": false,
                         "properties": {
                             "id": {
                                 "description": "Id of the content block to update.",
@@ -32,6 +34,7 @@
                         "type": "object"
                     },
                     {
+                        "additionalProperties": false,
                         "properties": {
                             "id": {
                                 "description": "Id of the column to update.",
@@ -54,6 +57,7 @@
                         "type": "object"
                     },
                     {
+                        "additionalProperties": false,
                         "properties": {
                             "id": {
                                 "description": "Id of the row to update.",
@@ -76,6 +80,7 @@
                         "type": "object"
                     },
                     {
+                        "additionalProperties": false,
                         "properties": {
                             "op": {
                                 "const": "update_body",
@@ -94,6 +99,7 @@
                         "type": "object"
                     },
                     {
+                        "additionalProperties": false,
                         "properties": {
                             "column_id": {
                                 "description": "Id of the column to insert the block into.",
@@ -122,6 +128,7 @@
                         "type": "object"
                     },
                     {
+                        "additionalProperties": false,
                         "properties": {
                             "id": {
                                 "description": "Id of the content block to remove.",
@@ -136,6 +143,7 @@
                         "type": "object"
                     },
                     {
+                        "additionalProperties": false,
                         "properties": {
                             "column_id": {
                                 "description": "Id of the destination column.",
@@ -160,6 +168,7 @@
                         "type": "object"
                     },
                     {
+                        "additionalProperties": false,
                         "properties": {
                             "index": {
                                 "description": "0-based insert position; omit to append to the end.",
@@ -184,6 +193,7 @@
                         "type": "object"
                     },
                     {
+                        "additionalProperties": false,
                         "properties": {
                             "id": {
                                 "description": "Id of the row to remove.",

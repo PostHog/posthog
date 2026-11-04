@@ -366,8 +366,18 @@
                                             "type": "string"
                                         },
                                         "settings": {
-                                            "description": "Optional number formatting for this column.",
+                                            "description": "Optional display and number-formatting settings for this column.",
                                             "properties": {
+                                                "display": {
+                                                    "description": "Display settings for this column.",
+                                                    "properties": {
+                                                        "description": {
+                                                            "description": "Table column description shown in the header tooltip.",
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                },
                                                 "formatting": {
                                                     "description": "Number-formatting settings for the values in this column.",
                                                     "properties": {
@@ -530,8 +540,18 @@
                                                 "type": "string"
                                             },
                                             "settings": {
-                                                "description": "Optional number formatting for this column.",
+                                                "description": "Optional display and number-formatting settings for this column.",
                                                 "properties": {
+                                                    "display": {
+                                                        "description": "Display settings for this column.",
+                                                        "properties": {
+                                                            "description": {
+                                                                "description": "Table column description shown in the header tooltip.",
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    },
                                                     "formatting": {
                                                         "description": "Number-formatting settings for the values in this column.",
                                                         "properties": {

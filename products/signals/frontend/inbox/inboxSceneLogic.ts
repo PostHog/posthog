@@ -297,10 +297,16 @@ function findReportRank(id: string): {
     const idx = rows.findIndex((row) => row.report.id === id)
     if (idx >= 0) {
         const sectionKey = rows[idx].sectionKey
-        const rankerId =
-            reportListLogic.findMounted({ sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] })
-                ?.values.loadedRanker ?? null
-        return { rank: idx + 1, listSize: rows.length, section: sectionKey, rankerId }
+        const sectionValues = reportListLogic.findMounted({
+            sectionKey,
+            listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey],
+        })?.values
+        return {
+            rank: idx + 1,
+            listSize: rows.length,
+            section: sectionKey,
+            rankerId: sectionValues?.loadedRanker ?? null,
+        }
     }
     return notFound
 }
