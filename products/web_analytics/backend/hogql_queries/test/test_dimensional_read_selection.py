@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import time_machine
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -18,6 +18,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     PropertyOperator,
     SessionPropertyFilter,
+    SessionTableVersion,
     WebAnalyticsQueryModifiers,
     WebStatsBreakdown,
 )
@@ -42,6 +43,7 @@ _STATS_IDS = [uuid.uuid4()]
 _BOUNCES_IDS = [uuid.uuid4()]
 _JOB_IDS = DimensionalJobIds(stats=_STATS_IDS, bounces=_BOUNCES_IDS)
 _NEW_YORK = ZoneInfo("America/New_York")
+_SESSIONS_V3_FLOOR = datetime(2026, 2, 15, tzinfo=UTC)
 _TEST_ACCOUNT_FILTERS = [{"key": "email", "value": "@example.com", "operator": "not_icontains", "type": "person"}]
 _CUSTOM_CHANNEL_RULES = [
     CustomChannelRule(
@@ -228,13 +230,43 @@ class TestDimensionalReadSelection(SimpleTestCase):
                 None,
                 True,
             ),
+            ("sessions_v3_after_the_floor", _runner(True), None, True, SessionTableVersion.V3),
+            (
+                "sessions_v3_compare_period_before_the_floor",
+                _runner(True, compare_from=datetime(2026, 2, 1, tzinfo=_NEW_YORK)),
+                None,
+                False,
+                SessionTableVersion.V3,
+            ),
+            ("sessions_v3_region_without_a_backfill", _runner(True), None, False, SessionTableVersion.V3, "EU"),
+            (
+                "sessions_v2_before_the_v3_floor",
+                _runner(True, compare_from=datetime(2026, 2, 1, tzinfo=_NEW_YORK)),
+                None,
+                True,
+                SessionTableVersion.V2,
+            ),
         ]
     )
-    def test_query_serves_only_inside_retention_and_channel_rules(self, _name, runner, retention_months, serves):
+    def test_query_serves_only_inside_retention_sessions_coverage_and_channel_rules(
+        self,
+        _name,
+        runner,
+        retention_months,
+        serves,
+        session_table_version=SessionTableVersion.AUTO,
+        region="US",
+    ):
         self.retention_months.return_value = retention_months
+        build_modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
+        runner.modifiers.sessionTableVersion = session_table_version
         with (
             patch(f"{_READ}.team_has_property_access_rules", return_value=False),
             patch(f"{_READ}.dimensional_job_ids", return_value=_JOB_IDS),
+            patch(f"{_READ}.dimensional_insert_modifiers", return_value=build_modifiers),
+            patch(f"{_PRECOMPUTE}.is_cloud", return_value=True),
+            patch.dict(f"{_PRECOMPUTE}.SESSIONS_V3_COVERAGE_START_BY_REGION", {"US": _SESSIONS_V3_FLOOR}, clear=True),
+            override_settings(CLOUD_DEPLOYMENT=region),
         ):
             assert ready_dimensional_job_ids(runner) == (_JOB_IDS if serves else None)
 

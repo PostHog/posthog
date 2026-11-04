@@ -43,8 +43,10 @@ from posthog.models import Team
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
     DIMENSIONAL_TTL_SECONDS,
+    dimensional_insert_modifiers,
     ensure_web_bounces_dimensional_precomputed,
     ensure_web_stats_dimensional_precomputed,
+    sessions_coverage_floor,
 )
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
@@ -311,6 +313,13 @@ def _push_coverage_gauges(coverages: list[TableCoverage]) -> None:
             )
 
 
+def team_window(team: Team, window: TimeSpan) -> TimeSpan:
+    floor = sessions_coverage_floor(dimensional_insert_modifiers(team))
+    if floor is None or floor <= window.start:
+        return window
+    return TimeSpan(start=min(floor, window.end), end=window.end)
+
+
 def _ensure_for_team(
     context: dagster.OpExecutionContext,
     team: Team,
@@ -387,7 +396,7 @@ def ensure_web_dimensional_precompute_op(context: dagster.OpExecutionContext) ->
         if team is None:
             context.log.warning(f"web_dimensional_precompute_team_missing team_id={team_id}")
             continue
-        failures += _ensure_for_team(context, team, window, PRECOMPUTE_CHUNK_DAYS, sample_job_ids)
+        failures += _ensure_for_team(context, team, team_window(team, window), PRECOMPUTE_CHUNK_DAYS, sample_job_ids)
         processed.append(team_id)
 
     context.log.info(f"web_dimensional_precompute_complete teams={len(processed)} failures={failures}")
@@ -415,8 +424,16 @@ def check_web_dimensional_precompute_coverage_op(
         ).values_list("id", "query_hash")
     }
 
+    teams_by_id = {team.pk: team for team in Team.objects.filter(pk__in=run.team_ids)}
     coverages: list[TableCoverage] = []
     for team_id in run.team_ids:
+        team = teams_by_id.get(team_id)
+        if team is None:
+            continue
+        window = team_window(team, run.window)
+        # A team whose sessions history starts after the window has no days to build or check.
+        if window.start >= window.end:
+            continue
         for table in (STATS_TABLE, BOUNCES_TABLE):
             job_id = run.sample_job_ids.get((team_id, table))
             coverages.append(
@@ -424,7 +441,7 @@ def check_web_dimensional_precompute_coverage_op(
                     team_id=team_id,
                     table=table,
                     query_hash=query_hash_by_job_id.get(job_id) if job_id is not None else None,
-                    window=run.window,
+                    window=window,
                     current_day=run.current_day,
                     now=now,
                 )

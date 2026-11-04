@@ -149,6 +149,7 @@ Both runners skip the dimensional tables when the rows cannot match the live res
 - The team has property access rules or the query filters out test accounts.
 - The current or compare period does not start on a UTC hour boundary, or ends inside an hour before now.
 - Either period starts at or before the events retention floor.
+- The team reads sessions v3 and either period starts before the region's v3 backfill start (`SESSIONS_V3_COVERAGE_START_BY_REGION`). The writer does not build those days either, and the coverage check skips them.
 - The team has custom channel rules and the query breaks down or filters by channel type.
 - The request overrides a bounce or session modifier (`DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS`) with a value the team's builds do not use.
 

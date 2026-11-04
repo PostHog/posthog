@@ -6,12 +6,14 @@ from zoneinfo import ZoneInfo
 import pytest
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 import dagster
 from parameterized import parameterized
+
+from posthog.schema import HogQLQueryModifiers, SessionTableVersion
 
 from posthog.models import Organization, Team
 
@@ -32,6 +34,7 @@ from products.web_analytics.dags.web_dimensional_precompute import (
     get_selected_team_ids,
     precompute_window,
     summarize_coverage,
+    team_window,
     web_dimensional_precompute_job,
 )
 
@@ -105,6 +108,38 @@ class TestPrecomputeWindow:
         assert window.start <= read_start
         assert window.end > now
         assert window.end == window.start + timedelta(days=PRECOMPUTE_WINDOW_DAYS)
+
+
+class TestTeamWindow(SimpleTestCase):
+    _WINDOW = TimeSpan(start=datetime(2026, 9, 1, tzinfo=UTC), end=datetime(2026, 11, 1, tzinfo=UTC))
+    _FLOOR = datetime(2026, 10, 1, tzinfo=UTC)
+
+    @parameterized.expand(
+        [
+            ("sessions_v2_keeps_the_window", SessionTableVersion.V2, "US", _WINDOW.start),
+            ("sessions_v3_starts_at_the_floor", SessionTableVersion.V3, "US", _FLOOR),
+            ("sessions_v3_without_a_backfill_is_empty", SessionTableVersion.V3, "EU", _WINDOW.end),
+        ]
+    )
+    def test_window_starts_at_the_sessions_coverage_floor(self, _name, session_table_version, region, expected_start):
+        with (
+            patch(
+                "products.web_analytics.dags.web_dimensional_precompute.dimensional_insert_modifiers",
+                return_value=HogQLQueryModifiers(sessionTableVersion=session_table_version),
+            ),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_dimensional_precompute.is_cloud", return_value=True
+            ),
+            patch.dict(
+                "products.web_analytics.backend.hogql_queries.web_dimensional_precompute.SESSIONS_V3_COVERAGE_START_BY_REGION",
+                {"US": self._FLOOR},
+                clear=True,
+            ),
+            override_settings(CLOUD_DEPLOYMENT=region),
+        ):
+            window = team_window(MagicMock(), self._WINDOW)
+
+        assert window == TimeSpan(start=expected_start, end=self._WINDOW.end)
 
 
 class TestSummarizeCoverage(SimpleTestCase):

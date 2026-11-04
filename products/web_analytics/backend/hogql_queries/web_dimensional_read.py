@@ -33,6 +33,7 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     DimensionalJobIds,
     dimensional_insert_modifiers,
     dimensional_job_ids,
+    sessions_coverage_floor,
 )
 from products.web_analytics.backend.hogql_queries.web_overview_pre_aggregated import (
     WebOverviewPreAggregatedQueryBuilder,
@@ -81,6 +82,9 @@ def ready_dimensional_job_ids(
 
     start = min(period.date_from() for period in periods)
     if _crosses_events_retention_floor(runner, start):
+        return None
+    sessions_floor = sessions_coverage_floor(build_modifiers)
+    if sessions_floor is not None and start < sessions_floor:
         return None
 
     # A range can end after now, for example at the end of the current day in the project
