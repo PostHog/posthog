@@ -1559,6 +1559,9 @@ def build_sandbox_environment_variables(
     env_vars.update(run_gateway_env_vars(ctx, task))
     env_vars.update(mcp_exec_skills_env_vars(ctx))
 
+    if (ctx.state or {}).get("disable_background_tasks") is True:
+        env_vars["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] = "1"
+
     if otel_telemetry_enabled and task.is_scout_experiment is not True:
         env_vars.update(get_sandbox_otel_env_vars())
 

@@ -2011,7 +2011,12 @@ class TestCreateTaskAndTriggerForwardsContext:
         # The agent server sees only allowlisted state keys, so a dropped key silently keeps the Codex default.
         team, user = await sync_to_async(self._setup_team_and_user)()
         context = CustomPromptSandboxContext(
-            team_id=team.id, user_id=user.id, codex_max_subagents=9, codex_shared_prompt_cache=True, disable_skills=True
+            team_id=team.id,
+            user_id=user.id,
+            codex_max_subagents=9,
+            codex_shared_prompt_cache=True,
+            disable_skills=True,
+            disable_background_tasks=True,
         )
 
         with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
@@ -2022,6 +2027,7 @@ class TestCreateTaskAndTriggerForwardsContext:
         assert public_state["codex_max_subagents"] == 9
         assert public_state["codex_shared_prompt_cache"] is True
         assert public_state["disable_skills"] is True
+        assert persisted.state["disable_background_tasks"] is True
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("output_schema", "expected_flag"), [({"type": "object"}, True), (None, None)])

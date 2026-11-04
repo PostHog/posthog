@@ -790,6 +790,7 @@ async def select_repository(
         posthog_mcp_scopes="read_only",
         github_read_access=True,
         disable_skills=True,
+        disable_background_tasks=True,
         sandbox_resources=SandboxResources(cpu_cores=2, memory_gb=8),
         # Optional agent runtime/model override (e.g. the Codex runtime + gpt-5.5). All-None keeps
         # the agent-server default; threaded through from the caller's per-step resolution.
