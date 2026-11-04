@@ -73,36 +73,38 @@ const checks = [
     }),
 ]
 
-const suiteRuns = [
-    {
-        id: 'suite-1',
-        trigger: 'materialization',
-        status: 'completed',
-        subject_type: 'view',
-        subject_uuid: SUBJECT_ID,
-        workflow_id: 'wf-1',
-        checks_passed: 1,
-        checks_failed: 1,
-        checks_errored: 1,
-        checks_skipped: 0,
-        started_at: '2026-09-14T18:00:00Z',
-        finished_at: '2026-09-14T18:00:42Z',
-    },
-    {
-        id: 'suite-2',
-        trigger: 'manual',
-        status: 'empty',
-        subject_type: 'view',
-        subject_uuid: SUBJECT_ID,
-        workflow_id: 'wf-2',
-        checks_passed: 0,
-        checks_failed: 0,
-        checks_errored: 0,
-        checks_skipped: 0,
-        started_at: '2026-09-13T09:00:00Z',
-        finished_at: '2026-09-13T09:00:01Z',
-    },
+const SUITE_RUN_OUTCOMES: [string, string, number, number, number][] = [
+    ['materialization', 'completed', 1, 1, 1],
+    ['manual', 'empty', 0, 0, 0],
+    ['scheduled', 'completed', 3, 0, 0],
+    ['scheduled', 'completed', 3, 0, 0],
+    ['materialization', 'completed', 2, 1, 0],
+    ['scheduled', 'completed', 3, 0, 0],
+    ['scheduled', 'completed', 2, 0, 1],
+    ['materialization', 'completed', 3, 0, 0],
+    ['scheduled', 'completed', 3, 0, 0],
+    ['scheduled', 'completed', 3, 0, 0],
+    ['manual', 'completed', 3, 0, 0],
+    ['scheduled', 'completed', 3, 0, 0],
 ]
+
+const suiteRuns = SUITE_RUN_OUTCOMES.map(([trigger, status, passed, failed, errored], index) => {
+    const startedAt = new Date(Date.UTC(2026, 8, 14, 18 - index * 6, 0, 0))
+    return {
+        id: `suite-${index + 1}`,
+        trigger,
+        status,
+        subject_type: 'view',
+        subject_uuid: SUBJECT_ID,
+        workflow_id: `wf-${index + 1}`,
+        checks_passed: passed,
+        checks_failed: failed,
+        checks_errored: errored,
+        checks_skipped: 0,
+        started_at: startedAt.toISOString(),
+        finished_at: new Date(startedAt.getTime() + 42_000).toISOString(),
+    }
+})
 
 const checkRuns = [
     {
@@ -267,4 +269,16 @@ export const MetricStarterCheck: Story = {
         await click(canvasElement, '[data-attr="data-quality-metric-starter-no_sharp_drop"]')
         await click(canvasElement, '[data-attr="data-quality-metric-add-starter-check"]')
     },
+}
+
+export const TableChecks: Story = {
+    args: { subjectType: 'table', subjectId: 'table-stripe-charges' },
+}
+
+export const MetricChecks: Story = {
+    args: { ...metricArgs, hideTitle: true },
+}
+
+export const RunHistoryDialog: Story = {
+    play: async ({ canvasElement }) => click(canvasElement, '[data-attr="data-quality-view-run-history"]'),
 }
