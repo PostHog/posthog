@@ -22,7 +22,14 @@ from posthog.models.utils import generate_random_token_personal, uuid7
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.stamphog.backend.facade import contracts
-from products.stamphog.backend.facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewMode, ReviewRunStatus
+from products.stamphog.backend.facade.enums import (
+    ChannelResolutionSource,
+    DigestRunStatus,
+    ReviewMode,
+    ReviewRunStatus,
+    RoutingMode,
+)
+from products.stamphog.backend.facade.github import StamphogGitHubError
 from products.stamphog.backend.models import DigestRun, PullRequest, ReviewRun, StamphogInstallation, StamphogRepoConfig
 from products.stamphog.backend.presentation.serializers import StamphogRepoConfigWriteSerializer
 from products.stamphog.backend.presentation.views import _INSTALL_STATE_SALT
@@ -77,6 +84,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("enabled", {"enabled": False}),
             ("review_mode", {"review_mode": ReviewMode.ALL}),
             ("trigger_label", {"trigger_label": "review-me"}),
+            ("routing_mode", {"routing_mode": RoutingMode.FALLBACK}),
         ]
     )
     def test_member_cannot_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
@@ -143,16 +151,22 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled is True
 
-    def test_member_granted_manager_can_change_a_review_gating_field(self) -> None:
+    @parameterized.expand(
+        [
+            ("turns_reviews_off", {"enabled": False}),
+            ("turns_reviewer_requests_on", {"routing_mode": RoutingMode.FALLBACK}),
+        ]
+    )
+    def test_member_granted_manager_can_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
         # An admin must be able to hand the review switch to somebody through the normal access
         # control settings, or the manager gate would be an admin-only hardcode.
         config_id = self._create_config()
         self._login_as_member(stamphog_level="manager")
 
-        response = self.client.patch(f"{self.url}{config_id}/", {"enabled": False}, format="json")
+        response = self.client.patch(f"{self.url}{config_id}/", payload, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        assert response.json()["enabled"] is False
+        assert {field: response.json()[field] for field in payload} == payload
 
     @parameterized.expand(
         [
@@ -242,6 +256,29 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["user_access_level"] == expected
+
+    @parameterized.expand(
+        [
+            ("found", "inst-1", "version: 1\n", None, "found"),
+            ("missing", "inst-1", None, None, "missing"),
+            # A failed check hides the setting rather than offering it for a repository it cannot route.
+            ("github_error", "inst-1", None, StamphogGitHubError("boom", status_code=502), "unavailable"),
+            ("no_installation", "", None, None, "unavailable"),
+        ]
+    )
+    def test_owners_file_reports_whether_the_default_branch_has_one(
+        self, _name: str, installation_id: str, text: str | None, error: Exception | None, expected: str
+    ) -> None:
+        config_id = self._create_config()
+        StamphogRepoConfig.objects.unscoped().filter(id=config_id).update(installation_id=installation_id)
+
+        with patch(f"{_CLIENT}.get_default_branch_file", return_value=text, side_effect=error) as read_file:
+            response = self.client.get(f"{self.url}{config_id}/owners_file/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == {"owners_file": expected}
+        expected_calls = [call("PostHog/posthog", "owners.yaml")] if installation_id else []
+        assert read_file.call_args_list == expected_calls
 
     def test_create_ignores_client_supplied_installation_id(self) -> None:
         # installation_id is read-only: a manual create must not let a caller claim an installation

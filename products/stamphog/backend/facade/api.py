@@ -22,6 +22,7 @@ import structlog
 from ..logic.installations import reset_unverified_review_policy
 from ..logic.review_trigger import derive_review_trigger
 from ..logic.reviewer import parse_reviewer_output
+from ..logic.routing.owners_file import owners_file_status
 from ..logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from ..models import DigestRun, PullRequest, ReviewRun, StamphogInstallation, StamphogRepoConfig
 from . import contracts
@@ -29,6 +30,7 @@ from .enums import (
     TERMINAL_STATUSES,
     ChannelResolutionSource,
     DigestRunStatus,
+    OwnersFileStatus,
     ReviewMode,
     ReviewRunStatus,
     ReviewTrigger,
@@ -83,6 +85,7 @@ def _repo_config_to_dto(obj: StamphogRepoConfig) -> contracts.RepoConfigDTO:
         digest_enabled=obj.digest_enabled,
         review_mode=obj.review_mode,
         trigger_label=obj.trigger_label,
+        routing_mode=obj.routing_mode,
         created_at=obj.created_at,
         updated_at=obj.updated_at,
     )
@@ -252,6 +255,14 @@ def get_repo_config_by_id(team_id: int, config_id: str) -> contracts.RepoConfigD
         return None
     obj = StamphogRepoConfig.objects.for_team(team_id).filter(id=parsed_id).first()
     return _repo_config_to_dto(obj) if obj is not None else None
+
+
+def check_owners_file(config: contracts.RepoConfigDTO) -> OwnersFileStatus:
+    """Whether the repo's default branch has the root owners.yaml that reviewer requests need.
+
+    Makes one GitHub call with the repo's installation token, so callers ask only on demand.
+    """
+    return owners_file_status(config.repository, config.installation_id)
 
 
 def has_reviewable_repo_config(team_id: int) -> bool:
