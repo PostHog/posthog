@@ -24,8 +24,8 @@ logger = structlog.get_logger(__name__)
 
 def _owner_row(entry: Mapping[str, Any], *, run: RoutingRun, refused: set[str]) -> RoutingRunOwner:
     outcome = entry["outcome"]
-    # The plan decided every outcome. Only GitHub's answer to the requests comes after it.
-    if outcome == RoutingOwnerOutcome.REQUESTED and entry["owner"] in refused:
+    # The plan decided every outcome. Only GitHub's answer to the requests and labels comes after it.
+    if outcome in (RoutingOwnerOutcome.REQUESTED, RoutingOwnerOutcome.LABELED) and entry["owner"] in refused:
         outcome = RoutingOwnerOutcome.REFUSED
     return RoutingRunOwner(
         team_id=run.team_id,

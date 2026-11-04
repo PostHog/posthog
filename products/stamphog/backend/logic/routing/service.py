@@ -561,11 +561,13 @@ def _request_and_comment(client: StamphogGitHubClient, pr_obj: PullRequest, plan
     """Make the GitHub writes of a saved plan, then finish the comment."""
     repo_config = pr_obj.repo_config
     repository = repo_config.repository
-    if plan["labels"]:
-        client.add_pr_labels(repository, pr_obj.pr_number, plan["labels"])
+    labels_refused = bool(plan["labels"]) and not client.add_pr_labels(repository, pr_obj.pr_number, plan["labels"])
     refused = client.request_reviewers(
         repository, pr_obj.pr_number, users=plan["requested_users"], teams=plan["requested_teams"]
     )
+    if labels_refused:
+        # Those fork teams got neither a label nor a review request.
+        refused = [*refused, *plan["labeled_teams"]]
     if refused:
         logger.info("stamphog_reviewer_routing_refused", repo=repository, pr_number=pr_obj.pr_number, refused=refused)
 

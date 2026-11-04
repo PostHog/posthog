@@ -721,7 +721,7 @@ export const OwnerKindEnumApi = {
 } as const
 
 export interface StamphogRoutingRunOwnerApi {
-    /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
+    /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
      *
      * * `requested` - Requested
      * * `labeled` - Labeled
@@ -834,7 +834,7 @@ export interface StamphogRoutingFileApi {
 }
 
 export interface StamphogRoutingRunOwnerDetailApi {
-    /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
+    /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
      *
      * * `requested` - Requested
      * * `labeled` - Labeled

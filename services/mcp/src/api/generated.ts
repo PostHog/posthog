@@ -74685,7 +74685,7 @@ export namespace Schemas {
     }
 
     export interface StamphogRoutingRunOwner {
-      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
+      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
        *
        * * `requested` - Requested
        * * `labeled` - Labeled
@@ -107698,7 +107698,7 @@ export namespace Schemas {
     }
 
     export interface StamphogRoutingRunOwnerDetail {
-      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
+      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
        *
        * * `requested` - Requested
        * * `labeled` - Labeled

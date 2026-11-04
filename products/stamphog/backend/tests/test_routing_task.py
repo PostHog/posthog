@@ -299,28 +299,33 @@ def test_routing_requests_the_owners_the_cut_step_keeps(
 
 
 @pytest.mark.parametrize(
-    "name,label_failures",
+    "name,label_failures,labels_refused,alpha_outcome",
     [
-        ("labels_added", 0),
-        ("server_error_retries", 1),
+        ("labels_added", 0, False, "labeled"),
+        ("server_error_retries", 1, False, "labeled"),
+        ("label_refused", 0, True, "refused"),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_fork_skips_the_model_and_labels_the_teams_with_a_fork_label(
-    name: str, label_failures: int, team, user, routing_chain
+    name: str, label_failures: int, labels_refused: bool, alpha_outcome: str, team, user, routing_chain
 ) -> None:
     # The label name comes from the config as written, with no naming rule applied to the slug.
     _setup(routing_chain, team, user, head_repo="outsider/widgets", fork_labels={"team-alpha": "area: alpha"})
     routing_chain.cut_model.answer = _CUT_BETA
     routing_chain.recorder.label_request_failures = label_failures
+    routing_chain.recorder.labels_refused = labels_refused
 
     assert _run_event_task(MagicMock(), throw=False).successful()
 
     assert routing_chain.cut_model.calls == []
     assert len(_writes(routing_chain, "request_reviewers")) == 1
     assert _requested(routing_chain) == ({"carol"}, {"team-beta"})
-    assert [write["body"] for write in _writes(routing_chain, "add_labels")] == [{"labels": ["area: alpha"]}]
+    assert [write["body"] for write in _writes(routing_chain, "add_labels")] == (
+        [] if labels_refused else [{"labels": ["area: alpha"]}]
+    )
     assert _stored(team.id)["llm_skipped"] == "fork"
+    assert _run_log(team.id)["team-alpha"][0] == alpha_outcome
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

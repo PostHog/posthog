@@ -883,7 +883,7 @@ class RoutingRunOwnerSerializer(DataclassSerializer):
         read_only=True,
         help_text=(
             "What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), "
-            "'refused' (GitHub refused the request), 'cut', 'not_requested' (stamphog approved and the owner "
+            "'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved and the owner "
             "is not pinned) or 'already_requested' (an earlier run asked this pinned owner)."
         ),
     )
