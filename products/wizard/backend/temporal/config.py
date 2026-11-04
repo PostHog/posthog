@@ -14,10 +14,6 @@ FINALIZATION_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 PROVISION_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
 PREPARATION_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 EXECUTION_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
-# Permanent handoff failures are non-retryable, so this policy retries transient errors such as GitHub 5xx.
-# The backoff spreads 5 attempts across about 5 minutes so a short GitHub outage does not discard a
-# finished Wizard run. Publishing reuses the run's branch and pull request, so a repeat is safe.
-# Keep the total under the sandbox TTL, because the sandbox must still exist on the last attempt.
 HANDOFF_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=30),
     backoff_coefficient=2.0,

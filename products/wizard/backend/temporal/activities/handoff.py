@@ -40,9 +40,6 @@ def create_run_artifacts(input: PreparedGitRepositoryWorkspace) -> None:
             )
         )
     except cloud_worker.WizardWorkerExecutionError as error:
-        # sanitize_activity_errors drops this message before Temporal records it, so this log line is
-        # the only record of the failing step. Only publishing details are logged, because they are our
-        # own messages. The details of other steps hold sandbox output.
         wizard_observability.handoff_failed(
             input.team_id,
             input.run_id,
@@ -60,8 +57,6 @@ def create_run_artifacts(input: PreparedGitRepositoryWorkspace) -> None:
     except CancelledError:
         raise
     except Exception as error:
-        # GitHub client errors propagate unwrapped and Temporal retries them. Log their type and status
-        # code, because sanitize_activity_errors also drops their message.
         status_code = getattr(error, "status_code", None)
         wizard_observability.handoff_failed(
             input.team_id,
