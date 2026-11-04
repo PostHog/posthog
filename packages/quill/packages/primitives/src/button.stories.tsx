@@ -20,6 +20,7 @@ const meta = {
                 'destructive',
                 'destructive-outline',
                 'link',
+                'link-foreground',
                 'link-muted',
             ],
         },
