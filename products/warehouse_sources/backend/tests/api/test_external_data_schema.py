@@ -4983,8 +4983,8 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
 
         history.refresh_from_db()
         main.refresh_from_db()
-        assert set(history.columns) == {"id", "updated_at", "_ph_valid_from", "_ph_valid_to"}
-        assert set(main.columns) == ({"id", "updated_at"} if mode == "both" else set(source_columns))
+        assert set(history.columns or {}) == {"id", "updated_at", "_ph_valid_from", "_ph_valid_to"}
+        assert set(main.columns or {}) == ({"id", "updated_at"} if mode == "both" else set(source_columns))
 
     @parameterized.expand(
         [
