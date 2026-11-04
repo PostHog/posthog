@@ -11,6 +11,7 @@ interface DashboardTileGroupTabsProps {
     sections: DashboardSection[]
     activeSectionKey: string
     onSelect: (sectionKey: string) => void
+    onRenameGroup?: (groupKey: string, title: string) => void
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyGroupToDashboard?: (groupKey: string, dashboardId: number, dashboardName: string) => void
     copyLoading?: boolean
@@ -22,6 +23,7 @@ export function DashboardTileGroupTabs({
     sections,
     activeSectionKey,
     onSelect,
+    onRenameGroup,
     copyToDestinations,
     onCopyGroupToDashboard,
     copyLoading,
@@ -49,9 +51,15 @@ export function DashboardTileGroupTabs({
                 }))}
                 rightSlotClassName="pr-0"
                 rightSlot={
-                    (onChangeGroupDisplay || onCopyGroupToDashboard) && (
+                    (onRenameGroup || onChangeGroupDisplay || onCopyGroupToDashboard) && (
                         <DashboardTileGroupMenu
                             groupDisplay="tabs"
+                            title={activeSection?.kind === 'group' ? activeSection.group.title : undefined}
+                            onRename={
+                                activeSection?.kind === 'group' && onRenameGroup
+                                    ? (title) => onRenameGroup(activeSection.groupKey, title)
+                                    : undefined
+                            }
                             onChangeGroupDisplay={onChangeGroupDisplay}
                             copyToDestinations={copyToDestinations}
                             onCopyToDashboard={

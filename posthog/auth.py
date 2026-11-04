@@ -858,9 +858,9 @@ class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.
                 "which a workload trust policy can't grant."
             )
         return InsufficientScope(
-            f"This workload token's trust policy doesn't grant {', '.join(missing_scopes)}. "
+            required_scopes,
+            detail=f"This workload token's trust policy doesn't grant {', '.join(missing_scopes)}. "
             "Ask an organization admin to add the missing scopes to the policy.",
-            required_scopes=required_scopes,
             extra={"missing_scopes": missing_scopes, "policy_url": workload_trust_policies_settings_url(self.team_id)},
         )
 
