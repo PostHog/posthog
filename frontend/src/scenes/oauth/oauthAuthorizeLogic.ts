@@ -337,10 +337,7 @@ export interface oauthAuthorizeLogicMeta {
         ) => string[]
         scopeRows: (
             consentResourceScopes: string[],
-            scopeAccessSelections: {
-                bulk: ScopeAccessLevel | null
-                overrides: Record<string, ScopeAccessLevel>
-            },
+            scopeAccessSelections: ScopeAccessSelections,
             requiredScopeLevels: Map<string, RequiredLevel>,
             alreadyGrantedScopeLevels: Map<string, RequiredLevel>,
             appName: string
