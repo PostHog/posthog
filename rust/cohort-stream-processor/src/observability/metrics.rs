@@ -15,7 +15,7 @@ pub const FILTER_CATALOG_TEAMS: &str = "filter_catalog_teams";
 /// Distinct `conditionHash`es across all teams in the current snapshot (gauge).
 pub const FILTER_CATALOG_UNIQUE_CONDITIONS: &str = "filter_catalog_unique_conditions";
 /// Unix timestamp of the last *successful* catalog refresh (gauge, seconds). Stamped inside
-/// `CatalogHandle::refresh`, so the boot load and the periodic loop both advance it. **Alert on
+/// `CatalogRefresher::refresh`, so the boot load and the periodic loop both advance it. **Alert on
 /// staleness** via `time() - gauge`: a failed refresh keeps serving the previous snapshot silently,
 /// so cohort edits go invisible with nothing else moving. A gauge written only on success would go
 /// flat rather than climb, and the refresh loop is a detached task — a per-tick age gauge would

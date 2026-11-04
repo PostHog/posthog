@@ -51,7 +51,7 @@ An event passes the gate when it has a person id and its team passes two checks.
    So when a read lacks a row the shuffler holds, or grants one of its `off` rows again, the shuffler keeps its previous row for that team, because that read comes from a lagging replica or the wrong database.
    The read's other rows still take effect, so a revoke always gets through.
    After a failed read, it keeps all the previous rows.
-   A row deleted or granted again by hand keeps its old state in every running shuffler, so restart both shuffler deployments after one.
+   A row deleted or granted again by hand keeps its old state in every running shuffler and processor, so restart both shuffler deployments and the processor after one.
 
 Apart from the person id check, the gate looks at the team only.
 It cannot filter by event name: person-property criteria are re-evaluated from every event that carries person properties, whatever the event is called.
@@ -242,9 +242,9 @@ The processor sees firehose offset 9870001 from partition 3 for p-1 a second tim
 
 - The processor's event-name gate only skips behavioral evaluation, after the event is already on `cohort_stream_events`.
 - The shuffler and the processor each read their own copy of `REALTIME_COHORT_TEAM_ALLOWLIST` at startup, and each polls Postgres on its own schedule.
-  The shuffler also lets through the teams that a `cohort_realtime_team_access` row grants, but the processor reads only its list.
-  Only teams that both let through are processed, and a newly enabled team can lose a few minutes of events until both have refreshed.
-  Merges also need the team in Node's merge allowlist, and backfills need it in the seeder's copy.
+  Both also let through the teams that a `cohort_realtime_team_access` row grants, and each reads that table about every 15 seconds.
+  Only teams that both let through are processed, so a newly granted team can lose about half a minute of events until both have read the grant.
+  Merges also need the team in Node's merge allowlist.
 - The processor recognizes applied events with a high-water mark per source partition, not a set of offsets.
   The shuffler's producer does not guarantee ordering on retries, so an event that is overtaken by a later event from the same source partition is skipped as if it were a replay.
 - The broker timestamp on `cohort_stream_events` is the shuffler's send time, not the event's time.
