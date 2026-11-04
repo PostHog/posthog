@@ -4775,6 +4775,7 @@ export namespace Schemas {
     export type YAxisPosition = "left" | "right";
     export type ChartSettingsDisplay = Partial<{
         color: string | null;
+        description: string | null;
         displayType: DisplayType | null;
         excludeFromTotal: boolean | null;
         label: string | null;
@@ -4911,6 +4912,7 @@ export namespace Schemas {
         settings?: (Settings | null) | undefined;
     };
     export type ChartSettings = Partial<{
+        annotationsScope: AnnotationScope | null;
         barGap: number | null;
         boxPlot: BoxPlotSettings | null;
         chartStyle: ChartStyle | null;
@@ -8591,6 +8593,7 @@ export namespace Schemas {
         personId?: (string | null) | undefined;
         response?: (ErrorTrackingQueryResponse | null) | undefined;
         searchQuery?: (string | null) | undefined;
+        severity?: (ErrorTrackingQueryIssueSeverity | null) | undefined;
         status?: (ErrorTrackingIssueStatus | string | null) | undefined;
         tags?: (QueryLogTags | null) | undefined;
         useQueryV2?: (boolean | null) | undefined;
@@ -9103,6 +9106,7 @@ export namespace Schemas {
      * * `subscription_usage_limit` - subscription_usage_limit
      * * `task_spend_limit` - task_spend_limit
      * * `agent_error` - agent_error
+     * * `ActiveSessionCapError` - ActiveSessionCapError
      */
     export type ErrorTypeEnum =
         | "agent_reported"
@@ -9120,7 +9124,8 @@ export namespace Schemas {
         | "turn_ended_without_response"
         | "subscription_usage_limit"
         | "task_spend_limit"
-        | "agent_error";
+        | "agent_error"
+        | "ActiveSessionCapError";
     /**
      * * `active` - Active
      * * `paused` - Paused
@@ -11552,11 +11557,13 @@ export namespace Schemas {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys
      */
     export type HogFlowOriginProductEnum =
         | "loops"
         | "broadcasts"
-        | "transactional_emails";
+        | "transactional_emails"
+        | "transactional_email_keys";
     export type HogFlowMasking = {
         ttl?: (number | null) | undefined;
         threshold?: (number | null) | undefined;
@@ -11996,6 +12003,7 @@ export namespace Schemas {
          * * `loops` - Loops
          * * `broadcasts` - Broadcasts
          * * `transactional_emails` - Transactional emails
+         * * `transactional_email_keys` - Transactional email keys
          */
         origin_product: HogFlowOriginProductEnum | NullEnum;
         created_at: string;
@@ -12380,6 +12388,10 @@ export namespace Schemas {
          * GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise.
          */
         installation_status: InstallationStatusEnum | NullEnum;
+        /**
+         * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+         */
+        needs_webhook_reconnect: boolean | null;
     };
     /**
      * * `burst` - burst

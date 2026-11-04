@@ -26,6 +26,7 @@ This file is the map. Prop-level semantics live in the JSDoc on the config and p
 | `SlopeChart`           | Change between two points — one line per series, `data: [start, end]`                                                                       |
 | `Sparkline`            | Tiny inline trend, no axes — gradient line or stacked bars; tooltip off by default                                                          |
 | `MetricCard`           | Headline number + sparkline + change pill (dashboard stat tiles)                                                                            |
+| `Gauge`                | One value against a min and max, colored by thresholds (Apdex, error budget, CPU); optional target tick                                     |
 
 Share of total over time takes a time-series chart in its 100% form: `TimeSeriesLineChart` with `fill` series and `percentStackView` for a stacked area, or `TimeSeriesBarChart` with `barLayout: 'percent'` for bars.
 Pick the one that matches the design you are copying.
@@ -60,7 +61,7 @@ const series: Series[] = [
 - `key`, `label`, `data` are required. `key` is the React key and the stacking identity.
 - `labels` must be unique. The x-scale keys positions off the strings; a duplicate collapses onto the first occurrence and draws the series backwards. On time-series charts pass ISO dates and format ticks via `xAxis.timezone` / `interval`.
 - `meta` carries arbitrary data into tooltips and click handlers; narrow it with `Series<MyMeta>`.
-- `visibility.{excluded,tooltip,total,valueLabel}` controls where a series appears. `overlay: true` marks a derived series (trend line, moving average). Line-only: `points`, `stroke.pattern`, `stroke.partial`, `fill`. Bar-only: `bars[]`, `trackData`. Full field docs on `Series` in `src/core/types.ts`.
+- `visibility.{excluded,tooltip,total,valueLabel}` controls where a series appears. `overlay: true` marks a derived series (trend line, moving average). Line-only: `points`, `stroke.width`, `stroke.pattern`, `stroke.partial`, `fill`. Bar-only: `bars[]`, `trackData`. Full field docs on `Series` in `src/core/types.ts`.
 
 ## Sizing
 
@@ -96,7 +97,7 @@ Charts fill their container and need a parent with real dimensions — a zero-he
 
 - A duplicate label draws the series backwards. Use ISO dates, not display labels.
 - In percent layouts every formatter receives a 0..1 fraction; `ValueLabelContext.rawValue` has the original.
-- Bar and combo charts ignore `yAxis.min` / `max` on purpose. Pin `valueDomain` instead.
+- Bar charts, and combo axes carrying bars, ignore `yAxis.min` / `max` on purpose. Pin the primary axis's `valueDomain` instead.
 - A pinned tooltip's `onRowClick` only fires when `config.tooltip.pinnable` is set. Call `ctx.onUnpin()` before opening a modal from it.
 - On stacked bars, describe the hovered segment from `TooltipContext.hoveredSeriesKey`, not `seriesData[0]`.
 - A secondary axis with a fixed meaning (0..1, 0..100) needs `min` / `max` pinned, or a reference line above its data falls off the plot.
@@ -110,18 +111,18 @@ Import helpers from `@posthog/quill-charts/testing` (jsdom only): `setupChartTes
 
 ## Docs index
 
-| Doc                                                | Covers                                                                                                                       |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| [src/README.md](./src/README.md)                   | Public surface, setup, theme, custom tooltip and overlay basics, sparkline                                                   |
-| [docs/chart-types.md](./src/docs/chart-types.md)   | Per-chart behavior: scatter, funnel, slope, pie, proportion bar, bar list, box plot, heatmap, sankey, sparkline, metric card |
-| [docs/axes.md](./src/docs/axes.md)                 | Defaults, grid and axis chrome, x-axis labels, y format, baseline and range, multi-axis, margins, blank-plot diagnosis       |
-| [docs/bars.md](./src/docs/bars.md)                 | Layouts, per-bar overrides, `minBarSize`, `trackData`, hit-testing, trend lines, combo                                       |
-| [docs/tooltips.md](./src/docs/tooltips.md)         | `config.tooltip`, `DefaultTooltip` props, custom pieces, context fields, touch                                               |
-| [docs/legend.md](./src/docs/legend.md)             | Click model, controlled state, visibility groups, row rendering, layout caps                                                 |
-| [docs/overlays.md](./src/docs/overlays.md)         | Built-in overlays and writing a custom one                                                                                   |
-| [docs/interactions.md](./src/docs/interactions.md) | Clicks, drag-to-zoom, 2D brush, hover                                                                                        |
-| [docs/CONTRIBUTING.md](./src/docs/CONTRIBUTING.md) | Layers, conventions, adding a chart type                                                                                     |
-| [docs/TESTING.md](./src/docs/TESTING.md)           | The accessor contract and test recipes                                                                                       |
+| Doc                                                | Covers                                                                                                                              |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| [src/README.md](./src/README.md)                   | Public surface, setup, theme, custom tooltip and overlay basics, sparkline                                                          |
+| [docs/chart-types.md](./src/docs/chart-types.md)   | Per-chart behavior: scatter, funnel, slope, pie, proportion bar, bar list, box plot, heatmap, sankey, gauge, sparkline, metric card |
+| [docs/axes.md](./src/docs/axes.md)                 | Defaults, grid and axis chrome, x-axis labels, y format, baseline and range, multi-axis, margins, blank-plot diagnosis              |
+| [docs/bars.md](./src/docs/bars.md)                 | Layouts, per-bar overrides, `minBarSize`, `trackData`, hit-testing, trend lines, combo                                              |
+| [docs/tooltips.md](./src/docs/tooltips.md)         | `config.tooltip`, `DefaultTooltip` props, custom pieces, context fields, touch                                                      |
+| [docs/legend.md](./src/docs/legend.md)             | Click model, controlled state, visibility groups, row rendering, layout caps                                                        |
+| [docs/overlays.md](./src/docs/overlays.md)         | Built-in overlays and writing a custom one                                                                                          |
+| [docs/interactions.md](./src/docs/interactions.md) | Clicks, drag-to-zoom, 2D brush, hover                                                                                               |
+| [docs/CONTRIBUTING.md](./src/docs/CONTRIBUTING.md) | Layers, conventions, adding a chart type                                                                                            |
+| [docs/TESTING.md](./src/docs/TESTING.md)           | The accessor contract and test recipes                                                                                              |
 
 ## Maintenance
 
