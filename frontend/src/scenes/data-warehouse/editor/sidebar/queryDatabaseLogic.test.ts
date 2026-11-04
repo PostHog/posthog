@@ -1203,22 +1203,25 @@ describe('queryDatabaseLogic', () => {
             { scope: MANAGED_TRINO_SCHEMA_SCOPE, schemaFails: false, expectedViews: ['trino_view'] },
             { scope: MANAGED_TRINO_SCHEMA_SCOPE, schemaFails: true, expectedViews: ['trino_view'] },
             { scope: null, schemaFails: false, search: 'trino', expectedViews: [] },
+            { scope: null, schemaFails: false, onlyTrino: true, expectedViews: [] },
         ])(
             'lists raw Trino views only under hosted Trino (scope $scope, schema fails $schemaFails)',
-            async ({ scope, schemaFails, search, expectedViews }) => {
+            async ({ scope, schemaFails, search, onlyTrino, expectedViews }) => {
                 const viewsLogic = dataWarehouseViewsLogic.findMounted()!
                 await expectLogic(viewsLogic).toFinishAllListeners()
                 viewsLogic.actions.loadDataWarehouseSavedQueriesSuccess(
                     [
                         { name: 'trino_view', is_raw_managed_trino: true },
                         { name: 'clickhouse_view', is_raw_managed_trino: false },
-                    ].map((view) => ({
-                        ...view,
-                        id: view.name,
-                        status: 'Completed',
-                        columns: [],
-                        managed_viewset_kind: null,
-                    })) as unknown as DataWarehouseSavedQuery[]
+                    ]
+                        .filter((view) => !onlyTrino || view.is_raw_managed_trino)
+                        .map((view) => ({
+                            ...view,
+                            id: view.name,
+                            status: 'Completed',
+                            columns: [],
+                            managed_viewset_kind: null,
+                        })) as unknown as DataWarehouseSavedQuery[]
                 )
                 const databaseLogic = databaseTableListLogic.findMounted()!
                 databaseLogic.actions.setConnection(scope)
@@ -1244,6 +1247,9 @@ describe('queryDatabaseLogic', () => {
                     })
                 collect(viewsSection?.children ?? [])
                 expect(viewNames).toEqual(expectedViews)
+                if (onlyTrino) {
+                    expect(viewsSection?.children?.map((item) => item.name)).toEqual(['Empty folder'])
+                }
             }
         )
 
