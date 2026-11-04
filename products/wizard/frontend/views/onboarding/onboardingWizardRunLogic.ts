@@ -40,6 +40,7 @@ export interface onboardingWizardRunLogicActions {
     syncRun: () => { value: true }
     startOnboarding: (timestamp: string) => { timestamp: string }
     saveRun: (run: SavedOnboardingWizardRun) => { run: SavedOnboardingWizardRun }
+    acceptCreatedRun: (run: WizardRunApi) => { run: WizardRunApi }
     loadRunData: (run: WizardRunApi) => { run: WizardRunApi }
     watchRuns: (source: string, runIds: string[]) => { source: string; runIds: string[] }
     clickArtifact: (
@@ -67,6 +68,7 @@ export const onboardingWizardRunLogic: LogicWrapper<onboardingWizardRunLogicType
         syncRun: true,
         startOnboarding: (timestamp: string) => ({ timestamp }),
         saveRun: (run: SavedOnboardingWizardRun) => ({ run }),
+        acceptCreatedRun: (run: WizardRunApi) => ({ run }),
         clickArtifact: (artifact: WizardRunArtifactApi, clickSource: WizardOnboardingArtifactClickSource) => ({
             artifact,
             clickSource,
@@ -80,12 +82,18 @@ export const onboardingWizardRunLogic: LogicWrapper<onboardingWizardRunLogicType
             {
                 startOnboarding: (state, { timestamp }) =>
                     Number.isFinite(Date.parse(state ?? '')) ? state : timestamp,
+                // A run created here belongs to this onboarding even after a fallback to browser time.
+                acceptCreatedRun: (state, { run }) =>
+                    state && Date.parse(state) <= Date.parse(run.created_at) ? state : run.created_at,
             },
         ],
         savedRun: [
             null as SavedOnboardingWizardRun | null,
             { persist: true, storageKey: `${projectId}.${userId}.onboarding_wizard_run_id` },
-            { saveRun: (_, { run }) => run },
+            {
+                saveRun: (_, { run }) => run,
+                acceptCreatedRun: (_, { run }) => ({ id: run.id, created_at: run.created_at }),
+            },
         ],
     })),
     selectors(({ props }) => ({

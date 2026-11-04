@@ -8391,7 +8391,7 @@ snapshots:
     products-wizard-wizard-run-sidebar-widget--many-runs--light:
         hash: v1.k794b7964.b36b26edaea9e4b38ea4d4e58b5a8f96e67a76c9d1ed3fb3b0da2f221b8df4e1.s5s9k4NPEkAorFYD0q7WHZ5fxKb3mgiwCLCjGb7HWiI
     products-wizard-wizard-run-sidebar-widget--mixed-statuses--dark:
-        hash: v1.k794b7964.a568aab28324a5f6fcc42c27af3b986d83f5eb4d0924be41994370dc528e65ca.UHX2cTU9fzVL5Y7y9EZzxH1ELnofkekAyF3THV6pZZM
+        hash: v1.k794b7964.2f3c6f3897e172d853d84d0a1d23ccbc62d34df0d899e74a74af0b28fcb37acb.TwQh7FEaJJn9dzJF1GYxQNW2FadsNmW8_2OL7mX8vuM
     products-wizard-wizard-run-sidebar-widget--mixed-statuses--light:
         hash: v1.k794b7964.578af0b3a9070e00ab4bd95296c174b8b34a7201a5c6cb91a986203af5b66261.5KQ_TlQjfAIBBrbMAGW7VfPWw9fOVNuLpQUwPW2VRyI
     products-wizard-wizard-run-sidebar-widget--multiple-runs--dark:
@@ -8403,7 +8403,7 @@ snapshots:
     products-wizard-wizard-run-sidebar-widget--multiple-runs-hovered--light:
         hash: v1.k794b7964.6aca699d79bb0dfc80da9305fd8d3c82bf382b4a49f15ae7168d614f8d79139e.YUrKHRPcUUmFf1OpzXRa9ye6ztFFnIA19Xv5W3dDaU4
     products-wizard-wizard-run-sidebar-widget--multiple-runs-menu-open--dark:
-        hash: v1.k794b7964.8351d7be45e20c07f1d4c84c7a10801ed43f9fd6545d685507f48c11f0661065.9xzyvC-XzptsaN8OBJROP1gALNCtrKUUSPj2br7BwNU
+        hash: v1.k794b7964.26e0d00f12ec11d1fac80a9f6a7070d9f13502a45b803aacb2ae25af2b0bdfdc.HGN_qi6x788DGkNXUWa8u8oQaaKWfASDzJXKmfLbJxE
     products-wizard-wizard-run-sidebar-widget--multiple-runs-menu-open--light:
         hash: v1.k794b7964.fba9d9d30be910c963a0e7855d175096d3fee41ce157c951149d7a6bd6619f45.gQcXbkwPBk3qcm15uqsLpvTxCY3z6GmBuRLoR9F8yYs
     products-wizard-wizard-run-sidebar-widget--running-stage--dark:
@@ -16942,10 +16942,18 @@ snapshots:
         hash: v1.k794b7964.4035744269184179fc704886ada21debba6c2d8da34866ded90124cc4381955d.gw_mH1sCBx8KU1Fw775gxqvTtxDt8oiQbZ3gEoXDmAA
     scenes-other-onboarding--workflows-custom-installation-instructions--light:
         hash: v1.k794b7964.589ec185861125f8803b2fc4e5a79d37fe0577663ef494384f2f5e29b3ccbfcb.EIRXV0l8SHGIJjTAfJZM4ppFd57VW3GT36oKO2bhnLs
+    scenes-other-onboarding-install-step--cloud-setup--dark:
+        hash: v1.k794b7964.e16e15278ac6e7796143289e7ef98fcea4edcc5ddce6287c5e1d2b0efcaef3ef.oLFAJmSpkoXRazIwPJBS6URhjQc33i7byYH3sn_n6cQ
+    scenes-other-onboarding-install-step--cloud-setup--light:
+        hash: v1.k794b7964.d5c8bab903b7c00ea1637aadcb42d064eb6e0b7dfd606180a64661da1d92e6e4.zyI-LVRJB4sTsGSW4h5jtZVyEK0_CQnV9T9bz0KTRbI
     scenes-other-onboarding-install-step--control-arm--dark:
         hash: v1.k794b7964.85785893b3ee1b41fe89fe73f4074da2f8e08722e4d375dd5301b7033a25660b.8cH01aW_wdljbt8NM5-4YqII7hLHyUIPdAd2DztcRDU
     scenes-other-onboarding-install-step--control-arm--light:
         hash: v1.k794b7964.f7351fd5520acef75c9b259b944526603762f6e9e482a94ec56819e2b24ca763.2w9awJZwfumhgF4p5zgQwscMAWuXg2iImb-0IBeDfkg
+    scenes-other-onboarding-install-step--simple-cloud-setup--dark:
+        hash: v1.k794b7964.02a2ab2f2914eb510613f2ecc023aa79f87d13447383bbb7ab985c5fceb27a07.RndnGzpjr0b-lhaRFL2-fSkfYDn4dmELMNhx-OZXtjU
+    scenes-other-onboarding-install-step--simple-cloud-setup--light:
+        hash: v1.k794b7964.780a7eda57f684e6e8c0e54d52523c6df0f8e7916cb49bbd4e549f7f2513eb3f.3Nd71rFvRFCXzMxxrHzWk_VS2SqLIG34xwDmqjsD55s
     scenes-other-onboarding-install-step--simple-flow--dark:
         hash: v1.k794b7964.82e295b93aca26c287b4207345daa25386169a22f859bcf6ffc826dc119fe753.gcs2PUEkwq8sVKLDiV89qsV53RH8PgsAaC1iPJ9WQ04
     scenes-other-onboarding-install-step--simple-flow--light:
