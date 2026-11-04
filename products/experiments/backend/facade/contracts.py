@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
@@ -160,6 +160,41 @@ class ExperimentPromptContext:
 
 
 @frozen
+class ExperimentFlagVariantSplit:
+    """One variant of the experiment's flag and its share of the rollout, as the flag stores them."""
+
+    # None when the stored variant has no key.
+    key: str | None
+    # As stored, so a whole number stays an int and a prompt prints `50%`, not `50.0%`. 0 when the variant has none.
+    rollout_percentage: float
+
+
+@frozen
+class ExperimentAssistantContext:
+    """What PostHog AI reads to describe an experiment and its results."""
+
+    id: int
+    # With `id`, the fields that an object access check reads.
+    team_id: int
+    created_by_id: int | None
+    name: str
+    description: str | None
+    type: str | None
+    start_date: datetime | None
+    end_date: datetime | None
+    created_at: datetime
+    conclusion: str | None
+    conclusion_comment: str | None
+    stats_method: Literal["bayesian", "frequentist"]
+    # Variant names by key from the experiment's own variants field, which web experiments write. A variant without a
+    # name maps to its key.
+    variant_names: Mapping[str, str]
+    feature_flag_key: str
+    # Every variant of the flag, in the flag's order. Excluded variants are not removed.
+    feature_flag_variants: tuple[ExperimentFlagVariantSplit, ...]
+
+
+@frozen
 class SessionAttribution:
     """One person's attribution in an experiment's exposed population, as the analysis buckets it."""
 
@@ -202,11 +237,12 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     METRIC_EVENT_NOT_INGESTED = "metric_event_not_ingested"
     METRIC_CANNOT_COMPILE = "metric_cannot_compile"
     METRIC_CALCULATION_FAILED = "metric_calculation_failed"
+    METRIC_ALL_ZERO = "metric_all_zero"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
     EXPOSURE_FILTER_ON_DYNAMIC_COHORT = "exposure_filter_on_dynamic_cohort"
-    EXPOSURE_FILTER_EXCLUDES_EVENTS = "exposure_filter_excludes_events"
     SRM = "srm", "Sample Ratio Mismatch"
     ZERO_EXPOSURES = "zero_exposures"
+    TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
     FLAG_VARIANTS_MISMATCH = "flag_variants_mismatch"
     SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
@@ -214,6 +250,8 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     RELEASE_CONDITIONS_CHANGED_MID_RUN = "release_conditions_changed_mid_run"
     NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
     EARLY_SIGNIFICANCE = "early_significance"
+    METRICS_NOT_MATURED = "metrics_not_matured"
+    FLAG_SHARED = "flag_shared"
 
 
 class ExperimentHealthMetricCompileErrorKind(LabeledStrEnum):
@@ -299,6 +337,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     # names the check, not a problem: `flag_state` reports four finding codes, and `flag_history` reports its finding
     # under `split_changed_mid_run`.
     FLAG_STATE = "flag_state"
+    FLAG_SHARED = "flag_shared"
     FLAG_HISTORY = "flag_history"
     SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
     BUCKETING_CHANGED_MID_RUN = "bucketing_changed_mid_run"
@@ -310,10 +349,13 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     METRIC_EVENT_NOT_INGESTED = "metric_event_not_ingested"
     METRIC_CANNOT_COMPILE = "metric_cannot_compile"
     METRIC_CALCULATION_FAILED = "metric_calculation_failed"
+    METRIC_ALL_ZERO = "metric_all_zero"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
     EXPOSURE_FILTERS = "exposure_filters"
     EARLY_SIGNIFICANCE = "early_significance"
+    METRICS_NOT_MATURED = "metrics_not_matured"
     ZERO_EXPOSURES = "zero_exposures"
+    TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     SRM = "srm"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
@@ -327,13 +369,38 @@ class ExperimentHealthCheckStatus(LabeledStrEnum):
     NOT_CHECKED = "not_checked"
 
 
+class ExperimentHealthMeasurementUnit(LabeledStrEnum):
+    # On the 0-100 scale.
+    PERCENTAGE = "percentage", "Percentage of exposed units"
+    P_VALUE = "p_value", "P-value of a statistical test"
+
+
+class ExperimentHealthMeasurementSide(LabeledStrEnum):
+    ABOVE = "above", "Finding above the threshold"
+    BELOW = "below", "Finding below the threshold"
+
+
+@frozen
+class ExperimentHealthMeasurement:
+    """The value that decided a passed check, so a reader sees how far it is from a finding."""
+
+    value: float
+    threshold: float
+    unit: ExperimentHealthMeasurementUnit
+    # The side of the threshold that reports a finding.
+    warns: ExperimentHealthMeasurementSide
+
+
 @frozen
 class ExperimentHealthCheckResult:
     key: ExperimentHealthCheckKey
     name: str
+    description: str
     status: ExperimentHealthCheckStatus
     # Why the check did not look, for the statuses not_applicable and not_checked. None otherwise.
     reason: str | None
+    # Only for the status passed, when the check shows the value that decided the pass.
+    measurement: ExperimentHealthMeasurement | None
 
 
 @frozen

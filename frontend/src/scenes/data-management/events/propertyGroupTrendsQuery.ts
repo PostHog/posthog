@@ -1,7 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { EventsNode, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { BaseMathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { SchemaPropertyGroupProperty } from '../schema/schemaManagementLogic'

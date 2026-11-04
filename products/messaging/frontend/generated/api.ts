@@ -40,8 +40,10 @@ import type {
     SendEmailApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
+    SetPreferencesApi,
     StartProviderImportApi,
     SupabaseAuthEmailSettingsApi,
+    TopicPreferencesApi,
     WebhookUrlApi,
 } from './api.schemas'
 
@@ -67,7 +69,7 @@ export const getMessagingEmailsRetrieveUrl = (projectId: string, id: string) => 
 }
 
 /**
- * Get the status of one transactional email by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `hog_flow:read` scope.
+ * Get the status of one transactional email by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too.
  * @summary Get a transactional email's status
  */
 export const messagingEmailsRetrieve = async (
@@ -81,12 +83,33 @@ export const messagingEmailsRetrieve = async (
     })
 }
 
+export const getMessagingPreferencesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/preferences/`
+}
+
+/**
+ * Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each topic in order, and the whole change is saved at once. The same change twice ends the same, but a retry that lands after a newer change undoes that change. Workflows sends skip a marketing topic the recipient opted out of. Needs a project secret API key with the `messaging_preference:write` scope, which cannot send email. A key with `hog_flow:write` also works, but that scope can send transactional email too.
+ * @summary Set a recipient's topic preferences
+ */
+export const messagingPreferencesCreate = async (
+    projectId: string,
+    setPreferencesApi: SetPreferencesApi,
+    options?: RequestInit
+): Promise<TopicPreferencesApi> => {
+    return apiMutator<TopicPreferencesApi>(getMessagingPreferencesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(setPreferencesApi),
+    })
+}
+
 export const getMessagingSendEmailCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging/send/email/`
 }
 
 /**
- * Send one transactional email to one recipient from the template named in `template.id`. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
+ * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
  * @summary Send a transactional email
  */
 export const messagingSendEmailCreate = async (
@@ -961,7 +984,7 @@ export const getMessagingTemplatesSendCreateUrl = (projectId: string, id: string
 }
 
 /**
- * Send one transactional email from this template to one recipient. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
+ * Send one transactional email from this template to one recipient. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
  * @summary Send a transactional email
  */
 export const messagingTemplatesSendCreate = async (

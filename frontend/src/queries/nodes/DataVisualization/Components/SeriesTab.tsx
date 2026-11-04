@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import posthog from 'posthog-js'
 
 import { IconGear, IconInfo, IconPlusSmall, IconTrash } from '@posthog/icons'
 import {
@@ -14,15 +15,16 @@ import {
     LemonSwitch,
     LemonTabs,
     LemonTag,
+    LemonTextArea,
     Popover,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { DataColorToken, getSeriesColor, getSeriesColorPalette } from 'lib/colors'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
+import { INSIGHT_UNIT_OPTIONS_SHORT } from 'lib/insights/aggregationAxisFormat'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { INSIGHT_UNIT_OPTIONS_SHORT } from 'scenes/insights/aggregationAxisFormat'
 
 import { ResultCustomizationBy } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
@@ -404,7 +406,12 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
                     icon={<IconGear />}
                     noPadding
                     data-attr="y-series-settings"
-                    onClick={() => setSettingsOpen(true)}
+                    onClick={() => {
+                        posthog.capture('sql column settings opened', {
+                            query_kind: dataVisualizationProps.query.kind,
+                        })
+                        setSettingsOpen(true)
+                    }}
                     disabledReason={!canOpenSettings && 'Select a column first'}
                 />
             </Popover>
@@ -611,6 +618,22 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
                         </LemonField>
                     )}
                 </div>
+            )}
+            {showTableSettings && (
+                <LemonField name="description" label="Description">
+                    {({ value, onChange }) => (
+                        <LemonTextArea
+                            value={value ?? ''}
+                            placeholder="Explain what this column contains"
+                            onChange={(description) => {
+                                onChange(description)
+                                updateSeriesIndex(ySeriesLogicProps.seriesIndex, ySeriesLogicProps.series.column.name, {
+                                    display: { description },
+                                })
+                            }}
+                        />
+                    )}
+                </LemonField>
             )}
             {!showTableSettings && !hideChartSpecificOptions && (
                 <>

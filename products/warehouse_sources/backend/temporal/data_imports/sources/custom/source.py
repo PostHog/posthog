@@ -39,7 +39,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     make_tracked_session,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import _NoRedirectSession
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    TEMPORARY_HOST_RESOLUTION_PREFIX,
+    _is_host_safe,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -473,12 +476,17 @@ def _validate_paginator_configs(manifest: dict[str, Any]) -> None:
     if isinstance(client, dict):
         _check_paginator_config(client.get("paginator"), "client.paginator")
 
+    defaults = manifest.get("resource_defaults")
+    default_endpoint = defaults.get("endpoint") if isinstance(defaults, dict) else None
+    default_paginator = default_endpoint.get("paginator") if isinstance(default_endpoint, dict) else None
+
     for resource in manifest.get("resources") or []:
-        if not isinstance(resource, dict):
-            continue
-        endpoint = resource.get("endpoint")
-        paginator = endpoint.get("paginator") if isinstance(endpoint, dict) else None
-        _check_paginator_config(paginator, f"Resource {resource.get('name')!r}: endpoint.paginator")
+        endpoint = resource.get("endpoint") if isinstance(resource, dict) else None
+        # The engine replaces the default paginator wholesale when a resource declares its own.
+        if isinstance(endpoint, dict) and "paginator" in endpoint:
+            _check_paginator_config(endpoint["paginator"], f"Resource {resource.get('name')!r}: endpoint.paginator")
+        else:
+            _check_paginator_config(default_paginator, "resource_defaults.endpoint.paginator")
 
 
 def _check_paginator_config(paginator: Any, location: str) -> None:
@@ -493,16 +501,25 @@ def _check_paginator_config(paginator: Any, location: str) -> None:
     # "auto" (and any type mapped to None) applies no paginator, so extra keys are ignored.
     if paginator_class is None:
         return
-    supported = {
-        name
+    params = {
+        name: param
         for name, param in inspect.signature(paginator_class).parameters.items()
         if param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY)
     }
-    unsupported = sorted(set(paginator) - {"type"} - supported)
+    unsupported = sorted(set(paginator) - {"type"} - set(params))
     if unsupported:
         raise ManifestValidationError(
             f"{location} has unsupported {'keys' if len(unsupported) > 1 else 'key'} "
-            f"{', '.join(unsupported)}. Allowed keys: {', '.join(sorted(supported))}"
+            f"{', '.join(unsupported)}. Allowed keys: {', '.join(sorted(params))}"
+        )
+    # A missing required key fails the constructor with a retryable TypeError, and a null one
+    # (e.g. offset `limit`) only fails once pagination does arithmetic on it.
+    missing = sorted(
+        name for name, param in params.items() if param.default is param.empty and paginator.get(name) is None
+    )
+    if missing:
+        raise ManifestValidationError(
+            f"{location} requires a non-null value for {', '.join(missing)} when type is {paginator.get('type')!r}"
         )
 
 
@@ -882,6 +899,11 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # Custom keeps its own `job_inputs`, and its OAuth rows are not `Integration` rows.
         return None
 
+    @property
+    def integration_id_fields_point_at_integrations(self) -> bool:
+        # The OAuth2 row pointer of Custom is a `CustomOAuth2Integration` id.
+        return False
+
     # Custom REST sources are capped per team to keep abuse of the arbitrary-URL fetcher bounded.
     max_instances_per_team = MAX_CUSTOM_SOURCES_PER_TEAM
 
@@ -1082,6 +1104,14 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # customer's hostname that follows it.
             "Couldn't resolve the host": "A host in the manifest (base_url, token_url, or a resource's URL) could not be resolved via DNS. Check that it's spelled correctly and reachable from the public internet, then try again.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_is_host_safe` raises this when the resolver itself failed to answer (a DNS blip),
+        # as opposed to answering that the host doesn't exist — that permanent case is
+        # "Couldn't resolve the host" above. `validate_manifest_urls` folds it into
+        # ManifestValidationError, which loses the original TemporaryHostResolutionError type,
+        # so this can't be caught by isinstance the way other sources' host checks are.
+        return {TEMPORARY_HOST_RESOLUTION_PREFIX}
 
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:
         """Parse the stored manifest and rejoin it with the auth credentials.
@@ -1398,7 +1428,13 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # endpoint.incremental block missing start_param crashes the engine with a bare,
             # retryable KeyError. Reject it as a ValueError so it fails fast and non-retryably.
             _validate_incremental_configs({"resources": engine_resources})
-            _validate_paginator_configs({"client": manifest.get("client"), "resources": engine_resources})
+            _validate_paginator_configs(
+                {
+                    "client": manifest.get("client"),
+                    "resource_defaults": manifest.get("resource_defaults"),
+                    "resources": engine_resources,
+                }
+            )
 
             # The engine serializes a datetime watermark via str() (space-separated),
             # which strict APIs reject — format it to the declared wire format first.

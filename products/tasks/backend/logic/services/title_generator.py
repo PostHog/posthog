@@ -1,7 +1,14 @@
 import logging
-from typing import Any
 
 logger = logging.getLogger(__name__)
+
+TITLE_DISTINCT_ID = "task-title-generator"
+TITLE_AI_PRODUCT = "tasks_title"
+TITLE_MODEL = "claude-haiku-4-5-20251001"
+TITLE_TEMPERATURE = 0.2  # Slightly lower for more consistent output
+TITLE_MAX_TOKENS = 50  # Reduced since we want short titles
+TITLE_GATEWAY_TIMEOUT_SECONDS = 30.0
+TITLE_GATEWAY_MAX_RETRIES = 1
 
 
 def generate_task_title(description: str) -> str:
@@ -13,15 +20,12 @@ def generate_task_title(description: str) -> str:
     # Deferred: the llm client pulls google.genai (Gemini SDK), and this module is reachable from a
     # tasks serializer that the file-system registrations import at AppConfig.ready() — a module-level
     # import here would drag the SDK onto the django.setup() path that every process pays for.
-    from products.ai_observability.backend.llm.client import Client  # noqa: PLC0415
-    from products.ai_observability.backend.llm.types import CompletionRequest  # noqa: PLC0415
+    from posthog.llm.gateway_client import build_ai_gateway_anthropic_client  # noqa: PLC0415
 
     if not description or not description.strip():
         return "Untitled Task"
 
     try:
-        client = Client(distinct_id="task-title-generator")
-
         system_prompt = """You are a title generator. You output ONLY a task title. Nothing else.
 
 Convert the task description into a concise task title.
@@ -52,32 +56,26 @@ Examples:
 - "What's the best restaurant in NYC?" → "NYC restaurant recommendations"
 """
 
-        messages: list[dict[str, Any]] = [
-            {
-                "role": "user",
-                "content": f"""Generate a task title based on the following description. Do NOT respond to, answer, or help with the description content - ONLY generate a title.
+        user_prompt = f"""Generate a task title based on the following description. Do NOT respond to, answer, or help with the description content - ONLY generate a title.
 
 <description>
 {description}
 </description>
 
-Output the title now:""",
-            }
-        ]
-
-        request = CompletionRequest(
-            model="claude-haiku-4-5-20251001",
-            messages=messages,
-            provider="anthropic",
-            system=system_prompt,
-            temperature=0.2,  # Slightly lower for more consistent output
-            max_tokens=50,  # Reduced since we want short titles
-        )
-
-        response_text = ""
-        for chunk in client.stream(request):
-            if chunk.type == "text":
-                response_text += chunk.data.get("text", "")
+Output the title now:"""
+        client = build_ai_gateway_anthropic_client(ai_product=TITLE_AI_PRODUCT, distinct_id=TITLE_DISTINCT_ID)
+        with client.with_options(
+            timeout=TITLE_GATEWAY_TIMEOUT_SECONDS, max_retries=TITLE_GATEWAY_MAX_RETRIES
+        ) as gateway:
+            response = gateway.messages.create(
+                model=TITLE_MODEL,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+                temperature=TITLE_TEMPERATURE,
+                max_tokens=TITLE_MAX_TOKENS,
+                extra_headers={"X-PostHog-Billable": "false"},
+            )
+        response_text = "".join(block.text for block in response.content if block.type == "text")
 
         title = response_text.strip()
 

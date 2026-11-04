@@ -34,6 +34,15 @@ All send batches share one token bucket in the digest Redis that keeps posts to 
 The webhook refuses a body above 512,000 bytes, and a project can create thousands of events in a week. The Workflows payload carries the first six new event definitions and their total in `new_event_definitions_count`, which is what the email shows.
 The workflow paces the emails themselves with its own sending rate limit.
 
+### Resending
+
+`python manage.py resend_weekly_digest --digest-key <key> --org <uuid>` resends a digest to the listed organizations, in the region where it runs.
+It skips generation and reads the data the scheduled run left in the digest Redis, so it works only within `redis_ttl` (3 days) of that run.
+It sends to the listed organizations even when they are marked sent, so members who already got the digest get a second copy.
+`--workflows-only` sends only to members the routing flag sends through Workflows, so nobody gets a second Customer.io email.
+`--dry-run` logs who would get the digest.
+The period in the email comes from the digest key, not from the day of the resend.
+
 ## Redis Storage Structure
 
 Data is stored with keys prefixed by `{digest_key}` (e.g., `weekly-digest-2024-01`).
@@ -86,7 +95,7 @@ Generated via `user_data_key(digest_key, UserDataKey.*, user_id)`:
 │                        GenerateDigestDataWorkflow                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  1. Cut teams into id-range batches, count orgs for batching                │
+│  1. Cut teams and orgs into id-range batches                                │
 │                                                                             │
 │  2. Generate team-level data (parallel per batch):                          │
 │     ├── generate_dashboard_lookup                                           │
@@ -114,7 +123,7 @@ Generated via `user_data_key(digest_key, UserDataKey.*, user_id)`:
 │                         SendWeeklyDigestWorkflow                            │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  For each organization (batched):                                           │
+│  For each organization (batched by id range):                               │
 │    1. Load OrganizationDigest from Redis                                    │
 │    2. For each org member:                                                  │
 │       a. Load user's notification team set                                  │

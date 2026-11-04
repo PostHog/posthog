@@ -25,6 +25,78 @@ interface ObservationThumbnailProps {
 
 const RETRY_DELAY_MS = 2000
 
+/** Just under the endpoint's redirect cache, after which a remount refetches the poster. */
+const DECODED_TTL_MS = 9 * 60 * 1000
+
+const MAX_DECODED_ENTRIES = 500
+
+const decodedThumbnails = new Map<string, number>()
+
+const thumbnailPreloads = new Map<string, Promise<void>>()
+
+function isDecoded(src: string): boolean {
+    const decodedAt = decodedThumbnails.get(src)
+    if (decodedAt === undefined) {
+        return false
+    }
+    if (Date.now() - decodedAt < DECODED_TTL_MS) {
+        return true
+    }
+    decodedThumbnails.delete(src)
+    thumbnailPreloads.delete(src)
+    return false
+}
+
+function pruneExpired(): void {
+    for (const src of decodedThumbnails.keys()) {
+        isDecoded(src)
+    }
+}
+
+/** Downloads and decodes a poster ahead of its card, once per URL, and resolves even when the load fails. */
+export function preloadObservationThumbnail(src: string): Promise<void> {
+    if (decodedThumbnails.size > MAX_DECODED_ENTRIES) {
+        pruneExpired()
+    }
+    isDecoded(src) // Drops an expired entry, so the preload below fetches again.
+    let preload = thumbnailPreloads.get(src)
+    if (!preload) {
+        const image = new Image()
+        image.src = src
+        preload = image
+            .decode()
+            .then(() => {
+                decodedThumbnails.set(src, Date.now())
+            })
+            .catch(() => {
+                // A failed load is not cached, so a later visit tries the poster again.
+                thumbnailPreloads.delete(src)
+            })
+        thumbnailPreloads.set(src, preload)
+    }
+    return preload
+}
+
+export function observationThumbnailSrc(
+    teamId: number | null,
+    observation: ReplayObservationApi,
+    {
+        chapter,
+        size = VisionObservationsThumbnailRetrieveSize.Large,
+    }: { chapter?: number; size?: VisionObservationsThumbnailRetrieveSize } = {}
+): string | undefined {
+    // Gated on the media the list response already carried, so a page of observations without one costs
+    // no requests. The URL is the endpoint rather than the asset, so a re-render after a retry still resolves.
+    // Optional at runtime, whatever the generated type says: fixtures and a response cached from before
+    // the field existed both reach here, and a poster must not take the scene down with it.
+    const hasThumbnail = (observation.media ?? []).some((entry) =>
+        chapter === undefined ? entry.kind === 'thumbnail' : entry.kind === 'chapter' && entry.position === chapter
+    )
+    return hasThumbnail && teamId !== null
+        ? getVisionObservationsThumbnailRetrieveUrl(String(teamId), observation.id, { chapter, size })
+        : undefined
+}
+
 /** The frame the scan picked out of the session, as a 16:9 poster. */
 export function ObservationThumbnail({
     observation,
@@ -56,19 +128,9 @@ export function ObservationThumbnail({
 
     const failed = failedId === observation.id
 
-    // Gated on the media the list response already carried, so a page of observations without one costs
-    // no requests. The URL is the endpoint rather than the asset, so a re-render after a retry still resolves.
-    // Optional at runtime, whatever the generated type says: fixtures and a response cached from before
-    // the field existed both reach here, and a poster must not take the scene down with it.
-    const hasThumbnail = (observation.media ?? []).some((entry) =>
-        chapter === undefined ? entry.kind === 'thumbnail' : entry.kind === 'chapter' && entry.position === chapter
-    )
-    const baseSrc =
-        hasThumbnail && currentTeamId !== null && !failed
-            ? getVisionObservationsThumbnailRetrieveUrl(String(currentTeamId), observation.id, { chapter, size })
-            : undefined
+    const baseSrc = failed ? undefined : observationThumbnailSrc(currentTeamId, observation, { chapter, size })
     const src = baseSrc !== undefined && attempt > 0 ? `${baseSrc}&retry=${attempt}` : baseSrc
-    const loaded = loadedSrc === src
+    const loaded = src !== undefined && (loadedSrc === src || isDecoded(src))
 
     const onError = (): void => {
         // One retry: the redirect target can blink, and the poster would stay blank for the whole mount.
@@ -91,9 +153,12 @@ export function ObservationThumbnail({
                             'absolute inset-0 size-full object-cover transition-opacity duration-300 motion-reduce:transition-none',
                             loaded ? 'opacity-100' : 'opacity-0'
                         )}
-                        loading="lazy"
+                        loading={loaded ? 'eager' : 'lazy'}
                         decoding="async"
-                        onLoad={() => setLoadedSrc(src)}
+                        onLoad={() => {
+                            decodedThumbnails.set(src, Date.now())
+                            setLoadedSrc(src)
+                        }}
                         onError={onError}
                     />
                 </>

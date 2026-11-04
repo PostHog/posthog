@@ -1,8 +1,8 @@
 import { MakeLogicType, connect, kea, key, path, props, selectors } from 'kea'
 
 import { dayjs } from 'lib/dayjs'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DateRange, RetentionFilter, RetentionQuery } from '~/queries/schema/schema-general'

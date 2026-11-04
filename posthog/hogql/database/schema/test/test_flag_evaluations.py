@@ -41,7 +41,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.flag_evaluations import add_events_list_fields_to_flag_evaluations
 from posthog.hogql.database.schema.util.where_clause_extractor import SESSION_BUFFER_DAYS
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property import property_to_expr
@@ -56,6 +56,7 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.events_query_runner import SELECT_STAR_FROM_EVENTS_FIELDS
 from posthog.models import PropertyDefinition, Team
 from posthog.models.group.util import create_group
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.property import TableColumn
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_group_type_mapping, create_person
@@ -84,14 +85,16 @@ FLAG_CALL_CONJUNCTS = (
 FLAG_CALLS_ON_EVENTS = f"SELECT count() FROM events WHERE {FLAG_CALL_CONJUNCTS}"
 PAGEVIEW_CONJUNCTS = "event = '$pageview' AND timestamp >= now() - INTERVAL 7 DAY"
 PROBE_DISTINCT_IDS = "(SELECT 'probe-distinct-id' AS id) AS d"
-UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN = (
-    f"SELECT count() FROM events AS e JOIN {PROBE_DISTINCT_IDS} ON e.distinct_id = d.id WHERE {FLAG_CALL_CONJUNCTS}"
+FLAG_CALLS_AFTER_A_JOIN = (
+    f"SELECT count() FROM {PROBE_DISTINCT_IDS} JOIN events AS e ON e.distinct_id = d.id "
+    "WHERE e.event = '$feature_flag_called' AND e.properties.$feature_flag = 'probe-flag' "
+    "AND e.timestamp >= now() - INTERVAL 7 DAY"
 )
 
 
 def _create_flag_calls_expression(team: Team) -> str:
     DataWarehouseExpression.objects.for_team(team.pk).create(
-        team=team, table_name="events", field_name="flag_calls", expression=f"({UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN})"
+        team=team, table_name="events", field_name="flag_calls", expression=f"({FLAG_CALLS_AFTER_A_JOIN})"
     )
     # The transform runs only when the query text names $feature_flag_called. The expression body is not part of that
     # text. Without this filter, the transform skips the query. The test would then pass even if record_added stopped
@@ -266,13 +269,12 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         modifiers: HogQLQueryModifiers | None = None,
         mode: FlagEvaluationsMode = FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
     ) -> HogQLQueryResponse:
+        # The force-events switch does not move FLAG_EVALUATIONS_ONLY. The events-side baseline therefore runs on mode 1.
         OrganizationFeatureFlagsConfig.objects.update_or_create(
-            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": mode if rewrite else FlagEvaluationsMode.READ_FLAG_EVALUATIONS},
         )
-        with patch(
-            "posthog.hogql.database.database.feature_enabled_or_false",
-            side_effect=lambda key, *args, **kwargs: rewrite and key == "hogql-flag-calls-from-flag-evaluations",
-        ):
+        with override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", not rewrite):
             return execute_hogql_query(query, team=self.team, filters=filters, modifiers=modifiers, pretty=False)
 
     def _override(self, person_id: uuid.UUID, version: int, is_deleted: bool = False) -> None:
@@ -725,7 +727,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         assert f"toIntervalDay({SESSION_BUFFER_DAYS})" in clickhouse
 
-    def test_flag_call_query_on_events_reads_no_flag_evaluations_with_the_flag_off(self):
+    def test_flag_call_query_on_events_reads_no_flag_evaluations_when_reads_are_forced_to_events(self):
         assert self._query_events(FLAG_CALLS_ON_EVENTS, rewrite=False).results == [(0,)]
 
     @parameterized.expand(
@@ -780,6 +782,12 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 [(1,)],
             ),
             (
+                "unqualified_reads_beside_a_joined_subquery",
+                "SELECT count() FROM events JOIN (SELECT 'probe-distinct-id' AS id) AS d ON events.distinct_id = d.id "
+                f"WHERE {FLAG_CALL_CONJUNCTS}",
+                [(1,)],
+            ),
+            (
                 "cte",
                 f"WITH calls AS (SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS}) SELECT count() FROM calls",
                 [(1,)],
@@ -825,37 +833,28 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("unqualified_filters_next_to_a_join", UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN, [(1,)]),
             (
                 "query_built_without_source_positions",
-                clear_locations(parse_select(UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN)),
+                clear_locations(parse_select(FLAG_CALLS_AFTER_A_JOIN)),
                 [(1,)],
             ),
             (
                 "union_of_one_select_object_twice",
-                ast.SelectSetQuery.create_from_queries(
-                    [parse_select(UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN)] * 2, "UNION ALL"
-                ),
+                ast.SelectSetQuery.create_from_queries([parse_select(FLAG_CALLS_AFTER_A_JOIN)] * 2, "UNION ALL"),
                 [(1,), (1,)],
             ),
             (
                 "union_of_one_parsed_template_twice",
                 ast.SelectSetQuery.create_from_queries(
                     [
-                        parse_select(UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN),
-                        parse_select(UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN),
+                        parse_select(FLAG_CALLS_AFTER_A_JOIN),
+                        parse_select(FLAG_CALLS_AFTER_A_JOIN),
                     ],
                     "UNION ALL",
                 ),
                 [(1,), (1,)],
             ),
-            (
-                "events_after_another_table",
-                f"SELECT count() FROM {PROBE_DISTINCT_IDS} JOIN events AS e ON e.distinct_id = d.id "
-                "WHERE e.event = '$feature_flag_called' AND e.properties.$feature_flag = 'probe-flag' "
-                "AND e.timestamp >= now() - INTERVAL 7 DAY",
-                [(1,)],
-            ),
+            ("events_after_another_table", FLAG_CALLS_AFTER_A_JOIN, [(1,)]),
             (
                 "self_join_with_both_sides_pinned",
                 "SELECT count() FROM events AS a JOIN events AS b ON a.uuid = b.uuid "
@@ -871,17 +870,17 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ),
             (
                 "scan_in_a_subquery",
-                f"SELECT * FROM ({UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN})",
+                f"SELECT * FROM ({FLAG_CALLS_AFTER_A_JOIN})",
                 [(1,)],
             ),
             (
                 "scan_in_a_type_cast",
-                f"SELECT ({UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN})::String",
+                f"SELECT ({FLAG_CALLS_AFTER_A_JOIN})::String",
                 [("1",)],
             ),
             (
                 "scan_in_a_cte_body",
-                f"WITH calls AS ({UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN}) SELECT * FROM calls",
+                f"WITH calls AS ({FLAG_CALLS_AFTER_A_JOIN}) SELECT * FROM calls",
                 [(1,)],
             ),
             (
@@ -978,8 +977,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ),
             (
                 "posthog_events_next_to_a_join",
-                f"SELECT count() FROM posthog.events AS e JOIN {PROBE_DISTINCT_IDS} ON e.distinct_id = d.id "
-                f"WHERE {FLAG_CALL_CONJUNCTS}",
+                FLAG_CALLS_AFTER_A_JOIN.replace("JOIN events AS e", "JOIN posthog.events AS e"),
                 "it reads events in a shape that can't be moved",
             ),
         ]
@@ -995,7 +993,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         mode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
         assert (
             self._query_events(query, modifiers=modifiers, mode=mode).clickhouse
-            == self._query_events(query, rewrite=False, modifiers=modifiers, mode=mode).clickhouse
+            == self._query_events(query, rewrite=False, modifiers=modifiers).clickhouse
         )
         with self.assertRaisesRegex(QueryError, error):
             self._query_events(query, modifiers=modifiers)
@@ -1071,6 +1069,14 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             self._query_events(query, modifiers=modifiers).clickhouse
             == self._query_events(query, rewrite=False, modifiers=modifiers).clickhouse
         )
+
+    def test_query_reading_event_that_another_source_has_raises_instead_of_reading_flag_evaluations(self):
+        query = (
+            "SELECT count() FROM events JOIN (SELECT distinct_id, event FROM events) AS calls "
+            f"ON events.distinct_id = calls.distinct_id WHERE {FLAG_CALL_CONJUNCTS}"
+        )
+        with self.assertRaisesRegex(ResolutionError, "Ambiguous query"):
+            self._query_events(query)
 
     @parameterized.expand(
         [
@@ -1508,7 +1514,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             "AND properties.$feature_flag = 'TRUE' AND timestamp >= now() - INTERVAL 7 DAY"
         )
 
-        from_events = self._query_events(query, rewrite=False, mode=mode).results
+        from_events = self._query_events(query, rewrite=False).results
 
         swapped = self._query_events(query, mode=mode)
 
@@ -1543,7 +1549,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 event_uuid=str(row_uuid),
             )
             flush_persons_and_events()
-            from_events = self._query_events(query, rewrite=False, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+            from_events = self._query_events(query, rewrite=False)
             rewritten = self._query_events(query, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
 
         assert from_events.results == [(expected_count,)]
@@ -1590,7 +1596,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
         mode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
 
-        from_events = self._query_events(query, rewrite=False, modifiers=modifiers, mode=mode)
+        from_events = self._query_events(query, rewrite=False, modifiers=modifiers)
         rewritten = self._query_events(query, modifiers=modifiers, mode=mode)
 
         assert rewritten.results == from_events.results

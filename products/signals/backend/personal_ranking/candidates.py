@@ -5,7 +5,7 @@ That order is the model order: the fallback when the LLM does not rank a report.
 """
 
 import datetime
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Literal
 
 from django.db.models import Max, QuerySet
@@ -30,7 +30,7 @@ from products.signals.backend.implementation_pr import (
 from products.signals.backend.models import AutonomyPriority, SignalReport, SignalReportArtefact
 from products.signals.backend.personal_ranking.config import CandidatePool, PersonalRankingConfig, candidate_pools
 from products.signals.backend.ranking.access import can_view_inbox_ranking
-from products.signals.backend.ranking.inbox_sort import InboxRanker, latest_ranking_value, resolve_recommended_ranker
+from products.signals.backend.ranking.inbox_sort import InboxRanker, latest_ranking_value, resolve_recommended_arm
 from products.signals.backend.ranking.report_predictions import ReportPredictions, read_report_predictions
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES
 from products.signals.backend.report_claims import reports_claimed_for_user
@@ -53,7 +53,6 @@ _OPEN_STATUSES = (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
 # The recommended order is computed here, so the `for_you` pool reads at most this many reports to sort.
 _FOR_YOU_SCAN_LIMIT = 300
 _TITLE_MAX_CHARS = 200
-_DECILES = 10
 
 
 @frozen
@@ -82,7 +81,8 @@ class Candidate:
 # Compares field by field in declaration order, so the order of the fields is the sort order.
 @frozen(order=True)
 class _RecommendedSortKey:
-    decile_rank: int
+    unscored: bool
+    highest_score_first: float
     priority_rank: int
     status_rank: int
     newest_first: float
@@ -92,13 +92,6 @@ class _RecommendedSortKey:
 def _priority_rank(priority: str | None) -> int:
     values = list(AutonomyPriority.values)
     return values.index(priority) if priority in values else len(values)
-
-
-def _decile(probability: float | None) -> int | None:
-    """The same buckets as `score_decile` in the database."""
-    if probability is None:
-        return None
-    return sum(1 for bound in range(1, _DECILES) if probability * _DECILES >= bound)
 
 
 def load_predictions(team_id: int, report_ids: Sequence[str]) -> dict[str, ReportPredictions]:
@@ -140,7 +133,7 @@ def _recommended_for_you(team: Team, user: User, since: datetime.datetime, size:
     )
     if not reports:
         return []
-    ranker = resolve_recommended_ranker(team, user, send_feature_flag_events=False)
+    ranker = resolve_recommended_arm(team, user, send_feature_flag_events=False).ranker
     return recommended_order(team.id, ranker, reports)[:size]
 
 
@@ -152,10 +145,11 @@ def recommended_order(team_id: int, ranker: InboxRanker, reports: Sequence[Signa
 
     def sort_key(report: SignalReport) -> _RecommendedSortKey:
         report_id = str(report.id)
-        decile = _decile(predictions[report_id].probability(ranker)) if ranker != "priority" else None
+        score = predictions[report_id].probability(ranker) if ranker != "priority" else None
         return _RecommendedSortKey(
             # Unscored reports sort after every scored report.
-            decile_rank=_DECILES if decile is None else _DECILES - 1 - decile,
+            unscored=ranker != "priority" and score is None,
+            highest_score_first=-score if score is not None else 0.0,
             priority_rank=_priority_rank(priorities.get(report_id)),
             status_rank=0 if report.status == SignalReport.Status.READY else 1,
             newest_first=-report.updated_at.timestamp(),
@@ -170,7 +164,7 @@ def _ids(queryset: QuerySet[SignalReport], size: int) -> list[str]:
 
 
 def _scored_pool(queryset: QuerySet[SignalReport], head: str, size: int) -> list[str]:
-    """Reports with a current score for `head`, the highest first. Unscored and stale reports drop out, so EU gives none."""
+    """Reports with a current score for `head`, the highest first. Unscored and stale reports drop out."""
     return _ids(
         queryset.annotate(_pool_score=latest_ranking_value(head, "scores"))
         .filter(_pool_score__isnull=False)
@@ -301,6 +295,26 @@ def gather_candidates(
     """`with_sources=False` skips the ClickHouse read of each report's source, which only the prompt shows."""
     can_view_ranking = can_view_inbox_ranking(user, team)
     merged = merge_pools(_pools(team, user, config, now=now, can_view_ranking=can_view_ranking), config.max_candidates)
+    return _load_candidates(team, user, merged, can_view_ranking=can_view_ranking, with_sources=with_sources)
+
+
+def stored_candidates(team: Team, user: User, report_ids: Sequence[str]) -> list[Candidate]:
+    """The current facts of the reports a stored list considered, with no pool query and no source read.
+
+    A report that no longer exists drops out, and no new report joins. `pools` is empty, because only a build reads it.
+    """
+    return _load_candidates(
+        team,
+        user,
+        {report_id: [] for report_id in report_ids},
+        can_view_ranking=can_view_inbox_ranking(user, team),
+        with_sources=False,
+    )
+
+
+def _load_candidates(
+    team: Team, user: User, merged: Mapping[str, Sequence[str]], *, can_view_ranking: bool, with_sources: bool
+) -> list[Candidate]:
     if not merged:
         return []
     ids = list(merged)

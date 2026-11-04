@@ -426,14 +426,12 @@ jobs:
             full_run_reason_detail: ${{ steps.classify.outputs.full_run_reason_detail }}
         steps:
             # Full checkout at PR head so the selector can glob specs on disk and read
-            # the map/script from the branch under test. Bounded depth + blob:none keeps
-            # the merge-base with the base branch reachable cheaply.
+            # the map/script from the branch under test. The selector step fetches bounded,
+            # blobless history so the merge-base with the base branch stays reachable cheaply.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
-                  fetch-depth: 1000
-                  filter: blob:none
 
             - name: Run spec selector
               id: select
@@ -443,15 +441,17 @@ jobs:
               continue-on-error: true
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               shell: bash
               run: |
                   set -euo pipefail
-                  # Fetch the current tip of the base branch (scoped, blobless, no tags),
-                  # then diff origin/$BASE_REF...HEAD (3-dot = merge-base) so master
-                  # commits merged into the branch aren't counted as changes.
+                  # Fetch the PR's history and the current tip of the base branch (scoped,
+                  # blobless, no tags), then diff origin/$BASE_REF...HEAD (3-dot = merge-base)
+                  # so master commits merged into the branch aren't counted as changes.
                   # This runs before Python, so tag a fetch failure with its own detail —
                   # otherwise classify sees only a failed step and reports an empty detail.
-                  if ! git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"; then
+                  if ! git fetch --no-tags --depth=1000 --filter=blob:none origin "$HEAD_SHA" \
+                      || ! git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"; then
                       echo "::warning::git fetch of base ref failed — full run"
                       echo "reason_detail=git_fetch_failed" >> "$GITHUB_OUTPUT"
                       exit 1
@@ -887,28 +887,23 @@ jobs:
 
                         python manage.py setup_dev
 
-                  - name: Build frontend
+                  - name: Build frontend and collect static files
                     run: |
                         pnpm --filter=@posthog/frontend... install --frozen-lockfile
                         pnpm --filter=@posthog/frontend build:products
                         pnpm --filter=@posthog/frontend build
 
-            # collectstatic finishes before Start PostHog web, because each Granian worker loads
-            # WhiteNoise, which reads STATIC_ROOT once when the worker starts (autorefresh is off
-            # without DEBUG). WhiteNoise does not serve files that collectstatic writes after that.
-            - parallel:
-                  - name: Collect static files without compression
-                    # The image-bitmap-data-url-worker-*.js.map files are already mirrored
-                    # into frontend/dist/ by copyRRWebWorkerFiles() in frontend/build.mjs
-                    # (see common/esbuilder/utils.mjs), which runs as part of the
-                    # `pnpm --filter=@posthog/frontend build` step above. No extra cp needed.
-                    env:
-                        STATIC_PRECOMPRESS: '0'
-                    run: python manage.py collectstatic --noinput
+                        # The image-bitmap-data-url-worker-*.js.map files are already mirrored
+                        # into frontend/dist/ by copyRRWebWorkerFiles() in frontend/build.mjs
+                        # (see common/esbuilder/utils.mjs), which runs as part of the
+                        # `pnpm --filter=@posthog/frontend build` step above. No extra cp needed.
+                        # STATIC_COLLECTION skips startup side effects while migrations run.
+                        STATIC_COLLECTION=1 STATIC_PRECOMPRESS=0 python manage.py collectstatic --noinput
 
                   - name: Install Playwright browsers
                     run: pnpm --filter=@posthog/playwright exec playwright install chromium --with-deps
 
+            # WhiteNoise reads STATIC_ROOT once at startup, so collection must finish before Granian starts.
             - name: Source celery queues
               run: |
                   source ./bin/celery-queues.env

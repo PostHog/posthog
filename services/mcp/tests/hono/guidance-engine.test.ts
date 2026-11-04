@@ -83,7 +83,10 @@ describe('GuidanceEngine', () => {
         ['with org consent', true, 'shown'],
     ])('stamps the consent outcome %s for a rule that needs it', async (_label, aiConsentGiven, outcome) => {
         const engine = new GuidanceEngine(makeGuidanceRedis(), [{ ...rule, requiresAiConsent: true }])
-        const state = makeState({ aiConsentGiven })
+        const state = makeState({
+            aiConsentGiven,
+            ...(aiConsentGiven === true ? {} : { allTools: [{ name: 'execute-sql' }] as ResolvedState['allTools'] }),
+        })
         await engine.evaluate(state, replayQuery)
         const notice = await engine.evaluate(state, replayQuery)
         expect(notice).toMatchObject({ ruleId: 'test-rule', outcome })
@@ -140,6 +143,47 @@ describe('GuidanceEngine', () => {
             await expect(run(engine, withHandle('minted-1', true), [replayQuery, replayQuery])).resolves.toEqual(
                 expected
             )
+        })
+
+        describe('with a notice that fires on the first match', () => {
+            const firstMatchRule: GuidanceRule = { ...rule, threshold: 1 }
+
+            it.each([
+                ['after the caller counters expire', [31]],
+                ['after the first day of a busy conversation', Array.from({ length: 80 }, () => 20)],
+            ])('keeps the per-conversation cap %s', async (_label, gapsInMinutes) => {
+                const redis = makeGuidanceRedis()
+                const engine = new GuidanceEngine(redis, [firstMatchRule])
+                const outcomes = await run(engine, withHandle('minted-1', false), [replayQuery])
+                for (const minutes of gapsInMinutes) {
+                    redis.advance(minutes * 60)
+                    outcomes.push(...(await run(engine, withHandle('minted-1', true), [replayQuery])))
+                }
+                expect(outcomes.filter(Boolean)).toEqual(['test-rule:shown'])
+            })
+
+            it('gives a second conversation its own notice once it echoes its handle', async () => {
+                const engine = new GuidanceEngine(makeGuidanceRedis(), [firstMatchRule])
+                await run(engine, withHandle('minted-1', false), [replayQuery])
+                await expect(run(engine, withHandle('minted-2', false), [replayQuery])).resolves.toEqual([undefined])
+                await expect(run(engine, withHandle('minted-2', true), [replayQuery, replayQuery])).resolves.toEqual([
+                    'test-rule:shown',
+                    undefined,
+                ])
+            })
+
+            it('does not repeat in the conversation that already got the notice from the caller counters', async () => {
+                const engine = new GuidanceEngine(makeGuidanceRedis(), [firstMatchRule])
+                await run(engine, withHandle('minted-1', false), [replayQuery])
+                await run(engine, withHandle('minted-2', false), [replayQuery])
+                await expect(run(engine, withHandle('minted-1', true), [replayQuery])).resolves.toEqual([undefined])
+            })
+
+            it('caps a client that never echoes under the caller', async () => {
+                const engine = new GuidanceEngine(makeGuidanceRedis(), [firstMatchRule])
+                await run(engine, withHandle('minted-1', false), [replayQuery])
+                await expect(run(engine, withHandle('minted-2', false), [replayQuery])).resolves.toEqual([undefined])
+            })
         })
     })
 
@@ -228,23 +272,74 @@ describe('GuidanceEngine', () => {
     })
 
     it.each([
-        ['session_replay_events', true],
-        ['raw_session_replay_events', true],
-        ['session_replay_features', true],
-        ['console_logs_log_entries', true],
-        ['system.session_recordings', true],
-        ['log_entries', false],
-        ['batch_export_log_entries', false],
-        ['sessions', false],
-        ['events', false],
-    ])('the replay rule matches SQL over %s: %s', (table, expected) => {
-        const replayRule = GUIDANCE_RULES.find((r) => r.id === 'replay-sql-to-vision')!
-        const call: GuidanceCall = {
-            toolName: 'execute-sql',
-            args: { query: `select 1 from ${table}` },
-            isError: false,
-        }
-        expect(triggerMatches(replayRule, call)).toBe(expected)
+        ['replay-sql-to-vision', 'select 1 from session_replay_events', true],
+        ['replay-sql-to-vision', 'select 1 from raw_session_replay_events', true],
+        ['replay-sql-to-vision', 'select 1 from session_replay_features', true],
+        ['replay-sql-to-vision', 'select 1 from console_logs_log_entries', true],
+        ['replay-sql-to-vision', 'select 1 from system.session_recordings', true],
+        ['replay-sql-to-vision', 'select 1 from log_entries', false],
+        ['replay-sql-to-vision', 'select 1 from batch_export_log_entries', false],
+        ['replay-sql-to-vision', 'select 1 from sessions', false],
+        ['replay-sql-to-vision', 'select 1 from events', false],
+        [
+            'sql-aggregate-to-typed-runner',
+            "SELECT toDate(timestamp) AS day, count() FROM events WHERE event = 'signup' GROUP BY day",
+            true,
+        ],
+        ['sql-aggregate-to-typed-runner', 'select properties.$browser, uniq(person_id)\nfrom events\ngroup by 1', true],
+        ['sql-aggregate-to-typed-runner', "SELECT countIf(event = 'a') FROM events", true],
+        ['sql-aggregate-to-typed-runner', 'SELECT event, timestamp FROM events LIMIT 10', false],
+        ['sql-aggregate-to-typed-runner', 'SELECT count() FROM events e JOIN persons p ON e.person_id = p.id', false],
+        ['sql-aggregate-to-typed-runner', 'WITH x AS (SELECT 1) SELECT count() FROM events', false],
+        ['sql-aggregate-to-typed-runner', 'SELECT count() OVER (PARTITION BY event) FROM events', false],
+        ['sql-aggregate-to-typed-runner', 'SELECT count() FROM (SELECT person_id FROM events)', false],
+        [
+            'sql-aggregate-to-typed-runner',
+            'SELECT count() FROM events WHERE person_id IN (SELECT id FROM persons)',
+            false,
+        ],
+        [
+            'sql-aggregate-to-typed-runner',
+            'SELECT event, count(), max(timestamp) AS last_seen FROM events GROUP BY event',
+            true,
+        ],
+        [
+            'sql-aggregate-to-typed-runner',
+            'SELECT event, uniq(person_id) FROM events GROUP BY event ORDER BY uniq(person_id) DESC',
+            true,
+        ],
+        ['sql-aggregate-to-typed-runner', "SELECT max(timestamp), count() FROM events WHERE event = 'a'", false],
+        ['sql-aggregate-to-typed-runner', 'SELECT person_id, count() FROM events GROUP BY person_id', false],
+        ['sql-aggregate-to-typed-runner', 'SELECT uniq(person_id), groupArray(event) FROM events', false],
+        ['sql-aggregate-to-typed-runner', "SELECT count(), avg(dateDiff('hour', timestamp, now())) FROM events", false],
+        [
+            'sql-aggregate-to-typed-runner',
+            'SELECT event, count() FROM events GROUP BY event HAVING count() > 10',
+            false,
+        ],
+        ['sql-aggregate-to-typed-runner', 'SELECT count() FROM events e, persons p WHERE e.person_id = p.id', false],
+        ['sql-aggregate-to-typed-runner', 'SELECT person_id, count() FROM events GROUP BY 1', false],
+        [
+            'sql-aggregate-to-typed-runner',
+            'SELECT properties.$session_id AS sid, count() FROM events GROUP BY sid',
+            false,
+        ],
+        ['sql-aggregate-to-typed-runner', 'SELECT count(), max(e.timestamp) FROM events e', false],
+        ['sql-aggregate-to-typed-runner', 'SELECT count() FROM system.insights', false],
+        ['sql-aggregate-to-typed-runner', 'SELECT count() FROM posthog.ai_events', false],
+        ['sql-aggregate-to-typed-runner', 'SELECT count() FROM events_archive', false],
+    ])('the %s rule matches %j: %s', (ruleId, query, expected) => {
+        const rule = GUIDANCE_RULES.find((r) => r.id === ruleId)!
+        const call: GuidanceCall = { toolName: 'execute-sql', args: { query }, isError: false }
+        expect(triggerMatches(rule, call)).toBe(expected)
+    })
+
+    it.each([
+        ['a direct warehouse connection', { query: 'SELECT count() FROM events', connectionId: 'conn-1' }],
+        ['a query longer than the cap', { query: `SELECT count() FROM events /* ${'x'.repeat(5000)} */` }],
+    ])('the sql-aggregate-to-typed-runner rule skips %s', (_label, args) => {
+        const rule = GUIDANCE_RULES.find((r) => r.id === 'sql-aggregate-to-typed-runner')!
+        expect(triggerMatches(rule, { toolName: 'execute-sql', args, isError: false })).toBe(false)
     })
 
     it('ships every rule with a distinct id and flag', () => {

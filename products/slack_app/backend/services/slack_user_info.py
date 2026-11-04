@@ -18,8 +18,10 @@ keeps `api.py` focused on routes.
 """
 
 import re
+from collections.abc import Iterable
 from datetime import timedelta
 from typing import Any
+from uuid import UUID
 
 from django.core.cache import cache
 from django.db.utils import DatabaseError
@@ -30,6 +32,8 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.integrations import IntegrationRecord
 from posthog.models.integration import SLACK_INTEGRATION_KINDS, SlackIntegration
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackUserProfileCache
 from products.slack_app.backend.services.slack_auth import (
@@ -39,6 +43,7 @@ from products.slack_app.backend.services.slack_auth import (
     write_auth_state_broken,
     write_auth_state_ok,
 )
+from products.slack_app.backend.services.workspace_integrations import workspace_integrations
 
 logger = structlog.get_logger(__name__)
 
@@ -212,6 +217,42 @@ def _purge_stale_email_rows(integration: IntegrationRecord, normalized_email: st
         ).exclude(slack_user_id=keep_slack_user_id).delete()
     except DatabaseError:
         logger.warning("slack_app_slack_user_cache_db_unavailable", integration_id=integration.id)
+
+
+def find_member_by_cached_slack_email(
+    *, slack_team_id: str, slack_user_id: str, candidate_org_ids: Iterable[UUID]
+) -> User | None:
+    """The active member of ``candidate_org_ids`` whose email matches the cached Slack profile.
+
+    The fallback for a Slack identity without an OAuth link. It reads only the profile cache,
+    so it costs no ``users.info`` call. Any install of the workspace may have cached the
+    profile, so the lookup is scoped to the Slack team and not to one integration row.
+    """
+    org_ids = set(candidate_org_ids)
+    if not slack_team_id or not slack_user_id or not org_ids:
+        return None
+    profile = (
+        SlackUserProfileCache.objects.filter(
+            integration_id__in=[row.id for row in workspace_integrations(slack_team_id)],
+            slack_user_id=slack_user_id,
+        )
+        .exclude(email__isnull=True)
+        .exclude(email="")
+        .order_by("-updated_at")
+        .first()
+    )
+    if profile is None:
+        return None
+    membership = (
+        OrganizationMembership.objects.filter(
+            organization_id__in=org_ids,
+            user__email__iexact=profile.email,
+            user__is_active=True,
+        )
+        .select_related("user")
+        .first()
+    )
+    return membership.user if membership else None
 
 
 def clear_workspace_profile_cache(slack_team_id: str) -> int:

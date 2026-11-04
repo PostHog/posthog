@@ -51,6 +51,7 @@ from products.signals.backend.scout_report.persistence import (
     set_scout_report_tags,
     soft_delete_scout_signal,
     update_scout_report,
+    user_report_provenance,
     validate_scout_report,
     validate_scout_report_text,
 )
@@ -88,6 +89,7 @@ __all__ = [
     "record_scout_run_task_artefact",
     "scout_report_exists",
     "scout_report_provenance",
+    "user_report_provenance",
     "scout_report_tags_in_use",
     "scout_task_run_content",
     "set_report_charts",

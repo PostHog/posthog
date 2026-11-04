@@ -105,7 +105,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     remediation_for_skip,
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH
-from products.signals.backend.scout_harness.tools.report_author import ReportAuthor
+from products.signals.backend.scout_harness.tools.report_author import USER_REPORT_DAILY_LIMIT_REASON, ReportAuthor
 from products.signals.backend.scout_harness.trial_gateway import create_trial_gateway_token, revoke_trial_gateway_token
 from products.signals.backend.scout_report import (
     INFERRED_REPOSITORY_REASON,
@@ -1534,9 +1534,9 @@ async def _resolve_report_repository(
     one on its own."""
     repository = _normalize_repository(repository)
     if repository == NO_REPO:
-        return RepoSelectionResult(repository=None, reason="Scout passed NO_REPO; report lands without a draft PR.")
+        return RepoSelectionResult(repository=None, reason="No repository selected, so this report has no draft PR.")
     if repository is not None:
-        return RepoSelectionResult(repository=repository, reason="Repository provided by the scout.")
+        return RepoSelectionResult(repository=repository, reason="Repository named in the report.")
 
     if not wants_full_selection:
         connected_repos = await database_sync_to_async(_connected_repositories, thread_sensitive=False)(team_id)
@@ -1697,9 +1697,12 @@ _REPORT_EVENT_SOURCE = "signals_scout_report"
 # `source_disabled`) or fail-closed because its dispatch-time config is gone (`scout_config_missing`,
 # from a deleted/nulled `SignalScoutConfig`). See `_preflight_emit_gates`. An inactive scout must produce
 # no side effects, so its attempt is still recorded on the internal stream but is NOT fanned out as a
-# customer-facing, automation-driving event. Other gate-skips that represent a real, customer-controlled
+# customer-facing, automation-driving event. A member's capped create (`user_daily_report_limit`) is
+# refused the same way, since nothing was filed. Other gate-skips that represent a real, customer-controlled
 # condition (e.g. `ai_processing_not_approved`) still forward the raw event.
-_INACTIVE_SKIP_REASONS = frozenset({"scout_emit_disabled", "source_disabled", "scout_config_missing"})
+_INACTIVE_SKIP_REASONS = frozenset(
+    {"scout_emit_disabled", "source_disabled", "scout_config_missing", USER_REPORT_DAILY_LIMIT_REASON}
+)
 
 
 @dataclass
@@ -2250,6 +2253,7 @@ async def emit_report(
             summary=summary,
             evidence=evidence,
             wants_full_selection=trial_store is None
+            and author.user_id is None
             and _wants_repo_selection(repository, priority_assessment, reviewers),
         )
         if surfaced
@@ -2312,6 +2316,7 @@ async def emit_report(
             emit_signals=judgement.safety.choice,
             run=author.scout_run,
             idempotency_key=emit_key,
+            created_by_id=author.user_id,
         )
     except ScoutReportAlreadyEmittedError as already_emitted:
         # The retry arrived while this call was still judging, so both reached the insert. The winner's
@@ -2455,6 +2460,7 @@ def emit_report_sync(
             summary=summary,
             evidence=evidence,
             wants_full_selection=trial_store is None
+            and author.user_id is None
             and _wants_repo_selection(repository, priority_assessment, reviewers),
         )
         if surfaced
@@ -2513,6 +2519,7 @@ def emit_report_sync(
             emit_signals=judgement.safety.choice,
             run=author.scout_run,
             idempotency_key=emit_key,
+            created_by_id=author.user_id,
         )
     except ScoutReportAlreadyEmittedError as already_emitted:
         # As in `emit_report`: a concurrent retry won the insert, so hand back its report.

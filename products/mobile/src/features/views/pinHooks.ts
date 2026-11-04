@@ -15,9 +15,10 @@ import { useAuthStore } from '@/auth/authStore'
 import { sessionGeneration } from '@/auth/tokens'
 import { useDemoViews } from '@/demo/views'
 import { abortError } from '@/lib/abort'
+import { OfflineError, useConnectivity, whileOnline } from '@/lib/connectivity'
 import { toError } from '@/lib/errors'
 import { mergeRecent, pinsFromShortcuts, shortcutMatchKey } from '@/model/adapters/viewPins'
-import { errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
+import { connectionLoadingQuery, errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
 import type { QueryState } from '@/model/types'
 import type {
     DashboardTileView,
@@ -68,15 +69,10 @@ function projectKey(scope: ProjectScope): string {
     return `${scope.host}|${scope.projectId}`
 }
 
-/** The display modes a pin offers. Web analytics and pins that open on the web show as rows only. */
-export function pinModes(pin: Pick<PinView, 'kind' | 'native'>): PinDisplayMode[] {
-    return pin.native && (pin.kind === 'insight' || pin.kind === 'dashboard') ? ['row', 'number', 'chart'] : ['row']
-}
-
 export interface PinsState {
     pins: QueryState<PinView[]>
     displayPrefs: PinDisplayPrefs
-    /** The server holds more pins than one page: show "Showing 100 pins". */
+    /** The server holds more starred items than one page, so pins after the first page are missing. */
     truncated: boolean
     /** For the refresh rules: the last read of the pin list, and a re-read. */
     list: RefreshList
@@ -141,7 +137,7 @@ export function usePins({ refetchOnMount = false }: { refetchOnMount?: boolean }
     } else if (query.isError) {
         state = errorQuery(toError(query.error), refetch)
     } else {
-        state = { ...loadingQuery<PinView[]>(), refetch }
+        state = connectionLoadingQuery<PinView[]>(context.offline, refetch)
     }
     return {
         pins: state,
@@ -155,7 +151,7 @@ export function usePins({ refetchOnMount = false }: { refetchOnMount?: boolean }
 export function usePinnedKeys(): ReadonlySet<string> {
     const { pins } = usePins()
     const data = pins.data
-    return useMemo(() => new Set((data ?? []).map((pin) => shortcutMatchKey(pin.type, pin.ref))), [data])
+    return useMemo(() => new Set((data ?? []).map((pin) => shortcutMatchKey(pin.kind, pin.ref))), [data])
 }
 
 export interface PinActions {
@@ -203,10 +199,12 @@ function assertCurrentWrite(list: PinWriteTarget): void {
 // being dropped. An unpin that waits for a pin then finds the row the pin created and deletes it.
 const pinWrites = new Map<string, Promise<void>>()
 
-function queuePinWrite(list: PinWriteTarget, matchKey: string, run: () => Promise<void>): Promise<void> {
+async function queuePinWrite(list: PinWriteTarget, matchKey: string, run: () => Promise<void>): Promise<void> {
+    if (!list.demo && useConnectivity.getState().status === 'offline') throw new OfflineError()
     const key = `${list.demo ? 'demo' : freshnessKey(list.listKey)}|${matchKey}`
     const next = (pinWrites.get(key) ?? Promise.resolve()).then(() => {
         assertCurrentWrite(list)
+        if (!list.demo && useConnectivity.getState().status === 'offline') throw new OfflineError()
         return run()
     })
     const settled = next.catch(() => undefined)
@@ -241,15 +239,17 @@ export function pinView(list: PinWriteTarget, target: PinTarget, from: PinSource
         const page =
             state?.data && Date.now() - state.dataUpdatedAt < READ_FLOOR_MS
                 ? state.data
-                : await client.fetchQuery({
-                      queryKey: listKey,
-                      queryFn: async ({ signal }) => {
-                          const page = await readShortcuts(signal, () => assertCurrentWrite(list))
-                          assertCurrentWrite(list)
-                          return page
-                      },
-                      staleTime: 0,
-                  })
+                : await whileOnline(() =>
+                      client.fetchQuery({
+                          queryKey: listKey,
+                          queryFn: async ({ signal }) => {
+                              const page = await readShortcuts(signal, () => assertCurrentWrite(list))
+                              assertCurrentWrite(list)
+                              return page
+                          },
+                          staleTime: 0,
+                      })
+                  )
         assertCurrentWrite(list)
         if (rowsFor(page).some((row) => shortcutMatchKey(row.type, row.ref) === key)) {
             return
@@ -288,7 +288,7 @@ export function pinView(list: PinWriteTarget, target: PinTarget, from: PinSource
 
 /** Deletes every row that matches the view, in every environment. Rejects with user-facing copy for a toast. */
 export function unpinView(list: PinWriteTarget, view: PinView | PinTarget, from: PinSource): Promise<void> {
-    const key = 'shortcutId' in view ? shortcutMatchKey(view.type, view.ref) : pinTargetKey(view)
+    const key = 'shortcutId' in view ? shortcutMatchKey(view.kind, view.ref) : pinTargetKey(view)
     return queuePinWrite(list, key, async () => {
         const viewType = view.kind
         const { client, listKey } = list
@@ -498,7 +498,7 @@ export function useRecentViews(pinnedKeys: ReadonlySet<string>): RecentState {
         // A failed web read still shows the phone's own views.
         recent = successQuery(merged, { isRefetching: server.isRefetching, refetch })
     } else {
-        recent = { ...loadingQuery<RecentView[]>(), refetch }
+        recent = connectionLoadingQuery<RecentView[]>(context.offline, refetch)
     }
     return { recent, list }
 }
@@ -635,7 +635,7 @@ export function useViewsList(): ViewsListState {
         items,
         visibleKeys: visibility.visibleKeys,
         lists,
-        enabled: context.ready,
+        enabled: context.ready && !context.offline,
     })
     return {
         pins,

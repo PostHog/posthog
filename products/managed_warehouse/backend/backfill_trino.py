@@ -1,8 +1,8 @@
 """Register duckling backfill exports in DuckLake through the organization's Trino catalog.
 
-The Dagster backfills use this for warehouses that have no duckgres. One `add_files` call registers the files of an
-export and removes the rows they replace in a single DuckLake snapshot, so readers never see a day without rows or
-with two copies of it. The call refuses any type conversion, so the export must write the exact Parquet types that
+The Dagster backfills use this for organizations with the Trino registration flag. One `add_files` call registers the
+files of an export and removes the rows they replace in a single DuckLake snapshot, so readers never see a day without
+rows or with two copies of it. The call refuses any type conversion, so the export must write the exact Parquet types that
 DuckLake writes for each Trino column.
 """
 
@@ -22,7 +22,11 @@ from posthog.hogql.escape_sql import escape_trino_identifier, escape_trino_strin
 from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import feature_enabled_or_false
 
-from products.managed_warehouse.backend.facade.contracts import DuckLakeDayReplacement, DuckLakeTableReplacement
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckLakeDayReplacement,
+    DuckLakeTableLayoutError,
+    DuckLakeTableReplacement,
+)
 from products.managed_warehouse.backend.facade.feature_flags import DUCKLAKE_TRINO_REGISTRATION_FLAG
 from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
 from products.managed_warehouse.backend.trino_execution import is_transient_trino_error
@@ -46,6 +50,7 @@ TRANSIENT_DUCKLAKE_ERROR_NAMES = frozenset(
     {"DUCKLAKE_COMMIT_CONFLICT", "DUCKLAKE_CONCURRENT_MODIFICATION", "DUCKLAKE_COMMIT_FAILED"}
 )
 STATEMENT_ATTEMPTS = 4
+REBUILD_HINT = "Run duckling_trino_conversion_job for the team, or a full backfill with rebuild_mismatched_table: true."
 
 
 Replacement = DuckLakeDayReplacement | DuckLakeTableReplacement
@@ -53,12 +58,13 @@ Replacement = DuckLakeDayReplacement | DuckLakeTableReplacement
 
 def backfills_through_trino(organization_id: str) -> bool:
     try:
+        # Dagster runs without POSTHOG_PERSONAL_API_KEY, so the client cannot load flag definitions there. A
+        # local-only evaluation would return off for every organization, so the client asks the flags service.
         return feature_enabled_or_false(
             DUCKLAKE_TRINO_REGISTRATION_FLAG,
             organization_id,
             groups={"organization": organization_id},
             group_properties={"organization": {"id": organization_id}},
-            only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
     except Exception as error:
@@ -78,6 +84,10 @@ def _refuse_shared_table(table: str, change: str) -> None:
             f"Refusing to {change} the shared table '{table}' through Trino, because that would also remove the rows "
             "of other teams"
         )
+
+
+def _column_definitions(columns: Mapping[str, str]) -> str:
+    return ", ".join(f"{escape_trino_identifier(name)} {data_type}" for name, data_type in columns.items())
 
 
 def _is_transient(error: BaseException) -> bool:
@@ -106,8 +116,10 @@ class TrinoBackfillCatalog:
 
     @classmethod
     @contextlib.contextmanager
-    def connect(cls, organization_id: str) -> Iterator[TrinoBackfillCatalog]:
-        with connect_managed_warehouse_trino(organization_id, principal=BACKFILL_TRINO_PRINCIPAL) as connection:
+    def connect(cls, organization_id: str, *, canary: bool = False) -> Iterator[TrinoBackfillCatalog]:
+        with connect_managed_warehouse_trino(
+            organization_id, principal=BACKFILL_TRINO_PRINCIPAL, canary=canary
+        ) as connection:
             yield cls(connection)
 
     def _table(self, table: str) -> str:
@@ -123,6 +135,7 @@ class TrinoBackfillCatalog:
     def _run(self, statement: str) -> list[list[Any]]:
         # Every statement here can run again. DDL has IF [NOT] EXISTS, deleting a range twice deletes nothing more,
         # and add_files records its import_id, so a repeat of an applied import adds nothing.
+        # CREATE OR REPLACE runs before the add_files that fills the table, so a repeat recreates an empty table.
         cursor = self._connection.cursor()
         try:
             cursor.execute(statement)
@@ -138,27 +151,44 @@ class TrinoBackfillCatalog:
             self._run(f"DROP TABLE IF EXISTS {self._table(table)}")
         if create_if_missing:
             self._run(f"CREATE SCHEMA IF NOT EXISTS {self._catalog}.{escape_trino_identifier(BACKFILL_SCHEMA)}")
-            definitions = ", ".join(
-                f"{escape_trino_identifier(name)} {data_type}" for name, data_type in columns.items()
-            )
-            self._run(f"CREATE TABLE IF NOT EXISTS {self._table(table)} ({definitions})")
+            self._run(f"CREATE TABLE IF NOT EXISTS {self._table(table)} ({_column_definitions(columns)})")
         if validate:
             self._validate(table, columns)
 
     def _validate(self, table: str, columns: Mapping[str, str]) -> None:
         # A table can have more columns than the export, because add_files reads a missing column as NULL.
-        rows = self._run(
-            f"SELECT column_name, data_type FROM {self._catalog}.information_schema.columns "
-            f"WHERE table_schema = {escape_trino_string(BACKFILL_SCHEMA)} AND table_name = {escape_trino_string(table)}"
-        )
-        actual = {str(name): str(data_type) for name, data_type in rows}
+        actual = self._columns(table)
+        if not actual:
+            raise ValueError(
+                f"Table {BACKFILL_SCHEMA}.{table} does not exist. Run with create_tables_if_missing: true."
+            )
         mismatched = {
             name: actual.get(name, "missing") for name, data_type in columns.items() if actual.get(name) != data_type
         }
         if mismatched:
-            raise ValueError(
+            raise DuckLakeTableLayoutError(
                 f"Table {BACKFILL_SCHEMA}.{table} does not match the backfill export, so add_files would refuse its "
-                f"files. Expected {dict(columns)}, but these columns differ: {mismatched}"
+                f"files. Expected {dict(columns)}, but these columns differ: {mismatched}. {REBUILD_HINT}"
+            )
+
+    def _columns(self, table: str) -> dict[str, str]:
+        rows = self._run(
+            f"SELECT column_name, data_type FROM {self._catalog}.information_schema.columns "
+            f"WHERE table_schema = {escape_trino_string(BACKFILL_SCHEMA)} AND table_name = {escape_trino_string(table)}"
+        )
+        return {str(name): str(data_type) for name, data_type in rows}
+
+    def replace_table(self, table: str, columns: Mapping[str, str]) -> None:
+        _refuse_shared_table(table, "rebuild")
+        # Views can select a column that the export does not write, so the rebuilt table keeps it.
+        kept = {name: data_type for name, data_type in self._columns(table).items() if name not in columns}
+        self._run(f"CREATE OR REPLACE TABLE {self._table(table)} ({_column_definitions({**columns, **kept})})")
+
+    def validate_file_count(self, files: Sequence[str]) -> None:
+        if len(files) > ADD_FILES_MAX_FILES:
+            raise ValueError(
+                f"The export wrote {len(files)} files, but one add_files call registers at most "
+                f"{ADD_FILES_MAX_FILES}. Lower max_s3_file_fanout."
             )
 
     def register_files(
@@ -171,11 +201,7 @@ class TrinoBackfillCatalog:
         """
         if replacement is not None:
             _refuse_shared_table(table, "replace rows in")
-        if len(files) > ADD_FILES_MAX_FILES:
-            raise ValueError(
-                f"The export wrote {len(files)} files, but one add_files call registers at most "
-                f"{ADD_FILES_MAX_FILES}. Lower max_s3_file_fanout."
-            )
+        self.validate_file_count(files)
         options = [
             f"files => ARRAY[{', '.join(escape_trino_string(path) for path in files)}]",
             f"import_id => {escape_trino_string(import_id)}",

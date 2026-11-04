@@ -2,29 +2,8 @@ import pytest
 
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import get_config_for_source
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.beamer import BeamerSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
     BigQuerySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargebee import (
-    ChargebeeSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.doit import DoItSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitlab import GitLabSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
-    GoogleAdsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesheets import (
-    GoogleSheetsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gorgias import (
-    GorgiasSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hubspot import (
-    HubspotSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaads import (
-    MetaAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
     MongoDBSourceConfig,
@@ -37,25 +16,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.salesforce import (
     SalesforceSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
-    ShopifySourceConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
     SnowflakeSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import StripeSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.supabase import (
-    SupabaseSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.temporalio import (
-    TemporalIOSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vitally import (
-    VitallySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesk import (
-    ZendeskSourceConfig,
-)
+from products.warehouse_sources.sources.beamer._config import BeamerSourceConfig
+from products.warehouse_sources.sources.chargebee._config import ChargebeeSourceConfig
+from products.warehouse_sources.sources.doit._config import DoItSourceConfig
+from products.warehouse_sources.sources.gitlab._config import GitLabSourceConfig
+from products.warehouse_sources.sources.gorgias._config import GorgiasSourceConfig
+from products.warehouse_sources.sources.shopify._config import ShopifySourceConfig
+from products.warehouse_sources.sources.supabase._config import SupabaseSourceConfig
 
 
 # The form submits "temporary-dataset", but dataclasses.asdict() persists "temporary_dataset",
@@ -126,27 +97,11 @@ def test_gitlab_config_without_host():
     assert config.gitlab_host is None
 
 
-def test_google_ads_config():
-    config = GoogleAdsSourceConfig.from_dict({"customer_id": "123", "google_ads_integration_id": 1})
-    assert config.customer_id == "123"
-    assert config.google_ads_integration_id == 1
-
-
-def test_google_sheets_config():
-    config = GoogleSheetsSourceConfig.from_dict({"spreadsheet_url": "google.com"})
-    assert config.spreadsheet_url == "google.com"
-
-
 def test_gorgias_config():
     config = GorgiasSourceConfig.from_dict({"gorgias_domain": "acme", "email": "you@acme.com", "api_key": "api_key"})
     assert config.gorgias_domain == "acme"
     assert config.email == "you@acme.com"
     assert config.api_key == "api_key"
-
-
-def test_hubspot_config():
-    config = HubspotSourceConfig.from_dict({"hubspot_integration_id": 1})
-    assert config.hubspot_integration_id == 1
 
 
 def test_mssql_config():
@@ -189,18 +144,6 @@ def test_mssql_config():
     assert config.ssh_tunnel.auth.password == "password"
     assert config.ssh_tunnel.auth.private_key == ""
     assert config.ssh_tunnel.auth.passphrase == ""
-
-
-def test_meta_ads_config():
-    config = MetaAdsSourceConfig.from_dict({"account_id": "123", "meta_ads_integration_id": 1})
-    assert config.account_id == "123"
-    assert config.meta_ads_integration_id == 1
-
-    # Empty string for optional sync_lookback_days should be handled (not raise ValueError)
-    config_with_empty = MetaAdsSourceConfig.from_dict(
-        {"account_id": "123", "meta_ads_integration_id": 1, "sync_lookback_days": ""}
-    )
-    assert config_with_empty.sync_lookback_days is None
 
 
 def test_mongo_config():
@@ -449,50 +392,10 @@ def test_shopify_config(stored, expected_auth_method_attrs):
         assert getattr(config.auth_method, attr) == expected
 
 
-def test_temporal_config():
-    config = TemporalIOSourceConfig.from_dict(
-        {
-            "host": "host",
-            "port": "22",
-            "namespace": "namespace",
-            "encryption_key": "encryption_key",
-            "server_client_root_ca": "server_client_root_ca",
-            "client_certificate": "client_certificate",
-            "client_private_key": "client_private_key",
-        }
-    )
-    assert config.host == "host"
-    assert config.port == 22
-    assert config.namespace == "namespace"
-    assert config.encryption_key == "encryption_key"
-    assert config.server_client_root_ca == "server_client_root_ca"
-    assert config.client_certificate == "client_certificate"
-    assert config.client_private_key == "client_private_key"
-
-
-def test_vitally_config():
-    config = VitallySourceConfig.from_dict(
-        {"secret_token": "secret_token", "region": {"selection": "US", "subdomain": "subdomain"}}
-    )
-    assert config.secret_token == "secret_token"
-    assert config.region is not None
-    assert config.region.selection == "US"
-    assert config.region.subdomain == "subdomain"
-
-
-def test_zendesk_config():
-    config = ZendeskSourceConfig.from_dict(
-        {"subdomain": "subdomain", "api_key": "api_key", "email_address": "email_address"}
-    )
-    assert config.subdomain == "subdomain"
-    assert config.api_key == "api_key"
-    assert config.email_address == "email_address"
-
-
 def test_get_config_for_source_resolves_every_registered_source():
     # The generator emits `<member.name.lower()>.py` modules and the static package __init__
     # derives the same names at runtime; if either side changes its rule (or a registered
     # source's module is missing/stale), resolution breaks for that source.
     for source_type in SourceRegistry.get_all_sources():
         config_cls = get_config_for_source(source_type)
-        assert config_cls.__name__ == f"{source_type.value}SourceConfig"
+        assert config_cls.__name__ == f"{source_type}SourceConfig"

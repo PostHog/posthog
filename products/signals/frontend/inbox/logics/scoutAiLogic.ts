@@ -2,15 +2,16 @@ import { MakeLogicType, actions, beforeUnmount, connect, kea, listeners, path, r
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
-
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { SCOUT_AI_PANEL } from '~/layout/ai/aiPanelIds'
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
+import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import { composerSeedLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
-import type { ActiveCreation, ComposerSeed } from 'products/posthog_ai/frontend/api/logics'
-import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
+import { composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
+import type { ComposerSeed } from 'products/posthog_ai/frontend/api/logics'
 
 import { REPORT_AI_PANEL_ID } from '../inboxTaskKickoffLogic'
 import { aiConsentDisabledReason } from '../utils/aiConsent'

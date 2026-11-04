@@ -1,6 +1,7 @@
 import { strToU8, zipSync } from 'fflate'
 import { describe, expect, it, vi } from 'vitest'
 
+import { OmnibusSkillsCache } from '@/hono/cache/OmnibusSkillsCache'
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { hashBytes } from '@/hono/cache/SharedBlobCache'
 import { SkillArchiveCache, type SkillArchiveFetchResult } from '@/hono/cache/SkillArchiveCache'
@@ -355,6 +356,37 @@ describe('SkillCatalogService', () => {
             await expect(service.warmup()).rejects.toThrow('does not match the expected SHA-256')
             expect(service.getCatalog()).toBeUndefined()
         }
+    })
+
+    it('overlays the shared omnibus skills, follows their updates, and refuses a copy that does not parse', async () => {
+        const redis = makeRedis()
+        const omnibus = new OmnibusSkillsCache(redis)
+        await omnibus.publish(makeArchive('instrument-logs'))
+        const service = new SkillCatalogService(redis, {
+            fetchArchive: async () => downloaded(makeArchive('product')),
+            omnibusSkills: omnibus,
+        })
+
+        await service.warmup()
+        expect(service.getCatalog()?.listNames()).toEqual(['instrument-logs', 'product'])
+
+        await omnibus.publish(makeArchive('instrument-tracing'))
+        await service.poll()
+        expect(service.getCatalog()?.listNames()).toEqual(['instrument-tracing', 'product'])
+
+        await expect(omnibus.publish(zipSync({ 'broken/notes.md': strToU8('no entry point') }))).rejects.toThrow(
+            'has no SKILL.md'
+        )
+        await service.poll()
+        expect(service.getCatalog()?.listNames()).toEqual(['instrument-tracing', 'product'])
+
+        const pinned = new SkillCatalogService(redis, {
+            fetchArchive: async () => downloaded(makeArchive('product')),
+            expectedArchiveSha: hashBytes(makeArchive('product')),
+            omnibusSkills: omnibus,
+        })
+        await pinned.warmup()
+        expect(pinned.getCatalog()?.listNames()).toEqual(['product'])
     })
 
     it('loads a new pin at the same URL without reusing an older cached archive', async () => {

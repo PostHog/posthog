@@ -1,3 +1,4 @@
+import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { objectCleanWithEmpty } from 'lib/utils/objects'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import {
@@ -5,8 +6,18 @@ import {
     calendarHeatmapMathTypes,
     funnelsMathTypes,
 } from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
+import {
+    SeriesNode,
+    isActionsSeriesNode,
+    isEventsSeriesNode,
+    isGroupSeriesNode,
+    isWarehouseSeriesNode,
+    seriesNodeEntityType,
+    toActionId,
+} from 'scenes/insights/filters/ActionFilter/seriesNode'
 
 import { cleanEntityProperties } from '~/queries/nodes/InsightQuery/utils/cleanProperties'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     ActionsNode,
     AnyDataWarehouseNode,
@@ -19,27 +30,40 @@ import {
     MathType,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
-import {
-    ActionFilter,
-    AnyDataWarehouseFilter,
-    BaseMathType,
-    EntityTypes,
-    FunnelDatawarehouseFilter,
-    LifecycleDatawarehouseFilter,
-    RetentionEntity,
-    TrendsDataWarehouseFilter,
-    isDataWarehouseFilter,
-    isGroupFilter,
-} from '~/types'
+import { BaseMathType, EntityTypes, FilterLogicalOperator, RetentionEntity, TemplateVariableStep } from '~/types'
 
 type DataWarehouseNodeKind =
     | NodeKind.DataWarehouseNode
     | NodeKind.FunnelsDataWarehouseNode
     | NodeKind.LifecycleDataWarehouseNode
 
+/** A stored template variable default. The template editor writes series fields into it that `TemplateVariableStep` does not declare. */
+type TemplateStep = TemplateVariableStep & {
+    math_property?: string | null
+    math_property_type?: string | null
+    math_hogql?: string | null
+    math_group_type_index?: number | null
+    optionalInFunnel?: boolean
+    operator?: FilterLogicalOperator | null
+    nestedFilters?: TemplateStep[] | null
+    table_name?: string
+    id_field?: string
+    timestamp_field?: string
+    distinct_id_field?: string
+    aggregation_target_field?: string
+    created_at_field?: string
+}
+
+function isDataWarehouseStep(step: TemplateStep): boolean {
+    return step.type === EntityTypes.DATA_WAREHOUSE
+}
+
+function isGroupStep(step: TemplateStep): boolean {
+    return step.type === EntityTypes.GROUPS
+}
+
 export const legacyEntityToNode = (
-    entity: ActionFilter | AnyDataWarehouseFilter,
+    entity: TemplateStep,
     includeProperties: boolean,
     mathAvailability: MathAvailability,
     dataWarehouseNodeKind: DataWarehouseNodeKind = NodeKind.DataWarehouseNode
@@ -51,40 +75,34 @@ export const legacyEntityToNode = (
         custom_name: entity.custom_name || undefined,
     }
 
-    if (isDataWarehouseFilter(entity)) {
+    if (isDataWarehouseStep(entity)) {
         shared = {
             ...shared,
             timestamp_field: entity.timestamp_field || undefined,
             table_name: entity.table_name || undefined,
             ...(dataWarehouseNodeKind === NodeKind.LifecycleDataWarehouseNode
                 ? {
-                      aggregation_target_field: (entity as LifecycleDatawarehouseFilter).aggregation_target_field,
-                      created_at_field: (entity as LifecycleDatawarehouseFilter).created_at_field,
+                      aggregation_target_field: entity.aggregation_target_field,
+                      created_at_field: entity.created_at_field,
                   }
                 : dataWarehouseNodeKind === NodeKind.FunnelsDataWarehouseNode
                   ? {
-                        id_field: (entity as FunnelDatawarehouseFilter).id_field || undefined,
-                        aggregation_target_field:
-                            (entity as FunnelDatawarehouseFilter).aggregation_target_field || undefined,
+                        id_field: entity.id_field || undefined,
+                        aggregation_target_field: entity.aggregation_target_field || undefined,
                     }
                   : {
-                        id_field: (entity as TrendsDataWarehouseFilter).id_field || undefined,
-                        distinct_id_field: (entity as TrendsDataWarehouseFilter).distinct_id_field || undefined,
+                        id_field: entity.id_field || undefined,
+                        distinct_id_field: entity.distinct_id_field || undefined,
                     }),
         } as DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode
     }
 
-    if (isGroupFilter(entity)) {
+    if (isGroupStep(entity)) {
         shared = {
             ...shared,
             operator: entity.operator || undefined,
             nodes: (entity.nestedFilters || []).map((v) =>
-                legacyEntityToNode(
-                    v as ActionFilter | AnyDataWarehouseFilter,
-                    includeProperties,
-                    mathAvailability,
-                    dataWarehouseNodeKind
-                )
+                legacyEntityToNode(v, includeProperties, mathAvailability, dataWarehouseNodeKind)
             ),
         } as GroupNode
     }
@@ -181,4 +199,78 @@ export const sanitizeRetentionEntity = (entity: RetentionEntity | undefined): Re
         ...('uuid' in entity ? { uuid } : {}),
         ...('custom_name' in entity ? { custom_name } : {}),
     }
+}
+
+const STEP_IDENTITY_KEYS = ['type', 'id', 'order', 'index', 'nestedFilters', 'uuid']
+const NODE_IDENTITY_KEYS = ['kind', 'version', 'event', 'id', 'nodes']
+
+/** When the picker holds more than one row, the first row of the earliest type here is the one stored. */
+const TEMPLATE_STEP_TYPES = [EntityTypes.ACTIONS, EntityTypes.EVENTS, EntityTypes.DATA_WAREHOUSE, EntityTypes.GROUPS]
+
+function omitKeys(source: Record<string, any>, keys: string[]): Record<string, any> {
+    return Object.fromEntries(Object.entries(source).filter(([key]) => !keys.includes(key)))
+}
+
+export function templateVariableStepToSeries(step: TemplateVariableStep | undefined): SeriesNode[] {
+    return step ? [templateStepToSeriesNode(step)] : []
+}
+
+function templateStepToSeriesNode(step: TemplateStep): SeriesNode {
+    const shared = omitKeys(step, STEP_IDENTITY_KEYS)
+    if (Array.isArray(shared.properties)) {
+        shared.properties = convertPropertyGroupToProperties(shared.properties)
+    }
+
+    if (step.type === EntityTypes.ACTIONS) {
+        return { ...shared, kind: NodeKind.ActionsNode, id: toActionId(step.id) } as SeriesNode
+    }
+    if (step.type === EntityTypes.GROUPS) {
+        return {
+            ...shared,
+            kind: NodeKind.GroupNode,
+            nodes: (step.nestedFilters ?? []).map(templateStepToSeriesNode),
+        } as SeriesNode
+    }
+    if (step.type === EntityTypes.DATA_WAREHOUSE) {
+        // The table name is the node's key, and a step may carry it only as its `id`.
+        const tableName = shared.table_name ?? (typeof step.id === 'string' ? step.id : undefined)
+        return {
+            ...shared,
+            kind: NodeKind.DataWarehouseNode,
+            table_name: tableName,
+            id: tableName ?? step.id,
+        } as SeriesNode
+    }
+    return { ...shared, kind: NodeKind.EventsNode, event: step.id } as SeriesNode
+}
+
+export function seriesToTemplateVariableStep(series: SeriesNode[]): TemplateVariableStep | undefined {
+    for (const type of TEMPLATE_STEP_TYPES) {
+        const order = series.findIndex((node) => seriesNodeEntityType(node) === type)
+        if (order >= 0) {
+            return seriesNodeToTemplateStep(series[order], order)
+        }
+    }
+    return undefined
+}
+
+function seriesNodeToTemplateStep(node: SeriesNode, order: number): TemplateStep {
+    let id: string | number | null = null
+    if (isEventsSeriesNode(node)) {
+        id = node.event ?? null
+    } else if (isActionsSeriesNode(node)) {
+        id = node.id
+    } else if (isWarehouseSeriesNode(node)) {
+        id = node.table_name
+    }
+
+    return {
+        ...omitKeys(node, NODE_IDENTITY_KEYS),
+        ...(isGroupSeriesNode(node)
+            ? { nestedFilters: node.nodes.map((nested, nestedOrder) => seriesNodeToTemplateStep(nested, nestedOrder)) }
+            : {}),
+        id,
+        type: seriesNodeEntityType(node),
+        order,
+    } as TemplateStep
 }
