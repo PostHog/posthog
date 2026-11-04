@@ -340,7 +340,7 @@ def test_groups_backfill_registers_through_trino_without_duckgres(
 ) -> None:
     inserts, catalog, connect_catalog, context = _run_groups_through_trino(partition_key, DucklingBackfillConfig())
 
-    connect_catalog.assert_called_once_with("org", canary=False)
+    connect_catalog.assert_called_once_with("org", canary=False, team_id=7)
     assert catalog.tables == [("groups_team_7", GROUPS_TRINO_COLUMN_TYPES)]
     [(table, files, registered_replacement)] = catalog.registered
     assert (table, registered_replacement) == ("groups_team_7", replacement)
@@ -353,6 +353,16 @@ def test_groups_backfill_registers_through_trino_without_duckgres(
     assert "toInt16(group_type_index) AS group_type_index" in insert
     assert "toDateTime64(created_at, 6, 'UTC') AS created_at" in insert
     assert context.add_output_metadata.call_args.args[0]["files_registered"] == 1
+
+
+@time_machine.travel(datetime(2026, 1, 1, tzinfo=UTC), tick=False)
+def test_groups_backfill_opts_in_to_trino_when_the_org_is_not_on_the_flag() -> None:
+    _, catalog, connect_catalog, _ = _run_groups_through_trino(
+        "7", DucklingBackfillConfig(register_through_trino=True), org_on_flag=False
+    )
+
+    connect_catalog.assert_called_once()
+    assert catalog.registered
 
 
 @pytest.mark.parametrize("partition_key", ["7", "7_2025-12-31"])
@@ -370,7 +380,7 @@ def test_groups_export_only_writes_the_trino_types_without_registering(partition
 
 
 def _run_groups_through_trino(
-    partition_key: str, config: DucklingBackfillConfig
+    partition_key: str, config: DucklingBackfillConfig, org_on_flag: bool = True
 ) -> tuple[list[str], _FakeGroupsCatalog, MagicMock, MagicMock]:
     target = DucklingTarget(team_id=7, organization_id="org", bucket="bkt", bucket_region="us-east-1")
     inserts: list[str] = []
@@ -394,7 +404,7 @@ def _run_groups_through_trino(
     with (
         patch("products.managed_warehouse.dags.groups_backfill._resolve_duckling_target", return_value=target),
         patch("products.managed_warehouse.dags.groups_backfill.resolve_groups_table", return_value="groups_team_7"),
-        patch("products.managed_warehouse.dags.groups_backfill.backfills_through_trino", return_value=True),
+        patch("products.managed_warehouse.dags.groups_backfill.backfills_through_trino", return_value=org_on_flag),
         patch("products.managed_warehouse.dags.groups_backfill._DuckgresSession") as duckgres,
         patch("products.managed_warehouse.dags.groups_backfill.record_duckling_backfill_workload"),
         patch("posthog.dags.events_backfill_to_duckling._get_cluster", return_value=cluster),
