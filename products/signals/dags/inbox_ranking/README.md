@@ -49,6 +49,13 @@ s3://<bucket>/<prefix>/
 
 The first four are report grain and land in one table. `inbox_signal_embeddings` is signal grain, feeds the group-level model, and is read on its own — training joins it to `inbox_report_model_data` by `report_id`.
 
+`inbox_report_state` also records the report's content columns, and `inbox_report_model_data` passes them through: `chart_count`, `metric_count`, `suggested_prompt_count` and `tag_count`, `content_revision_count` and `corroboration_count`, `user_authored`, and `already_addressed`.
+No model reads them yet.
+
+- The list lengths are computed in Postgres, so the job never loads chart or metric definitions. A stored value that is not a list counts as 0. A null counter is stored as 0.
+- `already_addressed` comes from the same actionability artefact as `actionability`, with the same cutoff rules. It is null when that artefact is missing, was edited after the cutoff, or holds no boolean.
+- Partitions written before `FEATURE_SCHEMA_VERSION` 11 have none of these columns. A missing column means "not recorded", not zero, so a reader must not fill it with 0. They have no backfill, because a backfill would record the report as it is today.
+
 `inbox_report_title_embeddings` is a report-grain leaf. It snapshots the `title_v1` rendering the same way `inbox_report_embeddings` snapshots `title_summary_v1`, and nothing joins it. No model family trains on it since `title_embeddings` was retired; the snapshot stays for offline reads. It carries its own `embedding_inserted_at`, because a summary-only edit re-emits only `title_summary_v1`. Its dependency on `inbox_report_model_data` is for ordering, not data — it holds a vector per live report, so it runs last and alone in the run pod. That edge has a cost: a failed join, or a run that hits the job's runtime cap, skips the title snapshot for the day, and the schedule never revisits a day. Repair such a gap with a single-asset backfill while the source rows are inside their 3-month TTL.
 
 `inbox_report_reviewers` is a (report, reviewer) leaf for user–report affinity modeling. It holds one row per entry of each spine report's current `SignalReportSuggestedReviewer` index, for teams that allow AI training. Nothing joins it, and its object carries its own schema version (`REVIEWERS_SCHEMA_VERSION`), so a failure here does not fail the training table.
