@@ -65,6 +65,23 @@
         overflow: hidden;
     }
 
+    .quill-menu__input {
+        padding: 0.25rem;
+    }
+
+    /* A filterable menu's rows scroll under its search field, which takes 2.25rem. */
+    .quill-menu__list {
+        min-height: 0;
+        max-height: min(
+            calc(var(--spacing, 0.25rem) * 72 - var(--spacing, 0.25rem) * 9),
+            calc(var(--available-height) - var(--spacing, 0.25rem) * 9)
+        );
+        padding: 0.25rem;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scroll-padding-block: 0.25rem;
+    }
+
     .quill-menu__content[data-closed] .quill-menu__scroller,
     .quill-menu__sub-content[data-closed] .quill-menu__scroller {
         overflow: hidden;
@@ -135,7 +152,12 @@
     }
 
     /* A leading avatar in a menu row takes the row's icon size, so avatars and icons line up down the menu. */
-    :is([data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-sub-trigger'], .quill-menu-item__title)
+    :is(
+            [data-slot='dropdown-menu-item'],
+            [data-slot='dropdown-menu-checkbox-item'],
+            [data-slot='dropdown-menu-sub-trigger'],
+            .quill-menu-item__title
+        )
         > [data-slot='avatar'][data-size] {
         --avatar-size: 0.875rem;
 
