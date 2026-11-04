@@ -109,8 +109,10 @@ class TestLoadTraceReviewState(BaseTest):
 
         assert load_trace_review_state(self.team, self.user, TRACE_ID) == NOTHING
 
-    @parameterized.expand(["review", "queue"])
-    def test_hides_what_the_viewer_may_not_see(self, blocked: str) -> None:
+    @parameterized.expand([("review", False), ("queue", False), ("review", True), ("queue", True)])
+    def test_hides_what_the_viewer_may_not_see_unless_they_administer_the_organization(
+        self, blocked: str, is_admin: bool
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -118,7 +120,12 @@ class TestLoadTraceReviewState(BaseTest):
         self.organization.save()
         review = self._review()
         item = self._queue_item()
-        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        member = User.objects.create_and_join(
+            self.organization,
+            "member@example.com",
+            "testtest",
+            level=OrganizationMembership.Level.ADMIN if is_admin else OrganizationMembership.Level.MEMBER,
+        )
         AccessControl.objects.create(
             team=self.team,
             resource="llm_analytics",
@@ -129,4 +136,8 @@ class TestLoadTraceReviewState(BaseTest):
 
         state = load_trace_review_state(self.team, member, TRACE_ID)
 
-        assert (state.review is None, state.queue is None) == (blocked == "review", blocked == "queue")
+        hidden = not is_admin
+        assert (state.review is None, state.queue is None) == (
+            hidden and blocked == "review",
+            hidden and blocked == "queue",
+        )
