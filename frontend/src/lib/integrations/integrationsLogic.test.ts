@@ -86,6 +86,52 @@ describe('integrationsLogic', () => {
         jest.restoreAllMocks()
     })
 
+    describe('sandbox email sender', () => {
+        const sandboxSender: IntegrationType = {
+            id: 9,
+            kind: 'email',
+            display_name: 'Acme via PostHog <sandbox@example.com>',
+            icon_url: '',
+            config: {
+                provider: 'sandbox',
+                email: 'sandbox@example.com',
+                domain: 'example.com',
+                name: 'Acme via PostHog',
+                verified: true,
+            },
+            created_at: '2026-08-18T00:00:00Z',
+        }
+        const ownSender: IntegrationType = {
+            id: 10,
+            kind: 'email',
+            display_name: 'Acme <hello@acme.example.com>',
+            icon_url: '',
+            config: { provider: 'ses', email: 'hello@acme.example.com', domain: 'acme.example.com', verified: true },
+            created_at: '2026-08-18T00:00:00Z',
+        }
+        it('keeps the sandbox row out of the own-sender lists', async () => {
+            integrationsPayload = [sandboxSender, ownSender]
+
+            await expectLogic(logic, () => {
+                logic.actions.loadIntegrations()
+            })
+                .toDispatchActions(['loadIntegrationsSuccess'])
+                .toMatchValues({
+                    ownEmailIntegrations: [expect.objectContaining({ id: ownSender.id })],
+                    userManagedIntegrations: [expect.objectContaining({ id: ownSender.id })],
+                    domainGroupedEmailIntegrations: [
+                        {
+                            domain: 'acme.example.com',
+                            integrations: [expect.objectContaining({ id: ownSender.id })],
+                        },
+                    ],
+                })
+            expect(logic.values.getIntegrationsByKind(['email'])).toEqual([
+                expect.objectContaining({ id: ownSender.id }),
+            ])
+        })
+    })
+
     describe('GitHub discovery freshness', () => {
         const discovery = (id: string): GitHubAvailableInstallationsResponseApi => ({
             discovery_id: id,

@@ -10,7 +10,12 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { ChannelSetupModal } from '../../Channels/ChannelSetupModal'
 
 export function WizardChannelStep(): JSX.Element {
-    const { integrations, setupModalOpen, setupModalType, selectedIntegration } = useValues(integrationsLogic)
+    const {
+        userManagedIntegrations: integrations,
+        setupModalOpen,
+        setupModalType,
+        selectedIntegration,
+    } = useValues(integrationsLogic)
     const { openSetupModal, closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
     const hasEmailChannel = !!integrations?.some((integration) => integration.kind === 'email')
 

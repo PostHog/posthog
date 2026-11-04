@@ -4,10 +4,13 @@ import type { ChannelType } from './MessageChannels'
 const email = (verified: boolean): any => ({ kind: 'email', config: { verified } })
 const slack = (errors?: string): any => ({ kind: 'slack', config: {}, errors })
 const github: any = { kind: 'github', config: {} }
+const sandbox: any = { kind: 'email', config: { provider: 'sandbox', verified: true } }
 
 describe('summarizeChannel', () => {
     test.each<[string, ChannelType, any[], ChannelStatus, number]>([
         ['nothing connected', 'email', [], 'not-set-up', 0],
+        ['sandbox is separate from own email setup', 'email', [sandbox], 'not-set-up', 0],
+        ['sandbox does not verify an own sender', 'email', [sandbox, email(false)], 'needs-verification', 1],
         ['other kinds do not count', 'slack', [github, email(true)], 'not-set-up', 0],
         ['an unverified email address needs verification', 'email', [email(false)], 'needs-verification', 1],
         ['one verified address makes email active', 'email', [email(false), email(true)], 'active', 2],
