@@ -1,6 +1,10 @@
-import structlog
-from celery import shared_task
+from typing import Any
 
+import structlog
+from celery import Task, shared_task
+
+from posthog.event_usage import groups
+from posthog.ph_client import ph_scoped_capture
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 
@@ -46,6 +50,7 @@ def queue_sync_mcp_server_templates() -> None:
 # A listing that fails here leaves the installation with no tool rows, and the
 # gateway refuses every call to a tool that has no row.
 @shared_task(
+    bind=True,
     ignore_result=True,
     autoretry_for=(ToolsFetchError,),
     retry_backoff=30,
@@ -54,10 +59,47 @@ def queue_sync_mcp_server_templates() -> None:
     max_retries=5,
 )
 @skip_team_scope_audit
-def sync_installation_tools_task(installation_id: str) -> None:
+def sync_installation_tools_task(self: Task, installation_id: str) -> None:
     try:
         installation = MCPServerInstallation.objects.get(id=installation_id)
     except MCPServerInstallation.DoesNotExist:
         logger.info("sync_installation_tools_task: installation gone", installation_id=installation_id)
         return
-    sync_installation_tools(installation)
+    try:
+        upstream = sync_installation_tools(installation)
+    except ToolsFetchError as exc:
+        capture_tools_sync_outcome(
+            installation,
+            "mcp_store tools sync failed",
+            {
+                "error": str(exc)[:300],
+                "attempt": self.request.retries + 1,
+                "will_retry": self.request.retries < (self.max_retries or 0),
+            },
+        )
+        raise
+    capture_tools_sync_outcome(
+        installation,
+        "mcp_store tools synced",
+        {"tool_count": len(upstream.tools), "protocol_version": upstream.protocol_version},
+    )
+
+
+def capture_tools_sync_outcome(installation: MCPServerInstallation, event: str, properties: dict[str, Any]) -> None:
+    # Captured in this task and not in sync_installation_tools, because the scoped client flushes
+    # synchronously and the sync also runs inside requests ("Refresh tools", the re-listing on a tool call).
+    template = installation.template
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=installation.user.distinct_id or str(installation.team.uuid),
+            event=event,
+            properties={
+                "server_name": template.name if template else installation.display_name,
+                "template_id": str(template.id) if template else None,
+                "server_url": installation.url,
+                "auth_type": installation.auth_type,
+                "installation_id": str(installation.id),
+                **properties,
+            },
+            groups=groups(team=installation.team),
+        )

@@ -37,6 +37,7 @@ from products.mcp_store.backend.models import (
     MCPServiceAccount,
     MCPServiceAccountServerAccess,
 )
+from products.mcp_store.backend.tools import UpstreamToolList
 
 
 class TestGetActiveInstallations(BaseTest):
@@ -999,7 +1000,9 @@ class TestCallMemberServerTool(BaseTest):
         # A connection whose connect-time listing never landed holds no rows, and
         # without a re-listing it refuses every call for the life of the connection.
         self._installation()
-        mock_fetch.return_value = [{"name": "list_events", "annotations": {"readOnlyHint": True}}]
+        mock_fetch.return_value = UpstreamToolList(
+            tools=[{"name": "list_events", "annotations": {"readOnlyHint": True}}]
+        )
 
         # Freshly listed tools are opt-in, so policy answers the call now.
         assert self._call().status == "needs_approval"
@@ -1010,7 +1013,9 @@ class TestCallMemberServerTool(BaseTest):
     def test_a_removed_tool_the_server_brought_back_is_callable_again(self, mock_call, mock_fetch) -> None:
         installation = self._installation()
         self._tool(installation, removed_at=timezone.now())
-        mock_fetch.return_value = [{"name": "list_events", "annotations": {"readOnlyHint": True}}]
+        mock_fetch.return_value = UpstreamToolList(
+            tools=[{"name": "list_events", "annotations": {"readOnlyHint": True}}]
+        )
 
         assert self._call().status == "ok"
         mock_call.assert_called_once()
@@ -1115,7 +1120,7 @@ class TestCallMemberServerTool(BaseTest):
     @parameterized.expand(
         [("disabled", "do_not_use", None, "blocked"), ("removed", "needs_approval", "removed", "tool_missing")]
     )
-    @patch("products.mcp_store.backend.tools.fetch_upstream_tools", return_value=[])
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools", return_value=UpstreamToolList(tools=[]))
     @patch("products.mcp_store.backend.facade.api.call_upstream_tool")
     def test_approval_does_not_override_blocks(
         self,
