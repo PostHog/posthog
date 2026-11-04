@@ -19,6 +19,7 @@ from posthog.integrations import IntegrationManager
 from posthog.models.team import Team
 
 from products.batch_exports.backend.logic.credentials_backfill import (
+    CredentialBackfillOutcome,
     backfill_batch_export_credentials,
     verify_batch_export_credentials,
 )
@@ -168,7 +169,7 @@ class TestBackfillBatchExportCredentials(BaseTest):
         limit: int | None = None,
         batch_size: int = 200,
         on_batch: Callable[[int], None] | None = None,
-    ) -> Counter[tuple[str, str]]:
+    ) -> Counter[CredentialBackfillOutcome]:
         with self.captureOnCommitCallbacks(execute=True):
             counts = backfill_batch_export_credentials(
                 execute=execute,
@@ -204,7 +205,10 @@ class TestBackfillBatchExportCredentials(BaseTest):
         export = self._create(destination_type)
         original = deepcopy(export.destination.config)
 
-        self.assertEqual(self._run(), {(destination_type, "integration_created"): 1})
+        self.assertEqual(
+            self._run(),
+            {CredentialBackfillOutcome(destination_type=destination_type, outcome="integration_created"): 1},
+        )
 
         export.destination.refresh_from_db()
         row = ACCESSORS[destination_type].get(self.team.id, cast(int, export.destination.integration_id))
@@ -219,7 +223,9 @@ class TestBackfillBatchExportCredentials(BaseTest):
         self.sync.assert_called_once_with(export, created=False)
         self.assertEqual(self.sync.call_args.args[0].destination.integration_id, row.id)
         self.assertEqual(self.sync.call_args.args[0].destination.config, export.destination.config)
-        self.assertEqual(self._run(), {(destination_type, "unchanged"): 1})
+        self.assertEqual(
+            self._run(), {CredentialBackfillOutcome(destination_type=destination_type, outcome="unchanged"): 1}
+        )
         self.assertEqual(len(ACCESSORS[destination_type].list(self.team.id)), 1)
         self.sync.assert_called_once()
 
@@ -228,7 +234,10 @@ class TestBackfillBatchExportCredentials(BaseTest):
         export = self._create(destination_type)
         original = deepcopy(export.destination.config)
 
-        self.assertEqual(self._run(execute=False), {(destination_type, "integration_created"): 1})
+        self.assertEqual(
+            self._run(execute=False),
+            {CredentialBackfillOutcome(destination_type=destination_type, outcome="integration_created"): 1},
+        )
 
         export.destination.refresh_from_db()
         self.assertIsNone(export.destination.integration_id)
@@ -241,7 +250,10 @@ class TestBackfillBatchExportCredentials(BaseTest):
         export = self._create(destination_type)
         row = self._existing(export)
 
-        self.assertEqual(self._run(), {(destination_type, "integration_reused"): 1})
+        self.assertEqual(
+            self._run(),
+            {CredentialBackfillOutcome(destination_type=destination_type, outcome="integration_reused"): 1},
+        )
 
         export.destination.refresh_from_db()
         self.assertEqual(export.destination.integration_id, row.id)
@@ -253,7 +265,9 @@ class TestBackfillBatchExportCredentials(BaseTest):
         row = self._existing(export, conflict=True)
         original = deepcopy(export.destination.config)
 
-        self.assertEqual(self._run(), {(destination_type, "skipped_conflict"): 1})
+        self.assertEqual(
+            self._run(), {CredentialBackfillOutcome(destination_type=destination_type, outcome="skipped_conflict"): 1}
+        )
 
         export.destination.refresh_from_db()
         self.assertIsNone(export.destination.integration_id)
@@ -273,7 +287,15 @@ class TestBackfillBatchExportCredentials(BaseTest):
         counts = self._run()
 
         export.destination.refresh_from_db()
-        self.assertEqual(counts, {(destination_type, "unchanged" if is_bigquery else "stale_secrets_removed"): 1})
+        self.assertEqual(
+            counts,
+            {
+                CredentialBackfillOutcome(
+                    destination_type=destination_type,
+                    outcome="unchanged" if is_bigquery else "stale_secrets_removed",
+                ): 1
+            },
+        )
         expected = (
             original
             if is_bigquery
@@ -307,7 +329,10 @@ class TestBackfillBatchExportCredentials(BaseTest):
         export = self._create(destination_type, config={**INLINE[destination_type], **overrides})
         original = deepcopy(export.destination.config)
 
-        self.assertEqual(self._run(), {(destination_type, "skipped_incomplete"): 1})
+        self.assertEqual(
+            self._run(),
+            {CredentialBackfillOutcome(destination_type=destination_type, outcome="skipped_incomplete"): 1},
+        )
 
         export.destination.refresh_from_db()
         self.assertIsNone(export.destination.integration_id)
@@ -319,8 +344,13 @@ class TestBackfillBatchExportCredentials(BaseTest):
     def test_unreadable_config_is_not_written(self, config: object) -> None:
         export = self._create(config=config)
 
-        self.assertEqual(self._run(), {("Postgres", "skipped_unreadable"): 1})
-        self.assertEqual(verify_batch_export_credentials(), {("Postgres", "skipped_unreadable"): 1})
+        self.assertEqual(
+            self._run(), {CredentialBackfillOutcome(destination_type="Postgres", outcome="skipped_unreadable"): 1}
+        )
+        self.assertEqual(
+            verify_batch_export_credentials(),
+            {CredentialBackfillOutcome(destination_type="Postgres", outcome="skipped_unreadable"): 1},
+        )
 
         export.destination.refresh_from_db()
         self.assertEqual(export.destination.config, config)
@@ -391,10 +421,12 @@ class TestBackfillBatchExportCredentials(BaseTest):
         self.assertEqual(authorization.config, {"name": f"{name} 2" if distinct else name})
         self.assertEqual(copy["s3_bucket"], "fake-bucket")
         self.assertEqual(copy["region_name"], "fake-region")
-        self.assertEqual(counts[("Redshift", "copy_credentials_moved")], 1)
+        self.assertEqual(
+            counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="copy_credentials_moved")], 1
+        )
         self.assertIsInstance(self.sync.call_args.args[0].destination.config["copy_inputs"]["authorization"], int)
         self.assertEqual(len(IntegrationManager.aws_s3.credentials.list(self.team.id)), 2 if distinct else 1)
-        self.assertEqual(self._run(), {("Redshift", "unchanged"): 1})
+        self.assertEqual(self._run(), {CredentialBackfillOutcome(destination_type="Redshift", outcome="unchanged"): 1})
         self.sync.assert_called_once()
 
     @parameterized.expand([("role",), ("id",), ("digit_string",), ("incomplete",)])
@@ -423,8 +455,13 @@ class TestBackfillBatchExportCredentials(BaseTest):
 
         export.destination.refresh_from_db()
         self.assertEqual(export.destination.config["copy_inputs"]["authorization"], original)
-        self.assertEqual(counts[("Redshift", "copy_credentials_moved")], 1)
-        self.assertEqual(counts[("Redshift", "copy_skipped_incomplete")], int(variant == "incomplete"))
+        self.assertEqual(
+            counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="copy_credentials_moved")], 1
+        )
+        self.assertEqual(
+            counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="copy_skipped_incomplete")],
+            int(variant == "incomplete"),
+        )
 
     @parameterized.expand([("incomplete",), ("linked",), ("preview",)])
     def test_copy_is_independent_of_connection_creation(self, variant: str) -> None:
@@ -439,7 +476,9 @@ class TestBackfillBatchExportCredentials(BaseTest):
         counts = self._run(execute=variant != "preview")
 
         export.destination.refresh_from_db()
-        self.assertEqual(counts[("Redshift", "copy_credentials_moved")], 1)
+        self.assertEqual(
+            counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="copy_credentials_moved")], 1
+        )
         if variant == "preview":
             self.assertEqual(export.destination.config, original)
             self.assertEqual(IntegrationManager.aws_s3.credentials.list(self.team.id), [])
@@ -452,7 +491,9 @@ class TestBackfillBatchExportCredentials(BaseTest):
             if variant == "incomplete":
                 self.assertIsNone(export.destination.integration_id)
                 self.assertIn("user", export.destination.config)
-                self.assertEqual(counts[("Redshift", "skipped_incomplete")], 1)
+                self.assertEqual(
+                    counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="skipped_incomplete")], 1
+                )
 
     def test_copy_conflict_prevents_all_destination_writes(self) -> None:
         export = self._create("Redshift", config={**INLINE["Redshift"], "copy_inputs": {"authorization": AWS_PAIR}})
@@ -465,7 +506,9 @@ class TestBackfillBatchExportCredentials(BaseTest):
         )
         original = deepcopy(export.destination.config)
 
-        self.assertEqual(self._run(), {("Redshift", "skipped_conflict"): 1})
+        self.assertEqual(
+            self._run(), {CredentialBackfillOutcome(destination_type="Redshift", outcome="skipped_conflict"): 1}
+        )
 
         export.destination.refresh_from_db()
         self.assertIsNone(export.destination.integration_id)
@@ -541,7 +584,9 @@ class TestBackfillBatchExportCredentials(BaseTest):
         export.destination.refresh_from_db()
         self.assertIsNotNone(export.destination.integration_id)
         self.assertEqual(self.sync.call_count, int(sync_schedules))
-        self.assertEqual(counts[("Postgres", "schedule_sync_failed")], int(fails))
+        self.assertEqual(
+            counts[CredentialBackfillOutcome(destination_type="Postgres", outcome="schedule_sync_failed")], int(fails)
+        )
         if fails:
             logger.warning.assert_called_once_with(
                 "batch_export_credentials.schedule_sync_failed",
@@ -637,8 +682,12 @@ class TestBackfillBatchExportCredentials(BaseTest):
 
         counts = verify_batch_export_credentials()
 
-        self.assertEqual(counts[("Redshift", "skipped_incomplete")], 1)
-        self.assertEqual(counts[("Redshift", "needs_integration")], 0)
-        self.assertEqual(counts[("Redshift", "needs_copy_move")], 0)
+        self.assertEqual(
+            counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="skipped_incomplete")], 1
+        )
+        self.assertEqual(counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="needs_integration")], 0)
+        self.assertEqual(counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="needs_copy_move")], 0)
         if variant == "copy":
-            self.assertEqual(counts[("Redshift", "copy_skipped_incomplete")], 1)
+            self.assertEqual(
+                counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="copy_skipped_incomplete")], 1
+            )

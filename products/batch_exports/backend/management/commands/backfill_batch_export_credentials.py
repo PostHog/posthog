@@ -64,8 +64,8 @@ class Command(BaseCommand):
                 sync_schedules=not options["no_sync_schedules"],
                 on_batch=lambda size: self.stdout.write(f"Processed destinations: {size}"),
             )
-        for (destination_type, outcome), count in sorted(counts.items()):
-            self.stdout.write(f"{destination_type} {outcome}: {count}")
+        for key, count in sorted(counts.items(), key=lambda item: (item[0].destination_type, item[0].outcome)):
+            self.stdout.write(f"{key.destination_type} {key.outcome}: {count}")
         self.stdout.write(f"Total outcomes: {sum(counts.values())}")
-        if verify and any(count for (_, outcome), count in counts.items() if outcome in NEEDS_WORK):
+        if verify and any(count for key, count in counts.items() if key.outcome in NEEDS_WORK):
             raise CommandError("Batch export credentials still need work.")

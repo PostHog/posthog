@@ -37,6 +37,12 @@ NEEDS_WORK = frozenset({"needs_integration", "needs_copy_move", "needs_stale_str
 
 
 @frozen
+class CredentialBackfillOutcome:
+    destination_type: str
+    outcome: str
+
+
+@frozen
 class _Credentials:
     accessor: AuthAccessor = field(repr=False)
     external_id: str = field(repr=False)
@@ -280,11 +286,11 @@ def _export_for_destination(destination: BatchExportDestination, team_ids: Seque
     return exports.order_by("id").first()
 
 
-def _sync_schedule(export: BatchExport, counts: Counter[tuple[str, str]]) -> None:
+def _sync_schedule(export: BatchExport, counts: Counter[CredentialBackfillOutcome]) -> None:
     try:
         sync_batch_export(export, created=False)
     except Exception as error:
-        counts[(export.destination.type, "schedule_sync_failed")] += 1
+        counts[CredentialBackfillOutcome(destination_type=export.destination.type, outcome="schedule_sync_failed")] += 1
         logger.warning(
             "batch_export_credentials.schedule_sync_failed",
             export_id=str(export.id),
@@ -336,8 +342,8 @@ def backfill_batch_export_credentials(
     batch_size: int = 200,
     sync_schedules: bool = True,
     on_batch: Callable[[int], None] | None = None,
-) -> Counter[tuple[str, str]]:
-    counts: Counter[tuple[str, str]] = Counter()
+) -> Counter[CredentialBackfillOutcome]:
+    counts: Counter[CredentialBackfillOutcome] = Counter()
     for batch in _batches(team_ids, destination_types, batch_size, limit):
         for destination in batch:
             try:
@@ -360,12 +366,12 @@ def backfill_batch_export_credentials(
                         continue
                     plan = _plan(destination, export)
                 for outcome in plan.outcomes:
-                    counts[(destination.type, outcome)] += 1
+                    counts[CredentialBackfillOutcome(destination_type=destination.type, outcome=outcome)] += 1
             except IntegrationConflict:
-                counts[(destination.type, "skipped_conflict")] += 1
+                counts[CredentialBackfillOutcome(destination_type=destination.type, outcome="skipped_conflict")] += 1
             except Exception:
                 # Database exceptions can contain credentials, so only report a count.
-                counts[(destination.type, "failed")] += 1
+                counts[CredentialBackfillOutcome(destination_type=destination.type, outcome="failed")] += 1
         if on_batch is not None:
             on_batch(len(batch))
     return counts
@@ -373,8 +379,8 @@ def backfill_batch_export_credentials(
 
 def verify_batch_export_credentials(
     *, team_ids: Sequence[int] = (), destination_types: Sequence[str] = (), batch_size: int = 200
-) -> Counter[tuple[str, str]]:
-    counts: Counter[tuple[str, str]] = Counter()
+) -> Counter[CredentialBackfillOutcome]:
+    counts: Counter[CredentialBackfillOutcome] = Counter()
     for batch in _batches(team_ids, destination_types, batch_size, None):
         for destination in batch:
             export = _export_for_destination(destination, team_ids)
@@ -382,8 +388,8 @@ def verify_batch_export_credentials(
                 continue
             plan = _plan(destination, export)
             for outcome in plan.needs:
-                counts[(destination.type, outcome)] += 1
+                counts[CredentialBackfillOutcome(destination_type=destination.type, outcome=outcome)] += 1
             for outcome in plan.outcomes:
                 if outcome.startswith("skipped_") or outcome == "copy_skipped_incomplete":
-                    counts[(destination.type, outcome)] += 1
+                    counts[CredentialBackfillOutcome(destination_type=destination.type, outcome=outcome)] += 1
     return counts
