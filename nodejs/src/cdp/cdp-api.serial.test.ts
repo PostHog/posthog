@@ -2460,16 +2460,15 @@ describe('CDP API', () => {
         })
 
         describe('with a scheduled_at', () => {
-            const sendAt = (
-                route: 'transactional_email' | 'transactional_email/send',
-                scheduledAt: string,
-                payload: Record<string, unknown> = route === 'transactional_email' ? body : { ...body, send: codeSend }
-            ) =>
+            const sendAt = (route: 'transactional_email' | 'transactional_email/send', scheduledAt: string) =>
                 sendOn(
                     route,
                     hogFlow.id,
                     { Authorization: `Bearer ${tokenFor(route, team.id, hogFlow.id)}` },
-                    { ...payload, scheduled_at: scheduledAt }
+                    {
+                        ...(route === 'transactional_email' ? body : { ...body, send: codeSend }),
+                        scheduled_at: scheduledAt,
+                    }
                 )
 
             it.each(['transactional_email', 'transactional_email/send'] as const)(
@@ -2489,6 +2488,7 @@ describe('CDP API', () => {
                     })
                     const [invocation] = mockQueueInvocations.mock.calls[0][0]
                     expect(invocation.queueScheduledAt.toJSDate().toISOString()).toEqual(scheduledAt)
+                    expect(invocation.state.scheduledAt).toEqual(scheduledAt)
                     expect(invocation.queuePriority).toEqual(0)
                     expect(emailStatusRows()).toEqual([
                         expect.objectContaining({ message_id: res.body.invocation_id, status: 'scheduled' }),

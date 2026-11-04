@@ -205,9 +205,7 @@ export class IdempotencyKeys {
         if (!stored.queued) {
             return { status: 'in_flight' }
         }
-        return stored.scheduledAt
-            ? { status: 'replayed', invocationId: stored.invocationId, scheduledAt: stored.scheduledAt }
-            : { status: 'replayed', invocationId: stored.invocationId }
+        return { status: 'replayed', invocationId: stored.invocationId, scheduledAt: stored.scheduledAt }
     }
 
     async markQueued(

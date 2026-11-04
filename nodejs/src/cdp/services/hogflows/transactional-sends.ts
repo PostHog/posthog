@@ -107,24 +107,17 @@ export class TransactionalSends {
                     return { outcome: 'idempotency_unavailable' }
             }
         }
-        let scheduledAt: Date | null = null
+        const tooFarAhead =
+            requestedAt !== null &&
+            requestedAt.getTime() > uuidtCreatedAt(invocation.id).getTime() + MAX_SCHEDULE_AHEAD_MS
+        const scheduledAt = !tooFarAhead && requestedAt && requestedAt.getTime() > Date.now() ? requestedAt : null
+        if (scheduledAt) {
+            invocation.queueScheduledAt = DateTime.fromJSDate(scheduledAt)
+            invocation.state.scheduledAt = scheduledAt.toISOString()
+        }
         try {
             stages.start('checks')
-            if (
-                requestedAt &&
-                requestedAt.getTime() > uuidtCreatedAt(invocation.id).getTime() + MAX_SCHEDULE_AHEAD_MS
-            ) {
-                if (idempotencyKey) {
-                    stages.start('idempotency')
-                    await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
-                }
-                return { outcome: 'invalid_scheduled_at' }
-            }
-            if (requestedAt && requestedAt.getTime() > Date.now()) {
-                scheduledAt = requestedAt
-                invocation.queueScheduledAt = DateTime.fromJSDate(requestedAt)
-            }
-            const refusal = await this.refusal(team.id, hogFlow, to)
+            const refusal = tooFarAhead ? 'invalid_scheduled_at' : await this.refusal(team.id, hogFlow, to)
             if (refusal) {
                 if (idempotencyKey) {
                     stages.start('idempotency')
