@@ -7,8 +7,10 @@ from unittest.mock import AsyncMock, Mock, patch
 from django.utils import timezone
 
 from parameterized import parameterized
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models.integration import Integration
+from posthog.models.integration.github_readiness import GitHubAccessUnavailable, GitHubReadiness, GitHubReadinessStatus
 
 from products.signals.backend.github_readiness import (
     check_report_github_readiness,
@@ -76,6 +78,70 @@ class TestGitHubReadiness(BaseTest):
             self.assertEqual(args[1].report_id, str(blocked.id))
             self.assertTrue(args[1].github_recovery)
             self.assertEqual(kwargs["id"], f"signals-report:{self.team.id}:{blocked.id}")
+
+    def test_recovery_continues_past_a_report_that_is_already_started(self) -> None:
+        reports = [
+            SignalReport.objects.create(
+                team=self.team,
+                status=SignalReport.Status.CANDIDATE,
+                research_blocked_reason="not_connected",
+                research_blocked_at=timezone.now(),
+            )
+            for _ in range(2)
+        ]
+        client = Mock(
+            start_workflow=AsyncMock(
+                side_effect=[WorkflowAlreadyStartedError("example-id", "signal-report-summary"), None]
+            )
+        )
+        with (
+            patch("products.signals.backend.github_readiness_tasks.async_connect", new=AsyncMock(return_value=client)),
+            patch("products.signals.backend.github_optional.feature_enabled_or_false", return_value=True),
+        ):
+            resume_github_blocked_reports(self.team.id)
+        assert {call.args[1].report_id for call in client.start_workflow.call_args_list} == {
+            str(report.id) for report in reports
+        }
+
+    @parameterized.expand(
+        [(GitHubReadinessStatus.NOT_CONNECTED, False), (GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE, True)]
+    )
+    def test_recovery_scan_stops_before_visiting_reports_while_github_is_down(
+        self, status: GitHubReadinessStatus, retries: bool
+    ) -> None:
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.CANDIDATE,
+            research_blocked_reason="not_connected",
+            research_blocked_at=timezone.now(),
+        )
+        with (
+            patch("products.signals.backend.github_optional.feature_enabled_or_false", return_value=False),
+            patch(
+                "products.signals.backend.github_readiness_tasks.get_team_github_readiness",
+                return_value=GitHubReadiness(status=status),
+            ),
+            patch("products.signals.backend.github_readiness.capture_research_access_event") as capture,
+        ):
+            if retries:
+                with self.assertRaises(GitHubAccessUnavailable):
+                    resume_github_blocked_reports(self.team.id)
+            else:
+                resume_github_blocked_reports(self.team.id)
+        capture.assert_not_called()
+        report.refresh_from_db()
+        assert report.research_blocked_reason == "not_connected"
+
+    def test_returning_to_potential_clears_the_recovery_deadline(self) -> None:
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.IN_PROGRESS,
+            research_blocked_reason="not_connected",
+            research_blocked_at=timezone.now(),
+        )
+        report.save(update_fields=report.transition_to(SignalReport.Status.POTENTIAL, reset_weight=True))
+        report.refresh_from_db()
+        assert (report.research_blocked_reason, report.research_blocked_at) == (None, None)
 
     def test_recovery_respects_source_scout_and_scanner_controls(self) -> None:
         scanner_id = "00000000-0000-4000-8000-000000000001"

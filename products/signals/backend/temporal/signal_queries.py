@@ -613,6 +613,7 @@ class FetchSignalsForReportInput:
     team_id: int
     report_id: str
     enabled_sources_only: bool = False
+    for_research: bool = False
     required_signal_id: str | None = None
 
 
@@ -683,11 +684,17 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
         fetched_signal_count = len(signals)
         # A run that a new signal starts on a GitHub-blocked report has no recovery input, so the
         # persisted blocker also selects the filter, even after the workflow claims the report.
-        if signals and (
-            input.enabled_sources_only
-            or await SignalReport.objects.filter(
-                team_id=input.team_id, id=input.report_id, research_blocked_reason__isnull=False
-            ).aexists()
+        # Deletion, reingestion and grouping read this too and need every signal: deletion leaves
+        # any signal it cannot see in ClickHouse.
+        if (
+            signals
+            and input.for_research
+            and (
+                input.enabled_sources_only
+                or await SignalReport.objects.filter(
+                    team_id=input.team_id, id=input.report_id, research_blocked_reason__isnull=False
+                ).aexists()
+            )
         ):
             signals = await database_sync_to_async(enabled_recovery_signals, thread_sensitive=False)(
                 input.team_id, signals

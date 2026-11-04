@@ -5,6 +5,7 @@ from django.conf import settings
 from asgiref.sync import async_to_sync
 from celery import shared_task
 from temporalio.common import WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.celery_queues import CeleryQueue
 from posthog.models import Team
@@ -13,10 +14,12 @@ from posthog.models.scoping import with_team_scope
 from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.daily_limit import daily_report_limit_gate
+from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.github_readiness import check_report_github_readiness, github_blocked_reports
 from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import self_driving_quota_gate
 from products.signals.backend.temporal.types import SignalReportSummaryWorkflowInputs
+from products.tasks.backend.facade.github_readiness import get_team_github_readiness
 
 RECOVERY_BATCH_SIZE = 25
 
@@ -58,10 +61,22 @@ def resume_github_blocked_reports(team_id: int, after_report_id: str | None = No
         or daily_report_limit_gate(team).limited
     ):
         return
+    # Every new pause queues this scan. Stop here while GitHub is still down, because a pass over each
+    # report for each pause makes a burst of pauses quadratic and repeats the blocked telemetry.
+    if not ResearchAccessPolicy.enabled(team_id):
+        readiness = get_team_github_readiness(team_id, verify=True)
+        if readiness.status == GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE:
+            raise GitHubAccessUnavailable(readiness.status)
+        if readiness.status != GitHubReadinessStatus.READY:
+            return
     report_ids = list(reports.order_by("id").values_list("id", flat=True)[:RECOVERY_BATCH_SIZE])
     for report_id in report_ids:
         if check_report_github_readiness(team_id, str(report_id), recovery=True):
-            async_to_sync(start_recovered_report)(team_id, str(report_id))
+            try:
+                async_to_sync(start_recovered_report)(team_id, str(report_id))
+            except WorkflowAlreadyStartedError:
+                # An earlier recovery event started this report and a worker has not claimed it yet.
+                continue
         elif SignalReport.objects.filter(
             team_id=team_id, id=report_id, research_blocked_reason=GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE
         ).exists():
