@@ -90,6 +90,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { filterVariablesReferencedInQuery } from '~/queries/nodes/InsightViz/queryUtils'
+import { DataVisualizationRenderer, InsightVizRenderer } from '~/queries/Query/queryNodeRenderers'
 import {
     BreakdownFilter,
     CompareFilter,
@@ -4482,6 +4483,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
     })),
     events(({ actions, props, values, cache }) => ({
         afterMount: () => {
+            // Insight and SQL tiles render through these. Fetch them alongside the dashboard itself.
+            void InsightVizRenderer.preload()
+            void DataVisualizationRenderer.preload()
             // NOTE: initial dashboard load is done after variables are loaded in initialVariablesLoaded
             if (!Number.isFinite(props.id)) {
                 actions.dashboardNotFound()

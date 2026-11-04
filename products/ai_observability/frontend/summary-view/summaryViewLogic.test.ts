@@ -178,6 +178,20 @@ describe('summaryViewLogic', () => {
         expect(reported.message).toBe(NETWORK_ERROR_MESSAGES.offline)
     })
 
+    test.each([
+        ['an expired-content 404', 'content_expired', false],
+        ['a missing-trace 404', 'not_found', true],
+    ])('%s with code %s reaches error tracking: %s', async (_label, code, reported) => {
+        const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        const detail = 'The message content for this event is no longer available.'
+        mockSummarization(Promise.reject(new ApiError(detail, 404, undefined, { detail, code })))
+
+        await generateSummary()
+
+        expect(logic.values.summaryError).toBe(detail)
+        expect(captureSpy.mock.calls.length > 0).toBe(reported)
+    })
+
     it('keeps the panel loading when a newer summary replaces an in-flight one', async () => {
         summarizationPendingUntilAborted()
         logic = summaryViewLogic({ trace, tree: [] })

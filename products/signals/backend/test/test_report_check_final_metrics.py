@@ -26,7 +26,12 @@ from products.signals.backend.report_check_execution import run_due_report_check
 from products.signals.backend.report_check_final_candidates import FinalCheck
 from products.signals.backend.report_check_final_metrics import collect_due_final_metrics, run_due_final_metrics
 from products.signals.backend.report_check_metric_evaluation import metric_evidence_source
-from products.signals.backend.report_checks import MAX_CONSECUTIVE_CHECK_ERRORS, MetricThresholdConfig
+from products.signals.backend.report_checks import (
+    MAX_CONSECUTIVE_CHECK_ERRORS,
+    CheckConfigValidationError,
+    MetricThresholdConfig,
+    validate_metric_check_for_write,
+)
 from products.signals.backend.report_metric_refresh import MetricMeasurement, MetricQueryBudgetExhausted
 from products.signals.backend.report_monitoring_attempts import check_definition_version, complete_implementation
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
@@ -36,6 +41,49 @@ _FLAG = "products.signals.backend.report_content_gates.feature_enabled_or_false"
 
 
 class TestMetricEvidenceAdapter(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("count", True),
+            ("linear", False),
+            ("lte", False),
+            ("zero", False),
+            ("fractional", False),
+            ("sum", False),
+            ("sampled", False),
+            ("formula", False),
+            ("session_count", False),
+        ]
+    )
+    def test_minimum_evidence_requires_an_absolute_sample_count(self, variant: str, valid: bool) -> None:
+        query = trends_metric_query(series=[{"kind": "EventsNode", "event": "submission", "math": "total"}])
+        if variant == "sum":
+            query["source"]["series"][0].update(math="sum", math_property="amount")
+        elif variant == "sampled":
+            query["source"]["samplingFactor"] = 0.5
+        elif variant == "formula":
+            query["source"]["trendsFilter"] = {"formula": "A * 2"}
+        elif variant == "session_count":
+            query["source"]["series"][0]["math_property_type"] = "session_properties"
+        config = MetricThresholdConfig.model_validate(
+            {
+                "query": query,
+                "comparison": {
+                    "operator": "lte" if variant == "lte" else "gte",
+                    "value": {"zero": 0, "fractional": 0.5}.get(variant, 200),
+                },
+                "monitoring": {
+                    "purpose": "minimum_evidence",
+                    "reference_period_minutes": 120,
+                    "threshold_scaling": "linear" if variant == "linear" else "fixed",
+                },
+            }
+        )
+        if valid:
+            validate_metric_check_for_write(config)
+        else:
+            with self.assertRaises(CheckConfigValidationError):
+                validate_metric_check_for_write(config)
+
     @parameterized.expand(
         [
             ("ratio", "formula", "A / B", "total", "rate"),
@@ -140,6 +188,7 @@ class TestFinalMetricExecution(BaseTest):
         formula: bool = False,
         scaling: str = "fixed",
         event: str = "checkout",
+        purpose: str | None = None,
         rate_formula: str | None = None,
     ) -> FinalCheck:
         config = {
@@ -152,6 +201,8 @@ class TestFinalMetricExecution(BaseTest):
             config["query"]["source"]["series"][0]["math_property_type"] = math_property_type
         if definition:
             config["monitoring"] = {"reference_period_minutes": 120, "threshold_scaling": scaling}
+            if purpose is not None:
+                config["monitoring"]["purpose"] = purpose
         if formula:
             config["query"]["source"]["trendsFilter"] = {"formula": "A * 2"}
         if rate_formula is not None:
@@ -198,6 +249,9 @@ class TestFinalMetricExecution(BaseTest):
             ("zero_count", "total", 0, "inconclusive"),
             ("zero_sum", "sum", 0, "inconclusive"),
             ("negative_sum", "sum", -1, "inconclusive"),
+            ("guard_below_minimum", "total", 3, "inconclusive", None, None, "minimum_evidence"),
+            ("guard_no_samples", "total", 0, "inconclusive", None, None, "minimum_evidence"),
+            ("guard_at_minimum", "total", 10, "passed", None, None, "minimum_evidence"),
             ("rate_pass", "total", 0.01, "passed", "A / B", 100),
             ("terminated_rate", "total", 0.01, "passed", "A / B;", 100),
             ("rate_fail", "total", 0.03, "failed", "A / B", 100),
@@ -215,8 +269,9 @@ class TestFinalMetricExecution(BaseTest):
         outcome: str,
         rate_formula: str | None = None,
         denominator: int | None = None,
+        purpose: str | None = None,
     ) -> None:
-        member = self._member(math=math, rate_formula=rate_formula)
+        member = self._member(math=math, rate_formula=rate_formula, purpose=purpose)
         source_values = None
         if denominator is not None:
             numerator = value * denominator / (100 if rate_formula and "100" in rate_formula else 1)
@@ -264,12 +319,18 @@ class TestFinalMetricExecution(BaseTest):
         assert self.report.status == expected_status
         assert member.check.runs_remaining == 3
         assert member.check.last_outcome == (outcome if outcome in {"passed", "failed"} else None)
-        if denominator == 0:
+        if purpose == "minimum_evidence" and outcome == "inconclusive":
+            assert result.evidence_status == "insufficient" and result.evidence_reason == "minimum_evidence_not_met"
+            assert result.expectation_matches is None
+        elif denominator == 0:
             assert result.evidence_status == "insufficient" and result.evidence_reason == "empty_denominator"
         elif value == 0 and rate_formula is None:
             assert result.evidence_status == "insufficient" and result.evidence_reason == "activity_unavailable"
         elif value < 0:
             assert result.evidence_status == "unsupported"
+        attempt = SignalReportMonitoringAttempt.objects.for_team(self.team.id).get(id=member.attempt_id)
+        assert (attempt.assessment_requested_at is not None) == (outcome == "inconclusive")
+        assert (attempt.research_requested_at is not None) == (outcome == "failed")
 
     @parameterized.expand(
         [

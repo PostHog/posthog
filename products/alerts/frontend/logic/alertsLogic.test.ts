@@ -2,11 +2,15 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
+import * as takeOwnership from 'lib/components/openTakeOwnershipDialog'
 import { urls } from 'scenes/urls'
 
 import { AlertState } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { HogFunctionType } from '~/types'
+
+import * as generatedApi from 'products/alerts/frontend/generated/api'
 
 import { AlertType } from '../types'
 import { alertsLogic } from './alertsLogic'
@@ -121,6 +125,38 @@ describe('alertsLogic', () => {
         resolveDelete()
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ deletingAlertIds: new Set() })
+        logic.unmount()
+    })
+
+    it('offers to take ownership when enabling is refused for the owner, then reloads', async () => {
+        updateSpy = jest
+            .spyOn(api.alerts, 'update')
+            .mockRejectedValue(new ApiError('refused', 400, undefined, { code: 'owner_lost_access' }))
+        const takeSpy = jest.spyOn(generatedApi, 'alertsTakeOwnershipCreate').mockResolvedValue({} as any)
+        const dialogSpy = jest
+            .spyOn(takeOwnership, 'openTakeOwnershipDialog')
+            .mockImplementation(async ({ takeOwnership: take }) => {
+                await take()
+                return true
+            })
+
+        const logic = alertsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        listSpy.mockClear()
+
+        logic.actions.toggleAlertEnabled({ ...alert, enabled: false })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dialogSpy).toHaveBeenCalledWith(
+            expect.objectContaining({ resourceLabel: 'alert', resourceId: alert.id, cause: 'lost_access' })
+        )
+        expect(takeSpy).toHaveBeenCalledWith(expect.any(String), alert.id)
+        expect(listSpy).toHaveBeenCalledTimes(1)
+        expect(logic.values.togglingAlertIds).toEqual(new Set())
+
+        takeSpy.mockRestore()
+        dialogSpy.mockRestore()
         logic.unmount()
     })
 
