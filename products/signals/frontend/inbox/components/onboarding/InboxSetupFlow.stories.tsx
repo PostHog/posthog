@@ -8,7 +8,7 @@ import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
-import { expect } from 'storybook/test'
+import { expect, userEvent } from 'storybook/test'
 
 import type { InboxOnboardingDraftApi } from '../../../generated/api.schemas'
 import { mockScoutSuggestionSet, mockScoutConfigs } from '../../__mocks__/scoutConfigs'
@@ -344,6 +344,26 @@ export const QuickEntry = {
         }),
     ],
 } satisfies Story
+
+export const QuickEntryWithGithubAccessExplanation: Story = {
+    ...QuickEntry,
+    name: 'Welcome with GitHub access explanation',
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.SELF_DRIVING_GITHUB_ACCESS_EXPLANATION]: 'test' },
+    },
+    play: async ({ canvas }) => {
+        const explanation = await canvas.findByText('Why do we ask for GitHub access?')
+        await userEvent.click(explanation)
+        await expect(canvas.getByText('We will never push to GitHub without your permission.')).toBeVisible()
+    },
+}
+
+export const GithubWithAccessExplanation: Story = {
+    ...Github,
+    name: 'Review with GitHub access explanation',
+    parameters: QuickEntryWithGithubAccessExplanation.parameters,
+    play: QuickEntryWithGithubAccessExplanation.play,
+}
 
 export const NarrowWelcomeEntry: Story = {
     ...QuickEntry,

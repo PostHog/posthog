@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { useScoutCreateDisabledReason } from '../config/scouts/ScoutCreateModalHost'
+import { InboxGithubAccessExplanation } from './InboxGithubAccessExplanation'
 
 export function InboxQuickSetupAction(): JSX.Element {
     const { connectGithub, activateQuickSetup, resumeQuickSetup, retry } = useActions(inboxSetupLogic)
@@ -55,18 +56,21 @@ export function InboxQuickSetupAction(): JSX.Element {
             ) : restrictionReason ? (
                 <IntegrationAccessRequest kind="github" name="GitHub" />
             ) : (
-                <GithubIntegration
-                    next={combineUrl(urls.inbox(), { onboarding_step: 'quick' }).url}
-                    connectSurface="inbox_welcome"
-                    onAuthorize={connectGithub}
-                    authorizing={saving || (integrationsLoading && integrations === null)}
-                    connectText="Connect GitHub"
-                    emphasizeConnect
-                    showPersonalConnectionHelp={false}
-                    showManageButton={false}
-                    integrationSuffix={<></>}
-                    connectDescription=""
-                />
+                <>
+                    <GithubIntegration
+                        next={combineUrl(urls.inbox(), { onboarding_step: 'quick' }).url}
+                        connectSurface="inbox_welcome"
+                        onAuthorize={connectGithub}
+                        authorizing={saving || (integrationsLoading && integrations === null)}
+                        connectText="Connect GitHub"
+                        emphasizeConnect
+                        showPersonalConnectionHelp={false}
+                        showManageButton={false}
+                        integrationSuffix={<></>}
+                        connectDescription=""
+                    />
+                    <InboxGithubAccessExplanation />
+                </>
             )}
             {error && (
                 <LemonBanner type="error" className="w-full">
