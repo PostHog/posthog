@@ -8,7 +8,7 @@
             "type": "number"
         },
         "text": {
-            "description": "ILIKE substring match against `content`. Omit to return the most recent entries.",
+            "description": "ILIKE substring match against `content` and `key`. Must contain 3 letters or digits in a row, or 2 next to a symbol such as `ai_` or `pr:`. Omit to return the most recent entries.",
             "type": "string"
         }
     },
