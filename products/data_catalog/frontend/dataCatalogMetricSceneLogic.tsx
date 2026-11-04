@@ -614,7 +614,9 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             }
             actions.setMutating(true)
             try {
-                actions.setMetric(await dataCatalogMetricsApproveCreate(projectId(), props.name))
+                const approved = await dataCatalogMetricsApproveCreate(projectId(), props.name)
+                actions.setMetric(approved)
+                lemonToast.success(`Approved ${approved.display_name || approved.name}`)
             } catch (error) {
                 if (error instanceof ApiError && error.status === 409) {
                     lemonToast.error(

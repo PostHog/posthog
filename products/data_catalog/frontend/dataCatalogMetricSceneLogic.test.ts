@@ -338,6 +338,17 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(logic.values.mutating).toBe(false)
     })
 
+    it('confirms an approval by the metric display name', async () => {
+        ;(dataCatalogMetricsApproveCreate as jest.Mock).mockResolvedValue(
+            buildMetric({ status: 'approved', display_name: 'Weekly active users' })
+        )
+
+        logic.actions.approveMetric()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lemonToast.success).toHaveBeenCalledWith('Approved Weekly active users')
+    })
+
     it('surfaces refresh when approve returns 409 and leaves the metric untouched', async () => {
         ;(dataCatalogMetricsApproveCreate as jest.Mock).mockRejectedValue(new ApiError('drifted', 409))
 
