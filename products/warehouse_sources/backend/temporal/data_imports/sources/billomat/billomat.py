@@ -245,6 +245,65 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             },
             "table_format": "delta",
         },
+        "Reminders": {
+            "name": "Reminders",
+            "table_name": "reminders",
+            "write_disposition": write_disposition,
+            "endpoint": {
+                "data_selector": '"reminders"."reminder"',
+                "path": "/reminders",
+                "params": {
+                    "per_page": _PER_PAGE,
+                    "order_by": "date ASC",
+                    "from": _incremental_param() if should_use_incremental_field else None,
+                },
+            },
+            "table_format": "delta",
+        },
+        "Articles": {
+            "name": "Articles",
+            "table_name": "articles",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": '"articles"."article"',
+                "path": "/articles",
+                "params": {
+                    "per_page": _PER_PAGE,
+                    "order_by": "id ASC",
+                },
+            },
+            "table_format": "delta",
+        },
+        "DeliveryNotes": {
+            "name": "DeliveryNotes",
+            "table_name": "delivery_notes",
+            "write_disposition": write_disposition,
+            "endpoint": {
+                "data_selector": '"delivery-notes"."delivery-note"',
+                "path": "/delivery-notes",
+                "params": {
+                    "per_page": _PER_PAGE,
+                    "order_by": "date ASC",
+                    "from": _incremental_param() if should_use_incremental_field else None,
+                },
+            },
+            "table_format": "delta",
+        },
+        "ActivityFeed": {
+            "name": "ActivityFeed",
+            "table_name": "activity_feed",
+            "write_disposition": "replace",
+            "endpoint": {
+                # The feed documents only `page`, with no `total` or sort option, so paging ends
+                # on the first empty page.
+                "data_selector": '"activity-feed"."activity"',
+                "path": "/activity-feed",
+                "params": {
+                    "per_page": _PER_PAGE,
+                },
+            },
+            "table_format": "delta",
+        },
     }
     return resources[name]
 

@@ -987,20 +987,11 @@ class APIScopePermission(ScopeBasePermission):
 
         missing_scopes = scopes_missing_after_legacy_fallback(request, view, key_scopes, required_scopes)
         if missing_scopes:
-            # A token type can answer with its own error, such as the RFC 6750 challenge workload tokens get.
+            # A token type can answer with its own error, such as the policy link a workload token gets.
             insufficient_scope_error = getattr(type(authenticator), "insufficient_scope_error", None)
             if insufficient_scope_error is not None:
                 raise insufficient_scope_error(authenticator, view, required_scopes, missing_scopes)
-            self.message = f"API key missing required scope '{missing_scopes[0]}'"
-            # Internal scopes cannot be granted at consent, so a challenge naming one could never succeed.
-            if (
-                isinstance(authenticator, OAuthAccessTokenAuthentication)
-                and authenticator.access_token.supports_step_up
-                and scope_object != "INTERNAL"
-                and not action_targets_internal
-            ):
-                raise InsufficientScope(detail=self.message, required_scopes=required_scopes)
-            return False
+            raise InsufficientScope(required_scopes, detail=f"API key missing required scope '{missing_scopes[0]}'")
 
         return True
 

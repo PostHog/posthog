@@ -352,6 +352,7 @@ class TestSharePointSiteTables:
         [
             ("drives", "drives"),
             ("content_types", "contentTypes"),
+            ("site_pages", "pages/microsoft.graph.sitePage"),
         ]
     )
     def test_reads_each_site_collection(self, endpoint: str, collection: str) -> None:
@@ -485,6 +486,66 @@ class TestSharePointVersions:
         assert resumed.raised is None
         assert _g("/drives/b!drive-a/root/delta") not in resumed.urls
         assert [(row["item_id"], row["id"]) for row in resumed.rows] == [("f1", "2.0"), ("f1", "1.0"), ("f3", "1.0")]
+
+    def test_drive_item_permissions_cover_folders_and_hide_anonymous_links(self) -> None:
+        routes: dict[str, Route] = {
+            **SITE_A_ROUTE,
+            _g(f"/sites/{SITE_A}/drives"): {"value": [{"id": "b!drive-a"}]},
+            _g("/drives/b!drive-a/root/delta"): {
+                "value": [
+                    {"id": "root", "root": {}, "folder": {}},
+                    {"id": "f1", "file": {}},
+                    {"id": "gone", "deleted": {}},
+                    {"id": "f1", "file": {}},
+                ]
+            },
+            _g("/drives/b!drive-a/items/root/permissions"): {
+                "value": [{"id": "owners", "roles": ["owner"], "grantedToV2": {"siteGroup": {"id": "3"}}}]
+            },
+            _g("/drives/b!drive-a/items/f1/permissions"): {
+                "value": [
+                    {"id": "owners", "roles": ["owner"], "inheritedFrom": {"id": "root"}},
+                    {
+                        "id": "anon-link",
+                        "roles": ["read"],
+                        "shareId": "u!fake-share-token",
+                        "link": {
+                            "scope": "anonymous",
+                            "type": "view",
+                            "webUrl": "https://contoso.example.com/:x:/anon",
+                        },
+                    },
+                    {
+                        "id": "org-link",
+                        "roles": ["write"],
+                        "shareId": "u!fake-org-token",
+                        "link": {
+                            "scope": "organization",
+                            "type": "edit",
+                            "webUrl": "https://contoso.example.com/:x:/org",
+                        },
+                    },
+                ]
+            },
+        }
+
+        result = _run("drive_item_permissions", routes, site_urls=SITE_A_URL)
+
+        assert result.raised is None
+        rows = {(row["drive_id"], row["item_id"], row["id"]): row for row in result.rows}
+        assert list(rows) == [
+            ("b!drive-a", "root", "owners"),
+            ("b!drive-a", "f1", "owners"),
+            ("b!drive-a", "f1", "anon-link"),
+            ("b!drive-a", "f1", "org-link"),
+        ]
+        assert rows[("b!drive-a", "f1", "anon-link")]["link"] == {"scope": "anonymous", "type": "view"}
+        assert "shareId" not in rows[("b!drive-a", "f1", "anon-link")]
+        assert rows[("b!drive-a", "f1", "org-link")]["link"]["webUrl"] == "https://contoso.example.com/:x:/org"
+        assert [url for url in result.urls if "/permissions" in url] == [
+            _g("/drives/b!drive-a/items/root/permissions"),
+            _g("/drives/b!drive-a/items/f1/permissions"),
+        ]
 
     def test_list_item_versions_skip_hidden_lists_and_expand_fields(self) -> None:
         routes: dict[str, Route] = {
