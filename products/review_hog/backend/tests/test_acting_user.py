@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
@@ -15,6 +16,8 @@ from products.review_hog.backend.models import (
 from products.review_hog.backend.reviewer.progress import run_outcome_markers
 from products.review_hog.backend.temporal.activities import ResolveActingUserInput, _resolve_acting_user
 from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_MANUAL, TRIGGER_STAMPHOG
+
+ACTIVITIES = "products.review_hog.backend.temporal.activities"
 
 _SELF = "SELF"
 
@@ -85,6 +88,8 @@ class TestResolveActingUser(BaseTest):
             ("placeholder_account_name", True, True, True, True, False, "installation-1234", "1234"),
             # Draft reviews are off in the repository, so a queued draft run stops when it starts.
             ("draft_in_a_repository_without_drafts", True, True, True, True, False, "PostHog", None, True),
+            # Marked ready after the fetch: the queue dropped the ready request, so GitHub's state decides.
+            ("draft_marked_ready_after_the_fetch", True, True, True, True, False, "PostHog", None, False),
         ]
     )
     def test_automatic_trigger_rechecks_eligible_author(
@@ -97,8 +102,9 @@ class TestResolveActingUser(BaseTest):
         full_published: bool,
         account_name: str,
         installation_id: str | None,
-        draft: bool = False,
+        draft_on_github: bool | None = None,
     ) -> None:
+        draft = draft_on_github is not None
         Integration.objects.create(
             team=self.team, kind="github", integration_id="1234", config={"account": {"name": account_name}}
         )
@@ -127,19 +133,26 @@ class TestResolveActingUser(BaseTest):
         self.user.save(update_fields=["is_active"])
         if not member:
             self.user.organization_memberships.filter(organization=self.organization).delete()
-        result = _resolve_acting_user(
-            ResolveActingUserInput(
-                team_id=self.team.id,
-                author_login="octocat",
-                override_user_id=self.user.id,
-                trigger_source=TRIGGER_AUTOMATIC,
-                report_id=str(report.id),
-                repository="posthog/PostHog",
-                installation_id=installation_id,
-                draft=draft,
+        github_pull = MagicMock()
+        github_pull.json.return_value = {"draft": draft_on_github}
+        with (
+            patch(f"{ACTIVITIES}._installation_auth", return_value=("token", "1234")),
+            patch(f"{ACTIVITIES}.github_api_request", return_value=github_pull),
+        ):
+            result = _resolve_acting_user(
+                ResolveActingUserInput(
+                    team_id=self.team.id,
+                    author_login="octocat",
+                    override_user_id=self.user.id,
+                    trigger_source=TRIGGER_AUTOMATIC,
+                    report_id=str(report.id),
+                    repository="posthog/PostHog",
+                    installation_id=installation_id,
+                    draft=draft,
+                    pr_number=7,
+                )
             )
-        )
-        eligible = opted_in and active and member and repository_added and not full_published and not draft
+        eligible = opted_in and active and member and repository_added and not full_published and not draft_on_github
         assert result.acting_user_id == (self.user.id if eligible else None)
         # The workflow gates the automatic run on this flag after the resolve.
         assert result.review_authored_prs is eligible

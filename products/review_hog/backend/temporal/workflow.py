@@ -552,6 +552,7 @@ class ReviewPRWorkflow:
                 installation_id=inputs.installation_id,
                 github_repo_id=inputs.github_repo_id,
                 draft=meta.draft,
+                pr_number=meta.pr_number,
                 head_branch=branch,
                 review_mode=inputs.review_mode,
             ),

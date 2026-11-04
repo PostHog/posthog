@@ -363,6 +363,8 @@ class ResolveActingUserInput:
     # Whether the PR was a draft when the turn fetched it, for the automatic trigger's re-check of the draft rules.
     # False in older payloads, which reviews the draft as before.
     draft: bool = False
+    # Read GitHub again before a draft skip. None in older payloads, which keeps the fetched draft state.
+    pr_number: int | None = None
     # The PR's head branch, which links a self-driving PR to its Inbox report. The fetch refuses forks,
     # so the branch is in the base repository. None in older payloads: such a PR then has no owner.
     head_branch: str | None = None
@@ -1007,6 +1009,22 @@ async def fetch_pr_data_activity(input: FetchPRDataInput) -> ReviewMeta:
     return await database_sync_to_async(_fetch_and_persist, thread_sensitive=False)(input)
 
 
+def _pr_is_draft_now(repository: str, pr_number: int, *, token: str, installation_id: str | None) -> bool:
+    """The PR's draft state on GitHub now. A failed read counts as ready, so the gate reviews the push."""
+    try:
+        response = github_api_request(
+            "GET",
+            f"/repos/{repository}/pulls/{pr_number}",
+            token=token,
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            installation_id=installation_id,
+        )
+    except (GitHubAPIError, GitHubRateLimitError, GitHubEgressBudgetExhausted, requests.RequestException):
+        logger.warning("Could not re-read the draft state of %s#%s; reviewing the push", repository, pr_number)
+        return False
+    return response.json().get("draft") is True
+
+
 def _login_to_user_id(team_id: int, login: str | None) -> int | None:
     if not login:
         return None
@@ -1021,15 +1039,27 @@ def _automatic_review_allowed(input: ResolveActingUserInput, acting_user_id: int
         report = ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).first()
         if full_review_published(report):
             return False
-    return automatic_flash_allowed(
-        team_id=input.team_id,
-        repository=input.repository,
-        user_id=acting_user_id,
-        author_login=input.author_login,
-        installation_id=input.installation_id,
-        github_repo_id=input.github_repo_id,
-        draft=input.draft,
-    )
+    repository, user_id = input.repository, acting_user_id
+
+    def allowed(draft: bool) -> bool:
+        return automatic_flash_allowed(
+            team_id=input.team_id,
+            repository=repository,
+            user_id=user_id,
+            author_login=input.author_login,
+            installation_id=input.installation_id,
+            github_repo_id=input.github_repo_id,
+            draft=draft,
+        )
+
+    if allowed(input.draft):
+        return True
+    if not input.draft or input.pr_number is None or not allowed(False):
+        return False
+    # The queue drops a ready request for the head this turn already holds, so a PR marked ready after the
+    # fetch would stay unreviewed. Same re-read as the push gate.
+    token, installation_id = _installation_auth(input.team_id, repository)
+    return not _pr_is_draft_now(repository, input.pr_number, token=token, installation_id=installation_id)
 
 
 def _flash_after_full(input: ResolveActingUserInput) -> bool:
@@ -2450,22 +2480,6 @@ def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision, d
         },
         groups=groups(team=report.team),
     )
-
-
-def _pr_is_draft_now(repository: str, pr_number: int, *, token: str, installation_id: str | None) -> bool:
-    """The PR's draft state on GitHub now. A failed read counts as ready, so the gate reviews the push."""
-    try:
-        response = github_api_request(
-            "GET",
-            f"/repos/{repository}/pulls/{pr_number}",
-            token=token,
-            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
-            installation_id=installation_id,
-        )
-    except (GitHubAPIError, GitHubRateLimitError, GitHubEgressBudgetExhausted, requests.RequestException):
-        logger.warning("Could not re-read the draft state of %s#%s; reviewing the push", repository, pr_number)
-        return False
-    return response.json().get("draft") is True
 
 
 def _previous_turn_findings(input: GatePushInput) -> int | None:
