@@ -3280,6 +3280,16 @@ class TestUserReportCreateAPI(APIBaseTest):
         judge.assert_not_awaited()
         assert not SignalReport.objects.filter(team=self.team).exists()
 
+    def test_create_is_refused_when_the_organization_has_not_approved_ai_processing(self) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        with _safe_judge() as judge, patch(EMBED_PATH):
+            response = self.client.post(self._url(), self._payload(), format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert "AI data processing" in response.json()["detail"]
+        judge.assert_not_awaited()
+        assert not SignalReport.objects.filter(team=self.team).exists()
+
     def test_daily_cap_is_per_user_and_checked_after_replay_and_before_the_judge(self) -> None:
         with _safe_judge(), patch(EMBED_PATH):
             first = self.client.post(self._url(), self._payload(idempotency_key="first"), format="json")
