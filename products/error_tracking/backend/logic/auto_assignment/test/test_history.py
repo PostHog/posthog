@@ -13,6 +13,8 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models import User
+from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.facade.testing import create_role
 from products.error_tracking.backend.logic.auto_assignment.evidence import (
@@ -104,12 +106,20 @@ def _vector(*values: float) -> list[float]:
 
 class TestSimilarAssignedIssues(ClickhouseTestMixin, BaseTest):
     def _issue(
-        self, fingerprint: str, vector: list[float], *, assignee: Literal["user"] | UUID | None = "user"
+        self,
+        fingerprint: str,
+        vector: list[float],
+        *,
+        assignee: Literal["user", "neither"] | User | UUID | None = "user",
     ) -> ErrorTrackingIssue:
         issue = ErrorTrackingIssue.objects.create(team=self.team, name=fingerprint)
         self._fingerprint(issue, fingerprint, vector)
         if assignee == "user":
             ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, user=self.user)
+        elif assignee == "neither":
+            ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team)
+        elif isinstance(assignee, User):
+            ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, user=assignee)
         elif assignee is not None:
             ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, role_id=assignee)
         return issue
@@ -136,6 +146,10 @@ class TestSimilarAssignedIssues(ClickhouseTestMixin, BaseTest):
         role_id = create_role(organization_id=self.organization.id, name="Backend")
         by_role = self._issue("by-role", _vector(1.0, 2.0), assignee=role_id)
         self._issue("unassigned", _vector(1.0), assignee=None)
+        self._issue("no-user-or-role", _vector(1.0), assignee="neither")
+        former_member = self._create_user("former@example.com")
+        OrganizationMembership.objects.filter(user=former_member, organization=self.organization).delete()
+        self._issue("former-member", _vector(1.0), assignee=former_member)
         late = self._issue("assigned-later", _vector(1.0))
         seen_later = self._issue("seen-later", _vector(1.0))
         target = self._issue("target", _vector(1.0))

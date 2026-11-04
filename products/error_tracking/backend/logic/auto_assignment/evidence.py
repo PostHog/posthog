@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 from functools import cached_property
 
+from django.db.models import Exists, OuterRef, Q
+
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.schema.document_embeddings import HOGQL_EMBEDDING_TABLES
@@ -10,6 +12,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.models.organization import OrganizationMembership
 
 from products.error_tracking.backend.logic.issue_changes import AssigneeRef
 from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
@@ -87,6 +90,11 @@ class IssueEvidence:
         # The fingerprint, its issue and the assignment must all predate this issue, so a backtest over past issues
         # does not see them early. A reassignment keeps the row's original created_at, so a backtest still sees the
         # latest assignee, not the one at the time.
+        assignee_is_member = Exists(
+            OrganizationMembership.objects.filter(
+                user_id=OuterRef("issue__assignment__user_id"), organization_id=self.team.organization_id
+            )
+        )
         rows = (
             ErrorTrackingIssueFingerprintV2.objects.filter(
                 team_id=self.team.id,
@@ -95,13 +103,19 @@ class IssueEvidence:
                 issue__created_at__lt=self.created_at,
                 issue__assignment__created_at__lt=self.created_at,
             )
+            .alias(assignee_is_member=assignee_is_member)
+            # Removing a member from the organization keeps their assignments, and legacy assignments have neither a
+            # user nor a role. Neither can be assigned again, so neither votes.
+            .filter(
+                Q(issue__assignment__user_id__isnull=False, assignee_is_member=True)
+                | Q(issue__assignment__user_id__isnull=True, issue__assignment__role_id__isnull=False)
+            )
             .exclude(issue_id=self.issue_id)
             .order_by("-first_seen")
             .values_list("fingerprint", "issue_id", "issue__assignment__user_id", "issue__assignment__role_id")
         )[:MAX_ASSIGNED_FINGERPRINTS]
         fingerprints: dict[str, tuple[str, AssigneeRef]] = {}
         for fingerprint, issue_id, user_id, role_id in rows:
-            # Deleting a user or a role deletes its assignments, so one of the two is always set.
             assignee = (
                 AssigneeRef(type="user", id=str(user_id))
                 if user_id is not None
