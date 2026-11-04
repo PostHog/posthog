@@ -2,14 +2,14 @@ import { useActions, useValues } from 'kea'
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text, cn } from '@posthog/quill'
 
-import { TZLabel } from 'lib/components/TZLabel'
-
-import { checkDisplayName, checkTypeLabel } from '../checksConstants'
+import { checkDisplayName } from '../checksConstants'
 import { NARROW_ONLY, WIDE_ONLY_CELL } from '../checkTableLayout'
 import { dataQualityCheckEditorLogic } from '../dataQualityCheckEditorLogic'
 import type { DataQualityOverviewCheckApi } from '../generated/api.schemas'
+import { QuillCheckDefinitionCells } from '../QuillCheckDefinitionCells'
+import { QuillCheckLastRunCells } from '../QuillCheckLastRunCells'
 import { QuillCheckRowMenu } from '../QuillCheckRowMenu'
-import { QuillCheckRunsTable } from '../QuillCheckRunsTable'
+import { QuillCheckRunsRow } from '../QuillCheckRunsRow'
 import { QuillCheckStatusCell } from '../QuillCheckStatusCell'
 import { QuillRowExpandButton } from '../QuillRowExpandButton'
 import { useExpandedRowIds } from '../useExpandedRowIds'
@@ -22,7 +22,6 @@ import {
 import { focusFirstAvailable } from './focusFirstAvailable'
 
 const COLUMN_COUNT = 7
-const EMPTY_VALUE = '-'
 
 function CheckRows({
     check,
@@ -65,18 +64,8 @@ function CheckRows({
                         </div>
                     </div>
                 </TableCell>
-                <TableCell valign="top" className={cn(WIDE_ONLY_CELL, 'whitespace-nowrap')}>
-                    {checkTypeLabel(check.check_type)}
-                </TableCell>
-                <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                    {check.column_name || EMPTY_VALUE}
-                </TableCell>
-                <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                    <QuillCheckStatusCell check={check} />
-                </TableCell>
-                <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                    {check.last_run_at ? <TZLabel time={check.last_run_at} /> : EMPTY_VALUE}
-                </TableCell>
+                <QuillCheckDefinitionCells check={check} />
+                <QuillCheckLastRunCells check={check} />
                 <TableCell valign="top" align="right" className="w-0">
                     <QuillCheckRowMenu
                         checkName={name}
@@ -100,21 +89,12 @@ function CheckRows({
                 </TableCell>
             </TableRow>
             {expanded && (
-                <TableRow>
-                    <TableCell colSpan={COLUMN_COUNT}>
-                        <div className="flex flex-col gap-2">
-                            {check.description && (
-                                <Text size="xs" variant="muted" className="m-0">
-                                    {check.description}
-                                </Text>
-                            )}
-                            <QuillCheckRunsTable
-                                runs={checkRunsByCheckId[check.id] ?? []}
-                                loading={runsLoadingByCheckId[check.id]}
-                            />
-                        </div>
-                    </TableCell>
-                </TableRow>
+                <QuillCheckRunsRow
+                    colSpan={COLUMN_COUNT}
+                    description={check.description}
+                    runs={checkRunsByCheckId[check.id] ?? []}
+                    loading={runsLoadingByCheckId[check.id]}
+                />
             )}
         </>
     )

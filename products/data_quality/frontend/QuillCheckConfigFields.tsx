@@ -13,7 +13,7 @@ export function QuillCheckConfigFields({ checkType }: { checkType: CheckTypeEnum
                 <QuillCheckFormField name="acceptedValues" label="Allowed values">
                     {({ value, onChange }) => (
                         <TagsCombobox
-                            value={value ?? []}
+                            value={((value ?? []) as unknown[]).map(String)}
                             onChange={onChange}
                             placeholder="Add a value"
                             customValueNoun="value"

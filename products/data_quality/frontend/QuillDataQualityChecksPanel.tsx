@@ -1,30 +1,18 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { IconPlus } from '@posthog/icons'
-import {
-    Badge,
-    Button,
-    Empty,
-    EmptyContent,
-    EmptyDescription,
-    EmptyHeader,
-    EmptyTitle,
-    Heading,
-    Skeleton,
-    Text,
-} from '@posthog/quill'
+import { Button, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle, Skeleton, Text } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
-import { HEALTH_BADGE_VARIANTS } from './checkBadgeVariants'
-import { HEALTH_LABELS } from './checksConstants'
 import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { DataQualityChecksLogicProps, dataQualityChecksLogic } from './dataQualityChecksLogic'
 import { QuillCheckCallout } from './QuillCheckCallout'
 import { QuillCheckEditorDialog } from './QuillCheckEditorDialog'
+import { QuillChecksPanelBanners } from './QuillChecksPanelBanners'
+import { QuillChecksPanelHeader } from './QuillChecksPanelHeader'
 import { QuillChecksTable } from './QuillChecksTable'
 import { QuillMetricChecksEmptyState } from './QuillMetricChecksEmptyState'
 import { QuillSuiteRunsHistory } from './QuillSuiteRunsHistory'
@@ -71,19 +59,8 @@ export function QuillDataQualityChecksPanel({
     ...logicProps
 }: QuillDataQualityChecksPanelProps): JSX.Element | null {
     const logic = dataQualityChecksLogic(logicProps)
-    const {
-        health,
-        checks,
-        checksLoading,
-        checksLoadError,
-        checksLoaded,
-        enabledChecksCount,
-        isSuiteRunning,
-        pollTimedOut,
-        runAllInFlight,
-        accessDenied,
-    } = useValues(logic)
-    const { runAll, loadChecks, loadHealth, upsertCheck, runCheck } = useActions(logic)
+    const { checks, checksLoading, checksLoadError, checksLoaded, accessDenied } = useValues(logic)
+    const { loadChecks, loadHealth, upsertCheck, runCheck } = useActions(logic)
 
     const editorProps: DataQualityCheckEditorLogicProps = {
         surface: `subject:${logicProps.subjectType}:${logicProps.subjectId}`,
@@ -142,54 +119,12 @@ export function QuillDataQualityChecksPanel({
     return (
         <BindLogic logic={dataQualityCheckEditorLogic} props={editorProps}>
             <div className="flex flex-col gap-3" data-attr="data-quality-checks-panel">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <Heading size="base" render={<h3 className="m-0" />}>
-                            {hideTitle ? 'Checks' : 'Data quality'}
-                        </Heading>
-                        {health && (
-                            <Badge variant={HEALTH_BADGE_VARIANTS[health.health] ?? 'default'}>
-                                {HEALTH_LABELS[health.health] ?? health.health}
-                            </Badge>
-                        )}
-                        {health && health.checks_total > 0 && (
-                            <Text size="xs" variant="muted" render={<span />}>
-                                {`${health.checks_failing} of ${health.checks_total} failing`}
-                            </Text>
-                        )}
-                        {health?.health === 'unknown' && (
-                            <Text size="xs" variant="muted" render={<span />}>
-                                Run checks to see health
-                            </Text>
-                        )}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                        <Button
-                            variant="outline"
-                            onClick={runAll}
-                            loading={runAllInFlight || isSuiteRunning}
-                            disabledReason={
-                                checksLoading
-                                    ? 'Loading checks'
-                                    : enabledChecksCount === 0
-                                      ? 'No enabled checks to run'
-                                      : undefined
-                            }
-                            data-attr="data-quality-run-all"
-                        >
-                            Run all checks
-                        </Button>
-                        <Button
-                            variant="primary"
-                            onClick={addCheck}
-                            disabledReason={newCheckDisabledReason}
-                            data-attr="data-quality-new-check"
-                        >
-                            <IconPlus />
-                            New check
-                        </Button>
-                    </div>
-                </div>
+                <QuillChecksPanelHeader
+                    {...logicProps}
+                    hideTitle={hideTitle}
+                    onAddCheck={addCheck}
+                    newCheckDisabledReason={newCheckDisabledReason}
+                />
 
                 {notice}
 
@@ -200,30 +135,7 @@ export function QuillDataQualityChecksPanel({
                     </Text>
                 )}
 
-                {checksLoadError && (
-                    <QuillCheckCallout tone="warning" action={{ label: 'Retry', onClick: loadChecks }}>
-                        Could not refresh the checks. Showing the latest available results.
-                    </QuillCheckCallout>
-                )}
-                {isSuiteRunning && (
-                    <QuillCheckCallout tone="info" busy>
-                        Running checks...
-                    </QuillCheckCallout>
-                )}
-                {pollTimedOut && (
-                    <QuillCheckCallout
-                        tone="warning"
-                        action={{
-                            label: 'Refresh',
-                            onClick: () => {
-                                loadChecks()
-                                loadHealth()
-                            },
-                        }}
-                    >
-                        Checks are still running. Check back in a few minutes.
-                    </QuillCheckCallout>
-                )}
+                <QuillChecksPanelBanners {...logicProps} />
 
                 <QuillChecksTable {...logicProps} columns={columnNames} outputSchema={outputSchema} />
 

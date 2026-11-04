@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 
 import {
     Combobox,
@@ -56,13 +56,14 @@ function TagsComboboxInner({
     className,
 }: TagsComboboxProps): JSX.Element {
     const [inputValue, setInputValue] = useState('')
+    const createPrefix = `__create__${useId()}:`
     const trimmed = inputValue.trim()
     const showCreateItem =
         allowCustomValues && trimmed.length > 0 && !value.includes(trimmed) && !options.includes(trimmed)
 
     // Synthetic items list: existing options + (optionally) the "Create X" sentinel at the bottom.
     const items: string[] = [...options]
-    const createSentinel = `__create__:${trimmed}`
+    const createSentinel = `${createPrefix}${trimmed}`
     if (showCreateItem) {
         items.push(createSentinel)
     }
@@ -75,9 +76,7 @@ function TagsComboboxInner({
             value={value}
             onValueChange={(next: string[]) => {
                 // Convert any sentinel selection into the real typed value, dedupe.
-                const cleaned = (next ?? []).map((v) =>
-                    v.startsWith('__create__:') ? v.slice('__create__:'.length) : v
-                )
+                const cleaned = (next ?? []).map((v) => (v === createSentinel ? trimmed : v))
                 onChange(Array.from(new Set(cleaned)))
                 setInputValue('')
             }}
@@ -133,7 +132,7 @@ function TagsComboboxBody({
                     {(values) => (
                         <>
                             {(values as string[])
-                                .filter((v) => !v.startsWith('__create__:'))
+                                .filter((v) => v !== createSentinel)
                                 .map((v) => (
                                     <ComboboxChip key={v} title={v}>
                                         {v}

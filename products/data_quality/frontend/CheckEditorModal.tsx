@@ -18,19 +18,15 @@ import {
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import type { CodeEditorProps } from 'lib/monaco/CodeEditor'
-import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { urls } from 'scenes/urls'
-
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 
 import type { DataQualitySubjectRef } from './checksApi'
 import { checkTypeLabel, subjectTypeLabel } from './checksConstants'
+import { CustomSqlCodeEditor } from './CustomSqlCodeEditor'
+import { CodeEditorInstance, insertOutputColumn } from './customSqlEditor'
 import { dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { CheckTypeEnumApi, DataQualityCheckSeverityEnumApi } from './generated/api.schemas'
 import { formatPreviewCell } from './previewCell'
-
-type CodeEditorInstance = Parameters<NonNullable<CodeEditorProps['onMount']>>[0]
 
 export function CheckEditorModal(): JSX.Element {
     const {
@@ -301,32 +297,13 @@ function CustomSqlField(): JSX.Element {
         customSqlPreviewLoading,
         customSqlPreviewStale,
         customSqlPreviewVerdict,
-        customSqlQueryKey,
-        customSqlSourceQuery,
         isMetricSubject,
         availableOutputSchema,
         metricOutputSchemaError,
         metricOutputSchemaLoading,
     } = useValues(dataQualityCheckEditorLogic)
-    const { loadMetricOutputSchema, runCustomSqlPreview, setCustomSqlEditorError, setCustomSqlValidationLoading } =
-        useActions(dataQualityCheckEditorLogic)
+    const { loadMetricOutputSchema, runCustomSqlPreview } = useActions(dataQualityCheckEditorLogic)
     const editorRef = useRef<CodeEditorInstance | null>(null)
-
-    const insertOutputColumn = (columnName: string): void => {
-        const editor = editorRef.current
-        const selection = editor?.getSelection()
-        if (!editor || !selection) {
-            return
-        }
-        editor.executeEdits('data-quality-output-schema', [
-            {
-                range: selection,
-                text: escapePropertyAsHogQLIdentifier(columnName),
-                forceMoveMarkers: true,
-            },
-        ])
-        editor.focus()
-    }
 
     const previewRows = customSqlPreview?.rows ?? []
     // Key and index by position, not by column name: HogQL can return two columns with the same name
@@ -352,23 +329,7 @@ function CustomSqlField(): JSX.Element {
         >
             {({ value, onChange }) => (
                 <div className="flex flex-col gap-2">
-                    <CodeEditorResizeable
-                        language="hogQL"
-                        value={value ?? ''}
-                        onChange={(query) => onChange(query ?? '')}
-                        queryKey={customSqlQueryKey}
-                        sourceQuery={customSqlSourceQuery}
-                        metadataQuery={isMetricSubject ? '' : undefined}
-                        onError={isMetricSubject ? undefined : setCustomSqlEditorError}
-                        onMetadataLoading={isMetricSubject ? undefined : setCustomSqlValidationLoading}
-                        onPressCmdEnter={isMetricSubject ? undefined : () => runCustomSqlPreview(undefined)}
-                        onMount={(editor) => {
-                            editorRef.current = editor
-                        }}
-                        autoFocus
-                        minHeight="8rem"
-                        maxHeight="40vh"
-                    />
+                    <CustomSqlCodeEditor value={value} onChange={onChange} editorRef={editorRef} />
                     <div className="rounded border bg-surface-primary overflow-hidden">
                         <div className="flex items-center justify-between gap-2 px-3 py-2 border-b">
                             <div>
@@ -404,7 +365,7 @@ function CustomSqlField(): JSX.Element {
                                         type="tertiary"
                                         size="small"
                                         fullWidth
-                                        onClick={() => insertOutputColumn(column.name)}
+                                        onClick={() => insertOutputColumn(editorRef.current, column.name)}
                                         data-attr="data-quality-check-output-column"
                                     >
                                         <span className="flex items-center justify-between gap-2 w-full">

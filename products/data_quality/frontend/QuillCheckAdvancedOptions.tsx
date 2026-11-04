@@ -1,5 +1,4 @@
-import { useValues } from 'kea'
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
 
 import {
     Badge,
@@ -80,11 +79,11 @@ function LookbackFields(): JSX.Element | null {
 }
 
 export function QuillCheckAdvancedOptions(): JSX.Element {
-    const { advancedOptionsSetCount, advancedOptionsHaveErrors } = useValues(dataQualityCheckEditorLogic)
-    const [open, setOpen] = useState(false)
+    const { advancedOptionsSetCount, advancedOptionsOpen } = useValues(dataQualityCheckEditorLogic)
+    const { setAdvancedOptionsOpen } = useActions(dataQualityCheckEditorLogic)
 
     return (
-        <Collapsible open={open || advancedOptionsHaveErrors} onOpenChange={setOpen}>
+        <Collapsible open={advancedOptionsOpen} onOpenChange={setAdvancedOptionsOpen}>
             <CollapsibleTrigger data-attr="data-quality-check-advanced-options">
                 Advanced options
                 {advancedOptionsSetCount > 0 && (

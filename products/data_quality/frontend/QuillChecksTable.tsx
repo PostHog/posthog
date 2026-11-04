@@ -17,23 +17,22 @@ import {
     cn,
 } from '@posthog/quill'
 
-import { TZLabel } from 'lib/components/TZLabel'
-
 import { SEVERITY_BADGE_VARIANTS } from './checkBadgeVariants'
-import { checkDisplayName, checkTypeLabel } from './checksConstants'
+import { checkDisplayName } from './checksConstants'
 import { NARROW_ONLY, SKELETON_ROW_COUNT, WIDE_ONLY_CELL } from './checkTableLayout'
 import { dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { DataQualityChecksLogicProps, dataQualityChecksLogic } from './dataQualityChecksLogic'
 import type { DataQualityCheckApi, DataQualityOutputColumnApi } from './generated/api.schemas'
+import { QuillCheckDefinitionCells } from './QuillCheckDefinitionCells'
+import { QuillCheckLastRunCells } from './QuillCheckLastRunCells'
 import { QuillCheckRowMenu } from './QuillCheckRowMenu'
-import { QuillCheckRunsTable } from './QuillCheckRunsTable'
+import { QuillCheckRunsRow } from './QuillCheckRunsRow'
 import { QuillCheckStatusCell } from './QuillCheckStatusCell'
 import { QuillRowExpandButton } from './QuillRowExpandButton'
 import { useExpandedRowIds } from './useExpandedRowIds'
 
 const COLUMN_COUNT = 9
 const DEFAULT_SEVERITY = 'error'
-const EMPTY_VALUE = '-'
 
 function aiTooltip(check: DataQualityCheckApi): string {
     const confidence =
@@ -121,12 +120,7 @@ function CheckRows({
                 <TableCell expand valign="top">
                     <NameCell check={check} />
                 </TableCell>
-                <TableCell valign="top" className={cn(WIDE_ONLY_CELL, 'whitespace-nowrap')}>
-                    {checkTypeLabel(check.check_type)}
-                </TableCell>
-                <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                    {check.column_name || EMPTY_VALUE}
-                </TableCell>
+                <QuillCheckDefinitionCells check={check} />
                 <TableCell valign="top" className={WIDE_ONLY_CELL}>
                     <SeverityBadge check={check} />
                 </TableCell>
@@ -139,12 +133,7 @@ function CheckRows({
                         data-attr="data-quality-check-enabled"
                     />
                 </TableCell>
-                <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                    <QuillCheckStatusCell check={check} />
-                </TableCell>
-                <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                    {check.last_run_at ? <TZLabel time={check.last_run_at} /> : EMPTY_VALUE}
-                </TableCell>
+                <QuillCheckLastRunCells check={check} />
                 <TableCell valign="top" align="right" className="w-0">
                     <QuillCheckRowMenu
                         checkName={name}
@@ -163,21 +152,12 @@ function CheckRows({
                 </TableCell>
             </TableRow>
             {expanded && (
-                <TableRow>
-                    <TableCell colSpan={COLUMN_COUNT}>
-                        <div className="flex flex-col gap-2">
-                            {check.description && (
-                                <Text size="xs" variant="muted" className="m-0">
-                                    {check.description}
-                                </Text>
-                            )}
-                            <QuillCheckRunsTable
-                                runs={checkRunsByCheckId[check.id] ?? []}
-                                loading={pendingCheckActions.loadingRuns[check.id]}
-                            />
-                        </div>
-                    </TableCell>
-                </TableRow>
+                <QuillCheckRunsRow
+                    colSpan={COLUMN_COUNT}
+                    description={check.description}
+                    runs={checkRunsByCheckId[check.id] ?? []}
+                    loading={pendingCheckActions.loadingRuns[check.id]}
+                />
             )}
         </>
     )

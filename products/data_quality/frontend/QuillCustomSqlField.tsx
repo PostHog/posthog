@@ -15,17 +15,12 @@ import {
     cn,
 } from '@posthog/quill'
 
-import type { CodeEditorProps } from 'lib/monaco/CodeEditor'
-import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
-
+import { CustomSqlCodeEditor } from './CustomSqlCodeEditor'
+import { CodeEditorInstance, insertOutputColumn } from './customSqlEditor'
 import { CustomSqlPreview, dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { formatPreviewCell } from './previewCell'
 import { QuillCheckCallout } from './QuillCheckCallout'
 import { QuillCheckFormField } from './QuillCheckFormField'
-
-type CodeEditorInstance = Parameters<NonNullable<CodeEditorProps['onMount']>>[0]
 
 const PREVIEW_ROW_LIMIT = 10
 
@@ -162,29 +157,10 @@ function PreviewResult(): JSX.Element | null {
 }
 
 export function QuillCustomSqlField(): JSX.Element {
-    const {
-        customSqlEditorError,
-        customSqlPreviewLoading,
-        customSqlPreviewStale,
-        customSqlQueryKey,
-        customSqlSourceQuery,
-        isMetricSubject,
-    } = useValues(dataQualityCheckEditorLogic)
-    const { runCustomSqlPreview, setCustomSqlEditorError, setCustomSqlValidationLoading } =
-        useActions(dataQualityCheckEditorLogic)
+    const { customSqlEditorError, customSqlPreviewLoading, customSqlPreviewStale, isMetricSubject } =
+        useValues(dataQualityCheckEditorLogic)
+    const { runCustomSqlPreview } = useActions(dataQualityCheckEditorLogic)
     const editorRef = useRef<CodeEditorInstance | null>(null)
-
-    const insertOutputColumn = (columnName: string): void => {
-        const editor = editorRef.current
-        const selection = editor?.getSelection()
-        if (!editor || !selection) {
-            return
-        }
-        editor.executeEdits('data-quality-output-schema', [
-            { range: selection, text: escapePropertyAsHogQLIdentifier(columnName), forceMoveMarkers: true },
-        ])
-        editor.focus()
-    }
 
     return (
         <QuillCheckFormField
@@ -198,24 +174,8 @@ export function QuillCustomSqlField(): JSX.Element {
         >
             {({ value, onChange }) => (
                 <div className="flex flex-col gap-2">
-                    <CodeEditorResizeable
-                        language="hogQL"
-                        value={value ?? ''}
-                        onChange={(query) => onChange(query ?? '')}
-                        queryKey={customSqlQueryKey}
-                        sourceQuery={customSqlSourceQuery}
-                        metadataQuery={isMetricSubject ? '' : undefined}
-                        onError={isMetricSubject ? undefined : setCustomSqlEditorError}
-                        onMetadataLoading={isMetricSubject ? undefined : setCustomSqlValidationLoading}
-                        onPressCmdEnter={isMetricSubject ? undefined : () => runCustomSqlPreview(undefined)}
-                        onMount={(editor) => {
-                            editorRef.current = editor
-                        }}
-                        autoFocus
-                        minHeight="8rem"
-                        maxHeight="40vh"
-                    />
-                    <AvailableColumns onInsert={insertOutputColumn} />
+                    <CustomSqlCodeEditor value={value} onChange={onChange} editorRef={editorRef} />
+                    <AvailableColumns onInsert={(columnName) => insertOutputColumn(editorRef.current, columnName)} />
                     {!isMetricSubject && (
                         <div className="flex flex-col items-end gap-1">
                             <Button
