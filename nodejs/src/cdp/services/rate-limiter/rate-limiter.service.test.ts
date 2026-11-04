@@ -470,6 +470,15 @@ describe('RateLimiterService', () => {
     })
 
     describe('claimAllOrNothing', () => {
+        it('refills a bucket that a claim emptied', async () => {
+            const bucket = { key: `${KEY}/refill`, requested: 1, capacity: 1, refillPerSecond: 5 }
+
+            expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: false })
+            await new Promise((resolve) => setTimeout(resolve, 300))
+            expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
+        })
+
         it('spends an unanswered claim once when the same EVAL is replayed', async () => {
             const bucket = { key: `${KEY}/claim-replay`, requested: 1, capacity: 2, refillPerSecond: 0 }
             const replayingRedis: RedisV2 = {

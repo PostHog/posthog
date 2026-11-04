@@ -109,6 +109,7 @@ Otherwise every send through it skips with a reason in the run log and a `workfl
 It sends workflow email steps and test sends only: a broadcast or a transactional API email through it skips with a reason in the run log.
 Every To, CC, and BCC address must belong to an active member of the team's active organization with a verified email address.
 The check ignores case, and the worker delivers to the address as the member stored it, not as the step wrote it.
+When two members stored the address in different cases, the step must write one of them exactly, or the send skips.
 The worker checks recipients against a membership snapshot at most one minute old when it prepares the send, and reads membership fresh right before delivery.
 A membership check that fails or takes longer than 3 seconds skips the send and lists the blocked addresses in the run log.
 The blocked event fires at most once an hour per team, reason, and send kind (workflow or test).
