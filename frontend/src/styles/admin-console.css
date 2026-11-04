@@ -1,15 +1,6 @@
-/* Source for the stylesheet the staff console (/admin/console/) loads.
- *
- * The console is server-rendered Django, so it cannot import quill's React components. It uses
- * quill's tokens and primitive CSS instead, in the import order frontend/src/design.md gives, and
- * the templates write quill's `quill-*` classes. Quill does not promise those class names across
- * minor versions, so posthog/admin/test_admin_console.py fails when a template uses a
- * class this build no longer contains.
- *
- * Regenerate with `pnpm --filter=@posthog/frontend build:admin-console` after editing a console
- * template. The output is committed so the dev server and collectstatic both have it, the same way
- * frontend/public/message-preferences.css is.
- */
+/* Source for the staff console stylesheet. Rebuild with `pnpm --filter=@posthog/frontend build:admin-console`
+ * after editing a console template. Quill does not promise its class names across minor versions, so
+ * posthog/admin/test_admin_console.py fails when a template class is missing from the build. */
 
 /* `source(none)` stops Tailwind from scanning frontend/src, which would add every utility the app
  * uses. Only the console templates decide what ships. */

@@ -16,7 +16,7 @@ const OUT_DIR = path.join(FRONTEND, 'public/admin-console')
 
 const FONT_FACES = ['RoundHog-latin', 'RoundHog-Medium-latin', 'RoundHog-SemiBold-latin', 'RoundHog-Bold-latin']
 
-// Hoggies show up at moments, not in working areas. The PNG is a fraction of the SVG's size.
+// PNG, because each SVG is several times larger.
 const HOGGIES = ['traffic-police', 'asleep', 'stamp-approved', 'desk-wizard']
 
 const require = createRequire(import.meta.url)
