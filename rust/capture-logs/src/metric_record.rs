@@ -55,22 +55,17 @@ pub struct KafkaMetricRow {
     pub retention_days: Option<i32>,
 }
 
-/// Billable size of one point, independent of wire format and batching: value, buckets, name and every label.
+const POINT_BYTES: u64 = 24;
+const LABEL_BYTES: u64 = 8;
+const HISTOGRAM_BUCKET_BYTES: u64 = 8;
+
+/// Billable size of one point: 24 bytes, plus 8 bytes for each label and each histogram bucket.
+/// The size uses counts, not string lengths, so customers can predict it from what they send.
+/// The wire format, batch size and name lengths do not change it.
 pub fn compute_kafka_metric_row_bytes(row: &KafkaMetricRow) -> u64 {
-    let mut total = size_of::<f64>()
-        + size_of::<f64>() * row.histogram_bounds.len()
-        + size_of::<i64>() * row.histogram_counts.len()
-        + row.metric_name.len();
-    // Scope and unit are short and compress well, so they count only when a sender inflates them.
-    for field in [&row.instrumentation_scope, &row.unit] {
-        if field.len() > 50 {
-            total += field.len();
-        }
-    }
-    for (k, v) in row.resource_attributes.iter().chain(&row.attributes) {
-        total += k.len() + v.len();
-    }
-    total as u64
+    let labels = (row.resource_attributes.len() + row.attributes.len()) as u64;
+    let buckets = row.histogram_counts.len() as u64;
+    POINT_BYTES + LABEL_BYTES * labels + HISTOGRAM_BUCKET_BYTES * buckets
 }
 
 pub fn sum_kafka_metric_row_bytes(rows: &[KafkaMetricRow]) -> u64 {
@@ -609,7 +604,7 @@ mod tests {
     }
 
     #[test]
-    fn test_row_bytes_count_value_buckets_name_and_every_label() {
+    fn test_row_bytes_count_points_labels_and_buckets_not_lengths() {
         let mut row = build_test_row(&[]);
         row.metric_name = "rpc.latency".to_string();
         row.histogram_bounds = vec![1.0, 5.0];
@@ -617,17 +612,18 @@ mod tests {
         row.resource_attributes = HashMap::from([("host".to_string(), "web-1".to_string())]);
         row.attributes = HashMap::from([("route".to_string(), "/api".to_string())]);
 
-        assert_eq!(
-            compute_kafka_metric_row_bytes(&row),
-            8 + 16 + 24 + 11 + 9 + 9
-        );
+        assert_eq!(compute_kafka_metric_row_bytes(&row), 24 + 2 * 8 + 3 * 8);
 
-        // The second row's overridden timestamp adds a 43-byte `$originalTimestamp` label.
-        row.instrumentation_scope = "s".repeat(51);
-        row.unit = "u".repeat(60);
+        row.metric_name = "m".repeat(200);
+        row.instrumentation_scope = "s".repeat(200);
+        row.unit = "u".repeat(200);
+        row.attributes = HashMap::from([("r".repeat(100), "v".repeat(100))]);
+        assert_eq!(compute_kafka_metric_row_bytes(&row), 24 + 2 * 8 + 3 * 8);
+
+        // The second row's overridden timestamp adds a `$originalTimestamp` label.
         assert_eq!(
             sum_kafka_metric_row_bytes(&[row, build_test_row(&[])]),
-            8 + 16 + 24 + 11 + 9 + 9 + 51 + 60 + (8 + "test.metric".len() as u64 + 43)
+            (24 + 2 * 8 + 3 * 8) + (24 + 8)
         );
     }
 
