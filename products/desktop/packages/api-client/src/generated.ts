@@ -12037,11 +12037,11 @@ export namespace Schemas {
          */
         last_run: HogFlowLastRun | null;
         /**
-         * How many suggested changes are waiting for a person on this workflow. Counted on the list only.
+         * How many suggested changes are waiting for a person on this workflow. Counted on list and summary pages, null on a single-workflow read.
          */
         pending_suggestions: number | null;
         /**
-         * Whether someone turned suggestions on for this workflow. Read on the list only.
+         * Whether someone turned suggestions on for this workflow. Read on list and summary pages, null on a single-workflow read.
          */
         suggestions_enabled: boolean | null;
     };
