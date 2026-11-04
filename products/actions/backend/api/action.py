@@ -51,8 +51,9 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.actions.backend.facade.contracts import ACTION_STEP_MATCHING_OPTIONS
 from products.actions.backend.facade.enums import ACTION_REFERENCE_JSONPATH, ACTIONS_ARRAY_JSONPATH
-from products.actions.backend.models.action import ACTION_STEP_MATCHING_OPTIONS, Action
+from products.actions.backend.models.action import Action
 from products.actions.backend.models.selector_match_change import ActionSelectorMatchChange
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
