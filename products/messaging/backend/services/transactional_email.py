@@ -494,7 +494,7 @@ def send_code_email(
     distinct_id: str | None,
     idempotency_key: str | None = None,
 ) -> QueuedEmail:
-    _check_send_request(to, idempotency_key)
+    _check_send_request(to, idempotency_key, (*email.cc, *email.bcc))
     with transactional_email_stage("workflow_lookup"):
         accepted_send = _accepted_send(team.id, email)
         hog_flow_id = _code_email_workflow_id(team.id, email.key)
@@ -502,7 +502,7 @@ def send_code_email(
     return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email)
 
 
-def _check_send_request(to: str, idempotency_key: str | None) -> None:
+def _check_send_request(to: str, idempotency_key: str | None, copies: tuple[str, ...] = ()) -> None:
     if idempotency_key is not None and not IDEMPOTENCY_KEY_PATTERN.fullmatch(idempotency_key):
         raise InvalidIdempotencyKey(
             "The Idempotency-Key header must be 1 to 255 visible ASCII characters, with no spaces."
@@ -510,6 +510,8 @@ def _check_send_request(to: str, idempotency_key: str | None) -> None:
     # Defense in depth: the workflow reads the recipient from an event property, which Liquid outputs as typed.
     if "{" in to or "}" in to:
         raise InvalidRecipient("The recipient address can't contain { or }.")
+    if any("{" in address or "}" in address for address in copies):
+        raise InvalidRecipient("A `cc` or `bcc` address can't contain { or }.")
 
 
 def _send_payload(
