@@ -76,6 +76,15 @@ const RULES_V2_EXPERIMENT_FLAG = {
     },
 }
 
+const ROLLOUT_HINT_FLAG = {
+    ...featureFlags.results.find((flag) => flag.id === 1502),
+    id: 1806,
+    key: 'faster-report-cache',
+    name: 'Serve reports from the new cache',
+    can_edit: true,
+    filters: { groups: [{ properties: [], rollout_percentage: 50 }], payloads: {}, multivariate: null },
+}
+
 const meta: Meta = {
     component: App,
     tags: ['ff'],
@@ -123,6 +132,9 @@ const meta: Meta = {
                 '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => {
                     if (Number(params['flagId']) === RULES_V2_EXPERIMENT_FLAG.id) {
                         return [200, RULES_V2_EXPERIMENT_FLAG]
+                    }
+                    if (Number(params['flagId']) === ROLLOUT_HINT_FLAG.id) {
+                        return [200, ROLLOUT_HINT_FLAG]
                     }
                     const flag = featureFlags.results.find((r) => r.id === Number(params['flagId']))
                     if (flag?.id === DELETED_FLAG_ID) {
@@ -260,6 +272,13 @@ export const EditEncryptedRemoteConfigFeatureFlag: Story = {
 export const StaleFeatureFlag: Story = {
     parameters: {
         pageUrl: urls.featureFlag(STALE_FLAG_ID),
+    },
+}
+
+export const PartialRolloutHint: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(ROLLOUT_HINT_FLAG.id),
+        testOptions: { viewport: { width: 1300, height: 2000 }, snapshotBrowsers: [] },
     },
 }
 

@@ -100,7 +100,7 @@ const FEATURE_FLAG_CLEANUP_INSTRUCTIONS_CONTEXT_ITEM: AttachedContextItem = {
         'change this flag in PostHog - do not enable, disable, archive, unarchive, or delete it.',
 }
 
-function cleanupTargetValue(featureFlag: Pick<FeatureFlagType, 'id' | 'key'>, projectId: number | null): string {
+function flagTargetValue(featureFlag: Pick<FeatureFlagType, 'id' | 'key'>, projectId: number | null): string {
     return JSON.stringify({ project_id: projectId, id: featureFlag.id, key: featureFlag.key })
 }
 
@@ -115,9 +115,55 @@ export function featureFlagCleanupAssessmentContextItems(
         {
             type: FEATURE_FLAG_CLEANUP_TARGET_TYPE,
             hidden: true,
-            value: cleanupTargetValue(featureFlag, projectId),
+            value: flagTargetValue(featureFlag, projectId),
         },
     ]
+}
+
+export const FEATURE_FLAG_ROLLOUT_SKILL = 'rolling-out-feature-flags'
+
+export const FEATURE_FLAG_ROLLOUT_PLAN_PROMPT = 'Plan a gradual rollout of this feature flag.'
+const FEATURE_FLAG_ROLLOUT_TARGET_TYPE = 'feature_flag_rollout_target'
+
+const FEATURE_FLAG_ROLLOUT_SKILL_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'skill',
+    key: FEATURE_FLAG_ROLLOUT_SKILL,
+    label: 'Rolling out feature flags skill',
+}
+
+const FEATURE_FLAG_ROLLOUT_INSTRUCTIONS_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'instructions',
+    hidden: true,
+    value:
+        `Load the ${FEATURE_FLAG_ROLLOUT_SKILL} skill before planning. The ${FEATURE_FLAG_ROLLOUT_TARGET_TYPE} item ` +
+        'names the flag by project, id, and key. Re-fetch its current definition with the feature-flag tools, ' +
+        'because it can have changed since the page that started this request was loaded. Ask the person which ' +
+        'insights or dashboards show whether this feature is healthy, and propose a new dashboard if none exists. ' +
+        'Do not change this flag, and do not create a dashboard, alert, scout, or reminder, until the person agrees.',
+}
+
+export function featureFlagRolloutPlanContextItems(
+    featureFlag: Pick<FeatureFlagType, 'id' | 'key'>,
+    projectId: number | null
+): AttachedContextItem[] {
+    return [
+        FEATURE_FLAG_ROLLOUT_SKILL_CONTEXT_ITEM,
+        FEATURE_FLAG_ROLLOUT_INSTRUCTIONS_CONTEXT_ITEM,
+        {
+            type: FEATURE_FLAG_ROLLOUT_TARGET_TYPE,
+            hidden: true,
+            value: flagTargetValue(featureFlag, projectId),
+        },
+    ]
+}
+
+export function featureFlagRolloutAgentPrompt(flagKey: string, projectId: number | null): string {
+    const project = projectId === null ? '' : ` in PostHog project ${projectId}`
+    return (
+        `Plan a gradual rollout of the feature flag \`${flagKey}\`${project}, using the ${FEATURE_FLAG_ROLLOUT_SKILL} skill. ` +
+        'Ask me which insights or dashboards show whether this feature is healthy, and propose a new dashboard if none exists. ' +
+        'Do not change the flag until I approve each step.'
+    )
 }
 
 // `create-feature-flag` is left out because it never targets the flag on screen.

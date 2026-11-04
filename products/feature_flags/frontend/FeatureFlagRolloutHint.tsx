@@ -1,0 +1,88 @@
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+
+import { IconCopy, IconSparkles } from '@posthog/icons'
+
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+
+import { featureFlagRolloutPlanLogic } from './featureFlagRolloutPlanLogic'
+
+function FeatureFlagRolloutHintContent({
+    flagId,
+    flagKey,
+    currentProjectId,
+}: {
+    flagId: number
+    flagKey: string
+    currentProjectId: number | null
+}): JSX.Element {
+    const logic = featureFlagRolloutPlanLogic({ id: flagId })
+    const { isAiPlanAvailable, planStarted } = useValues(logic)
+    const { startPlan, copyAgentPrompt } = useActions(logic)
+
+    return (
+        <div className="flex flex-col gap-1">
+            <strong>Rolling this flag out gradually?</strong>
+            <span>
+                An AI agent can plan the steps with you. It asks which insights or dashboards show whether the feature
+                is healthy, offers to create a dashboard if you have none, and checks them before each step. You approve
+                every step.
+            </span>
+            <span>
+                The copied prompt works in any agent connected to the{' '}
+                <Link to="https://posthog.com/docs/model-context-protocol" target="_blank">
+                    PostHog MCP server
+                </Link>
+                .
+            </span>
+            <div className="flex flex-wrap gap-2 mt-1">
+                {isAiPlanAvailable && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconSparkles />}
+                        data-attr="feature-flag-rollout-hint-plan"
+                        disabledReason={planStarted ? 'Plan started. Continue in PostHog AI.' : undefined}
+                        onClick={() => startPlan(flagKey, currentProjectId)}
+                    >
+                        Plan with PostHog AI
+                    </LemonButton>
+                )}
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconCopy />}
+                    data-attr="feature-flag-rollout-hint-copy-prompt"
+                    onClick={() => copyAgentPrompt(flagKey, currentProjectId)}
+                >
+                    Copy prompt for your agent
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
+export function FeatureFlagRolloutHint(): JSX.Element | null {
+    const { showRolloutHint, featureFlag, currentProjectId } = useValues(featureFlagLogic)
+
+    if (!showRolloutHint || !featureFlag.id) {
+        return null
+    }
+
+    return (
+        <LemonBanner
+            type="info"
+            dismissKey="feature-flag-rollout-hint"
+            onClose={() => posthog.capture('feature flag rollout hint dismissed', { flag_id: featureFlag.id })}
+        >
+            <FeatureFlagRolloutHintContent
+                flagId={featureFlag.id}
+                flagKey={featureFlag.key}
+                currentProjectId={currentProjectId}
+            />
+        </LemonBanner>
+    )
+}

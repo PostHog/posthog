@@ -4181,6 +4181,48 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('rollout hint', () => {
+        const STATUS_URL = `/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`
+
+        it.each([
+            ['a partial rollout', {}, {}, {}, true],
+            ['one targeted org at 100%', {}, {}, { max_rollout_percentage: 100, has_targeting_conditions: true }, true],
+            ['a condition with no percentage', {}, {}, { max_rollout_percentage: 100 }, false],
+            ['a full rollout', {}, {}, { effectively_full_rollout: true, max_rollout_percentage: 100 }, false],
+            ['no release conditions', {}, {}, { max_rollout_percentage: null }, false],
+            ['a stale flag', {}, { status: 'stale' }, {}, false],
+            ['a disabled flag', { active: false }, {}, {}, false],
+            ['a read-only flag', { can_edit: false }, {}, {}, false],
+            ['an archived flag', { archived: true }, {}, {}, false],
+            ['a remote configuration', { is_remote_configuration: true }, {}, {}, false],
+            ['a flag with an experiment', { experiment_set: [1] }, {}, {}, false],
+            [
+                'an early access flag',
+                { filters: { groups: [], payloads: {}, multivariate: null, feature_enrollment: true } },
+                {},
+                {},
+                false,
+            ],
+        ])('for %s', async (_name, flagOverrides, statusOverrides, rolloutOverrides, expected) => {
+            useMocks({
+                get: {
+                    [STATUS_URL]: () => [
+                        200,
+                        {
+                            ...MOCK_FEATURE_FLAG_STATUS,
+                            ...statusOverrides,
+                            rollout: { ...MOCK_FEATURE_FLAG_STATUS.rollout, ...rolloutOverrides },
+                        },
+                    ],
+                },
+            })
+            await expectLogic(logic, () => logic.actions.loadFeatureFlagStatus()).toFinishAllListeners()
+            logic.actions.setFeatureFlag({ ...MOCK_FEATURE_FLAG, ...flagOverrides } as FeatureFlagType)
+
+            expect(logic.values.showRolloutHint).toBe(expected)
+        })
+    })
+
     describe('stale status after a mutation', () => {
         const STATUS_URL = `/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`
 

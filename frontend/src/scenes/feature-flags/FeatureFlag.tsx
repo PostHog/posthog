@@ -91,6 +91,7 @@ import {
     isRulesV2EditableConfig,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { FeatureFlagDeletedCohortBanner } from 'products/feature_flags/frontend/FeatureFlagDeletedCohortBanner'
+import { FeatureFlagRolloutHint } from 'products/feature_flags/frontend/FeatureFlagRolloutHint'
 import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -615,6 +616,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     )}
                     {isV1Config && <FeatureFlagDeletedCohortBanner />}
                     {isV1Config && <FeatureFlagStaleBanner />}
+                    {isV1Config && <FeatureFlagRolloutHint />}
                     {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
                         <LemonBanner type="info">
                             This feature flag is assigned to an early access feature in the{' '}

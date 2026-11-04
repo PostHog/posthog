@@ -1459,6 +1459,7 @@ export interface featureFlagLogicValues {
     selectedTab: FeatureFlagsTab
     showFeatureFlagErrors: boolean
     showImplementation: boolean
+    showRolloutHint: boolean
     showStaleFlagBanner: boolean
     sidePanelContext: SidePanelSceneContext | null
     tagsRequired: boolean
@@ -2573,6 +2574,11 @@ export interface featureFlagLogicMeta {
         ) => ProjectSelectOption[]
         hasEncryptedPayloadBeenSaved: (featureFlag: FeatureFlagType, props: any) => boolean | undefined
         hasExperiment: (featureFlag: FeatureFlagType) => boolean | null
+        showRolloutHint: (
+            featureFlag: FeatureFlagType,
+            flagStatus: FeatureFlagStatusResponseApi | null,
+            hasExperiment: boolean | null
+        ) => boolean
         showStaleFlagBanner: (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null) => boolean
         deletedCohortFilters: (featureFlag: FeatureFlagType) => CohortPropertyFilter[]
         isDraftExperiment: (experiment: any) => boolean
@@ -5719,6 +5725,36 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // The status endpoint serializes a StrEnum through a CharField, so it answers with the
         // lowercase value 'stale'. The flag list serializer returns the enum member name 'STALE'
         // instead. Both are typed as plain strings, so a wrong comparison here fails silently.
+        showRolloutHint: [
+            (s) => [s.featureFlag, s.flagStatus, s.hasExperiment],
+            (
+                featureFlag: FeatureFlagType,
+                flagStatus: FeatureFlagStatusResponseApi | null,
+                hasExperiment: boolean | null
+            ): boolean => {
+                const rollout = flagStatus?.rollout
+                if (flagStatus?.status !== FeatureFlagStatus.ACTIVE || !rollout) {
+                    return false
+                }
+                const hasNoConditions = rollout.max_rollout_percentage === null
+                const servesEveryone =
+                    rollout.effectively_full_rollout ||
+                    (rollout.max_rollout_percentage === 100 && !rollout.has_targeting_conditions)
+                if (hasNoConditions || servesEveryone) {
+                    return false
+                }
+                return Boolean(
+                    featureFlag.id &&
+                    featureFlag.active &&
+                    featureFlag.can_edit &&
+                    !featureFlag.deleted &&
+                    !featureFlag.archived &&
+                    !featureFlag.is_remote_configuration &&
+                    !featureFlag.filters?.feature_enrollment &&
+                    !hasExperiment
+                )
+            },
+        ],
         showStaleFlagBanner: [
             (s) => [s.featureFlag, s.flagStatus],
             (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null): boolean => {
