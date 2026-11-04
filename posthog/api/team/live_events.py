@@ -6,8 +6,10 @@ from django.conf import settings
 
 from rest_framework.request import Request
 
+from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
+from posthog.helpers.impersonation import get_original_user_id_from_session
 from posthog.jwt import PosthogJwtAudience, encode_jwt, signing_key_fingerprint
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.permissions import get_authenticator_scopes
 from posthog.scopes import scopes_not_covered
@@ -45,7 +47,7 @@ def _reset_default_data_color_theme_id_cache() -> None:
     _default_theme_id_cache = None
 
 
-def _live_events_token_cache_key(team: Team, user_id: int | None) -> str:
+def _live_events_token_cache_key(team: Team, user_id: int | None, impersonated_by_id: int | None = None) -> str:
     """Build the cache key for the live-events JWT.
 
     Includes a short fingerprint of `settings.JWT_SIGNING_KEY` so that rotating the
@@ -55,10 +57,11 @@ def _live_events_token_cache_key(team: Team, user_id: int | None) -> str:
     might contain the `:` separator we use between components.
     """
     signing_fingerprint = signing_key_fingerprint(settings.JWT_SIGNING_KEY)
-    return f"live_events_token:{signing_fingerprint}:{team.id}:{user_id}:{team.api_token}:{team.organization_id}"
+    key = f"live_events_token:{signing_fingerprint}:{team.id}:{user_id}:{team.api_token}:{team.organization_id}"
+    return f"{key}:impersonated_by:{impersonated_by_id}" if impersonated_by_id is not None else key
 
 
-def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
+def get_or_mint_live_events_token(team: Team, user_id: int | None, *, impersonated_by_id: int | None = None) -> str:
     """Return a cached live-events JWT for this (team, user) pair, minting one if missing.
 
     The JWT itself is valid for 7 days. The cache TTL is 24h, so any token returned
@@ -67,7 +70,7 @@ def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
     moves automatically force a fresh mint, plus a JWT_SIGNING_KEY fingerprint so
     signing-key rotation auto-partitions the cache namespace (no manual flush needed).
     """
-    cache_key = _live_events_token_cache_key(team, user_id)
+    cache_key = _live_events_token_cache_key(team, user_id, impersonated_by_id)
     cached = get_safe_cache(cache_key)
     if cached is not None:
         return cached
@@ -78,6 +81,8 @@ def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
         "user_id": user_id,
         "organization_id": str(team.organization_id),
     }
+    if impersonated_by_id is not None:
+        claims["impersonated_by_id"] = impersonated_by_id
     token = encode_jwt(claims, timedelta(days=7), PosthogJwtAudience.LIVESTREAM)
     safe_cache_set(cache_key, token, timeout=LIVE_EVENTS_TOKEN_TTL_SECONDS)
     return token
@@ -89,4 +94,15 @@ def live_events_token_for_request(team: Team, request: Request | None) -> str | 
     scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
     if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["query:read"]):
         return None
-    return get_or_mint_live_events_token(team, request.user.id)
+    authenticator = getattr(request, "successful_authenticator", None)
+    impersonated_by_id = None
+    if isinstance(authenticator, OAuthAccessTokenAuthentication):
+        impersonated_by_id = authenticator.access_token.impersonated_by_id
+    elif authenticator is None or isinstance(authenticator, SessionAuthentication):
+        impersonated_by_id = get_original_user_id_from_session(request)
+    if (
+        impersonated_by_id is not None
+        and not User.objects.filter(id=impersonated_by_id, is_active=True, is_staff=True).exists()
+    ):
+        return None
+    return get_or_mint_live_events_token(team, request.user.id, impersonated_by_id=impersonated_by_id)

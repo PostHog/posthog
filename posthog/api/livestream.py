@@ -38,6 +38,7 @@ LIVESTREAM_POLICY_ACCESS = ScopedServiceJwtPurpose(
 
 class LivestreamAuthentication(ActivityCredentialMixin, BaseAuthentication):
     activity_credential_type = "internal_jwt"
+    impersonated_by_id: int | None = None
 
     def authenticate_header(self, request: Request) -> str:
         return "Bearer"
@@ -54,6 +55,12 @@ class LivestreamAuthentication(ActivityCredentialMixin, BaseAuthentication):
                 raise ValueError("Invalid token identity")
             if not isinstance(claims["api_token"], str) or not claims["api_token"]:
                 raise ValueError("Invalid project token")
+            impersonated_by_id = claims.get("impersonated_by_id")
+            if impersonated_by_id is not None and (
+                type(impersonated_by_id) is not int
+                or not User.objects.filter(id=impersonated_by_id, is_active=True, is_staff=True).exists()
+            ):
+                raise ValueError("Invalid impersonation identity")
             user = User.objects.get(id=claims["user_id"], is_active=True)
             team = Team.objects.select_related("organization").get(
                 id=claims["team_id"],
@@ -63,8 +70,9 @@ class LivestreamAuthentication(ActivityCredentialMixin, BaseAuthentication):
         except (jwt.PyJWTError, KeyError, TypeError, ValueError, User.DoesNotExist, Team.DoesNotExist):
             raise AuthenticationFailed("Invalid live stream token.")
         # The livestream service re-checks every stream here, so a blocked account's 7-day token stops working.
-        refuse_blocked_account(request, user, call_site="livestream", impersonated=False)
-        self.record_activity_actor(user)
+        self.impersonated_by_id = impersonated_by_id
+        refuse_blocked_account(request, user, call_site="livestream", impersonated=impersonated_by_id is not None)
+        self.record_activity_actor(user, impersonated_by_id=impersonated_by_id)
         return user, team
 
 
@@ -125,10 +133,15 @@ class LivestreamAuthorizationView(APIView):
         level = UserPermissions(user).team(team).effective_membership_level
         if level is None or level < OrganizationMembership.Level.MEMBER:
             raise PermissionDenied("Live stream access is no longer available.")
-        ip_restrictions = [
-            [str(ip_network(rule, strict=False)) for rule in rules]
-            for _, rules in get_ip_restrictions_for_principal(user)
-        ]
+        authenticator = cast(LivestreamAuthentication, request.successful_authenticator)
+        ip_restrictions = (
+            []
+            if authenticator.impersonated_by_id is not None
+            else [
+                [str(ip_network(rule, strict=False)) for rule in rules]
+                for _, rules in get_ip_restrictions_for_principal(user)
+            ]
+        )
         if ip_restrictions and request.headers.get("X-PostHog-Livestream-IP-Policy") != "1":
             raise PermissionDenied("The streaming service must support organization IP restrictions.")
         if ip_restrictions:

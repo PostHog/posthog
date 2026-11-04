@@ -3,12 +3,13 @@ from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDModel
 
 MAX_IP_RESTRICTIONS = 100
 
 
-class OrganizationIPRestrictions(UUIDModel):
+class OrganizationIPRestrictions(ModelActivityMixin, UUIDModel):
     """Management-access policy read by middleware, bearer authenticators, and settings.
 
     The management API gates configuration by entitlement; enforcement always honors saved policies.
