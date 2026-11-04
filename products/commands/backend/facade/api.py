@@ -58,7 +58,7 @@ def _enqueue(request: CommentCommandRequest) -> None:
 
 
 def accept_review_request(payload: Mapping[str, object], delivery_id: str | None) -> None:
-    """Queue a review when a verified ``pull_request`` payload asks a review team to review.
+    """Queue a review when a verified ``pull_request`` payload asks the review team to review.
 
     Every other pull request event stops here without touching the database or the queue.
     """
@@ -73,7 +73,6 @@ def accept_review_request(payload: Mapping[str, object], delivery_id: str | None
         repository=request.repository,
         pr_number=request.pr_number,
         delivery_id=request.delivery_id,
-        team_slug=request.team_slug,
         requester_github_id=request.requester_github_id,
         requester_login=request.requester_login,
     )

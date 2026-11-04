@@ -183,32 +183,26 @@ def _review_request_payload(**overrides: Any) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize(
-    "payload,delivery_id,expected_argument",
+    "payload,delivery_id,accepted",
     [
-        (_review_request_payload(), "delivery-1", ""),
-        (_review_request_payload(requested_team={"slug": "PostHog-Review-Deep"}), "delivery-1", "--deep"),
-        (_review_request_payload(requested_team={"slug": "team-devex"}), "delivery-1", None),
-        (_review_request_payload(requested_team=None, requested_reviewer={"login": "octo"}), "delivery-1", None),
-        (_review_request_payload(action="review_request_removed"), "delivery-1", None),
+        (_review_request_payload(), "delivery-1", True),
+        (_review_request_payload(requested_team={"slug": "PostHog-Review"}), "delivery-1", True),
+        (_review_request_payload(requested_team={"slug": "posthog-review-deep"}), "delivery-1", False),
+        (_review_request_payload(requested_team=None, requested_reviewer={"login": "octo"}), "delivery-1", False),
+        (_review_request_payload(action="review_request_removed"), "delivery-1", False),
         # Reviewer-assignment automation must not start paid runs on its own.
-        (_review_request_payload(sender={"id": 1, "login": "assigner[bot]", "type": "Bot"}), "delivery-1", None),
-        (_review_request_payload(sender={"id": 1, "login": "assigner[bot]", "type": "User"}), "delivery-1", None),
+        (_review_request_payload(sender={"id": 1, "login": "assigner[bot]", "type": "Bot"}), "delivery-1", False),
+        (_review_request_payload(sender={"id": 1, "login": "assigner[bot]", "type": "User"}), "delivery-1", False),
         # The delivery id is the claim key, so without it a redelivery could run twice.
-        (_review_request_payload(), None, None),
-        (_review_request_payload(repository={"full_name": "acme/widgets/../../orgs"}), "delivery-1", None),
+        (_review_request_payload(), None, False),
+        (_review_request_payload(repository={"full_name": "acme/widgets/../../orgs"}), "delivery-1", False),
     ],
 )
-def test_read_review_team_request(
-    payload: dict[str, Any], delivery_id: str | None, expected_argument: str | None
-) -> None:
+def test_read_review_team_request(payload: dict[str, Any], delivery_id: str | None, accepted: bool) -> None:
     request = read_review_team_request(payload, delivery_id)
 
-    if expected_argument is None:
+    if not accepted:
         assert request is None
     else:
         assert request is not None
-        assert (request.argument, request.requester_github_id, request.delivery_id) == (
-            expected_argument,
-            4242,
-            delivery_id,
-        )
+        assert (request.requester_github_id, request.delivery_id) == (4242, delivery_id)

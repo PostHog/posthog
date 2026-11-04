@@ -1,4 +1,4 @@
-"""Reviews requested by asking a review team, such as ``posthog-review``, to review a pull request.
+"""Reviews requested by asking the ``posthog-review`` team to review a pull request.
 
 The request runs ``review`` through the same checks as a comment command (see ``comments.py``),
 with the person who asked as the requester. Once the request reaches GitHub, the team's review
@@ -16,7 +16,7 @@ from ...logic.dispatcher import Admission, CommandDispatcher
 from ...logic.github import CommandGitHub, GitHubCallFailed, InstallationGitHub
 from ...logic.subjects import open_subject
 from .comments import ROLLOUT_FLAG, WRITE_PERMISSIONS, users_linked_to_github_account
-from .intake import ReviewTeamRequest
+from .intake import REVIEW_TEAM_SLUG, ReviewTeamRequest
 
 logger = structlog.get_logger(__name__)
 
@@ -43,10 +43,10 @@ class GitHubReviewRequestChannel:
                 number=review_request.pr_number,
             ),
             verb="review",
-            argument=review_request.argument,
+            argument="",
             ambiguous=False,
             requester=f"@{review_request.requester_login}",
-            requested_via=f"a review request for the {review_request.team_slug} team",
+            requested_via=f"a review request for the {REVIEW_TEAM_SLUG} team",
         )
 
     def admit(self) -> Admission | DispatchOutcome:
@@ -98,7 +98,7 @@ class GitHubReviewRequestChannel:
         outcome = CommandDispatcher(self).dispatch()
         if self._github is not None and outcome != "permission_lookup_failed":
             self._github.remove_team_review_request(
-                self._review_request.repository, self._review_request.pr_number, self._review_request.team_slug
+                self._review_request.repository, self._review_request.pr_number, REVIEW_TEAM_SLUG
             )
         return outcome
 

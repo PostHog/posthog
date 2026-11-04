@@ -48,7 +48,6 @@ def run_review_team_request(
     repository: str,
     pr_number: int,
     delivery_id: str,
-    team_slug: str,
     requester_github_id: int,
     requester_login: str,
 ) -> None:
@@ -58,7 +57,6 @@ def run_review_team_request(
             repository=repository,
             pr_number=pr_number,
             delivery_id=delivery_id,
-            team_slug=team_slug,
             requester_github_id=requester_github_id,
             requester_login=requester_login,
         )

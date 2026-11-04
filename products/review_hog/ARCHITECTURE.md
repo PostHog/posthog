@@ -6,7 +6,7 @@
 **Code review** is the name of the in-app page and its nav entry only.
 **ReviewHog** is the internal codename. Code, logs, metric names, keys, and developer docs use it.
 An `@posthog review` comment starts a Standard review, and `@posthog review --deep` starts a Deep review. No label starts a review.
-Asking the `posthog-review` or `posthog-review-deep` GitHub team to review does the same (see `products/commands/README.md`).
+Asking the `posthog-review` GitHub team to review starts a Standard review too (see `products/commands/README.md`).
 
 The UI and the text PostHog Review posts use the user-facing names. Code, API values, and stored data use the internal names.
 

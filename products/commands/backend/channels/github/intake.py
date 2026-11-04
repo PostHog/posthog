@@ -116,31 +116,26 @@ def read_comment_command(payload: Mapping[str, object]) -> CommentCommandRequest
     )
 
 
-REVIEW_TEAM_ARGUMENTS: Mapping[str, str] = {"posthog-review": "", "posthog-review-deep": "--deep"}
+REVIEW_TEAM_SLUG = "posthog-review"
 
 
 @frozen
 class ReviewTeamRequest:
-    """A request for one of the review teams to review a pull request, copied out of the payload."""
+    """A request for the review team to review a pull request, copied out of the payload."""
 
     installation_id: str
     repository: str
     pr_number: int
     delivery_id: str
-    team_slug: str
     requester_github_id: int
     requester_login: str
-
-    @property
-    def argument(self) -> str:
-        return REVIEW_TEAM_ARGUMENTS[self.team_slug]
 
 
 def read_review_team_request(payload: Mapping[str, object], delivery_id: str | None) -> ReviewTeamRequest | None:
     if payload.get("action") != "review_requested":
         return None
     team_slug = _mapping(payload.get("requested_team")).get("slug")
-    if not isinstance(team_slug, str) or team_slug.lower() not in REVIEW_TEAM_ARGUMENTS:
+    if not isinstance(team_slug, str) or team_slug.lower() != REVIEW_TEAM_SLUG:
         return None
 
     sender = _mapping(payload.get("sender"))
@@ -168,7 +163,6 @@ def read_review_team_request(payload: Mapping[str, object], delivery_id: str | N
         repository=repository,
         pr_number=pr_number,
         delivery_id=delivery_id,
-        team_slug=team_slug.lower(),
         requester_github_id=sender_id,
         requester_login=login,
     )

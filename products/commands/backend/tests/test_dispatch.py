@@ -452,26 +452,17 @@ class TestDispatchCommentCommand(BaseTest):
             assert request_pr_review.call_args.kwargs["run_mode"] == expected_mode
             assert request_pr_review.call_args.kwargs["team_id"] == self.team.id
 
-    def _review_team_request(self, team_slug: str = "posthog-review") -> ReviewTeamRequest:
+    def _review_team_request(self) -> ReviewTeamRequest:
         return ReviewTeamRequest(
             installation_id=INSTALLATION_ID,
             repository=REPOSITORY,
             pr_number=7,
             delivery_id="delivery-1",
-            team_slug=team_slug,
             requester_github_id=self.github_id,
             requester_login="octo",
         )
 
-    @parameterized.expand(
-        [
-            ("standard", "posthog-review", RUN_MODE_FLASH),
-            ("deep", "posthog-review-deep", RUN_MODE_REVIEW),
-        ]
-    )
-    def test_a_review_team_request_reviews_as_the_requester_and_clears_the_request(
-        self, _name: str, team_slug: str, expected_mode: str
-    ) -> None:
+    def test_a_review_team_request_reviews_as_the_requester_and_clears_the_request(self) -> None:
         self._link_github_login()
         github = FakeGitHub()
         started = PRReviewRequestOutcome(
@@ -482,14 +473,14 @@ class TestDispatchCommentCommand(BaseTest):
             patch(OWNING_TEAM_ID, return_value=self.team.id),
             patch(REQUEST_PR_REVIEW, return_value=started) as request_pr_review,
         ):
-            outcome = dispatch_review_team_request(self._review_team_request(team_slug), github=github)
+            outcome = dispatch_review_team_request(self._review_team_request(), github=github)
 
         assert outcome == "accepted"
-        assert request_pr_review.call_args.kwargs["run_mode"] == expected_mode
+        assert request_pr_review.call_args.kwargs["run_mode"] == RUN_MODE_FLASH
         assert request_pr_review.call_args.kwargs["requester_id"] == self.user.id
         assert github.permission_lookups == [self.github_id]
         assert github.replies[-1].endswith("@octo PostHog Review is reviewing this pull request.")
-        assert github.removed_team_review_requests == [team_slug]
+        assert github.removed_team_review_requests == ["posthog-review"]
 
     def test_a_review_team_request_without_write_access_runs_nothing_and_stays_silent(self) -> None:
         self._link_github_login()

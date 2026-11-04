@@ -40,8 +40,8 @@ Both are generated from `backend/logic/schema.py`, like the `@posthog help` repl
 
 ## Reviews from a review request
 
-Asking the `posthog-review` team to review a pull request runs `review`, and asking `posthog-review-deep` runs `review --deep`.
-Both teams have no members and read access to the repository, so the request notifies nobody.
+Asking the `posthog-review` team to review a pull request runs `review`, a Standard review.
+The team has no members and read access to the repository, so the request notifies nobody.
 
 - The `commands_review_requests` consumer reads `pull_request` deliveries with the `review_requested` action. `read_review_team_request` in `channels/github/intake.py` drops every other request.
 - `channels/github/review_requests.py` applies the same checks as a comment, with the person who asked as the requester. It claims the webhook delivery id, because a review request has no comment id.
