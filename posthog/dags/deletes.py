@@ -1716,7 +1716,7 @@ def _still_due_pass_months(passes: PlanDeletionPasses) -> dict[int, int]:
     rows = TeamEventsPlanDeletion.objects.filter(team_id__in=passes.due_team_ids, next_deletion_on__lte=passes.run_on)
     pass_months = dict(rows.values_list("team_id", "months"))
     periods = retention_periods(_enforced_plans(Team.objects.filter(id__in=pass_months)))
-    return {team_id: max(months, periods.get(team_id, months)) for team_id, months in pass_months.items()}
+    return {team_id: max(pass_months[team_id], period) for team_id, period in periods.items()}
 
 
 def _planned_partitions(
@@ -1953,12 +1953,15 @@ def advance_plan_deletion_passes(
     context: dagster.OpExecutionContext, passes: PlanDeletionPasses, plan: OldSessionsCleanupPlan
 ) -> None:
     """Move the next pass of each team whose pass this run completed three months out, once its sessions are deleted."""
-    with transaction.atomic():
-        rows = list(TeamEventsPlanDeletion.objects.select_for_update().filter(team_id__in=plan.completed_pass_team_ids))
-        for row in rows:
-            row.next_deletion_on = after_pass(row.state, passes.run_on).next_deletion_on
-        TeamEventsPlanDeletion.objects.bulk_update(rows, ["next_deletion_on"], batch_size=_TEAM_CHUNK_SIZE)
-    context.add_output_metadata({"passes": dagster.MetadataValue.int(len(rows))})
+    advanced = 0
+    for chunk in chunked(plan.completed_pass_team_ids, _TEAM_CHUNK_SIZE):
+        with transaction.atomic():
+            rows = list(TeamEventsPlanDeletion.objects.select_for_update().filter(team_id__in=chunk))
+            for row in rows:
+                row.next_deletion_on = after_pass(row.state, passes.run_on).next_deletion_on
+            TeamEventsPlanDeletion.objects.bulk_update(rows, ["next_deletion_on"])
+        advanced += len(rows)
+    context.add_output_metadata({"passes": dagster.MetadataValue.int(advanced)})
 
 
 @dagster.job(
