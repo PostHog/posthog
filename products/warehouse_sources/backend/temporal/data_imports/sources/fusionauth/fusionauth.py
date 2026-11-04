@@ -1,3 +1,4 @@
+import time
 import threading
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator
@@ -290,6 +291,10 @@ def _check_host(normalized_url: str, team_id: int) -> None:
         raise FusionAuthHostNotAllowedError(HTTP_NOT_ALLOWED_ERROR)
 
 
+def _now_millis() -> int:
+    return int(time.time() * 1000)
+
+
 def _get_headers() -> dict[str, str]:
     return {"Accept": "application/json", "Content-Type": "application/json"}
 
@@ -434,7 +439,7 @@ def fusionauth_source(
         _check_host(normalized_url, team_id)
         assert config.fanout is not None
         users = FUSIONAUTH_ENDPOINTS[USERS_ENDPOINT]
-        return cast(
+        resource = cast(
             Resource,
             build_dependent_resource(
                 endpoint_configs=FUSIONAUTH_ENDPOINTS,
@@ -455,6 +460,10 @@ def fusionauth_source(
                 child_endpoint_extra={"data_selector": config.data_selector, "paginator": "single_page"},
             ),
         )
+        if config.exclude_fields:
+            exclude_fields = config.exclude_fields
+            resource.add_map(lambda row: _drop_fields(row, exclude_fields))
+        return resource
 
     def exploded_resource() -> Resource:
         _check_host(normalized_url, team_id)
@@ -474,14 +483,21 @@ def fusionauth_source(
         _check_host(normalized_url, team_id)
 
         if config.method == "GET":
-            seen_ids: set[Any] = set()
-            param_sets: list[dict[str, Any]] = [{}]
+            base_params: dict[str, Any] = {}
+            if config.report_range:
+                base_params = {"start": 0, "end": _now_millis()}
+            seen_keys: set[tuple[Any, ...]] = set()
+            param_sets: list[dict[str, Any]] = [base_params]
             if config.inactive_param:
-                param_sets.append({config.inactive_param: "true"})
+                param_sets.append({**base_params, config.inactive_param: "true"})
             for params in param_sets:
                 for page in rest_api_resource(make_get_config(params), team_id, job_id, None):
-                    rows = [row for row in page if row.get("id") not in seen_ids]
-                    seen_ids.update(row.get("id") for row in rows)
+                    rows = []
+                    for row in page:
+                        key = tuple(row.get(field) for field in config.primary_keys)
+                        if key not in seen_keys:
+                            seen_keys.add(key)
+                            rows.append(row)
                     if rows:
                         yield rows
             return
