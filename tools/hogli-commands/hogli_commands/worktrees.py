@@ -288,7 +288,8 @@ def worktrees_clean(
     if box_action:
         pending = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, repo_common, selected_sources)
         _clean_boxes_of_removed_worktrees(pending, box_action, cutoff, dry_run, yes)
-    if mode == "deps":
+    # ~/.cargo/target belongs to no single worktree or repository, so a run narrowed by --source or --repo leaves it alone.
+    if mode == "deps" and selected_sources is None and repo is None:
         _clean_legacy_cargo_target(cutoff, dry_run, yes)
     protected = _protected_paths(repo_root)
 
