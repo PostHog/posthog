@@ -42,4 +42,24 @@ describe('SamplingRulesCache', () => {
 
         expect(compiled.rules.map((r) => r.id)).toEqual(['path'])
     })
+
+    it('fails open to no rules when the fetch throws and nothing is cached', async () => {
+        query.mockRejectedValueOnce(new Error('statement timeout'))
+
+        const compiled = await cache.getCompiledRuleSet(1, 'spans')
+
+        expect(compiled.rules).toEqual([])
+    })
+
+    it('serves the last-known rules when a later refresh throws', async () => {
+        query.mockResolvedValueOnce({ rows: [row('path', 'path_drop')] })
+        await cache.getCompiledRuleSet(1, 'spans')
+
+        jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000)
+        query.mockRejectedValueOnce(new Error('statement timeout'))
+        const stale = await cache.getCompiledRuleSet(1, 'spans')
+
+        expect(query).toHaveBeenCalledTimes(2)
+        expect(stale.rules.map((r) => r.id)).toEqual(['path'])
+    })
 })
