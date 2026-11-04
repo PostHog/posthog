@@ -15,7 +15,8 @@ PROJECT = Resource(type=ResourceType.PROJECT, id="1")
 
 class TestResourceType(SimpleTestCase):
     def test_every_api_scope_has_a_type(self) -> None:
-        assert set(API_SCOPE_OBJECTS) - {resource_type.value for resource_type in ResourceType} == set()
+        missing = set(API_SCOPE_OBJECTS) - {resource_type.value for resource_type in ResourceType}
+        assert missing == set(), f"Add a ResourceType to authorization's facade/enums.py for: {sorted(missing)}"
 
 
 class TestSubject(SimpleTestCase):
