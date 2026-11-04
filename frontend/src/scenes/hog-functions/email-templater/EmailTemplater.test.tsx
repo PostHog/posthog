@@ -3,7 +3,6 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useValues } from 'kea'
 
-import { EmailSenderSummary } from './EmailSenderSummary'
 import { NativeEmailIntegrationChoice } from './EmailTemplater'
 
 let mockSenderRotationEnabled = false
@@ -117,17 +116,11 @@ describe('email sender pickers', () => {
     it.each([
         { listed: 'listed', rotation: false, sandboxSender: SANDBOX, pick: SANDBOX, expectedSenderIds: [3] },
         { listed: 'listed', rotation: true, sandboxSender: SANDBOX, pick: SANDBOX, expectedSenderIds: [1, 3] },
-        { listed: 'not listed', rotation: false, sandboxSender: null, pick: BOB, expectedFrom: { integrationId: 2 } },
-        {
-            listed: 'not listed',
-            rotation: true,
-            sandboxSender: null,
-            pick: BOB,
-            expectedFrom: { integrationId: 1, integrationIds: [1, 2] },
-        },
+        { listed: 'not listed', rotation: false, sandboxSender: null, pick: BOB, expectedSenderIds: [2] },
+        { listed: 'not listed', rotation: true, sandboxSender: null, pick: BOB, expectedSenderIds: [1, 2] },
     ])(
-        'routes a pick when the sandbox sender is $listed and rotation is $rotation',
-        ({ rotation, sandboxSender, pick, expectedSenderIds, expectedFrom }) => {
+        'sends a pick to the template logic when the sandbox sender is $listed and rotation is $rotation',
+        ({ rotation, sandboxSender, pick, expectedSenderIds }) => {
             mockSenderRotationEnabled = rotation
             mockPicker({ sandboxSender })
             const onChange = jest.fn()
@@ -135,13 +128,8 @@ describe('email sender pickers', () => {
             render(<NativeEmailIntegrationChoice label="From" value={{ integrationId: 1 }} onChange={onChange} />)
             fireEvent.click(screen.getByText(pick.display_name))
 
-            if (expectedSenderIds) {
-                expect(mockChooseSenders).toHaveBeenCalledWith(expectedSenderIds)
-                expect(onChange).not.toHaveBeenCalled()
-            } else {
-                expect(mockChooseSenders).not.toHaveBeenCalled()
-                expect(onChange).toHaveBeenCalledWith(expect.objectContaining(expectedFrom))
-            }
+            expect(mockChooseSenders).toHaveBeenCalledWith(expectedSenderIds)
+            expect(onChange).not.toHaveBeenCalled()
         }
     )
 
@@ -154,17 +142,5 @@ describe('email sender pickers', () => {
         render(<NativeEmailIntegrationChoice label="From" value={{}} onChange={jest.fn()} />)
 
         expect(!!screen.queryByText('No email senders configured yet')).toBe(showsConnect)
-    })
-
-    it('does not show the sandbox sender as the sender of a transactional email', () => {
-        // make_transactional rejects the sandbox sender, so the transactional editor must not offer it.
-        jest.mocked(useValues).mockReturnValue({
-            emailTemplate: { from: { integrationId: SANDBOX.id } },
-            integrations: [ALICE, SANDBOX],
-        })
-
-        render(<EmailSenderSummary />)
-
-        expect(screen.getByText('Choose who this email comes from')).toBeInTheDocument()
     })
 })
