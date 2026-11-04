@@ -7,6 +7,7 @@ import {
     WebExperimentEditor,
     WebExperimentEditorContext,
     canRenameVariant,
+    variantsWithUrlCondition,
 } from '~/toolbar/shared/experiments/webExperimentEditorContext'
 
 /** Binds the web experiment editor components to the floating toolbar's experiment form. */
@@ -85,6 +86,12 @@ export function ExperimentsTabEditorProvider({ children }: { children: React.Rea
                 const element = document.querySelector(selector)
                 if (element) {
                     inspectElementSelected(element as HTMLElement, variant, index, selector)
+                }
+            },
+            setVariantUrlCondition: (variant, url, urlMatchType) => {
+                const nextVariants = variantsWithUrlCondition(variants, variant, url, urlMatchType)
+                if (nextVariants) {
+                    setExperimentFormValue('variants', nextVariants)
                 }
             },
         }

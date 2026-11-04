@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import hogql_type_name_for_clickhouse_type
+from products.warehouse_sources.backend.self_managed_access import assert_adoption_keeps_access
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     HISTORY_NAMING,
     LEGACY_HISTORY_NAMING,
@@ -523,6 +524,10 @@ async def validate_schema_and_update_table(
                 update_fields = ["format", "url_pattern", "queryable_folder", "row_count"]
                 if table.external_data_source_id is None:
                     # A self-managed table this schema replaces reads its own bucket until now.
+                    # Adoption makes the table resolve through the source's rules. Checked here, after
+                    # the row count that can block for minutes, so a rule change has the least time
+                    # to land between the check and the save.
+                    assert_adoption_keeps_access(table, job.pipeline)
                     update_fields.extend(table.adopt_into_source(job.pipeline))
                     logger.info(f"Adopted self-managed table {table.id} into source {job.pipeline.id}")
                 if live_size_mib is not None:
