@@ -93,7 +93,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             />
                             <Markdown>
                                 {dedent`
-                                    You can also create a [Global Error component](https://nextjs.org/docs/app/building-your-application/routing/error-handling#handling-global-errors) in your root layout to capture unhandled exceptions in your root layout. A custom \`global-error.tsx\` replaces the default root boundary, so errors it catches reach PostHog only through its own capture. It also captures render errors that happen before exception autocapture has loaded. Before Next.js 15.2, every client render error is caught by a boundary, so capture in \`global-error.tsx\` as well as in each \`error.tsx\`.
+                                    Also create a [Global Error component](https://nextjs.org/docs/app/building-your-application/routing/error-handling#handling-global-errors) at \`app/global-error.tsx\`, or add the capture to the one your app already has. Exception autocapture loads after the page starts, so a render error during the first render reaches PostHog only through this capture. A custom \`global-error.tsx\` also replaces the default root boundary, so the errors it catches reach PostHog only through its own capture.
                                 `}
                             </Markdown>
                             <CodeBlock
@@ -203,22 +203,22 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
             <>
                 <Markdown>
                     {dedent`
-                        Next.js enables you to both server-side render pages and add server-side functionality. To integrate PostHog into your Next.js app on the server-side, you can use the [Node SDK](https://posthog.com/docs/libraries/node).
+                        Next.js enables you to both server-side render pages and add server-side functionality. To capture server-side exceptions, use [\`@posthog/next\`](https://posthog.com/docs/libraries/next-js/posthog-next) for the errors Next.js reports and the [Node SDK](https://posthog.com/docs/libraries/node) for everything else.
 
-                        First, install the \`posthog-node\` library:
+                        First, install \`@posthog/next\` (0.11.0 or later) and \`posthog-node\` (5.61.1 or later):
                     `}
                 </Markdown>
                 <CodeBlock
                     blocks={[
-                        { language: 'bash', file: 'npm', code: dedent`npm install posthog-node --save` },
-                        { language: 'bash', file: 'yarn', code: dedent`yarn add posthog-node` },
-                        { language: 'bash', file: 'pnpm', code: dedent`pnpm add posthog-node` },
-                        { language: 'bash', file: 'bun', code: dedent`bun add posthog-node` },
+                        { language: 'bash', file: 'npm', code: dedent`npm install @posthog/next posthog-node` },
+                        { language: 'bash', file: 'yarn', code: dedent`yarn add @posthog/next posthog-node` },
+                        { language: 'bash', file: 'pnpm', code: dedent`pnpm add @posthog/next posthog-node` },
+                        { language: 'bash', file: 'bun', code: dedent`bun add @posthog/next posthog-node` },
                     ]}
                 />
                 <Markdown>
                     {dedent`
-                        For the backend, we can create a \`lib/posthog-server.js\` file. In it, initialize PostHog from \`posthog-node\` as a singleton with your project token and host from [your project settings](https://app.posthog.com/settings/project).
+                        Then create a \`lib/posthog-server.js\` file. In it, initialize PostHog from \`posthog-node\` with your project token and host from [your project settings](https://app.posthog.com/settings/project). With \`enableExceptionAutocapture\`, it captures uncaught exceptions and unhandled promise rejections on the Node.js server. Next.js bundles \`instrumentation.js\` and each route separately, so this can create more than one client, but \`posthog-node\` shares one set of process listeners between them and captures each error once.
 
                         This looks like this:
                     `}
@@ -231,20 +231,17 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             code: dedent`
                                 import { PostHog } from 'posthog-node'
 
-                                // Next.js bundles instrumentation.js, proxy.js and each route separately, so a module-level
-                                // singleton would create one client per bundle. Keep one per process on globalThis instead.
+                                let posthogServer = null
+
                                 export function getPostHogServer() {
-                                  globalThis.__posthogServer ??= new PostHog(
-                                    process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN,
-                                    {
-                                      host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-                                      flushAt: 1,
-                                      flushInterval: 0,
-                                      // Captures uncaught exceptions on the Node.js server (there is no process to listen to on the edge)
-                                      enableExceptionAutocapture: process.env.NEXT_RUNTIME === 'nodejs',
-                                    }
-                                  )
-                                  return globalThis.__posthogServer
+                                  posthogServer ??= new PostHog(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN, {
+                                    host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+                                    flushAt: 1,
+                                    flushInterval: 0,
+                                    // Uncaught exceptions and unhandled promise rejections on the Node.js server
+                                    enableExceptionAutocapture: true,
+                                  })
+                                  return posthogServer
                                 }
                             `,
                         },
@@ -252,7 +249,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 />
                 <Markdown>
                     {dedent`
-                        You can now use the \`getPostHogServer\` function to capture exceptions in server-side code.
+                        You can now use the \`getPostHogServer\` function to capture exceptions your server-side code handles itself. Pass the user's distinct ID when you know it:
                     `}
                 </Markdown>
                 <CodeBlock
@@ -263,12 +260,9 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             code: dedent`
                                 const posthog = getPostHogServer()
                                 try {
-                                    throw new Error("This is a test exception for error tracking")
+                                  throw new Error('This is a test exception for error tracking')
                                 } catch (error) {
-                                    posthog.captureException(error, {
-                                        source: 'test',
-                                        user_id: 'test-user-123',
-                                    })
+                                  posthog.captureException(error, 'user_distinct_id', { source: 'test' })
                                 }
                             `,
                         },
@@ -300,13 +294,15 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
             <>
                 <Markdown>
                     {dedent`
-                        To capture errors that occur in your server-side code, you can set up an [\`instrumentation.ts\`](https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation) file at the root of your project. On Next.js 15 and later, it provides an \`onRequestError\` hook that Next.js calls when a Server Component, Route Handler, Server Action, or middleware throws, in both the Node.js and the edge runtime.
+                        To capture errors that occur in your server-side code, set up an [\`instrumentation.ts\`](https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation) file at the root of your project (or in \`src/\`). On Next.js 15 and later, Next.js calls its \`onRequestError\` hook when a Server Component, Route Handler, Server Action, or middleware throws, in both the Node.js and the edge runtime.
 
-                        Importantly, you need to:
+                        \`createOnRequestError\` from \`@posthog/next\` returns that hook. It:
 
-                        1. Set up a \`posthog-node\` client in your server-side code, and create it in \`register()\` so uncaught exceptions are captured from the moment the server starts. See our doc on [setting up Next.js server-side analytics](https://posthog.com/docs/libraries/next-js#server-side-analytics) for more.
-                        2. Capture in both runtimes: \`posthog-node\` loads its edge build in the edge runtime. Use \`captureExceptionImmediate\` so the event is sent before the request ends.
-                        3. Link the error to the user and their session: read the \`X-POSTHOG-DISTINCT-ID\` and \`X-POSTHOG-SESSION-ID\` headers that \`tracing_headers\` adds first, then the PostHog cookie. Use these values for analytics only, never to authenticate a user.
+                        - Links the error to the user and their session: from the \`X-POSTHOG-DISTINCT-ID\` and \`X-POSTHOG-SESSION-ID\` headers that \`tracing_headers\` adds, otherwise from the PostHog cookie, while that session is still active.
+                        - Adds the request URL (without the query string), method, path, and user agent.
+                        - Sends the exception before the request ends.
+
+                        \`register()\` creates the \`posthog-node\` client when the server starts, so uncaught exceptions and unhandled promise rejections are captured from boot, including those in work a request starts and does not await.
 
                         This looks like this:
                     `}
@@ -317,62 +313,82 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             language: 'javascript',
                             file: 'instrumentation.js',
                             code: dedent`
+                                import { createOnRequestError } from '@posthog/next'
                                 import { getPostHogServer } from './lib/posthog-server'
 
                                 export function register() {
-                                  getPostHogServer()
-                                }
-
-                                const SESSION_IDLE_MS = 30 * 60 * 1000
-                                const SESSION_MAX_MS = 24 * 60 * 60 * 1000
-
-                                // The browser's identity: tracing headers first, then the PostHog cookie
-                                function getIdentity(headers) {
-                                  const header = (name) => (Array.isArray(headers[name]) ? headers[name].join('; ') : headers[name])
-                                  let distinctId = header('x-posthog-distinct-id')
-                                  let sessionId = header('x-posthog-session-id')
-                                  const cookieName = \`ph_\${process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN}_posthog=\`
-                                  const cookie = header('cookie')?.split('; ').find((c) => c.startsWith(cookieName))
-                                  if (cookie) {
-                                    try {
-                                      const data = JSON.parse(decodeURIComponent(cookie.slice(cookieName.length)))
-                                      distinctId ??= data.distinct_id
-                                      // $sesid is [last activity, session ID, session start]
-                                      const [lastActivity, id, start] = data.$sesid ?? []
-                                      const now = Date.now()
-                                      if (!sessionId && id && now - lastActivity < SESSION_IDLE_MS && now - start < SESSION_MAX_MS) {
-                                        sessionId = id
-                                      }
-                                    } catch (e) {
-                                      // A malformed cookie leaves the error without a user
-                                    }
+                                  if (process.env.NEXT_RUNTIME === 'nodejs') {
+                                    getPostHogServer()
                                   }
-                                  return { distinctId, sessionId }
                                 }
 
-                                export const onRequestError = async (err, request, context) => {
-                                  const { distinctId, sessionId } = getIdentity(request.headers)
-                                  const path = request.path.split('?')[0]
-                                  await getPostHogServer().captureExceptionImmediate(err, distinctId, {
-                                    $session_id: sessionId,
-                                    $current_url: \`https://\${request.headers.host}\${path}\`,
-                                    $request_method: request.method,
-                                    $request_path: path,
-                                    nextjs_route_type: context.routeType,
-                                    nextjs_route_path: context.routePath,
-                                  })
-                                }
+                                export const onRequestError = createOnRequestError({
+                                  apiKey: process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN,
+                                  host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+                                })
                             `,
                         },
                     ]}
                 />
                 <Markdown>
                     {dedent`
-                        A few errors never reach \`onRequestError\`:
+                        Next.js does not report errors thrown in \`proxy.ts\` (Next.js 16) or in Node.js middleware (Next.js 15) to \`onRequestError\`. If your app has a proxy or middleware, wrap it with \`withPostHogProxy\`. It captures what the function throws, links it to the user the same way, and rethrows it at once, so the response never waits for PostHog. Where Next.js also reports the error, \`onRequestError\` skips it, so each error is captured once.
+                    `}
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'typescript',
+                            file: 'proxy.ts',
+                            code: dedent`
+                                import { NextResponse } from 'next/server'
+                                import type { NextRequest } from 'next/server'
+                                import { withPostHogProxy } from '@posthog/next'
 
-                        - **Functions passed to \`after()\`**: Next.js logs their errors and moves on. Capture inside the callback: wrap its body in \`try\`/\`catch\`, \`await getPostHogServer().captureExceptionImmediate(error)\`, and rethrow.
-                        - **\`proxy.ts\` on Next.js 16**: Next.js does not call \`onRequestError\` for errors thrown in the proxy. Wrap the proxy body the same way.
-                        - **Next.js 14 and earlier**: there is no \`onRequestError\`, and \`instrumentation.ts\` runs only with \`experimental: { instrumentationHook: true }\` in \`next.config.js\`. Upgrade to Next.js 15, or capture in your route handlers and server actions with \`getPostHogServer().captureException(error)\`.
+                                // On Next.js 15 and earlier, this is middleware.ts with \`export const middleware\`
+                                export const proxy = withPostHogProxy(
+                                  async (request: NextRequest) => {
+                                    // Your existing proxy code
+                                    return NextResponse.next()
+                                  },
+                                  {
+                                    apiKey: process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN,
+                                    host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+                                  }
+                                )
+                            `,
+                        },
+                    ]}
+                />
+                <Markdown>
+                    {dedent`
+                        Errors thrown in functions passed to \`after()\` never reach \`onRequestError\` either: Next.js logs them and moves on. If your app imports \`after\` from \`next/server\`, capture inside each callback:
+                    `}
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'typescript',
+                            file: 'app/api/orders/route.ts',
+                            code: dedent`
+                                import { after } from 'next/server'
+                                import { getPostHogServer } from '@/lib/posthog-server'
+
+                                after(async () => {
+                                  try {
+                                    await sendReceipt(order)
+                                  } catch (error) {
+                                    await getPostHogServer().captureExceptionImmediate(error)
+                                    throw error
+                                  }
+                                })
+                            `,
+                        },
+                    ]}
+                />
+                <Markdown>
+                    {dedent`
+                        On **Next.js 14 and earlier** there is no \`onRequestError\`, and \`instrumentation.ts\` runs only with \`experimental: { instrumentationHook: true }\` in \`next.config.js\`. Upgrade to Next.js 15, or capture in your route handlers and server actions with \`getPostHogServer().captureException(error)\`. \`withPostHogProxy\` works for middleware on these versions too.
                     `}
                 </Markdown>
                 <Markdown>
