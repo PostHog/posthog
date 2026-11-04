@@ -1,5 +1,6 @@
 import type {
     ApiConnection,
+    ApiKeyAccess,
     ApiToolError,
     ApiToolLibrary,
     ApiToolResult,
@@ -195,6 +196,18 @@ export function unwrap<T>(result: ApiToolResult<T>, tool?: string): T {
 
 const SCOPE_LOOKUP_MS = 10_000
 
+// What the credentials can reach. PostHog's key lookup only answers for a personal API key, so a
+// credential that knows its own access answers first.
+export async function credentialAccess(
+    ctx: Context,
+    library: ApiToolLibrary,
+    connection: ApiConnection,
+    options?: { signal?: AbortSignal }
+): Promise<ApiToolResult<ApiKeyAccess>> {
+    const access = (await ctx.credentials()).key.access()
+    return access ? { ok: true, value: access } : library.keyAccess(connection, options)
+}
+
 // Undefined when the scopes are unknown, so browsing still works on a failed or stalled lookup.
 export async function grantedScopes(ctx: Context, library: ApiToolLibrary): Promise<string[] | undefined> {
     let connection: ApiConnection
@@ -215,9 +228,9 @@ export async function grantedScopes(ctx: Context, library: ApiToolLibrary): Prom
             resolve(undefined)
         }, SCOPE_LOOKUP_MS)
     })
-    const lookup = library
-        .keyAccess(connection, { signal: deadline.signal })
-        .then((result) => (result.ok ? result.value.scopes : undefined))
+    const lookup = credentialAccess(ctx, library, connection, { signal: deadline.signal }).then((result) =>
+        result.ok ? result.value.scopes : undefined
+    )
     try {
         return await Promise.race([lookup, stalled])
     } finally {

@@ -1,44 +1,63 @@
 import { describe, expect, test } from 'bun:test'
 
 import type { Secrets } from '@/core/runtime'
+import { LOGIN_SCOPES } from '@/posthog/device-auth'
+import { HOG_CLIENT_ID } from '@/posthog/oauth'
 import { runHog } from '@/testing'
 
+const EU = 'https://eu.posthog.com'
 const LEGACY_CLI_FILE = '/home/test/.posthog/credentials.json'
 const SETTINGS_FILE = '/home/test/.config/hog/settings.json'
 const HOG_CREDENTIALS_FILE = '/home/test/.config/hog/credentials.json'
 const PENDING_FILE = '/home/test/.config/hog/pending-auth-login.json'
 const DEVICE_CODE = 'device-secret-123'
+// Tokens as long as the ones PostHog issues, so the size check below is realistic.
+const ACCESS_TOKEN = `pha_${'a'.repeat(43)}`
+const REFRESH_TOKEN = `phr_${'r'.repeat(43)}`
 
+// The answers layers of the OAuth server give: RFC 8628 device authorization, then the token
+// endpoint's RFC 8628 errors, then a token scoped to the project the person picked.
 const DEVICE = {
     device_code: DEVICE_CODE,
-    user_code: 'ABCD-1234',
-    verification_uri_complete: 'https://eu.posthog.com/cli/authorize?code=ABCD-1234',
-    expires_in: 600,
+    user_code: 'BCDF-GHJK',
+    verification_uri: `${EU}/device`,
+    verification_uri_complete: `${EU}/device?code=BCDF-GHJK`,
+    expires_in: 1800,
     interval: 5,
 }
 const APPROVED = {
-    status: 'authorized',
-    personal_api_key: 'phx_secret',
-    project_id: '42',
-    scopes: ['query:read'],
+    access_token: ACCESS_TOKEN,
+    token_type: 'Bearer',
+    expires_in: 604800,
+    refresh_token: REFRESH_TOKEN,
+    scope: LOGIN_SCOPES.join(' '),
+    scoped_teams: [42],
+    scoped_organizations: [],
 }
 const PENDING = JSON.stringify({
-    host: 'https://eu.posthog.com',
+    host: EU,
     deviceCode: DEVICE_CODE,
-    userCode: 'ABCD-1234',
-    url: 'https://eu.posthog.com/cli/authorize?code=ABCD-1234&use_cases=agent-cli',
-    expiresAt: Date.UTC(2026, 0, 1) + 600_000,
+    userCode: 'BCDF-GHJK',
+    url: `${EU}/device?code=BCDF-GHJK`,
+    expiresAt: Date.UTC(2026, 0, 1) + 1_800_000,
     intervalSeconds: 5,
+    scopes: LOGIN_SCOPES,
 })
 
 // The device flow: a device code, then `pendingPolls` answers of "keep waiting", then `final`.
 function deviceFlow(pendingPolls: number, final = { status: 200, body: APPROVED as unknown }) {
     let polls = 0
     return (url: string) => {
-        if (url.endsWith('/api/cli-auth/device-code/')) {
+        if (url.endsWith('/oauth/device-authorization/')) {
             return { status: 200, body: DEVICE }
         }
-        return polls++ < pendingPolls ? { status: 202, body: { status: 'pending' } } : final
+        if (url.endsWith('/oauth/revoke/')) {
+            return { status: 200, body: {} }
+        }
+        if (url.endsWith('/api/personal_api_keys/@current/')) {
+            return { status: 200, body: { scopes: ['query:read'] } }
+        }
+        return polls++ < pendingPolls ? { status: 400, body: { error: 'authorization_pending' } } : final
     }
 }
 
@@ -52,26 +71,53 @@ describe('hog auth login', () => {
         expect(result.exitCode).toBe(0)
         expect(result.json()).toMatchObject({
             status: 'pending',
-            code: 'ABCD-1234',
-            url: 'https://eu.posthog.com/cli/authorize?code=ABCD-1234&use_cases=agent-cli',
+            code: 'BCDF-GHJK',
+            url: `${EU}/device?code=BCDF-GHJK`,
             next: 'hog auth login --wait',
         })
         expect(result.stdout).not.toContain(DEVICE_CODE)
         expect(JSON.parse(result.files[PENDING_FILE] ?? '{}')).toMatchObject({ deviceCode: DEVICE_CODE })
         expect(result.opened).toEqual([])
-        expect(result.requests.map((request) => request.url)).toEqual([
-            'https://eu.posthog.com/api/cli-auth/device-code/',
+        expect(result.requests).toEqual([
+            {
+                method: 'POST',
+                url: `${EU}/oauth/device-authorization/`,
+                body: { client_id: HOG_CLIENT_ID, scope: LOGIN_SCOPES.join(' ') },
+            },
         ])
     })
 
+    test('--read-only asks for read access only', async () => {
+        const result = await runHog(['auth', 'login', '--region', 'eu', '--read-only'], {
+            env: { CLAUDECODE: '1' },
+            respond: deviceFlow(0),
+        })
+
+        const requested = String((result.requests[0]?.body as { scope?: string } | undefined)?.scope ?? '').split(' ')
+        expect(requested).toContain('insight:read')
+        expect(requested).toContain('openid')
+        expect(requested.filter((scope) => scope.endsWith(':write'))).toEqual([])
+    })
+
+    test('an approval link on another origin than the host is replaced with the page on the host', async () => {
+        const result = await runHog(['auth', 'login', '--region', 'eu'], {
+            env: { CLAUDECODE: '1' },
+            respond: () => ({
+                status: 200,
+                body: {
+                    ...DEVICE,
+                    verification_uri: 'https://phish.example.com/device',
+                    verification_uri_complete: 'https://phish.example.com/device?code=BCDF-GHJK',
+                },
+            }),
+        })
+
+        expect(result.json()).toMatchObject({ status: 'pending', url: `${EU}/device?code=BCDF-GHJK` })
+    })
+
     test.each([
-        ['a posthog.json Cloud host picks the region', [], 'https://eu.posthog.com', 'https://eu.posthog.com'],
-        [
-            '--region beats the posthog.json host',
-            ['--region', 'eu'],
-            'https://us.posthog.com',
-            'https://eu.posthog.com',
-        ],
+        ['a posthog.json Cloud host picks the region', [], EU, EU],
+        ['--region beats the posthog.json host', ['--region', 'eu'], 'https://us.posthog.com', EU],
     ])('%s', async (_name, flags, configHost, loginHost) => {
         const result = await runHog(['auth', 'login', ...flags], {
             env: { CLAUDECODE: '1' },
@@ -80,7 +126,7 @@ describe('hog auth login', () => {
         })
 
         expect(result.exitCode).toBe(0)
-        expect(result.requests.map((request) => request.url)).toEqual([`${loginHost}/api/cli-auth/device-code/`])
+        expect(result.requests.map((request) => request.url)).toEqual([`${loginHost}/oauth/device-authorization/`])
     })
 
     test('a posthog.json host outside PostHog Cloud never starts a login', async () => {
@@ -100,7 +146,7 @@ describe('hog auth login', () => {
             files: { [PENDING_FILE]: PENDING },
             respond: deviceFlow(0),
         })
-        expect(result.json()).toMatchObject({ status: 'pending', code: 'ABCD-1234' })
+        expect(result.json()).toMatchObject({ status: 'pending', code: 'BCDF-GHJK' })
         expect(result.requests).toEqual([])
     })
 
@@ -108,13 +154,21 @@ describe('hog auth login', () => {
         ['an agent without a region', ['auth', 'login'], { CLAUDECODE: '1' }, {}, 2, 'region_required'],
         ['a CI job', ['auth', 'login', '--region', 'us'], { CI: 'true' }, {}, 1, 'login_needs_a_person'],
         ['--wait with no login started', ['auth', 'login', '--wait'], { CLAUDECODE: '1' }, {}, 1, 'no_pending_login'],
+        [
+            '--read-only with --wait',
+            ['auth', 'login', '--wait', '--read-only'],
+            { CLAUDECODE: '1' },
+            { [PENDING_FILE]: PENDING },
+            2,
+            'read_only_with_wait',
+        ],
     ])('%s fails with a hint', async (_name, argv, env, files, exitCode, code) => {
         const result = await runHog(argv, { env, files, respond: deviceFlow(0) })
         expect(result.exitCode).toBe(exitCode)
         expect(result.error()).toMatchObject({ code, hint: expect.any(String) })
     })
 
-    test('--wait saves the key in the keychain once the person approves', async () => {
+    test('--wait stores the token for the approved project in the keychain', async () => {
         const result = await runHog(['auth', 'login', '--wait'], {
             env: { CLAUDECODE: '1' },
             files: { [PENDING_FILE]: PENDING },
@@ -122,25 +176,38 @@ describe('hog auth login', () => {
         })
 
         expect(result.exitCode).toBe(0)
-        expect(result.json()).toMatchObject({ status: 'logged_in', host: 'https://eu.posthog.com', projectId: '42' })
-        expect(result.stdout).not.toContain('phx_secret')
-        // The keychain keeps only the secret. What isn't secret is in settings.json.
-        expect(JSON.parse(result.keychain['https://eu.posthog.com'] ?? '{}')).toEqual({ apiKey: 'phx_secret' })
+        expect(result.json()).toMatchObject({
+            status: 'logged_in',
+            host: EU,
+            projectId: '42',
+            scopes: LOGIN_SCOPES,
+            expiresAt: expect.any(String),
+        })
+        expect(result.stdout).not.toContain(ACCESS_TOKEN)
+        // The keychain keeps only the tokens. What isn't secret is in settings.json.
+        expect(JSON.parse(result.keychain[EU] ?? '{}')).toEqual({
+            accessToken: ACCESS_TOKEN,
+            refreshToken: REFRESH_TOKEN,
+        })
+        // Windows Credential Manager refuses an item over 2,560 bytes, and Bun stores it as UTF-8.
+        expect(Buffer.byteLength(result.keychain[EU] ?? '')).toBeLessThanOrEqual(2560)
         expect(JSON.parse(result.files[SETTINGS_FILE] ?? '{}')).toEqual({
             logins: {
-                'https://eu.posthog.com': {
+                [EU]: {
                     store: 'keychain',
-                    type: 'personal_api_key',
+                    type: 'oauth',
                     projectId: '42',
-                    host: 'https://eu.posthog.com',
+                    host: EU,
+                    expiresAt: expect.any(Number),
+                    scopes: LOGIN_SCOPES,
+                    loginId: expect.any(String),
                 },
             },
-            host: 'https://eu.posthog.com',
+            host: EU,
         })
         expect(result.files[LEGACY_CLI_FILE]).toBeUndefined()
         expect(result.files[PENDING_FILE]).toBeUndefined()
-        // Only polls: a key PostHog just issued skips the key check.
-        expect(result.requests.map((request) => request.url.endsWith('/poll/'))).toEqual([true, true, true])
+        expect(result.requests.filter((request) => request.url.endsWith('/oauth/token/'))).toHaveLength(3)
     })
 
     const denied = Object.assign(new Error('User canceled'), { code: 'ERR_SECRETS_USER_CANCELED' })
@@ -154,7 +221,7 @@ describe('hog auth login', () => {
         // An item an older hog build saved can ask again even though a new probe item works.
         ["denies the host's item after the probe passes", denied, true],
     ])(
-        'a login saves the key in a private file, and says so, when the keychain %s',
+        'a login saves the token in a private file, and says so, when the keychain %s',
         async (_name, failure, probeWorks) => {
             const items = new Map<string, string>()
             const check = (name: string): void => {
@@ -190,7 +257,7 @@ describe('hog auth login', () => {
                 keychainError: expect.stringContaining('keychain'),
             })
             expect(JSON.parse(result.files[HOG_CREDENTIALS_FILE] ?? '{}')).toEqual({
-                'https://eu.posthog.com': { apiKey: 'phx_secret' },
+                [EU]: { accessToken: ACCESS_TOKEN, refreshToken: REFRESH_TOKEN },
             })
             expect(JSON.parse(result.files[SETTINGS_FILE] ?? '{}')).toMatchObject({
                 logins: { 'https://eu.posthog.com': { store: 'file', projectId: '42' } },
@@ -201,37 +268,53 @@ describe('hog auth login', () => {
     test.each([
         [
             'stops when the code expires and forgets it',
-            { status: 400, body: { status: 'expired' } },
-            'login_expired',
+            { status: 400, body: { error: 'expired_token' } },
+            { code: 'login_expired' },
+            false,
+        ],
+        [
+            'stops when the person denies it and forgets it',
+            { status: 400, body: { error: 'access_denied' } },
+            { code: 'login_rejected' },
+            false,
+        ],
+        [
+            "stops with PostHog's reason when it refuses the client, and forgets it",
+            {
+                status: 400,
+                body: { error: 'unauthorized_client', error_description: "PostHog hasn't verified this app." },
+            },
+            { code: 'login_unavailable', message: expect.stringContaining("hasn't verified this app") },
             false,
         ],
         [
             'retries a server that keeps failing, then keeps the login to resume',
             { status: 503, body: 'Service Unavailable' },
-            'login_interrupted',
+            { code: 'login_interrupted' },
             true,
         ],
-    ])('--wait %s', async (_name, final, code, keepsPending) => {
+    ])('--wait %s', async (_name, final, expected, keepsPending) => {
         const result = await runHog(['auth', 'login', '--wait'], {
             env: { CLAUDECODE: '1' },
             files: { [PENDING_FILE]: PENDING },
             respond: deviceFlow(1, final),
         })
         expect(result.exitCode).toBe(1)
-        expect(result.error()).toMatchObject({ code })
+        expect(result.error()).toMatchObject(expected)
         expect(result.files[PENDING_FILE] !== undefined).toBe(keepsPending)
         expect(result.keychain).toEqual({})
     })
 
     test.each([
-        ['approving in the browser', ['eu'], true, 'https://eu.posthog.com'],
+        ['approving in the browser', ['eu'], true, EU, { accessToken: ACCESS_TOKEN }],
         [
             'pasting a personal API key',
             ['key', 'https://ph.example.com/', '42', 'phx_secret'],
             false,
             'https://ph.example.com',
+            { apiKey: 'phx_secret' },
         ],
-    ])('a person at a terminal logs in by %s', async (_name, answers, opensBrowser, host) => {
+    ])('a person at a terminal logs in by %s', async (_name, answers, opensBrowser, host, secret) => {
         const result = await runHog(['auth', 'login'], {
             stdoutIsTTY: true,
             env: { NO_COLOR: '1' },
@@ -244,7 +327,21 @@ describe('hog auth login', () => {
         expect(result.stdout).toContain(`Logged in to ${host}, project 42.`)
         expect(result.opened).toHaveLength(opensBrowser ? 1 : 0)
         expect(result.files[PENDING_FILE]).toBeUndefined()
-        expect(JSON.parse(result.keychain[host] ?? '{}')).toEqual({ apiKey: 'phx_secret' })
+        expect(JSON.parse(result.keychain[host] ?? '{}')).toMatchObject(secret)
+        expect(result.stdout).toContain('Try it: hog query run')
+    })
+
+    test('a pasted personal API key that PostHog rejects is not saved', async () => {
+        const result = await runHog(['auth', 'login'], {
+            stdoutIsTTY: true,
+            env: { NO_COLOR: '1' },
+            answers: ['key', 'https://ph.example.com/', '42', 'phx_deleted'],
+            respond: () => ({ status: 401, body: { detail: 'Invalid personal API key.' } }),
+        })
+
+        expect(result.exitCode).toBe(1)
+        expect(result.stderr).toContain('https://ph.example.com rejected the personal API key')
+        expect(result.keychain).toEqual({})
     })
 
     const STORED = JSON.stringify({ host: 'https://eu.posthog.com', token: 'phx_secret', env_id: '42' })
@@ -263,6 +360,25 @@ describe('hog auth login', () => {
             }),
         },
         keychain: { 'https://eu.posthog.com': JSON.stringify({ apiKey: 'phx_secret' }) },
+    }
+    const OAUTH_LOGIN = {
+        files: {
+            [SETTINGS_FILE]: JSON.stringify({
+                logins: {
+                    [EU]: {
+                        store: 'keychain',
+                        type: 'oauth',
+                        projectId: '42',
+                        host: EU,
+                        expiresAt: Date.UTC(2026, 0, 2),
+                        scopes: ['openid', 'insight:read'],
+                        loginId: 'login-1',
+                    },
+                },
+                host: EU,
+            }),
+        },
+        keychain: { [EU]: JSON.stringify({ accessToken: ACCESS_TOKEN, refreshToken: REFRESH_TOKEN }) },
     }
 
     test.each([
@@ -289,8 +405,21 @@ describe('hog auth login', () => {
         expect(result.stdout).not.toContain('phx_secret')
     })
 
-    test.each([['a hog login', KEYCHAIN_LOGIN, { source: 'store', store: 'keychain', credentialsPath: null }]])(
-        'status names where the key of %s comes from',
+    test.each([
+        ['a hog login', KEYCHAIN_LOGIN, { source: 'store', store: 'keychain', credentialsPath: null }],
+        [
+            'an OAuth login',
+            OAUTH_LOGIN,
+            {
+                kind: 'oauth',
+                source: 'store',
+                store: 'keychain',
+                scopes: ['openid', 'insight:read'],
+                expiresAt: '2026-01-02T00:00:00.000Z',
+            },
+        ],
+    ])(
+        'status names where the credentials of %s come from, and what they can do',
         async (_name, { files, keychain }, expected) => {
             const result = await runHog(['auth', 'status'], {
                 env: { CLAUDECODE: '1' },
@@ -406,6 +535,7 @@ describe('hog auth login', () => {
                 files,
                 keychain: KEYCHAIN_LOGIN.keychain,
             })
+            expect(result.requests).toEqual([])
             expect(result.exitCode).toBe(0)
             expect(result.json()).toMatchObject({ status, revokeUrl, stillSet })
             expect(result.keychain).toEqual(files[SETTINGS_FILE] ? {} : KEYCHAIN_LOGIN.keychain)
@@ -413,6 +543,27 @@ describe('hog auth login', () => {
             expect(result.files[LEGACY_CLI_FILE]).toBe(files[LEGACY_CLI_FILE])
         }
     )
+
+    test.each([
+        ['revokes an OAuth login in PostHog before it removes it', 200, true],
+        ['says when PostHog could not revoke the login, and still removes it', 503, false],
+    ])('logout %s', async (_name, status, revoked) => {
+        const result = await runHog(['auth', 'logout'], {
+            env: { CLAUDECODE: '1' },
+            ...OAUTH_LOGIN,
+            respond: () => ({ status, body: {} }),
+        })
+
+        expect(result.json()).toMatchObject({ status: 'logged_out', revoked, revokeUrl: null })
+        expect(result.requests).toEqual([
+            {
+                method: 'POST',
+                url: `${EU}/oauth/revoke/`,
+                body: { token: REFRESH_TOKEN, token_type_hint: 'refresh_token', client_id: HOG_CLIENT_ID },
+            },
+        ])
+        expect(result.keychain).toEqual({})
+    })
 
     test('a file login that replaced a keychain login takes the old keychain item with it on logout', async () => {
         const oldItem = JSON.stringify({ apiKey: 'phx_old' })

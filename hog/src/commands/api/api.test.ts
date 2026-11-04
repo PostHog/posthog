@@ -213,4 +213,25 @@ describe('hog api', () => {
             ],
         })
     })
+
+    test('access answers for an OAuth login from its scopes, because the key lookup refuses OAuth tokens', async () => {
+        const EU = 'https://eu.posthog.com'
+        const record = {
+            store: 'keychain',
+            type: 'oauth',
+            projectId: '42',
+            host: EU,
+            expiresAt: Date.UTC(2026, 0, 8),
+            scopes: ['feature_flag:read', 'feature_flag:write'],
+            loginId: 'login-1',
+        }
+        const result = await runHog(['api', 'access'], {
+            env: { CLAUDECODE: '1' },
+            files: { '/home/test/.config/hog/settings.json': JSON.stringify({ logins: { [EU]: record }, host: EU }) },
+            keychain: { [EU]: JSON.stringify({ accessToken: 'pha_token', refreshToken: 'phr_token' }) },
+            apiTools: fakeLibrary([], { lookupFails: true }),
+        })
+
+        expect(result.json()).toMatchObject({ usable: 2, tools: 3, projectAllowed: true })
+    })
 })

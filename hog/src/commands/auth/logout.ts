@@ -22,9 +22,12 @@ interface LogoutResult {
 }
 
 export default defineCommand({
-    description: 'Remove the personal API key hog stored on this machine',
+    description: 'Log out of PostHog and remove the login hog stored on this machine',
     writes: true,
-    notes: 'The key itself stays valid until you delete it in PostHog under Settings > Personal API keys.',
+    notes: [
+        'hog revokes the login on this machine in PostHog. Your hog logins on other machines keep working.',
+        'A personal API key you pasted stays valid until you delete it in PostHog under Settings > Personal API keys.',
+    ].join('\n'),
     options: {
         all: { type: 'boolean', description: 'Log out of every PostHog host hog has a login for' },
     },
@@ -60,7 +63,7 @@ export default defineCommand({
     human({ result, out }) {
         const loggedOut = result.hosts ?? (result.host && result.status === 'logged_out' ? [result] : [])
         if (loggedOut.length === 0) {
-            out.line('hog had no stored key to remove.')
+            out.line('hog had no stored login to remove.')
         }
         for (const { host, revoked, revokeUrl, keychainLeftover } of loggedOut) {
             out.line(`${out.style('Logged out', 'green', 'bold')} of ${escapeControls(host ?? '')}.`)

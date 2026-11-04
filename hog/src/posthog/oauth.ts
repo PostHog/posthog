@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 
+import type { ApiKeyAccess } from '@posthog/mcp/src/cli/library-types'
+
 import { HogError } from '@/core/errors'
 import { withFileLock } from '@/core/file-lock'
 import type { Runtime } from '@/core/runtime'
@@ -197,7 +199,17 @@ export class OAuthLogin implements AccessKey {
     }
 
     status(): AccessKeyStatus {
-        return { kind: 'oauth', scopes: this.scopes, expiresAt: this.expiresAt }
+        return {
+            kind: 'oauth',
+            scopes: this.scopes,
+            expiresAt: this.expiresAt,
+            rejected: 'PostHog rejected the token. Someone may have revoked it.',
+        }
+    }
+
+    // A login works in the one project it was approved for.
+    access(): ApiKeyAccess {
+        return { scopes: this.scopes, scopedTeams: [Number(this.projectId)], scopedOrganizations: [] }
     }
 
     // Revoking the refresh token ends this login: PostHog revokes its access tokens with it.

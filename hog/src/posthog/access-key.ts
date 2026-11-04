@@ -1,3 +1,5 @@
+import type { ApiKeyAccess } from '@posthog/mcp/src/cli/library-types'
+
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
 import type { StoreChoice, StoredSecret } from '@/posthog/credential-store/types'
@@ -14,6 +16,8 @@ export interface AccessKeyStatus {
     scopes: string[] | null
     // Epoch milliseconds. Null for a key that doesn't expire.
     expiresAt: number | null
+    // What hog says when PostHog rejects the key.
+    rejected: string
 }
 
 export interface LogoutOutcome {
@@ -44,6 +48,8 @@ export interface AccessKey {
     // The key as PostHog sees it, before hog stores it. Throws when PostHog rejects it.
     verify(runtime: Runtime): Promise<AccessKey>
     status(): AccessKeyStatus
+    // What the key can reach, when hog knows. Null when only PostHog can say.
+    access(): ApiKeyAccess | null
     logout(runtime: Runtime): Promise<LogoutOutcome>
     // The credential store keeps the secret, and settings.json keeps the record.
     secret(): StoredSecret
@@ -79,7 +85,16 @@ export class PersonalAPIKey implements AccessKey {
     }
 
     status(): AccessKeyStatus {
-        return { kind: 'personal_api_key', scopes: this.scopes, expiresAt: null }
+        return {
+            kind: 'personal_api_key',
+            scopes: this.scopes,
+            expiresAt: null,
+            rejected: 'PostHog rejected the key. Someone may have deleted it.',
+        }
+    }
+
+    access(): null {
+        return null
     }
 
     // A key someone deleted, or one pasted only in part, would otherwise fail only at the first
