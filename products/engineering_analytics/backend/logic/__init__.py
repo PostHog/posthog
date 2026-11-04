@@ -30,6 +30,7 @@ from products.engineering_analytics.backend.logic.delivery_scope import (
     DeliveryScope as DeliveryScope,
     SummaryScope as SummaryScope,
 )
+from products.engineering_analytics.backend.logic.depot_ci_usage import build_depot_ci_usage as build_depot_ci_usage
 from products.engineering_analytics.backend.logic.dora import build_dora_overview as build_dora_overview
 from products.engineering_analytics.backend.logic.friction import (
     build_author_friction as build_author_friction,

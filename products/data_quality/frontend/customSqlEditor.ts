@@ -1,6 +1,5 @@
 import type { CodeEditorProps } from 'lib/monaco/CodeEditor'
-
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { escapePropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 
 export type CodeEditorInstance = Parameters<NonNullable<CodeEditorProps['onMount']>>[0]
 

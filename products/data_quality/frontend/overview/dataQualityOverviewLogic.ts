@@ -190,6 +190,7 @@ export interface dataQualityOverviewLogicValues {
     overviewLoading: boolean
     overviewSummary: string | null
     pollTimedOut: boolean
+    runCheckIds: string[]
     runError: string | null
     runTarget: OverviewRunTarget | null
     runningSubjectKey: string | null
@@ -261,6 +262,9 @@ export interface dataQualityOverviewLogicActions {
     }
     removeCheck: (checkId: string) => {
         checkId: string
+    }
+    retryRun: () => {
+        value: true
     }
     runChecks: (
         target: OverviewRunTarget,
@@ -379,6 +383,7 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
         setCheckRuns: (checkId: string, runs: DataQualityCheckRunApi[]) => ({ checkId, runs }),
         setRunsLoading: (checkId: string, loading: boolean) => ({ checkId, loading }),
         runChecks: (target: OverviewRunTarget, checkIds: string[] = []) => ({ target, checkIds }),
+        retryRun: true,
         setStartingRun: (starting: boolean) => ({ starting }),
         setActiveSuiteRun: (suiteRun: DataQualitySuiteRunApi | null) => ({ suiteRun }),
         scheduleSuiteRunPoll: true,
@@ -463,6 +468,12 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
             null as OverviewRunTarget | null,
             {
                 runChecks: (_, { target }) => target,
+            },
+        ],
+        runCheckIds: [
+            [] as string[],
+            {
+                runChecks: (_, { checkIds }) => checkIds,
             },
         ],
         runError: [
@@ -694,6 +705,11 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                     fetchRuns: () => checksApi.runs(check.id),
                     onRunsFetched: (runs) => actions.setCheckRuns(check.id, runs),
                 })
+            },
+            retryRun: () => {
+                if (values.runTarget) {
+                    actions.runChecks(values.runTarget, values.runCheckIds)
+                }
             },
             runChecks: async ({ checkIds }) => {
                 try {

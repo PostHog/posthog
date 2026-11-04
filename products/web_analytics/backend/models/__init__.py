@@ -4,6 +4,7 @@ from .content_autopilot import (
     ContentAutopilotRun,
     ContentAutopilotSiteProfile,
 )
+from .health_rollups import EventsHealthDaily, HostProxyDaily, SessionIdState
 from .heatmap_capture_config_version import HeatmapCaptureConfigVersion
 from .heatmap_saved import HeatmapSnapshot, SavedHeatmap
 from .heatmap_screenshot_history import HeatmapCaptureRequest, HeatmapScreenshotHistory
@@ -23,6 +24,9 @@ __all__ = [
     "ContentAutopilotProposal",
     "ContentAutopilotRun",
     "ContentAutopilotSiteProfile",
+    "EventsHealthDaily",
+    "HostProxyDaily",
+    "SessionIdState",
     "WebAnalyticsAchievementProgress",
     "WebAnalyticsFilterPreset",
     "WebAnalyticsInteraction",

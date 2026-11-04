@@ -7,7 +7,7 @@ import { dataQualityOverviewLogic } from './dataQualityOverviewLogic'
 export function RunAllBanners(): JSX.Element {
     const { overviewError, snapshotLoaded, startingRun, isRunning, runTarget, pollTimedOut, runError } =
         useValues(dataQualityOverviewLogic)
-    const { runChecks, loadOverview } = useActions(dataQualityOverviewLogic)
+    const { retryRun, loadOverview } = useActions(dataQualityOverviewLogic)
 
     const runningAll = (startingRun || isRunning) && runTarget?.kind === 'all'
 
@@ -29,7 +29,7 @@ export function RunAllBanners(): JSX.Element {
                 </LemonBanner>
             )}
             {runError && runTarget?.kind === 'all' && (
-                <LemonBanner type="error" action={{ children: 'Retry', onClick: () => runChecks({ kind: 'all' }) }}>
+                <LemonBanner type="error" action={{ children: 'Retry', onClick: retryRun }}>
                     {runError}
                 </LemonBanner>
             )}

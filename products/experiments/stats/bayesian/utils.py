@@ -8,14 +8,14 @@ posterior updates, credible intervals, and probability calculations.
 from scipy.stats import norm
 
 from ..shared.enums import DifferenceType
-from ..shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
+from ..shared.statistics import AnyStatistic, StatisticError
 from ..shared.utils import get_mean, get_sample_size, get_variance, validate_test_inputs
 from .priors import GaussianPrior
 
 
 def calculate_effect_size_and_variance(
-    treatment_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
-    control_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+    treatment_stat: AnyStatistic,
+    control_stat: AnyStatistic,
     difference_type: DifferenceType,
     unadjusted_mean: float | None = None,
 ) -> tuple[float, float]:
@@ -202,8 +202,8 @@ def credible_interval(posterior_mean: float, posterior_std: float, alpha: float 
 
 
 def validate_inputs(
-    treatment_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
-    control_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+    treatment_stat: AnyStatistic,
+    control_stat: AnyStatistic,
 ) -> None:
     """
     Validate input statistics for Bayesian analysis.

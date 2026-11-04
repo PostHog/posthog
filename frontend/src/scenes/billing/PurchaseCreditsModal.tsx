@@ -7,9 +7,9 @@ import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonTable, Link } f
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 
 import { BillingGauge } from './BillingGauge'
-import { billingLogic } from './billingLogic'
 import { BillingGaugeItemKind } from './types'
 
 function floatDiscountToText(discount: number): string {

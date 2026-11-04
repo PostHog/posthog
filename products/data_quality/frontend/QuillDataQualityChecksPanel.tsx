@@ -1,12 +1,23 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { Button, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle, Skeleton, Text } from '@posthog/quill'
+import {
+    Button,
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyTitle,
+    Skeleton,
+    Text,
+    cn,
+} from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
+import { CHECKS_CONTAINER } from './checkTableLayout'
 import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { DataQualityChecksLogicProps, dataQualityChecksLogic } from './dataQualityChecksLogic'
 import { QuillCheckCallout } from './QuillCheckCallout'
@@ -15,7 +26,8 @@ import { QuillChecksPanelBanners } from './QuillChecksPanelBanners'
 import { QuillChecksPanelHeader } from './QuillChecksPanelHeader'
 import { QuillChecksTable } from './QuillChecksTable'
 import { QuillMetricChecksEmptyState } from './QuillMetricChecksEmptyState'
-import { QuillSuiteRunsHistory } from './QuillSuiteRunsHistory'
+import { QuillRecentRunsStrip } from './QuillRecentRunsStrip'
+import { QuillRunHistoryDialog } from './QuillRunHistoryDialog'
 
 export interface QuillDataQualityChecksPanelProps extends DataQualityChecksLogicProps {
     columns: DatabaseSchemaField[]
@@ -99,8 +111,10 @@ export function QuillDataQualityChecksPanel({
     if (!checksLoading && checks.length === 0) {
         return (
             <BindLogic logic={dataQualityCheckEditorLogic} props={editorProps}>
-                <div className="flex flex-col gap-3" data-attr="data-quality-checks-panel">
+                <div className={cn(CHECKS_CONTAINER, 'flex flex-col gap-3')} data-attr="data-quality-checks-panel">
                     {notice}
+                    <QuillChecksPanelBanners {...logicProps} />
+                    <QuillRecentRunsStrip {...logicProps} />
                     {isMetric ? (
                         <QuillMetricChecksEmptyState
                             metricName={subjectName}
@@ -111,6 +125,7 @@ export function QuillDataQualityChecksPanel({
                         <NoChecksYet onAddCheck={addCheck} disabledReason={newCheckDisabledReason} />
                     )}
                     <QuillCheckEditorDialog />
+                    <QuillRunHistoryDialog {...logicProps} />
                 </div>
             </BindLogic>
         )
@@ -118,7 +133,7 @@ export function QuillDataQualityChecksPanel({
 
     return (
         <BindLogic logic={dataQualityCheckEditorLogic} props={editorProps}>
-            <div className="flex flex-col gap-3" data-attr="data-quality-checks-panel">
+            <div className={cn(CHECKS_CONTAINER, 'flex flex-col gap-3')} data-attr="data-quality-checks-panel">
                 <QuillChecksPanelHeader
                     {...logicProps}
                     hideTitle={hideTitle}
@@ -139,7 +154,7 @@ export function QuillDataQualityChecksPanel({
 
                 <QuillChecksTable {...logicProps} columns={columnNames} outputSchema={outputSchema} />
 
-                <QuillSuiteRunsHistory {...logicProps} />
+                <QuillRunHistoryDialog {...logicProps} />
 
                 <QuillCheckEditorDialog />
             </div>

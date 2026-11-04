@@ -17,7 +17,7 @@ const EVENT_DETAILS_CACHE_MAX_ENTRIES = 200
 const EVENT_DETAILS_QUERY_WINDOW_MS = 1000
 const EVENT_DETAILS_QUERY_LIMIT = 100
 
-type EventDetailsRow = [uuid: unknown, eventName: unknown, timestamp: unknown, properties: unknown]
+type EventDetailsRow = [uuid: unknown, eventName: unknown, timestamp: unknown, properties: unknown, distinctId: unknown]
 
 interface EventDetailsQueryResponse {
     results?: unknown[]
@@ -62,11 +62,11 @@ function buildEventDetailsWhere(item: TimelineItem, sessionId?: string): string[
 }
 
 function buildEventFromRow(row: unknown): RecordingEventType | null {
-    if (!Array.isArray(row) || row.length < 4) {
+    if (!Array.isArray(row) || row.length < 5) {
         return null
     }
 
-    const [uuid, eventName, timestamp, properties] = row as EventDetailsRow
+    const [uuid, eventName, timestamp, properties, distinctId] = row as EventDetailsRow
     const parsedProperties = parseRecordIfJSONString(properties)
 
     const event: RecordingEventType & { uuid: string } = {
@@ -74,6 +74,7 @@ function buildEventFromRow(row: unknown): RecordingEventType | null {
         uuid: String(uuid),
         event: String(eventName),
         timestamp: String(timestamp),
+        distinct_id: String(distinctId),
         properties: parsedProperties,
         elements: [],
         playerTime: null,
@@ -123,7 +124,7 @@ async function fetchEventDetails(item: TimelineItem, sessionId?: string): Promis
     const request = api
         .query({
             kind: NodeKind.EventsQuery,
-            select: ['uuid', 'event', 'timestamp', 'properties'],
+            select: ['uuid', 'event', 'timestamp', 'properties', 'distinct_id'],
             where: buildEventDetailsWhere(item, sessionId),
             after: item.timestamp.subtract(EVENT_DETAILS_QUERY_WINDOW_MS, 'millisecond').toISOString(),
             before: item.timestamp.add(EVENT_DETAILS_QUERY_WINDOW_MS, 'millisecond').toISOString(),

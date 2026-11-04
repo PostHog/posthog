@@ -46,7 +46,6 @@ from products.canvas.backend.layout import (
     validate_layout_references as validate_layout_references,
 )
 from products.canvas.backend.logic.canvases import (
-    count_canvases as count_canvases,
     create_canvas as create_canvas,
     delete_canvas as delete_canvas,
     get_canvas as get_canvas,

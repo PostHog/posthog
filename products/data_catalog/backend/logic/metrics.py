@@ -509,7 +509,7 @@ def _apply_soft_delete(metric: Metric) -> None:
 def soft_delete_metric(metric: Metric, user: Optional[User] = None, request: "Request | None" = None) -> None:
     with team_scope(metric.team_id):
         _apply_soft_delete(metric)
-    remove_metric_lineage(metric)
+    remove_metric_lineage(metric, metric.team)
     capture_metric_event(METRIC_DELETED_EVENT, metric, team=metric.team, user=user, request=request)
 
 
@@ -639,7 +639,7 @@ def bulk_soft_delete_metrics(
         _capture_after_commit(METRIC_DELETED_EVENT, deleted, team=team, user=user, request=request)
 
     for metric in deleted:
-        remove_metric_lineage(metric)
+        remove_metric_lineage(metric, team)
 
     return deleted, skipped
 

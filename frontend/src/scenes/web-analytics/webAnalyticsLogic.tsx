@@ -33,14 +33,15 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { buildTeamScopedPersistenceConfig } from 'lib/logic/persistence'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getDefaultInterval, isValidRelativeOrAbsoluteDate } from 'lib/utils/dateFilters'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { UnexpectedNeverError, isNotNil } from 'lib/utils/guards'
+import { hogql } from 'lib/utils/hogql'
 import { objectsEqual } from 'lib/utils/objects'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -49,7 +50,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '~/queries/nodes/WebVitals/definitions'
 import { hogqlQuery } from '~/queries/query'
-import { isCompareFilter, isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
+import { InsightVizRenderer, WebOverviewRenderer } from '~/queries/Query/queryNodeRenderers'
 import {
     ActionConversionGoal,
     ActionsNode,
@@ -72,7 +73,7 @@ import {
     WebStatsTableQuery,
     WebVitalsMetric,
 } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { isCompareFilter, isWebAnalyticsPropertyFilters } from '~/queries/web-analytics-schema-guards'
 import {
     AvailableFeature,
     BaseMathType,
@@ -3206,6 +3207,9 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
 
     // start the loaders after mounting the logic
     afterMount(({ actions }) => {
+        // The default tab draws the overview tiles and insight charts. Fetch them alongside the tile queries.
+        void InsightVizRenderer.preload()
+        void WebOverviewRenderer.preload()
         actions.loadShouldShowGeoIPQueries()
     }),
 

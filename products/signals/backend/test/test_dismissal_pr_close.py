@@ -272,7 +272,8 @@ class TestCloseImplementationPrForReport(BaseTest):
         github.get_pull_request.assert_called_once_with("PostHog/posthog", 456)
         github.close_pull_request.assert_called_once_with("PostHog/posthog", 456)
 
-    def test_task_claim_actor_can_close_pr(self):
+    @parameterized.expand([("current", True), ("reopened_during_comment", False)])
+    def test_task_claim_actor_can_close_pr(self, _name: str, still_current: bool) -> None:
         self.assignment.actor_kind = SignalActorKind.TASK
         self.assignment.actor_task_id = uuid.uuid4()
         self.assignment.save(update_fields=["actor_kind", "actor_task_id", "updated_at"])
@@ -280,12 +281,27 @@ class TestCloseImplementationPrForReport(BaseTest):
         github.get_pull_request.return_value = {"success": True, "state": "open", "merged": False}
         github.comment_on_pull_request.return_value = {"success": True}
         github.close_pull_request.return_value = {"success": True}
+        current = True
+
+        def comment(*args: object, **kwargs: object) -> dict[str, bool]:
+            nonlocal current
+            current = still_current
+            return {"success": True}
+
+        github.comment_on_pull_request.side_effect = comment
 
         with patch(
             "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
             return_value=github,
         ):
-            assert close_implementation_pr_for_report(self.team.id, str(self.report.id)) is True
+            assert (
+                close_implementation_pr_for_report(self.team.id, str(self.report.id), before_close=lambda: current)
+                is still_current
+            )
+        if still_current:
+            github.close_pull_request.assert_called_once()
+        else:
+            github.close_pull_request.assert_not_called()
 
     @parameterized.expand(
         [
@@ -581,6 +597,17 @@ class TestSupersededPrClose(BaseTest):
         github.comment_on_pull_request.return_value = {"success": True}
         github.close_pull_request.return_value = {"success": True, "number": 123, "state": "closed"}
         return github
+
+    def test_completion_waits_for_every_linked_pr(self) -> None:
+        github = self._github()
+        github.close_pull_request.side_effect = [{"success": False}, {"success": True}]
+        with patch(
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            assert close_implementation_pr_for_report(self.team.id, str(self.report.id), require_all=True) is False
+            github.close_pull_request.side_effect = None
+            assert close_implementation_pr_for_report(self.team.id, str(self.report.id), require_all=True) is True
 
     def test_closes_the_named_pr_and_points_at_its_replacement(self):
         github = self._github()

@@ -1,3 +1,5 @@
+import { escapeRawPropertyAsHogQLIdentifier } from 'lib/utils/hogql'
+
 import type { DataQualityOutputColumnApi } from './generated/api.schemas'
 
 export type MetricStarterKey = 'has_rows' | 'value_in_range' | 'no_sharp_drop'
@@ -34,7 +36,8 @@ const NUMERIC_TYPE = /^(Nullable\()?(U?Int|Float|Decimal)/
 const TIME_TYPE = /^(Nullable\()?Date/
 
 function firstColumnOfType(columns: DataQualityOutputColumnApi[], type: RegExp): string | null {
-    return columns.find((column) => column.type && type.test(column.type))?.name ?? null
+    const name = columns.find((column) => column.type && type.test(column.type))?.name
+    return name ? escapeRawPropertyAsHogQLIdentifier(name) : null
 }
 
 export function metricStarterQuery(key: MetricStarterKey, columns: DataQualityOutputColumnApi[]): string {

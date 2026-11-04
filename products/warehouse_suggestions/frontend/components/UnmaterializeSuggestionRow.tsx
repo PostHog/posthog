@@ -7,7 +7,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
 import { suggestionBlockedReason } from '../suggestionBlockedReason'
-import { isUnmaterializePayload, readSummary, savingHighlight, unmaterializeSaving } from '../suggestionCopy'
+import { isUnmaterializePayload, readSummary, unmaterializeHighlight } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { DismissSuggestionButtons } from './DismissSuggestionButtons'
 import { SuggestionRow } from './SuggestionRow'
@@ -48,7 +48,7 @@ export function UnmaterializeSuggestionRow({
                     label={readSummary(suggestion.evidence)}
                 />,
             ]}
-            highlight={savingHighlight(unmaterializeSaving(payload))}
+            highlight={unmaterializeHighlight(payload)}
             actions={
                 <>
                     <LemonButton

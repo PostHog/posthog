@@ -220,6 +220,15 @@ class ExperimentHealthFindingSerializer(serializers.Serializer):
             "'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case."
         ),
     )
+    reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), "
+            "what leaves nobody exposed ('test_account_filter'), what made a metric reach a query limit "
+            "('metric', 'exposure_criteria'), or why a check could not read what it needs ('no_history_access'). "
+            "Null when the finding names none."
+        ),
+    )
     severity = serializers.ChoiceField(
         choices=ExperimentHealthFindingSeverity.choices,
         help_text="How much the problem affects the results: critical, warning, or info.",
@@ -1641,9 +1650,11 @@ class _ExperimentMetricsRecalculationBaseSerializer(serializers.Serializer):
     metric_errors = serializers.JSONField(
         read_only=True,
         help_text=(
-            "Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is "
-            "true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can "
-            "succeed; false when the metric config, the data, or a resource limit must change first"
+            "Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. "
+            "retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry "
+            "can succeed; false when the metric config, the data, or a resource limit must change first. "
+            "exposures_path is where the query read the exposures, and is missing when the query failed before it "
+            "was built"
         ),
     )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the job was created")
@@ -3473,6 +3484,21 @@ class ExperimentHealthInputsMetricCalculationFailureSerializer(serializers.Seria
     )
 
 
+class ExperimentHealthInputsZeroMetricSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="The name of the metric, as the results page shows it.")
+    role = serializers.CharField(help_text="Whether the metric is a primary or a secondary metric of the experiment.")
+    exposures = serializers.IntegerField(help_text="The persons or groups of the result, across the variants.")
+    ratio_side = serializers.CharField(
+        allow_null=True,
+        help_text="The side of a ratio that reads zero. Each side that reads zero has its own entry. Null for the other "
+        "metric types.",
+    )
+    stopped_events = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="The events of the metric that the project last received before launch.",
+    )
+
+
 class ExperimentHealthInputsLatestCalculationSerializer(serializers.Serializer):
     finished_at = serializers.DateTimeField(
         allow_null=True,
@@ -3480,6 +3506,13 @@ class ExperimentHealthInputsLatestCalculationSerializer(serializers.Serializer):
     )
     failures = ExperimentHealthInputsMetricCalculationFailureSerializer(
         many=True, help_text="The metrics whose latest calculation failed, with the error that the results page shows."
+    )
+    hours_of_data = serializers.FloatField(
+        allow_null=True,
+        help_text="The hours from launch to the end of the data of this calculation. Null when none has finished.",
+    )
+    zero_metrics = ExperimentHealthInputsZeroMetricSerializer(
+        many=True, help_text="The metrics that read zero in every variant in this calculation."
     )
 
 
@@ -3600,10 +3633,10 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
     flag_called_after_end = serializers.BooleanField(
         allow_null=True,
         help_text=(
-            "Whether PostHog has recorded a call of the flag after the end. The flag state check reads it on an ended "
-            "experiment whose flag is still active with multiple variants. False only after 3 days without a "
-            "recorded call. Null before the end, before those 3 days are over, or when the organization's flag "
-            "calls can't be read."
+            "Whether PostHog has recorded a call of the flag after the end and within the last 3 days. The flag "
+            "state check reads it on an ended experiment whose flag is still active with multiple variants. False "
+            "only once 3 days have passed since the end. Null before the end, before those 3 days are over without a "
+            "call, or when the organization's flag calls can't be read."
         ),
     )
     exposure_events = ExperimentHealthInputsExposureEventsSerializer(

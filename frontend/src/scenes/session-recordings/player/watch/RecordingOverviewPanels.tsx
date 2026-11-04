@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 import { ReactNode } from 'react'
 
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@posthog/quill'
+
 import { SettingsSnapshot } from 'lib/components/SettingsSnapshot'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { TTLWarning } from 'scenes/session-recordings/player/player-meta/PlayerMetaTopSettings'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -19,10 +20,15 @@ const WIDE_OVERVIEW_PX = 960
 
 export function RecordingOverviewPanels(): JSX.Element {
     const { ref, size } = useResizeBreakpoints({ 0: 'narrow', [WIDE_OVERVIEW_PX]: 'wide' })
-
     return (
         <div ref={ref} data-attr="watch-panel-overview">
-            {size === 'wide' ? <WideOverview /> : <PlayerSidebarOverviewTab />}
+            {size === 'wide' ? (
+                <WideOverview />
+            ) : (
+                <div data-not-quill>
+                    <PlayerSidebarOverviewTab />
+                </div>
+            )}
         </div>
     )
 }
@@ -30,10 +36,11 @@ export function RecordingOverviewPanels(): JSX.Element {
 function WideOverview(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { snapshotAt } = useValues(playerMetaLogic(logicProps))
-
     return (
-        <div className="flex flex-col gap-2 bg-primary px-2 py-2">
-            <TTLWarning />
+        <div data-quill className="flex flex-col gap-2 bg-background text-foreground px-2 py-2">
+            <div data-not-quill className="contents">
+                <TTLWarning />
+            </div>
             <div className="grid grid-cols-3 gap-x-2 gap-y-1">
                 <OverviewColumn title="Session" dataAttr="watch-overview-session">
                     <PlayerSidebarOverviewSessionTab />
@@ -45,20 +52,21 @@ function WideOverview(): JSX.Element {
                     <PlayerSidebarOverviewDeviceTab />
                 </OverviewColumn>
             </div>
-            <LemonCollapse
-                size="small"
-                panels={[
-                    {
-                        key: 'replay-settings',
-                        header: 'Settings at the time of the recording',
-                        content: (
-                            <SettingsSnapshot at={snapshotAt} scope={OVERVIEW_SNAPSHOT_SCOPE} title="" layout="grid" />
-                        ),
-                    },
-                ]}
-            />
-            <PlayerSidebarExperimentsSection />
-            <PlayerSidebarOverviewOtherWatchers />
+            <Collapsible>
+                <CollapsibleTrigger className="w-full">
+                    Settings at the time of the recording
+                    <span className="grow" />
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                    <div data-not-quill className="contents">
+                        <SettingsSnapshot at={snapshotAt} scope={OVERVIEW_SNAPSHOT_SCOPE} title="" layout="grid" />
+                    </div>
+                </CollapsibleContent>
+            </Collapsible>
+            <div data-not-quill className="contents">
+                <PlayerSidebarExperimentsSection />
+                <PlayerSidebarOverviewOtherWatchers />
+            </div>
         </div>
     )
 }
@@ -74,8 +82,12 @@ function OverviewColumn({
 }): JSX.Element {
     // subgrid keeps the headings, top cards and row tables level across columns
     return (
-        <div className="grid grid-cols-1 grid-rows-subgrid row-span-3 gap-1 min-w-0" data-attr={dataAttr}>
-            <span className="text-xxs font-semibold uppercase tracking-wide text-secondary px-0.5">{title}</span>
+        <div
+            data-not-quill
+            className="grid grid-cols-1 grid-rows-subgrid row-span-3 gap-1 min-w-0"
+            data-attr={dataAttr}
+        >
+            <span className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground px-0.5">{title}</span>
             {children}
         </div>
     )

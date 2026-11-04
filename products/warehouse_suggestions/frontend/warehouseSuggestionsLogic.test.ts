@@ -74,6 +74,7 @@ const MATERIALIZE: WarehouseSuggestionApi = {
         unknown_sources: { names: [], hidden_count: 0 },
         refresh_mode: 'full',
         refresh_interval_basis: 'savings',
+        main_saving: null,
     },
     payload_version: 1,
     evidence: { human_requests: 200, human_users: 6, human_days: 25 },
@@ -100,6 +101,19 @@ function materialize(id: string, savesSeconds: number, savesBytes = 0): Warehous
         id,
         subject_id: `view-${id}`,
         payload: { ...MATERIALIZE.payload, saves_seconds_per_month: savesSeconds, saves_bytes_per_month: savesBytes },
+    }
+}
+
+function ledBy(id: string, main: 'waiting' | 'scanned', amount: number): WarehouseSuggestionApi {
+    const suggestion = materialize(id, main === 'waiting' ? amount : 0, main === 'scanned' ? amount : 0)
+    return {
+        ...suggestion,
+        payload: {
+            ...suggestion.payload,
+            main_saving: main,
+            waiting_seconds_saved_per_month: main === 'waiting' ? amount : 0,
+            background_seconds_saved_per_month: 0,
+        },
     }
 }
 
@@ -534,8 +548,8 @@ describe('warehouseSuggestionsLogic', () => {
 
         expect(logic.values.rankedSuggestions.map(({ id }) => id)).toEqual([
             'time-big',
-            'unread-mid',
             'time-small',
+            'unread-mid',
             'bytes-big',
         ])
     })
@@ -565,7 +579,29 @@ describe('warehouseSuggestionsLogic', () => {
 
         await mountLogic()
 
-        expect(logic.values.savingsSummary).toEqual({ views: 3, saving: { seconds: 3000, bytes: 5e12 } })
+        expect(logic.values.savingsSummary).toEqual({
+            views: 3,
+            saving: { seconds: 3000, bytes: 5e12 },
+            split: null,
+        })
+    })
+
+    it('lists rows by the saving they lead with, so equal units sit together and larger comes first', async () => {
+        mockList.mockResolvedValue(
+            page([
+                ledBy('scanned', 'scanned', 100e12),
+                ledBy('ten-minutes', 'waiting', 600),
+                ledBy('half-hour', 'waiting', 1800),
+            ])
+        )
+
+        await mountLogic()
+
+        expect(logic.values.listedSuggestions.map((suggestion) => suggestion.id)).toEqual([
+            'half-hour',
+            'ten-minutes',
+            'scanned',
+        ])
     })
 
     it('drops an accepted row from the counts at once and from the list after it leaves', async () => {
@@ -720,19 +756,38 @@ describe('warehouseSuggestionsLogic', () => {
         }
     )
 
-    it.each<[string, boolean, Record<string, unknown> | undefined, string]>([
-        ['stops refreshing by default', false, undefined, 'Marked old_rollup as deprecated and stopped its refreshes.'],
-        ['keeps refreshing when asked', true, { keep_materialized: true }, 'Marked old_rollup as deprecated.'],
-    ])('deprecating a materialized view %s', async (_name, keep, body, toast) => {
+    it.each<[string, boolean, boolean, Record<string, unknown> | undefined, Record<string, unknown>, string]>([
+        [
+            'stops refreshing by default',
+            false,
+            false,
+            undefined,
+            { certification_id: 'cert-1', stopped_materialization: true },
+            'Marked old_rollup as deprecated and stopped its refreshes.',
+        ],
+        [
+            'keeps refreshing when asked',
+            true,
+            false,
+            { keep_materialized: true },
+            { certification_id: 'cert-1', stopped_materialization: false },
+            'Marked old_rollup as deprecated.',
+        ],
+        [
+            'deletes it when asked',
+            false,
+            true,
+            { delete_view: true },
+            { saved_query_id: 'view-1', stopped_materialization: true },
+            'Deleted old_rollup.',
+        ],
+    ])('deprecating a materialized view %s', async (_name, keep, deleteView, body, createdAsset, toast) => {
         mockList.mockResolvedValue(page([DEPRECATE]))
-        mockAccept.mockResolvedValue({
-            ...DEPRECATE,
-            status: 'accepted',
-            created_asset: { certification_id: 'cert-1', stopped_materialization: !keep },
-        })
+        mockAccept.mockResolvedValue({ ...DEPRECATE, status: 'accepted', created_asset: createdAsset })
         await mountLogic('catalog')
         logic.actions.openAcceptConfirm(DEPRECATE.id)
         logic.actions.setKeepMaterialized(keep)
+        logic.actions.setDeleteView(deleteView)
 
         logic.actions.confirmAccept()
         await expectLogic(logic).toDispatchActions(['suggestionAccepted'])

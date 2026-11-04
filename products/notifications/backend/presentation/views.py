@@ -12,12 +12,12 @@ import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers as drf_serializers
 from rest_framework.exceptions import ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import User
@@ -45,7 +45,7 @@ class BulkNotificationIdsRequestSerializer(drf_serializers.Serializer):
     )
 
 
-class NotificationPagination(LimitOffsetPagination):
+class NotificationPagination(BoundedLimitOffsetPagination):
     default_limit = 20
     max_limit = 100
 

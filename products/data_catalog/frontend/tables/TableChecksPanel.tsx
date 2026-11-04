@@ -1,8 +1,9 @@
 import { useActions } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
-import { Button, Text } from '@posthog/quill'
+import { Button, Text, cn } from '@posthog/quill'
 
+import { CHECKS_CONTAINER } from 'products/data_quality/frontend/checkTableLayout'
 import { dataQualityCheckEditorLogic } from 'products/data_quality/frontend/dataQualityCheckEditorLogic'
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 import { QuillSubjectChecksPanel } from 'products/data_quality/frontend/overview/QuillSubjectChecksPanel'
@@ -23,7 +24,7 @@ export function TableChecksPanel({ row }: { row: CatalogTableRow }): JSX.Element
     }
 
     return (
-        <div className="flex flex-col gap-2 py-2">
+        <div className={cn(CHECKS_CONTAINER, 'flex flex-col gap-2 py-2')}>
             {row.checkGroup ? (
                 <>
                     <QuillSubjectRunBanners group={row.checkGroup} />
