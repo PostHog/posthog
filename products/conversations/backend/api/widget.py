@@ -331,6 +331,8 @@ class WidgetTicketsTeamThrottle(WidgetTeamPollThrottle):
 
     new_session_scope = "widget_team_new_session"
     new_session_rate = "36000/hour"
+    session_lookup_scope = "widget_team_session_lookup"
+    session_lookup_rate = "3600/hour"
 
     def allow_request(self, request: Request, view: APIView) -> bool:
         team = request.auth
@@ -341,25 +343,39 @@ class WidgetTicketsTeamThrottle(WidgetTeamPollThrottle):
             and not get_cached_session_has_tickets(team.id, widget_session_id)
         ):
             poll_scope, poll_rate = self.scope, self.rate
-            # DRF makes new throttle instances for each request, so this change stays in this request.
-            self._use_bucket(self.new_session_scope, self.new_session_rate)
-            # A full new-session bucket rejects the request without a database query. It must not
-            # fall back to the poll bucket, because overflow traffic would then use up that bucket.
-            if self._has_room(request, view) and _session_has_tickets(team, widget_session_id):
+            # DRF makes new throttle instances for each request, so these bucket changes stay in this request.
+            if self._lookup_allowed(request, view) and _session_has_tickets(team, widget_session_id):
                 self._use_bucket(poll_scope, poll_rate)
+            else:
+                self._use_bucket(self.new_session_scope, self.new_session_rate)
         return super().allow_request(request, view)
+
+    def _lookup_allowed(self, request: Request, view: APIView) -> bool:
+        # Every ticket lookup takes room in one of two capped buckets, so overflow traffic cannot
+        # cause unbounded queries. The small lookup bucket lets a returning session with an expired
+        # cache entry reach the poll bucket while first page views fill the new-session bucket.
+        self._use_bucket(self.new_session_scope, self.new_session_rate)
+        if not self._is_full(self._recent_requests(request, view)[1]):
+            return True
+        self._use_bucket(self.session_lookup_scope, self.session_lookup_rate)
+        key, recent = self._recent_requests(request, view)
+        if self._is_full(recent):
+            return False
+        self.cache.set(key, [self.timer(), *recent], self.duration)
+        return True
+
+    def _recent_requests(self, request: Request, view: APIView) -> tuple[str, list[float]]:
+        key = self.get_cache_key(request, view)
+        oldest_counted = self.timer() - (self.duration or 0)
+        return key, [timestamp for timestamp in self.cache.get(key, []) if timestamp > oldest_counted]
+
+    def _is_full(self, recent: list[float]) -> bool:
+        return self.num_requests is not None and len(recent) >= self.num_requests
 
     def _use_bucket(self, scope: str, rate: str) -> None:
         self.scope = scope
         self.rate = rate
         self.num_requests, self.duration = self.parse_rate(rate)
-
-    def _has_room(self, request: Request, view: APIView) -> bool:
-        if self.num_requests is None or self.duration is None:
-            return True
-        history = self.cache.get(self.get_cache_key(request, view), [])
-        oldest_counted = self.timer() - self.duration
-        return sum(1 for timestamp in history if timestamp > oldest_counted) < self.num_requests
 
 
 class WidgetMessageView(APIView):
