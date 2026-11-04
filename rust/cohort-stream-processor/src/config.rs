@@ -64,7 +64,8 @@ pub struct Config {
     #[envconfig(default = "60")]
     pub filter_catalog_refresh_jitter_secs: u64,
 
-    /// Teams the filter catalog is scoped to. Set `all` to disable the gate. See [`TeamAllowlist`].
+    /// Teams the filter catalog covers, on top of the teams that a row of
+    /// `cohort_realtime_team_access` grants. Set `all` to disable the gate. See [`TeamAllowlist`].
     #[envconfig(from = "REALTIME_COHORT_TEAM_ALLOWLIST", default = "2")]
     pub team_allowlist: TeamAllowlist,
 
