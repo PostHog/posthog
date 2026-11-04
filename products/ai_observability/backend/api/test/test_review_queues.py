@@ -6,6 +6,8 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import serializers, status
 
+from posthog.models import OrganizationMembership
+
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.review_queues import ReviewQueueItemCreateSerializer
@@ -287,6 +289,15 @@ class TestReviewQueuesApi(APIBaseTest):
             ("move_out", "viewer", "Restricted queue", "patch", "Source queue", status.HTTP_400_BAD_REQUEST),
             ("remove", "viewer", "Restricted queue", "delete", None, status.HTTP_403_FORBIDDEN),
             ("open_in_hidden_queue", "none", "Restricted queue", "get", None, status.HTTP_404_NOT_FOUND),
+            (
+                "org_admin_adds_to_hidden_queue",
+                "none",
+                None,
+                "post",
+                "Restricted queue",
+                status.HTTP_201_CREATED,
+                OrganizationMembership.Level.ADMIN,
+            ),
         ]
     )
     @patch(
@@ -300,6 +311,7 @@ class TestReviewQueuesApi(APIBaseTest):
         method: str,
         target_queue: str | None,
         expected_status: int,
+        member_level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
     ) -> None:
         queues = {name: self._create_queue(name=name) for name in ("Source queue", "Restricted queue")}
         AccessControl.objects.create(
@@ -308,7 +320,7 @@ class TestReviewQueuesApi(APIBaseTest):
             resource_id=str(queues["Restricted queue"].id),
             access_level=access_level,
         )
-        self.client.force_login(self._create_user("member@example.com"))
+        self.client.force_login(self._create_user("member@example.com", level=member_level))
         body = {"queue_id": str(queues[target_queue].id)} if target_queue else None
 
         if item_queue is None:
