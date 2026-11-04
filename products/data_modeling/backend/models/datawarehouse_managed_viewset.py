@@ -248,6 +248,11 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 saved_query for name, saved_query in stored_views.items() if name not in expected_view_names
             ]
 
+            # In the transaction that writes the new queries, so a failure rolls the redefinition back
+            # and the next sync retries it. The edges are the ones from before this sync, which still
+            # reach every view whose stored rows came from the old upstream.
+            self._rebuild_downstream_of(DAG.get_or_create_default(self.team), redefined_ids)
+
         # No cross-call advisory lock here on purpose: a SESSION-level pg_advisory_lock acquired and
         # released across separate autocommit statements leaks under transaction-mode PgBouncer — the
         # unlock can be routed to a different backend than the one that holds the lock, stranding it
@@ -273,12 +278,6 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                         view_name=saved_query.name,
                         error=str(e),
                     )
-            try:
-                # Reads the edges the loop above just wrote.
-                self._rebuild_downstream_of(dag, redefined_ids)
-            except Exception as e:
-                capture_exception(e, {"managed_viewset_id": self.id})
-                logger.warning("failed_to_rebuild_downstream_views", team_id=self.team_id, error=str(e))
             try:
                 # After every node exists, so the whole batch lands together.
                 apply_managed_view_frequency_targets(self.team_id, frequency_targets)

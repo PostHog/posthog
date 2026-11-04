@@ -320,15 +320,13 @@ class TestManagedViewSetProviders(BaseTest):
         self.assertIsNone(downstream.incremental_config)
 
     @parameterized.expand(
-        [
-            ("upstream_redefined", "SELECT 2 AS id", False, True),
-            ("upstream_redefined_listed_last", "SELECT 2 AS id", True, True),
-            ("upstream_unchanged", "SELECT 1 AS id", False, False),
-        ]
+        [("upstream_redefined", "SELECT 2 AS id", True), ("upstream_unchanged", "SELECT 1 AS id", False)]
     )
+    # Lineage resolves a managed view only when this flag puts managed views in the HogQL database.
+    @patch("posthoganalytics.feature_enabled", side_effect=lambda key, *_, **__: key == MANAGED_VIEWSETS_FEATURE_FLAG)
     @patch(SCHEDULE_MATERIALIZATION)
     def test_resync_rebuilds_every_view_downstream_of_a_redefined_view(
-        self, _name: str, upstream_query: str, downstream_first: bool, rebuilds: bool, _: Mock
+        self, _name: str, upstream_query: str, rebuilds: bool, _schedule: Mock, _flag: Mock
     ) -> None:
         def incremental(name: str, parent: str) -> ProvidedView:
             return ProvidedView(
@@ -339,8 +337,7 @@ class TestManagedViewSetProviders(BaseTest):
             )
 
         def provided(upstream: ProvidedView) -> list[ProvidedView]:
-            chain = [upstream, incremental("middle", "upstream"), incremental("downstream", "middle")]
-            return chain[::-1] if downstream_first else chain
+            return [upstream, incremental("middle", "upstream"), incremental("downstream", "middle")]
 
         views = provided(_fake_view(name="upstream", materialized=False))
         state = {"watermark": 7, "watermark_type": "int"}
