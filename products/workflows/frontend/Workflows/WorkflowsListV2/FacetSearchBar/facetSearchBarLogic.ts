@@ -109,8 +109,12 @@ function parseFacetDraft(input: string, facets: FacetDefinition<unknown>[]): Fac
 }
 
 function splitLastToken(input: string): { rest: string; token: string } {
-    const match = input.match(/^([\s\S]*?)(\S*)$/)
-    return { rest: match?.[1] ?? '', token: match?.[2] ?? '' }
+    // A scan, because a regex with a lazy prefix backtracks quadratically on a long pasted token.
+    let start = input.length
+    while (start > 0 && !/\s/.test(input[start - 1])) {
+        start--
+    }
+    return { rest: input.slice(0, start), token: input.slice(start) }
 }
 
 function textOf(input: string, draft: FacetDraft | null): string {
