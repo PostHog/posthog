@@ -36,7 +36,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /usr/local/bin/
 # start_cpu_billing_sampler runs this script for every template, so billed CPU usage
 # stays empty unless the image ships it. Keep in sync with modal_sandbox.py's SLIM_BASE image.
 COPY products/tasks/backend/sandbox/images/cpu_billing_sampler.py /usr/local/bin/posthog-cpu-billing-sampler
-RUN chmod +x /usr/local/bin/posthog-cpu-billing-sampler
+RUN chmod +x /usr/local/bin/posthog-cpu-billing-sampler && /usr/local/bin/posthog-cpu-billing-sampler --check
 
 WORKDIR /tmp/workspace
 

@@ -630,7 +630,7 @@ def _build_slim_template_image() -> modal.Image:
             CPU_BILLING_SAMPLER_PATH,
             copy=True,
         )
-        .run_commands(f"chmod +x {CPU_BILLING_SAMPLER_PATH}")
+        .run_commands(f"chmod +x {CPU_BILLING_SAMPLER_PATH} && {CPU_BILLING_SAMPLER_PATH} --check")
     )
 
 
