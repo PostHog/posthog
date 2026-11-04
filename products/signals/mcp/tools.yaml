@@ -433,7 +433,8 @@ tools:
             `priority`, and `suggested_reviewers`: a person starts one from the report's actions. `suggested_reviewers`
             routes the report to the people who should read it. A `priority` requires a `priority_explanation`. Each
             person can file 20 reports per project per day; a 429 says when the limit resets, so do not retry before
-            then.
+            then. A 403 means the organization has not approved AI data processing: tell the person that an organization
+            admin must turn it on, and do not retry before then.
         exclude_params:
             - metrics
         required_when_set:
@@ -478,15 +479,15 @@ tools:
             idempotent: true
         title: Get your personal ranked inbox
         description: >
-            Get the current user's own open inbox reports, ranked for them. One language model call ranks the reports
-            that need them (suggested reviewer, claimed, waiting on their input) and the reports the ranking model rates
-            highest, using their activity summary. Use it for "what should I work on" and "my top N" questions in place
-            of paging inbox-reports-list. Each entry has a rank, a tier, a short reason, a next step for the top entries
-            and a compact report. Read the full report with inbox-reports-retrieve before you act on it. The list is
-            personal: only the user it describes can read it. The call never waits on the model. A current stored list
-            comes back quickly, as is. Otherwise the call reads every candidate report, which can take some seconds,
-            starts a background build and returns the last stored list with `stale: true`, or the reports in inbox order
-            with `fallback_reason: building`, and sets `building: true`. `refresh` and `focus` always start a build, and
+            Get the current user's own open inbox reports, ranked for them. One language model call ranks only the
+            reports tied to them (suggested reviewer, claimed, waiting on their input), using their activity summary and
+            the ranking model's scores. Use it for "what should I work on" and "my top N" questions in place of paging
+            inbox-reports-list. Each entry has a rank, a tier, a short reason, a next step for the top entries and a
+            compact report. Read the full report with inbox-reports-retrieve before you act on it. The list is personal:
+            only the user it describes can read it. The call never waits on the model. A current stored list comes back
+            quickly, as is. Otherwise the call reads every candidate report, which can take some seconds, starts a
+            background build and returns the last stored list with `stale: true`, or the reports in inbox order with
+            `fallback_reason: building`, and sets `building: true`. `refresh` and `focus` always start a build, and
             builds are rate limited. A report created after the stored list joins at the next build. When `building` is
             true, call again a little later, or pass `wait_seconds` (up to 30, counted from the start of the call) to
             wait for the new list in the same call. `personalized: false` means the user has no activity summary yet or
@@ -1192,7 +1193,11 @@ tools:
             3 rows, which is the cap `suggested_reviewers` enforces anyway. A `team` that resolves to nobody comes back
             as an error saying which case it hit, because team rosters sync one by one and a slug with no rows almost
             always means it isn't synced here rather than that the team doesn't exist. The roster is a periodic
-            snapshot, so it can lag the live team. Strictly team-scoped.
+            snapshot, so it can lag the live team. When `search` or `team` narrows the result to 10 members or fewer,
+            each row also carries `activity`: the member's recent headline, themes, and the objects they own or watch.
+            Use it as context to check a candidate against the report; general activity is not evidence of ownership.
+            `activity` is null when the member has no ready summary or summaries are not available for this project, and
+            a null value is not evidence against the member. Strictly team-scoped.
     scout-metadata-get:
         operation: signals_scout_metadata_get
         enabled: true

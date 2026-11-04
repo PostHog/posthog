@@ -15,10 +15,25 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
             <>
                 <Markdown>
                     {dedent`
-                        PostHog can automatically capture unhandled exceptions in your Next.js app using the JavaScript Web SDK.
-
-                        You can enable exception autocapture for the JavaScript Web SDK in the **Error tracking** section of [your project settings](https://us.posthog.com/settings/project-error-tracking#exception-autocapture). 
-
+                        PostHog can automatically capture unhandled exceptions in your Next.js app using the JavaScript Web SDK. Turn it on with \`capture_exceptions: true\` in your \`posthog.init\` call:
+                    `}
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'javascript',
+                            file: 'instrumentation-client.js',
+                            code: dedent`
+                                posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN, {
+                                  api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+                                  capture_exceptions: true,
+                                })
+                            `,
+                        },
+                    ]}
+                />
+                <Markdown>
+                    {dedent`
                         It is also possible to manually capture exceptions using the \`captureException\` method:
                     `}
                 </Markdown>
@@ -43,7 +58,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                         <Tab.Panel>
                             <Markdown>
                                 {dedent`
-                                    Next.js uses [error boundaries](https://nextjs.org/docs/app/building-your-application/routing/error-handling#using-error-boundaries) to handle uncaught exceptions by rendering a fallback UI instead of the crashing components. To set one up, create a \`error.tsx\` file in any of your route directories. This triggers when there is an error rendering your component and should look like this:
+                                    Next.js uses [error boundaries](https://nextjs.org/docs/app/building-your-application/routing/error-handling#using-error-boundaries) to handle uncaught exceptions by rendering a fallback UI instead of the crashing components. To set one up, create a \`error.tsx\` file in any of your route directories. This triggers when there is an error rendering your component. An error boundary catches the error before autocapture sees it, so add the capture to **every** \`error.tsx\` your app has. It should look like this:
                                 `}
                             </Markdown>
                             <CodeBlock
@@ -76,7 +91,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             />
                             <Markdown>
                                 {dedent`
-                                    You can also create a [Global Error component](https://nextjs.org/docs/app/building-your-application/routing/error-handling#handling-global-errors) in your root layout to capture unhandled exceptions in your root layout.
+                                    Also add the capture to a [Global Error component](https://nextjs.org/docs/app/building-your-application/routing/error-handling#handling-global-errors) at \`app/global-error.tsx\`, and create one if your app has none: it catches errors in the root layout and in the first render, before autocapture loads.
                                 `}
                             </Markdown>
                             <CodeBlock
@@ -186,22 +201,22 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
             <>
                 <Markdown>
                     {dedent`
-                        Next.js enables you to both server-side render pages and add server-side functionality. To integrate PostHog into your Next.js app on the server-side, you can use the [Node SDK](https://posthog.com/docs/libraries/node).
+                        Next.js enables you to both server-side render pages and add server-side functionality. To capture server-side exceptions, use [\`@posthog/next\`](https://posthog.com/docs/libraries/next-js/posthog-next) for the errors Next.js reports and the [Node SDK](https://posthog.com/docs/libraries/node) for everything else.
 
-                        First, install the \`posthog-node\` library:
+                        First, install \`@posthog/next\` 0.11.0+ and \`posthog-node\` 5.61.1+, and upgrade \`posthog-js\` to 1.445.1+ if yours is older:
                     `}
                 </Markdown>
                 <CodeBlock
                     blocks={[
-                        { language: 'bash', file: 'npm', code: dedent`npm install posthog-node --save` },
-                        { language: 'bash', file: 'yarn', code: dedent`yarn add posthog-node` },
-                        { language: 'bash', file: 'pnpm', code: dedent`pnpm add posthog-node` },
-                        { language: 'bash', file: 'bun', code: dedent`bun add posthog-node` },
+                        { language: 'bash', file: 'npm', code: dedent`npm install @posthog/next posthog-node` },
+                        { language: 'bash', file: 'yarn', code: dedent`yarn add @posthog/next posthog-node` },
+                        { language: 'bash', file: 'pnpm', code: dedent`pnpm add @posthog/next posthog-node` },
+                        { language: 'bash', file: 'bun', code: dedent`bun add @posthog/next posthog-node` },
                     ]}
                 />
                 <Markdown>
                     {dedent`
-                        For the backend, we can create a \`lib/posthog-server.js\` file. In it, initialize PostHog from \`posthog-node\` as a singleton with your project token and host from [your project settings](https://app.posthog.com/settings/project).
+                        Then create a \`lib/posthog-server.js\` file that initializes PostHog from \`posthog-node\`. With \`enableExceptionAutocapture\`, it captures uncaught exceptions and unhandled promise rejections. Turn it on for the Node.js runtime only: the edge runtime cannot register process listeners, so the client would fail to start there.
 
                         This looks like this:
                     `}
@@ -213,19 +228,18 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             file: 'lib/posthog-server.js',
                             code: dedent`
                                 import { PostHog } from 'posthog-node'
-                                let posthogInstance = null
+
+                                let posthogServer = null
+
                                 export function getPostHogServer() {
-                                  if (!posthogInstance) {
-                                    posthogInstance = new PostHog(
-                                      process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN,
-                                      {
-                                        host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-                                        flushAt: 1,
-                                        flushInterval: 0,
-                                      }
-                                    )
-                                  }
-                                  return posthogInstance
+                                  posthogServer ??= new PostHog(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN, {
+                                    host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+                                    flushAt: 1,
+                                    flushInterval: 0,
+                                    // Uncaught exceptions and unhandled promise rejections, on the Node.js runtime only
+                                    enableExceptionAutocapture: process.env.NEXT_RUNTIME === 'nodejs',
+                                  })
+                                  return posthogServer
                                 }
                             `,
                         },
@@ -233,7 +247,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 />
                 <Markdown>
                     {dedent`
-                        You can now use the \`getPostHogServer\` function to capture exceptions in server-side code.
+                        You can now use the \`getPostHogServer\` function to capture exceptions your server-side code handles itself. Pass the user's distinct ID when you know it:
                     `}
                 </Markdown>
                 <CodeBlock
@@ -244,12 +258,9 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             code: dedent`
                                 const posthog = getPostHogServer()
                                 try {
-                                    throw new Error("This is a test exception for error tracking")
+                                  throw new Error('This is a test exception for error tracking')
                                 } catch (error) {
-                                    posthog.captureException(error, {
-                                        source: 'test',
-                                        user_id: 'test-user-123',
-                                    })
+                                  posthog.captureException(error, 'user_distinct_id', { source: 'test' })
                                 }
                             `,
                         },
@@ -281,13 +292,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
             <>
                 <Markdown>
                     {dedent`
-                        To capture errors that occur in your server-side code, you can set up an [\`instrumentation.ts\`](https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation) file at the root of your project. This provides a \`onRequestError\` hook that you can use to capture errors.
-
-                        Importantly, you need to:
-
-                        1. Set up a \`posthog-node\` client in your server-side code. See our doc on [setting up Next.js server-side analytics](https://posthog.com/docs/libraries/next-js#server-side-analytics) for more.
-                        2. Check the request is running in the \`nodejs\` runtime to ensure PostHog works. You can call \`posthog.debug()\` to get verbose logging.
-                        3. Get the \`distinct_id\` from the cookie to connect the error to a specific user.
+                        To capture errors that occur in your server-side code, set up an [\`instrumentation.ts\`](https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation) file at the root of your project (or in \`src/\`). Next.js calls its \`onRequestError\` hook when a Server Component, Route Handler, or Server Action throws. [\`createOnRequestError\`](https://posthog.com/docs/libraries/next-js/posthog-next) returns that hook, and links each error to the user and session. \`register()\` starts the \`posthog-node\` client when the server starts.
 
                         This looks like this:
                     `}
@@ -296,35 +301,95 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     blocks={[
                         {
                             language: 'javascript',
-                            file: 'JavaScript',
+                            file: 'instrumentation.js',
                             code: dedent`
-                                // instrumentation.js
+                                import { createOnRequestError } from '@posthog/next'
+                                import { getPostHogServer } from './lib/posthog-server'
+
                                 export function register() {
-                                  // No-op for initialization
-                                }
-                                export const onRequestError = async (err, request, context) => {
                                   if (process.env.NEXT_RUNTIME === 'nodejs') {
-                                    const { getPostHogServer } = require('./lib/posthog-server')
-                                    const posthog = getPostHogServer()
-                                    let distinctId = null
-                                    if (request.headers.cookie) {
-                                      // Normalize multiple cookie arrays to string
-                                      const cookieString = Array.isArray(request.headers.cookie)
-                                        ? request.headers.cookie.join('; ')
-                                        : request.headers.cookie
-                                      const postHogCookieMatch = cookieString.match(/ph_phc_.*?_posthog=([^;]+)/)
-                                      if (postHogCookieMatch && postHogCookieMatch[1]) {
-                                        try {
-                                          const decodedCookie = decodeURIComponent(postHogCookieMatch[1])
-                                          const postHogData = JSON.parse(decodedCookie)
-                                          distinctId = postHogData.distinct_id
-                                        } catch (e) {
-                                          console.error('Error parsing PostHog cookie:', e)
-                                        }
-                                      }
-                                    }
-                                    await posthog.captureException(err, distinctId || undefined)
+                                    getPostHogServer()
                                   }
+                                }
+
+                                export const onRequestError = createOnRequestError({
+                                  apiKey: process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN,
+                                  host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+                                })
+                            `,
+                        },
+                    ]}
+                />
+                <Markdown>
+                    {dedent`
+                        \`onRequestError\` misses errors thrown in \`proxy.ts\` and in Node.js middleware. If your app has either, wrap it with \`withPostHogProxy\`:
+                    `}
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'typescript',
+                            file: 'proxy.ts',
+                            code: dedent`
+                                import { NextResponse } from 'next/server'
+                                import type { NextRequest } from 'next/server'
+                                import { withPostHogProxy } from '@posthog/next'
+
+                                // On Next.js 15 and earlier, this is middleware.ts with \`export const middleware\`
+                                export const proxy = withPostHogProxy(
+                                  async (request: NextRequest) => {
+                                    // Your existing proxy code
+                                    return NextResponse.next()
+                                  },
+                                  {
+                                    apiKey: process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN,
+                                    host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+                                  }
+                                )
+                            `,
+                        },
+                    ]}
+                />
+                <Markdown>
+                    {dedent`
+                        Errors thrown in \`after()\` callbacks do not reach \`onRequestError\` either. If your app imports \`after\` from \`next/server\`, capture inside each callback:
+                    `}
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'typescript',
+                            file: 'app/api/orders/route.ts',
+                            code: dedent`
+                                import { after } from 'next/server'
+                                import { getPostHogServer } from '@/lib/posthog-server'
+
+                                after(async () => {
+                                  try {
+                                    await sendReceipt(order)
+                                  } catch (error) {
+                                    await getPostHogServer().captureExceptionImmediate(error)
+                                    throw error
+                                  }
+                                })
+                            `,
+                        },
+                    ]}
+                />
+                <Markdown>
+                    {dedent`
+                        **Next.js 14 and earlier** run \`instrumentation.js\` only with the \`instrumentationHook\` flag. They never call \`onRequestError\`, so leave it out, and upgrade to capture Server Component, Route Handler and Server Action errors:
+                    `}
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'javascript',
+                            file: 'next.config.js',
+                            code: dedent`
+                                module.exports = {
+                                  // Only on Next.js 14 and earlier: later versions run instrumentation.js without it
+                                  experimental: { instrumentationHook: true },
                                 }
                             `,
                         },

@@ -21398,11 +21398,46 @@ export namespace Schemas {
       Zip: 'zip',
     } as const;
 
+    /**
+     * * `running` - Reading past tickets
+     * * `completed` - Read every past ticket
+     */
+    export type LearningBackfillStatusEnum = typeof LearningBackfillStatusEnum[keyof typeof LearningBackfillStatusEnum];
+
+
+    export const LearningBackfillStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+    } as const;
+
+    export interface LearningBackfillProgress {
+      /** `running` while PostHog reads past tickets. `completed` once every ticket in the window is read.
+       *
+       * * `running` - Reading past tickets
+       * * `completed` - Read every past ticket */
+      status: LearningBackfillStatusEnum;
+      /** When someone started learning from past tickets. */
+      started_at: string;
+      /**
+         * When every past ticket was read. Null while the run continues.
+         * @nullable
+         */
+      finished_at: string | null;
+      /** Tickets analyzed since the run started, including tickets from the regular 7-day pass. */
+      tickets_read: number;
+      /** Tickets that are being analyzed now. */
+      tickets_in_progress: number;
+      /** Analyzed tickets that added a learned source to business knowledge. */
+      knowledge_created: number;
+    }
+
     export interface BusinessKnowledgeSettings {
       /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Requires Support to be enabled for this environment. */
       learn_from_support_enabled: boolean;
       /** Whether Support is enabled for this environment. Learning cannot be turned on while this is false. */
       readonly support_enabled: boolean;
+      /** The last run of learning from past tickets. Null when none ran since learning was turned on. */
+      readonly learning_backfill: LearningBackfillProgress | null;
     }
 
     /**
@@ -33914,6 +33949,13 @@ export namespace Schemas {
       readonly tags: readonly string[];
       readonly archived: boolean;
       /**
+         * Earliest cleanup time if the dataset remains unused.
+         * @nullable
+         */
+      readonly expires_at: string | null;
+      /** Whether the dataset is within seven days of expiry. */
+      readonly expiring_soon: boolean;
+      /**
          * Latest dataset revision, or null before the first item is added.
          * @nullable
          */
@@ -33945,6 +33987,13 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
       /** Project that owns the revision. */
       readonly team_id: number;
+      /**
+         * Earliest expiry time of this dataset snapshot if unused.
+         * @nullable
+         */
+      readonly expires_at: string | null;
+      /** Whether this snapshot is within seven days of expiry. */
+      readonly expiring_soon: boolean;
     }
 
     export interface DayItem {
@@ -34986,6 +35035,8 @@ export namespace Schemas {
       user_code: string;
       /** The project the token is scoped to. */
       project_id: number;
+      /** The requested scopes the person kept. Leave it out to grant every requested scope. It must include every scope in `required_scopes`, and nothing outside the requested scopes. */
+      scopes?: string[];
     }
 
     /**
@@ -35039,6 +35090,8 @@ export namespace Schemas {
       is_verified: boolean;
       /** The scopes the token will carry if the person approves. */
       scopes: string[];
+      /** The requested scopes the person can't leave out: the client's required scopes and identity scopes such as `openid`. */
+      required_scopes: string[];
       /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones, and the page lists only the new ones. */
       granted_scopes: GrantedScopes[];
       /** When the code expires. */
@@ -37189,7 +37242,8 @@ export namespace Schemas {
       footers?: EmailTemplateDesignBodyFootersItem[];
       /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
       values?: EmailTemplateDesignBodyValues;
-    };
+      [key: string]: unknown;
+     };
 
     /**
      * Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.
@@ -37200,7 +37254,8 @@ export namespace Schemas {
       /** Design schema version, e.g. 16. */
       schemaVersion: number;
       body: EmailTemplateDesignBody;
-    };
+      [key: string]: unknown;
+     };
 
     export interface EmailTemplateSender {
       /**
@@ -43145,6 +43200,47 @@ export namespace Schemas {
       NotChecked: 'not_checked',
     } as const;
 
+    /**
+     * * `percentage` - Percentage of exposed units
+     * * `p_value` - P-value of a statistical test
+     */
+    export type ExperimentHealthMeasurementUnitEnum = typeof ExperimentHealthMeasurementUnitEnum[keyof typeof ExperimentHealthMeasurementUnitEnum];
+
+
+    export const ExperimentHealthMeasurementUnitEnum = {
+      Percentage: 'percentage',
+      PValue: 'p_value',
+    } as const;
+
+    /**
+     * * `above` - Finding above the threshold
+     * * `below` - Finding below the threshold
+     */
+    export type ExperimentHealthMeasurementSideEnum = typeof ExperimentHealthMeasurementSideEnum[keyof typeof ExperimentHealthMeasurementSideEnum];
+
+
+    export const ExperimentHealthMeasurementSideEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    export interface ExperimentHealthMeasurement {
+      /** The value that the check measured on the experiment. */
+      value: number;
+      /** The value at which the check reports a finding. */
+      threshold: number;
+      /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test.
+       *
+       * * `percentage` - Percentage of exposed units
+       * * `p_value` - P-value of a statistical test */
+      unit: ExperimentHealthMeasurementUnitEnum;
+      /** The side of the threshold that reports a finding: above or below.
+       *
+       * * `above` - Finding above the threshold
+       * * `below` - Finding below the threshold */
+      warns: ExperimentHealthMeasurementSideEnum;
+    }
+
     export interface ExperimentHealthCheckResult {
       /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
        *
@@ -43174,6 +43270,8 @@ export namespace Schemas {
       key: ExperimentHealthCheckKeyEnum;
       /** The problem the check looks for, for example 'Metrics not set up'. */
       name: string;
+      /** What the check looks for and why it matters. The same for every experiment and every status. */
+      description: string;
       /** passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
        *
        * * `passed` - Passed
@@ -43186,6 +43284,8 @@ export namespace Schemas {
          * @nullable
          */
       reason: string | null;
+      /** The value that decided a passed check, against its threshold. Null for the other statuses, and for a pass without a value. A finding carries its values in `evidence`. */
+      measurement: ExperimentHealthMeasurement | null;
     }
 
     export interface ExperimentHealth {
@@ -43452,6 +43552,33 @@ export namespace Schemas {
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     } as const;
 
+    export type ExperimentExposureHealthMeasurementUnit = typeof ExperimentExposureHealthMeasurementUnit[keyof typeof ExperimentExposureHealthMeasurementUnit];
+
+
+    export const ExperimentExposureHealthMeasurementUnit = {
+      Percentage: 'percentage',
+      PValue: 'p_value',
+    } as const;
+
+    export type ExperimentExposureHealthMeasurementSide = typeof ExperimentExposureHealthMeasurementSide[keyof typeof ExperimentExposureHealthMeasurementSide];
+
+
+    export const ExperimentExposureHealthMeasurementSide = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    export interface ExperimentExposureHealthMeasurement {
+      /** The value at which the check reports a finding. */
+      threshold: number;
+      /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test. */
+      unit: ExperimentExposureHealthMeasurementUnit;
+      /** The value that the check measured on the experiment. */
+      value: number;
+      /** The side of the threshold that reports a finding. */
+      warns: ExperimentExposureHealthMeasurementSide;
+    }
+
     export type ExperimentExposureHealthCheckStatus = typeof ExperimentExposureHealthCheckStatus[keyof typeof ExperimentExposureHealthCheckStatus];
 
 
@@ -43463,8 +43590,12 @@ export namespace Schemas {
     } as const;
 
     export interface ExperimentExposureHealthCheck {
+      /** What the check looks for and why it matters. Missing on an answer cached before the field existed. */
+      description?: string | null;
       /** Stable identifier of the check. */
       key: ExperimentExposureHealthCheckKey;
+      /** The value that decided a passed check. Null for the other statuses and for a pass without a value. */
+      measurement?: ExperimentExposureHealthMeasurement | null;
       /** The problem the check looks for, as the health panel lists it. */
       name: string;
       /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
@@ -47108,11 +47239,18 @@ export namespace Schemas {
        * * `missing_primary_key` - Missing primary key
        * * `duplicate_primary_key` - Duplicate primary key */
       readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnum | null;
+      /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
+      readonly webhook_not_registered: boolean;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again.
+         * @nullable
+         */
+      masked_columns?: string[] | null;
       /**
          * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
          * @nullable
@@ -47234,6 +47372,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Columns whose values are replaced with a one-way digest at sync time. Null means mask nothing. Any change starts a full resync of the table.
+         * @nullable
+         */
+      masked_columns?: string[] | null;
       /**
          * Row-filter predicates ANDed onto the source query. Null/empty means sync all rows.
          * @nullable
@@ -47459,6 +47602,8 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
       readonly supports_webhooks: boolean;
+      /** Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables. */
+      readonly webhook_not_registered: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection: boolean;
       /**
@@ -61041,6 +61186,11 @@ export namespace Schemas {
       readonly user_tag: string | null;
       /** @nullable */
       readonly sync_interval: string | null;
+      /**
+         * How often this node actually refreshes. A downstream view can make an unpinned view refresh more often than `sync_interval`, and a slow source can make it refresh less often. Null when the node is not scheduled.
+         * @nullable
+         */
+      readonly effective_sync_interval: string | null;
       /** How often this view refreshes. 'never' clears the cadence, and with it the pin. Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.
        *
        * * `never` - never
@@ -81568,11 +81718,18 @@ export namespace Schemas {
        * * `missing_primary_key` - Missing primary key
        * * `duplicate_primary_key` - Duplicate primary key */
       readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnum | null;
+      /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
+      readonly webhook_not_registered?: boolean;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again.
+         * @nullable
+         */
+      masked_columns?: string[] | null;
       /**
          * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
          * @nullable
@@ -81681,6 +81838,8 @@ export namespace Schemas {
          */
       readonly user_access_level?: string | null;
       readonly supports_webhooks?: boolean;
+      /** Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables. */
+      readonly webhook_not_registered?: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection?: boolean;
       /**
@@ -83556,6 +83715,11 @@ export namespace Schemas {
       readonly user_tag?: string | null;
       /** @nullable */
       readonly sync_interval?: string | null;
+      /**
+         * How often this node actually refreshes. A downstream view can make an unpinned view refresh more often than `sync_interval`, and a slow source can make it refresh less often. Null when the node is not scheduled.
+         * @nullable
+         */
+      readonly effective_sync_interval?: string | null;
       /** How often this view refreshes. 'never' clears the cadence, and with it the pin. Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.
        *
        * * `never` - never
@@ -84391,6 +84555,11 @@ export namespace Schemas {
     export interface PatchedProjectBackwardCompat {
       readonly id?: number;
       readonly organization?: string;
+      /**
+         * Whether the project's organization approved AI data processing. AI features need this approval.
+         * @nullable
+         */
+      readonly is_ai_data_processing_approved?: boolean | null;
       /**
          * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
          * @minLength 1
@@ -90461,6 +90630,11 @@ export namespace Schemas {
       readonly id: number;
       readonly organization: string;
       /**
+         * Whether the project's organization approved AI data processing. AI features need this approval.
+         * @nullable
+         */
+      readonly is_ai_data_processing_approved: boolean | null;
+      /**
          * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
          * @minLength 1
          * @maxLength 200
@@ -93543,14 +93717,156 @@ export namespace Schemas {
       pins: PulsePin[];
     }
 
+    /**
+     * * `running` - Import running
+     * * `completed` - Import completed
+     * * `cancelled` - Import cancelled
+     * * `failed` - Import failed
+     */
+    export type PushTokenImportStatusEnum = typeof PushTokenImportStatusEnum[keyof typeof PushTokenImportStatusEnum];
+
+
+    export const PushTokenImportStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Cancelled: 'cancelled',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `invalid_row` - The line is missing a value or a value is too long
+     * * `unknown_person` - No person has this distinct ID
+     * * `token_mismatch` - The token does not fit this channel
+     * * `not_stored` - The device was not stored
+     * * `person_processing_disabled` - Person processing is off for this person
+     */
+    export type PushTokenImportRowFailureReasonEnum = typeof PushTokenImportRowFailureReasonEnum[keyof typeof PushTokenImportRowFailureReasonEnum];
+
+
+    export const PushTokenImportRowFailureReasonEnum = {
+      InvalidRow: 'invalid_row',
+      UnknownPerson: 'unknown_person',
+      TokenMismatch: 'token_mismatch',
+      NotStored: 'not_stored',
+      PersonProcessingDisabled: 'person_processing_disabled',
+    } as const;
+
+    export interface PushTokenImportRowFailure {
+      /** Line of the file, counting the column names as line 1. */
+      line: number;
+      /** The distinct ID on the line. */
+      distinct_id: string;
+      /** The last characters of the line's device token. */
+      device_token_suffix: string;
+      /** Why the device on this line was not imported.
+       *
+       * * `invalid_row` - The line is missing a value or a value is too long
+       * * `unknown_person` - No person has this distinct ID
+       * * `token_mismatch` - The token does not fit this channel
+       * * `not_stored` - The device was not stored
+       * * `person_processing_disabled` - Person processing is off for this person */
+      reason: PushTokenImportRowFailureReasonEnum;
+      /** A sentence a person can act on. */
+      detail: string;
+    }
+
+    export interface PushTokenImport {
+      /** The import's ID. */
+      id: string;
+      /** The push channel the devices are added to. */
+      integration_id: number;
+      /** `running` while devices are sent. `completed`, `cancelled` and `failed` are final.
+       *
+       * * `running` - Import running
+       * * `completed` - Import completed
+       * * `cancelled` - Import cancelled
+       * * `failed` - Import failed */
+      status: PushTokenImportStatusEnum;
+      /** Whether the import creates missing persons. */
+      create_missing_persons: boolean;
+      /** Devices in the file that the import sends. */
+      total_devices: number;
+      /** Devices sent so far. */
+      processed_devices: number;
+      /** Devices stored on their person. */
+      imported_devices: number;
+      /** Lines that were not imported, for any reason. */
+      failed_devices: number;
+      /** Devices whose distinct ID had no person. */
+      unknown_person_devices: number;
+      /** Repeated lines that were left out. */
+      duplicate_lines: number;
+      /** The first 1,000 lines that were not imported, with the reason for each. */
+      failures: PushTokenImportRowFailure[];
+      /** True when the devices of unknown people can still be imported with new persons. */
+      can_import_unknown_persons: boolean;
+      /** Why a failed import stopped. Empty otherwise. */
+      error: string;
+      /** When the file was uploaded. */
+      created_at: string;
+      /**
+         * When the import ended. Empty while it runs, and while a stopped import finishes its last batch.
+         * @nullable
+         */
+      finished_at: string | null;
+    }
+
+    export interface PushTokenImportCreate {
+      /** The APNs or Firebase push channel to add the devices to. */
+      integration_id: number;
+      /** A UTF-8 CSV file of up to 20 MB. The first line names the columns: `distinct_id` (the ID your app passes to identify) and `device_token` (the APNs device token or FCM registration token). Other columns are ignored. */
+      device_token_file: Blob;
+      /** Create a person for a distinct ID that has none. Off by default, so devices of unknown people are listed as failed and can be imported later with new persons. */
+      create_missing_persons?: boolean;
+    }
+
+    /**
+     * * `unknown_person` - No person has this distinct ID
+     * * `token_mismatch` - The token does not fit this channel
+     * * `not_stored` - The device was not stored
+     * * `person_processing_disabled` - Person processing is off for this person
+     */
+    export type PushTokenImportFailureReasonEnum = typeof PushTokenImportFailureReasonEnum[keyof typeof PushTokenImportFailureReasonEnum];
+
+
+    export const PushTokenImportFailureReasonEnum = {
+      UnknownPerson: 'unknown_person',
+      TokenMismatch: 'token_mismatch',
+      NotStored: 'not_stored',
+      PersonProcessingDisabled: 'person_processing_disabled',
+    } as const;
+
+    export interface PushTokenImportFailure {
+      /** Position of the row in the request's `subscriptions`, from 0. */
+      index: number;
+      /** The distinct ID of the row. */
+      distinct_id: string;
+      /** The last 6 characters of the row's device token, to find the row. */
+      device_token_suffix: string;
+      /** Why the device was not stored. `unknown_person`: no person has this distinct ID, so check the ID or set `create_missing_persons`. `token_mismatch`: the token is the wrong kind for this channel, for example an Expo token, or an APNs token on a Firebase channel. `not_stored` and `person_processing_disabled`: ingestion did not store the device.
+       *
+       * * `unknown_person` - No person has this distinct ID
+       * * `token_mismatch` - The token does not fit this channel
+       * * `not_stored` - The device was not stored
+       * * `person_processing_disabled` - Person processing is off for this person */
+      reason: PushTokenImportFailureReasonEnum;
+      /** A sentence a person can act on. */
+      detail: string;
+    }
+
+    export interface PushTokenImportLatest {
+      /** The newest import into the channel, if any. */
+      latest: PushTokenImport | null;
+    }
+
     export interface PushTokenSubscription {
       /**
-         * The person's distinct ID in this project.
+         * The person's distinct ID in this project: the ID your app passes to `identify`.
          * @maxLength 200
          */
       distinct_id: string;
       /**
-         * The APNs device token or FCM registration token of one device.
+         * The token of one device. An APNs channel takes the hex APNs device token. A Firebase channel takes the FCM registration token. Expo push tokens are not accepted.
          * @maxLength 4096
          */
       device_token: string;
@@ -93559,12 +93875,25 @@ export namespace Schemas {
     export interface PushTokenImportRequest {
       /** Up to 1000 devices to register on this push channel. List a person once per device. */
       subscriptions: PushTokenSubscription[];
+      /** Check every row and report what would fail, without storing anything. Run this first and fix the failed rows before importing. */
+      dry_run?: boolean;
+      /**
+         * A new UUID for each batch. Send the same value when you retry that batch, so a retried batch can be recognized as a repeat.
+         * @nullable
+         */
+      import_id?: string | null;
+      /** Create a person for a distinct ID that has none. Off by default, because a distinct ID that does not match your app's identify call creates a person that never gets a push. */
+      create_missing_persons?: boolean;
     }
 
     export interface PushTokenImportResponse {
-      /** Number of devices stored on their person. */
+      /** Number of devices stored on their person. On a dry run, the number that would be stored. */
       imported: number;
-      /** Distinct IDs with at least one device that was not stored. Send those rows again. */
+      /** True when nothing was stored. */
+      dry_run: boolean;
+      /** One entry per device that was not stored. */
+      failed: PushTokenImportFailure[];
+      /** Distinct IDs with at least one device that was not stored. Prefer `failed`, which says why. */
       failed_distinct_ids: string[];
     }
 
@@ -102559,6 +102888,37 @@ export namespace Schemas {
       is_maintainer: boolean;
     }
 
+    export interface ScoutMemberActivityObject {
+      /** The object type in snake case, such as `dashboard` or `feature_flag`. */
+      type: string;
+      /** The latest name of the object. */
+      name: string;
+    }
+
+    /**
+     * What one member worked on recently, from their activity summary.
+     */
+    export interface ScoutMemberActivity {
+      /**
+         * One line about the member's recent work.
+         * @nullable
+         */
+      headline: string | null;
+      /** The labels of the main threads of the member's recent work. */
+      themes: string[];
+      /** Up to 5 objects the member created or changed, the most edited first. */
+      owned: ScoutMemberActivityObject[];
+      /** Up to 5 objects the member opened on several days, the most opened first. A member who only reads the work shows up here. A specific object here can support a reviewer pick when the pick's `reason` names it. */
+      watched: ScoutMemberActivityObject[];
+      /**
+         * When the summary was written.
+         * @nullable
+         */
+      generated_at: string | null;
+      /** True when the summary waits for a rebuild in a newer format. Give a stale summary less weight. */
+      stale: boolean;
+    }
+
     /**
      * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
      */
@@ -102578,6 +102938,8 @@ export namespace Schemas {
       github_login: string | null;
       /** The teams this member is on, from the project's synced team roster. Empty when no roster is synced, or when the member has no linked GitHub account, since the roster is keyed on that login. The roster is a periodic snapshot, so it can lag the live team. */
       teams: ScoutMemberTeam[];
+      /** What the member worked on recently. Use it as context to check against the report, not as proof: general activity is not evidence that the member owns the affected work. Filled only when the call passes `search` or `team` and returns at most 10 members. Null when the member has no ready summary, or when activity summaries are not available for this project. */
+      activity?: ScoutMemberActivity | null;
     }
 
     /**
@@ -102622,7 +102984,7 @@ export namespace Schemas {
          * @nullable
          */
       created_by_name: string | null;
-      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects, rather than a directive. */
+      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report, or for a report a person or their agent claimed: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects or supports, rather than a directive. */
       origin: string;
     }
 
@@ -127185,6 +127547,10 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Only workflows whose name contains this text, ignoring case. Unlike `search`, it never reads descriptions, tags or step content.
+     */
+    name?: string;
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
@@ -130990,6 +131356,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type PushTokenImportsLatestRetrieveParams = {
+    /**
+     * The push channel whose newest import to return.
+     */
+    integration_id: number;
     };
 
     export type QueryLogRetrieve200 = { [key: string]: unknown };

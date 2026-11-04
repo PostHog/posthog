@@ -299,6 +299,7 @@ __all__ = [
     "owner_origin_has_non_terminal_run",
     "owner_origin_open_task_ids",
     "owner_origin_recent_task_ids",
+    "owner_origin_task_ids_with_state_entry",
     "create_completed_sandbox_snapshot",
     "create_run",
     "create_sandbox_connection_token",
@@ -504,6 +505,7 @@ def _task_run_to_dto(run: TaskRun, *, task: Task | None = None) -> contracts.Tas
         workflow_id=run.workflow_id,
         mode=run.mode,
         task_origin_product=parent.origin_product if parent is not None else None,
+        task_created_at=parent.created_at if parent is not None else None,
         created_by_id=parent.created_by_id if parent is not None else None,
         created_by_distinct_id=str(created_by.distinct_id) if created_by is not None else None,
         pr_url=(run.output or {}).get("pr_url"),
@@ -2142,6 +2144,39 @@ def owner_origin_open_task_ids(*, team_id: int, created_by_id: int, origin_produ
             task__origin_product=origin_product,
             status__in=_NON_TERMINAL_RUN_STATUSES,
         ).values_list("task_id", flat=True)
+    )
+
+
+def owner_origin_task_ids_with_state_entry(
+    *, team_id: int, created_by_id: int, origin_product: str, key: str
+) -> set[UUID]:
+    """Ids of this owner's tasks of this origin whose shared state holds a non-null ``key``, deleted tasks included."""
+    return set(
+        Task.objects.filter(
+            team_id=team_id,
+            created_by_id=created_by_id,
+            origin_product=origin_product,
+            state__has_key=key,
+        )
+        .exclude(state__contains={key: None})
+        .values_list("id", flat=True)
+    )
+
+
+def owner_origin_recent_run_ids(
+    *, team_id: int, created_by_id: int, origin_product: str, since: datetime, limit: int
+) -> list[UUID]:
+    """Ids of runs started since ``since`` on this owner's tasks of this origin, newest first, deleted tasks included."""
+    return list(
+        TaskRun.objects.filter(
+            team_id=team_id,
+            task__team_id=team_id,
+            task__created_by_id=created_by_id,
+            task__origin_product=origin_product,
+            created_at__gte=since,
+        )
+        .order_by("-created_at")
+        .values_list("id", flat=True)[:limit]
     )
 
 
@@ -3942,6 +3977,7 @@ def set_task_run_summary(
     *,
     summary: str,
     tags: list[str] | None = None,
+    sync_task_tags: bool = True,
     include_agent_state: bool = False,
     user_id: int | None = None,
     analytics_context_reader: Callable[[object], bool] | None = None,
@@ -3955,7 +3991,7 @@ def set_task_run_summary(
         updates[TASK_RUN_TAGS_STATE_KEY] = list(dict.fromkeys(tags))
     with transaction.atomic():
         run.state = TaskRun.update_state_atomic(run.id, updates=updates)
-        if tags is not None and not run.task.is_scout_experiment:
+        if sync_task_tags and tags is not None and not run.task.is_scout_experiment:
             replace_tags_on_object(tags, run.task)
     run.refresh_from_db()
     run.publish_stream_state_event()
