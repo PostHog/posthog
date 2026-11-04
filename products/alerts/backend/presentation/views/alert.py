@@ -7,7 +7,7 @@ from operator import or_
 from typing import Annotated, Any, Final, cast
 from zoneinfo import ZoneInfo
 
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.utils import timezone
 
@@ -1495,19 +1495,28 @@ class AlertCreateDestinationSerializer(serializers.Serializer):
         return attrs
 
 
+# The labels equal the values, so these share the PagerDutySeverityEnum and PagerDutyRegionEnum
+# names that ENUM_NAME_OVERRIDES gives the logs and metrics fields.
+PagerDutySeverityChoices = cast(Any, models.TextChoices)(
+    "PagerDutySeverityChoices", [(member.name, (member.value, member.value)) for member in PagerDutySeverity]
+)
+PagerDutyRegionChoices = cast(Any, models.TextChoices)(
+    "PagerDutyRegionChoices", [(member.name, (member.value, member.value)) for member in PagerDutyRegion]
+)
+
+
 class AlertCreatePagerDutyDestinationSerializer(serializers.Serializer):
     pagerduty_routing_key = serializers.CharField(
         write_only=True,
         help_text="The 32-character integration key of a PagerDuty Events API v2 integration.",
     )
-    # These two StrEnums live in the platform contract, which ENUM_NAME_OVERRIDES names and logs shares.
-    pagerduty_severity = serializers.ChoiceField(  # nosemgrep: choices-need-a-class
-        choices=[choice.value for choice in PagerDutySeverity],
+    pagerduty_severity = serializers.ChoiceField(
+        choices=PagerDutySeverityChoices.choices,
         default=DEFAULT_PAGERDUTY_SEVERITY,
         help_text="Severity of the incidents the alert opens.",
     )
-    pagerduty_region = serializers.ChoiceField(  # nosemgrep: choices-need-a-class
-        choices=[choice.value for choice in PagerDutyRegion],
+    pagerduty_region = serializers.ChoiceField(
+        choices=PagerDutyRegionChoices.choices,
         default=DEFAULT_PAGERDUTY_REGION,
         help_text="Region of the PagerDuty account.",
     )
