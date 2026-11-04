@@ -449,6 +449,9 @@ const errorTrackingSettingsUpdate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof ErrorTrackingSettingsUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.adaptive_ingestion_enabled !== undefined) {
+            body['adaptive_ingestion_enabled'] = params.adaptive_ingestion_enabled
+        }
         if (params.project_rate_limit_value !== undefined) {
             body['project_rate_limit_value'] = params.project_rate_limit_value
         }

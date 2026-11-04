@@ -16,8 +16,8 @@ function sourceLabel(source: CredentialSource, store: StoreChoice | null, path: 
 }
 
 export default defineCommand({
-    description: 'Show whether hog is logged in, where its key comes from, and whose key it is',
-    notes: 'Exits with code 1 when hog has no working key, so scripts and agents can branch on it.',
+    description: 'Show whether hog is logged in, where its credentials come from, and what they can do',
+    notes: 'Exits with code 1 when hog has no working credentials, so scripts and agents can branch on it.',
     examples: ['hog auth status', 'hog auth status -o json'],
 
     run: ({ ctx }) => checkAuthStatus(ctx),
@@ -33,7 +33,14 @@ export default defineCommand({
         out.line(`${out.style('Logged in', 'green', 'bold')} to ${escapeControls(result.host)}${who}.`)
         const name = result.projectName ? escapeControls(result.projectName) : null
         out.line(`Project: ${name ? `${name} (${result.projectId})` : result.projectId}`)
-        out.line(out.style(`Key from ${sourceLabel(result.source, result.store, result.credentialsPath)}`, 'dim'))
+        const what = result.kind === 'oauth' ? 'Token' : 'Personal API key'
+        out.line(out.style(`${what} from ${sourceLabel(result.source, result.store, result.credentialsPath)}`, 'dim'))
+        if (result.scopes) {
+            out.line(out.style(`Scopes: ${result.scopes.join(', ')}`, 'dim'))
+        }
+        if (result.expiresAt) {
+            out.line(out.style(`Expires ${result.expiresAt}. hog renews it before then.`, 'dim'))
+        }
     },
 
     exitCode: (result) => (result.authenticated ? 0 : 1),
