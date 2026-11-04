@@ -446,6 +446,41 @@ describe('EmailTrackingService', () => {
                 })
             })
 
+            it('counts a large audience, where most new people do not change the HyperLogLog', async () => {
+                const parentRunId = new UUIDT().toString()
+                const service = api['emailTrackingService'] as any
+                let opened = 0
+                for (let index = 0; index < 5000; index++) {
+                    const added = await service.newEngagedPeople(parentRunId, `person-${index}`, 'email_opened', 'ses')
+                    opened += added[0]?.count ?? 0
+                }
+                expect(opened).toBeGreaterThan(4900)
+                expect(opened).toBeLessThan(5100)
+            })
+
+            it('still records the open when Redis stalls', async () => {
+                const parentRunId = new UUIDT().toString()
+                const service = api['emailTrackingService'] as any
+                jest.spyOn(service.engagementRedis, 'useClient').mockReturnValue(new Promise(() => {}))
+                const code = signer.generate({
+                    functionId: hogFunction.id,
+                    id: new UUIDT().toString(),
+                    teamId: team.id,
+                    parentRunId,
+                })
+
+                const response = await supertest(app).get(`/public/m/pixel?ph_id=${code}`)
+
+                expect(response.status).toBe(200)
+                await waitForExpect(() => {
+                    const names = mockProducerObserver
+                        .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                        .filter(({ value }) => value.app_source_id === parentRunId)
+                        .map(({ value }) => value.metric_name)
+                    expect(names).toEqual(['email_opened'])
+                })
+            })
+
             it('counts a person once per run however often they open or click', async () => {
                 const parentRunId = new UUIDT().toString()
                 const phId = (id: string): string =>

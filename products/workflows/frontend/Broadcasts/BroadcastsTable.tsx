@@ -134,7 +134,9 @@ export function BroadcastsTable(): JSX.Element {
                 return (
                     <span>
                         {humanFriendlyNumber(
-                            engagement ? emailEngagement(details.totals, engagement) : (details.totals[metric] ?? 0)
+                            engagement
+                                ? emailEngagement(details.totals, engagement, details.latestBatchJob?.created_at)
+                                : (details.totals[metric] ?? 0)
                         )}
                     </span>
                 )

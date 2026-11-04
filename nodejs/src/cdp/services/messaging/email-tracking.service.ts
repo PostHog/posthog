@@ -96,6 +96,22 @@ const ENGAGEMENT_PERSON_METRICS: Partial<Record<MinimalAppMetric['metric_name'],
 }
 // An open after this counts its person again. Almost all opens and clicks come in the first days.
 const ENGAGEMENT_PEOPLE_TTL_SECONDS = 30 * 24 * 60 * 60
+// A slow Redis costs a person count, never an open or click webhook.
+const ENGAGEMENT_REDIS_TIMEOUT_MS = 500
+// PFADD returns 0 for many new people once a HyperLogLog fills, so the growth of PFCOUNT is what counts. Each pair of
+// keys is a HyperLogLog and the total already reported. Returns how much each total grew.
+const ENGAGEMENT_PEOPLE_SCRIPT = `
+local grew = {}
+for index = 1, #KEYS, 2 do
+    redis.call('PFADD', KEYS[index], ARGV[1])
+    local total = redis.call('PFCOUNT', KEYS[index])
+    local reported = tonumber(redis.call('GET', KEYS[index + 1]) or '0')
+    redis.call('SET', KEYS[index + 1], math.max(total, reported), 'EX', ARGV[2])
+    redis.call('EXPIRE', KEYS[index], ARGV[2])
+    grew[#grew + 1] = math.max(total - reported, 0)
+end
+return grew
+`
 
 // Allowlist of metrics that surface as PostHog events when engagement-event capture is enabled.
 // Metrics not in this map are deliberately ignored (no `$messaging_${metricName}` fallback) so a new
@@ -411,15 +427,20 @@ export class EmailTrackingService {
         )
 
         if (parentRunId) {
-            for (const personMetric of await this.firstEngagementMetrics(parentRunId, invocationId, metricName)) {
+            for (const { metric, count } of await this.newEngagedPeople(
+                parentRunId,
+                invocationId,
+                metricName,
+                source
+            )) {
                 this.hogFunctionMonitoringService.queueAppMetric(
                     {
                         team_id: teamId,
                         app_source_id: parentRunId,
                         instance_id: instanceIdOverride || actionId || invocationId,
-                        metric_name: personMetric,
+                        metric_name: metric,
                         metric_kind: 'email',
-                        count: 1,
+                        count,
                     },
                     hogFlow ? 'hog_flow' : 'hog_function'
                 )
@@ -686,30 +707,46 @@ export class EmailTrackingService {
         return Object.fromEntries(ids.map((id) => [id, onReplica[id] ?? onPrimary[id] ?? null]))
     }
 
-    // Which per-person metrics this open or click adds to its run. One email goes to one person, so the email's
-    // invocation id stands for the person. A click also counts as an open, because the open pixel is often blocked.
-    // A HyperLogLog repeats no one and stays small for any audience, at the cost of rarely missing someone new.
-    // When Redis is down nothing is recorded, so the people counts can only read low.
-    private async firstEngagementMetrics(
+    // How many people this open or click adds to each per-person metric of its run. One email goes to one person, so
+    // the email's invocation id stands for the person. A click also counts as an open, because the open pixel is often
+    // blocked. A HyperLogLog stays small for any audience and is about 1% off. When Redis fails, the counts read low.
+    private async newEngagedPeople(
         parentRunId: string,
         invocationId: string,
-        metricName: MinimalAppMetric['metric_name']
-    ): Promise<MinimalAppMetric['metric_name'][]> {
+        metricName: MinimalAppMetric['metric_name'],
+        source: 'direct' | 'ses'
+    ): Promise<{ metric: MinimalAppMetric['metric_name']; count: number }[]> {
         const metrics = ENGAGEMENT_PERSON_METRICS[metricName]
         if (!metrics || !this.engagementRedis) {
             return []
         }
-        const results = await this.engagementRedis.usePipeline(
-            { name: 'email-engagement-people', failOpen: true },
-            (pipeline) => {
-                for (const metric of metrics) {
-                    const key = `@posthog/email-engagement-people/{${parentRunId}}/${metric}`
-                    pipeline.pfadd(key, invocationId)
-                    pipeline.expire(key, ENGAGEMENT_PEOPLE_TTL_SECONDS)
-                }
-            }
-        )
-        return results ? metrics.filter((_, index) => results[index * 2]?.[1] === 1) : []
+        const keys = metrics.flatMap((metric) => {
+            const key = `@posthog/email-engagement-people/{${parentRunId}}/${metric}`
+            return [key, `${key}/reported`]
+        })
+        let timer: NodeJS.Timeout | undefined
+        const grew = await Promise.race([
+            this.engagementRedis.useClient(
+                { name: 'email-engagement-people', failOpen: true },
+                (client) =>
+                    client.eval(
+                        ENGAGEMENT_PEOPLE_SCRIPT,
+                        keys.length,
+                        ...keys,
+                        invocationId,
+                        ENGAGEMENT_PEOPLE_TTL_SECONDS
+                    ) as Promise<number[]>
+            ),
+            new Promise<null>((resolve) => {
+                timer = setTimeout(() => resolve(null), ENGAGEMENT_REDIS_TIMEOUT_MS)
+            }),
+        ])
+        clearTimeout(timer)
+        if (!grew) {
+            emailTrackingErrorsCounter.inc({ error_type: 'engagement_people_not_counted', source })
+            return []
+        }
+        return metrics.map((metric, index) => ({ metric, count: grew[index] })).filter(({ count }) => count > 0)
     }
 
     private parseTrackingParams(query: Record<string, any>): {

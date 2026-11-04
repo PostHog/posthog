@@ -108,6 +108,7 @@ describe('broadcastPerformanceLogic', () => {
     it.each([
         {
             name: 'a send that counted people',
+            runStartedAt: '2026-11-10T22:28:56Z',
             totals: [
                 [10, 'email_sent'],
                 [5, 'email_opened'],
@@ -119,6 +120,7 @@ describe('broadcastPerformanceLogic', () => {
         },
         {
             name: 'an older send that only counted events',
+            runStartedAt: '2026-10-19T22:28:56Z',
             totals: [
                 [10, 'email_sent'],
                 [5, 'email_opened'],
@@ -126,14 +128,25 @@ describe('broadcastPerformanceLogic', () => {
             ],
             expected: { opened: 5, clicked: 8, engagementCountsPeople: false },
         },
-    ])('reports opens and clicks for $name', async ({ totals, expected }) => {
+        {
+            name: 'an older send with a late open',
+            runStartedAt: '2026-10-19T22:28:56Z',
+            totals: [
+                [10, 'email_sent'],
+                [5, 'email_opened'],
+                [8, 'email_link_clicked'],
+                [1, 'email_opened_by_person'],
+            ],
+            expected: { opened: 5, clicked: 8, engagementCountsPeople: false },
+        },
+    ])('reports opens and clicks for $name', async ({ runStartedAt, totals, expected }) => {
         jest.spyOn(api, 'queryHogQL').mockImplementation(
             async (query) =>
                 ({ results: String(query).includes('email_link_clicked_by_link') ? [] : totals }) as HogQLQueryResponse
         )
         const logic = broadcastPerformanceLogic({
-            runId: expected.opened === 4 ? 'run-p' : 'run-e',
-            runStartedAt: '2026-10-19T22:28:56Z',
+            runId: `run-${totals.length}-${expected.opened}`,
+            runStartedAt,
         })
         logic.mount()
 
