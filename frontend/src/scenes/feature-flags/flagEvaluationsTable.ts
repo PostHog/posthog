@@ -95,9 +95,9 @@ function comparedPeriodStart(
     response: FlagCallsInsightResponse | null | undefined,
     compareFilter: CompareFilter | null | undefined
 ): dayjs.Dayjs {
-    const resolvedFrom = response?.resolved_compare_date_range?.date_from
-    if (resolvedFrom) {
-        return dayjs(resolvedFrom)
+    const resolvedCompareDateRange = response?.resolved_compare_date_range
+    if (resolvedCompareDateRange?.date_from) {
+        return dayjs(resolvedCompareDateRange.date_from)
     }
     if (!compareFilter?.compare) {
         return start
@@ -108,8 +108,15 @@ function comparedPeriodStart(
         : start.subtract(dayjs(response?.resolved_date_range?.date_to ?? undefined).diff(start), 'millisecond')
 }
 
-/** Whether the range an insight ran over, or the period it compares against, starts before the table's oldest day. */
-export function insightReachesPastFlagEvaluationsRetention({
+/**
+ * Which part of an insight reads days the table no longer holds.
+ * `periods`: its range, or the period it compares against, starts before the table's oldest day.
+ * `first-period`: only the rows the query reads before its range are gone. Lifecycle reads the interval before
+ * its first one, so that first interval can count a returning person as resurrecting.
+ */
+export type FlagCallsRetentionGap = 'periods' | 'first-period'
+
+export function flagCallsRetentionGap({
     dateFrom,
     response,
     compareFilter,
@@ -118,18 +125,26 @@ export function insightReachesPastFlagEvaluationsRetention({
     dateFrom: string | null | undefined
     response: FlagCallsInsightResponse | null | undefined
     compareFilter: CompareFilter | null | undefined
-}): boolean {
+}): FlagCallsRetentionGap | null {
     // All time resolves to the oldest row the table still holds, so the resolved range never shows the cutoff.
     if (dateFrom === 'all') {
-        return true
+        return 'periods'
     }
     const resolvedDateRange = response?.resolved_date_range
     if (!resolvedDateRange?.date_from) {
-        return false
+        return null
     }
-    const comparedStart = comparedPeriodStart(dayjs(resolvedDateRange.date_from), response, compareFilter)
     // The window covers whole days in the team timezone. This compares dates, not instants. A DST change can
     // repeat midnight. The backend starts the 90-day preset at the first midnight. An instant comparison against
     // the second midnight would show the notice for the preset.
-    return dateInTimezone(comparedStart, insightTimezone(response)) < flagEvaluationsRetentionStartDate(response)
+    const retentionStartDate = flagEvaluationsRetentionStartDate(response)
+    const isBeforeRetention = (instant: dayjs.Dayjs): boolean =>
+        dateInTimezone(instant, insightTimezone(response)) < retentionStartDate
+    if (isBeforeRetention(comparedPeriodStart(dayjs(resolvedDateRange.date_from), response, compareFilter))) {
+        return 'periods'
+    }
+    if (resolvedDateRange.read_from && isBeforeRetention(dayjs(resolvedDateRange.read_from))) {
+        return 'first-period'
+    }
+    return null
 }

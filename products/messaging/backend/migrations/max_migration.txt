@@ -1,1 +1,1 @@
-0010_supabase_auth_email_config
+0012_email_hard_bounce

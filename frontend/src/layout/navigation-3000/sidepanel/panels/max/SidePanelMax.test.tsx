@@ -1,8 +1,9 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { Suspense } from 'react'
 
-import { SIDE_PANEL_PANEL_ID, maxLogic } from 'scenes/max/maxLogic'
+import { maxLogic } from 'scenes/max/maxLogic'
 
+import { SIDE_PANEL_PANEL_ID } from '~/layout/ai/aiPanelIds'
 import { initKeaTests } from '~/test/init'
 
 import { SidePanelMax } from './SidePanelMax'

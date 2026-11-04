@@ -124,6 +124,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "LogEntry",
         "OAuthAccessToken",
         "OAuthApplication",
+        "OAuthDeviceGrant",
         "OAuthGrant",
         "OAuthIDToken",
         "OAuthRefreshToken",
@@ -225,6 +226,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # events cleanup schedule; no endpoint looks it up by a user-supplied ID.
         "TeamEventsRetentionConfig",
         "TeamFeatureFlagsConfig",
+        # Staff-only OneToOne extension keyed on the team, written by a management command and read
+        # by the realtime cohort pipeline; no endpoint looks it up by a user-supplied ID.
+        "RealtimeCohortTeamAccess",
         # OneToOne extension of Team keyed on team_id, only ever read as get(team=team) via
         # get_or_create_team_extension; no endpoint looks it up by a user-supplied ID.
         "TeamFeatureFlagPolicyConfig",
@@ -302,6 +306,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "Nonce",
         "OAuthAccessToken",
         "OAuthApplication",
+        "OAuthDeviceGrant",
         "OAuthGrant",
         "OAuthIDToken",
         "OAuthRefreshToken",
@@ -329,6 +334,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "PromptSequence",
         "UserPromptState",
         # --- Global catalogs ---
+        "SignalFilterSourceDefinition",  # instance-global internal source capability metadata
+        "SignalFilterCatalogVersion",  # immutable shared recipes, never tenant observations
         "CommunitySkill",  # instance-global community skills catalog, synced from GitHub
         "CommunitySkillFile",  # bundled files of a CommunitySkill (scoped via the catalog row)
         "HogFunctionTemplate",
@@ -338,6 +345,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "MCPRegistryTool",  # tools of an MCPRegistryServer (scoped via the catalog row)
         "MCPRankingRun",  # one scoring pass over the global registry index
         "MCPRankingScore",  # per-server score of an MCPRankingRun (scoped via the run/catalog rows)
+        "EmailHardBounce",  # instance-global email addresses that do not exist, written from hard bounces
         # --- Special (has source_team + destination_team, not a plain team) ---
         "ResourceTransfer",
         # --- Organization-scoped (correctly above team level) ---

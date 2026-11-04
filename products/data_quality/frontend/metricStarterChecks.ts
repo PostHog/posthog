@@ -1,4 +1,4 @@
-import { escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
+import { escapeRawPropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 
 import type { DataQualityOutputColumnApi } from './generated/api.schemas'
 

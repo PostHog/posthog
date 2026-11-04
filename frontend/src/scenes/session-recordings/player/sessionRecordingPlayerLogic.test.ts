@@ -1,9 +1,15 @@
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import { HttpResponse } from 'msw'
 import posthog from 'posthog-js'
 import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import * as domUtils from 'lib/utils/dom'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import * as sessionRecordingDataCoordinatorLogicModule from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
@@ -13,9 +19,10 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { makeLogger } from 'scenes/session-recordings/player/utils/player-logging'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { ExporterFormat, RecordingSegment, RecordingSnapshot, SessionPlayerState } from '~/types'
+import { AvailableFeature, ExporterFormat, RecordingSegment, RecordingSnapshot, SessionPlayerState } from '~/types'
 
 import { isUsableHeatmapUrl } from 'products/web_analytics/frontend/heatmaps/replayIframeData'
 
@@ -26,6 +33,7 @@ import {
     overrideSessionRecordingMocks,
     recordingMetaJson,
     setupSessionRecordingTest,
+    snapshotsAsJSONLines,
 } from './__mocks__/test-setup'
 import {
     findNewEvents,
@@ -1801,6 +1809,80 @@ describe('sessionRecordingPlayerLogic', () => {
             logic.actions.setCurrentSegment(segmentWithNoWindowId)
 
             expect(tryInitReplayerSpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('exportRecordingToFile', () => {
+        it.each([
+            {
+                description: 'exports the recording after a snapshot request that takes 20 s',
+                requestMs: 20000,
+                expected: 'exported',
+            },
+            {
+                description: 'fails when a snapshot request never answers',
+                requestMs: null,
+                expected: 'Timeout waiting for recording to load',
+            },
+        ])('$description', async ({ requestMs, expected }) => {
+            let releaseSnapshots = (): void => {}
+            const snapshotsReleased = new Promise<void>((resolve) => {
+                releaseSnapshots = resolve
+            })
+            jest.useFakeTimers()
+            logic.unmount()
+            setupSessionRecordingTest({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': async ({ request }) => {
+                        if (new URL(request.url).searchParams.get('source') === 'blob_v2') {
+                            await snapshotsReleased
+                            return new HttpResponse(snapshotsAsJSONLines())
+                        }
+                        return [200, { sources: [BLOB_SOURCE_V2] }]
+                    },
+                },
+            })
+            featureFlagLogic.mount()
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
+            userLogic.actions.loadUserSuccess({
+                ...MOCK_DEFAULT_USER,
+                organization: {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    available_product_features: [
+                        { key: AvailableFeature.RECORDINGS_FILE_EXPORT, name: 'Recordings file export' },
+                    ],
+                },
+            })
+            await jest.advanceTimersByTimeAsync(1000)
+
+            const downloadFileSpy = jest.spyOn(domUtils, 'downloadFile').mockImplementation(() => {})
+            const toastSpy = jest.spyOn(lemonToast, 'promise').mockImplementation((promise) => promise.catch(() => {}))
+            try {
+                // The mounted player component marks the player active, which allows snapshot loading.
+                logic.actions.setPlayerActive(true)
+                logic.actions.exportRecordingToFile()
+                const exportOutcome = (toastSpy.mock.calls[0][0] as Promise<void>).then(
+                    () => 'exported',
+                    (error: Error) => error.message
+                )
+
+                await jest.advanceTimersByTimeAsync(requestMs ?? 125000)
+                if (requestMs !== null) {
+                    releaseSnapshots()
+                }
+                await jest.advanceTimersByTimeAsync(5000)
+
+                expect(await exportOutcome).toBe(expected)
+            } finally {
+                toastSpy.mockRestore()
+                downloadFileSpy.mockRestore()
+                jest.useRealTimers()
+            }
         })
     })
 

@@ -2,7 +2,7 @@
 //!
 //! No module here reaches into PostgreSQL, ClickHouse, or Kafka. The internal
 //! dependency order is strictly downward:
-//! `ids` ← {`condition`, `window`} ← `chunk` ← {`plan`, `pinned`, `aggregate`} ←
+//! `ids` ← {`condition`, `window`} ← `chunk` ← `pinned` ← `plan` ← `aggregate` ←
 //! {`person_relevance`, `person_analysis`} ← `person`,
 //! except that `chunk` reaches back into `person` for the `PersonRange` vocabulary its spec
 //! carries. The seed wire contract (`SeedTile`/`PersonSeed` and the ids that ride them) lives in
@@ -16,6 +16,7 @@ pub mod compare;
 pub mod completion;
 pub mod condition;
 pub mod condition_analysis;
+pub mod fair_share;
 pub mod ids;
 pub mod ledger;
 pub mod newest_day;
@@ -58,6 +59,7 @@ pub use condition::{EventNameSet, Lookback, PinnedCondition};
 pub use condition_analysis::{
     ConditionAnalyses, ConditionCensus, ConditionClass, MISSING_BYTECODE_REASON,
 };
+pub use fair_share::{ClaimCandidate, ClaimCandidates, SlotLoad};
 pub use ids::{
     Band, ChunkId, ClaimEpoch, ConditionHash, ConditionHashError, DayIdx, RunId, SChunkMs,
     ScannedAtMs, UtcMillis, UtcMsRange, UtcRangeError,
@@ -75,10 +77,12 @@ pub use person::{
 pub use person_analysis::{AlwaysEvaluateReason, PersonAnalysisCensus};
 pub use pinned::{
     PinnedDropReason, PinnedError, PinnedParticipation, PinnedParticipationState, PinnedRun,
-    PinnedRunSnapshot, PinnedWarning, TriggerKind, UncoveredCohort, UncoveredParticipations,
-    UncoveredReason, UnknownTriggerKind, ValidatedPinnedRun,
+    PinnedRunSnapshot, PinnedWarning, ScanTable, TriggerKind, UncoveredCohort,
+    UncoveredParticipations, UncoveredReason, UnknownTriggerKind, ValidatedPinnedRun,
 };
-pub use plan::{bands_for_day, conditions_active_on, plan_days, ActiveConditions};
+pub use plan::{
+    bands_for_day, conditions_active_on, plan_days, table_scans, ActiveConditions, TableScan,
+};
 pub use projection::{
     BlobSource, ChunkProjection, ColumnBackedKeys, ColumnExactKeys, ColumnPlan, ColumnUpgrade,
     ProjectedKeys, PropertiesOutcome, PropertiesSource, PropertiesSourcing, RebuildReason,

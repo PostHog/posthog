@@ -105,6 +105,7 @@ rules:
                               |BatchImport
                               |BriefConfig
                               |ButtonTile
+                              |WorkloadTrustPolicy
                               |Canvas
                               |CanvasBuild
                               |CanvasHomePreference
@@ -208,6 +209,7 @@ rules:
                               |ErrorTrackingSymbolSet
                               |Evaluation
                               |EvaluationDirectory
+                              |EventsHealthDaily
                               |Experiment
                               |ExperimentHoldout
                               |ExperimentMetricsRecalculation
@@ -269,6 +271,7 @@ rules:
                               |KnowledgeLibraryRepository
                               |KnowledgeLibrarySource
                               |KnowledgeSource
+                              |KnowledgeUsageRecord
                               |PlaygroundChat
                               |PlaygroundTurn
                               |Link
@@ -350,12 +353,15 @@ rules:
                               |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
+                              |ReplayHighlightFeedEntry
+                              |ReplayHighlightFeedState
                               |ReplayObservation
                               |ReplayObservationAnchorSimilarity
                               |ReplayObservationFeedDismissal
                               |ReplayObservationFeedImpression
                               |ReplayObservationLabel
                               |ReplayObservationMedia
+                              |ReplayObservationRank
                               |ReplayObservationRequest
                               |ReplayObservationUsage
                               |ReplayObservationView
@@ -385,7 +391,9 @@ rules:
                               |HeatmapCaptureConfigVersion
                               |HeatmapCaptureRequest
                               |HeatmapScreenshotHistory
+                              |HostProxyDaily
                               |ScheduledChange
+                              |SdkVersionsDaily
                               |SessionGroupSummary
                               |SessionRecording
                               |SessionRecordingPlaylist
@@ -422,6 +430,7 @@ rules:
                               |LegacySignalSpend
 
                               |AnomalyScoringState
+                              |AnomalyScoringDueInsight
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -470,6 +479,7 @@ rules:
                               |SigningSecret
                               |Ticket
                               |TicketView
+                              |TicketMacro
                               |TicketViewFavorite
                               |ZendeskImportJob
                               |ReviewQueue
@@ -604,6 +614,7 @@ rules:
                         |BatchImport
                         |BriefConfig
                         |ButtonTile
+                        |WorkloadTrustPolicy
                         |Canvas
                         |CanvasBuild
                         |CanvasHomePreference
@@ -707,6 +718,7 @@ rules:
                         |ErrorTrackingSymbolSet
                         |Evaluation
                         |EvaluationDirectory
+                        |EventsHealthDaily
                         |Experiment
                         |ExperimentHoldout
                         |ExperimentMetricsRecalculation
@@ -765,6 +777,7 @@ rules:
                         |KnowledgeLibraryRepository
                         |KnowledgeLibrarySource
                         |KnowledgeSource
+                        |KnowledgeUsageRecord
                         |PlaygroundChat
                         |PlaygroundTurn
                         |Link
@@ -839,12 +852,15 @@ rules:
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |ReplayHighlightFeedEntry
+                        |ReplayHighlightFeedState
                         |ReplayObservation
                         |ReplayObservationAnchorSimilarity
                         |ReplayObservationFeedDismissal
                         |ReplayObservationFeedImpression
                         |ReplayObservationLabel
                         |ReplayObservationMedia
+                        |ReplayObservationRank
                         |ReplayObservationRequest
                         |ReplayObservationUsage
                         |ReplayObservationView
@@ -874,7 +890,9 @@ rules:
                         |HeatmapCaptureConfigVersion
                         |HeatmapCaptureRequest
                         |HeatmapScreenshotHistory
+                        |HostProxyDaily
                         |ScheduledChange
+                        |SdkVersionsDaily
                         |SessionGroupSummary
                         |SessionRecording
                         |SessionRecordingPlaylist
@@ -911,6 +929,7 @@ rules:
                         |LegacySignalSpend
 
                         |AnomalyScoringState
+                        |AnomalyScoringDueInsight
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -958,6 +977,7 @@ rules:
                         |SigningSecret
                         |Ticket
                         |TicketView
+                        |TicketMacro
                         |TicketViewFavorite
                         |ZendeskImportJob
                         |ReviewQueue
@@ -1134,6 +1154,7 @@ rules:
                         |Event
                         |EventFilterConfig
                         |EventFilterPipelineOverride
+                        |EventsHealthDaily
                         |ExperimentTimeseriesRecalculation
                         |ExplicitTeamMembership
                         |ExportedAsset
@@ -1157,6 +1178,7 @@ rules:
                         |HogFlowTemplate
                         |HogFunction
                         |Hook
+                        |HostProxyDaily
                         |InsightViewed
                         |Integration
                         |IntegrationRepositoryCacheEntry
@@ -1165,6 +1187,7 @@ rules:
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeSource
+                        |KnowledgeUsageRecord
                         |Link
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration
@@ -1216,6 +1239,7 @@ rules:
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |RealtimeCohortTeamAccess
                         |RemoteConfig
                         |ReplayObservation
                         |ReplayObservationLabel
@@ -1229,6 +1253,7 @@ rules:
                         |SandboxEnvironment
                         |SavedHeatmap
                         |ScoreDefinition
+                        |SdkVersionsDaily
                         |SessionRecording
                         |SessionRecordingEvent
                         |SessionRecordingPlaylist
@@ -1709,6 +1734,7 @@ rules:
                               |InsightViewed
                               |KernelRuntime
                               |MCPServerInstallation
+                              |PersonalInboxRanking
                               |Reminder
                               |SessionRecordingViewed
                               |UserActivitySummary
@@ -1784,6 +1810,7 @@ rules:
                         |FileSystemViewLog
                         |InsightViewed
                         |KernelRuntime
+                        |PersonalInboxRanking
                         |Reminder
                         |SessionRecordingViewed
                         |UserActivitySummary

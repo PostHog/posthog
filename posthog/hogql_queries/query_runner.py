@@ -71,6 +71,7 @@ from posthog.schema import (
     LifecycleQuery,
     LifecycleQueryResponse,
     MarketingAnalyticsAggregatedQuery,
+    MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsTableQuery,
     MCPHarnessBreakdownQuery,
@@ -223,6 +224,7 @@ from posthog.query_cache.single_flight import (
     QUERY_SINGLE_FLIGHT_FLAG,
     FlightWait,
     QuerySingleFlight,
+    query_single_flight_skipped,
 )
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode, get_query_scan_flag
 from posthog.query_scan.serve import hydrate_response_scan
@@ -666,6 +668,7 @@ RunnableQueryNode = Union[
     WebNotableChangesQuery,
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
+    MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsAggregatedQuery,
     ActorsPropertyTaxonomyQuery,
@@ -1280,7 +1283,7 @@ def get_query_runner(
         )
 
     if kind == "ExperimentQuery":
-        from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+        from products.experiments.backend.facade.queries import ExperimentQueryRunner
 
         return ExperimentQueryRunner(
             query=query,
@@ -1292,9 +1295,7 @@ def get_query_runner(
         )
 
     if kind == "ExperimentExposureQuery":
-        from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import (
-            ExperimentExposuresQueryRunner,
-        )
+        from products.experiments.backend.facade.queries import ExperimentExposuresQueryRunner
 
         return ExperimentExposuresQueryRunner(
             query=cast(ExperimentExposureQuery | dict[str, Any], query),
@@ -1659,6 +1660,15 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == NodeKind.MARKETING_ANALYTICS_RECOMMENDATIONS_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
+            MarketingAnalyticsRecommendationsQueryRunner,
+        )
+
+        return MarketingAnalyticsRecommendationsQueryRunner(
+            query=query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user
+        )
+
     if kind == NodeKind.MARKETING_ANALYTICS_SEARCH_QUERY:
         from products.marketing_analytics.backend.hogql_queries.marketing_search_query_runner import (
             MarketingAnalyticsSearchQueryRunner,
@@ -1883,19 +1893,6 @@ R = TypeVar("R", bound=BaseModel)
 CR = TypeVar("CR", bound=GenericCachedQueryResponse)
 SourceT = TypeVar("SourceT", bound=BaseModel)
 _RunMethod = TypeVar("_RunMethod", bound=Callable[..., Any])
-
-
-def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None:
-    # A series' display override for legends and tooltips. `custom_name` is set by the in-app
-    # "Rename graph series" modal; a `name` that differs from the raw event/action label is a rename
-    # applied via the query editor or API. Either should win over the raw event name.
-    custom_name = getattr(series, "custom_name", None)
-    if custom_name:
-        return custom_name
-    name = getattr(series, "name", None)
-    if name and name != raw_label:
-        return name
-    return None
 
 
 def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
@@ -2133,11 +2130,27 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             isinstance(data, dict) and "is_cached" in data
         )
 
-    def _query_has_series_custom_names(self) -> bool:
-        series = getattr(self.query, "series", None)
-        if not series:
+    def _series_custom_names(self) -> list[str | None] | None:
+        """Each series' `custom_name`, indexed like the `order` on the query's result rows.
+
+        Returns None when apply_series_custom_names has nothing to patch: another query kind, or a trends formula.
+        A formula row takes its `order` and its name from the formula nodes, and the cache key includes those.
+        """
+        query = self.query
+        if isinstance(query, TrendsQuery) and query.trendsFilter is not None:
+            if query.trendsFilter.formulaNodes or query.trendsFilter.formula:
+                return None
+        if not isinstance(query, TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery):
+            return None
+        return [series.custom_name for series in query.series]
+
+    def _cached_results_need_custom_name_patch(self, results_have_custom_names: bool) -> bool:
+        # A named trends formula row sets results_have_custom_names, but _series_custom_names skips formulas,
+        # so that flag alone must not force the results off the raw-bytes path.
+        custom_names = self._series_custom_names()
+        if custom_names is None:
             return False
-        return any(getattr(s, "custom_name", None) is not None for s in series)
+        return results_have_custom_names or any(name is not None for name in custom_names)
 
     @property
     def _limit_context_aliased_for_cache(self) -> LimitContext:
@@ -2257,19 +2270,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # payload. Only safe when the caller opted in AND validation of the parsed results
             # wouldn't add protection (the response class types them as plain data — for
             # model-typed results, e.g. retention, validating a `[]` placeholder would bypass
-            # the schema-drift check that triggers recomputation) AND neither the query nor
-            # the cached results carry custom series names — otherwise
-            # apply_series_custom_names below must be able to patch the parsed results.
+            # the schema-drift check that triggers recomputation) AND apply_series_custom_names
+            # below has no series name to patch into the parsed results.
             split_candidate = entry
             if split_candidate is None:
                 cached_response_candidate = None
             else:
                 cached_response_candidate = split_candidate.header
                 if split_candidate.results_bytes is not None:
-                    if (
-                        response_results_contain_models(CachedResponse)
-                        or split_candidate.results_have_custom_names
-                        or self._query_has_series_custom_names()
+                    if response_results_contain_models(CachedResponse) or self._cached_results_need_custom_name_patch(
+                        split_candidate.results_have_custom_names
                     ):
                         cached_response_candidate["results"] = orjson.loads(split_candidate.results_bytes)
                     else:
@@ -2302,7 +2312,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
 
         if isinstance(cached_response, CachedResponse):
-            self._fill_cached_result_order(cached_response)
             self._fill_action_names(cached_response)
             # Apply current query's custom_name values to cached response
             # (custom_name is excluded from cache key, so cached values may be stale)
@@ -2439,8 +2448,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_query_service:
             tag_queries(chargeable=1)
-        # Only the /query view and the inline endpoint run set api_queries_budgeted; the product
-        # tag is caller-supplied via query.tags.productKey, so it cannot opt a query in or out.
+        # Trusted entry points set api_queries_budgeted. The product tag is caller-supplied
+        # via query.tags.productKey, so it cannot opt a query in or out.
         if get_query_tag_value("api_queries_budgeted"):
             self._enforce_api_queries_budget()
 
@@ -2743,7 +2752,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # rules out serving a leader's entry too. An export never stores its result, so its leader
         # would have nothing to hand a follower.
         return (
-            self._query_single_flight_enabled
+            not query_single_flight_skipped()
+            and self._query_single_flight_enabled
             and not self.requires_fresh_calculation()
             and self.limit_context != LimitContext.EXPORT
         )
@@ -3322,29 +3332,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             Tuple of (patched_response, was_modified) - was_modified is True if any
             custom_name values were actually changed.
         """
-        if isinstance(self.query, TrendsQuery | StickinessQuery | LifecycleQuery):
-            return self._apply_trends_custom_names(cached_response)
-        elif isinstance(self.query, FunnelsQuery):
-            return self._apply_funnels_custom_names(cached_response)
-        return cached_response, False
-
-    def _fill_cached_result_order(self, cached_response: CR) -> None:
-        """Copy `action.order` to the top level of cached trends, stickiness and lifecycle rows that lack it.
-
-        Stickiness, lifecycle and calendar heatmap rows cached before those runners emitted a top-level `order`
-        carry it only on `action`, and readers take a row's series from the top-level `order`.
-        """
-        if not isinstance(self.query, TrendsQuery | StickinessQuery | LifecycleQuery):
-            return
-        results = getattr(cached_response, "results", None)
-        if not isinstance(results, list):
-            return
-        for result in results:
-            if not isinstance(result, dict) or "order" in result:
-                continue
-            action = result.get("action")
-            if isinstance(action, dict) and isinstance(action.get("order"), int):
-                result["order"] = action["order"]
+        custom_names = self._series_custom_names()
+        if custom_names is None:
+            return cached_response, False
+        return self._apply_custom_names_by_order(cached_response, custom_names)
 
     def _fill_action_names(self, response: object) -> None:
         """Set `action_names` on a trends, stickiness or lifecycle response that lacks it.
@@ -3365,90 +3356,30 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if response.action_names is None:
             response.action_names = get_response_action_names(self.team, self.query.model_dump(mode="json"))
 
-    def _apply_trends_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
-        """Apply custom_name values to TrendsQuery results (nested under action)."""
-        series = getattr(self.query, "series", None)
-        if not series:
-            return cached_response, False
+    def _apply_custom_names_by_order(self, cached_response: CR, custom_names: list[str | None]) -> tuple[CR, bool]:
+        """
+        Set the top-level `custom_name` of each result row to the name of the series at the row's `order`.
 
+        Results have two structures:
+        - Flat list of rows: trends series, stickiness series, lifecycle statuses, funnel steps without breakdown
+        - Funnel steps with breakdown: list of lists [[step1, step2], [step1, step2], ...]
+        """
         results = getattr(cached_response, "results", None)
         if not results or not isinstance(results, list):
             return cached_response, False
 
-        series_by_order = dict(enumerate(series))
-        # Only TrendsQuery surfaces a `name`-based rename into custom_name on the fresh path (see
-        # TrendsQueryRunner's use of resolve_series_custom_name). Stickiness/lifecycle use custom_name
-        # only, so honoring `name` here would desync their cached responses from a fresh computation.
-        honor_name = isinstance(self.query, TrendsQuery)
+        rows = [row for group in results for row in group] if isinstance(results[0], list) else results
 
         was_modified = False
-        for result in results:
-            if not isinstance(result, dict):
+        for row in rows:
+            if not isinstance(row, dict):
                 continue
-            action = result.get("action")
-            if not isinstance(action, dict):
+            order = row.get("order")
+            if not isinstance(order, int) or not 0 <= order < len(custom_names):
                 continue
-            order = action.get("order")
-            if order is None or order not in series_by_order:
-                continue
-            s = series_by_order[order]
-            if honor_name:
-                # The cached action's `name` holds the raw event/action label (`series_label or "All events"`).
-                new_name = resolve_series_custom_name(s, action.get("name"))
-            else:
-                new_name = getattr(s, "custom_name", None)
-            if action.get("custom_name") != new_name:
-                action["custom_name"] = new_name
+            if row.get("custom_name") != custom_names[order]:
+                row["custom_name"] = custom_names[order]
                 was_modified = True
-
-        return cached_response, was_modified
-
-    def _apply_funnels_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
-        """
-        Apply custom_name values to FunnelsQuery results (top-level of step dict).
-
-        Funnel results have two structures:
-        - Without breakdown: flat list of steps [step1, step2, ...]
-        - With breakdown: list of lists [[step1, step2], [step1, step2], ...]
-        """
-        series = getattr(self.query, "series", None)
-        if not series:
-            return cached_response, False
-
-        results = getattr(cached_response, "results", None)
-        if not results or not isinstance(results, list):
-            return cached_response, False
-
-        custom_names_by_order: dict[int, str | None] = {}
-        for i, s in enumerate(series):
-            custom_name = getattr(s, "custom_name", None)
-            custom_names_by_order[i] = custom_name
-
-        was_modified = False
-
-        if results and len(results) > 0 and isinstance(results[0], list):
-            # Breakdown case: iterate through each breakdown group
-            for breakdown_group in results:
-                for step in breakdown_group:
-                    if not isinstance(step, dict):
-                        continue
-                    order = step.get("order")
-                    if order is not None and order in custom_names_by_order:
-                        new_name = custom_names_by_order[order]
-                        if step.get("custom_name") != new_name:
-                            step["custom_name"] = new_name
-                            was_modified = True
-        else:
-            # Non-breakdown case: flat list of steps
-            for step in results:
-                if not isinstance(step, dict):
-                    continue
-                order = step.get("order")
-                if order is not None and order in custom_names_by_order:
-                    new_name = custom_names_by_order[order]
-                    if step.get("custom_name") != new_name:
-                        step["custom_name"] = new_name
-                        was_modified = True
 
         return cached_response, was_modified
 

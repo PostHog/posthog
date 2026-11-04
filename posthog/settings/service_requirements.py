@@ -18,7 +18,7 @@ if SKIP_SERVICE_VERSION_REQUIREMENTS and not (TEST or DEBUG):
 
 SERVICE_VERSION_REQUIREMENTS = [
     # Floor tracks Django's own minimum: below it the driver refuses to connect.
-    ServiceVersionRequirement(service="postgresql", supported_version=">=14.0.0"),
+    ServiceVersionRequirement(service="postgresql", supported_version=">=15.0.0"),
     ServiceVersionRequirement(service="redis", supported_version=">=7.0.0,<8.0.0"),
     ServiceVersionRequirement(service="clickhouse", supported_version=">=24.8,<=25.12"),
 ]
