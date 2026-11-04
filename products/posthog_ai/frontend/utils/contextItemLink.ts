@@ -1,5 +1,6 @@
 import { objectKindLink } from 'lib/components/AgentObjectTags/rewriteAgentObjectTags'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { urls } from 'scenes/urls'
 
 import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 
@@ -12,6 +13,9 @@ export function contextItemPath(item: AttachedContextItem): string | null {
     const pageId = item.pageId ?? (item.type === 'feature_flag' ? undefined : item.key)
     if (pageId === undefined || pageId === '') {
         return null
+    }
+    if (item.type === 'notebook') {
+        return urls.notebook(String(pageId))
     }
     const kind = item.type === 'error_tracking_issue' ? 'error' : item.type === 'signal_report' ? 'report' : item.type
     return objectKindLink(kind, String(pageId), '').url
