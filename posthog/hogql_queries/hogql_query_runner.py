@@ -25,7 +25,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import CacheOrigin, parse_select
-from posthog.hogql.placeholders import find_placeholders, replace_placeholders
+from posthog.hogql.placeholders import find_placeholders, replace_placeholders, replace_value_placeholders
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.user_query_validator import validate_user_query
 from posthog.hogql.variables import replace_variables
@@ -206,16 +206,17 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         values: Optional[dict[str, ast.Expr]] = (
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
-        # Keep filter placeholders for to_query, which resolves them after parsing values.
-        if values and self.query.filters:
-            values = {"filters": ast.Placeholder(expr=ast.Field(chain=["filters"])), **values}
         with self.timings.measure("parse_select"):
             parsed_select = parse_select(
                 self.query.query,
                 timings=self.timings,
-                placeholders=values,
                 cache_origin=CacheOrigin.USER,
             )
+            # Fill in values now, and keep filter placeholders for to_query to resolve.
+            if values:
+                parsed_select = cast(
+                    ast.SelectQuery | ast.SelectSetQuery, replace_value_placeholders(parsed_select, values)
+                )
         return parsed_select, values
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:

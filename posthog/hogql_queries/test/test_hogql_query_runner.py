@@ -8,12 +8,15 @@ from parameterized import parameterized
 
 from posthog.schema import (
     CachedHogQLQueryResponse,
+    DateRange,
+    EventPropertyFilter,
     HogQLFilters,
     HogQLPropertyFilter,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLQueryResponse,
     HogQLVariable,
+    IntervalType,
     QueryStatus,
     SessionTableVersion,
 )
@@ -138,17 +141,10 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert normal_response.hasMore is None
         assert query.query.endswith("LIMIT 3 OFFSET 2")
 
-    @parameterized.expand(
-        [
-            ("", None),
-            (" and event = {event_name}", {"event_name": "clicky-3"}),
-        ]
-    )
-    def test_hogql_query_filters(self, suffix, values):
+    def test_hogql_query_filters(self):
         runner = self._create_runner(
             HogQLQuery(
-                query="select count(event) from events where {filters}" + suffix,
-                values=values,
+                query="select count(event) from events where {filters}",
                 filters=HogQLFilters(properties=[HogQLPropertyFilter(key="event='clicky-3'")]),
             )
         )
@@ -163,10 +159,96 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 right=ast.Constant(value="clicky-3"),
             ),
         )
-        if not suffix:
-            self.assertEqual(clear_locations(query), expected)
+        self.assertEqual(clear_locations(query), expected)
         response = runner.calculate()
         self.assertEqual(response.results[0][0], 1)
+
+    @parameterized.expand(
+        [
+            ("value_matches_filter", "clicky-3", 1),
+            ("value_excludes_filter", "clicky-4", 0),
+        ]
+    )
+    def test_hogql_query_filters_with_values(self, _name, event_name, expected_count):
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select count(event) from events where {filters} and event = {event_name}",
+                values={"event_name": event_name},
+                filters=HogQLFilters(properties=[HogQLPropertyFilter(key="event='clicky-3'")]),
+            )
+        )
+        expected = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[ast.Field(chain=["event"])])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["event"]),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Constant(value="clicky-3"),
+                    ),
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["event"]),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Constant(value=event_name),
+                    ),
+                ]
+            ),
+        )
+        self.assertEqual(clear_locations(runner.to_query()), expected)
+        response = runner.calculate()
+        self.assertEqual(response.results[0][0], expected_count)
+
+    @parameterized.expand(
+        [
+            (
+                "no_filters_set",
+                "select count() from events where {filters} and event = {e}",
+                None,
+                {"e": "clicky-3"},
+                1,
+            ),
+            (
+                "date_range_field",
+                "select count() from events where timestamp >= {filters.dateRange.from} and event = {e}",
+                HogQLFilters(dateRange=DateRange(date_from="2020-01-01")),
+                {"e": "clicky-3"},
+                1,
+            ),
+            (
+                "date_range_excludes",
+                "select count() from events where timestamp >= {filters.dateRange.from} and event = {e}",
+                HogQLFilters(dateRange=DateRange(date_from="2999-01-01")),
+                {"e": "clicky-3"},
+                0,
+            ),
+            (
+                "bound_filters_call",
+                "select count() from events where {filters(event as event)} and event = {e}",
+                HogQLFilters(properties=[EventPropertyFilter(key="event", value="clicky-4", operator="exact")]),
+                {"e": "clicky-3"},
+                0,
+            ),
+            (
+                "interval_call",
+                "select count() from events where event = {e} and {filters.interval('day')} = 'week'",
+                HogQLFilters(interval=IntervalType.WEEK),
+                {"e": "clicky-3"},
+                1,
+            ),
+        ]
+    )
+    def test_hogql_query_filter_forms_keep_working_with_values(self, _name, query, filters, values, expected_count):
+        runner = self._create_runner(HogQLQuery(query=query, values=values, filters=filters))
+        response = runner.calculate()
+        self.assertEqual(response.results[0][0], expected_count)
+
+    def test_hogql_query_value_named_filters_still_wins(self):
+        runner = self._create_runner(
+            HogQLQuery(query="select {filters} from events limit 1", values={"filters": "mine"})
+        )
+        response = runner.calculate()
+        self.assertEqual(response.results[0][0], "mine")
 
     def test_hogql_query_values(self):
         runner = self._create_runner(

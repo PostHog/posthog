@@ -152,3 +152,18 @@ class ReplacePlaceholders(CloningVisitor):
 
 def replace_placeholders(node: ast.Expr, placeholders: Optional[dict[str, ast.Expr]]) -> ast.Expr:
     return ReplacePlaceholders(placeholders).visit(node)
+
+
+class ReplaceValuePlaceholders(ReplacePlaceholders):
+    """Fills in query values and leaves every {filters...} form for replace_filters, which runs later."""
+
+    def visit_placeholder(self, node):
+        finder = FindPlaceholders()
+        finder.visit_placeholder(node)
+        if finder.has_filters and "filters" not in (self.placeholders or {}):
+            return CloningVisitor.visit_placeholder(self, node)
+        return super().visit_placeholder(node)
+
+
+def replace_value_placeholders(node: ast.Expr, placeholders: dict[str, ast.Expr]) -> ast.Expr:
+    return ReplaceValuePlaceholders(placeholders).visit(node)
