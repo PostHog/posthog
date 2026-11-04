@@ -470,10 +470,12 @@ class ContentAutopilotProposalListSerializer(ContentAutopilotProposalBaseSeriali
             "evidence",
             "validation_report",
             "file_path",
+            "target_url",
             "created_at",
             "updated_at",
         ]
         read_only_fields = fields
+        extra_kwargs = {"target_url": {"help_text": "Existing or intended public URL."}}
 
     @extend_schema_field(serializers.CharField)
     def get_file_path(self, proposal: ContentAutopilotProposal) -> str:

@@ -3,16 +3,19 @@ import { dayjs } from 'lib/dayjs'
 import { CompareFilter } from '~/queries/schema/schema-general'
 
 import {
-    OverviewTotals,
     PagePerformanceWindow,
     buildGoogleSearchConsoleQuery,
-    buildPagePerformanceTableQuery,
     formatShare,
+    resolvePagePerformanceWindow,
+} from 'products/web_analytics/frontend/searchAndAi/searchAndAiQueries'
+
+import {
+    OverviewTotals,
+    buildPagePerformanceTableQuery,
     mergePagePerformanceSeries,
     parsePagePerformanceOverviewResponse,
     resolvePagePerformanceBucket,
     resolvePagePerformanceDataState,
-    resolvePagePerformanceWindow,
 } from './pagePerformanceLogic'
 import { DateFilterState } from './webAnalyticsLogic'
 

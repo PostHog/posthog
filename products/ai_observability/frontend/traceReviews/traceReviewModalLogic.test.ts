@@ -36,6 +36,7 @@ describe('traceReviewModalLogic', () => {
     const booleanDefinition: ScoreDefinition = {
         tags: [],
         id: 'score_def_1',
+        short_name: '',
         name: 'Hallucination',
         description: 'Whether the model hallucinated.',
         kind: 'boolean',
@@ -56,6 +57,7 @@ describe('traceReviewModalLogic', () => {
     const numericDefinition: ScoreDefinition = {
         tags: [],
         id: 'score_def_2',
+        short_name: '',
         name: 'Accuracy',
         description: 'How accurate the response was.',
         kind: 'numeric',

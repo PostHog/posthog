@@ -97,3 +97,9 @@ class EvalContext:
     posthog_trace_project_id: int | None = None
 
     infrastructure_retries: int = DEFAULT_INFRA_RETRIES
+
+    skills_sha256: str | None = None
+    skills_source_sha256: str | None = None
+
+    service_tier: str | None = None
+    """OpenAI request tier for the sandboxed agent; ``None`` sends the request untiered."""

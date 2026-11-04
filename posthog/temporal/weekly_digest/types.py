@@ -34,6 +34,10 @@ class WeeklyDigestInput(BaseModel):
     digest_key_override: str | None = None
     allow_already_sent: bool = False
     common: CommonInput = CommonInput()
+    # A resend sets these. None sends to every organization.
+    organization_ids: list[str] | None = None
+    workflows_only: bool = False
+    period_end_override: datetime | None = None
 
 
 class GenerateDigestDataInput(BaseModel):
@@ -72,6 +76,8 @@ class SendWeeklyDigestInput(BaseModel):
     allow_already_sent: bool
     digest: Digest
     common: CommonInput
+    organization_ids: list[str] | None = None
+    workflows_only: bool = False
 
 
 class SendWeeklyDigestBatchInput(BaseModel):
@@ -80,6 +86,8 @@ class SendWeeklyDigestBatchInput(BaseModel):
     allow_already_sent: bool
     digest: Digest
     common: CommonInput
+    organization_ids: list[str] | None = None
+    workflows_only: bool = False
 
 
 class DigestDashboard(BaseModel):
@@ -325,11 +333,19 @@ class TeamDigest(BaseModel):
         return sum(len(f.root) for f in self._fields())
 
     def render_payload(
-        self, product_suggestion: "DigestProductSuggestion | None" = None
-    ) -> dict[str, str | int | dict[str, list | dict]]:
-        report: dict[str, list | dict] = {
+        self,
+        product_suggestion: "DigestProductSuggestion | None" = None,
+        event_definitions_limit: int | None = None,
+    ) -> dict[str, str | int | dict[str, list | dict | int]]:
+        # A project can create thousands of events in a week, and the email lists only the first few.
+        # The count carries the rest, so a limited payload still renders the same email.
+        event_definitions = self.event_definitions.model_dump()
+        if event_definitions_limit is not None:
+            event_definitions = event_definitions[:event_definitions_limit]
+        report: dict[str, list | dict | int] = {
             "new_dashboards": self.dashboards.model_dump(),
-            "new_event_definitions": self.event_definitions.model_dump(),
+            "new_event_definitions": event_definitions,
+            "new_event_definitions_count": len(self.event_definitions.root),
             "new_experiments_launched": self.experiments_launched.model_dump(),
             "new_experiments_completed": self.experiments_completed.model_dump(),
             "new_external_data_sources": self.external_data_sources.model_dump(),
@@ -409,7 +425,9 @@ class UserSpecificDigest(BaseModel):
     def count_items(self) -> int:
         return sum(td.count_items() for td in self.team_digests)
 
-    def render_payload(self, digest: Digest) -> dict[str, str | list | dict[str, str] | int | None]:
+    def render_payload(
+        self, digest: Digest, event_definitions_limit: int | None = None
+    ) -> dict[str, str | list | dict[str, str] | int | None]:
         teams = []
         product_suggestion = self.context.product_suggestion
         for td in self.team_digests:
@@ -418,7 +436,11 @@ class UserSpecificDigest(BaseModel):
             suggestion_for_team = (
                 product_suggestion if product_suggestion and product_suggestion.team_id == td.id else None
             )
-            teams.append(td.render_payload(product_suggestion=suggestion_for_team))
+            teams.append(
+                td.render_payload(
+                    product_suggestion=suggestion_for_team, event_definitions_limit=event_definitions_limit
+                )
+            )
 
         return {
             "organization_name": self.name,

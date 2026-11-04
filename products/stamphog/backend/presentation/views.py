@@ -8,6 +8,7 @@ return serialized responses. No business logic here.
 from functools import cached_property
 from typing import Any, Literal, cast
 from urllib.parse import quote
+from uuid import UUID
 
 from django.conf import settings
 from django.core import signing
@@ -25,6 +26,8 @@ from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -58,6 +61,7 @@ from .serializers import (
     StamphogAvailableRepositoriesQuerySerializer,
     StamphogAvailableRepositoriesSerializer,
     StamphogInstallInfoSerializer,
+    StamphogOwnersFileSerializer,
     StamphogRepoConfigSerializer,
     StamphogRepoConfigWriteSerializer,
     StamphogSyncInstallationRequestSerializer,
@@ -76,6 +80,9 @@ _INSTALL_STATE_MAX_AGE_SECONDS = 60 * 60
 # These decide when a pull request gets reviewed, so writing either of them takes the manager level.
 # `enabled` is split by direction: turning reviews on takes editor, turning them off takes manager.
 REVIEW_POLICY_FIELDS = ("review_mode", "trigger_label")
+# Reviewer requests decide which teams get asked on every pull request, and turning them off can leave
+# pull requests with no reviewer at all, so both directions take manager.
+MANAGER_FIELDS = (*REVIEW_POLICY_FIELDS, "routing_mode")
 
 ReviewLevel = Literal["editor", "manager"]
 
@@ -87,7 +94,7 @@ def _required_review_level(validated_data: dict[str, Any]) -> ReviewLevel | None
     facade refetches and saves it, so a value that looks unchanged can still overwrite a manager's
     decision made in between. That is why a supplied `enabled=False` always takes manager.
     """
-    if validated_data.get("enabled") is False or any(field in validated_data for field in REVIEW_POLICY_FIELDS):
+    if validated_data.get("enabled") is False or any(field in validated_data for field in MANAGER_FIELDS):
         return "manager"
     if validated_data.get("enabled") is True:
         return "editor"
@@ -148,6 +155,7 @@ class _StamphogTeamScopedViewSet(TeamAndOrgViewSetMixin):
 
     # Appended onto the default team/scope permission stack by get_permissions.
     permission_classes = [StamphogCanonicalTeamAccessPermission]
+    path_parameters = {"pk": UUID}
 
     @cached_property
     def canonical_team_id(self) -> int:
@@ -210,7 +218,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
     scope_object = "stamphog"
     serializer_class = StamphogRepoConfigSerializer
 
-    def _get_or_404(self, pk: str | None) -> contracts.RepoConfigDTO:
+    def _get_or_404(self, pk: UUID) -> contracts.RepoConfigDTO:
         # A keyed lookup, not a scan: an installation can surface hundreds of repositories.
         config = facade_api.get_repo_config_by_id(self.canonical_team_id, str(pk))
         if config is None:
@@ -230,7 +238,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
             return
         if level == "manager":
             raise PermissionDenied(
-                "Only a Stamphog manager can turn reviews off or change when they run. "
+                "Only a Stamphog manager can turn reviews off, change when they run, or change reviewer requests. "
                 "Ask an organization admin for manager access."
             )
         raise PermissionDenied(
@@ -254,7 +262,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         page = self.paginate_queryset(configs)
         return self.get_paginated_response(self.get_serializer(page, many=True).data)
 
-    def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+    def retrieve(self, request: Request, pk: UUID, **kwargs) -> Response:
         return Response(self.get_serializer(self._get_or_404(pk)).data)
 
     @extend_schema(request=StamphogRepoConfigWriteSerializer, responses={201: StamphogRepoConfigSerializer})
@@ -276,7 +284,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         return Response(self.get_serializer(config).data, status=201)
 
     @extend_schema(request=StamphogRepoConfigWriteSerializer, responses={200: StamphogRepoConfigSerializer})
-    def update(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+    def update(self, request: Request, pk: UUID, **kwargs) -> Response:
         current = self._get_or_404(pk)
         serializer = StamphogRepoConfigWriteSerializer(
             data=request.data,
@@ -293,15 +301,27 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         return Response(self.get_serializer(config).data)
 
     @extend_schema(request=StamphogRepoConfigWriteSerializer, responses={200: StamphogRepoConfigSerializer})
-    def partial_update(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+    def partial_update(self, request: Request, pk: UUID, **kwargs) -> Response:
         return self.update(request, pk=pk, partial=True, **kwargs)
 
-    def destroy(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+    def destroy(self, request: Request, pk: UUID, **kwargs) -> Response:
         self._get_or_404(pk)
         # A soft delete turns reviews off, so it takes manager like a PATCH to enabled=False.
         self._require_review_level(request, "manager")
         facade_api.disable_repo_config(self.canonical_team_id, str(pk))
         return Response(status=204)
+
+    @extend_schema(
+        description=(
+            "Check whether the repository's default branch has a root owners.yaml. Reviewer requests "
+            "(routing_mode) read the code owners from it. Makes one GitHub call, so ask only when needed."
+        ),
+        responses={200: StamphogOwnersFileSerializer},
+    )
+    @action(detail=True, methods=["GET"], url_path="owners_file", required_scopes=["stamphog:read"])
+    def owners_file(self, request: Request, pk: UUID, **kwargs) -> Response:
+        config = self._get_or_404(pk)
+        return Response(StamphogOwnersFileSerializer({"owners_file": facade_api.check_owners_file(config)}).data)
 
     @extend_schema(
         description=(
@@ -362,7 +382,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         # current team. Without it, an attacker could send a logged-in member a callback carrying the
         # attacker's own installation and bind it to the victim's team.
         slug = settings.STAMPHOG_GITHUB_APP_SLUG
-        client_id = settings.STAMPHOG_GITHUB_APP_CLIENT_ID
+        client_id = get_or_settings("STAMPHOG_GITHUB_APP_CLIENT_ID", CredentialsCaller.STAMPHOG)
         install_url = ""
         authorize_url = ""
         # One state token backs both URLs — either callback (install Setup URL or authorize Callback URL)
@@ -583,7 +603,7 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
             trigger=self.request.query_params.get("trigger"),
         )
 
-    def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+    def retrieve(self, request: Request, pk: UUID, **kwargs) -> Response:
         run = facade_api.get_review_run(self.canonical_team_id, str(pk))
         if run is None:
             raise NotFound()
@@ -677,7 +697,7 @@ class PullRequestViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
             merged=None if merged is None else merged.lower() in ("true", "1"),
         )
 
-    def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+    def retrieve(self, request: Request, pk: UUID, **kwargs) -> Response:
         pull_request = facade_api.get_pull_request(self.canonical_team_id, str(pk))
         if pull_request is None:
             raise NotFound()
@@ -714,7 +734,7 @@ class DigestRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
     scope_object = "stamphog"
     serializer_class = DigestRunSerializer
 
-    def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+    def retrieve(self, request: Request, pk: UUID, **kwargs) -> Response:
         digest_run = facade_api.get_digest_run(self.canonical_team_id, str(pk))
         if digest_run is None:
             raise NotFound()

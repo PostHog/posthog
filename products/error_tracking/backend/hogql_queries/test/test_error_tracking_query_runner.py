@@ -60,6 +60,7 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_builder 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import (
     SEVERITY_RANKING,
+    extract_event,
     search_tokenizer,
 )
 from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
@@ -236,6 +237,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         orderBy="last_seen",
         orderDirection=None,
         status=None,
+        severity=None,
         volumeResolution=1,
         withAggregations=False,
         withFirstEvent=False,
@@ -260,6 +262,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                     orderBy=orderBy,  # pyright: ignore[reportArgumentType]
                     orderDirection=orderDirection,
                     status=status,
+                    severity=severity,
                     volumeResolution=volumeResolution,
                     withFirstEvent=withFirstEvent,
                     withAggregations=withAggregations,
@@ -843,6 +846,27 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         results = self._calculate(status="all")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two, self.issue_id_one])
 
+    @time_machine.travel("2020-01-10T12:12:00", tick=False)
+    def test_list_active_issue_impact_lists_newest_active_issues(self):
+        from products.error_tracking.backend.facade import api
+
+        self.team.test_account_filters = []
+        self.team.save(update_fields=["test_account_filters"])
+        resolved_issue = ErrorTrackingIssue.objects.get(id=self.issue_id_three)
+        resolved_issue.status = ErrorTrackingIssue.Status.RESOLVED
+        resolved_issue.save(update_fields=["status"])
+        sync_issues_to_clickhouse(issue_ids=[self.issue_id_three], team_id=self.team.pk)
+
+        impacts = api.list_active_issue_impact(team_id=self.team.pk, days=30, limit=10)
+
+        self.assertEqual(
+            [(str(impact.id), impact.users, impact.occurrences) for impact in impacts],
+            [(self.issue_id_two, 1, 1), (self.issue_id_one, 2, 2)],
+        )
+        self.assertEqual(len(impacts[1].daily_occurrences), 30)
+        self.assertEqual(sum(impacts[1].daily_occurrences), 2)
+        self.assertEqual(impacts[1].last_seen, datetime(2020, 1, 10, 9, 11, tzinfo=UTC))
+
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_expired_postgres_state_uses_clickhouse_state(self):
         ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(
@@ -1101,8 +1125,22 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
         self.assertEqual([result["id"] for result in results], [self.issue_id_one])
 
+    @parameterized.expand(
+        [
+            (
+                "name",
+                ErrorTrackingIssueFilter(key="name", value=["Recent unmapped issue"], operator=PropertyOperator.EXACT),
+            ),
+            (
+                "first_seen",
+                ErrorTrackingIssueFilter(
+                    key="first_seen", value="2022-01-10T00:00:00", operator=PropertyOperator.IS_DATE_AFTER
+                ),
+            ),
+        ]
+    )
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
-    def test_recent_issue_state_keeps_legacy_events_without_fingerprint_state(self):
+    def test_recent_issue_state_keeps_legacy_events_without_fingerprint_state(self, _name, issue_filter):
         issue_id = "01936e80-f594-7a2e-8545-7bcb491aa620"
         ErrorTrackingIssue.objects.create(
             id=issue_id,
@@ -1129,11 +1167,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 values=[
                     PropertyGroupFilterValue(
                         type=FilterLogicalOperator.AND_,
-                        values=[
-                            ErrorTrackingIssueFilter(
-                                key="name", value=["Recent unmapped issue"], operator=PropertyOperator.EXACT
-                            )
-                        ],
+                        values=[issue_filter],
                     )
                 ],
             )
@@ -1170,6 +1204,57 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         for result in results:
             expected_severity = ErrorTrackingIssue.Severity.HIGH if result["id"] == self.issue_id_one else None
             self.assertEqual(result["severity"], expected_severity)
+
+    @parameterized.expand(
+        [
+            ("optimized_shape", False),
+            ("legacy_shape", True),
+        ]
+    )
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_severity_field(self, _name: str, legacy_shape: bool):
+        self._assign_severities()
+        shape_filters: list[ErrorTrackingIssueFilter] = []
+        if legacy_shape:
+            # Matches every issue, so it only forces the legacy shape.
+            shape_filters = [ErrorTrackingIssueFilter(key="status", value=True, operator=PropertyOperator.IS_SET)]
+
+        filter_group = PropertyGroupFilter(
+            type=FilterLogicalOperator.AND_,
+            values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=shape_filters)],
+        )
+
+        builder = ErrorTrackingQueryBuilder(
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_from="all"),
+                filterGroup=filter_group,
+                orderBy="last_seen",
+                severity=ErrorTrackingQueryIssueSeverity.HIGH,
+                volumeResolution=1,
+            ),
+            team=self.team,
+            date_from=datetime(2020, 1, 1, tzinfo=UTC),
+            date_to=datetime(2022, 1, 10, tzinfo=UTC),
+        )
+        self.assertEqual(builder._needs_legacy_shape(), legacy_shape)
+
+        by_field = {
+            severity.value: {
+                result["id"] for result in self._calculate(filterGroup=filter_group, severity=severity)["results"]
+            }
+            for severity in ErrorTrackingQueryIssueSeverity
+        }
+
+        self.assertEqual(
+            by_field,
+            {
+                "low": {self.issue_id_two},
+                "medium": {self.issue_id_four},
+                "high": {self.issue_id_three},
+                "critical": {self.issue_id_one},
+            },
+        )
 
     @parameterized.expand(
         [
@@ -1227,42 +1312,42 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 "first_seen",
                 PropertyOperator.GT,
                 "2022-01-01",
-                "greater(e.issue_first_seen, toDateTime('2022-01-01'))",
+                "in(e.issue_id, (SELECT issue_id FROM posthog.error_tracking_fingerprint_issue_state GROUP BY issue_id HAVING greater(min(first_seen), toDateTime('2022-01-01'))))",
             ),
             (
                 "first_seen_gte",
                 "first_seen",
                 PropertyOperator.GTE,
                 "2022-01-01",
-                "greaterOrEquals(e.issue_first_seen, toDateTime('2022-01-01'))",
+                "in(e.issue_id, (SELECT issue_id FROM posthog.error_tracking_fingerprint_issue_state GROUP BY issue_id HAVING greaterOrEquals(min(first_seen), toDateTime('2022-01-01'))))",
             ),
             (
                 "first_seen_lt",
                 "first_seen",
                 PropertyOperator.LT,
                 "2022-01-01",
-                "less(e.issue_first_seen, toDateTime('2022-01-01'))",
+                "in(e.issue_id, (SELECT issue_id FROM posthog.error_tracking_fingerprint_issue_state GROUP BY issue_id HAVING less(min(first_seen), toDateTime('2022-01-01'))))",
             ),
             (
                 "first_seen_lte",
                 "first_seen",
                 PropertyOperator.LTE,
                 "2022-01-01",
-                "lessOrEquals(e.issue_first_seen, toDateTime('2022-01-01'))",
+                "in(e.issue_id, (SELECT issue_id FROM posthog.error_tracking_fingerprint_issue_state GROUP BY issue_id HAVING lessOrEquals(min(first_seen), toDateTime('2022-01-01'))))",
             ),
             (
                 "first_seen_is_date_after",
                 "first_seen",
                 PropertyOperator.IS_DATE_AFTER,
                 "2022-01-01",
-                "greater(e.issue_first_seen, toDateTime('2022-01-01'))",
+                "in(e.issue_id, (SELECT issue_id FROM posthog.error_tracking_fingerprint_issue_state GROUP BY issue_id HAVING greater(min(first_seen), toDateTime('2022-01-01'))))",
             ),
             (
                 "first_seen_is_date_before",
                 "first_seen",
                 PropertyOperator.IS_DATE_BEFORE,
                 "2022-01-01",
-                "less(e.issue_first_seen, toDateTime('2022-01-01'))",
+                "in(e.issue_id, (SELECT issue_id FROM posthog.error_tracking_fingerprint_issue_state GROUP BY issue_id HAVING less(min(first_seen), toDateTime('2022-01-01'))))",
             ),
             (
                 "first_seen_exact_single",
@@ -1793,6 +1878,19 @@ class TestSeverityRanking(TestCase):
         # model enum is what reaches the `severity` column, the schema enum is what the API offers.
         self.assertEqual(set(SEVERITY_RANKING), {severity.value for severity in ErrorTrackingQueryIssueSeverity})
         self.assertEqual(set(SEVERITY_RANKING), set(ErrorTrackingIssue.Severity.values))
+
+
+class TestExtractEvent(TestCase):
+    @parameterized.expand(
+        [
+            ("utc", ZoneInfo("UTC"), "2026-09-01T10:00:30.659000+00:00"),
+            ("project_timezone", ZoneInfo("America/Denver"), "2026-09-01T10:00:30.659000-06:00"),
+        ]
+    )
+    def test_timestamp_is_iso_8601(self, _name, tz, expected):
+        event = extract_event(("uuid", "distinct_id", datetime(2026, 9, 1, 10, 0, 30, 659000, tzinfo=tz), "{}"))
+        assert event is not None
+        self.assertEqual(event["timestamp"], expected)
 
 
 class TestSearchTokenizer(TestCase):

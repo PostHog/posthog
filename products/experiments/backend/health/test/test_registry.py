@@ -7,20 +7,24 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import MultipleVariantHandling
+from posthog.schema import MultipleVariantHandling, PropertyOperator
 
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthCheckKey,
     ExperimentHealthCheckStatus,
     ExperimentHealthFindingCode,
+    ExperimentHealthMeasurement,
+    ExperimentHealthMeasurementSide,
+    ExperimentHealthMeasurementUnit,
 )
 from products.experiments.backend.health import registry
+from products.experiments.backend.health.checks.filtered_exposures import reads_share_kept_by_test_account_filter
 from products.experiments.backend.health.context import (
     ExposureEvents,
     ExposureTotals,
     FlagHistoryNotCheckedReason,
+    FlagKeyFilter,
     FlagState,
-    FlagVariant,
     HealthContext,
     MetricEvents,
 )
@@ -31,13 +35,18 @@ from products.experiments.backend.health.registry import (
     evaluate,
 )
 from products.experiments.backend.health.test.factories import DRAFT, RUNNING_CONTEXT, flag_history
+from products.feature_flags.backend.facade.edits import FlagVariant
 
 UNEVEN_SPLIT_TOTALS = ExposureTotals(
     total_exposures={"control": 800, "test": 200, "$multiple": 20},
     multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
     sample_ratio_mismatch_p_value=None,
+    sample_ratio_expected={},
+    daily_exposures={},
     hours_since_launch=72,
     counts_groups=False,
+    filters_test_accounts=False,
+    has_positive_test_account_filter=False,
 )
 
 UNEVEN_FLAG = FlagState(
@@ -67,7 +76,9 @@ EVENT_KEYS = (Key.METRIC_EVENT_NOT_INGESTED, Key.EXPOSURE_CRITERIA_CANNOT_MATCH)
 def _events(name: str, received: dict[str, bool]) -> dict[str, Any]:
     return {
         "metric_events": (MetricEvents(name="Metric", role="primary", events=(name,)),),
-        "exposure_events": ExposureEvents(custom_event=name, required_flag_key=None, flag_key_filters=()),
+        "exposure_events": ExposureEvents(
+            custom_event=name, required_flag_key=None, variant_property="$feature/flag", flag_key_filters=()
+        ),
         "events_received": received,
     }
 
@@ -89,12 +100,22 @@ def _totals_with_multiple(multiple: int, total: int) -> ExposureTotals:
     )
 
 
+def _filtered_totals(counted: int, exposed_without_filter: int | None) -> ExposureTotals:
+    return replace(
+        UNEVEN_SPLIT_TOTALS,
+        total_exposures={"control": counted - counted // 2, "test": counted // 2},
+        filters_test_accounts=True,
+        has_positive_test_account_filter=True,
+        exposed_without_test_account_filter=exposed_without_filter,
+    )
+
+
 def _raise(_ctx: HealthContext) -> Any:
     raise ValueError("malformed")
 
 
 MULTIPLE_VARIANTS_CHECK = next(check for check in EXPOSURE_HEALTH_CHECKS if check.key == Key.MULTIPLE_VARIANTS_SHARE)
-FAILING_CHECK = HealthCheck(key=Key.FLAG_STATE, name="Failing", find=_raise, skip=lambda _ctx: None)
+FAILING_CHECK = HealthCheck(key=Key.FLAG_STATE, name="Failing", description="Fails.", run=_raise)
 
 
 class TestEvaluate(TestCase):
@@ -148,6 +169,23 @@ class TestEvaluate(TestCase):
                 "multiple_variants_share_under_100_exposures",
                 {**ENDED, "exposures": _totals_with_multiple(5, 60)},
                 [ExperimentHealthFindingCode.MULTIPLE_VARIANTS_SHARE],
+            ),
+            (
+                "test_account_filter_keeps_4_percent",
+                {"exposures": _filtered_totals(40, 1000)},
+                [ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES],
+            ),
+            (
+                "test_account_filter_keeps_10_percent_after_the_end",
+                {**ENDED, "exposures": _filtered_totals(100, 1000)},
+                [ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES],
+            ),
+            ("test_account_filter_keeps_95_percent", {"exposures": _filtered_totals(950, 1000)}, []),
+            ("test_account_filter_under_100_users_without_it", {"exposures": _filtered_totals(4, 99)}, []),
+            (
+                "test_account_filter_keeps_nobody",
+                {"exposures": _filtered_totals(0, 1000)},
+                [ExperimentHealthFindingCode.ZERO_EXPOSURES],
             ),
         ]
     )
@@ -210,6 +248,16 @@ class TestEvaluate(TestCase):
                 {Key.NEW_FLAG_NO_TRAFFIC: Status.NOT_APPLICABLE},
             ),
             (
+                "early_significance_needs_the_primary_metrics_results",
+                {"primary_metric": None},
+                {Key.EARLY_SIGNIFICANCE: Status.NOT_CHECKED},
+            ),
+            (
+                "metrics_not_matured_needs_the_primary_metric_windows",
+                {"only_count_matured_users": True},
+                {Key.METRICS_NOT_MATURED: Status.NOT_CHECKED},
+            ),
+            (
                 "zero_exposures_finds_a_day_after_launch",
                 {"exposures": replace(NO_EXPOSURES, hours_since_launch=24)},
                 {Key.ZERO_EXPOSURES: Status.FINDING},
@@ -261,6 +309,100 @@ class TestEvaluate(TestCase):
 
     @parameterized.expand(
         [
+            ("few_counted_a_day_after_launch", {}, True),
+            ("1000_counted", {"total_exposures": {"control": 500, "test": 500}}, False),
+            ("in_the_first_day", {"hours_since_launch": 23.9}, False),
+            ("none_counted", {"total_exposures": {"control": 0, "test": 0}}, False),
+            ("filter_off", {"filters_test_accounts": False}, False),
+            ("no_positive_filter", {"has_positive_test_account_filter": False}, False),
+            ("precomputed_exposures", {"reads_precomputed_exposures": True}, False),
+        ]
+    )
+    def test_the_count_without_the_test_account_filter_runs_only_on_few_exposures(
+        self, _name: str, changes: dict[str, Any], counts: bool
+    ) -> None:
+        ctx = replace(RUNNING_UNEVEN_SPLIT, exposures=replace(_filtered_totals(40, None), **changes))
+
+        health = evaluate(ctx, EXPOSURE_HEALTH_CHECKS)
+
+        status = next(check.status for check in health.checks if check.key == Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES)
+        self.assertEqual(
+            (reads_share_kept_by_test_account_filter(ctx), status),
+            (counts, Status.NOT_CHECKED if counts else Status.NOT_APPLICABLE),
+        )
+
+    @parameterized.expand([("one_decimal", 40, 1000, "(4.0%)"), ("under_a_tenth", 1, 20_000, "(less than 0.1%)")])
+    def test_test_account_filter_finding_states_the_kept_share(
+        self, _name: str, counted: int, exposed: int, share: str
+    ) -> None:
+        ctx = replace(RUNNING_UNEVEN_SPLIT, exposures=_filtered_totals(counted, exposed))
+
+        health = evaluate(ctx, EXPOSURE_HEALTH_CHECKS)
+
+        finding = next(
+            f for f in health.findings if f.code == ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES
+        )
+        self.assertIn(share, finding.detail)
+
+    @parameterized.expand(
+        [
+            (
+                "srm_p_value",
+                Key.SRM,
+                replace(UNEVEN_SPLIT_TOTALS, sample_ratio_mismatch_p_value=0.71),
+                ExperimentHealthMeasurement(
+                    value=0.71,
+                    threshold=0.001,
+                    unit=ExperimentHealthMeasurementUnit.P_VALUE,
+                    warns=ExperimentHealthMeasurementSide.BELOW,
+                ),
+            ),
+            (
+                "multiple_variants_share",
+                Key.MULTIPLE_VARIANTS_SHARE,
+                _totals_with_multiple(30, 1000),
+                ExperimentHealthMeasurement(
+                    value=3.0,
+                    threshold=5.0,
+                    unit=ExperimentHealthMeasurementUnit.PERCENTAGE,
+                    warns=ExperimentHealthMeasurementSide.ABOVE,
+                ),
+            ),
+            (
+                "multiple_variants_below_the_minimum_count",
+                Key.MULTIPLE_VARIANTS_SHARE,
+                _totals_with_multiple(4, 20),
+                None,
+            ),
+            (
+                "kept_share",
+                Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,
+                _filtered_totals(400, 1000),
+                ExperimentHealthMeasurement(
+                    value=40.0,
+                    threshold=10.0,
+                    unit=ExperimentHealthMeasurementUnit.PERCENTAGE,
+                    warns=ExperimentHealthMeasurementSide.BELOW,
+                ),
+            ),
+            (
+                "kept_share_below_the_minimum_exposed",
+                Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,
+                _filtered_totals(5, 60),
+                None,
+            ),
+        ]
+    )
+    def test_a_pass_reports_its_value_only_when_the_threshold_decided_it(
+        self, _name: str, key: ExperimentHealthCheckKey, exposures: ExposureTotals, measurement: Any
+    ) -> None:
+        health = evaluate(replace(RUNNING_UNEVEN_SPLIT, exposures=exposures), EXPOSURE_HEALTH_CHECKS)
+
+        check = next(check for check in health.checks if check.key == key)
+        self.assertEqual((check.status, check.measurement), (Status.PASSED, measurement))
+
+    @parameterized.expand(
+        [
             ("persons", False, "Many users were exposed to multiple variants"),
             ("groups", True, "Many groups were exposed to multiple variants"),
         ]
@@ -270,6 +412,57 @@ class TestEvaluate(TestCase):
         health = evaluate(replace(RUNNING_UNEVEN_SPLIT, **ENDED, exposures=exposures), (MULTIPLE_VARIANTS_CHECK,))
 
         self.assertEqual([finding.title for finding in health.findings], [title])
+
+    @parameterized.expand(
+        [
+            (
+                "exposure_event_never_received",
+                _events("checkout_viewed", {"checkout_viewed": False}),
+                ExperimentHealthFindingCode.EXPOSURE_CRITERIA_CANNOT_MATCH,
+            ),
+            (
+                "filter_on_another_flag",
+                {
+                    "exposure_events": ExposureEvents(
+                        custom_event=None,
+                        required_flag_key="checkout-test",
+                        variant_property="$feature_flag_response",
+                        flag_key_filters=(FlagKeyFilter(operator=PropertyOperator.EXACT, values=("pricing-test",)),),
+                    )
+                },
+                ExperimentHealthFindingCode.EXPOSURE_CRITERIA_CANNOT_MATCH,
+            ),
+            (
+                "exposure_event_never_received_after_the_end",
+                {**_events("checkout_viewed", {"checkout_viewed": False}), **ENDED},
+                ExperimentHealthFindingCode.ZERO_EXPOSURES,
+            ),
+            (
+                "exposure_event_received",
+                _events("checkout_viewed", {"checkout_viewed": True}),
+                ExperimentHealthFindingCode.ZERO_EXPOSURES,
+            ),
+        ]
+    )
+    def test_one_check_reports_an_experiment_without_exposures(
+        self, _name: str, changes: dict[str, Any], expected: ExperimentHealthFindingCode
+    ) -> None:
+        ctx = replace(RUNNING_CONTEXT, flag=EVEN_SPLIT_FLAG, exposures=replace(NO_EXPOSURES, hours_since_launch=48))
+
+        health = evaluate(replace(ctx, **changes), (*EXPERIMENT_HEALTH_CHECKS, *EXPOSURE_HEALTH_CHECKS))
+
+        reporting = {finding.code for finding in health.findings} & {
+            ExperimentHealthFindingCode.ZERO_EXPOSURES,
+            ExperimentHealthFindingCode.EXPOSURE_CRITERIA_CANNOT_MATCH,
+        }
+        zero_exposures = next(check for check in health.checks if check.key == Key.ZERO_EXPOSURES)
+        self.assertEqual(
+            (reporting, zero_exposures.status),
+            (
+                {expected},
+                Status.FINDING if expected == ExperimentHealthFindingCode.ZERO_EXPOSURES else Status.NOT_APPLICABLE,
+            ),
+        )
 
     def test_a_failing_check_does_not_hide_the_other_findings(self) -> None:
         with patch.object(registry, "capture_exception") as capture:

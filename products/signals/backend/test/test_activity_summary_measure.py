@@ -23,9 +23,10 @@ from products.signals.backend.test.test_activity_summary_render import FakeLLM
 NOW = datetime.datetime(2026, 10, 19, 12, tzinfo=datetime.UTC)
 ANSWER = json.dumps(
     {
-        "summary": "Builds the signup funnel.",
-        "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-18"}],
-        "products": ["product_analytics"],
+        "profile": "## Funnels\n- Builds the signup funnel.",
+        "headline": "Builds the signup funnel.",
+        "themes": [{"label": "Signup funnel", "mode": "building", "strength": "high", "refs": ["o1"]}],
+        "modes": ["building"],
         "recent_shift": None,
     }
 )

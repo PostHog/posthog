@@ -11,7 +11,7 @@ pipeline degrades to a no-op, which keeps warehouse_sources importable on its ow
 
 import uuid
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING, Any, Optional
 
 from products.warehouse_sources.backend.facade.contracts import RevenueViewSyncInput
@@ -187,6 +187,22 @@ def person_property_sync_enabled_for(team_id: int, binding: WarehouseBinding) ->
     return person_property_projection_for(team_id, binding) is not None
 
 
+SavedQueryPropertySourcesResolver = Callable[[int, Collection[str]], set[str]]
+_saved_query_property_sources_resolver: Optional[SavedQueryPropertySourcesResolver] = None
+
+
+def register_saved_query_property_sources(fn: SavedQueryPropertySourcesResolver) -> None:
+    global _saved_query_property_sources_resolver
+    _saved_query_property_sources_resolver = fn
+
+
+def saved_queries_with_property_sources(team_id: int, saved_query_ids: Collection[str]) -> set[str]:
+    """The given saved queries that a configured property source reads, whether or not its sync runs today."""
+    if _saved_query_property_sources_resolver is None:
+        return set()
+    return _saved_query_property_sources_resolver(team_id, saved_query_ids)
+
+
 @dataclasses.dataclass(frozen=True)
 class AccountPropertySourceProjection:
     """One account-target source's materialization projection."""
@@ -308,6 +324,9 @@ class PersonPropertyBackfillActivityInputs:
     # Signal-with-start uses an empty workflow seed, then supplies the real activity input via its
     # start signal. The default preserves replay for executions started before that trigger existed.
     skip_initial_run: bool = False
+    # True when the workflow records a failed run itself. A workflow from before that change leaves it
+    # False, so the activity still records its own failure for it during a rolling deploy.
+    workflow_records_failure: bool = False
 
     @property
     def binding(self) -> WarehouseBinding:
@@ -323,6 +342,25 @@ class PersonPropertyBackfillActivityInputs:
             "schema_name": self.schema_name,
             "trigger": self.trigger,
         }
+
+
+@dataclasses.dataclass(frozen=True)
+class PersonPropertyFailedRunInputs:
+    """Payload the sync and backfill workflows send to record a run as failed once its activity
+    has given up. The activity cannot do this itself when it was timed out, cancelled or killed."""
+
+    team_id: int
+    schema_id: uuid.UUID | None
+    saved_query_id: uuid.UUID | None
+    job_id: str | None
+    trigger: str
+    started_at: str
+    error: str
+    count_failure: bool = True
+
+    @property
+    def binding(self) -> WarehouseBinding:
+        return _binding_from_ids(self.schema_id, self.saved_query_id)
 
 
 # --- Data-quality checks gate ---------------------------------------------------------
@@ -395,6 +433,7 @@ class PersonPropertySyncRunRecord:
     produced: int
     skipped_missing_person: int
     error: str | None
+    count_failure: bool = True
 
 
 PersonPropertySyncRecorder = Callable[[PersonPropertySyncRunRecord], None]

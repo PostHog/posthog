@@ -1,0 +1,39 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE posthog_batchimport\n            SET\n                status = CASE WHEN $2::text IS NOT NULL AND status = 'running' THEN $2 ELSE status END,\n                status_message = CASE WHEN $2::text IS NOT NULL AND status = 'running' THEN $3 ELSE status_message END,\n                display_status_message = CASE WHEN $2::text IS NOT NULL AND status = 'running' THEN $4 ELSE display_status_message END,\n                state = $5,\n                pending_commit = $6,\n                backoff_attempt = $7,\n                backoff_until = $8,\n                updated_at = now(),\n                lease_id = $9,\n                leased_until = $10\n            WHERE id = $1 AND lease_id = $11 AND (NOT $12 OR status = 'running')\n            RETURNING status, import_config->'sink'->>'send_rate' AS send_rate\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "send_rate",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Int4",
+        "Timestamptz",
+        "Text",
+        "Timestamptz",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "3011a61a485c88955cc08dd8ad6f81749e4264667a44e60f4e849bf0eef71694"
+}

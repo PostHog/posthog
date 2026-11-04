@@ -197,6 +197,58 @@ describe('ToolExecutor analytics capture', () => {
         expect(state.context.api.config.onPrivateResponse).toBeUndefined()
     })
 
+    it.each(['direct', 'exec'])(
+        'keeps a %s switch-project call on the project its flags were evaluated for',
+        async (mode) => {
+            const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+            const source = { organizationId: 'org-1', projectId: '1', projectUuid: 'uuid-1' }
+            const destination = { organizationId: 'org-1', projectId: '2', projectUuid: 'uuid-2' }
+            let active = source
+            const tool = {
+                name: 'switch-project',
+                title: 'Switch project',
+                description: 'Synthetic switch',
+                scopes: [],
+                annotations: { readOnlyHint: false },
+                schema: z.object({ projectId: z.number() }),
+                handler: async () => {
+                    active = destination
+                    return 'Switched to project 2'
+                },
+            }
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                build: () => tool,
+                meta: undefined,
+                rawInputSchema: undefined,
+                definition: undefined,
+            })
+            const baseState = makeToolExecutorState([tool], { suppressAnalytics: false })
+            const state = makeToolExecutorState([tool], {
+                useSingleExec: mode === 'exec',
+                suppressAnalytics: false,
+                analyticsContext: source,
+                reqCtx: { ...baseState.reqCtx, safelyGetAnalyticsContext: vi.fn(async () => active) } as any,
+            })
+
+            await executor.handleToolCall(
+                mode === 'exec'
+                    ? { name: 'exec', arguments: { command: 'call switch-project {"projectId": 2}' } }
+                    : { name: tool.name, arguments: { projectId: 2 } },
+                state
+            )
+            await new Promise((resolve) => setImmediate(resolve))
+
+            expect(active).toBe(destination)
+            expect(capture).toHaveBeenCalledOnce()
+            const event = capture.mock.calls[0]![0]
+            expect(event.toolName).toBe('switch-project')
+            expect(event.groups).toEqual({ organization: 'org-1', project: 'uuid-1' })
+            expect(event.properties).toMatchObject({
+                $mcp_project_id: '1',
+            })
+        }
+    )
+
     it.each([true, false])('isolates intent descriptions with single exec=%s', async (useSingleExec) => {
         const tool = catalog.getFilteredTools({ scopes: ['*'] }).find((entry) => entry.name === 'projects-get')!
         const state = makeToolExecutorState([tool], { useSingleExec })
@@ -543,19 +595,26 @@ describe('ToolExecutor analytics capture', () => {
         captureSpy.mockRestore()
     })
 
-    it('leaves a client that already has a session untouched', async () => {
+    it.each([
+        { requestContext: { mcpSessionId: 'sess-1' }, expectedHandle: undefined },
+        {
+            requestContext: { sessionId: 'wrapper-1' },
+            expectedHandle: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-7/),
+        },
+    ])('returns handle $expectedHandle for $requestContext', async ({ requestContext, expectedHandle }) => {
         const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
-        // `makeToolExecutorState` carries `sessionId: 'sess-1'`, the wrapper-app id.
-        const state = makeToolExecutorState([], { useSingleExec: true })
+        const state = makeToolExecutorState([], {
+            useSingleExec: true,
+            requestContext: { authMethod: 'personal_api_key', ...requestContext },
+        })
         await executor.handleToolsList(state)
 
         const result = await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' } }, state)
 
-        // Minting here would split the session these clients already group by, and append a
-        // block to every first result, for the majority of today's traffic.
-        expect(readConversationHandle(result)).toBeUndefined()
+        const handle = readConversationHandle(result)
+        expect(handle).toEqual(expectedHandle)
         await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
-        expect(captureSpy.mock.calls[0]![0].conversationId).toBeUndefined()
+        expect(captureSpy.mock.calls[0]![0].conversationId).toBe(handle)
 
         captureSpy.mockRestore()
     })

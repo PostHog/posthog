@@ -1,3 +1,4 @@
+import { importProjectHomepage } from 'scenes/project-homepage/importProjectHomepage'
 import { preloadedScenes } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -17,13 +18,14 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Billing]: () => import('./billing/Billing'),
     [Scene.Canvas]: () => import('./notebooks/NotebookCanvasScene'),
     [Scene.CLIAuthorize]: () => import('./authentication/cli/CLIAuthorize'),
+    [Scene.OAuthDeviceAuthorize]: () => import('./authentication/device/OAuthDeviceAuthorize'),
     [Scene.CLILive]: () => import('./authentication/cli/CLILive'),
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
     [Scene.CohortCalculationHistory]: () => import('./cohorts/CohortCalculationHistory'),
     [Scene.Cohorts]: () => import('./cohorts/Cohorts'),
     [Scene.CustomCss]: () => import('./themes/CustomCssScene'),
     [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
-    [Scene.Dashboards]: () => import('./dashboard/dashboards/Dashboards'),
+    [Scene.Dashboards]: () => import('products/dashboards/frontend/dashboards/Dashboards'),
     [Scene.DataManagement]: () => import('./data-management/DataManagementScene'),
     [Scene.DataPipelinesNew]: () => import('./data-pipelines/DataPipelinesNewScene'),
     [Scene.DeadLetterQueue]: () => import('./instance/DeadLetterQueue/DeadLetterQueue'),
@@ -58,7 +60,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Coupons]: () => import('./coupons/Coupons'),
     [Scene.LiveEvents]: () => import('./activity/live/LiveEventsTable'),
     [Scene.Login2FA]: () => import('./authentication/login-2fa/Login2FA'),
-    [Scene.Login]: () => import('./authentication/login/Login'),
+    [Scene.Login]: () => import('./authentication/auth/Auth'),
     [Scene.MarketingAnalytics]: () => import('./marketing-analytics/MarketingAnalyticsScene'),
     [Scene.Max]: () => import('./max/Max'),
     [Scene.MoveToPostHogCloud]: () => import('./moveToPostHogCloud/MoveToPostHogCloud'),
@@ -78,7 +80,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.TwoFactorReset]: () => import('./authentication/two-factor-reset/TwoFactorReset'),
     [Scene.PreflightCheck]: () => import('./PreflightCheck/PreflightCheck'),
     [Scene.ProjectCreateFirst]: () => import('./project/Create'),
-    [Scene.ProjectHomepage]: () => import('./project-homepage/ProjectHomepage'),
+    [Scene.ProjectHomepage]: importProjectHomepage,
     [Scene.Library]: () => import('./library/Library'),
     [Scene.AnalyticsList]: () => import('./analytics/AnalyticsList'),
     [Scene.AnalyticsSpaces]: () => import('./analytics/AnalyticsSpaces'),
@@ -95,7 +97,8 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Replay]: () => import('./session-recordings/SessionRecordings'),
     [Scene.ResourceTransfer]: () => import('./resource-transfer/ResourceTransfer'),
     [Scene.RealTimeUsage]: () => import('./real-time-usage/RealTimeUsage'),
-    [Scene.DashboardTemplateCopy]: () => import('./dashboard/dashboards/templates/DashboardTemplateCopyScene'),
+    [Scene.DashboardTemplateCopy]: () =>
+        import('products/dashboards/frontend/dashboards/templates/DashboardTemplateCopyScene'),
     [Scene.SQLEditor]: () => import('./data-warehouse/editor/EditorScene'),
     [Scene.SavedInsights]: () => import('products/product_analytics/frontend/insights/savedInsights/SavedInsights'),
     [Scene.WebScripts]: () => import('./data-pipelines/WebScriptsScene'),
@@ -111,7 +114,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Settings]: () => import('./settings/SettingsScene'),
     [Scene.IdentityProviderConfig]: () =>
         import('./settings/organization/IdentityProviderConfig/IdentityProviderConfigScene'),
-    [Scene.Signup]: () => import('./authentication/signup/Signup'),
+    [Scene.Signup]: () => import('./authentication/auth/Auth'),
     [Scene.Site]: () => import('./sites/Site'),
     [Scene.StartupProgram]: () => import('./startups/StartupProgram'),
     [Scene.Survey]: () => import('./surveys/Survey'),

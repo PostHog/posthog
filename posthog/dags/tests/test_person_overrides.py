@@ -1,9 +1,10 @@
 import uuid as uuid_module
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from uuid import UUID
 
 import pytest
+import time_machine
 from unittest.mock import Mock, call, patch
 
 from django.conf import settings as django_settings
@@ -26,12 +27,13 @@ from posthog.dags.person_overrides import (
     wait_for_overrides_delete_mutations,
 )
 from posthog.dags.tests.conftest import insert_flag_evaluations
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.async_deletion import AsyncDeletion, DeletionRunJob, DeletionRunLog, DeletionRunStatus, DeletionType
 from posthog.models.deletion_targets import EVENTS, EVENTS_JSON, FLAG_EVALUATIONS, TargetPlacement
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE
 
 
+@pytest.mark.django_db
 def test_full_job(cluster: ClickhouseCluster):
     timestamp = datetime(2025, 1, 1)
 
@@ -104,6 +106,10 @@ def test_full_job(cluster: ClickhouseCluster):
     remaining_overrides = cluster.any_host(get_distinct_ids_with_overrides).result()
     assert len(remaining_overrides) == 2  # one candidate discarded due to limit, one out of timestamp range
     assert "z" in remaining_overrides  # outside of timestamp range
+
+    run_log = DeletionRunLog.objects.get(dagster_run_id=limited_run_result.dagster_run.run_id)
+    assert (run_log.job, run_log.status) == (DeletionRunJob.SQUASH_PERSON_OVERRIDES, DeletionRunStatus.SUCCEEDED)
+    assert (run_log.squash_cutoff, run_log.squash_limit) == (timestamp.replace(tzinfo=UTC), 2)
 
     # run without limit to handle the remaining item(s)
     full_run_result = squash_person_overrides.execute_in_process(
@@ -199,6 +205,34 @@ def test_a_person_deletion_after_a_merge_reaches_flag_evaluations(cluster: Click
     assert cluster.any_host(surviving_flag_evaluation_person_ids).result() == set()
 
 
+def test_the_default_cutoff_follows_the_clock_of_the_run() -> None:
+    # The code server builds the config schema once, and runs launch days or weeks after that.
+    config = PopulateSnapshotTableConfig()
+
+    with time_machine.travel(datetime(2026, 10, 24, 22, 0, tzinfo=UTC), tick=False):
+        assert config.cutoff() == "2026-10-22 22:00:00"
+
+    assert PopulateSnapshotTableConfig(timestamp="2025-01-01 00:00:00").cutoff() == "2025-01-01 00:00:00"
+
+
+@pytest.mark.django_db
+def test_a_failed_squash_run_is_logged_as_failed(cluster: ClickhouseCluster) -> None:
+    result = squash_person_overrides.execute_in_process(
+        run_config=dagster.RunConfig(
+            {populate_snapshot_table.name: PopulateSnapshotTableConfig(timestamp="not a date")}
+        ),
+        resources={"cluster": cluster},
+        raise_on_error=False,
+    )
+
+    assert not result.success
+    run_log = DeletionRunLog.objects.get(dagster_run_id=result.dagster_run.run_id)
+    assert run_log.status == DeletionRunStatus.FAILED
+    assert run_log.squash_cutoff is None
+    assert run_log.error.startswith(f"{populate_snapshot_table.name}: ")
+
+
+@pytest.mark.django_db
 def test_cleanup_job(cluster: ClickhouseCluster) -> None:
     timestamp = datetime(2025, 1, 1)
 

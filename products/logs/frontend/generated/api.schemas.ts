@@ -2651,7 +2651,10 @@ export interface _LogsQueryBodyApi {
     searchTerm?: string
     /** Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND/OR groups. */
     filterGroup?: LogsFilterGroupInputApi
-    /** Max results (1-1000). */
+    /**
+     * Max results. Values above 2000 are capped at 2000.
+     * @minimum 1
+     */
     limit?: number
     /** Pagination cursor from previous response. */
     after?: string
@@ -3588,3 +3591,36 @@ export type LogsViewsListParams = {
      */
     offset?: number
 }
+
+export type TasksRunsLogsRetrieveParams = {
+    /**
+     * With tail_bytes, end the window before this entry index, so a client can page back through older turns: pass the X-Log-Offset of the oldest page it holds.
+     * @minimum 0
+     */
+    before?: number
+    /**
+     * With tail_bytes, return every entry from this index to the end, with no preamble, so a client that holds the entries before it can catch up after a disconnect: pass the X-Log-Count of its last read. When those entries are too large, the response holds the latest turns as tail_bytes alone returns them, and X-Log-Offset is greater than start.
+     * @minimum 0
+     */
+    start?: number
+    /**
+     * Return only the latest turns of the log: the shortest suffix that starts at a user turn and holds at least this many bytes. The X-Log-Offset and X-Log-Count headers give the index of the first tail entry and the size of the full log. The slice starts with X-Log-Preamble earlier entries that still set run state, such as the run start, usage, mode, commands and open permission requests. X-Log-Turns-Before counts the user turns before the slice, so a client numbers turns the way the full log does.
+     * @minimum 1
+     */
+    tail_bytes?: number
+    /**
+     * 'full' returns every entry as stored. 'thread' drops the duplicate tool response copy in _meta.claudeCode.toolResponse and keeps only its decisionReason and message, for clients that render the conversation. It applies to the full log and to every slice.
+     *
+     * * `full` - full
+     * * `thread` - thread
+     * @minLength 1
+     */
+    view?: TasksRunsLogsRetrieveView
+}
+
+export type TasksRunsLogsRetrieveView = (typeof TasksRunsLogsRetrieveView)[keyof typeof TasksRunsLogsRetrieveView]
+
+export const TasksRunsLogsRetrieveView = {
+    Full: 'full',
+    Thread: 'thread',
+} as const

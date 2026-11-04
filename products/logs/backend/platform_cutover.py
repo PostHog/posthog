@@ -19,7 +19,7 @@ from posthog.dataclasses import frozen
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import Grouping, HandbackRefusal, PlatformOwnershipHandover
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
-from products.logs.backend.alert_state_machine import FIRING_STATES, ControlPlaneOutcome, apply_outcome
+from products.logs.backend.alert_state_machine import ControlPlaneOutcome, apply_outcome
 from products.logs.backend.alert_utils import due_alerts_q
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import (
@@ -35,8 +35,6 @@ class CutoverSkip(StrEnum):
     """Why an alert stays with the logs stack for now."""
 
     ALREADY_MOVED = "already_moved"
-    # The two stacks key incidents differently, so a firing moves only after it resolves.
-    FIRING = "firing"
     # The logs scheduler owes this alert a check, which may already be running and could notify
     # after the move.
     CHECK_DUE = "check_due"
@@ -90,8 +88,6 @@ def _cut_over_alert(alert_id: UUID, now: datetime | None, *, dry_run: bool) -> C
                 return CutoverSkip.ALREADY_MOVED
             if in_an_environment(alert):
                 return CutoverSkip.ENVIRONMENT
-            if alert.state in FIRING_STATES:
-                return CutoverSkip.FIRING
             if _logs_check_owed(alert.id, at):
                 return CutoverSkip.CHECK_DUE
             if not hand_over(alert, at):
@@ -179,7 +175,7 @@ def hand_over(alert: LogsAlertConfiguration, at: datetime, *, grouping: Grouping
 
     `grouping` applies only to a copy this creates, because the logs row stores none."""
     upsert = platform_upsert_of(alert)
-    savepoint = transaction.savepoint()
+    savepoint = transaction.savepoint_create()
     upsert_configuration(upsert if grouping is None else replace(upsert, grouping=grouping))
     taken = take_ownership(
         PlatformOwnershipHandover(
@@ -205,6 +201,14 @@ def hand_over(alert: LogsAlertConfiguration, at: datetime, *, grouping: Grouping
     return True
 
 
-def has_begun_cutover(team_id: int) -> bool:
-    """Whether the platform owns any of the team's logs alerts, which makes it the owner of new ones."""
-    return LogsAlertConfiguration.objects.filter(team_id=team_id, owner=PlatformAlertOwner.PLATFORM).exists()
+def takes_new_alert(team_id: int, *, new_alert_id: UUID) -> bool:
+    """Whether the platform owns a team's new logs alert: when it owns another of the team's alerts, or
+    when the team has no other. A team whose alerts all stay with logs, such as one rolled back, keeps
+    new ones on logs too."""
+    owners = set(
+        LogsAlertConfiguration.objects.filter(team_id=team_id)
+        .exclude(id=new_alert_id)
+        .values_list("owner", flat=True)
+        .distinct()
+    )
+    return not owners or PlatformAlertOwner.PLATFORM in owners

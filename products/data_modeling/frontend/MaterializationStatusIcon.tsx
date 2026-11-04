@@ -3,7 +3,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
-import { servingSuspension } from './suspension'
+import { servingSuspension, suspendedScheduleMessage } from './suspension'
 
 export function MaterializationStatusIcon({ view }: { view: DataWarehouseSavedQuerySummary }): JSX.Element | null {
     if (!view.is_materialized) {
@@ -15,10 +15,7 @@ export function MaterializationStatusIcon({ view }: { view: DataWarehouseSavedQu
             <Tooltip
                 title={
                     <div className="flex flex-col gap-1">
-                        <div>
-                            Scheduled runs are paused for this view because materialization kept failing. Fix the query,
-                            then resume.
-                        </div>
+                        <div>{suspendedScheduleMessage('view')}</div>
                         <div className="opacity-75 line-clamp-4">{suspension.reason}</div>
                     </div>
                 }
@@ -32,7 +29,9 @@ export function MaterializationStatusIcon({ view }: { view: DataWarehouseSavedQu
             <Tooltip
                 title={
                     <div className="flex flex-col gap-1">
-                        <div>The last materialization run failed. Scheduled runs pause if it keeps failing.</div>
+                        <div>
+                            The last materialization run failed. Scheduled runs are suspended if it keeps failing.
+                        </div>
                         {view.latest_error ? <div className="opacity-75 line-clamp-4">{view.latest_error}</div> : null}
                     </div>
                 }

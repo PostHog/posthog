@@ -31,6 +31,13 @@ class CustomPropertyValue(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
     value_datetime = models.DateTimeField(null=True, blank=True)
 
     class Meta:
+        indexes = [
+            models.Index(
+                fields=["team", "definition", "account"],
+                condition=Q(is_deleted=False),
+                name="cpv_active_team_definition_idx",
+            ),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "account", "definition"],

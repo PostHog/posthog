@@ -1,22 +1,41 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
-import { NEW_COHORT } from 'scenes/cohorts/CohortFilters/constants'
+import { NEW_COHORT, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { urls } from 'scenes/urls'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
-import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator, InsightShortId } from '~/types'
+import {
+    AnyCohortCriteriaType,
+    BehavioralEventType,
+    FilterLogicalOperator,
+    InsightShortId,
+    PropertyDefinitionState,
+    PropertyFilterType,
+    PropertyFilterValue,
+    PropertyOperator,
+    PropertyType,
+} from '~/types'
 
+import { CohortCsvUploadModal } from './CohortCsvUploadModal'
 import { CohortEdit } from './CohortEdit'
+
+jest.mock('lib/components/AutoSizer', () => ({
+    AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) =>
+        renderProp({ height: 1000, width: 400 }),
+}))
 
 describe('cohortEditLogic', () => {
     let logic: ReturnType<typeof cohortEditLogic.build>
@@ -101,6 +120,73 @@ describe('cohortEditLogic', () => {
         })
     })
 
+    describe('CSV upload modal', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        it('clears the chosen CSV on close and on cancel', async () => {
+            logic = cohortEditLogic({ id: 10 })
+            render(<CohortCsvUploadModal id={10} />)
+
+            // Let the mount-time fetch land first, or its response would replace the state set below.
+            await waitFor(() => expect(logic.values.cohort.id).toEqual(mockCohort.id))
+
+            act(() => {
+                logic.actions.setCohort({
+                    ...NEW_COHORT,
+                    id: 10,
+                    name: 'Saved cohort',
+                    is_static: true,
+                    csv: new File(['person@example.com'], 'people.csv', { type: 'text/csv' }),
+                })
+                logic.actions.setCsvUploadModalOpen(true)
+            })
+
+            const closeButton = document.querySelector('.LemonModal__close button') as HTMLElement
+            await userEvent.click(closeButton)
+            expect(logic.values.cohort.csv).toBeUndefined()
+            expect(logic.values.csvUploadModalOpen).toBe(false)
+
+            act(() => {
+                logic.actions.setCohortValue('csv', new File(['a@b.com'], 'people.csv', { type: 'text/csv' }))
+                logic.actions.setCsvUploadModalOpen(true)
+            })
+            const cancelButton = document.querySelector('[data-attr="cohort-upload-csv-modal-cancel"]') as HTMLElement
+            await userEvent.click(cancelButton)
+            expect(logic.values.cohort.csv).toBeUndefined()
+            expect(logic.values.csvUploadModalOpen).toBe(false)
+        })
+
+        it('shows the size limit and disables Upload for an oversized CSV', async () => {
+            logic = cohortEditLogic({ id: 10 })
+            render(<CohortCsvUploadModal id={10} />)
+
+            // Let the mount-time fetch land first, or its response would replace the state set below.
+            await waitFor(() => expect(logic.values.cohort.id).toEqual(mockCohort.id))
+
+            const csv = new File(['person@example.com'], 'people.csv', { type: 'text/csv' })
+            Object.defineProperty(csv, 'size', { value: logic.values.csvMaxBytes + 1 })
+
+            act(() => {
+                logic.actions.setCohort({
+                    ...NEW_COHORT,
+                    id: 10,
+                    name: 'Saved cohort',
+                    is_static: true,
+                    csv,
+                })
+                logic.actions.setCsvUploadModalOpen(true)
+            })
+
+            expect(await screen.findByText(/larger than the limit/i)).toBeVisible()
+            const uploadButton = document.querySelector(
+                '[data-attr="cohort-upload-csv-modal-save"]'
+            ) as HTMLButtonElement
+            expect(uploadButton).toHaveAttribute('aria-disabled', 'true')
+        })
+    })
+
     describe('scroll to error functionality', () => {
         let scrollIntoViewSpy: jest.SpyInstance
         let querySelectorSpy: jest.SpyInstance
@@ -133,7 +219,7 @@ describe('cohortEditLogic', () => {
                 logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
 
-            await new Promise((resolve) => setTimeout(resolve, 10))
+            await new Promise((resolve) => requestAnimationFrame(resolve))
 
             expect(querySelectorSpy).toHaveBeenCalledWith('.Field--error')
             expect(scrollIntoViewSpy).toHaveBeenCalledWith({
@@ -635,6 +721,85 @@ describe('cohortEditLogic', () => {
         })
     })
 
+    describe('persons list footer', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        it.each([
+            { count: 2455, expectedFooter: 'Showing 2 of 2,455 entries' },
+            { count: 2, expectedFooter: 'Showing all 2 entries' },
+            { count: 1, expectedFooter: 'Showing all 2 entries' },
+        ])('shows "$expectedFooter" when the cohort count is $count', async ({ count, expectedFooter }) => {
+            const cohortId = 7
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        ...mockCohort,
+                        id: cohortId,
+                        is_static: false,
+                        is_calculating: false,
+                        count,
+                        version: 1,
+                        pending_version: 1,
+                        last_calculation: '2024-01-01T00:00:00Z',
+                    },
+                },
+                post: {
+                    '/api/environments/:team_id/query/:query_kind/': {
+                        columns: ['id'],
+                        types: ['UUID'],
+                        results: [['person-a'], ['person-b']],
+                        hasMore: false,
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            expect(await screen.findByText(expectedFooter)).toBeInTheDocument()
+        })
+    })
+
+    describe('add users controls on an existing people cohort', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        it.each([
+            { count: 0, showsInlineUpload: true },
+            { count: 3, showsInlineUpload: false },
+        ])('with $count people shows inline upload: $showsInlineUpload', async ({ count, showsInlineUpload }) => {
+            const cohortId = 20 + count
+            const cohortName = `People cohort ${count}`
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        ...mockCohort,
+                        id: cohortId,
+                        name: cohortName,
+                        is_static: true,
+                        filters: { properties: { type: 'OR', values: [] } },
+                        count,
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            await screen.findAllByText(cohortName)
+            const dropzone = screen.queryByText('Drag a file here or click to browse for a file')
+            const addUsersMenu = document.querySelector('[data-attr="cohort-add-users-menu"]')
+            if (showsInlineUpload) {
+                expect(dropzone).toBeInTheDocument()
+                expect(addUsersMenu).not.toBeInTheDocument()
+            } else {
+                expect(dropzone).not.toBeInTheDocument()
+                expect(addUsersMenu).toBeInTheDocument()
+            }
+        })
+    })
+
     describe('used-in summary', () => {
         afterEach(() => {
             cleanup()
@@ -806,12 +971,233 @@ describe('cohortEditLogic', () => {
         )
     })
 
-    describe('locked type and populate-from controls on existing cohorts', () => {
+    describe('prefilling a recent person filter', () => {
+        const recordPersonRecent = (
+            recentFilters: ReturnType<typeof recentTaxonomicFiltersLogic.build>,
+            key: string,
+            operator: PropertyOperator,
+            value: PropertyFilterValue
+        ): void => {
+            recentFilters.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.PersonProperties,
+                groupName: 'Person properties',
+                value: key,
+                item: { name: key },
+                propertyFilter: { type: PropertyFilterType.Person, key, operator, value },
+            })
+        }
+
+        const suggestedRows = (): HTMLElement[] =>
+            Array.from(document.querySelectorAll<HTMLElement>('[data-attr^="prop-filter-suggested_filters-"]'))
+        const suggestedText = (): string =>
+            suggestedRows()
+                .map((row) => row.textContent ?? '')
+                .join('||')
+
         afterEach(() => {
             cleanup()
         })
 
-        it('renders locked controls as a read-only value with an info tooltip, not a dead-click dropdown', async () => {
+        it.each([
+            ['$browser', PropertyOperator.IContains, 'Chrome', 'Chrome', 'Chrome', 'contains'],
+            ['$email', PropertyOperator.IsSet, PropertyOperator.IsSet, 'is set', undefined, 'is set'],
+        ])(
+            'hides unsupported recents and prefills %s',
+            async (key, operator, recordedValue, rowText, expectedValue, expectedOperatorLabel) => {
+                const definitions = propertyDefinitionsModel.build()
+                definitions.mount()
+                definitions.actions.updatePropertyDefinitions({
+                    'person/$browser': { id: '$browser', name: '$browser', property_type: PropertyType.String },
+                    'person/$email': { id: '$email', name: '$email', property_type: PropertyType.String },
+                    'person/$os': { id: '$os', name: '$os', property_type: PropertyType.String },
+                    'person/birth_date': PropertyDefinitionState.Loading,
+                })
+                const recentFilters = recentTaxonomicFiltersLogic.build()
+                recentFilters.mount()
+                recentFilters.actions.clearRecentFilters()
+                recordPersonRecent(recentFilters, 'birth_date', PropertyOperator.IsDateBefore, '2000-01-01')
+                recordPersonRecent(recentFilters, key, operator, recordedValue)
+                recordPersonRecent(recentFilters, '$os', PropertyOperator.NotIn, ['Mac'])
+                logic = cohortEditLogic({ id: 'new' })
+                logic.mount()
+                logic.actions.setCohort({
+                    ...NEW_COHORT,
+                    filters: {
+                        properties: {
+                            ...NEW_COHORT.filters.properties,
+                            values: [
+                                {
+                                    ...NEW_CRITERIA_GROUP,
+                                    values: [
+                                        {
+                                            type: BehavioralFilterKey.Person,
+                                            value: BehavioralEventType.HaveProperty,
+                                            event_type: TaxonomicFilterGroupType.PersonProperties,
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                })
+
+                render(<CohortEdit id="new" />)
+                await userEvent.click(await screen.findByText('Choose person property'))
+                await waitFor(() => expect(suggestedText()).toContain(rowText))
+                expect(suggestedText()).not.toMatch(/Mac|birth_date/)
+
+                await act(async () => {
+                    definitions.actions.updatePropertyDefinitions({
+                        'person/birth_date': {
+                            id: 'birth_date',
+                            name: 'birth_date',
+                            property_type: PropertyType.DateTime,
+                        },
+                    })
+                })
+                await waitFor(() => expect(suggestedText()).toContain('birth_date'))
+
+                await userEvent.click(suggestedRows().find((row) => row.textContent?.includes(rowText))!)
+
+                await waitFor(() => {
+                    const group = logic.values.cohort.filters.properties.values[0] as {
+                        values: AnyCohortCriteriaType[]
+                    }
+                    expect(group.values[0]).toEqual(
+                        expect.objectContaining({ key, operator, value_property: expectedValue })
+                    )
+                    expect(document.querySelector('[data-attr="cohort-selector-field-operator"]')).toHaveTextContent(
+                        expectedOperatorLabel
+                    )
+                })
+                recentFilters.unmount()
+                definitions.unmount()
+            }
+        )
+
+        it.each([
+            {
+                key: '$browser',
+                propertyType: PropertyType.String,
+                operator: PropertyOperator.StartsWith,
+                value: 'Chr',
+                label: 'starts with',
+            },
+            {
+                key: '$browser',
+                propertyType: PropertyType.String,
+                operator: PropertyOperator.NotStartsWith,
+                value: 'Chr',
+                label: 'does not start with',
+            },
+            {
+                key: '$browser',
+                propertyType: PropertyType.String,
+                operator: PropertyOperator.EndsWith,
+                value: 'ome',
+                label: 'ends with',
+            },
+            {
+                key: '$browser',
+                propertyType: PropertyType.String,
+                operator: PropertyOperator.NotEndsWith,
+                value: 'ome',
+                label: 'does not end with',
+            },
+            {
+                key: '$app_version',
+                propertyType: PropertyType.String,
+                operator: PropertyOperator.SemverGte,
+                value: '1.2.3',
+                label: 'greater than or equal (semver)',
+            },
+            {
+                key: 'birth_date',
+                propertyType: PropertyType.DateTime,
+                operator: PropertyOperator.IsSet,
+                value: null,
+                label: 'is set',
+            },
+            {
+                key: 'birth_date',
+                propertyType: PropertyType.DateTime,
+                operator: PropertyOperator.IsNotSet,
+                value: null,
+                label: 'is not set',
+            },
+        ])(
+            'prefills a recent person filter with $operator during cohort creation',
+            async ({ key, propertyType, operator, value, label }) => {
+                const definitions = propertyDefinitionsModel.build()
+                definitions.mount()
+                definitions.actions.updatePropertyDefinitions({
+                    [`person/${key}`]: {
+                        id: key,
+                        name: key,
+                        property_type: propertyType,
+                    },
+                })
+                const recentFilters = recentTaxonomicFiltersLogic.build()
+                recentFilters.mount()
+                recentFilters.actions.clearRecentFilters()
+                recordPersonRecent(recentFilters, key, operator, value)
+                logic = cohortEditLogic({ id: 'new' })
+                logic.mount()
+                logic.actions.setCohort({
+                    ...NEW_COHORT,
+                    filters: {
+                        properties: {
+                            ...NEW_COHORT.filters.properties,
+                            values: [
+                                {
+                                    ...NEW_CRITERIA_GROUP,
+                                    values: [
+                                        {
+                                            type: BehavioralFilterKey.Person,
+                                            value: BehavioralEventType.HaveProperty,
+                                            event_type: TaxonomicFilterGroupType.PersonProperties,
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                })
+
+                render(<CohortEdit id="new" />)
+                await userEvent.click(await screen.findByText('Choose person property'))
+                await userEvent.click(await screen.findByTestId('prop-filter-suggested_filters-1'))
+
+                await waitFor(() => {
+                    const group = logic.values.cohort.filters.properties.values[0] as {
+                        values: AnyCohortCriteriaType[]
+                    }
+                    expect(group.values[0]).toEqual(
+                        expect.objectContaining({
+                            key,
+                            operator,
+                            value_property: value ?? undefined,
+                        })
+                    )
+                    expect(document.querySelector('[data-attr="cohort-selector-field-operator"]')).toHaveTextContent(
+                        label
+                    )
+                    if (value) {
+                        expect(screen.getByText(value)).toBeInTheDocument()
+                    }
+                })
+                recentFilters.unmount()
+                definitions.unmount()
+            }
+        )
+    })
+
+    describe('type tag on existing cohorts', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        it('shows the type as a tag next to the title instead of body rows', async () => {
             const cohortId = 10
 
             useMocks({
@@ -833,19 +1219,13 @@ describe('cohortEditLogic', () => {
 
             render(<CohortEdit id={cohortId} />)
 
-            // The current value is always visible in plain text; the "why can't I change this"
-            // explanation lives in an info tooltip instead of being repeated inline.
-            const typeContainer = (await screen.findByText('Static')).closest('[data-attr="cohort-type"]')
-            const populateFromContainer = screen
-                .getByText('Criteria · One-time snapshot')
-                .closest('[data-attr="static-cohort-mode"]')
-            expect(typeContainer).toBeInTheDocument()
-            expect(populateFromContainer).toBeInTheDocument()
+            // The type is a tag in the title row; the populate-from detail lives in its tooltip.
+            const typeTag = (await screen.findByText('Static')).closest('[data-attr="cohort-type-tag"]')
+            expect(typeTag).toBeInTheDocument()
 
-            // The locked controls are read-only text, not interactive select buttons (the dead click):
-            // a LemonSelect would render the data-attr onto a <button>
-            expect(typeContainer?.tagName).not.toBe('BUTTON')
-            expect(populateFromContainer?.tagName).not.toBe('BUTTON')
+            // The old read-only body rows are gone, so the persons table is not pushed down.
+            expect(document.querySelector('[data-attr="cohort-type"]')).not.toBeInTheDocument()
+            expect(document.querySelector('[data-attr="static-cohort-mode"]')).not.toBeInTheDocument()
         })
     })
 

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from uuid import uuid4
 
@@ -11,10 +12,11 @@ from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionKind,
     WarehouseSuggestionStatus,
 )
-from products.warehouse_suggestions.backend.logic.job import TeamRunStatus, run_team
+from products.warehouse_suggestions.backend.logic.job import TeamRunStatus, build_context, run_team
 from products.warehouse_suggestions.backend.logic.reads import RollupDays
 from products.warehouse_suggestions.backend.logic.rules import RULES
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
+from products.warehouse_suggestions.backend.tests.factories import team_reads
 from products.warehouse_suggestions.backend.tests.rollup import RollupRead, seed_reads
 from products.warehouse_suggestions.backend.tests.test_suggestions import ingest_one, make_draft
 
@@ -60,7 +62,7 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
             Edge.objects.create(team=self.team, dag=dag, source=table, target=busy_node)
         unread, _ = self._view("old_rollup", dag, materialized=True)
         feeds_another, source_node = self._view("feeds_another", dag, materialized=True)
-        _, dependent_node = self._view("reads_feeds_another", dag)
+        reads_feeds_another, dependent_node = self._view("reads_feeds_another", dag)
         created_today, _ = self._view("new_rollup", dag, materialized=True, created_at=NOW)
         Edge.objects.create(team=self.team, dag=dag, source=source_node, target=dependent_node)
         seed_reads(
@@ -90,6 +92,7 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
                 (WarehouseSuggestionKind.CERTIFY, busy.id, WarehouseSuggestionStatus.PROPOSED),
                 (WarehouseSuggestionKind.MATERIALIZE, busy.id, WarehouseSuggestionStatus.PROPOSED),
                 (WarehouseSuggestionKind.DEPRECATE, unread.id, WarehouseSuggestionStatus.PROPOSED),
+                (WarehouseSuggestionKind.DEPRECATE, reads_feeds_another.id, WarehouseSuggestionStatus.PROPOSED),
             ]
         )
         assert not (
@@ -149,3 +152,23 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
             about_a_deleted_view.status,
             about_a_deleted_view.asset_outcome,
         ) == (TeamRunStatus.NOT_ELIGIBLE, False, True, expected_status, expected_asset_outcome)
+
+
+class TestFlipCooldown(BaseTest):
+    def test_only_accepts_inside_the_cooldown_hold_off_the_opposite_kind(self) -> None:
+        recent, old = uuid4(), uuid4()
+        for subject_id, days_ago in [(recent, 10), (old, 40)]:
+            row = ingest_one(
+                self.team.pk,
+                replace(
+                    make_draft(fingerprint=f"materialize:{subject_id}", subject_id=subject_id),
+                    kind=WarehouseSuggestionKind.MATERIALIZE,
+                ),
+            )
+            WarehouseSuggestion.objects.for_team(self.team.pk).filter(id=row.id).update(
+                status=WarehouseSuggestionStatus.ACCEPTED, reviewed_at=NOW - timedelta(days=days_ago)
+            )
+
+        candidate_context = build_context(self.team, team_reads({}), run_id="run-1", rules=RULES, now=NOW)
+
+        assert candidate_context.recent_accepts == {WarehouseSuggestionKind.MATERIALIZE: frozenset({recent})}

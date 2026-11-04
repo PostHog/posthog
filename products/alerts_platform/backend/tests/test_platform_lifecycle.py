@@ -19,6 +19,8 @@ from products.alerts_platform.backend.facade.api import (
     get_configuration,
     give_back_ownership,
     record_outcomes,
+    reset_broken,
+    runtime_by_public_id,
     slot_of,
     take_ownership,
     upsert_configuration,
@@ -56,7 +58,16 @@ from products.alerts_platform.backend.logic.platform_lifecycle import CONFIGURAT
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
 
-_GROUP_FIELDS = ("kind", "new_state", "notified", "firing_episode", "value", "labels", "muted_notification")
+_GROUP_FIELDS = (
+    "kind",
+    "new_state",
+    "notified",
+    "firing_episode",
+    "value",
+    "labels",
+    "muted_notification",
+    "source_detail",
+)
 
 
 class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
@@ -80,6 +91,36 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                 next_check_at=self.cutoff - timedelta(minutes=1),
             )
         self.slot = (self.cutoff - timedelta(minutes=1)).isoformat()
+
+    def test_an_alert_is_read_by_its_public_id_whether_or_not_it_has_a_source_row(self) -> None:
+        legacy_id = uuid4()
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                legacy_configuration_id=legacy_id,
+                owner=PlatformAlertOwner.PLATFORM,
+                check_status=PlatformAlertConfiguration.CheckStatus.BROKEN,
+                consecutive_failures=3,
+            )
+            native = PlatformAlertConfiguration.objects.create(
+                team=self.team,
+                name="Web errors",
+                source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+                source_config={},
+                check_interval_minutes=10,
+                owner=PlatformAlertOwner.PLATFORM,
+                check_status=PlatformAlertConfiguration.CheckStatus.BROKEN,
+                consecutive_failures=5,
+            )
+
+        # The copy's own id is not a public id, so it finds nothing.
+        runtime = runtime_by_public_id(team_id=self.team.id, public_ids=[legacy_id, native.id, self.configuration.id])
+        cleared = [
+            reset_broken(team_id=self.team.id, public_id=public_id, at=self.cutoff)
+            for public_id in (legacy_id, native.id)
+        ]
+
+        assert {public_id: r.consecutive_failures for public_id, r in runtime.items()} == {legacy_id: 3, native.id: 5}
+        assert cleared == [3, 5]
 
     def _record(
         self, *, at: datetime | None = None, groups: tuple[GroupOutcome, ...] | None = None, **overrides
@@ -143,22 +184,34 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_live_firing_stays_with_its_source", "ok", False, ("source", "firing", True)),
+            ("a_delivered_firing_stays_with_its_source", "ok", True, 60, False, ("source", "firing", True)),
+            # A copy checking beside its source fires without sending, so nothing it opened is orphaned.
+            ("an_undelivered_firing_is_taken_over", "ok", False, 60, True, ("platform", "not_firing", False)),
+            ("a_firing_whose_delivery_may_be_queued_stays", "ok", False, 1, False, ("source", "firing", True)),
             # The machine ended the firing when the check broke, so the row's firing is stale.
-            ("a_broken_copy_is_taken_over", "broken", True, ("platform", "not_firing", False)),
-            ("an_errored_copy_is_taken_over", "errored", True, ("platform", "not_firing", False)),
+            ("a_broken_copy_is_taken_over", "broken", True, 60, True, ("platform", "not_firing", False)),
+            ("an_errored_copy_is_taken_over", "errored", True, 60, True, ("platform", "not_firing", False)),
         ]
     )
-    def test_a_copy_inside_its_own_firing_is_taken_over_only_once_that_firing_ended(
-        self, _name: str, check_status: str, expected_taken: bool, expected: tuple[str, str, bool]
+    def test_a_copy_inside_its_own_firing_is_taken_over_unless_that_firing_was_delivered_and_runs(
+        self,
+        _name: str,
+        check_status: str,
+        delivered: bool,
+        started_minutes_ago: int,
+        expected_taken: bool,
+        expected: tuple[str, str, bool],
     ) -> None:
         legacy_id = uuid4()
         with team_scope(self.team.id):
             PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
                 legacy_configuration_id=legacy_id, check_status=check_status
             )
-            PlatformAlert.objects.create(
-                team=self.team, configuration=self.configuration, state="firing", firing_started_at=self.cutoff
+            platform_testing.start_firing(
+                self.configuration.id,
+                team_id=self.team.id,
+                at=self.cutoff - timedelta(minutes=started_minutes_ago),
+                sent_natively=delivered,
             )
 
         taken = take_ownership(
@@ -177,6 +230,34 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         self.configuration.refresh_from_db()
         assert taken is expected_taken
         assert (self.configuration.owner, alert.state, alert.firing_started_at is not None) == expected
+
+    def test_a_firing_is_taken_over_with_its_start_unknown(self) -> None:
+        legacy_id = uuid4()
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                legacy_configuration_id=legacy_id
+            )
+
+        taken = take_ownership(
+            PlatformOwnershipHandover(
+                legacy_configuration_id=legacy_id,
+                team_id=self.team.id,
+                state=PlatformAlertState.FIRING,
+                last_notified_at=self.cutoff,
+                consecutive_failures=0,
+                next_check_at=self.cutoff + timedelta(minutes=2),
+                at=self.cutoff,
+            )
+        )
+
+        alert = self._alert()
+        self.configuration.refresh_from_db()
+        assert (taken, self.configuration.owner, alert.state, alert.firing_started_at) == (
+            True,
+            "platform",
+            "firing",
+            None,
+        )
 
     def test_a_grouped_copy_taken_over_leaves_its_one_slot_to_the_first_group(self) -> None:
         legacy_id = uuid4()
@@ -364,12 +445,14 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             query_duration_ms=12,
             muted_notification="fire",
             firing_episode=FiringEpisode(started_at=self.cutoff, ended=False),
+            source_detail={"breaches": ["above 10"]},
         )
 
         rows = sync_execute(
             """
             SELECT kind, previous_state, state, value, alert_name, muted_notification,
-                   JSONExtractInt(condition_snapshot, 'threshold_count'), episode_started_at, source_kind
+                   JSONExtractInt(condition_snapshot, 'threshold_count'), episode_started_at, source_kind,
+                   JSONExtractArrayRaw(source_detail, 'breaches')
             FROM platform_alert_events
             WHERE team_id = %(team_id)s AND configuration_id = %(configuration_id)s
             """,
@@ -377,7 +460,9 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         )
 
         # `insert_events` never raises, so without reading a row back a broken write is invisible.
-        assert rows == [("firing", "not_firing", "firing", 47.0, "API errors", "fire", 10, self.cutoff, "logs")]
+        assert rows == [
+            ("firing", "not_firing", "firing", 47.0, "API errors", "fire", 10, self.cutoff, "logs", ['"above 10"'])
+        ]
 
     def test_each_group_of_a_check_keeps_its_own_instance_and_history_row(self) -> None:
         self._record(

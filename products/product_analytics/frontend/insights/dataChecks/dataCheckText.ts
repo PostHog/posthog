@@ -22,6 +22,8 @@ export interface DataCheckText {
 const TRAFFIC_TYPE_PROPERTY = '$virt_traffic_type'
 // The traffic types the bot check counts, as the backend's CRAWLER_TRAFFIC_TYPES lists them.
 const CRAWLER_TRAFFIC_TYPES = ['Bot', 'AI Agent']
+// The share from which the localhost check passes, as the backend's LOCAL_APP_SHARE sets it.
+const LOCAL_APP_SHARE = 0.9
 
 export function removesBotTraffic(
     rules: readonly { key?: string; type?: string; operator?: unknown; value?: unknown }[]
@@ -53,9 +55,10 @@ const SKIP_REASONS: Record<InsightDataCheckSkipReasonEnumApi, string> = {
     time_limit: 'it took longer than it is allowed',
     memory_limit: 'it needed more memory than it is allowed',
     too_few_sampled_events: 'the sample has too few events',
-    filtered_by_traffic_type: 'this insight already filters on traffic type',
+    filtered_by_traffic_type: "this insight's filters already choose which traffic types to keep",
     hidden_property: 'a property it reads is hidden from you',
     invalid_filter: "the project's internal and test users filter cannot run",
+    on_request: 'it would read a lot of data, so it runs only in a full check',
 }
 
 function eventCount(check: InsightDataCheckApi): string {
@@ -66,6 +69,11 @@ function eventCount(check: InsightDataCheckApi): string {
 // Below 1% a share rounds to 0%, so the text gives a count instead.
 function percentOf(share: number | null): string | null {
     return share !== null && share >= 0.01 ? percentage(share, 0) : null
+}
+
+function amountOf(check: InsightDataCheckApi): string {
+    const percent = percentOf(check.share)
+    return percent ? `${check.scaled ? 'About ' : ''}${percent}` : capitalizeFirstLetter(eventCount(check))
 }
 
 function shareOf(check: InsightDataCheckApi, part: number): string | null {
@@ -233,22 +241,44 @@ function skippedResult(check: InsightDataCheckApi): string {
     return reason ? `Not checked, because ${reason}` : 'Not checked'
 }
 
-export function dataCheckText(check: InsightDataCheckApi, filtersTestAccounts: boolean): DataCheckText {
+function passedResult(check: InsightDataCheckApi, filtersTestAccounts: boolean): string {
+    if (check.key === 'internal_users' && filtersTestAccounts) {
+        if (!check.missed_by_filter) {
+            return 'Filtered out'
+        }
+        const missed = missedUserCount(check)
+        return `Filtered out, except ${missed ? pluralize(missed, 'user') : 'some users'}`
+    }
+    if (check.key === 'local_development' && (check.share ?? 0) >= LOCAL_APP_SHARE) {
+        return `${amountOf(check)} of these events, so they come from your app`
+    }
+    return check.events ? `Almost none (${eventCount(check)} events)` : 'None found'
+}
+
+// The server skips the bot check whenever the insight's filters read traffic type, and cannot tell when the rule
+// comes from the project's filter.
+export function botsFilteredOut(
+    check: InsightDataCheckApi,
+    filtersTestAccounts: boolean,
+    filterRemovesBots: boolean
+): boolean {
+    return check.skip_reason === 'filtered_by_traffic_type' && filtersTestAccounts && filterRemovesBots
+}
+
+export function dataCheckText(
+    check: InsightDataCheckApi,
+    filtersTestAccounts: boolean,
+    filterRemovesBots: boolean
+): DataCheckText {
     const name = DATA_CHECK_NAMES[check.key]
+    if (botsFilteredOut(check, filtersTestAccounts, filterRemovesBots)) {
+        return { name, result: 'Filtered out' }
+    }
     if (check.level === 'skipped') {
         return { name, result: skippedResult(check) }
     }
     if (check.level === 'passed') {
-        if (check.key === 'internal_users' && filtersTestAccounts) {
-            if (!check.missed_by_filter) {
-                return { name, result: 'Filtered out' }
-            }
-            const missed = missedUserCount(check)
-            return { name, result: `Filtered out, except ${missed ? pluralize(missed, 'user') : 'some users'}` }
-        }
-        return { name, result: check.events ? `Almost none (${eventCount(check)} events)` : 'None found' }
+        return { name, result: passedResult(check, filtersTestAccounts) }
     }
-    const percent = percentOf(check.share)
-    const amount = percent ? `${check.scaled ? 'About ' : ''}${percent}` : capitalizeFirstLetter(eventCount(check))
-    return { name, result: `${amount} of these events` }
+    return { name, result: `${amountOf(check)} of these events` }
 }

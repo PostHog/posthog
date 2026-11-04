@@ -9,8 +9,9 @@ use std::time::{Duration, Instant};
 use cohort_event_shuffler::config::Config;
 use cohort_event_shuffler::consumer::EventShuffler;
 use cohort_event_shuffler::event::CohortStreamEvent;
-use cohort_event_shuffler::filter_team_index::TeamIndex;
+use cohort_event_shuffler::filter_team_index::{TeamGate, TeamIndex};
 use cohort_event_shuffler::producer::CohortStreamProducer;
+use common_cohort_team_access::TeamAccess;
 use common_kafka::kafka_consumer::SingleTopicConsumer;
 use common_types::cohort::TeamAllowlist;
 use common_types::{ClickHouseEvent, PersonMode};
@@ -22,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 const INPUT_TOPIC: &str = "clickhouse_events_json";
+const SECOND_INPUT_TOPIC: &str = "realtime_only_events_json";
 const OUTPUT_TOPIC: &str = "cohort_stream_events";
 const OUTPUT_PARTITIONS: i32 = 8;
 
@@ -140,24 +142,24 @@ async fn collect_output(
     collected
 }
 
-/// Polls the shuffler group's committed offset for input partition 0 until it reaches
+/// Polls the shuffler group's committed offset for partition 0 of the input topic until it reaches
 /// `expected` (the next-offset past everything produced), proving the async ledger commit
 /// settled forwards, drops, skips, and the poison pill. The prober never subscribes, so it
 /// fetches offsets without joining (and rebalancing) the shuffler's group.
-async fn wait_for_committed_offset(bootstrap: &str, group: &str, expected: i64) {
+async fn wait_for_committed_offset(config: &Config, expected: i64) {
     let prober: StreamConsumer = ClientConfig::new()
-        .set("bootstrap.servers", bootstrap)
-        .set("group.id", group)
+        .set("bootstrap.servers", &config.kafka_hosts)
+        .set("group.id", &config.kafka_consumer_group)
         .set("enable.auto.commit", "false")
         .create()
         .expect("failed to create committed-offset prober");
     let mut tpl = TopicPartitionList::new();
-    tpl.add_partition(INPUT_TOPIC, 0);
+    tpl.add_partition(&config.input_topic, 0);
 
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         if let Ok(committed) = prober.committed_offsets(tpl.clone(), Duration::from_secs(5)) {
-            if let Some(elem) = committed.elements_for_topic(INPUT_TOPIC).first() {
+            if let Some(elem) = committed.elements_for_topic(&config.input_topic).first() {
                 if let rdkafka::Offset::Offset(value) = elem.offset() {
                     assert!(
                         value <= expected,
@@ -182,15 +184,24 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
     let (cluster, input_producer): (_, FutureProducer<_>) =
         common_kafka::test::create_mock_kafka().await;
     cluster
-        .create_topic(INPUT_TOPIC, 1, 1)
+        .create_topic(SECOND_INPUT_TOPIC, 1, 1)
         .expect("create input topic");
     cluster
         .create_topic(OUTPUT_TOPIC, OUTPUT_PARTITIONS, 1)
         .expect("create output topic");
     let bootstrap = cluster.bootstrap_servers();
-    let config = test_config(&bootstrap);
+    // The second input topic makes the envelope's source_partition differ from the Kafka
+    // partition that the shuffler commits.
+    let config = Config {
+        input_topic: SECOND_INPUT_TOPIC.to_string(),
+        ..test_config(&bootstrap)
+    };
 
-    let team_index = Arc::new(TeamIndex::from_teams([2, 7])); // team 99 is absent (no realtime cohorts)
+    // Team 99 is absent (no realtime cohorts).
+    let team_gate = TeamGate::new(
+        Arc::new(TeamIndex::from_teams([2, 7])),
+        TeamAccess::with_granted(TeamAllowlist::All, []),
+    );
 
     let inputs = [
         InputSpec {
@@ -253,7 +264,11 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
         let payload = serde_json::to_string(&clickhouse_event(uuid, spec)).unwrap();
         let key = uuid.to_string();
         input_producer
-            .send_result(FutureRecord::to(INPUT_TOPIC).key(&key).payload(&payload))
+            .send_result(
+                FutureRecord::to(SECOND_INPUT_TOPIC)
+                    .key(&key)
+                    .payload(&payload),
+            )
             .expect("enqueue input")
             .await
             .expect("input produce canceled")
@@ -263,7 +278,7 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
         if index == GARBAGE_AFTER_INDEX {
             input_producer
                 .send_result(
-                    FutureRecord::to(INPUT_TOPIC)
+                    FutureRecord::to(SECOND_INPUT_TOPIC)
                         .key("garbage")
                         .payload("this is not json"),
                 )
@@ -296,9 +311,9 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
     let shuffler = EventShuffler::new(
         consumer,
         producer,
-        team_index,
+        team_gate,
         handle,
-        config.shuffler_settings(),
+        config.shuffler_settings().unwrap(),
     );
     tokio::spawn(async move { shuffler.process().await });
 
@@ -366,7 +381,7 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
         first.properties.as_deref(),
         Some(r#"{"$current_url":"/pricing"}"#)
     );
-    assert_eq!(first.source_partition, 0);
+    assert_eq!(first.source_partition, 1_000_000);
     assert_eq!(
         first.source_offset, 0,
         "first produced event has input offset 0"
@@ -374,7 +389,7 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
 
     // Commit progression: every input offset — settled drops/skips, acked forwards, and the
     // poison pill — ends up covered by an explicit ledger commit.
-    wait_for_committed_offset(&bootstrap, "shuffler-itest", total_input_messages).await;
+    wait_for_committed_offset(&config, total_input_messages).await;
 }
 
 /// Graceful shutdown must commit through the drain path, not the periodic tick. With
@@ -399,7 +414,10 @@ async fn shuffler_commits_via_drain_on_graceful_shutdown() {
     // can carry the committed offset to the full input count.
     config.commit_interval_ms = 3_600_000;
 
-    let team_index = Arc::new(TeamIndex::from_teams([2, 7]));
+    let team_gate = TeamGate::new(
+        Arc::new(TeamIndex::from_teams([2, 7])),
+        TeamAccess::with_granted(TeamAllowlist::All, []),
+    );
 
     // Forward, drop, skip, then forward last: seeing every forward in the output proves intake
     // consumed the whole input (including the poison pill) before we trigger shutdown.
@@ -482,9 +500,9 @@ async fn shuffler_commits_via_drain_on_graceful_shutdown() {
     let shuffler = EventShuffler::new(
         consumer,
         producer,
-        team_index,
+        team_gate,
         handle,
-        config.shuffler_settings(),
+        config.shuffler_settings().unwrap(),
     );
     let task = tokio::spawn(async move { shuffler.process().await });
 
@@ -494,10 +512,14 @@ async fn shuffler_commits_via_drain_on_graceful_shutdown() {
         expected_forwardable,
         "forwards must flow before shutdown so the ledger has observed every offset",
     );
+    assert!(
+        output.iter().all(|(_, event)| event.source_partition == 0),
+        "clickhouse_events_json has slot 0, so its envelopes must carry the real input partition",
+    );
 
     // Nothing has committed the input yet (periodic tick is an hour out); the drain must.
     shutdown.cancel();
-    wait_for_committed_offset(&bootstrap, "shuffler-itest", total_input_messages).await;
+    wait_for_committed_offset(&config, total_input_messages).await;
 
     task.await.expect("shuffler task panicked");
 }
@@ -525,7 +547,10 @@ async fn shuffler_retries_forwards_parked_on_queue_full() {
     // whole burst through the RetryForward path.
     config.kafka_producer_queue_messages = 1;
 
-    let team_index = Arc::new(TeamIndex::from_teams([2, 7]));
+    let team_gate = TeamGate::new(
+        Arc::new(TeamIndex::from_teams([2, 7])),
+        TeamAccess::with_granted(TeamAllowlist::All, []),
+    );
 
     // A drop and a skip, then a burst of forwards (all re-keyed to one partition), so both settled
     // and acked offsets are committed under queue pressure.
@@ -591,9 +616,9 @@ async fn shuffler_retries_forwards_parked_on_queue_full() {
     let shuffler = EventShuffler::new(
         consumer,
         producer,
-        team_index,
+        team_gate,
         handle,
-        config.shuffler_settings(),
+        config.shuffler_settings().unwrap(),
     );
     tokio::spawn(async move { shuffler.process().await });
 
@@ -606,5 +631,5 @@ async fn shuffler_retries_forwards_parked_on_queue_full() {
     );
 
     // Commit must still advance past the whole burst (settled drop/skip + acked forwards).
-    wait_for_committed_offset(&bootstrap, "shuffler-itest", total_input_messages).await;
+    wait_for_committed_offset(&config, total_input_messages).await;
 }

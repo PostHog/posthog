@@ -7,8 +7,11 @@ from products.warehouse_sources.backend.self_managed_migration import (
     DEFAULT_ABANDON_REASON,
     MigrationOptions,
     abandon_tables,
+    backdate_migration_sources,
+    describe_merge,
     describe_status,
     evaluate_tables,
+    merge_duplicate_sources,
     migrate_self_managed_tables,
 )
 
@@ -25,7 +28,10 @@ class Command(BaseCommand):
     help = (
         "Link self-managed warehouse tables to object storage sources. Each table gets a turned-off schema "
         "in a source for its bucket, and nothing syncs: the table keeps reading its own bucket until the user "
-        "turns syncing on, and the first sync then replaces it with the same id and name. Runs only for teams "
+        "turns syncing on, and the first sync then replaces it with the same id and name. A table made from an "
+        "uploaded file gets a file upload source of its own, and its next uploaded file is the first sync. "
+        "Each source gets the access rules that keep every member's access to its tables, or the table stays "
+        "self-managed. Runs only for teams "
         "with the object storage sources feature flag. Without --live-run the command only reports what it "
         "would do."
     )
@@ -52,14 +58,35 @@ class Command(BaseCommand):
             help="The reason recorded for each abandoned table.",
         )
         parser.add_argument(
+            "--merge-sources",
+            action="store_true",
+            help="Move the tables of extra sources for one bucket and key into the oldest source, and delete "
+            "the extra sources. A source with a table that started to sync stays as it is.",
+        )
+        parser.add_argument(
+            "--backfill-created-at",
+            action="store_true",
+            help="Set migration source and schema creation dates from their self-managed tables.",
+        )
+        parser.add_argument(
             "--live-run", action="store_true", help="Act. Without this the command only reports what it would do."
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
         if options["limit"] is not None and options["limit"] < 1:
             raise CommandError("--limit must be at least 1.")
-        if options["status"] and options["abandon"] is not None:
-            raise CommandError("Pass only one of --status and --abandon.")
+        modes = [
+            flag
+            for flag, chosen in (
+                ("--status", options["status"]),
+                ("--abandon", options["abandon"] is not None),
+                ("--merge-sources", options["merge_sources"]),
+                ("--backfill-created-at", options["backfill_created_at"]),
+            )
+            if chosen
+        ]
+        if len(modes) > 1:
+            raise CommandError(f"Pass only one of {', '.join(modes)}.")
 
         team_id: int | None = options["team_id"]
         table_ids = _split_ids(options["table_ids"])
@@ -69,6 +96,10 @@ class Command(BaseCommand):
             self._report_status(team_id, table_ids)
         elif options["abandon"] is not None:
             self._abandon(_split_ids(options["abandon"]), options["abandon_reason"], team_id, live_run)
+        elif options["merge_sources"]:
+            self._merge_sources(team_id, live_run)
+        elif options["backfill_created_at"]:
+            self._backfill_created_at(team_id, live_run)
         else:
             self._migrate(team_id, table_ids, live_run, options["limit"])
 
@@ -87,6 +118,34 @@ class Command(BaseCommand):
             self.stdout.write(f"table={outcome.table_id} {outcome.action}{detail}")
         if not live_run:
             self.stdout.write(self.style.WARNING("\nDry run. Pass --live-run to abandon these tables."))
+
+    def _merge_sources(self, team_id: int | None, live_run: bool) -> None:
+        outcomes = merge_duplicate_sources(team_id=team_id, live_run=live_run)
+        for outcome in outcomes:
+            self.stdout.write(describe_merge(outcome))
+        actions = Counter(outcome.action for outcome in outcomes)
+        moved = sum(outcome.moved_schemas for outcome in outcomes)
+        self.stdout.write(
+            f"\n{len(outcomes)} duplicate source(s), {moved} schema(s): "
+            + ", ".join(f"{n} {a}" for a, n in sorted(actions.items()))
+        )
+        if not live_run:
+            self.stdout.write(self.style.WARNING("\nDry run. Pass --live-run to merge these sources."))
+
+    def _backfill_created_at(self, team_id: int | None, live_run: bool) -> None:
+        outcomes = backdate_migration_sources(team_id=team_id, live_run=live_run)
+        for outcome in outcomes:
+            if outcome.action == "unchanged":
+                continue
+            assert outcome.new_created_at is not None
+            self.stdout.write(
+                f"source={outcome.source_id} team={outcome.team_id} "
+                f"{outcome.old_created_at.isoformat()} -> {outcome.new_created_at.isoformat()} {outcome.action}"
+            )
+        actions = Counter(outcome.action for outcome in outcomes)
+        self.stdout.write(f"\n{len(outcomes)} source(s): " + ", ".join(f"{n} {a}" for a, n in sorted(actions.items())))
+        if not live_run:
+            self.stdout.write(self.style.WARNING("\nDry run. Pass --live-run to backdate these sources."))
 
     def _migrate(self, team_id: int | None, table_ids: list[str], live_run: bool, limit: int | None) -> None:
         outcomes = migrate_self_managed_tables(

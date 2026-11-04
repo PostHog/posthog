@@ -351,6 +351,7 @@ class TestRESTClient:
         [
             pytest.param(lambda: _make_response({"error": "rate limited"}, status_code=429), id="429"),
             pytest.param(lambda: _make_response({"error": "internal"}, status_code=500), id="500"),
+            pytest.param(lambda: _make_response({"error": "timeout"}, status_code=408), id="408"),
             pytest.param(_make_truncated_response, id="truncated_json"),
         ],
     )
@@ -359,7 +360,7 @@ class TestRESTClient:
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
     )
     def test_send_request_retries_transient_error_then_succeeds(self, MockSession, mock_sleep, make_error) -> None:
-        # A 429, a 5xx, and a truncated body are all transient: retry, then succeed.
+        # A 429, a 5xx, a 408, and a truncated body are all transient: retry, then succeed.
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()
@@ -854,6 +855,25 @@ class TestRESTClient:
         response.headers["x-rate-limit-reset"] = str(int(now.timestamp()) + 120)
 
         assert _parse_retry_after(response) == 120
+
+    @parameterized.expand(
+        [
+            ("epoch_milliseconds", 1_772_798_430_000, 30.0),
+            ("epoch_seconds", 1_772_798_430, 30.0),
+            ("elapsed_epoch_milliseconds", 1_772_798_390_000, None),
+            ("plain_delay", 45, 45.0),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
+    def test_parse_retry_after_reads_a_reset_instant_in_retry_after(
+        self, _name: str, header_value: int, expected: float | None, mock_datetime
+    ) -> None:
+        mock_datetime.now.return_value = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
+
+        response = _make_response({"error": "rate limited"}, status_code=429)
+        response.headers["Retry-After"] = str(header_value)
+
+        assert _parse_retry_after(response) == expected
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
     def test_parse_retry_after_ignores_already_elapsed_sentry_reset(self, mock_datetime) -> None:

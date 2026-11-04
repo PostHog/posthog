@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common::{
-    create_local_kafka_producer, seed_person, served_captures, target, test_cached_person,
-    test_kafka_config, test_recovery, unique_team_id, KAFKA_BOOTSTRAP,
+    seed_person, served_captures, target, test_cached_person, test_kafka_config, test_recovery,
+    unique_team_id, KAFKA_BOOTSTRAP,
 };
 use dashmap::DashMap;
 use personhog_common::partitioning::partition_for_person;
@@ -80,7 +80,6 @@ async fn start_harness() -> Harness {
     cache.create_partition(partition);
     seed_person(&cache, partition, seed);
     let locks = Arc::new(DashMap::new());
-    let producer = create_local_kafka_producer().await;
     let service = Arc::new(PersonHogLeaderService::new(
         Arc::clone(&cache),
         None,
@@ -90,7 +89,7 @@ async fn start_harness() -> Harness {
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         Arc::clone(&fenced),
         common::live_authority(),

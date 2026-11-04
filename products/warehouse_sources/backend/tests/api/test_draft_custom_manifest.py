@@ -4,7 +4,7 @@ from unittest.mock import patch
 from django.core.cache import cache
 
 import httpx
-from openai import APIConnectionError
+from anthropic import APIConnectionError
 from parameterized import parameterized
 from rest_framework import status
 

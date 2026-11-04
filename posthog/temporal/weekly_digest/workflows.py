@@ -82,7 +82,7 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
             input.common.django_redis_url = settings.REDIS_URL
 
         year, week, _ = datetime.now().isocalendar()
-        period_end = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        period_end = input.period_end_override or datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         period_start = period_end - timedelta(days=7)
 
         digest = Digest(
@@ -114,6 +114,8 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
                 allow_already_sent=input.allow_already_sent,
                 digest=digest,
                 common=input.common,
+                organization_ids=input.organization_ids,
+                workflows_only=input.workflows_only,
             ),
             parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
             execution_timeout=timedelta(hours=15),
@@ -236,7 +238,7 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
     async def run(self, input: SendWeeklyDigestInput) -> None:
         organization_id_ranges = await workflow.execute_activity(
             list_organization_id_ranges,
-            input.common,
+            args=[input.common, input.organization_ids],
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
@@ -255,8 +257,11 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
                         allow_already_sent=input.allow_already_sent,
                         digest=input.digest,
                         common=input.common,
+                        organization_ids=input.organization_ids,
+                        workflows_only=input.workflows_only,
                     ),
-                    start_to_close_timeout=timedelta(minutes=30),
+                    # Batches share the pace of the captures for Workflows, so a batch can wait well past 30 minutes.
+                    start_to_close_timeout=timedelta(hours=2),
                     retry_policy=common.RetryPolicy(
                         maximum_attempts=2,
                         initial_interval=timedelta(minutes=1),

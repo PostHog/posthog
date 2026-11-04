@@ -41,7 +41,8 @@ tools:
             external_survey. Keep surveys short unless the user asks for a longer flow. Survey content is public: anyone
             can read the name, questions, and appearance text. In-app surveys send them to every visitor's browser, and
             a hosted survey shows them on its public page. Tell the user before putting a customer name or other private
-            detail in a survey.
+            detail in a survey. For substantial visual changes, preview the final draft once before launch if browser
+            access is already available. Skip browser checks for small edits.
         include_params:
             - name
             - description
@@ -215,7 +216,8 @@ tools:
             not send null to clear a field unless the user explicitly asked to remove it. Survey content is public:
             anyone can read the name, questions, and appearance text. In-app surveys send them to every visitor's
             browser, and a hosted survey shows them on its public page. Tell the user before putting a customer name or
-            other private detail in a survey.
+            other private detail in a survey. For substantial visual changes, preview the final survey once if browser
+            access is already available. Skip browser checks for small edits.
         include_params:
             - id
             - name

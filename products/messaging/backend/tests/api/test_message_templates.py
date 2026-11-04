@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
@@ -130,7 +131,20 @@ class TestMessageTemplatesAPI(APIBaseTest):
         # A row save here would write back every column this request read, losing a concurrent content edit.
         assert MessageTemplate.objects.get(pk=self.message_template.id).updated_at == before
 
-    def test_retrieve_message_template(self):
+    @parameterized.expand(
+        [
+            ("no_sender", None),
+            ("blank_sender", ""),
+            ("destination_sender", "Hedgebox <hello@example.com>"),
+            ("sender_without_an_id", {"name": "Hedgebox"}),
+        ]
+    )
+    def test_retrieve_message_template(self, _name: str, stored_sender: Any) -> None:
+        if stored_sender is not None:
+            email = {**self.message_template.content["email"], "from": stored_sender}
+            MessageTemplate.objects.filter(id=self.message_template.id).update(content={"email": email})
+        listed = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/")
+        assert listed.status_code == status.HTTP_200_OK
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/")
         assert response.status_code == status.HTTP_200_OK
 
@@ -184,13 +198,21 @@ class TestMessageTemplatesAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
+    @parameterized.expand(
+        [
+            # The editor's blank template carries an empty sender.
+            ("blank_template", ""),
+            # A destination's "Save as new template" carries its sender string.
+            ("destination_sender", "Hedgebox <hello@example.com>"),
+        ]
+    )
     @patch("products.messaging.backend.presentation.views.message_templates.report_user_action")
-    def test_create_email_template_with_subject_succeeds(self, mock_report):
+    def test_create_email_template_with_subject_succeeds(self, _name: str, sender: str, mock_report: Any) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/messaging_templates/",
             data={
                 "name": "Valid Template",
-                "content": {"email": {"subject": "Hello", "html": "<p>Hello</p>"}},
+                "content": {"email": {"subject": "Hello", "html": "<p>Hello</p>", "from": sender}},
                 "type": "email",
                 "sensitive": True,
             },
@@ -201,6 +223,7 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert response.json()["sensitive"] is True
         assert MessageTemplate.objects.get(id=response.json()["id"]).sensitive is True
         assert response.json()["content"]["email"]["subject"] == "Hello"
+        assert "from" not in response.json()["content"]["email"]
         # The AI-first experiment counts creations from the editor and the agent with this one event.
         mock_report.assert_called_once()
         assert mock_report.call_args.args[1] == "message_template_created"

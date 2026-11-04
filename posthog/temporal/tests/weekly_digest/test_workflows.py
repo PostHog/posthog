@@ -567,7 +567,9 @@ async def test_send_weekly_digest_workflow():
     sent_ranges: list[OrganizationIdRange] = []
 
     @activity.defn(name="list-organization-id-ranges")
-    async def list_organization_id_ranges_mocked(input: CommonInput) -> list[OrganizationIdRange]:
+    async def list_organization_id_ranges_mocked(
+        input: CommonInput, organization_ids: list[str] | None = None
+    ) -> list[OrganizationIdRange]:
         activity_calls["organization_id_ranges"] += 1
         assert input.batch_size == TEST_BATCH_SIZE
         return organization_ranges

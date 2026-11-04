@@ -212,7 +212,11 @@ describe('replayObservationLogic', () => {
     // A `from` origin sends back to where the reader was, not to the scanner that owns the row. `return_to`
     // must stay on this site: anything else falls back to the origin's own page.
     test.each([
-        { label: 'the watch feed', params: { from: 'watch', t: 12 }, expected: '/replay-vision?tab=watch' },
+        {
+            label: 'the highlight feed',
+            params: { from: 'highlights', t: 12 },
+            expected: '/replay-vision?tab=highlights',
+        },
         { label: 'the recording', params: { from: 'recording' }, expected: '/replay/sess-1' },
         {
             label: 'the playlist it was opened from',
@@ -377,6 +381,18 @@ describe('replayObservationLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadObservationFailure'])
             expect(logic.values.observation).toBeNull()
             expect(lemonToast.error).toHaveBeenCalledTimes(1)
+        } finally {
+            logic.unmount()
+        }
+    })
+
+    it('leaves the scene alone when a response arrives for an observation the user has left', async () => {
+        router.actions.push(urls.replayVisionObservation('obs-2'))
+        const logic = replayObservationLogic({ id: 'obs-1' })
+        logic.mount()
+        try {
+            await expectLogic(logic).toDispatchActions(['loadObservationSuccess'])
+            expect(sceneLogic.values.observationStatus).toBeNull()
         } finally {
             logic.unmount()
         }

@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import type { BaselineEntryApi, BaselineQuarantineSummaryApi } from '../generated/api.schemas'
 import { parseArea, parseTheme } from '../lib/parseIdentifier'
 import { splitRepoFullName } from '../lib/repoPaths'
+import { sourceRunPrNumber } from '../lib/runPredicates'
 
 // Drift is shown as a percentage with one decimal — anything less is sub-pixel
 // noise and not actionable; anything more on a thumbnail-sized card is illegible.
@@ -56,7 +57,8 @@ function buildQuarantineTooltip(quarantine: BaselineQuarantineSummaryApi): JSX.E
         lines.push(`By ${name} · ${dayjs(quarantine.created_at).fromNow()}`)
     }
     if (quarantine.source_run) {
-        const prSuffix = quarantine.source_run.pr_number ? ` · PR #${quarantine.source_run.pr_number}` : ''
+        const prNumber = sourceRunPrNumber(quarantine.source_run)
+        const prSuffix = prNumber ? ` · PR #${prNumber}` : ''
         lines.push(`From ${quarantine.source_run.commit_sha.slice(0, 8)} on ${quarantine.source_run.branch}${prSuffix}`)
     }
     return (
@@ -111,6 +113,7 @@ export function SnapshotCard({
     const hasMeta = driftVisible || tolerateCount > 0 || variantCount > 0 || entry.baseline_change_count > 0
 
     const quarantine = entry.quarantine ?? null
+    const quarantinePrNumber = quarantine?.source_run ? sourceRunPrNumber(quarantine.source_run) : null
     // Yellow ring (not a 1px border) so the card pulls the eye in a grid
     // of hundreds — quarantine means "system stopped trusting this".
     const cardClassName = entry.is_quarantined
@@ -251,8 +254,8 @@ export function SnapshotCard({
                         </span>
                         {quarantine.source_run && (
                             <span className="font-mono shrink-0" title={`From run ${quarantine.source_run.commit_sha}`}>
-                                {quarantine.source_run.pr_number
-                                    ? `PR #${quarantine.source_run.pr_number}`
+                                {quarantinePrNumber
+                                    ? `PR #${quarantinePrNumber}`
                                     : quarantine.source_run.commit_sha.slice(0, 7)}
                             </span>
                         )}

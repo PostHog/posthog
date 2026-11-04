@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from posthog.schema import HogQLQuery, HogQLQueryResponse
+    from posthog.schema import DatabaseSchemaQuery, DatabaseSchemaQueryResponse, HogQLQuery, HogQLQueryResponse
 
     from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
     from posthog.hogql.timings import HogQLTimings
@@ -38,6 +38,7 @@ def execute_managed_trino_query(
     settings: HogQLGlobalSettings,
     timings: HogQLTimings,
     limit_context: LimitContext | None,
+    canary: bool = False,
 ) -> HogQLQueryResponse:
     from products.managed_warehouse.backend.query_execution import (
         execute_managed_trino_query as execute,  # noqa: PLC0415 -- query compilation is optional during Django startup
@@ -51,4 +52,25 @@ def execute_managed_trino_query(
         settings=settings,
         timings=timings,
         limit_context=limit_context,
+        canary=canary,
     )
+
+
+def use_trino_canary(
+    distinct_id: str | None, organization_id: str, *, limit_context: LimitContext | None = None
+) -> bool:
+    from products.managed_warehouse.backend.trino_connection import (
+        use_trino_canary as decide,  # noqa: PLC0415 -- keeps the optional Trino connection path off Django startup
+    )
+
+    return decide(distinct_id, organization_id, limit_context=limit_context)
+
+
+def get_managed_trino_schema(
+    query: DatabaseSchemaQuery, *, team: Team, user: User | None
+) -> DatabaseSchemaQueryResponse:
+    from products.managed_warehouse.backend.query_schema import (
+        get_managed_trino_schema as get_schema,  # noqa: PLC0415 -- keeps optional Trino drivers off Django startup
+    )
+
+    return get_schema(query, team=team, user=user)

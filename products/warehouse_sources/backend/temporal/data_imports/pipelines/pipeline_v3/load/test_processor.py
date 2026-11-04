@@ -1,3 +1,4 @@
+import datetime as dt
 import tempfile
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
@@ -19,8 +20,11 @@ from temporalio.service import RPCError, RPCStatusCode
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
-    SCD2_VALID_TO_COLUMN,
+    HISTORY_NAMING,
+    HISTORY_PARTITION_COLUMN,
+    LEGACY_HISTORY_NAMING,
     TOAST_OMITTED_COLUMN,
+    HistoryNaming,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import PostLoadResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
@@ -40,14 +44,17 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     INCOMPLETE_RUN_ERROR,
     IncompleteRunError,
     _apply_partitioning,
+    _dedupe_before_write,
     _enrich_cdc_rows,
     _file_count_after_write,
     _get_write_type,
     _mark_job_completed,
+    _partial_data_loading_applies,
     _promote_loaded_prefixes,
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
     _rebuild_compaction_due,
+    _refuse_incomplete_run,
     _resolve_cdc_positions,
     _run_post_load_for_already_processed_batch,
     _trigger_post_import_workflow,
@@ -82,10 +89,16 @@ def _no_close_old_connections():
 @pytest.fixture(autouse=True)
 def _unfinished_earlier_batches() -> Iterator[MagicMock]:
     # The completion check reads the queue DB, which these unit tests do not have.
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.BatchQueue.get_unfinished_earlier_batches_sync",
-        return_value=_COMPLETE_RUN,
-    ) as check:
+    with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.BatchQueue.get_unfinished_earlier_batches_sync",
+            return_value=_COMPLETE_RUN,
+        ) as check,
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.BatchQueue.get_unfinished_batches_of_jobs_sync",
+            return_value=_COMPLETE_RUN,
+        ),
+    ):
         yield check
 
 
@@ -454,10 +467,12 @@ class TestMarkJobCompleted:
             # If the job was cancelled (absorbing Failed) after the final batch passed
             # should_process_batch, the Completed write is rejected and the staged
             # incremental cursor must NOT be promoted.
-            ("completed_write_lands", "Completed", True),
-            ("completed_write_absorbed_by_failed", "Failed", False),
+            ("completed_write_lands", "Completed", True, None),
+            ("completed_write_absorbed_by_failed", "Failed", False, None),
+            ("schedule_resume_fails", "Completed", True, RuntimeError("temporal down")),
         ]
     )
+    @patch(f"{_PROCESSOR}.resume_schedule_after_ad_hoc_run")
     @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.transaction")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.release_v3_pipeline_lock"
@@ -480,13 +495,16 @@ class TestMarkJobCompleted:
         _case: str,
         resulting_status: str,
         expect_promotion: bool,
+        resume_error: Exception | None,
         mock_update: MagicMock,
         mock_schema_objects: MagicMock,
         mock_finish_row_tracking: AsyncMock,
         mock_job_objects: MagicMock,
         mock_release: MagicMock,
         mock_transaction: MagicMock,
+        mock_resume: MagicMock,
     ) -> None:
+        mock_resume.side_effect = resume_error
         model = MagicMock()
         model.status = resulting_status
         mock_update.return_value = model
@@ -501,9 +519,11 @@ class TestMarkJobCompleted:
 
         if expect_promotion:
             schema.promote_staged_incremental_values.assert_called_once_with("run-abc-a1", merge_source_cursors=ANY)
+            mock_resume.assert_called_once_with("schema-1", 1, "job-1")
         else:
             schema.promote_staged_incremental_values.assert_not_called()
             mock_finish_row_tracking.assert_not_awaited()
+            mock_resume.assert_not_called()
         # The pipeline lock must be released either way, or the next sync is blocked.
         mock_release.assert_called_once_with(team_id=1, schema_id="schema-1", token="wf-run-1")
 
@@ -588,6 +608,32 @@ class TestMarkJobCompleted:
         mock_schema_objects.get.return_value.promote_staged_incremental_values.assert_not_called()
         # The consumer fails the run on this error, and its fail path releases the lock.
         mock_release.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("a_continued_job_batch_failed", ["job-stopped"], 1, True),
+            ("every_continued_job_batch_loaded", ["job-stopped"], 0, False),
+            ("no_continued_job", [], 1, False),
+        ]
+    )
+    def test_a_run_that_continues_a_stopped_job_completes_only_once_that_job_loaded(
+        self, _case: str, continued_job_ids: list[str], unfinished_count: int, refused: bool
+    ) -> None:
+        signal = self._make_signal()
+        signal.continued_job_ids = continued_job_ids
+        unfinished = UnfinishedEarlierBatches(count=unfinished_count, first_batch_index=0, states=("failed",))
+
+        with patch(f"{_PROCESSOR}.BatchQueue.get_unfinished_batches_of_jobs_sync", return_value=unfinished) as check:
+            if refused:
+                with pytest.raises(IncompleteRunError, match=INCOMPLETE_RUN_ERROR):
+                    _refuse_incomplete_run(signal)
+            else:
+                _refuse_incomplete_run(signal)
+
+        if continued_job_ids:
+            assert check.call_args.kwargs == {"team_id": 1, "schema_id": "schema-1", "job_ids": ["job-stopped"]}
+        else:
+            check.assert_not_called()
 
 
 class TestRedeliveredFinalBatchPostLoad:
@@ -685,7 +731,9 @@ class TestPostWriteHandleReads:
         helper.latest_known_version.return_value = 7 + commits_behind
         mock_writer_cls.return_value.write = AsyncMock(return_value=returned)
         mock_writer_cls.return_value.deltalite_file_count_change = deltalite_file_count_change
-        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+        job = MagicMock()
+        job.schema.table = None
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = job
 
         process_message(_message(batch_index=batch_index, is_first_ever_sync=is_first_ever_sync))
 
@@ -1079,7 +1127,10 @@ class TestProcessMessages:
     @patch(f"{_PROCESSOR}._trigger_ducklake_register_data_imports")
     @patch(f"{_PROCESSOR}._mark_job_completed")
     @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=_POST_LOAD_RESULT)
-    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(
+        f"{_PROCESSOR}.read_parquet",
+        side_effect=lambda path: pa.table({"id": [int(path.rsplit("/", 1)[1].removesuffix(".parquet"))]}),
+    )
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
     @patch(f"{_PROCESSOR}.DeltaWriter")
     @patch(f"{_PROCESSOR}.DeltaTableRef")
@@ -1219,6 +1270,86 @@ class TestCrossRunKeyResolution:
         assert commit_covers_batch(set_commit, "run-1", 3)
         assert commit_covers_batch(set_commit, "run-2", 0)
         assert not commit_covers_batch(set_commit, "run-2", 1)
+
+
+class TestSourceCopiesHeldThroughTheUpsert:
+    # Coalesced sets are sized by `_ARROW_COPIES_HELD`. If the loader keeps the set as read alive
+    # next to its deduplicated copy, a set takes twice the memory its cap allows.
+
+    _ROWS = 2_000
+
+    @staticmethod
+    def _batch(batch_no: int, ids: list[int]) -> pa.Table:
+        return pa.table({"id": ids, "payload": [f"{batch_no}:{pos:0>200}" for pos in range(len(ids))]})
+
+    @pytest.mark.parametrize(
+        "batch_ids",
+        [
+            [list(range(0, _ROWS)), list(range(_ROWS, 2 * _ROWS))],
+            [[*range(0, _ROWS), 0, 1], list(range(_ROWS, 2 * _ROWS))],
+            [list(range(0, _ROWS)), list(range(_ROWS // 2, _ROWS + _ROWS // 2))],
+        ],
+        ids=["unique_keys", "key_repeated_in_one_batch", "keys_repeated_across_the_set"],
+    )
+    def test_the_upsert_gets_one_copy_of_the_set_with_the_last_row_of_each_key(
+        self, batch_ids: list[list[int]], tmp_path: Path
+    ) -> None:
+        table_path = str(tmp_path / "table")
+        write_deltalake(table_path, self._batch(9, [0]))
+        paths = [f"s3://bucket/run-1/{3 + n}.parquet" for n in range(len(batch_ids))]
+        expected = pa.concat_tables([self._batch(n, ids) for n, ids in enumerate(batch_ids)]).to_pylist()
+        last_row_by_id = {row["id"]: row for row in expected}
+        expected_rows = sorted(last_row_by_id.values(), key=lambda row: expected.index(row))
+        one_copy_bytes = pa.concat_tables([self._batch(n, ids) for n, ids in enumerate(batch_ids)]).nbytes
+        seen: dict[str, Any] = {}
+
+        async def record_upsert_source(writer: DeltaWriter, **kwargs: Any) -> bool:
+            seen["held_bytes"] = pa.total_allocated_bytes() - baseline
+            seen["rows"] = kwargs["data"].select(["id", "payload"]).to_pylist()
+            return False
+
+        with ExitStack() as stack:
+            stack.enter_context(patch(f"{_PROCESSOR}.posthoganalytics"))
+            stack.enter_context(patch(f"{_PROCESSOR}.mark_batch_as_processed"))
+            stack.enter_context(patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False))
+            stack.enter_context(
+                patch(
+                    f"{_PROCESSOR}.read_parquet",
+                    side_effect=lambda path: self._batch(paths.index(path), batch_ids[paths.index(path)]),
+                )
+            )
+            stack.enter_context(
+                patch(f"{_PROCESSOR}.DeltaTableRef", side_effect=lambda **kwargs: make_local_table_ref(table_path))
+            )
+            stack.enter_context(patch.object(DeltaWriter, "_write_via_deltalite", record_upsert_source))
+            job_model = stack.enter_context(patch(f"{_PROCESSOR}.ExternalDataJob"))
+            job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+            baseline = pa.total_allocated_bytes()
+            process_messages(_run_messages("run-1", start=3, count=len(batch_ids), final=False))
+
+        assert seen["rows"] == expected_rows
+        assert seen["held_bytes"] < one_copy_bytes * 1.5
+        landed = DeltaTable(table_path).to_pyarrow_table().select(["id", "payload"]).sort_by("id").to_pylist()
+        assert landed == sorted(expected_rows, key=lambda row: row["id"])
+
+    @parameterized.expand(
+        [
+            ("no_partition_column", None, [1, 2]),
+            ("key_in_one_partition", ["p0", "p0", "p0"], [1, 2]),
+            # The writer keys on the partition too, so a key that moved partition lands in both.
+            ("key_moved_partition", ["p0", "p0", "p1"], [0, 1, 2]),
+        ]
+    )
+    def test_dedupe_before_write_keeps_what_the_writer_keeps(
+        self, _name: str, partitions: list[str] | None, kept_positions: list[int]
+    ) -> None:
+        columns: dict[str, list[Any]] = {"id": [1, 2, 1], "pos": [0, 1, 2]}
+        if partitions is not None:
+            columns[PARTITION_KEY] = partitions
+
+        result = _dedupe_before_write(pa.table(columns), ["id"])
+
+        assert result.column("pos").to_pylist() == kept_positions
 
 
 class TestPostImportTrigger:
@@ -1609,23 +1740,42 @@ class TestEnrichCdcRows:
             assert result.column("name").to_pylist() == ["renamed", "two"]
             assert TOAST_OMITTED_COLUMN not in result.column_names
 
-    def test_scd2_fill_uses_current_row_not_history(self):
+    @parameterized.expand(
+        [
+            ("legacy_table", LEGACY_HISTORY_NAMING, False),
+            ("new_table", HISTORY_NAMING, False),
+            # The read keeps to the current partition, which must still hold the open row.
+            ("partitioned_new_table", HISTORY_NAMING, True),
+        ]
+    )
+    def test_scd2_fill_uses_current_row_not_history(
+        self, _name: str, history: HistoryNaming, partitioned: bool
+    ) -> None:
         with tempfile.TemporaryDirectory() as path:
             ts = pa.timestamp("us", tz="UTC")
+            existing = pa.table(
+                {
+                    "id": pa.array([1, 1], pa.int64()),
+                    "name": pa.array(["v1", "v2"], pa.string()),
+                    "big": pa.array(["old-toast", "current-toast"], pa.string()),
+                    history.valid_from: pa.array([0, 1_000_000], ts),
+                    history.valid_to: pa.array([1_000_000, None], ts),
+                }
+            )
+            if partitioned:
+                existing = existing.append_column(HISTORY_PARTITION_COLUMN, pa.array(["1970-01", "current"]))
             write_deltalake(
                 path,
-                pa.table(
-                    {
-                        "id": pa.array([1, 1], pa.int64()),
-                        "name": pa.array(["v1", "v2"], pa.string()),
-                        "big": pa.array(["old-toast", "current-toast"], pa.string()),
-                        SCD2_VALID_TO_COLUMN: pa.array([1_000_000, None], ts),
-                    }
-                ),
+                existing,
                 mode="overwrite",
+                partition_by=[HISTORY_PARTITION_COLUMN] if partitioned else None,
             )
 
+            # The lane stamps the batch with its table's validity columns before the loader sees it.
             batch = self._batch([{"id": 1, "op": "U", "name": "v3", "omitted": ["big"]}])
+            batch = batch.append_column(history.valid_from, pa.array([2_000_000], ts)).append_column(
+                history.valid_to, pa.array([None], ts)
+            )
             result = _enrich_cdc_rows(
                 batch,
                 primary_keys=["id"],
@@ -2358,11 +2508,44 @@ class TestTableHandleReuse:
             assert rows.schema.names == ["id", "name", "added"]
 
 
+class TestPartialDataLoading:
+    @parameterized.expand(
+        [
+            ("first_sync_of_a_new_table", True, ExternalDataSourceType.STRIPE, None, True),
+            ("table_created_by_this_job", True, ExternalDataSourceType.STRIPE, 1, True),
+            ("rebuild_of_a_served_table", True, ExternalDataSourceType.STRIPE, -1, False),
+            ("other_source", True, ExternalDataSourceType.POSTGRES, None, False),
+            ("not_a_rebuild", False, ExternalDataSourceType.STRIPE, None, False),
+        ]
+    )
+    def test_only_a_new_table_publishes_each_batch(
+        self,
+        _name: str,
+        is_first_ever_sync: bool,
+        source_type: str,
+        table_created_hours_after_job: int | None,
+        expected: bool,
+    ) -> None:
+        job_created_at = dt.datetime(2026, 10, 1, tzinfo=dt.UTC)
+        job = MagicMock(created_at=job_created_at)
+        schema = MagicMock()
+        schema.source.source_type = source_type
+        schema.table = (
+            None
+            if table_created_hours_after_job is None
+            else MagicMock(created_at=job_created_at + dt.timedelta(hours=table_created_hours_after_job))
+        )
+        signal = ExportSignalMessage.from_dict(_message(is_first_ever_sync=is_first_ever_sync))
+
+        assert _partial_data_loading_applies(signal, schema, job) is expected
+
+
 class TestCompactionDuringRebuild:
     @staticmethod
     def _schema(source_type: str = "Postgres") -> MagicMock:
         schema = MagicMock()
         schema.source.source_type = source_type
+        schema.table = None
         return schema
 
     @parameterized.expand(
@@ -2397,12 +2580,15 @@ class TestCompactionDuringRebuild:
         signal = ExportSignalMessage.from_dict(_message(**{"batch_index": 10, **overrides}))
         members = members or [(signal.run_uuid, signal.batch_index)]
         with patch(f"{_PROCESSOR}.is_schema_flag_enabled", return_value=True):
-            assert _rebuild_compaction_due(signal, self._schema(source_type or "Postgres"), members) is expected
+            assert (
+                _rebuild_compaction_due(signal, self._schema(source_type or "Postgres"), MagicMock(), members)
+                is expected
+            )
 
     def test_the_flag_turns_it_off(self) -> None:
         signal = ExportSignalMessage.from_dict(_message(batch_index=10, sync_type="full_refresh"))
         with patch(f"{_PROCESSOR}.is_schema_flag_enabled", return_value=False):
-            assert _rebuild_compaction_due(signal, self._schema(), [(signal.run_uuid, 10)]) is False
+            assert _rebuild_compaction_due(signal, self._schema(), MagicMock(), [(signal.run_uuid, 10)]) is False
 
     def _load(self, table_path: str, sync_type: str, first_index: int, *, enabled: bool) -> None:
         write_deltalake(table_path, TestTableHandleReuse._SEED)

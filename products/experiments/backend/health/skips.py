@@ -2,8 +2,12 @@ from typing import Literal
 
 from posthog.dataclasses import frozen
 
-from products.experiments.backend.facade.contracts import ExperimentHealthCheckStatus
-from products.experiments.backend.health.context import HealthContext
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthCheckStatus,
+    ExperimentHealthFinding,
+    ExperimentHealthMeasurement,
+)
+from products.experiments.backend.health.context import FlagState, HealthContext
 
 
 @frozen
@@ -12,6 +16,15 @@ class CheckSkip:
     reason: str
 
 
+@frozen
+class CheckPassed:
+    measurement: ExperimentHealthMeasurement
+
+
+# What a check returns: a finding, why the check doesn't look, or a pass. CheckPassed is a pass that shows the value
+# that decided it against its threshold, and None is a pass without a value.
+CheckOutcome = ExperimentHealthFinding | CheckSkip | CheckPassed | None
+
 RUNS_AFTER_LAUNCH = "Runs after launch"
 RUNS_BEFORE_LAUNCH = "Runs only before launch"
 NOT_AFTER_END = "Doesn't run after the experiment ends"
@@ -19,6 +32,7 @@ NOT_ON_ARCHIVED = "Doesn't run on archived experiments"
 NO_FLAG = "The experiment has no feature flag"
 FLAG_DELETED = "The feature flag is deleted"
 NEEDS_VARIANTS = "Runs once the feature flag has variants"
+NEEDS_PRIMARY_METRIC = "Runs once the experiment has a primary metric"
 
 
 def not_applicable(reason: str) -> CheckSkip:
@@ -29,17 +43,26 @@ def not_checked(reason: str) -> CheckSkip:
     return CheckSkip(status=ExperimentHealthCheckStatus.NOT_CHECKED, reason=reason)
 
 
-def flag_setup_skip(ctx: HealthContext, *, before_launch: bool) -> CheckSkip | None:
-    """The skip of a check of the flag's setup. After the end the flag often holds the shipped decision, not the
-    setup of the run, so these checks stop there."""
+def no_calculated_metric(ctx: HealthContext) -> CheckSkip:
+    """Why a check of the metrics that the experiment calculates doesn't look when it calculates none."""
+    # The calculation leaves out a metric in the legacy format, which the no-metric check counts.
+    if ctx.primary_metric_count + ctx.secondary_metric_count:
+        return not_applicable("Runs once the experiment has a metric in the current format")
+    return not_applicable("Runs once the experiment has a metric")
+
+
+def flag_to_check(ctx: HealthContext, *, before_launch: bool) -> FlagState | CheckSkip:
+    """The flag that a check of the flag's setup reads, or why the check doesn't look. After the end the flag often
+    holds the shipped decision, not the setup of the run, so these checks stop there."""
+    flag = ctx.flag
     if ctx.archived:
         return not_applicable(NOT_ON_ARCHIVED)
-    if ctx.flag is None:
+    if flag is None:
         return not_applicable(NO_FLAG)
-    if ctx.flag.deleted:
+    if flag.deleted:
         return not_applicable(FLAG_DELETED)
     if ctx.has_ended:
         return not_applicable(NOT_AFTER_END)
     if not before_launch and not ctx.is_launched:
         return not_applicable(RUNS_AFTER_LAUNCH)
-    return None
+    return flag

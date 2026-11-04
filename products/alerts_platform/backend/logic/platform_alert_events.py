@@ -14,7 +14,7 @@ batch and the engine only remembers a bounded window of them.
 import json
 import hashlib
 from collections.abc import Collection, Sequence
-from dataclasses import fields
+from dataclasses import field, fields
 from datetime import UTC, datetime
 from typing import Any, Final
 from uuid import UUID
@@ -77,16 +77,18 @@ class PlatformAlertEventRow:
     consecutive_failures: int
     muted_notification: str
     occurred_at: datetime
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
     def as_row(self) -> dict[str, Any]:
         """The row as ClickHouse takes it, derived from the fields so a new one cannot be missed.
 
-        Only the three the wire needs in another shape are named.
+        Only the four the wire needs in another shape are named.
         """
         return {f.name: getattr(self, f.name) for f in fields(self)} | {
             "condition_snapshot": json.dumps(self.condition_snapshot),
             "source_config_snapshot": json.dumps(self.source_config_snapshot),
             "error_message": self.error_message or "",
+            "source_detail": json.dumps(self.source_detail) if self.source_detail else "",
         }
 
 
@@ -172,7 +174,7 @@ LIMIT 1 BY grouping_key
 """
 
 _ANNOUNCEMENT_COLUMNS = """grouping_key, kind, episode_started_at, value, labels, condition_snapshot,
-       source_config_snapshot, error_message, occurred_at, alert_name, consecutive_failures"""
+       source_config_snapshot, error_message, occurred_at, source_detail, alert_name, consecutive_failures"""
 
 _ANNOUNCEMENT_SQL = f"SELECT {_ANNOUNCEMENT_COLUMNS} {_ANNOUNCED_ROWS}"
 
@@ -241,8 +243,10 @@ def announcement(
             error_message=error_message or None,
             occurred_at=occurred_at,
             evaluation_key=evaluation_key,
+            source_detail=_snapshot(source_detail),
+            configuration_id=configuration_id,
         )
-        for grouping_key, kind, episode_started_at, value, labels, condition_snapshot, source_config_snapshot, error_message, occurred_at, _, _ in rows
+        for grouping_key, kind, episode_started_at, value, labels, condition_snapshot, source_config_snapshot, error_message, occurred_at, source_detail, _, _ in rows
     )
     # Evaluation-level, and the same on every row of one evaluation, so the first row carries it.
     *_, alert_name, consecutive_failures = rows[0]
@@ -289,6 +293,11 @@ def _snapshot(raw: str) -> dict[str, Any]:
     return loaded if isinstance(loaded, dict) else {}
 
 
+# Every read of checks leaves out follow-ups, which are messages about a check rather than checks.
+# Only `announcement` reads them, by their own evaluation key.
+CHECKS_ONLY: Final = f"kind != '{AlertEventKind.VERDICT_CHANGED.value}'"
+
+
 # The inner read deduplicates on the pair the writer names, as `announcement` does. The outer one
 # keeps the checks that moved the alert and the newest check, so a page of alerts that check every
 # minute returns a few rows each rather than a day of them.
@@ -303,6 +312,7 @@ FROM (
         WHERE team_id = %(team_id)s
           AND configuration_id IN %(configuration_ids)s
           AND grouping_key = ''
+          AND {CHECKS_ONLY}
           AND occurred_at >= %(since)s
           AND occurred_at < %(until)s
         ORDER BY configuration_id, alert_id, occurred_at, evaluation_key
@@ -380,6 +390,7 @@ FROM (
     WHERE team_id = %(team_id)s
       AND configuration_id = %(configuration_id)s
       AND grouping_key = ''
+      AND {CHECKS_ONLY}
       AND occurred_at >= %(since)s
       AND (previous_state != state OR error_message != '')
     ORDER BY alert_id, occurred_at, evaluation_key
@@ -422,14 +433,28 @@ def notable_checks(team_id: int, configuration_id: UUID, *, since: datetime, lim
     )
 
 
+def _check_entry(
+    occurred_at: datetime, evaluation_key: str, state: str, value: float | None, error_message: str, source_detail: str
+) -> PlatformCheckEntry:
+    return PlatformCheckEntry(
+        occurred_at=occurred_at,
+        evaluation_key=evaluation_key,
+        state=PlatformAlertState(state),
+        value=value,
+        error_message=error_message or None,
+        source_detail=_snapshot(source_detail),
+    )
+
+
 _CHECKS_SQL = f"""
-SELECT occurred_at, evaluation_key, state, value, error_message, count() OVER () AS total
+SELECT occurred_at, evaluation_key, state, value, error_message, count() OVER () AS total, source_detail
 FROM (
-    SELECT alert_id, evaluation_key, occurred_at, state, value, error_message
+    SELECT alert_id, evaluation_key, occurred_at, state, value, error_message, source_detail
     FROM {PLATFORM_ALERT_EVENTS_TABLE}
     WHERE team_id = %(team_id)s
       AND configuration_id = %(configuration_id)s
       AND grouping_key = ''
+      AND {CHECKS_ONLY}
       AND occurred_at >= toDateTime64(%(since)s, 6, 'UTC')
       AND occurred_at < toDateTime64(%(until)s, 6, 'UTC')
     ORDER BY alert_id, occurred_at, evaluation_key
@@ -447,6 +472,7 @@ FROM (
     WHERE team_id = %(team_id)s
       AND configuration_id = %(configuration_id)s
       AND grouping_key = ''
+      AND {CHECKS_ONLY}
       AND occurred_at >= toDateTime64(%(since)s, 6, 'UTC')
       AND occurred_at < toDateTime64(%(until)s, 6, 'UTC')
     LIMIT 1 BY alert_id, evaluation_key
@@ -482,17 +508,76 @@ def check_page(
         total = 0
     return PlatformCheckPage(
         total=total,
+        configuration_id=configuration_id,
         checks=tuple(
-            PlatformCheckEntry(
-                occurred_at=occurred_at,
-                evaluation_key=evaluation_key,
-                state=PlatformAlertState(state),
-                value=value,
-                error_message=error_message or None,
-            )
-            for occurred_at, evaluation_key, state, value, error_message, _ in rows
+            _check_entry(occurred_at, evaluation_key, state, value, error_message, source_detail)
+            for occurred_at, evaluation_key, state, value, error_message, _, source_detail in rows
         ),
     )
+
+
+# Deduplicated as `_CHECKS_SQL` is. `JSONHas` is false for the empty string a check without detail
+# stores, so only checks whose source recorded every path are read. The paths filter before the
+# limit, so checks a caller does not want never use it up.
+def _checks_with_detail_sql(paths: Sequence[Sequence[str]]) -> str:
+    has_paths = "".join(
+        f"\n      AND JSONHas(source_detail, {', '.join(f'%(path_{i}_{j})s' for j in range(len(path)))})"
+        for i, path in enumerate(paths)
+    )
+    return f"""
+SELECT configuration_id, occurred_at, evaluation_key, state, value, error_message, source_detail
+FROM (
+    SELECT configuration_id, alert_id, evaluation_key, occurred_at, state, value, error_message, source_detail
+    FROM {PLATFORM_ALERT_EVENTS_TABLE}
+    WHERE team_id = %(team_id)s
+      AND configuration_id IN %(configuration_ids)s
+      AND grouping_key = ''
+      AND {CHECKS_ONLY}
+      AND occurred_at >= toDateTime64(%(since)s, 6, 'UTC'){has_paths}
+    ORDER BY configuration_id, alert_id, occurred_at, evaluation_key
+    LIMIT 1 BY alert_id, evaluation_key
+)
+ORDER BY configuration_id, occurred_at DESC, evaluation_key DESC
+LIMIT %(limit)s BY configuration_id
+"""
+
+
+def checks_with_detail(
+    team_id: int,
+    configuration_ids: Collection[UUID],
+    *,
+    detail_paths: Sequence[Sequence[str]],
+    since: datetime,
+    limit: int,
+) -> dict[UUID, tuple[PlatformCheckEntry, ...]]:
+    """Each configuration's newest `limit` checks since `since` whose source detail holds every one
+    of `detail_paths`, newest first, in one query. A path is a list of keys into nested objects.
+
+    Only the ungrouped instance is read, as in `history`. A configuration with no such check is left
+    out. Raises on a ClickHouse failure, because only the caller knows what it can show instead.
+    """
+    if not configuration_ids:
+        return {}
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    # Not `_execute`, for the same reason as `history`.
+    rows = sync_execute(
+        _checks_with_detail_sql(detail_paths),
+        {
+            "team_id": team_id,
+            "configuration_ids": list(configuration_ids),
+            "since": _microseconds(since),
+            "limit": limit,
+            **{f"path_{i}_{j}": key for i, path in enumerate(detail_paths) for j, key in enumerate(path)},
+        },
+        team_id=team_id,
+        settings=_READ_BUDGET,
+    )
+    checks: dict[UUID, list[PlatformCheckEntry]] = {}
+    for configuration_id, occurred_at, evaluation_key, state, value, error_message, source_detail in rows:
+        checks.setdefault(configuration_id, []).append(
+            _check_entry(occurred_at, evaluation_key, state, value, error_message, source_detail)
+        )
+    return {configuration_id: tuple(entries) for configuration_id, entries in checks.items()}
 
 
 # Deduplication does not matter here, because two copies of one check are identical rows. The tuple
@@ -503,6 +588,7 @@ FROM {PLATFORM_ALERT_EVENTS_TABLE}
 WHERE team_id = %(team_id)s
   AND configuration_id IN %(configuration_ids)s
   AND grouping_key = ''
+  AND {CHECKS_ONLY}
 GROUP BY configuration_id
 """
 

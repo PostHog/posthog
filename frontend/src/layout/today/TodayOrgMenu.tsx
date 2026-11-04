@@ -4,12 +4,14 @@ import { IconGear, IconPlusSmall, IconReceipt } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
 import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
-import { pendingInvitesLogic } from 'lib/components/Account/pendingInvitesLogic'
 import { PendingInviteDot } from 'lib/components/Account/ProjectMenu'
+import { IconPersonAdd } from 'lib/lemon-ui/icons'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { TodayLogo } from './TodayLogo'
 import { OrgMenuActionKey, todayOrgMenuLogic } from './todayOrgMenuLogic'
+import { SEVERITY_INDICATOR, SEVERITY_TEXT_CLASS } from './todayRailSeverity'
+import { todayRailStatusLogic } from './todayRailStatusLogic'
 import { TodaySwitcherMenu, TodaySwitcherRow } from './TodaySwitcherMenu'
 
 // Invite IDs and org IDs are both UUIDs, so the prefix keeps their row values apart in one list.
@@ -17,7 +19,7 @@ const INVITE_PREFIX = 'invite:'
 
 // pinned: autocapture data-attrs, kept from when this menu sat on the rail.
 const ACTION_ROWS: Record<OrgMenuActionKey, Pick<TodaySwitcherRow, 'label' | 'leading' | 'dataAttr'>> = {
-    'invite-members': { label: 'Invite members', leading: <IconPlusSmall />, dataAttr: 'today-rail-invite-members' },
+    'invite-members': { label: 'Invite members', leading: <IconPersonAdd />, dataAttr: 'today-rail-invite-members' },
     billing: { label: 'Billing & usage', leading: <IconReceipt />, dataAttr: 'today-rail-billing' },
     'org-settings': { label: 'Organization settings', leading: <IconGear />, dataAttr: 'today-rail-org-settings' },
     'new-org': { label: 'New organization', leading: <IconPlusSmall />, dataAttr: 'today-rail-new-org' },
@@ -26,7 +28,7 @@ const ACTION_ROWS: Record<OrgMenuActionKey, Pick<TodaySwitcherRow, 'label' | 'le
 /** The org switcher shortcut opens this menu too. */
 export function TodayOrgMenu(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
-    const { pendingInvites } = useValues(pendingInvitesLogic)
+    const { orgSeverity, orgProblems, billingSeverity, billingText } = useValues(todayRailStatusLogic)
     const { isOrgSwitcherOpen } = useValues(newAccountMenuLogic)
     const { openOrgSwitcher, closeOrgSwitcher } = useActions(newAccountMenuLogic)
     const { organizations, invites, orgMenuActions, orgSearchValue, isSwitchingOrganization } =
@@ -39,8 +41,9 @@ export function TodayOrgMenu(): JSX.Element {
             trigger={
                 <Button
                     size="icon"
-                    aria-label={name}
-                    className="relative size-10 rounded-md data-[popup-open]:bg-[var(--fill-selected)]"
+                    indicator={SEVERITY_INDICATOR[orgSeverity]}
+                    aria-label={[name, ...orgProblems].join(', ')}
+                    className="relative size-10 rounded-md [--quill-button-indicator-ring:var(--chrome)] data-[popup-open]:bg-[var(--fill-selected)]"
                     data-attr="today-rail-org-menu"
                 >
                     <TodayLogo
@@ -49,7 +52,6 @@ export function TodayOrgMenu(): JSX.Element {
                         colorSeed={currentOrganization?.id ?? null}
                         size="tile"
                     />
-                    {pendingInvites.length > 0 && <PendingInviteDot className="absolute top-1 right-1" />}
                 </Button>
             }
             triggerTooltip={name}
@@ -96,6 +98,10 @@ export function TodayOrgMenu(): JSX.Element {
             actions={orgMenuActions.map((key) => ({
                 value: key,
                 ...ACTION_ROWS[key],
+                description:
+                    key === 'billing' && billingText ? (
+                        <span className={SEVERITY_TEXT_CLASS[billingSeverity]}>{billingText}</span>
+                    ) : undefined,
                 onSelect: () => runOrgMenuAction(key),
             }))}
             selectedValue={currentOrganization?.id ?? null}

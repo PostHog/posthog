@@ -1,6 +1,7 @@
 import { MakeLogicType, connect, kea, key, path, props, selectors } from 'kea'
 
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { objectsEqual } from 'lib/utils/objects'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -74,6 +75,7 @@ export const dashboardWidgetMenusLogic = kea<dashboardWidgetMenusLogicType>([
                 }
                 return set
             },
+            { resultEqualityCheck: objectsEqual },
         ],
         /** Destinations for Copy to and Move to submenus (disabled rows explain why a target is unavailable). */
         copyToDestinations: [

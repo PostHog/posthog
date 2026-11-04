@@ -1,6 +1,6 @@
 """Recipient opt-outs: who opted out of which message category, and changes to that list."""
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -13,6 +13,7 @@ from products.messaging.backend.models.message_preferences import MessageRecipie
 from products.messaging.backend.services import (
     customerio_sync_service,
     preferences as preferences_service,
+    unsubscribe_metrics,
 )
 from products.messaging.backend.services.lazy_list import LazyList
 from products.messaging.backend.services.opt_out_service import BulkOptOutEntry, UnknownCategoryError
@@ -102,6 +103,54 @@ def remove_opt_out(
     return ChangedPreferences(preferences=_to_contract(row), created=created)
 
 
+class TopicsNotFound(Exception):
+    """The project has no live topic with these keys."""
+
+    def __init__(self, keys: list[str]) -> None:
+        super().__init__(", ".join(keys))
+        self.keys = keys
+
+
+@frozen
+class TopicPreferences:
+    identifier: str
+    # True when the recipient opted back in to all marketing, False when opted out, None when never set.
+    all_marketing: bool | None
+    # Topic key to True (opted in) or False (opted out), for every live topic with a stored choice.
+    topics: dict[str, bool]
+
+
+def set_preferences(
+    team_id: int, identifier: str, all_marketing: bool | None, topics: dict[str, bool]
+) -> TopicPreferences:
+    """Apply `all_marketing`, then each topic in order, as one write. Syncs to Customer.io after commit.
+
+    Raises TopicsNotFound, and changes nothing, when a key names no live topic of the project.
+    """
+    try:
+        stored = preferences_service.set_preferences(team_id, identifier, all_marketing, topics)
+    except preferences_service.TopicsNotFound as e:
+        raise TopicsNotFound(e.keys) from e
+    keys_by_id = preferences_service.topic_keys_by_id(team_id)
+    return TopicPreferences(
+        identifier=identifier,
+        all_marketing=_opted_in(stored.get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID)),
+        topics={
+            keys_by_id[category_id]: opted_in
+            for category_id, value in stored.items()
+            if category_id in keys_by_id and (opted_in := _opted_in(value)) is not None
+        },
+    )
+
+
+def _opted_in(value: Any) -> bool | None:
+    if value == PreferenceStatus.OPTED_IN.value:
+        return True
+    if value == PreferenceStatus.OPTED_OUT.value:
+        return False
+    return None
+
+
 def export_opt_outs_csv(team_id: int, category_key: str | None) -> Iterator[str]:
     """CSV rows of the opt-out list, in the format the CSV import reads back."""
     try:
@@ -164,16 +213,27 @@ def recipient_preferences(team_id: int, identifier: str) -> dict[str, Any] | Non
     return None if row is None else row.preferences
 
 
-def set_preferences_column(team_id: int, identifier: str, preferences: dict[str, Any]) -> None:
-    """Overwrite an existing recipient's preferences. Writes only that column, so updated_at stays."""
-    preferences_service.set_preferences_column(team_id, identifier, preferences)
+def transition_preferences(
+    team_id: int,
+    identifier: str,
+    build: Callable[[dict[str, Any]], dict[str, Any]],
+    *,
+    touch_updated_at: bool,
+) -> dict[str, Any]:
+    """Replace the recipient's preferences with `build(stored)` under a row lock, creating the row when it is missing.
 
-
-def replace_preferences(team_id: int, identifier: str, preferences: dict[str, Any]) -> None:
-    """Overwrite the recipient's preferences with one full save, creating the row when it is missing."""
-    preferences_service.replace_preferences(team_id, identifier, preferences)
+    Returns the stored preferences it replaced. `touch_updated_at=False` writes only the preferences column.
+    """
+    return preferences_service.transition_preferences(team_id, identifier, build, touch_updated_at=touch_updated_at)
 
 
 def sync_to_customerio(team_id: int, identifier: str, preferences: dict[str, Any]) -> None:
     """Push the preferences to Customer.io now, when the team has track sync enabled."""
     customerio_sync_service.sync_preferences_to_customerio(team_id, identifier, preferences)
+
+
+def record_unsubscribe_metric(team_id: int, token_data: dict[str, Any], opted_out_category_ids: list[str]) -> None:
+    """Count an opt-out against the workflow email whose preferences token it came through."""
+    unsubscribe_metrics.record_email_unsubscribed_metric(
+        team_id, unsubscribe_metrics.parse_unsubscribe_source(token_data), opted_out_category_ids
+    )

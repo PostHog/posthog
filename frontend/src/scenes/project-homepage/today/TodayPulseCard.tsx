@@ -1,6 +1,8 @@
+import './Today.scss'
+
 import { useState } from 'react'
 
-import { IconArrowRight, IconInfo, IconPin, IconPinFilled } from '@posthog/icons'
+import { IconArrowRight, IconHide, IconInfo } from '@posthog/icons'
 import {
     Button,
     Collapsible,
@@ -13,30 +15,20 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
-import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-
-import { TodayHoverCardFact } from '~/layout/today/TodayHoverCardFact'
+import { cn } from 'lib/utils/css-classes'
 
 import type { HighlightMetricApi } from 'products/today/frontend/generated/api.schemas'
 
 import { TodayChange } from './TodayChange'
-import { pulsePeak, pulsePeriodCaption, pulseWhy } from './todayPulseFacts'
+import { todayNumber } from './todayNumbers'
+import { pulseChange, pulsePeriodCaption, pulsePriorLabel, pulseWhy } from './todayPulseFacts'
 import { TodayPulseMovers } from './TodayPulseMovers'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
-import type { TodayTone } from './TodaySparkline'
-
-const PERIOD_FORMATS: Record<HighlightMetricApi['interval'], string> = {
-    day: 'ddd, D MMM',
-    week: '[week of] D MMM',
-    month: 'MMMM YYYY',
-}
+import type { TodayTone } from './todayTone'
 
 function openLabel(metric: HighlightMetricApi): string {
-    if (metric.dashboard_id !== null || metric.reason === 'dashboard') {
-        return metric.dashboard_name ? `Open ${metric.dashboard_name}` : 'Open dashboard'
-    }
-    return metric.key.startsWith('insight:') ? 'Open insight' : 'Open as a trend'
+    return metric.dashboard_id !== null || metric.reason === 'dashboard' ? 'Open dashboard' : 'Open insight'
 }
 
 export function TodayPulseCard({
@@ -44,102 +36,83 @@ export function TodayPulseCard({
     tone,
     formatValue,
     onOpen,
-    pinned,
-    pinDisabledReason,
-    onTogglePin,
+    onHide,
 }: {
     metric: HighlightMetricApi
     tone: TodayTone
     formatValue: (value: number) => string
     onOpen: () => void
-    pinned: boolean
-    pinDisabledReason?: string
-    onTogglePin: () => void
+    onHide: () => void
 }): JSX.Element {
     const [whyOpen, setWhyOpen] = useState(false)
-    const previous = metric.previous_value
-    const peak = pulsePeak(metric)
-    const why = pinned ? 'You keep this number on your home. Change it with Edit.' : pulseWhy(metric)
+    const why = pulseWhy(metric)
+    const change = pulseChange(metric)
     return (
-        <div className="flex flex-col gap-3 p-3" data-attr="today-pulse-card">
-            <div className="flex flex-col gap-0.5">
-                <Text size="sm" weight="semibold" render={<span />} className="truncate">
-                    {metric.name}
-                </Text>
-                <div className="flex items-baseline gap-2">
-                    <Heading size="xl" render={<span />} className="tabular-nums" translate="no">
-                        {formatValue(metric.value)}
-                    </Heading>
-                    <span className="text-sm text-muted-foreground">
-                        <TodayChange change={metric.change_pct} tone={tone} />
-                    </span>
-                </div>
-                <Text size="xs" variant="muted" render={<span />}>
-                    {pulsePeriodCaption(metric)}
-                </Text>
-            </div>
-            {(previous !== null || peak !== null) && (
+        <div className="TodayPulseCard flex flex-col" data-attr="today-pulse-card">
+            <div className="flex flex-col gap-4 p-3 pb-3">
                 <div className="flex flex-col gap-1">
-                    {previous !== null && (
-                        <TodayHoverCardFact label="Before">
-                            <span className="tabular-nums">{formatValue(previous)}</span>
-                        </TodayHoverCardFact>
-                    )}
-                    {peak !== null && (
-                        <TodayHoverCardFact label={peak.label}>
-                            <span className="tabular-nums">
-                                {formatValue(peak.value)}
-                                <span className="text-muted-foreground">
-                                    {' '}
-                                    · {peak.latest ?? dayjs(peak.start).format(PERIOD_FORMATS[metric.interval])}
-                                </span>
+                    <div className="flex items-baseline justify-between gap-3">
+                        <Text size="sm" weight="semibold" render={<span />} className="line-clamp-2">
+                            {metric.name}
+                        </Text>
+                        <Text size="xs" variant="muted" render={<span />} className="shrink-0">
+                            {pulsePeriodCaption(metric)}
+                        </Text>
+                    </div>
+                    <div className="flex flex-wrap items-baseline gap-x-2">
+                        <Heading size="xl" render={<span />} className="tabular-nums" translate="no">
+                            {formatValue(metric.value)}
+                        </Heading>
+                        {change.value !== null && (
+                            <span className="text-sm text-muted-foreground">
+                                <TodayChange change={change.value} unit={change.unit} tone={tone} />
+                                <span> {pulsePriorLabel(metric)}</span>
                             </span>
-                        </TodayHoverCardFact>
-                    )}
+                        )}
+                    </div>
                 </div>
-            )}
-            {metric.movers.length > 1 && (
-                <div className="flex flex-col gap-1.5">
-                    <Text size="xs" variant="muted" render={<span />}>
-                        What changed most
-                    </Text>
-                    <TodayPulseMovers movers={metric.movers} formatValue={formatValue} />
-                </div>
-            )}
+                {metric.movers.length > 1 && (
+                    <div className="flex flex-col gap-1">
+                        <Text size="xs" variant="muted" render={<span />}>
+                            What changed most
+                        </Text>
+                        <TodayPulseMovers
+                            movers={metric.movers}
+                            formatValue={metric.value_format ? formatValue : todayNumber}
+                        />
+                    </div>
+                )}
+            </div>
             <Collapsible
                 variant="folder"
                 open={whyOpen}
                 onOpenChange={setWhyOpen}
-                className="flex flex-col border-t border-border pt-2"
+                className={cn('flex flex-col px-3 py-1', metric.url ? 'border-t border-border' : '-mt-2')}
             >
                 <div className="flex min-h-6 items-center justify-between gap-2">
                     {metric.url ? (
-                        <Button
-                            size="xs"
-                            variant="link-muted"
-                            className="-ms-2"
-                            render={<LinkPrimitive to={metric.url} />}
+                        <LinkPrimitive
+                            to={metric.url}
+                            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                             {...pulseOpenHandlers(onOpen)}
                             data-attr="today-pulse-card-open"
                         >
                             {openLabel(metric)}
                             <IconArrowRight />
-                        </Button>
+                        </LinkPrimitive>
                     ) : (
                         <span />
                     )}
                     <div className="-me-1.5 flex items-center">
                         <Button
                             size="icon-xs"
-                            aria-label={pinned ? 'Unpin from your home' : 'Pin to your home'}
-                            tooltip={pinned ? 'Unpin from your home' : 'Pin to your home'}
-                            aria-pressed={pinned}
-                            disabledReason={pinDisabledReason}
-                            onClick={onTogglePin}
-                            className={pinned ? undefined : 'text-muted-foreground'}
-                            data-attr="today-pulse-card-pin"
+                            aria-label="Hide from Today"
+                            tooltip="Hide from Today"
+                            onClick={onHide}
+                            className="text-muted-foreground"
+                            data-attr="today-pulse-card-hide"
                         >
-                            {pinned ? <IconPinFilled /> : <IconPin />}
+                            <IconHide />
                         </Button>
                         {why && (
                             <Tooltip>
@@ -161,7 +134,7 @@ export function TodayPulseCard({
                     </div>
                 </div>
                 {why && (
-                    <CollapsibleContent className="px-0 pb-0">
+                    <CollapsibleContent className="px-0 pb-2">
                         <Text size="xs" variant="muted" className="m-0 pt-1">
                             {why}
                         </Text>

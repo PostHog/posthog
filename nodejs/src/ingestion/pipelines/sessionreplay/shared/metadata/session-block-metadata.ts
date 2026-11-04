@@ -45,6 +45,8 @@ export function createDeletionBlockMetadata(sessionId: string, teamId: number): 
 }
 
 export interface SessionBlockMetadata {
+    /** Trusted capture timestamp used to attribute billing without persisting it as replay metadata. */
+    captureTimestampMs?: number
     replayIndexEntries?: ReplayIndexEntry[]
     replayIndexTruncated?: boolean
     /** Unique identifier for the session */

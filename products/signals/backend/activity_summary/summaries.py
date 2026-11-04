@@ -16,12 +16,13 @@ from posthog.llm.gateway_client import build_openai_client, trace_id_from_seed
 
 from products.signals.backend.activity_summary.prompt import (
     RESPONSE_FORMAT,
+    EmptyProfileError,
     MalformedSummaryError,
     normalize_summary,
     system_prompt,
     user_message,
 )
-from products.signals.backend.activity_summary.render import MAX_COMPLETION_TOKENS, SUMMARY_MAX_WORDS
+from products.signals.backend.activity_summary.render import MAX_COMPLETION_TOKENS, PROFILE_MAX_CHARS
 
 AI_PRODUCT = "activity_summary"
 # Not a person: the gateway attributes every call to the pipeline.
@@ -64,13 +65,17 @@ class SummaryOutcome:
     tokens_out: int | None
     latency_ms: int
     error: str | None
+    # The model answered a first summary with a headline and no profile. The update stores it as a skip.
+    empty_profile: bool = False
 
 
-def gateway_client(team_id: int, user_id: int, as_of: datetime.date) -> OpenAI:
+def gateway_client(team_id: int, user_id: int, as_of: datetime.date, *, variant: str | None = None) -> OpenAI:
+    """`variant` keeps the trace of another build of the same pair and day, such as a backfill, apart."""
+    seed = f"{AI_PRODUCT}:{team_id}:{user_id}:{as_of.isoformat()}"
     return build_openai_client(
         "signals",
         ai_product=AI_PRODUCT,
-        trace_id=trace_id_from_seed(f"{AI_PRODUCT}:{team_id}:{user_id}:{as_of.isoformat()}"),
+        trace_id=trace_id_from_seed(f"{seed}:{variant}" if variant else seed),
         properties={"team_id": str(team_id)},
         distinct_id=PIPELINE_DISTINCT_ID,
     )
@@ -88,12 +93,18 @@ def summarize(
     model: str,
     as_of: datetime.date,
     max_completion_tokens: int = MAX_COMPLETION_TOKENS,
-    summary_max_words: int = SUMMARY_MAX_WORDS,
+    profile_max_chars: int = PROFILE_MAX_CHARS,
+    computed: dict[str, Any] | None = None,
 ) -> SummaryOutcome:
-    """One summary. Tokens and latency add up over the attempts, because the retry costs too."""
+    """One summary. Tokens and latency add up over the attempts, because the retry costs too.
+
+    `computed` holds the refs the themes can cite. Without it, every theme is dropped."""
     messages: list[ChatCompletionMessageParam] = [
-        {"role": "system", "content": system_prompt(summary_max_words)},
-        {"role": "user", "content": user_message(rendered_input, previous_summary, as_of)},
+        {"role": "system", "content": system_prompt(profile_max_chars)},
+        {
+            "role": "user",
+            "content": user_message(rendered_input, previous_summary, as_of, profile_max_chars, computed),
+        },
     ]
     tokens_in: int | None = None
     tokens_out: int | None = None
@@ -122,7 +133,17 @@ def summarize(
             summary = normalize_summary(
                 choice.message.content if choice is not None else None,
                 had_previous_summary=previous_summary is not None,
-                max_words=summary_max_words,
+                computed=computed,
+                profile_max_chars=profile_max_chars,
+            )
+        except EmptyProfileError:
+            return SummaryOutcome(
+                summary=None,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                latency_ms=round((time.monotonic() - started) * 1000),
+                error=None,
+                empty_profile=True,
             )
         except MalformedSummaryError as malformed:
             error = f"malformed_output: {malformed}"

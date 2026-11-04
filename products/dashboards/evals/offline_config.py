@@ -10,6 +10,8 @@ _SCORERS: dict[str, OfflineScorer] = {
     "sql_tiles_follow_dashboard_date_range": OfflineScorer(
         kind="numeric", version=UUID("01a15a27-d794-74b3-8822-063a74a674fd")
     ),
+    "saved_widget_state": OfflineScorer(kind="boolean", version=UUID("01a16268-3277-718d-966d-e22228469dc2")),
+    "widget_first_write_valid": OfflineScorer(kind="boolean", version=UUID("01a16268-3643-7628-b863-56b1c091b4ec")),
 }
 
 

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::IntoResponse;
 use serde::ser::{SerializeMap, SerializeStruct};
@@ -17,15 +19,21 @@ use crate::v1::context::RequestContext;
 pub struct BatchEntryStatus {
     pub result: EventResult,
     pub details: Option<&'static str>,
+    /// Later events in the request with this uuid; capture dropped them and kept this one.
+    pub duplicates_dropped: u32,
 }
 
 impl Serialize for BatchEntryStatus {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let field_count = if self.details.is_some() { 2 } else { 1 };
+        let field_count =
+            1 + usize::from(self.details.is_some()) + usize::from(self.duplicates_dropped > 0);
         let mut state = serializer.serialize_struct("BatchEntryStatus", field_count)?;
         state.serialize_field("result", &self.result)?;
         if let Some(detail) = self.details {
             state.serialize_field("details", detail)?;
+        }
+        if self.duplicates_dropped > 0 {
+            state.serialize_field("duplicates_dropped", &self.duplicates_dropped)?;
         }
         state.end()
     }
@@ -61,6 +69,7 @@ impl BatchResponse {
                     BatchEntryStatus {
                         result: ev.result,
                         details: ev.details,
+                        duplicates_dropped: 0,
                     },
                 )
             })
@@ -72,6 +81,15 @@ impl BatchResponse {
         }
 
         Self { has_retry, entries }
+    }
+
+    pub fn with_duplicates_dropped(mut self, dropped: &HashMap<Uuid, u32>) -> Self {
+        for (uuid, status) in self.entries.iter_mut() {
+            if let Some(count) = dropped.get(uuid) {
+                status.duplicates_dropped = *count;
+            }
+        }
+        self
     }
 
     pub fn entries(&self) -> &[(Uuid, BatchEntryStatus)] {
@@ -156,6 +174,7 @@ mod tests {
     use axum::body::to_bytes;
     use axum::response::IntoResponse;
     use chrono::Utc;
+    use rstest::rstest;
     use serde_json::Value;
     use uuid::Uuid;
 
@@ -189,50 +208,50 @@ mod tests {
         }
     }
 
-    #[test]
-    fn batch_entry_status_serialize_ok() {
+    #[rstest]
+    #[case::ok(EventResult::Ok, None, 0, r#"{"result":"ok"}"#)]
+    #[case::retry_with_details(
+        EventResult::Retry,
+        Some("not_persisted"),
+        0,
+        r#"{"result":"retry","details":"not_persisted"}"#
+    )]
+    #[case::drop_with_details(
+        EventResult::Drop,
+        Some("billing_limit_exceeded"),
+        0,
+        r#"{"result":"drop","details":"billing_limit_exceeded"}"#
+    )]
+    #[case::warning_with_details(
+        EventResult::Warning,
+        Some("person_processing_disabled"),
+        0,
+        r#"{"result":"warning","details":"person_processing_disabled"}"#
+    )]
+    #[case::ok_with_duplicates(
+        EventResult::Ok,
+        None,
+        2,
+        r#"{"result":"ok","duplicates_dropped":2}"#
+    )]
+    #[case::drop_with_details_and_duplicates(
+        EventResult::Drop,
+        Some("invalid_options"),
+        1,
+        r#"{"result":"drop","details":"invalid_options","duplicates_dropped":1}"#
+    )]
+    fn batch_entry_status_serialize(
+        #[case] result: EventResult,
+        #[case] details: Option<&'static str>,
+        #[case] duplicates_dropped: u32,
+        #[case] expected: &str,
+    ) {
         let status = BatchEntryStatus {
-            result: EventResult::Ok,
-            details: None,
+            result,
+            details,
+            duplicates_dropped,
         };
-        let json = serde_json::to_string(&status).unwrap();
-        assert_eq!(json, r#"{"result":"ok"}"#);
-    }
-
-    #[test]
-    fn batch_entry_status_serialize_with_details() {
-        let status = BatchEntryStatus {
-            result: EventResult::Retry,
-            details: Some("not_persisted"),
-        };
-        let json = serde_json::to_string(&status).unwrap();
-        assert_eq!(json, r#"{"result":"retry","details":"not_persisted"}"#);
-    }
-
-    #[test]
-    fn batch_entry_status_serialize_drop_with_details() {
-        let status = BatchEntryStatus {
-            result: EventResult::Drop,
-            details: Some("billing_limit_exceeded"),
-        };
-        let json = serde_json::to_string(&status).unwrap();
-        assert_eq!(
-            json,
-            r#"{"result":"drop","details":"billing_limit_exceeded"}"#
-        );
-    }
-
-    #[test]
-    fn batch_entry_status_serialize_warning_with_details() {
-        let status = BatchEntryStatus {
-            result: EventResult::Warning,
-            details: Some("person_processing_disabled"),
-        };
-        let json = serde_json::to_string(&status).unwrap();
-        assert_eq!(
-            json,
-            r#"{"result":"warning","details":"person_processing_disabled"}"#
-        );
+        assert_eq!(serde_json::to_string(&status).unwrap(), expected);
     }
 
     #[test]

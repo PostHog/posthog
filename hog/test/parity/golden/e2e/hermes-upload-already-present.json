@@ -1,0 +1,29 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/projects/1/error_tracking/releases/hash/e7495f569c486a19ec6e4a01b9f02703c99282233a5fe12485f654edbd03d65ac91a7ea8b5ec69ce9bafe158a9e3d459edd5b438509dad3e50447b21ec4c1427",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_check_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"26ad4cc5-09ee-599e-8a76-35ae37bf8c39\",\"release_id\":null,\"content_hash\":\"320a5642a5679518ebdd2c73c560f1893a2bfc93025a266fa57d608800e4be9023860a5aa9aee8d92597c65bfc52979f509dfe051536b216c50dc5cf945623e4\",\"content_length\":385}],\"force\":true,\"skip_on_conflict\":false}",
+      "status": 200
+    }
+  ],
+  "files": {
+    "android/hbc/index.android.bundle.hbc.composed.map": "utf8:{\"chunk_id\":\"26ad4cc5-09ee-599e-8a76-35ae37bf8c39\",\"mappings\":\"AAAA,SACA,cAAAC\",\"names\":[\"App\",\"<global>\"],\"sources\":[\"src/App.js\",\"node_modules/react-native/Libraries/polyfill.js\"],\"sourcesContent\":[\"function App() {\\n  return \\\"héllo\\\";\\n}\\nApp();\\n\",null],\"version\":3,\"x_facebook_sources\":[[{\"mappings\":\"AAA,CCC\",\"names\":[\"<global>\",\"App\"]}],null],\"x_google_ignoreList\":[1],\"x_hermes_function_offsets\":{\"0\":[0,28],\"1\":[0]},\"x_unicode\":\"😀 </script> \\\"q\\\" \\\\ \\t\"}",
+    "android/index.android.bundle": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{},n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"26ad4cc5-09ee-599e-8a76-35ae37bf8c39\")}catch(e){}}();var __BUNDLE_START_TIME__=this.nativePerformanceNow?nativePerformanceNow():Date.now();\nfunction App(){return \"héllo\"}App();\n//# sourceMappingURL=index.android.bundle.map\n//# chunkId=26ad4cc5-09ee-599e-8a76-35ae37bf8c39",
+    "android/index.android.bundle.map": "utf8:{\"chunk_id\":\"26ad4cc5-09ee-599e-8a76-35ae37bf8c39\",\"mappings\":\"qTACA;AAAA,SAAUA\",\"names\":[\"App\"],\"sources\":[\"src/App.js\",\"node_modules/react-native/Libraries/polyfill.js\"],\"sourcesContent\":[\"function App() {\\n  return \\\"héllo\\\";\\n}\\nApp();\\n\",null],\"version\":3,\"x_facebook_sources\":[[{\"mappings\":\"AAA,CCC\",\"names\":[\"<global>\",\"App\"]}],null],\"x_google_ignoreList\":[1],\"x_test\":{\"a\":\" /é\\u0001\",\"b\":1.0,\"big\":1.8446744073709552e19,\"n\":-0.0,\"z\":1e21}}"
+  }
+}

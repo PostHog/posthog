@@ -20,3 +20,10 @@ A pull request builds no Rust image unless it carries a `smoke_test:<image>` lab
 Add a label when the change can break the image build but not `cargo build`: a new binary or image entry, a `build.rs` or system dependency change, a new workspace crate, or a Dockerfile edit.
 Add one too when the PR needs a deployable image.
 Master builds and deploys after merge, and a broken image stops that deploy.
+
+## Out-of-band interaction domains
+
+Call `common_dns::oob_domains::note_oob_domain(host, "<guard>", team_id)` before a crate resolves or dials a host that a customer supplied.
+Pass `Some(team_id)` when the caller knows the project, and `None` when it does not, such as in shared infrastructure.
+`OOB_DOMAINS` in `common/dns/src/oob_domains.rs` mirrors `posthog/security/crosslang/oob_domains.json`, so edit the json first and the mirror second.
+The parity test in `common-dns` fails while the two differ.

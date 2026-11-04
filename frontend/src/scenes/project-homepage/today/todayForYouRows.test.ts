@@ -18,8 +18,13 @@ function highlight(key: string, label: HighlightItemApi['label']): HighlightItem
 }
 
 describe('forYouRows', () => {
-    it('keeps the server order, puts reports before highlights and more reports last, and steps through reports in list order', () => {
-        const reports = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => makeReport({ id }))
+    it.each([
+        { ids: [], visible: 2, done: ['risk-1'] },
+        { ids: ['a', 'b'], visible: 4, done: ['b', 'risk-1'] },
+        { ids: ['a', 'b', 'c', 'd', 'e'], visible: 5, done: ['b', 'risk-1'] },
+        { ids: ['a', 'b', 'c', 'd', 'e', 'f'], visible: 5, done: ['b', 'risk-1'] },
+    ])('keeps report order and highlights with $ids and a visible limit of $visible', ({ ids, visible, done }) => {
+        const reports = ids.map((id) => makeReport({ id }))
         const { rows, limit } = forYouRows({
             reports,
             loadedMoreReports: [makeReport({ id: 'more' })],
@@ -28,9 +33,9 @@ describe('forYouRows', () => {
             reportStateOverrides: { b: 'resolved' },
         })
 
-        expect(limit).toBe(5)
-        expect(rows.map((row) => row.key)).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'risk-1', 'opportunity-1', 'more'])
-        expect(rows.filter((row) => row.done).map((row) => row.key)).toEqual(['b', 'risk-1'])
-        expect(forYouReportIds(rows)).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'more'])
+        expect(limit).toBe(visible)
+        expect(rows.map((row) => row.key)).toEqual([...ids, 'risk-1', 'opportunity-1', 'more'])
+        expect(rows.filter((row) => row.done).map((row) => row.key)).toEqual(done)
+        expect(forYouReportIds(rows)).toEqual([...ids, 'more'])
     })
 })

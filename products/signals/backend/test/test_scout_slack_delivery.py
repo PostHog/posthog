@@ -31,6 +31,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     ScoutSlackPermanentDeliveryError,
     _latest_report_delivery_key,
     _slack_retry_after_seconds,
+    find_project_slack_integration,
     get_scout_slack_destination,
     mark_latest_scout_report_delivery,
     post_scout_emission_to_slack,
@@ -214,6 +215,27 @@ class TestScoutSlackDelivery(BaseTest):
             source_id=f"run:{run.id}:finding:checkout-500s",
         )
 
+    @parameterized.expand(
+        [
+            ("same_environment", "same", True),
+            ("sibling_environment", "sibling", True),
+            ("other_project", "other", False),
+        ]
+    )
+    def test_find_project_slack_integration_scope(self, _name: str, owner: str, expected_found: bool) -> None:
+        teams = {
+            "same": self.team,
+            "sibling": Team.objects.create(
+                organization=self.organization, project=self.team.project, parent_team=self.team, name="Sibling"
+            ),
+            "other": Team.objects.create(organization=self.organization, name="Other project"),
+        }
+        integration = Integration.objects.create(team=teams[owner], kind=Integration.IntegrationKind.SLACK)
+
+        found = find_project_slack_integration(integration_id=integration.id, project_id=self.team.project_id)
+
+        assert (found.id if found else None) == (integration.id if expected_found else None)
+
     def test_posts_safe_markdown_but_does_not_invite_followup_for_child_environment(self) -> None:
         emission = self._make_emission(
             "**Checkout** failures [trace](https://example.com/trace) <!channel> [ping](!here)"
@@ -330,6 +352,8 @@ class TestScoutSlackDelivery(BaseTest):
             ("inbox_row_in_channel", "CSCOUTS|#scout-findings", "CSCOUTS", True, None, False),
             # The first message was deleted in Slack, so the report posts again.
             ("message_deleted", "CSCOUTS|#scout-findings", "CSCOUTS", False, "message_not_found", False),
+            # Slack cannot edit a message in an archived or inactive channel, so the report posts again.
+            ("channel_inactive", "CSCOUTS|#scout-findings", "CSCOUTS", False, "is_inactive", False),
         ]
     )
     def test_redelivered_report_updates_its_message_in_place(
@@ -1392,6 +1416,54 @@ class TestScoutSlackDelivery(BaseTest):
             "context",
         ]
         assert [b["type"] for b in resent] == ["context", "header", "markdown", "actions", "context"]
+
+    @parameterized.expand([("shorter_summary_fits", 1, True), ("shorter_summary_still_too_long", 2, False)])
+    def test_report_too_long_for_slack_is_resent_with_a_shorter_summary(
+        self, _name: str, rejections: int, expect_delivered: bool
+    ) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout & payments failed. " * 500,
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        too_long = SlackApiError(message="too long", response=FakeSlackResponse({"error": "msg_blocks_too_long"}))
+        fake_client.chat_postMessage.side_effect = [too_long] * rejections + [
+            FakeSlackResponse({"ts": "1785418710.000700"})
+        ]
+
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch("products.signals.backend.tasks.capture_exception") as capture,
+        ):
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.apply(
+                args=(
+                    self.team.id,
+                    "report",
+                    str(report.id),
+                    str(emission.scout_run_id),
+                    "01864f4c-6957-7d3f-8d85-1d775e527266",
+                    integration.id,
+                    "CSCOUTS|#scout-findings",
+                ),
+                throw=True,
+            )
+
+        posts = [call.kwargs["blocks"] for call in fake_client.chat_postMessage.call_args_list]
+        assert len(posts) == 2
+        first_markdown, resent_markdown = (
+            next(block["text"] for block in blocks if block["type"] == "markdown") for blocks in posts
+        )
+        assert len(resent_markdown) < len(first_markdown)
+        assert any(block["type"] == "actions" for block in posts[1])
+        if expect_delivered:
+            capture.assert_not_called()
+        else:
+            assert capture.call_args.args[1]["error_code"] == "msg_blocks_too_long"
 
     def test_task_retries_transient_delivery_failure(self) -> None:
         emission = self._make_emission()

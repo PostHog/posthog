@@ -1,6 +1,8 @@
 # Frontend agent guide (`frontend/src`)
 
-Applies to any change under `frontend/src`. This is a **discovery + cadence** guide: the rules below exist because agents tend to generate before they look. The root `AGENTS.md` and the quill package guides remain authoritative, except that [`design.md`](./design.md) wins over a quill package guide for UI behind `today-rail-nav` — this file does not repeat them, it points at them.
+Applies to any change under `frontend/src`. This is a **discovery + cadence** guide: the rules below exist because agents tend to generate before they look. The root `AGENTS.md`, [`.agents/code-style.md`](../../.agents/code-style.md), and the quill package guides remain authoritative, except that [`design.md`](./design.md) wins over a quill package guide for UI behind `today-rail-nav` — this file does not repeat them, it points at them.
+
+Before you build or edit any UI, or when a task asks to simplify or redesign one, read [`platform-ux.md`](./platform-ux.md). It decides what a surface shows and when (progressive disclosure first), on LemonUI and quill alike. Only the platform UX team changes the nav rail.
 
 ## Rule 1 — Reuse before you create
 
@@ -34,7 +36,7 @@ If nothing fits, say so and propose extending the existing component before addi
 
 The same goes for patterns, not just components: before building a new scene or view, read 2–3 comparable ones and model yours on those that follow these rules. Precedent that violates Rule 5 or `/writing-ui-components` is legacy to route around, not license to repeat — conventions outrank precedent, and compliant precedent outranks invention.
 
-> LemonUI vs quill lives in the root `AGENTS.md` ("Code Style → Frontend (quill vs LemonUI)"). If you're working somewhere quill applies (an MCP app, the desktop app, UI behind `today-rail-nav`), [`design.md`](./design.md) and `packages/quill/packages/primitives/AGENTS.md` have its component-choice and spacing rules, and the two libraries must not be mixed inside one component's internals.
+> LemonUI vs quill lives in [`.agents/code-style.md`](../../.agents/code-style.md) ("Frontend"). If you're working somewhere quill applies (an MCP app, the desktop app, UI behind `today-rail-nav`), [`design.md`](./design.md) and `packages/quill/packages/primitives/AGENTS.md` have its component-choice and spacing rules, and the two libraries must not be mixed inside one component's internals.
 
 ## Rule 2 — A product's UI goes in `products/<name>/frontend/`
 
@@ -62,7 +64,7 @@ When touching `lib/api`, `api.get<`, `api.create<`, or any handwritten API inter
 
 ## Rule 4 — Business logic in kea, not React hooks
 
-Covered by the root `AGENTS.md` (Code Style → Frontend). The discovery hint for this tree: if a scene/component has a `*Logic.ts`, that's where actions/reducers/selectors/listeners belong. See `/writing-kea-logics` and `/using-kea-disposables`.
+Covered by [`.agents/code-style.md`](../../.agents/code-style.md) ("Frontend"). The discovery hint for this tree: if a scene/component has a `*Logic.ts`, that's where actions/reducers/selectors/listeners belong. See `/writing-kea-logics` and `/using-kea-disposables`.
 
 ## Rule 5 — Structure and abstraction
 
@@ -116,18 +118,35 @@ Nearly all of these render numbers, dates, or durations, so nothing of value goe
 `queries/nodes/InsightViz/ComputationTimeWithRefresh` and `scenes/experiments/MetricsView/new/ElapsedTime` are the exemplars.
 A whole subtree of machine data (an event feed, an ID column) opts out at its container instead — `scenes/activity/live/LiveEventsFeed` marks every row `translate="no"` and leaves the headers translatable.
 
+## Rule 8 — A file statically imports only its own layer or a lower one
+
+The layers, lowest first, are `kernel`, `shell`, `query`, `features`.
+`kernel` holds shared primitives, for example `lib/utils`, `lib/lemon-ui`, `lib/api`, `queries/schema/`, and generated types.
+`shell` holds the rest of `lib/`, `layout/`, `models/`, and the top-level files of `frontend/src/` and `scenes/`.
+`query` holds the rest of `queries/`.
+`features` holds every scene folder and product.
+[`frontend/bin/layers.mjs`](../bin/layers.mjs) is the source of truth for the mapping. Read it when you are not sure of the layer of a path.
+`hogli lint:frontend-layers` fails on a new upward import. Fix it in one of these ways:
+
+1. Move the imported code down to the layer of the importer, or lower.
+2. Load it with a dynamic import: `lazyWithRetry()` or `retryImport(() => import(...))`.
+3. Register it in a registry that the higher layer fills.
+
+After you remove an upward import, run `hogli lint:frontend-layers --prune-baseline`.
+Never run `--update-baseline` to hide a new upward import.
+
 ## Typecheck & typegen cadence (don't over-run these)
 
 These are slow; run them at the right moment, not after every edit.
 
-- **TypeScript check** — `pnpm --filter=@posthog/frontend typescript:check` (runs `tsgo --noEmit` over the whole app; with under 24 GiB of memory headroom below the sandbox watchdog threshold it runs one checker under a Go heap limit, about three times slower). Rely on the editor/LSP while editing; run the full check **once before you call the work done**, not per-edit.
+- **TypeScript check** — `pnpm --filter=@posthog/frontend typescript:check` (runs `tsgo --noEmit` over the whole app; with under 24 GiB of memory headroom below the sandbox watchdog threshold it runs one checker under a Go heap limit, about three times slower, and under 12 GiB it refuses to start and tells you which background processes to stop). Rely on the editor/LSP while editing; run the full check **once before you call the work done**, not per-edit.
 - **kea typegen** (inline types) — regenerates automatically via `typegen:watch` while the dev server runs (`./bin/start` / `hogli start`). If you must regen one logic without the server, use `pnpm --filter=@posthog/frontend typegen:file <path>`. **Don't routinely run the full `typegen:write`** — it's a heavy whole-repo pass (multi-GB heap).
   All logic files use **inline types** by default: a generated `MakeLogicType` block sits above each `kea()` call, marked "Generated by kea-typegen". Agents may update those blocks (typegen reconciles them anyway); humans should let the typegen commands keep them updated. Connected values/actions carry a `// sourceLogic` comment and sort first, grouped by source logic.
 - **`hogli build:openapi`** — only needed when you changed a **backend serializer/viewset**. A pure `.tsx`/`.ts` change never needs it. Don't run it speculatively.
 
 ## Lint & format
 
-Run `pnpm --filter=@posthog/frontend fix` before finishing. It applies safe Oxlint fixes, never suggestion fixes, and always runs Oxfmt; it fails if either tool fails. `format` runs Oxfmt only, while `lint` and `format:check` only verify. Config: root `.oxlintrc.json`. CSS, spelling, and copy-casing rules live in the root `AGENTS.md` (Code Style).
+Run `pnpm --filter=@posthog/frontend fix` before finishing. It applies safe Oxlint fixes, never suggestion fixes, and always runs Oxfmt; it fails if either tool fails. `format` runs Oxfmt only, while `lint` and `format:check` only verify. Config: root `.oxlintrc.json`. CSS and spelling rules live in [`.agents/code-style.md`](../../.agents/code-style.md), and copy-casing rules in `/writing-user-facing-copy`.
 
 ## Adding actions to a scene
 
@@ -137,7 +156,7 @@ Adding a button/toggle/action to a scene's `ScenePanel`? It must also go in that
 
 ## Deeper references
 
-- Root `AGENTS.md` — full Code Style + architecture rules (authoritative).
+- [`.agents/code-style.md`](../../.agents/code-style.md) and [`.agents/architecture.md`](../../.agents/architecture.md) — full code style and architecture rules (authoritative).
 - `layout/scenes/AGENTS.md` (scene action surfaces: `ScenePanel` + `SceneMenuBar` dual-write rule).
 - `packages/quill/packages/primitives/AGENTS.md` — component selection matrix.
 - `/working-with-charts`: chart consumption workflow with links to the relevant examples and package docs.

@@ -26,12 +26,20 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     relax_batch_nullability,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
+    is_transient_object_store_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.evolution import evolve_delta_schema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
     DELTA_TABLE_PROPERTIES,
+    OBJECT_STORE_PERMISSION_DENIED_MESSAGE,
+    OBJECT_STORE_TRANSIENT_MESSAGE,
+    ObjectStorePermissionDeniedError,
     delta_merge_spill_kwargs,
     ensure_table_properties,
     execute_with_conflict_retry,
+    is_object_store_permission_denied,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_buffer_bytes, report_phase
 
@@ -178,6 +186,22 @@ def commit_matches(commit: dict[str, Any], match: dict[str, str]) -> bool:
     return any(all(layout.get(k) == v for k, v in match.items()) for layout in _commit_metadata_layouts(commit))
 
 
+def dedupe_incremental_batch(
+    data: pa.Table, primary_keys: Sequence[Any], use_partitioning: bool
+) -> tuple[pa.Table, list[str]]:
+    """Drop all but the last occurrence of each PK (+ partition) tuple in a batch.
+
+    Returns the batch and the keys it was deduplicated on. The batch comes back as it is when no key
+    repeats, or when none of `primary_keys` is a column of it.
+    """
+    dedupe_keys = [n for x in primary_keys if (n := normalize_column_name(x)) in data.column_names]
+    if not dedupe_keys:
+        return data, []
+    if use_partitioning:
+        dedupe_keys.append(PARTITION_KEY)
+    return first_per_pk_table(data, dedupe_keys, keep="last"), dedupe_keys
+
+
 def commit_members_tag(members: Sequence[tuple[str, int]]) -> str:
     """The `members` commit tag for a set that spans runs: `run_uuid:batch_index` per member."""
     return ",".join(f"{run_uuid}:{batch_index}" for run_uuid, batch_index in members)
@@ -235,14 +259,7 @@ class DeltaWriter:
     async def _dedupe_incremental_batch(
         self, data: pa.Table, primary_keys: Sequence[Any], use_partitioning: bool
     ) -> pa.Table:
-        """Drop all but the last occurrence of each PK (+ partition) tuple in a batch."""
-        dedupe_keys = [n for x in primary_keys if (n := normalize_column_name(x)) in data.column_names]
-        if not dedupe_keys:
-            return data
-        if use_partitioning:
-            dedupe_keys.append(PARTITION_KEY)
-
-        deduped = first_per_pk_table(data, dedupe_keys, keep="last")
+        deduped, dedupe_keys = dedupe_incremental_batch(data, primary_keys, use_partitioning)
         dropped = data.num_rows - deduped.num_rows
         if dropped > 0:
             await self._logger.awarning(
@@ -455,6 +472,10 @@ class DeltaWriter:
                 governor_reserved_slots=adm.reserved_slots,
                 governor_wait_ms=adm.wait_ms,
                 governor_wait_timed_out=adm.wait_timed_out,
+                governor_borrow_slots=adm.borrow_slots,
+                governor_borrow_mpp=adm.borrow_mpp,
+                governor_borrow_mpf=adm.borrow_mpf,
+                governor_borrow_applied=adm.borrow_applied,
                 # Process-wide RSS while this upsert ran; filter on max_concurrent_upserts == 1 for
                 # a clean per-upsert signal.
                 governor_peak_rss_mb=adm.rss.peak_mb if adm.rss else None,
@@ -890,6 +911,26 @@ class DeltaWriter:
             deleted += int(metrics.get("num_deleted_rows") or 0)
         return deleted
 
+    async def _read_history(self, delta_table: deltalake.DeltaTable, limit: int) -> list[dict[str, Any]]:
+        """Read delta commit history, classifying object-store errors the same way every other
+        read/write here already does (see `execute_with_conflict_retry`), instead of letting one
+        reach the caller as a bare, unclassified OSError/DeltaError.
+
+        Checked in the same order as `execute_with_conflict_retry`: a permission denial first, since
+        the broad transient-error matcher's "Generic S3 error" needle also prefixes a permanent
+        privilege refusal, and classifying that as transient would silently drop a reportable bug.
+        """
+        try:
+            return await asyncio.to_thread(delta_table.history, limit=limit)
+        except (OSError, deltalake.exceptions.DeltaError) as e:
+            if is_object_store_permission_denied(e):
+                await self._logger.awarning(f"history: the object store denied the read ({type(e).__name__})")
+                raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
+            if is_transient_object_store_error(e):
+                await self._logger.awarning(f"history: transient object-store error, not reporting: {e}")
+                raise TransientObjectStoreError(OBJECT_STORE_TRANSIENT_MESSAGE) from e
+            raise
+
     async def has_commit_with_metadata(self, match: dict[str, str], *, scan_limit: int = 50) -> bool:
         """Check whether any recent delta commit has custom metadata matching all entries in `match`.
 
@@ -907,7 +948,7 @@ class DeltaWriter:
         if delta_table is None:
             return False
 
-        history = await asyncio.to_thread(delta_table.history, limit=scan_limit)
+        history = await self._read_history(delta_table, scan_limit)
 
         for commit in history:
             if commit_matches(commit, match):
@@ -928,7 +969,7 @@ class DeltaWriter:
 
         limit = scan_limit
         while True:
-            history = await asyncio.to_thread(delta_table.history, limit=limit)
+            history = await self._read_history(delta_table, limit)
             if any(commit_covers_batch(commit, run_uuid, batch_index) for commit in history):
                 return True
             data_commits = sum(1 for commit in history if commit.get("operation") not in _MAINTENANCE_OPERATIONS)

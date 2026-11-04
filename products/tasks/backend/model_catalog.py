@@ -180,6 +180,11 @@ _GPT_6_1_SOL_COST = ModelCost(
     10,
     long_context=LongContextCost(above_input_tokens=272_000, input_per_mtok=4, output_per_mtok=15),
 )
+_GPT_6_1_TERRA_COST = ModelCost(
+    1,
+    5,
+    long_context=LongContextCost(above_input_tokens=272_000, input_per_mtok=2, output_per_mtok=7.5),
+)
 _GPT_6_LUNA_COST = ModelCost(0.1, 0.5)
 
 MODELS: tuple[CatalogModel, ...] = (
@@ -187,6 +192,7 @@ MODELS: tuple[CatalogModel, ...] = (
     # exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
     # so the `anthropic` provider is the intended routing rather than a direct Anthropic call.
     CatalogModel("@cf/zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2", cost=_GLM_COST, retired=True),
+    CatalogModel("zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2", cost=_GLM_COST, retired=True),
     CatalogModel("zai-org/glm-5.3", CLAUDE, _GLM, label="GLM-5.3", cost=_GLM_COST),
     CatalogModel("zai-org/glm-5.3-flash", CLAUDE, _GLM, label="GLM-5.3 Flash", cost=_GLM_FLASH_COST),
     CatalogModel("moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3", cost=_KIMI_COST),
@@ -261,6 +267,9 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("gpt-6-astra", CODEX, _THROUGH_MAX, cost=_GPT_FRONTIER_COST),
     CatalogModel("gpt-6-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST),
     CatalogModel("gpt-6.1-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_1_SOL_COST),
+    # Only ReviewHog's arm-set trial pins it. `retired` is the catalog's state for a model no picker offers
+    # that still runs when pinned, which keeps it out of the Slack picker too, since that picker ignores access flags.
+    CatalogModel("gpt-6.1-terra", CODEX, _THROUGH_MAX, cost=_GPT_6_1_TERRA_COST, retired=True),
     CatalogModel("gpt-6-luna", CODEX, _THROUGH_MAX, cost=_GPT_6_LUNA_COST),
 )
 
@@ -381,6 +390,11 @@ def normalize_model_id(model_id: str) -> str:
         if normalized.startswith(prefix):
             return normalized[len(prefix) :]
     return normalized
+
+
+def is_anthropic_served_model(model_id: str | None) -> bool:
+    """Whether Anthropic's API may serve this model, so its server can run the auto mode classifier checks."""
+    return normalize_model_id(model_id or "").startswith("claude-")
 
 
 def access_flag_for_model(model_id: str) -> str | None:

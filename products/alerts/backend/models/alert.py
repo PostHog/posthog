@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -218,11 +218,33 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     def __str__(self) -> str:
         return f"{self.name} (Team: {self.team})"
 
+    def internal_event_properties(self, *, state: str, last_checked_at: datetime | None) -> dict[str, Any]:
+        """The properties every `$insight_alert_firing` carries, from the insight stack or the platform."""
+        return {
+            "alert_id": str(self.id),
+            "alert_name": self.name,
+            "project_name": self.team.name,
+            "insight_name": self.insight.name,
+            "insight_id": self.insight.short_id,
+            "state": state,
+            "last_checked_at": last_checked_at.isoformat() if last_checked_at else None,
+            **derive_detector_event_fields(self.detector_config),
+        }
+
     @property
     def platform_owned(self) -> bool:
         """The platform evaluates and delivers this alert. The insight stack may still evaluate it to
         compare, but it sends nothing for it."""
         return self.owner == PlatformAlertOwner.PLATFORM
+
+    @property
+    def platform_owned_since(self) -> datetime | None:
+        """When the platform took this alert over, or None while the insight stack owns it.
+
+        The alert's own checks before then are its history. Its own checks after then are the shadow's,
+        which sent nothing, so the platform's checks replace them.
+        """
+        return self.owner_changed_at if self.platform_owned else None
 
     @property
     def is_high_frequency_interval(self) -> bool:

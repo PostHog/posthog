@@ -18,6 +18,7 @@ from products.data_modeling.backend.facade.api import (
     mark_node_suspended,
     query_fingerprint,
     suspension_reset_at,
+    suspension_state,
 )
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
@@ -106,12 +107,26 @@ EXTERNALLY_ABORTED_MARKERS = (
     # the trailing colon is load-bearing: it keeps a customer column of the same name out of the match
     "QueueEmpty: ",  # no root node to start from, so the graph was refused rather than the query
     "Preempted: ",
+    "not aligned with the specified scalar type",
     ABANDONED_ERROR,
     # the query ran and produced rows; only the publish was refused
     QUALITY_BLOCKED_ERROR_PREFIX,
-    # Trino killed the query because the whole cluster ran out of memory. A query over its own
-    # memory limit fails with an EXCEEDED_*_MEMORY_LIMIT name and still counts.
-    "name=CLUSTER_OUT_OF_MEMORY,",
+)
+
+# Trino errors echo identifiers from the query into their message, so these only match at the start of
+# the error, where the client writes the error type and name before any message text.
+TRINO_INFRA_ERROR_PATTERN = re.compile(
+    r"Trino\w*Error\(type=\w+, name=("
+    # the whole cluster ran out of memory. A query over its own memory limit fails with an
+    # EXCEEDED_*_MEMORY_LIMIT name and still counts.
+    r"CLUSTER_OUT_OF_MEMORY"
+    # a worker node crashed or stopped answering, so the query never got to finish
+    r"|TOO_MANY_REQUESTS_FAILED"
+    # workers lost contact while passing data between stages
+    r"|PAGE_TRANSPORT_TIMEOUT"
+    r"),"
+    # the gateway refused the query with an HTTP 403 before any cluster ran it
+    r"|error 403: b'This tenant is not admitted to the pool yet"
 )
 
 STREAM_FAULT_ERROR_PREFIXES = (
@@ -128,9 +143,10 @@ SUSPENDED_ERROR_PREFIX = (
 
 
 def is_externally_aborted(error: str) -> bool:
-    return any(marker in error for marker in EXTERNALLY_ABORTED_MARKERS) or error.removeprefix(
-        SUSPENDED_ERROR_PREFIX
-    ).startswith(STREAM_FAULT_ERROR_PREFIXES)
+    if any(marker in error for marker in EXTERNALLY_ABORTED_MARKERS):
+        return True
+    error = error.removeprefix(SUSPENDED_ERROR_PREFIX)
+    return error.startswith(STREAM_FAULT_ERROR_PREFIXES) or TRINO_INFRA_ERROR_PATTERN.match(error) is not None
 
 
 def bind_data_modeling_log_context(team_id: int, saved_query_id: UUID | str) -> None:
@@ -243,6 +259,16 @@ def maybe_suspend_node_for_engine(
         job.error = f"{SUSPENDED_ERROR_PREFIX}{job.error}"
         job.save(update_fields=["error"])
     return True
+
+
+@database_sync_to_async_pool
+def was_suspended_by_job(*, node_id: str, team_id: int, dag_id: str, engine: str, job_id: str) -> bool:
+    """True when this job's failure is the one recorded as suspending the node.
+
+    A retry of the failing activity no longer sees the transition, so this is how it still knows.
+    """
+    node = Node.objects.get(id=node_id, team_id=team_id, dag_id=dag_id)
+    return (suspension_state(node).get(str(engine)) or {}).get("job_id") == job_id
 
 
 @database_sync_to_async_pool

@@ -21,6 +21,7 @@ from posthog.direct_query_cancellation import build_direct_query_cancellation_to
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.managed_warehouse.backend.facade.access import enable_customer_warehouse_access
 from products.managed_warehouse.backend.facade.contracts import TrinoExpansionMode
 from products.managed_warehouse.backend.facade.feature_flags import MANAGED_TRINO_QUERY_FLAG
 from products.managed_warehouse.backend.trino_compiler import TrinoTargetUnavailable, compile_hogql_to_trino_sql
@@ -60,7 +61,7 @@ def validate_managed_trino_query(query: HogQLQuery, team: Team, user: User | Non
         )
     except Exception:
         enabled = False
-    if not enabled:
+    if not enable_customer_warehouse_access(team.organization_id, trino_enabled=bool(enabled)):
         raise ExposedHogQLError(
             "Hosted Trino queries are not enabled for this organization. Select PostHog to run this query."
         )
@@ -79,6 +80,7 @@ def execute_managed_trino_query(
     settings: HogQLGlobalSettings,
     timings: HogQLTimings,
     limit_context: LimitContext | None,
+    canary: bool = False,
 ) -> HogQLQueryResponse:
     validate_managed_trino_query(query, team, user)
     assert user is not None
@@ -130,7 +132,9 @@ def execute_managed_trino_query(
             cancellation_token=cancellation_token,
         ),
         connect_managed_warehouse_trino(
-            str(team.organization_id), principal=f"posthog:sql-editor:team:{team.pk}:user:{user.pk}"
+            str(team.organization_id),
+            principal=f"posthog:sql-editor:team:{team.pk}:user:{user.pk}",
+            canary=canary,
         ),
     )
     response = HogQLQueryResponse(

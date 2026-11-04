@@ -24,6 +24,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import * as exporterViewLogic from '~/exporter/exporterViewLogic'
 import { useMocks } from '~/mocks/jest'
+import * as taxonomyLoader from '~/taxonomy/loadCoreFilterDefinitions'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
@@ -60,6 +61,8 @@ const failingLogic = kea<testLogicType>([
     }),
 ])
 
+type Deferred = { resolve: () => void; reject: (error: Error) => void }
+
 // Held so a test can reject a still-pending scene import after navigating somewhere else.
 let pendingImportRejection: ((error: Error) => void) | null = null
 
@@ -67,6 +70,7 @@ const testScenes: Record<string, () => any> = {
     [Scene.AgenticAuthorize]: sceneImport,
     [Scene.Alerts]: sceneImport,
     [Scene.AIObservabilityEvaluations]: sceneImport,
+    [Scene.AIObservabilityOfflineExperiments]: sceneImport,
     [Scene.Billing]: sceneImport,
     [Scene.DataManagement]: sceneImport,
     [Scene.OrganizationCreateFirst]: sceneImport,
@@ -114,6 +118,32 @@ describe('sceneLogic', () => {
                     Object.keys(obj).filter((key) => preloadedScenes.includes(key as Scene)).length === 3
             ),
         })
+    })
+
+    it('plays when 5 is pressed after the holiday flag arrives', () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date(2026, 9, 22))
+        const play = jest.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
+        const pause = jest.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation()
+        let playsBeforeFlag = 0
+        let playsAfterFlag = 0
+
+        try {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: '5' }))
+            playsBeforeFlag = play.mock.calls.length
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS], {
+                [FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS]: true,
+            })
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: '5' }))
+            playsAfterFlag = play.mock.calls.length
+        } finally {
+            play.mockRestore()
+            pause.mockRestore()
+            jest.useRealTimers()
+        }
+        expect(playsBeforeFlag).toBe(0)
+        expect(playsAfterFlag).toBe(1)
     })
 
     // A scene that never mounts must not leave the address bar on it with the previous scene still
@@ -165,6 +195,51 @@ describe('sceneLogic', () => {
 
             expect(logic.values.activeSceneId).toEqual(Scene.Settings)
         })
+    })
+
+    it.each([
+        ['loads', (release: Deferred) => release.resolve(), Scene.Settings],
+        [
+            'fails to load',
+            (release: Deferred) => release.reject(new Error('taxonomy chunk failed')),
+            Scene.ErrorSceneLoad,
+        ],
+    ])('holds a logged-in scene until the taxonomy %s', async (_outcome, settle, expectedScene) => {
+        let release: Deferred | undefined
+        const loadSpy = jest.spyOn(taxonomyLoader, 'loadCoreFilterDefinitions').mockImplementation(
+            () =>
+                new Promise<void>((resolve, reject) => {
+                    release = { resolve, reject }
+                })
+        )
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+        try {
+            router.actions.push(urls.settings('user'))
+            await expectLogic(logic).delay(1)
+            expect(logic.values.activeSceneId).toEqual(Scene.DataManagement)
+
+            settle(release!)
+            await expectLogic(logic).delay(1)
+            expect(logic.values.activeSceneId).toEqual(expectedScene)
+        } finally {
+            loadSpy.mockRestore()
+            consoleErrorSpy.mockRestore()
+        }
+    })
+
+    it('does not hold a logged-out public page for the taxonomy', async () => {
+        const loadSpy = jest
+            .spyOn(taxonomyLoader, 'loadCoreFilterDefinitions')
+            .mockImplementation(() => new Promise<void>(() => {}))
+        try {
+            userLogic.actions.loadUserSuccess(null)
+            router.actions.push(urls.passwordResetComplete(MOCK_USER_UUID, 'a-token'))
+            await expectLogic(logic).delay(1)
+
+            expect(logic.values.activeSceneId).toEqual(Scene.PasswordResetComplete)
+        } finally {
+            loadSpy.mockRestore()
+        }
     })
 
     it('keeps teamLogic mounted after every other mount reference is released', () => {
@@ -464,9 +539,11 @@ describe('sceneLogic', () => {
     })
 
     it.each([
-        [AccessControlLevel.Viewer, Scene.AIObservabilityEvaluations],
-        [AccessControlLevel.None, Scene.ErrorAccessDenied],
-    ])('gates the combined evaluations entry with scorer access %s', async (scorerAccess, expectedScene) => {
+        [Scene.AIObservabilityEvaluations, AccessControlLevel.Viewer, Scene.AIObservabilityEvaluations],
+        [Scene.AIObservabilityEvaluations, AccessControlLevel.None, Scene.ErrorAccessDenied],
+        [Scene.AIObservabilityOfflineExperiments, AccessControlLevel.Viewer, Scene.AIObservabilityOfflineExperiments],
+        [Scene.AIObservabilityOfflineExperiments, AccessControlLevel.None, Scene.ErrorAccessDenied],
+    ])('gates %s with scorer and dataset access %s', async (targetScene, scorerAccess, expectedScene) => {
         const priorAppContext = window.POSTHOG_APP_CONTEXT
         try {
             window.POSTHOG_APP_CONTEXT = {
@@ -477,7 +554,7 @@ describe('sceneLogic', () => {
                     [AccessControlResourceType.LlmAnalytics]: scorerAccess,
                 },
             } as AppContext
-            logic.actions.setScene(Scene.AIObservabilityEvaluations, 'aiObservabilityEvaluations', {
+            logic.actions.setScene(targetScene as Scene, targetScene, {
                 params: {},
                 searchParams: {},
                 hashParams: {},

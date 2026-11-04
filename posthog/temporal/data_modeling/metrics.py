@@ -3,7 +3,6 @@ import re
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricHistogramFloat
 
-from posthog.dataclasses import frozen
 from posthog.temporal.data_modeling.activities.utils import is_externally_aborted
 
 # custom latency histogram buckets,
@@ -51,7 +50,8 @@ DATA_MODELING_DURATION_HISTOGRAM_BUCKETS = [
     7_200.0,
     14_400.0,
     21_600.0,
-    43_200.0,  # TRINO_SHADOW_RUN_TIMEOUT
+    43_200.0,
+    82_800.0,  # TRINO_SHADOW_RUN_TIMEOUT
 ]
 
 AD_HOC_TIER = "ad_hoc"
@@ -79,91 +79,25 @@ def get_node_suspended_metric(engine: str) -> MetricCounter:
     )
 
 
-@frozen
-class _DualMetricCounters:
-    managed_warehouse: MetricCounter
-    legacy_duckgres: MetricCounter
-
-    def add(self, value: int) -> None:
-        self.managed_warehouse.add(value)
-        self.legacy_duckgres.add(value)
-
-
-@frozen
-class _DualMetricHistograms:
-    managed_warehouse: MetricHistogramFloat
-    legacy_duckgres: MetricHistogramFloat
-
-    def record(self, value: float) -> None:
-        self.managed_warehouse.record(value)
-        self.legacy_duckgres.record(value)
-
-
-def get_managed_warehouse_shadow_finished_metrics(status: str) -> _DualMetricCounters:
-    meter = workflow.metric_meter().with_additional_attributes({"status": status})
-    description = "Number of managed warehouse shadow materialization activities finished, by status."
-    return _DualMetricCounters(
-        managed_warehouse=meter.create_counter("managed_warehouse_shadow_materialization_finished", description),
-        legacy_duckgres=meter.create_counter("duckgres_shadow_materialization_finished", description),
+def get_managed_warehouse_trino_compile_failure_metric(error_code: str) -> MetricCounter:
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"error_code": error_code})
+        .create_counter(
+            "managed_warehouse_shadow_trino_compile_failure",
+            "Number of managed warehouse shadow views that Trino compilation rejected, by error code.",
+        )
     )
 
 
-def get_managed_warehouse_shadow_row_count_match_metrics(matched: bool) -> _DualMetricCounters:
-    meter = workflow.metric_meter().with_additional_attributes({"matched": str(matched).lower()})
-    description = "Row count comparison between ClickHouse and managed warehouse shadow materializations."
-    return _DualMetricCounters(
-        managed_warehouse=meter.create_counter("managed_warehouse_shadow_row_count_comparison", description),
-        legacy_duckgres=meter.create_counter("duckgres_shadow_row_count_comparison", description),
-    )
-
-
-def get_managed_warehouse_shadow_duration_metrics() -> _DualMetricHistograms:
-    meter = workflow.metric_meter()
-    description = "Duration of managed warehouse shadow materialization in seconds."
-    return _DualMetricHistograms(
-        managed_warehouse=meter.create_histogram_float(
-            "managed_warehouse_shadow_materialization_duration_seconds", description, "s"
-        ),
-        legacy_duckgres=meter.create_histogram_float(
-            "duckgres_shadow_materialization_duration_seconds", description, "s"
-        ),
-    )
-
-
-def get_managed_warehouse_shadow_rows_materialized_metrics() -> _DualMetricHistograms:
-    meter = workflow.metric_meter()
-    description = "Number of rows materialized per managed warehouse shadow materialization."
-    return _DualMetricHistograms(
-        managed_warehouse=meter.create_histogram_float("managed_warehouse_shadow_rows_materialized", description),
-        legacy_duckgres=meter.create_histogram_float("duckgres_shadow_rows_materialized", description),
-    )
-
-
-def get_managed_warehouse_shadow_storage_mib_metrics() -> _DualMetricHistograms:
-    meter = workflow.metric_meter()
-    description = "Total DuckLake storage size (MiB) after a managed warehouse shadow materialization."
-    return _DualMetricHistograms(
-        managed_warehouse=meter.create_histogram_float("managed_warehouse_shadow_storage_mib", description, "MiB"),
-        legacy_duckgres=meter.create_histogram_float("duckgres_shadow_storage_mib", description, "MiB"),
-    )
-
-
-def get_managed_warehouse_shadow_storage_delta_mib_metrics() -> _DualMetricHistograms:
-    meter = workflow.metric_meter()
-    description = "Change in DuckLake storage size (MiB) after a managed warehouse shadow materialization."
-    return _DualMetricHistograms(
-        managed_warehouse=meter.create_histogram_float(
-            "managed_warehouse_shadow_storage_delta_mib", description, "MiB"
-        ),
-        legacy_duckgres=meter.create_histogram_float("duckgres_shadow_storage_delta_mib", description, "MiB"),
-    )
-
-
-def get_clickhouse_materialization_duration_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "clickhouse_materialization_duration_seconds",
-        "Duration of ClickHouse materialization in seconds.",
-        "s",
+def get_managed_warehouse_trino_missing_object_metric(error_name: str) -> MetricCounter:
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"error_name": error_name})
+        .create_counter(
+            "managed_warehouse_shadow_trino_missing_object",
+            "Number of managed warehouse shadow builds that failed because Trino could not resolve a catalog, schema, table or column, by error name.",
+        )
     )
 
 

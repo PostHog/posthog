@@ -10,6 +10,7 @@ from products.alerts_platform.backend.delivery import (
     describers,
     destinations,
     legacy_webhook,
+    recipients,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -18,7 +19,10 @@ from products.alerts_platform.backend.facade.contracts import (
     LegacyEventEmitter,
     LegacyWebhookBody,
     SourceDescriber,
+    SourceImageResolver,
     SourceKind,
+    SourceRecipients,
+    SourceSlackRenderer,
 )
 
 if TYPE_CHECKING:
@@ -29,8 +33,16 @@ def register_destination_resolver(resolver: DestinationResolver) -> None:
     destinations.register(resolver)
 
 
+def register_source_recipients(source: SourceKind, lookup: SourceRecipients) -> None:
+    recipients.register(source, lookup)
+
+
 def register_source_describer(source: SourceKind, describer: SourceDescriber) -> None:
     describers.register(source, describer)
+
+
+def register_image_resolver(source: SourceKind, resolver: SourceImageResolver) -> None:
+    describers.register_image_resolver(source, resolver)
 
 
 def refused_destination(data: AlertDestinationData) -> str | None:
@@ -66,3 +78,7 @@ def has_legacy_event_emitter(source: SourceKind) -> bool:
 def native_sends_legacy_webhook_body(source: SourceKind, team: Team) -> bool | None:
     """Whether a stock webhook receives the body its HogFunction sent when delivered natively. None when unknown."""
     return legacy_webhook.native_sends_legacy_body(source, team)
+
+
+def register_source_slack_renderer(source: SourceKind, renderer: SourceSlackRenderer) -> None:
+    describers.register_slack_renderer(source, renderer)

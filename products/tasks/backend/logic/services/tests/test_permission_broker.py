@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from products.tasks.backend.logic.services.permission_broker import (
     parse_permission_request,
     try_auto_respond_permission_request,
@@ -16,10 +18,11 @@ BROKER = "products.tasks.backend.logic.services.permission_broker"
 
 
 class TestParsePermissionRequest(SimpleTestCase):
-    def test_parses_bare_and_notification_shapes(self) -> None:
+    @parameterized.expand([("normal", "perm-1", True), ("max", "r" * 200, True), ("too_long", "r" * 201, False)])
+    def test_parses_bare_and_notification_shapes(self, _name: str, request_id: str, valid: bool) -> None:
         bare = {
             "type": "permission_request",
-            "requestId": "perm-1",
+            "requestId": request_id,
             "options": [
                 {"kind": "allow_once", "name": "Yes", "optionId": "allow"},
                 {"kind": "reject_once", "name": "No", "optionId": "reject"},
@@ -36,8 +39,11 @@ class TestParsePermissionRequest(SimpleTestCase):
 
         for event in (bare, notification):
             parsed = parse_permission_request(event)
+            if not valid:
+                assert parsed is None
+                continue
             assert parsed is not None
-            assert parsed["request_id"] == "perm-1"
+            assert parsed["request_id"] == request_id
             assert [option["optionId"] for option in parsed["options"]] == ["allow", "reject"]
 
     def test_rejects_non_permission_events(self) -> None:

@@ -22,10 +22,10 @@ use tracing_subscriber::{EnvFilter, Layer};
 use ingestion_consumer::aperture;
 use ingestion_consumer::batcher::worker_pool::WorkerPoolSource;
 use ingestion_consumer::batcher::{Batcher, BatcherObserver};
-use ingestion_consumer::config::Config;
+use ingestion_consumer::config::{Config, GRACEFUL_SHUTDOWN, LIVENESS_DEADLINE};
 use ingestion_consumer::consumer::IngestionConsumer;
 use ingestion_consumer::debug_recorder::{
-    BatcherLoad, DebugLoad, DebugRecorder, DebugState, RoutingDebug, WorkerStatus,
+    BatcherLoad, DebugLoad, DebugRecorder, DebugState, GovernorLoad, RoutingDebug, WorkerStatus,
 };
 use ingestion_consumer::discovery::{
     DiscoveryMode, EndpointSliceDiscovery, StaticDiscovery, WorkerDiscovery,
@@ -53,13 +53,22 @@ fn main() -> Result<()> {
     config
         .partition_budget()
         .map_err(|err| anyhow::anyhow!("invalid partition budget: {err}"))?;
+    config
+        .in_flight_limit()
+        .map_err(|err| anyhow::anyhow!("invalid in-flight limit: {err}"))?;
+    config
+        .revoke_drain_timeout()
+        .map_err(|err| anyhow::anyhow!("invalid revoke drain timeout: {err}"))?;
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .context("Failed to build tokio runtime")?;
 
-    runtime.block_on(async_main(config))
+    let result = runtime.block_on(async_main(config));
+    // A blocking commit that outlived its timeout must not hold the exit.
+    runtime.shutdown_timeout(Duration::from_secs(5));
+    result
 }
 
 async fn async_main(config: Config) -> Result<()> {
@@ -113,8 +122,8 @@ async fn async_main(config: Config) -> Result<()> {
     let consumer_handle = manager.register(
         "consumer",
         ComponentOptions::new()
-            .with_graceful_shutdown(Duration::from_secs(60))
-            .with_liveness_deadline(Duration::from_secs(60))
+            .with_graceful_shutdown(GRACEFUL_SHUTDOWN)
+            .with_liveness_deadline(LIVENESS_DEADLINE)
             .with_stall_threshold(3),
     );
 
@@ -281,10 +290,12 @@ async fn async_main(config: Config) -> Result<()> {
 
     let mut transport = GrpcTransport::new(
         grpc_port,
-        config.ingestion_worker_concurrent_batches,
         Duration::from_millis(config.ingestion_worker_stream_ack_timeout_ms),
     );
     transport.set_max_body_bytes(config.transport_max_body_bytes);
+    transport.set_idle_close(Duration::from_millis(
+        config.ingestion_worker_stream_idle_close_ms,
+    ));
     transport.set_assignment_epoch(assignment_epoch);
     let transport = Arc::new(transport);
 
@@ -681,6 +692,14 @@ async fn build_debug_load(
             queued_bytes: batcher.queued_bytes,
             waiting_keys: batcher.waiting_keys,
             claimed_keys: batcher.claimed_keys,
+            governor: GovernorLoad {
+                adaptation: batcher.governor.adaptation.as_str(),
+                permits: batcher.governor.permits,
+                ceiling: batcher.governor.ceiling,
+                free_permits: batcher.governor.free_permits,
+                starved_messages: batcher.governor.starved_messages,
+                rtt_seconds: batcher.governor.rtt.map(|rtt| rtt.as_secs_f64()),
+            },
         },
         peer_index,
         peer_count,

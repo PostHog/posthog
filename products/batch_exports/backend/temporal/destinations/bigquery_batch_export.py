@@ -39,7 +39,10 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_or_settings
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import GoogleCloudServiceAccountIntegration
 from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError, require_google_token_uri
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
@@ -60,6 +63,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     is_over_billing_limit_error,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.errors import ColumnTypeMappingError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -78,11 +82,13 @@ from products.batch_exports.backend.temporal.queue import (
 )
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    handle_column_type_mapping_errors,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
 
 NON_RETRYABLE_ERROR_TYPES = (
+    "UnsupportedColumnTypeError",
     # Raised on missing permissions.
     "Forbidden",
     # The stored key file names a token endpoint that is not Google's; only a re-upload fixes it.
@@ -269,7 +275,10 @@ class BigQueryField(Field):
 
     @classmethod
     def from_arrow_field(cls, field: pa.Field) -> typing.Self:
-        type = data_type_to_bigquery_type(field.type)
+        try:
+            type = data_type_to_bigquery_type(field.type)
+        except ValueError as err:
+            raise ColumnTypeMappingError("BigQuery", field.name, field.type) from err
         return cls(field.name, type, nullable=field.nullable)
 
     @classmethod
@@ -441,7 +450,7 @@ def get_our_google_cloud_credentials() -> google.auth.impersonated_credentials.C
             aws_security_credentials_supplier=Boto3CredentialsSupplier(),
             scopes=["https://www.googleapis.com/auth/cloud-platform"],
         ),
-        target_principal=settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT,
+        target_principal=get_or_settings("BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT", CredentialsCaller.BATCH_EXPORTS),
         target_scopes=["https://www.googleapis.com/auth/cloud-platform"],
         lifetime=3600,
     )
@@ -458,7 +467,7 @@ class GoogleCloudCredentialsError(Exception):
 async def ensure_our_google_cloud_credentials_are_valid():
     """Raise `GoogleCloudCredentialsError` if we cannot refresh our credentials."""
 
-    our_credentials = get_our_google_cloud_credentials()
+    our_credentials = await asyncio.to_thread(get_our_google_cloud_credentials)
     session = _make_requests_session()
     try:
         await asyncio.to_thread(our_credentials.refresh, google.auth.transport.requests.Request(session=session))
@@ -496,7 +505,7 @@ async def get_service_account_description(
 
     Uses our credentials to authenticate.
     """
-    our_credentials = get_our_google_cloud_credentials()
+    our_credentials = await asyncio.to_thread(get_our_google_cloud_credentials)
     client = iam_admin_v1.IAMAsyncClient(credentials=our_credentials)
 
     retryable_get_service_account = make_retryable_with_exponential_backoff(
@@ -1484,8 +1493,10 @@ async def _get_google_cloud_service_account_integration(
         return None
 
     try:
-        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.google_cloud_service_account.credentials.aget(
+            inputs.team_id, inputs.integration_id
+        )
+    except IntegrationNotFound:
         raise BigQueryIntegrationNotFoundError(
             f"Google Cloud service account integration with id '{inputs.integration_id}' not found"
         )
@@ -1529,7 +1540,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
         inputs.table_id,
     )
 
-    async with Heartbeater():
+    async with Heartbeater(), contextlib.AsyncExitStack() as cleanup:
         model = migrate_batch_export_model(inputs.batch_export_model)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
@@ -1543,6 +1554,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
             stage_folder=inputs.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
@@ -1572,14 +1584,15 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             json_fields = set()
 
         requires_merge = model.incremental_mode == IncrementalMode.MERGE
-        target_table = BigQueryTable.from_arrow_schema(
-            record_batch_schema,
-            table_id=inputs.table_id,
-            project_id=project_id,
-            dataset_id=inputs.dataset_id,
-            primary_key=model.primary_key if requires_merge else (),
-            version_key=model.version_key if requires_merge else (),
-        )
+        with handle_column_type_mapping_errors(model):
+            target_table = BigQueryTable.from_arrow_schema(
+                record_batch_schema,
+                table_id=inputs.table_id,
+                project_id=project_id,
+                dataset_id=inputs.dataset_id,
+                primary_key=model.primary_key if requires_merge else (),
+                version_key=model.version_key if requires_merge else (),
+            )
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         attempt = activity.info().attempt

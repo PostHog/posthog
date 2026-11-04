@@ -1,10 +1,16 @@
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
-import { ProductManifest } from '~/types'
+import { ActivityScope, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'CDP',
+    activityDescribers: {
+        [ActivityScope.HOG_FUNCTION]: () =>
+            import('scenes/hog-functions/misc/activityDescriptions').then(
+                (module) => module.hogFunctionActivityDescriber
+            ),
+    },
     scenes: {
         Transformations: {
             import: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
@@ -83,7 +89,7 @@ export const manifest: ProductManifest = {
             iconType: 'data_transformation',
             iconColor: ['var(--color-product-transformations-light)', 'var(--color-product-transformations-dark)'],
             href: urls.transformations(),
-            searchKeywords: ['enrichment', 'geoip', 'redact pii'],
+            searchKeywords: ['enrichment', 'geoip', 'redact pii', 'plugins'],
             sceneKey: 'Transformations',
             sceneKeys: ['Transformations'],
         },

@@ -28,6 +28,7 @@ import { useLatest } from './hooks/useLatest'
 import { useResolvedYFormatter } from './hooks/useResolvedYFormatters'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
 import { useYAxisMaps } from './hooks/useYAxisMaps'
+import { useResolvedChartTheme } from './theme'
 import type {
     AreaSelectData,
     ChartConfig,
@@ -63,7 +64,8 @@ export interface ChartProps<Meta = unknown> {
     series: Series<Meta>[]
     labels: string[]
     config?: ChartConfig
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     createScales: CreateScalesFn
     /** Static layer — grid, lines, areas, points. Redrawn only when chart inputs change. */
     drawStatic: (args: ChartDrawArgs) => void
@@ -72,6 +74,10 @@ export interface ChartProps<Meta = unknown> {
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Fires on a right click with the series nearest the cursor. It never pins or unpins the
+     *  tooltip. The browser menu still opens unless the host calls `preventDefault()` on the
+     *  `contextmenu` event. `isPointClickable` limits it like `onPointClick`. */
+    onPointContextMenu?: (data: PointClickData<Meta>) => void
     /** Limits `onPointClick` and the pointer cursor to the points it returns true for. */
     isPointClickable?: (dataIndex: number) => boolean
     /** Enables x-axis drag-to-zoom. Fired with the label range the user dragged across.
@@ -124,12 +130,13 @@ export function Chart<Meta = unknown>({
     series,
     labels,
     config,
-    theme,
+    theme: themeProp,
     createScales: createScalesFn,
     drawStatic,
     drawHover,
     tooltip: renderTooltipProp,
     onPointClick,
+    onPointContextMenu,
     isPointClickable,
     onDateRangeZoom,
     onAreaSelect,
@@ -144,6 +151,7 @@ export function Chart<Meta = unknown>({
     wrapClickData,
     resolveHoverIndex,
 }: ChartProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         xTickFormatter,
         xTickLabelRotation = 0,
@@ -183,39 +191,12 @@ export function Chart<Meta = unknown>({
         pinnable: pinnableTooltip = false,
         resolveClickToNearestSeries = false,
         placement: tooltipPlacement = 'follow-data',
-        valueFormatter: tooltipValueFormatter,
-        labelFormatter: tooltipLabelFormatter,
-        showTotal: tooltipShowTotal,
-        totalLabel: tooltipTotalLabel,
-        totalFormatter: tooltipTotalFormatter,
-        sortedByValue: tooltipSortedByValue,
+        ...defaultTooltipOptions
     } = tooltipConfig ?? {}
 
-    // No render prop: render DefaultTooltip with config.tooltip's formatters (all undefined → bare default).
-    const renderTooltip = useMemo<(ctx: TooltipContext<Meta>) => React.ReactNode>(
-        () =>
-            renderTooltipProp ??
-            ((ctx: TooltipContext<Meta>) => (
-                <DefaultTooltip
-                    {...ctx}
-                    valueFormatter={tooltipValueFormatter}
-                    labelFormatter={tooltipLabelFormatter}
-                    showTotal={tooltipShowTotal}
-                    totalLabel={tooltipTotalLabel}
-                    totalFormatter={tooltipTotalFormatter}
-                    sortedByValue={tooltipSortedByValue}
-                />
-            )),
-        [
-            renderTooltipProp,
-            tooltipValueFormatter,
-            tooltipLabelFormatter,
-            tooltipShowTotal,
-            tooltipTotalLabel,
-            tooltipTotalFormatter,
-            tooltipSortedByValue,
-        ]
-    )
+    // No render prop: render DefaultTooltip with config.tooltip's content options.
+    const renderTooltip =
+        renderTooltipProp ?? ((ctx: TooltipContext<Meta>) => <DefaultTooltip {...ctx} {...defaultTooltipOptions} />)
 
     const margins = useChartMargins({
         series,
@@ -349,6 +330,7 @@ export function Chart<Meta = unknown>({
         pinnable: pinnableTooltip,
         resolveClickToNearestSeries,
         onPointClick,
+        onPointContextMenu,
         isPointClickable,
         onDateRangeZoom,
         onAreaSelect,
@@ -397,18 +379,17 @@ export function Chart<Meta = unknown>({
         hoverAnimationMs,
     })
 
-    const ariaLabel = useMemo(() => {
-        const parts = [`Chart with ${countVisibleSeries(coloredSeries)} data series`]
-        const cleanXAxisLabel = normalizeAxisLabel(xAxisLabel)
-        const cleanYAxisLabel = normalizeAxisLabel(yAxisLabel)
-        if (!hideXAxis && cleanXAxisLabel) {
-            parts.push(`X-axis: ${cleanXAxisLabel}`)
-        }
-        if (!hideYAxis && cleanYAxisLabel) {
-            parts.push(`Y-axis: ${cleanYAxisLabel}`)
-        }
-        return parts.join('. ')
-    }, [coloredSeries, hideXAxis, hideYAxis, xAxisLabel, yAxisLabel])
+    const visibleSeriesCount = useMemo(() => countVisibleSeries(coloredSeries), [coloredSeries])
+    const ariaParts = [`Chart with ${visibleSeriesCount} data series`]
+    const cleanXAxisLabel = normalizeAxisLabel(xAxisLabel)
+    const cleanYAxisLabel = normalizeAxisLabel(yAxisLabel)
+    if (!hideXAxis && cleanXAxisLabel) {
+        ariaParts.push(`X-axis: ${cleanXAxisLabel}`)
+    }
+    if (!hideYAxis && cleanYAxisLabel) {
+        ariaParts.push(`Y-axis: ${cleanYAxisLabel}`)
+    }
+    const ariaLabel = ariaParts.join('. ')
 
     const canvasBounds = useCanvasBounds(canvasRef)
 
@@ -416,10 +397,6 @@ export function Chart<Meta = unknown>({
     // falling back to the value resolver when the chart doesn't stack.
     const stablePositionValue = useStableResolveValue(resolvePositionValue ?? resolveValue)
 
-    const axisValue = useMemo(
-        () => ({ orientation: axisOrientation, xTickFormatter, isPercent }),
-        [axisOrientation, xTickFormatter, isPercent]
-    )
     const axisColor = theme.axisColor ?? DEFAULT_AXIS_COLOR
 
     const layoutValue = useMemo<ChartLayoutContextValue | null>(() => {
@@ -434,10 +411,22 @@ export function Chart<Meta = unknown>({
             theme,
             resolvePositionValue: stablePositionValue,
             canvasBounds,
-            axis: axisValue,
+            axis: { orientation: axisOrientation, xTickFormatter, isPercent },
             yGutters,
         }
-    }, [scales, dimensions, labels, coloredSeries, theme, stablePositionValue, canvasBounds, axisValue, yGutters])
+    }, [
+        scales,
+        dimensions,
+        labels,
+        coloredSeries,
+        theme,
+        stablePositionValue,
+        canvasBounds,
+        axisOrientation,
+        xTickFormatter,
+        isPercent,
+        yGutters,
+    ])
 
     const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
 
@@ -457,7 +446,9 @@ export function Chart<Meta = unknown>({
                         (isPointClickable?.(hoverIndex) ?? true)
                     }
                     crosshair={!!onDateRangeZoom || !!onAreaSelect}
+                    contextMenu={!!onPointContextMenu}
                     ariaLabel={ariaLabel}
+                    labelCount={labels.length}
                     handlers={handlers}
                     showOverlay={!!(dimensions && scales)}
                 >

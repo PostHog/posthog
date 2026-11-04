@@ -135,6 +135,12 @@ USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
         owner="user",
         safe_message="The score was outside the configured bounds, so this run was skipped. Check the score limits.",
     ),
+    # Unlike `rate_limit`, this limit can clear on the next run, so the evaluation stays enabled.
+    "rate_limit_retries_exhausted": EvaluationErrorSpec(
+        error_type="rate_limit_retries_exhausted",
+        owner="user",
+        safe_message="The provider kept rate limiting your API key, so this run was skipped. Raise the key's limits or lower the sampling percentage.",
+    ),
 }
 
 

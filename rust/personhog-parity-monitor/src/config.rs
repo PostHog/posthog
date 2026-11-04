@@ -30,6 +30,11 @@ pub struct Config {
     /// merge's writes in.
     #[envconfig(default = "$creator_event_uuid")]
     pub parity_person_ignored_properties: String,
+    /// The share of persons compared, 1 to 100. Both feeds keep the same
+    /// persons, picked by a hash of the key, so every kept person still gets a
+    /// full verdict.
+    #[envconfig(default = "100")]
+    pub parity_person_sample_percent: u32,
 
     /// Has to exceed the publisher's drain lag, or every pair settles
     /// one-sided before the personhog copy arrives.
@@ -123,6 +128,15 @@ impl Config {
             .collect()
     }
 
+    pub fn person_sample_percent(&self) -> Result<u32, String> {
+        match self.parity_person_sample_percent {
+            percent @ 1..=100 => Ok(percent),
+            percent => Err(format!(
+                "PARITY_PERSON_SAMPLE_PERCENT is {percent}, expected 1 to 100"
+            )),
+        }
+    }
+
     pub fn teams(&self) -> Result<Option<HashSet<i64>>, String> {
         let teams = self
             .parity_teams
@@ -197,6 +211,24 @@ mod tests {
             Ok(Some(HashSet::from([2, 15])))
         );
         assert!(config(&[("PARITY_TEAMS", "2,all")]).teams().is_err());
+    }
+
+    #[test]
+    fn the_person_sample_accepts_a_percentage_only() {
+        for (value, expected) in [
+            ("100", Ok(100)),
+            ("1", Ok(1)),
+            ("0", Err(())),
+            ("101", Err(())),
+        ] {
+            assert_eq!(
+                config(&[("PARITY_PERSON_SAMPLE_PERCENT", value)])
+                    .person_sample_percent()
+                    .map_err(|_| ()),
+                expected,
+                "{value}"
+            );
+        }
     }
 
     #[test]

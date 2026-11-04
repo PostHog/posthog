@@ -111,7 +111,8 @@ async function routeTasksApi(page: Page, mock: TasksApiMock): Promise<void> {
     const runsRe = new RegExp(`/tasks/${TASK_ID}/runs/$`)
     const runRe = new RegExp(`/tasks/${TASK_ID}/runs/${RUN_ID}/$`)
     const tokenRe = new RegExp(`/runs/${RUN_ID}/stream_token/$`)
-    const logsRe = new RegExp(`/runs/${RUN_ID}/logs/$`)
+    // A paged read (`.../log_entries?tail_bytes=...`) has no trailing slash either, like the `stream` action below.
+    const logsRe = new RegExp(`/runs/${RUN_ID}/log_entries/?$`)
     // The `stream` action URL has no trailing slash (`.../stream?start=latest`), unlike the other
     // resource paths — match it with an optional slash so the route intercepts instead of falling through
     // to the real backend (a fall-through 404s the fake run id and masks the clean-EOF drop under test).
@@ -179,9 +180,10 @@ async function openRunDeepLink(page: Page, teamId: string): Promise<void> {
     })
 }
 
-async function prepareRunComposer(page: Page): Promise<void> {
-    await page.addInitScript(() => {
+async function prepareRunComposer(page: Page, { posthogAiAccess = false } = {}): Promise<void> {
+    await page.addInitScript((serverAllowsPosthogAi: boolean) => {
         let appContext: {
+            posthog_ai_access?: boolean
             current_user?: {
                 organization?: { is_ai_data_processing_approved?: boolean }
                 has_seen_product_intro_for?: Record<string, boolean>
@@ -191,6 +193,10 @@ async function prepareRunComposer(page: Page): Promise<void> {
             configurable: true,
             get: () => appContext,
             set: (value: typeof appContext) => {
+                // The app shows PostHog AI 2.0 only when the server's access gate allows it.
+                if (serverAllowsPosthogAi) {
+                    value.posthog_ai_access = true
+                }
                 if (value.current_user?.organization) {
                     value.current_user.organization.is_ai_data_processing_approved = true
                 }
@@ -203,7 +209,7 @@ async function prepareRunComposer(page: Page): Promise<void> {
                 appContext = value
             },
         })
-    })
+    }, posthogAiAccess)
 }
 
 test.describe('Task run surface', () => {
@@ -367,7 +373,7 @@ test.describe('Task run surface', () => {
             const agentReady = new Promise<void>((resolve) => {
                 startAgent = resolve
             })
-            await prepareRunComposer(page)
+            await prepareRunComposer(page, { posthogAiAccess: true })
             await mockFeatureFlags(page, {
                 [TASKS_FLAG]: true,
                 'phai-sandbox-mode': true,

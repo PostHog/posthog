@@ -7,15 +7,19 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { type SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { isKeyOf } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { getRelativeNextPath } from 'lib/utils/url'
-import { billingLogic } from 'scenes/billing/billingLogic'
-import { reportOnboardingCompleted, reportOnboardingStarted } from 'scenes/onboarding/onboardingUsage'
+import {
+    reportOnboardingCompleted,
+    reportOnboardingStarted,
+    reportOnboardingStepSkipped,
+} from 'scenes/onboarding/onboardingUsage'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -239,7 +243,8 @@ export interface onboardingLogicMeta {
         installStepReturnUrl: (
             flowVariant: OnboardingFlowVariant,
             flowUrl: string,
-            currentStepProductKey: ProductKey | null
+            currentStepProductKey: ProductKey | null,
+            secondaryProductKeys: ProductKey[]
         ) => string
         onCompleteOnboardingRedirectUrl: (
             flowVariant: OnboardingFlowVariant,
@@ -688,17 +693,24 @@ export const onboardingLogic = kea<onboardingLogicType>([
         // Where an OAuth round trip started from the install step returns to, so the user lands back in
         // the same flow instead of the default per-product one.
         installStepReturnUrl: [
-            (s) => [s.flowVariant, s.flowUrl, s.currentStepProductKey],
-            (flowVariant: OnboardingFlowVariant, flowUrl: string, currentStepProductKey: ProductKey | null): string => {
+            (s) => [s.flowVariant, s.flowUrl, s.currentStepProductKey, s.secondaryProductKeys],
+            (
+                flowVariant: OnboardingFlowVariant,
+                flowUrl: string,
+                currentStepProductKey: ProductKey | null,
+                secondaryProductKeys: ProductKey[]
+            ): string => {
                 if (flowVariant === 'simple') {
                     return combineUrl(flowUrl, {
                         step: `${OnboardingStepKey.INSTALL}:${SIMPLE_ONBOARDING_PRODUCT_KEY}`,
                     }).url
                 }
-                return urls.onboarding({
-                    productKey: currentStepProductKey ?? undefined,
-                    stepKey: OnboardingStepKey.INSTALL,
-                })
+                return combineUrl(flowUrl, {
+                    step: currentStepProductKey
+                        ? `${OnboardingStepKey.INSTALL}:${currentStepProductKey}`
+                        : OnboardingStepKey.INSTALL,
+                    ...(secondaryProductKeys.length ? { with: secondaryProductKeys.join(',') } : {}),
+                }).url
             },
         ],
         onCompleteOnboardingRedirectUrl: [
@@ -878,10 +890,21 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 }
             } catch {
                 lemonToast.error("Couldn't save onboarding progress. Please try again.")
+            } finally {
+                actions.setIsCompleting(false)
             }
         },
         skipSimpleOnboarding: async () => {
-            if (values.isSkippingOnboarding) {
+            if (values.isSkippingOnboarding || values.isCompleting) {
+                return
+            }
+            if (values.currentStepKey === OnboardingStepKey.INVITE_TEAMMATES && !values.hasNextStep) {
+                reportOnboardingStepSkipped(
+                    OnboardingStepKey.INVITE_TEAMMATES,
+                    'simple',
+                    values.productKey ?? undefined
+                )
+                actions.completeOnboarding()
                 return
             }
             actions.setIsSkippingOnboarding(true)

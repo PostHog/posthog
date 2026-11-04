@@ -28,7 +28,7 @@ export function EventActions({ record }: { record: ErrorEventType }): JSX.Elemen
         hasRecording,
         timestamp: record.timestamp,
     })
-    const logs = useViewLogsButton({ sessionId, timestamp: record.timestamp })
+    const logs = useViewLogsButton({ sessionId, timestamp: record.timestamp, openedFrom: 'exception' })
     const recordingTooltip =
         typeof recordingDisabledReason === 'string' ? recordingDisabledReason : recordingWarningReason
 

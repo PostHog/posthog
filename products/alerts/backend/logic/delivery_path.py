@@ -29,6 +29,7 @@ from products.alerts.backend.logic.destination_eligibility import (
 )
 from products.alerts_platform.backend.facade.contracts import DeliveryPath, SourceKind
 from products.alerts_platform.backend.facade.delivery import native_sends_legacy_webhook_body
+from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 logger = structlog.get_logger(__name__)
 
@@ -74,7 +75,9 @@ class _TeamDestinations:
             return DeliveryPathChoice(reason=HogFunctionPathReason.CUSTOMIZED)
         # Per alert, so the team's other alerts still deliver natively.
         if self._source == SourceKind.INSIGHT and any(
-            destination.template_id == PagerDutyDestination.template_id for destination in destinations
+            destination.template_id == PagerDutyDestination.template_id
+            and LEGACY_INSIGHT_ALERT_EVENT in destination.event_ids
+            for destination in destinations
         ):
             return DeliveryPathChoice(reason=HogFunctionPathReason.PAGERDUTY_NOT_NATIVE)
         if any(destination.template_id == WebhookDestination.template_id for destination in destinations):

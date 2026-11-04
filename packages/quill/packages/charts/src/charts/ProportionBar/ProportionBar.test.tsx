@@ -2,7 +2,7 @@ import { fireEvent } from '@testing-library/react'
 
 import type { RadialSlicePayload } from '../../core/hooks/useRadialInteraction'
 import type { ChartTheme, Series } from '../../core/types'
-import { mockRect, renderHogChart, waitForHogChartTooltip } from '../../testing'
+import { mockRect, renderChart, waitForChartTooltip } from '../../testing'
 import { ProportionBar } from './ProportionBar'
 
 const THEME: ChartTheme = { colors: ['#22d3ee', '#f14f58', '#a78bfa'], backgroundColor: '#ffffff' }
@@ -19,9 +19,9 @@ const INSIDE_B = at(650)
 
 describe('ProportionBar', () => {
     it('hands the tooltip the hovered part with its raw value, like a pie', async () => {
-        const { chart } = renderHogChart(<ProportionBar series={PARTS} theme={THEME} />)
+        const { chart } = renderChart(<ProportionBar series={PARTS} theme={THEME} />)
 
-        await waitForHogChartTooltip(3000, () => fireEvent.mouseMove(chart.element, INSIDE_B))
+        await waitForChartTooltip(3000, () => fireEvent.mouseMove(chart.element, INSIDE_B))
         const tooltip = await chart.waitForTooltip()
 
         expect(tooltip).toMatchObject({ label: 'b', dataIndex: 1 })
@@ -38,7 +38,7 @@ describe('ProportionBar', () => {
         { name: 'a hidden part before it', hidden: ['a'], cursor: at(200), sliceIndex: 0, fraction: 0.5 },
     ])('reports the clicked part like a pie slice, with $name', async ({ hidden, cursor, sliceIndex, fraction }) => {
         const onSliceClick = jest.fn()
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <ProportionBar
                 series={PARTS}
                 theme={THEME}
@@ -47,7 +47,7 @@ describe('ProportionBar', () => {
             />
         )
 
-        await waitForHogChartTooltip(3000, () => fireEvent.mouseMove(chart.element, cursor))
+        await waitForChartTooltip(3000, () => fireEvent.mouseMove(chart.element, cursor))
         fireEvent.click(chart.element)
 
         const payload: RadialSlicePayload = onSliceClick.mock.calls[0][0]
@@ -76,7 +76,7 @@ describe('ProportionBar', () => {
         ({ series, hidden, secondaryLabels }) => {
             const onSliceClick = jest.fn()
             const onError = jest.fn()
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <ProportionBar
                     series={series}
                     theme={THEME}
@@ -95,7 +95,7 @@ describe('ProportionBar', () => {
     )
 
     it('recomputes the legend shares over the parts left visible', () => {
-        const { chart } = renderHogChart(<ProportionBar series={PARTS} theme={THEME} />)
+        const { chart } = renderChart(<ProportionBar series={PARTS} theme={THEME} />)
         expect(chart.legendItems().map((item) => item.secondaryLabel)).toEqual([
             '75% · 600',
             '12.5% · 100',

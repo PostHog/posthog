@@ -17,7 +17,8 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { isActorsQuery, isBIVisualizationNode, isEventsQuery, isGroupsQuery, isInsightQueryNode } from '~/queries/utils'
+import { isActorsQuery, isBIVisualizationNode, isInsightQueryNode } from '~/queries/schema/node-guards'
+import { isEventsQuery, isGroupsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
 
 import { areAlertsSupportedForInsight } from 'products/alerts/frontend/logic/insightAlertsLogic'
@@ -150,17 +151,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 maxToolProps={readDataMaxToolProps}
                 actions={
                     todayRailNav ? (
-                        <>
-                            {insightMode !== ItemMode.Edit && isPersistedInsight && (
-                                <InsightShareMenu insight={insight} />
-                            )}
-                            <QuillInsightPageHeaderActions
-                                insightLogicProps={insightLogicProps}
-                                isPersistedInsight={isPersistedInsight}
-                                canCreateAlertForInsight={canCreateAlertForInsight}
-                                saveInsightToFolder={saveInsightToFolder}
-                            />
-                        </>
+                        <QuillInsightPageHeaderActions
+                            insightLogicProps={insightLogicProps}
+                            isPersistedInsight={isPersistedInsight}
+                            canCreateAlertForInsight={canCreateAlertForInsight}
+                            saveInsightToFolder={saveInsightToFolder}
+                        />
                     ) : (
                         <>
                             {insightMode === ItemMode.Edit && isSavedInsight && (

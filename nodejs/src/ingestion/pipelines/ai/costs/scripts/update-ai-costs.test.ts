@@ -187,11 +187,13 @@ describe('isFirstPartyRoute()', () => {
         }
     })
 
-    it('maps every alias onto a vendor that hosts most of its own namespace', () => {
+    it('maps every alias onto the top host of its own namespace', () => {
         // Binds the table to the price book rather than to itself. Mere presence
         // is too weak: resellers appear on other vendors' namespaces too, and
-        // `qwen: 'together'` would pass that. A vendor hosts the bulk of its own
-        // models (80-100% live) where a reseller reaches a third at most.
+        // `qwen: 'together'` would pass that. A fixed share is too brittle too:
+        // Alibaba serves only the closed Qwen models, under half the namespace,
+        // with a reseller close behind. So the vendor must out-host every rival.
+        // Rivals group by first key segment, which only overstates them.
         const book: Array<{ model: string; cost: Record<string, unknown> }> = parseJSON(
             fs.readFileSync(path.join(__dirname, '../providers/llm-costs.json'), 'utf8')
         )
@@ -203,10 +205,23 @@ describe('isFirstPartyRoute()', () => {
             if (models.length === 0) {
                 continue
             }
-            const hosted = models.filter((row) =>
-                Object.keys(row.cost).some((key) => key === vendor || key.startsWith(`${vendor}-`))
-            )
-            expect(hosted.length / models.length).toBeGreaterThan(0.5)
+            const hostCounts = new Map<string, number>()
+            for (const row of models) {
+                const hosts = new Set(
+                    Object.keys(row.cost)
+                        .filter((key) => key !== 'default')
+                        .map((key) => (key === vendor || key.startsWith(`${vendor}-`) ? vendor : key.split('-')[0]))
+                )
+                for (const host of hosts) {
+                    hostCounts.set(host, (hostCounts.get(host) ?? 0) + 1)
+                }
+            }
+            const hosted = hostCounts.get(vendor) ?? 0
+            const topRival = Math.max(0, ...[...hostCounts].filter(([host]) => host !== vendor).map(([, n]) => n))
+            expect({ namespace, vendorOutHostsRivals: hosted > topRival }).toEqual({
+                namespace,
+                vendorOutHostsRivals: true,
+            })
             checked += 1
         }
         expect(checked).toBeGreaterThan(0)

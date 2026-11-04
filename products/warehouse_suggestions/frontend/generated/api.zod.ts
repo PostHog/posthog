@@ -50,6 +50,27 @@ export const WarehouseSuggestionsAcceptCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Materialize only, incremental refresh only: how far before the last refresh's highest incremental_key value each refresh reads again, in seconds, so late rows are picked up. Omit to keep the proposed lookback."
         ),
+    keep_materialized: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Deprecate only: true to keep a materialized view refreshing after it is deprecated. By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its stored table, unless other views or syncs depend on it."
+        ),
+    delete_view: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Deprecate only: true to delete the view instead of marking it deprecated. Deleting also drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it, or when it feeds person properties, account properties, a destination or a workflow. Refused with a 400 when any day in the read window has no read data, because a view read only on those days would look unread.'
+        ),
+})
+
+export const WarehouseSuggestionsAssignCreateBody = /* @__PURE__ */ zod.object({
+    assignee_id: zod
+        .number()
+        .nullable()
+        .describe(
+            'ID of the user to assign. They must be able to accept the suggestion: edit access to the view or table, and to the data catalog for certify and deprecate suggestions. Null removes the assignee. The assignee gets a notification unless they assign themselves.'
+        ),
 })
 
 export const warehouseSuggestionsDismissCreateBodyNoteMax = 1000

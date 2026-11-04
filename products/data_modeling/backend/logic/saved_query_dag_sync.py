@@ -4,6 +4,7 @@ from uuid import UUID
 
 from django.db import connection, transaction
 from django.db.models import Q, QuerySet
+from django.utils import timezone
 
 import structlog
 
@@ -22,6 +23,7 @@ from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.modeling import UnknownParentError, get_parents_from_model_query
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -40,14 +42,17 @@ def materializes(saved_query: "DataWarehouseSavedQuery") -> bool:
     types the node VIEW, which `get_dag_structure` calls ephemeral and a run skips, so the table can
     never come back and the query stops updating for good, without an error.
 
-    Managed views are excluded because their flag is not a statement of intent: the Revenue
-    Analytics viewsets set `is_materialized` at provisioning, before anything runs, so reading it
-    would enroll a large population of views that have never materialized a row.
+    Revenue Analytics sets its flag before the first build. Requiring an existing table keeps
+    those legacy views out of scheduling until they have actually materialized.
     """
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     if saved_query.origin == DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET:
-        return saved_query.table_id is not None
+        # TODO: drop this branch once the Revenue Analytics provider declares `materialized` per view
+        # instead of hardcoding True. Every managed view can then be judged on `is_materialized`.
+        viewset = saved_query.managed_viewset
+        if viewset is None or viewset.kind == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS:
+            return saved_query.table_id is not None
     # The column is nullable, and NULL predates its default: it means the same as False here, which
     # is also how `_materializes_q` reads it.
     return bool(saved_query.is_materialized)
@@ -187,13 +192,6 @@ def delete_orphaned_table_nodes(team_id: int, node_ids: Iterable[UUID]) -> None:
         orphans.delete()
 
 
-def _delete_incoming_edges(team_id: int, target: Node) -> list[UUID]:
-    edges = Edge.objects.filter(team_id=team_id, target=target)
-    source_ids = list(edges.values_list("source_id", flat=True))
-    edges.delete()
-    return source_ids
-
-
 def delete_nodes(team_id: int, nodes: QuerySet[Node]) -> None:
     source_ids = list(Edge.objects.filter(team_id=team_id, target__in=nodes).values_list("source_id", flat=True))
     nodes.delete()
@@ -239,9 +237,9 @@ def replace_incoming_edges(
     on_unresolved: Literal["raise", "skip"],
     extra_properties: dict | None = None,
 ) -> list[str]:
-    """Rebuild every incoming edge of `target` from `dependency_names`, and report what did not resolve.
+    """Sync the incoming edges of `target` with `dependency_names`, and report what did not resolve.
 
-    The whole replacement runs in one transaction behind the advisory lock `Edge.save` already takes,
+    The whole sync runs in one transaction behind the advisory lock `Edge.save` already takes,
     so two concurrent syncs of the same node run one after the other instead of leaving the union of
     both edge sets, and a failure part-way through leaves the previous edges in place rather than an
     edge-less node.
@@ -253,7 +251,7 @@ def replace_incoming_edges(
     with transaction.atomic():
         lock_dag(team.pk, dag.id)
         Node.objects.select_for_update().filter(pk=target.pk).first()
-        previous_source_ids = _delete_incoming_edges(team.pk, target)
+        resolved_sources: dict[UUID, Node] = {}
         for dependency_name in dependency_names:
             try:
                 source = resolve_dependency_to_node(dependency_name, team, database, dag)
@@ -268,6 +266,18 @@ def replace_incoming_edges(
                 )
                 unresolved.append(dependency_name)
                 continue
+            resolved_sources[source.pk] = source
+
+        current_source_ids = set(
+            Edge.objects.filter(team_id=team.pk, target=target).values_list("source_id", flat=True)
+        )
+        resolved_source_ids = set(resolved_sources)
+        removed_source_ids = current_source_ids - resolved_source_ids
+        Edge.objects.filter(team_id=team.pk, target=target, source_id__in=removed_source_ids).delete()
+
+        for source_id, source in resolved_sources.items():
+            if source_id in current_source_ids:
+                continue
             Edge.objects.create(
                 team=team,
                 dag=dag,
@@ -275,7 +285,7 @@ def replace_incoming_edges(
                 target=target,
                 properties=extra_properties or {},
             )
-        delete_orphaned_table_nodes(team.pk, previous_source_ids)
+        delete_orphaned_table_nodes(team.pk, removed_source_ids)
     return unresolved
 
 
@@ -302,8 +312,8 @@ def sync_saved_query_to_dag(
     1. Validate and parse the query to extract dependencies
     2. Get or create the Node for this SavedQuery
     3. Resolve each dependency to a Node (creating TABLE nodes for sources)
-    4. Delete existing incoming edges (dependencies may have changed)
-    5. Create new edges for each dependency
+    4. Delete incoming edges for removed dependencies
+    5. Create incoming edges for new dependencies
 
     Args:
         saved_query: The SavedQuery to sync to the DAG
@@ -598,8 +608,13 @@ def _materializes_q() -> Q:
     """`materializes` as a filter, for the callers that cannot ask row by row."""
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
-    managed = Q(saved_query__origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET)
-    return (~managed & Q(saved_query__is_materialized=True)) | (managed & Q(saved_query__table_id__isnull=False))
+    legacy_managed = Q(saved_query__origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET) & (
+        Q(saved_query__managed_viewset__isnull=True)
+        | Q(saved_query__managed_viewset__kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS)
+    )
+    return (~legacy_managed & Q(saved_query__is_materialized=True)) | (
+        legacy_managed & Q(saved_query__table_id__isnull=False)
+    )
 
 
 def _promote_view_nodes(nodes: QuerySet[Node]) -> int:
@@ -618,6 +633,31 @@ def _promote_view_nodes(nodes: QuerySet[Node]) -> int:
         nodes.filter(_materializes_q(), type=NodeType.VIEW)
         .exclude(saved_query__deleted=True)
         .update(type=NodeType.MAT_VIEW)
+    )
+
+
+def link_table_if_materializing(team_id: int, saved_query_id: UUID | str, table_id: UUID) -> bool:
+    """Link a published table to the saved query, unless the query stopped asking to materialize."""
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    saved_query = DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
+    with transaction.atomic():
+        intent = saved_query.select_for_update().values_list("is_materialized", "origin").first()
+        if intent is None:
+            return False
+        is_materialized, origin = intent
+        if not is_materialized and origin != DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET:
+            return False
+        saved_query.update(table_id=table_id, updated_at=timezone.now())
+    return True
+
+
+def unlink_table(team_id: int, saved_query_id: UUID | str, table_id: UUID) -> None:
+    """Clear the saved query's table link if it still points at this table."""
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id, table_id=table_id).update(
+        table_id=None, updated_at=timezone.now()
     )
 
 

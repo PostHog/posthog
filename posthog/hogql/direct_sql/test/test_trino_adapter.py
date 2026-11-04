@@ -1,8 +1,21 @@
+import time
+
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.hogql.direct_sql.trino_adapter import TrinoAdapter, ensure_read_only_raw_trino_statement
+from django.test import override_settings
+
+from posthog.hogql.direct_sql.trino_adapter import (
+    DIRECT_TRINO_TIMEOUT_ERROR,
+    TrinoAdapter,
+    bounded_trino_cursor,
+    ensure_read_only_raw_trino_statement,
+)
 from posthog.hogql.errors import ExposedHogQLError
+
+from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTarget
+
+_MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
 
 
 @pytest.mark.parametrize(
@@ -128,3 +141,44 @@ def test_cancellation_during_prepare_prevents_starting_the_main_query() -> None:
         )
     assert len(statements) == 1
     assert statements[0].startswith("PREPARE ")
+
+
+def test_bounded_request_times_out_instead_of_racing_a_near_expired_deadline() -> None:
+    # A request issued with little time left on the deadline used to get a sub-second socket
+    # timeout and fail with a confusing network error instead of the intended clean message.
+    connection = MagicMock()
+    connection.cursor.return_value = MagicMock()
+    session = MagicMock()
+    connection._http_session = session
+    original_request = session.request
+
+    with bounded_trino_cursor(connection, timeout_seconds=60) as (_, watchdog):
+        watchdog.deadline = time.monotonic() + 0.5
+        with pytest.raises(ExposedHogQLError, match=DIRECT_TRINO_TIMEOUT_ERROR):
+            session.request("GET", "https://trino.example.com/v1/statement/abc")
+
+    original_request.assert_not_called()
+
+
+@override_settings(CLOUD_DEPLOYMENT="US", MANAGED_WAREHOUSE_INGRESS_IPS="10.1.0.1")
+def test_validate_source_config_accepts_the_teams_managed_warehouse() -> None:
+    # A managed warehouse host resolves to a private load balancer address. The host check
+    # exempts it only when the caller names the port and the source type.
+    host = "acme.dw.us.postwh.com"
+    source = MagicMock(direct_engine="trino")
+    team = MagicMock(pk=1)
+    config = MagicMock(host=host, port=443)
+
+    with (
+        patch("posthog.hogql.direct_sql.trino_adapter.is_direct_capable", return_value=True),
+        patch("posthog.hogql.direct_sql.trino_adapter.parse_direct_source_config", return_value=config),
+        patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=[(None, None, None, None, ("10.1.0.1", 0))]),
+        patch(f"{_MIXINS_MODULE}._managed_warehouse_organization_id", return_value="org-1"),
+        patch(
+            "products.managed_warehouse.backend.managed_ingress.get_managed_warehouse_target",
+            return_value=ManagedWarehouseTarget(host=host, ports=frozenset({443})),
+        ),
+    ):
+        _, validated_config = TrinoAdapter().validate_source_config(source, team)
+
+    assert validated_config is config

@@ -3,8 +3,11 @@ from urllib.parse import quote
 from uuid import UUID
 
 from django.conf import settings
+from django.db import DEFAULT_DB_ALIAS
 from django.db.models import Count, Q, QuerySet
 
+from posthog.models.event_filter_config import EventFilterPipelineOverride
+from posthog.models.event_ingestion_restriction_config import IngestionPipeline
 from posthog.models.utils import UUIDT
 
 from products.error_tracking.backend.models import (
@@ -34,6 +37,7 @@ SPIKE_EVENT_ORDER_FIELDS = (
 )
 
 SETTINGS_FIELDS = (
+    "adaptive_ingestion_enabled",
     "project_rate_limit_value",
     "project_rate_limit_bucket_size_minutes",
     "per_issue_rate_limit_value",
@@ -97,7 +101,7 @@ def get_issue_basics(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssue |
     return (
         ErrorTrackingIssue.objects.with_first_seen()
         .filter(team_id=team_id, id=issue_id)
-        .only("id", "name", "description", "status")
+        .only("id", "name", "description", "status", "severity", "created_at")
         .first()
     )
 
@@ -203,19 +207,31 @@ def count_issues_created_since(team_id: int, since: datetime) -> int:
     return ErrorTrackingIssue.objects.filter(team_id=team_id, created_at__gte=since).count()
 
 
+def read_database() -> str:
+    """The database for expensive reads that can tolerate replica lag."""
+    return "replica" if "replica" in settings.DATABASES else DEFAULT_DB_ALIAS
+
+
 def get_issue_counts_by_team() -> list[tuple[int, int]]:
     return list(
-        ErrorTrackingIssue.objects.values("team_id")
+        ErrorTrackingIssue.objects.using(read_database())
+        .values("team_id")
         .annotate(total=Count("id"))
         .order_by("team_id")
         .values_list("team_id", "total")
     )
 
 
-def get_symbol_set_counts_by_team(*, resolved_only: bool = False) -> list[tuple[int, int]]:
-    queryset = ErrorTrackingSymbolSet.objects.all()
+def _symbol_set_counts_queryset(*, resolved_only: bool) -> QuerySet[ErrorTrackingSymbolSet]:
+    # These counts scan the whole table and the usage report runs them every 30 minutes, so keep them off the writer.
+    queryset = ErrorTrackingSymbolSet.objects.using(read_database()).all()
     if resolved_only:
         queryset = queryset.filter(storage_ptr__isnull=False)
+    return queryset
+
+
+def get_symbol_set_counts_by_team(*, resolved_only: bool = False) -> list[tuple[int, int]]:
+    queryset = _symbol_set_counts_queryset(resolved_only=resolved_only)
 
     return list(
         queryset.values("team_id").annotate(total=Count("id")).order_by("team_id").values_list("team_id", "total")
@@ -227,7 +243,7 @@ def get_or_create_settings(team_id: int) -> ErrorTrackingSettings:
     return settings
 
 
-def update_settings(team_id: int, fields: dict[str, int | None]) -> ErrorTrackingSettings:
+def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> ErrorTrackingSettings:
     settings = get_or_create_settings(team_id)
     updates = {key: value for key, value in fields.items() if key in SETTINGS_FIELDS}
     for key, value in updates.items():
@@ -235,6 +251,24 @@ def update_settings(team_id: int, fields: dict[str, int | None]) -> ErrorTrackin
     if updates:
         settings.save(update_fields=list(updates))
     return settings
+
+
+def is_exception_ingestion_enabled(team_id: int) -> bool:
+    drop_all_events = (
+        EventFilterPipelineOverride.objects.for_team(team_id)
+        .filter(pipeline=IngestionPipeline.ERRORTRACKING)
+        .values_list("drop_all_events", flat=True)
+        .first()
+    )
+    return not drop_all_events
+
+
+def set_exception_ingestion_enabled(team_id: int, enabled: bool) -> None:
+    EventFilterPipelineOverride.objects.for_team(team_id).update_or_create(
+        team_id=team_id,
+        pipeline=IngestionPipeline.ERRORTRACKING,
+        defaults={"drop_all_events": not enabled},
+    )
 
 
 def get_or_create_spike_detection_config(team_id: int) -> ErrorTrackingSpikeDetectionConfig:

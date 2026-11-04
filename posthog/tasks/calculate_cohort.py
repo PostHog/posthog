@@ -233,6 +233,7 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
     - AND it has not errored within the last hour. A population task stamps last_error_at when
       it schedules a retry, and reset_stuck_cohorts stamps it when it re-dispatches, so a recent
       error means the run is alive and resetting it would dispatch a duplicate population.
+    A cohort at the error cap is still released, so a query or CSV update can claim it again, but it is not re-run.
     """
     one_hour_ago = timezone.now() - relativedelta(hours=1)
     return (
@@ -240,7 +241,6 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
             is_static=True,
             is_calculating=True,
             deleted=False,
-            errors_calculating__lt=MAX_ERRORS_CALCULATING,
         )
         .filter(
             Q(last_calculation__isnull=True, created_at__lte=one_hour_ago)
@@ -447,7 +447,7 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
     for cohort in (
         get_cohort_calculation_candidates_queryset()
         .filter(
-            Q(last_error_at__lte=timezone.now() - backoff_duration)  # type: ignore
+            Q(last_error_at__lte=timezone.now() - backoff_duration)
             | Q(last_error_at__isnull=True)  # backwards compatability cohorts before last_error_at was introduced
         )
         .order_by(F("last_calculation").asc(nulls_first=True))[0:parallel_count]
@@ -807,7 +807,7 @@ def calculate_cohort_from_list(
             return
 
         # An import that fails without a row of its own resolves `last_error_message` to whichever
-        # older population failed, because that lookup takes the newest errored row over the
+        # older population failed, because that lookup takes the newest finished history row over the
         # cohort's whole life. Recording the attempt also keeps imports in the calculation history
         # beside the query and filter population paths.
         history = CohortCalculationHistory.objects.create(
@@ -954,7 +954,7 @@ def _populate_static_cohort(
         cohort.refresh_from_db()
 
         # A history record is the only way a population failure reaches the user: the cohort API
-        # reads `last_error_message` from the newest history row that carries an error. Without one,
+        # reads `last_error_message` from the newest finished history row. Without one,
         # a population that died on a ClickHouse limit is indistinguishable from a cohort that
         # matched nobody.
         history = CohortCalculationHistory.objects.create(
@@ -1336,6 +1336,8 @@ COHORT_BACKFILL_REFUSAL_OUTCOMES: dict[BackfillRefusalReason, str] = {
     # its own.
     BackfillRefusalReason.SIZING_SCAN_CAP_EXCEEDED: "refused_ineligible",
     BackfillRefusalReason.DEFINITION_CHANGED: "refused_transient",
+    # The cohort's batch query fails to compile on every trigger until the cohort or the compiler changes.
+    BackfillRefusalReason.FLAG_CALLS_TABLE_UNRESOLVED: "refused_ineligible",
 }
 
 

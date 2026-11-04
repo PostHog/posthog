@@ -30,6 +30,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog, Trigger
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.activity_logging.utils import SCOUT_CLIENT_PREFIX
 
+from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.onboarding_scouts import InboxOnboardingScouts
 from products.signals.backend.scout_harness.lazy_seed import (
@@ -199,6 +200,7 @@ def live_scout_skill_names(
         is_latest=True,
         deleted=False,
     )
+    rows = rows.exclude(name__in=SYSTEM_SCOUT_NAMES)
     if withheld_skill_names:
         rows = rows.exclude(name__in=withheld_skill_names)
     return set(rows.values_list("name", flat=True))
@@ -275,6 +277,7 @@ def register_missing_configs(
         ).values_list("name", "metadata")
     )
     skill_names = {name for name, _ in rows}
+    skill_names -= SYSTEM_SCOUT_NAMES
     # Drop held-back scouts up front: no config is seeded for them, and the returned set the
     # coordinator dispatches from never includes them. `sync_canonical_skills` already keeps
     # withheld skills from being seeded as `LLMSkill` rows, so this is mostly belt-and-suspenders

@@ -55,3 +55,4 @@ UI multi-select add uses `POST .../widgets/batch/` (not PATCH dashboard `tiles[]
 1. Regenerate OpenAPI (`hogli build:openapi`) — updates MCP tool schemas that embed supported type lists
 2. Run `hogli test services/mcp/tests/tools/dashboards.integration.test.ts`
 3. Update unit schema snapshots if batch-add help text lists types: `hogli test services/mcp/tests/unit/tool-schema-snapshots.test.ts`
+4. To check that agents can configure the new type, add a case to `products/dashboards/evals/eval_dashboard_widgets.py` and run `hogli evals eval_dashboard_widgets` (see the `writing-evals` skill)

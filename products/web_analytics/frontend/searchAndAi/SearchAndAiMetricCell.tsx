@@ -1,20 +1,15 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconTrending } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
-import {
-    changeVsPrevious,
-    formatShare,
-    PagePerformanceMetric,
-    pagePerformanceLogic,
-    parseMetricCell,
-} from 'scenes/web-analytics/pagePerformanceLogic'
+import { pagePerformanceLogic, parseMetricCell } from 'scenes/web-analytics/pagePerformanceLogic'
+
+import { TrendChange } from 'products/web_analytics/frontend/pageReports/TrendChange'
+
+import { PagePerformanceMetric, changeVsPrevious, formatShare } from './searchAndAiQueries'
 
 export type SearchAndAiMetric =
     | 'visitors'
@@ -71,7 +66,6 @@ export function SearchAndAiMetricCell({ metric, record }: { metric: SearchAndAiM
     }
 
     const change = comparePeriods && !isCrawler ? changeVsPrevious(current, previous) : null
-    const TrendIcon = change === 0 ? IconTrendingFlat : (change ?? 0) > 0 ? IconTrending : IconTrendingDown
 
     const tooltip = {
         visitors: `${share ?? '0%'} of the ${siteVisitors.toLocaleString()} visitors to your site this period`,
@@ -85,17 +79,7 @@ export function SearchAndAiMetricCell({ metric, record }: { metric: SearchAndAiM
             <span className="whitespace-nowrap">{current.toLocaleString()}</span>
             <span className="inline-flex items-center gap-1 text-xs text-secondary whitespace-nowrap">
                 {isCrawler ? <span>{current > 0 ? pluralize(previous, 'agent') : null}</span> : <span>{share}</span>}
-                {change !== null && (
-                    <span
-                        className={clsx(
-                            'inline-flex items-center',
-                            change === 0 ? 'text-secondary' : change > 0 ? 'text-success' : 'text-danger'
-                        )}
-                    >
-                        <TrendIcon />
-                        <span>{percentage(Math.abs(change), 0)}</span>
-                    </span>
-                )}
+                {change !== null && <TrendChange change={change} />}
             </span>
         </span>
     )

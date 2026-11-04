@@ -184,6 +184,7 @@ All inherit from `DeltaLiteError`, so you can catch the base or branch on kind:
 | `DeltaLiteTableNotFoundError` | No Delta table at the URI. |
 | `DeltaLiteUnsupportedTableError` | Table uses a feature deltalite can't handle (e.g. deletion vectors, column mapping). |
 | `DeltaLiteSourceTooLargeError` | Batch exceeds `max_source_bytes` (see below). |
+| `DeltaLiteTimeoutError` | A wait for a process-wide budget passed its bound (see "Timeouts" below). |
 
 ## Operational knobs
 
@@ -203,7 +204,10 @@ All inherit from `DeltaLiteError`, so you can catch the base or branch on kind:
 | `isolate_source_rows` | `False` | Write the batch's rows to their own files, apart from the unchanged rows copied out of the rewritten files. A later batch that touches the same rows then rewrites only those files. Costs up to one more file per touched partition. |
 | `max_row_group_bytes` | `None` | Close an output row group at this many encoded bytes. A later upsert's reader fetches one whole row group at a time, so smaller row groups lower its memory. `None` closes row groups only at the encoder's row cap. |
 | `max_source_bytes` | `2 GiB` | Oversized-batch guard (`0` disables). |
-| `multipart_threshold` / `multipart_part_size` | `64 MiB` / `16 MiB` | Multipart upload thresholds (`0` threshold disables). |
+| `multipart_threshold` / `multipart_part_size` | `16 MiB` / `8 MiB` | Multipart upload thresholds (`0` threshold disables). With `multipart_concurrency=1` the defaults are `64 MiB` / `16 MiB`. |
+| `multipart_concurrency` | `4` | Parts of one upload sent at once. The parts are slices of the finished file, so more parts in flight add no memory. `1` sends them one after another. |
+| `range_get_part_size` / `range_get_concurrency` | `8 MiB` / `4` | A ranged read of a data file (a row group) larger than the part size is split into requests of that size, this many at once. Each request writes into its place in one buffer, so the split adds no memory. `1` turns the split off. |
+| `read_ahead_row_groups` | `False` | Read the next row group of a file while the current one decodes. A reader then holds up to two row groups, and reserves both from `max_fetch_bytes`; a file whose two largest neighbouring row groups do not fit is read without it. |
 | `commit_max_retries` | `15` | Conditional-put commit retry budget. |
 | `commit_metadata` | `None` | Extra key/values recorded in the Delta commit. |
 | `use_probe_cache` | `True` | Use the process-wide probe cache (see below). `False` reads every candidate file from storage. |
@@ -217,7 +221,32 @@ budgets:
 `DELTALITE_PROCESS_MAX_BUFFERED_BYTES` (256 MiB),
 `DELTALITE_PROCESS_MAX_FETCH_BYTES` (256 MiB),
 `DELTALITE_MAX_SOURCE_BYTES`, `DELTALITE_MULTIPART_THRESHOLD_BYTES`,
-`DELTALITE_MULTIPART_PART_SIZE_BYTES`.
+`DELTALITE_MULTIPART_PART_SIZE_BYTES`, `DELTALITE_MULTIPART_CONCURRENCY`,
+`DELTALITE_RANGE_GET_PART_SIZE_BYTES`, `DELTALITE_RANGE_GET_CONCURRENCY`.
+The last five are the defaults of the per-call arguments of the same names.
+
+**Timeouts.** All upserts and compactions of one process share the
+process-wide budgets above, and their waits are fair. So one call that holds
+permits and stops making progress can make every other call wait. Three bounds
+stop that:
+
+| Bound | Default | Override | When it passes |
+|---|---|---|---|
+| S3 request | `timeout` 120s, `connect_timeout` 5s, `pool_idle_timeout` 15s | the storage option of the same name (any spelling `object_store` accepts, for example `aws_timeout`), or its environment variable (`AWS_TIMEOUT`) | `object_store` retries the request, then the call fails. |
+| One object-store call | 10 minutes | `DELTALITE_IO_DEADLINE_SECS` (`0` removes it) | An upload of a data file or a part, or a ranged read of a data file, fails with a `DeltaLiteError` that names the call. Conditional puts (commits) have no deadline. |
+| One wait for a process-wide budget | 30 minutes | `DELTALITE_PERMIT_WAIT_TIMEOUT_SECS` (`0` removes it) | The call fails with `DeltaLiteTimeoutError`, which names the budget and gives its free permits and waiters. |
+
+Only S3 tables get the request defaults. `object_store` uses a 30s request
+timeout, which cuts a 128 MiB checkpoint read or a 64 MiB single PUT on a
+connection slower than about 4 MB/s.
+
+`deltalite.limits_snapshot()` returns the free and total permits of each
+process-wide budget and the number of acquisitions that wait for it:
+`{"partitions": {"available": 8, "total": 8, "waiters": 0}, "files": ...,
+"buffer_kb": ..., "fetch_kb": ...}`. It does no I/O and takes no lock, so a
+caller can read it while another call of the process hangs. A waiter that needs
+more permits than are free takes the free ones and waits for the rest, so
+`available` can be 0 while a part of the budget belongs to a waiter.
 
 **Probe cache.** The probe reads a footer and the PK column of every candidate
 file, so on object storage its cost grows with the number of files in the
