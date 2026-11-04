@@ -1457,6 +1457,7 @@ export interface featureFlagLogicValues {
     scheduledChangesLoaded: boolean
     scheduledChangesLoading: boolean
     selectedTab: FeatureFlagsTab
+    settledFlagStatus: FeatureFlagStatusResponseApi | null
     showFeatureFlagErrors: boolean
     showImplementation: boolean
     showRolloutHint: boolean
@@ -2576,7 +2577,7 @@ export interface featureFlagLogicMeta {
         hasExperiment: (featureFlag: FeatureFlagType) => boolean | null
         showRolloutHint: (
             featureFlag: FeatureFlagType,
-            flagStatus: FeatureFlagStatusResponseApi | null,
+            settledFlagStatus: FeatureFlagStatusResponseApi | null,
             hasExperiment: boolean | null
         ) => boolean
         showStaleFlagBanner: (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null) => boolean
@@ -4240,6 +4241,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             loadFeatureFlagStatus: () => null,
             loadFeatureFlagStatusFailure: () => null,
         },
+        settledFlagStatus: [
+            null as FeatureFlagStatusResponseApi | null,
+            {
+                loadFeatureFlagStatusSuccess: (_, { flagStatus }) => flagStatus,
+                loadFeatureFlagStatusFailure: () => null,
+            },
+        ],
     }),
     listeners(({ actions, values, props, sharedListeners, cache }) => ({
         setFeatureFlagValue: ({ name, value }) => {
@@ -5722,18 +5730,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return featureFlag?.experiment_set && featureFlag.experiment_set.length > 0
             },
         ],
-        // The status endpoint serializes a StrEnum through a CharField, so it answers with the
-        // lowercase value 'stale'. The flag list serializer returns the enum member name 'STALE'
-        // instead. Both are typed as plain strings, so a wrong comparison here fails silently.
         showRolloutHint: [
-            (s) => [s.featureFlag, s.flagStatus, s.hasExperiment],
+            (s) => [s.featureFlag, s.settledFlagStatus, s.hasExperiment],
             (
                 featureFlag: FeatureFlagType,
-                flagStatus: FeatureFlagStatusResponseApi | null,
+                settledFlagStatus: FeatureFlagStatusResponseApi | null,
                 hasExperiment: boolean | null
             ): boolean => {
-                const rollout = flagStatus?.rollout
-                if (flagStatus?.status !== FeatureFlagStatus.ACTIVE || !rollout) {
+                const rollout = settledFlagStatus?.rollout
+                if (settledFlagStatus?.status !== FeatureFlagStatus.ACTIVE || !rollout) {
                     return false
                 }
                 const hasNoConditions = rollout.max_rollout_percentage === null
@@ -5755,6 +5760,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 )
             },
         ],
+        // The status endpoint serializes a StrEnum through a CharField, so it answers with the
+        // lowercase value 'stale'. The flag list serializer returns the enum member name 'STALE'
+        // instead. Both are typed as plain strings, so a wrong comparison here fails silently.
         showStaleFlagBanner: [
             (s) => [s.featureFlag, s.flagStatus],
             (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null): boolean => {

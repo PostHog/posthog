@@ -4221,6 +4221,21 @@ describe('featureFlagLogic', () => {
 
             expect(logic.values.showRolloutHint).toBe(expected)
         })
+
+        it('stays up while the status reloads and goes away when the reload fails', async () => {
+            useMocks({ get: { [STATUS_URL]: () => [200, MOCK_FEATURE_FLAG_STATUS] } })
+            await expectLogic(logic, () => logic.actions.loadFeatureFlagStatus()).toFinishAllListeners()
+            logic.actions.setFeatureFlag(MOCK_FEATURE_FLAG as FeatureFlagType)
+            expect(logic.values.showRolloutHint).toBe(true)
+
+            useMocks({ get: { [STATUS_URL]: () => [500, {}] } })
+            logic.actions.loadFeatureFlagStatus()
+            expect(logic.values.flagStatus).toBeNull()
+            expect(logic.values.showRolloutHint).toBe(true)
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.showRolloutHint).toBe(false)
+        })
     })
 
     describe('stale status after a mutation', () => {

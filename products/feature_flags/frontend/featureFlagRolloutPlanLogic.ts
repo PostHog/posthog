@@ -177,8 +177,10 @@ export const featureFlagRolloutPlanLogic = kea<featureFlagRolloutPlanLogicType>(
                 posthog.capture('feature flag rollout hint plan clicked', { flag_id: props.id, flag_key: flagKey })
             },
             copyAgentPrompt: async ({ flagKey, projectId }) => {
-                await copyToClipboard(featureFlagRolloutAgentPrompt(flagKey, projectId), 'prompt')
-                posthog.capture('feature flag rollout hint prompt copied', { flag_id: props.id, flag_key: flagKey })
+                const copied = await copyToClipboard(featureFlagRolloutAgentPrompt(flagKey, projectId), 'prompt')
+                if (copied) {
+                    posthog.capture('feature flag rollout hint prompt copied', { flag_id: props.id, flag_key: flagKey })
+                }
             },
             [sidePanelStateLogic.actionTypes.setSidePanelOpen]: ({ open }) => {
                 if (!open) {
