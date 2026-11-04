@@ -161,6 +161,7 @@ describe('sandbox email content', () => {
         '<html style="overflow:hidden"><body style="margin:0;height:20px;overflow:hidden"><p>Visible message</p></body></html>',
         '<html style="height:20px;clip-path:inset(0)"><body style="height:20px;clip-path:inset(0)"><p>Visible message</p></body></html>',
         '<html style="margin-top:-100000px"><body style="margin-left:-100000px"><p style="margin-left:100000px">Visible message</p></body></html>',
+        '<html><body style="mask-image:linear-gradient(black 0 40px,transparent 40px)"><p>Visible message</p></body></html>',
     ])('keeps document ancestors outside the template layout: %s', async (html) => {
         const result = await sender.withIdentificationFooter(params(html), 'Example organization via PostHog', 1)
         const root = parse(result.html!).childNodes.find(defaultTreeAdapter.isElementNode)!
@@ -169,6 +170,7 @@ describe('sandbox email content', () => {
             const value = ancestor.attrs.find((attribute) => attribute.name === 'style')?.value
             expect(value).toContain('height:auto!important')
             expect(value).toContain('margin:0!important')
+            expect(value).toContain('mask:none!important')
         }
         expect(result.html).toContain('Visible message')
         expect(body.childNodes.at(-1)).toMatchObject({ childNodes: [{ nodeName: '#text', value: footer }] })
@@ -232,6 +234,12 @@ describe('sandbox email content', () => {
             null,
         ],
         ['<body style="background:#525252;color:white"><p>Hello</p></body>', '<p>Hello</p>', null],
+        ['<body><style>div { text-indent: -99999px !important }</style><p>Hello</p></body>', '<p>Hello</p>', null],
+        [
+            '<body><!--[if mso]><p>Outlook</p><![endif]--><!--[if !mso]><!--><p>Hello</p><!--<![endif]--></body>',
+            '<!--[if !mso]><!--><p>Hello</p><!--<![endif]-->',
+            null,
+        ],
     ])('retains the footer outside template content: %s', async (html, expectedContent, preheader) => {
         const result = await sender.withIdentificationFooter(
             params(html, undefined, preheader ?? undefined),
@@ -244,16 +252,23 @@ describe('sandbox email content', () => {
             const body = root?.childNodes
                 .filter(defaultTreeAdapter.isElementNode)
                 .find((node) => node.tagName === 'body')
-            expect(body?.childNodes.at(-1)).toMatchObject({
+            const deliveredFooter = body?.childNodes.at(-1)
+            expect(deliveredFooter).toMatchObject({
                 tagName: 'div',
                 childNodes: [{ nodeName: '#text', value: footer }],
             })
+            expect(
+                defaultTreeAdapter.isElementNode(deliveredFooter!) &&
+                    deliveredFooter.attrs.find((attribute) => attribute.name === 'style')?.value
+            ).toContain('text-indent:0!important')
         }
         expect(result.preheader).toBeUndefined()
     })
     it.each([
         ['<body><p>Hello</p><script><!--<script>', null, null],
         ['<body><p>Hello</p><template><script><!--<script>', null, null],
+        ['<body><p>Hello</p><!--[if !mso]><!-->', null, null],
+        ['<body><!--[if mso]><p>Outlook</p><![endif]--><p>Hello</p><!--[if gte mso 9]><p>Old Outlook</p>', null, null],
         ['', '', 'The sandbox email template must include HTML or text content. Update the template and try again.'],
     ])('rejects content that cannot retain the footer: %s', async (html, text, error) => {
         await expect(
