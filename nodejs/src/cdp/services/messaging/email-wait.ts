@@ -7,7 +7,7 @@ import { workflowStepDispatchKeyFromInvocation } from '../../utils/workflow-step
 // because a flow on the email queue carries its queue metadata from one step to the next.
 export type EmailWait = { sendKey: string; firstDueAt: string; teamCapped: boolean }
 
-function emailSendKey(invocation: CyclotronJobInvocationHogFunction): string {
+export function emailSendKey(invocation: CyclotronJobInvocationHogFunction): string {
     return workflowStepDispatchKeyFromInvocation(invocation) ?? invocation.id
 }
 

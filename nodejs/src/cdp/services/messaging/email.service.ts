@@ -24,7 +24,8 @@ import { RecipientManagerRecipient, RecipientsManagerService } from '../managers
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
-import { EMAIL_QUEUE_PRIORITY_CLASSES, getEmailQueuePriorityClass } from './email-priority'
+import { EmailHandoffObserver } from './email-handoff-observer'
+import { EMAIL_QUEUE_PRIORITY_CLASSES, EmailQueuePriorityClass, getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService, isTransactionalEmailSend } from './email-status.service'
 import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
@@ -143,6 +144,11 @@ type EmailQueueWait = { startedAt: DateTime; teamCapped: boolean }
 
 function emailSource(invocation: CyclotronJobInvocationHogFunction): EmailSource {
     return invocation.state.globals.event?.event === TRANSACTIONAL_EMAIL_EVENT ? 'transactional_api' : 'workflow'
+}
+
+// The API inserts every job fast while its label follows the step's category, so an API send is fast-lane either way.
+function isFastLane(lane: { source: EmailSource; priority_class: EmailQueuePriorityClass }): boolean {
+    return lane.source === 'transactional_api' || lane.priority_class === 'fast'
 }
 
 // A transactional API job is created on the email queue, so its creation time is when the caller got its 202. A
@@ -479,7 +485,8 @@ export class EmailService {
         private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>,
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
-        private teamEmailRateLimiter: RateLimiterService | null = null
+        private teamEmailRateLimiter: RateLimiterService | null = null,
+        private handoffObserver: EmailHandoffObserver | null = null
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -1405,6 +1412,9 @@ export class EmailService {
             }
             const message = error instanceof Error ? error.message : String(error)
             throw new Error(`Failed to send email via SES: ${message}`)
+        }
+        if (!isTest && isFastLane(lane)) {
+            this.handoffObserver?.observe(result.invocation, lane.source)
         }
     }
 

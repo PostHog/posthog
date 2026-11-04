@@ -1,6 +1,7 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
+import Redis from 'ioredis'
 import { DateTime } from 'luxon'
 import { register } from 'prom-client'
 
@@ -14,10 +15,11 @@ import {
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisClient, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
@@ -27,6 +29,7 @@ import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
+import { EmailHandoffObserver } from './email-handoff-observer'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
@@ -816,6 +819,107 @@ describe('EmailService', () => {
 
                 expect(result.emailSendResult?.status).toBe('failed')
                 expect(await metricValue(name, labels, `${name}_count`)).toBe(countBefore)
+            })
+        })
+
+        describe('duplicate handoff', () => {
+            let valkey: Redis.Redis
+
+            beforeAll(async () => {
+                valkey = new Redis(
+                    Number(process.env.CDP_VALKEY_PORT ?? 6390),
+                    process.env.CDP_VALKEY_HOST ?? '127.0.0.1',
+                    {
+                        maxRetriesPerRequest: 1,
+                    }
+                )
+                await valkey.ping()
+            })
+
+            afterAll(async () => {
+                await valkey.quit()
+            })
+
+            const observedService = (valkeyPool: RedisV2): EmailService => {
+                const observed = new EmailService(
+                    {
+                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                        sesRegion: hub.SES_REGION,
+                        sesEndpoint: hub.SES_ENDPOINT,
+                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                    },
+                    hub.integrationManager,
+                    new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL,
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                    new RecipientsManagerService(hub.postgres),
+                    null,
+                    { report: jest.fn() },
+                    undefined,
+                    null,
+                    null,
+                    new EmailHandoffObserver(valkeyPool)
+                )
+                jest.spyOn(observed.sesV2Client!, 'send').mockResolvedValue({ MessageId: 'test-message-id' } as never)
+                return observed
+            }
+
+            const poolWith = (client: RedisClient): RedisV2 => ({
+                useClient: async (_options, callback) => callback(client),
+                usePipeline: () => Promise.reject(new Error('not used')),
+            })
+
+            beforeEach(() => {
+                // The key lives for an hour, so each run needs a send the store has not seen.
+                invocation.id = new UUIDT().toString()
+                invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            })
+
+            afterEach(() => {
+                jest.restoreAllMocks()
+            })
+
+            it.each([
+                ['transactional_api', TRANSACTIONAL_EMAIL_EVENT],
+                ['workflow', '$pageview'],
+            ])('counts a second SES acceptance of the same fast %s send once', async (source, eventName) => {
+                invocation.state.globals.event.event = eventName
+                const observed = observedService(poolWith(valkey as unknown as RedisClient))
+                const labels = { source }
+                const before = await metricValue('cdp_email_duplicate_handoff_total', labels)
+
+                await observed.executeSendEmail(invocation)
+                await observed.executeSendEmail(invocation)
+
+                await waitForExpect(async () =>
+                    expect(await metricValue('cdp_email_duplicate_handoff_total', labels)).toBe(before + 1)
+                )
+            })
+
+            it('sends and counts nothing when the store fails', async () => {
+                const errorLog = jest.spyOn(logger, 'error')
+                const failingClient = {
+                    set: () => Promise.reject(new Error('valkey is down')),
+                } as unknown as RedisClient
+                const observed = observedService(poolWith(failingClient))
+                const labels = { source: 'workflow' }
+                const before = await metricValue('cdp_email_duplicate_handoff_total', labels)
+
+                const first = await observed.executeSendEmail(invocation)
+                const second = await observed.executeSendEmail(invocation)
+
+                expect(first.emailSendResult).toEqual({ status: 'accepted' })
+                expect(second.emailSendResult).toEqual({ status: 'accepted' })
+                await waitForExpect(() =>
+                    expect(
+                        errorLog.mock.calls.filter(([message]) => message === 'Failed to record an email handoff')
+                    ).toHaveLength(2)
+                )
+                expect(await metricValue('cdp_email_duplicate_handoff_total', labels)).toBe(before)
             })
         })
 
