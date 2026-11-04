@@ -1118,6 +1118,73 @@ describe('queryDatabaseLogic', () => {
             jest.clearAllMocks()
         })
 
+        it.each([15, 18])('shows all %s tables through expansion and search', (count) => {
+            const databaseLogic = databaseTableListLogic.findMounted()!
+            const tables = Object.fromEntries(
+                ['public', 'archive'].flatMap((schema) =>
+                    Array.from({ length: count }, (_, index) => {
+                        const name = `${schema}.example_${String(index + 1).padStart(2, '0')}`
+                        return [
+                            name,
+                            {
+                                id: name,
+                                name,
+                                type: 'data_warehouse',
+                                fields: {},
+                                source: {
+                                    id: 'source-id',
+                                    status: 'Running',
+                                    source_type: 'Postgres',
+                                    prefix: '',
+                                    access_method: 'direct',
+                                },
+                            },
+                        ]
+                    })
+                )
+            )
+            databaseLogic.actions.loadDatabaseSuccess({ tables, joins: [] } as any)
+
+            const category = (): any => logic.values.visibleTreeData.find((item) => item.name === 'public')
+            expect(category().children.filter((item: any) => item.record?.type === 'table')).toHaveLength(15)
+            expect(category().children.at(-1).name).toEqual(count > 15 ? 'Show all' : 'public.example_15')
+            expect(logic.values.displayedTreeData.find((item) => item.name === 'public')?.children).toHaveLength(count)
+
+            if (count > 15) {
+                category().children.at(-1).onClick()
+                expect(category().children).toHaveLength(count)
+                expect(category().children.at(-1).name).toEqual('public.example_18')
+                expect(logic.values.visibleTreeData.find((item) => item.name === 'archive')?.children).toHaveLength(16)
+            }
+
+            logic.actions.setSearchTerm('example')
+            expect(logic.values.visibleTreeData.every((item) => item.children?.length === count)).toEqual(true)
+            expect(logic.values.visibleTreeData.flatMap((item) => item.children ?? [])).toHaveLength(count * 2)
+
+            logic.actions.clearSearch()
+            expect(category().children).toHaveLength(count)
+            databaseLogic.actions.setConnection('another-source')
+            databaseLogic.actions.loadDatabaseSuccess({ tables, joins: [] } as any)
+            expect(category().children).toHaveLength(count > 15 ? 16 : 15)
+        })
+
+        it('reveals a located table after the first 15 tables', () => {
+            databaseTableListLogic.findMounted()!.actions.loadDatabaseSuccess({
+                tables: Object.fromEntries(
+                    Array.from({ length: 18 }, (_, index) => {
+                        const name = `public.example_${String(index + 1).padStart(2, '0')}`
+                        return [name, { id: name, name, type: 'data_warehouse', fields: {} }]
+                    })
+                ),
+                joins: [],
+            } as any)
+
+            logic.actions.locateTable('public.example_18')
+
+            expect(logic.values.visibleTreeData[0].children?.at(-1)?.name).toEqual('public.example_18')
+            expect(logic.values.expandedItemIds).toContain('table-public.example_18')
+        })
+
         it('shows a direct schema failure and retry at the root of the sidebar', () => {
             databaseTableListLogic.findMounted()?.actions.loadDatabaseFailure('Connection failed.')
 

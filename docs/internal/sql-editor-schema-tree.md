@@ -5,6 +5,11 @@ PostHog follows with the full PostHog catalog, sorted by name and qualified with
 Qualified entries use the same schema fields as their unqualified shortcuts.
 Search includes both categories, and table actions use the name shown in the tree.
 
+Each source or schema category shows its first 15 tables.
+A **Show all** row below the 15th table reveals the remaining tables in that category.
+The full table catalog stays loaded. Search shows all matching tables, including more than 15 matches.
+Locating a table also reveals its category when the table is after the first 15.
+
 The PostHog catalog includes `posthog.ai_events` for AI observability, `posthog.session_replay_events` for recordings, and `posthog.trace_spans` for tracing.
 `posthog.metrics` contains metric data points; join `posthog.metric_series` for their labels.
 `posthog.flag_evaluations` appears when enabled for the organization.
