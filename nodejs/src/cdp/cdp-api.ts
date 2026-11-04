@@ -1356,6 +1356,7 @@ export class CdpApi {
             }
             const sends = new ScheduledTransactionalSends({
                 jobs: this.batchResolverProducer,
+                hogFlows: this.hogFlowManager,
                 invocationResults: this.invocationResultsService,
                 emailStatus: this.emailStatusService,
             })

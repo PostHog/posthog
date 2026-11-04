@@ -1213,10 +1213,7 @@ describe('Cyclotron V2', () => {
                 ['cancelUnclaimed', (teamId: number, id: string) => manager.cancelUnclaimed(teamId, id)],
                 [
                     'rescheduleUnclaimed',
-                    (teamId: number, id: string) =>
-                        manager.rescheduleUnclaimed(teamId, id, IN_TWO_DAYS, {
-                            scheduledAt: IN_TWO_DAYS.toISOString(),
-                        }),
+                    (teamId: number, id: string) => manager.rescheduleUnclaimed(teamId, id, IN_TWO_DAYS),
                 ],
             ] as const
 
@@ -1238,9 +1235,7 @@ describe('Cyclotron V2', () => {
                 const id = await seedScheduledEmail()
                 const before = await queryJob(id)
 
-                const result = await manager.rescheduleUnclaimed(1, id, IN_TWO_DAYS, {
-                    scheduledAt: IN_TWO_DAYS.toISOString(),
-                })
+                const result = await manager.rescheduleUnclaimed(1, id, IN_TWO_DAYS)
 
                 expect(result).toEqual({ outcome: 'rescheduled' })
                 const row = await queryJob(id)

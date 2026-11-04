@@ -9,7 +9,7 @@ import { sleep } from '~/common/utils/utils'
 
 import { BatchResolverResumeOutcome, resumeParkedBatchResolver } from '../hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
-import { withStateChanges } from './job-codec'
+import { withScheduledAt } from './job-codec'
 import {
     CYCLOTRON_COUNTER_MAX,
     CyclotronV2CancelJobsOptions,
@@ -780,12 +780,12 @@ export class CyclotronV2Manager {
         }
     }
 
-    // The state decodes in JS because a jsonb rewrite in SQL fails on a \u0000 in the content.
+    // Also moves the state's `scheduledAt`, which the email queue wait metric starts from. The state decodes
+    // in JS because a jsonb rewrite in SQL fails on a \u0000 in the content.
     async rescheduleUnclaimed(
         teamId: number,
         id: string,
-        scheduled: Date,
-        stateChanges: Record<string, unknown>
+        scheduled: Date
     ): Promise<CyclotronV2RescheduleUnclaimedResult> {
         const client = await this.pool.connect()
         try {
@@ -802,7 +802,7 @@ export class CyclotronV2Manager {
                 await client.query(`UPDATE cyclotron_jobs SET scheduled = $2, state = $3 WHERE id = $1`, [
                     id,
                     scheduled,
-                    withStateChanges(locked.rows[0].state, stateChanges),
+                    withScheduledAt(locked.rows[0].state, scheduled.toISOString()),
                 ])
                 await client.query('COMMIT')
                 return { outcome: 'rescheduled' }

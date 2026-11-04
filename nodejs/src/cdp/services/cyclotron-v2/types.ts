@@ -204,12 +204,7 @@ export interface CyclotronV2JobProducer {
     rescheduleParkedJobs(options: CyclotronV2RescheduleParkedOptions): Promise<CyclotronV2RescheduleParkedResult>
     cancelJobs(options: CyclotronV2CancelJobsOptions): Promise<CyclotronV2CancelJobsResult>
     cancelUnclaimed(teamId: number, id: string): Promise<CyclotronV2CancelUnclaimedResult>
-    rescheduleUnclaimed(
-        teamId: number,
-        id: string,
-        scheduled: Date,
-        stateChanges: Record<string, unknown>
-    ): Promise<CyclotronV2RescheduleUnclaimedResult>
+    rescheduleUnclaimed(teamId: number, id: string, scheduled: Date): Promise<CyclotronV2RescheduleUnclaimedResult>
     resumeParkedSteps(teamId: number, resumes: StepResume[]): Promise<Map<string, StepResumeOutcome>>
     resumeParkedBatchResolver(options: {
         teamId: number

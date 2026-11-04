@@ -2972,10 +2972,14 @@ describe('CDP API', () => {
                     expect(repeat.body).toEqual(first.body)
                     expect(cancelUnclaimed).toHaveBeenCalledWith(team.id, invocation.id)
                     expect(
-                        queueAppMetric.mock.calls.map(([metric]) => [metric.metric_name, metric.app_source_id])
+                        queueAppMetric.mock.calls.map(([metric]) => [
+                            metric.metric_name,
+                            metric.app_source_id,
+                            metric.app_source_version,
+                        ])
                     ).toEqual([
-                        ['canceled', hogFlow.id],
-                        ['triggered', hogFlow.id],
+                        ['canceled', hogFlow.id, { id: hogFlow.id, version: hogFlow.version }],
+                        ['triggered', hogFlow.id, { id: hogFlow.id, version: hogFlow.version }],
                     ])
                     const lifecycleRows = produceResultRow.mock.calls
                         .filter(([output]) => output === 'hog_invocation_results')
@@ -3021,9 +3025,7 @@ describe('CDP API', () => {
 
                 expect(res.status).toEqual(200)
                 expect(res.body).toEqual({ id: messageId, status: 'scheduled', scheduled_at: scheduledAt })
-                expect(rescheduleUnclaimed).toHaveBeenCalledWith(team.id, messageId, new Date(scheduledAt), {
-                    scheduledAt,
-                })
+                expect(rescheduleUnclaimed).toHaveBeenCalledWith(team.id, messageId, new Date(scheduledAt))
                 expect(emailStatusRows()).toEqual([
                     expect.objectContaining({ message_id: messageId, status: 'scheduled' }),
                 ])
@@ -3046,7 +3048,6 @@ describe('CDP API', () => {
                 expect(movedTo.getTime()).toBeGreaterThanOrEqual(before)
                 expect(movedTo.getTime()).toBeLessThanOrEqual(Date.now())
                 expect(res.body.scheduled_at).toEqual(movedTo.toISOString())
-                expect(rescheduleUnclaimed.mock.calls[0][3]).toEqual({ scheduledAt: movedTo.toISOString() })
             })
 
             it.each([

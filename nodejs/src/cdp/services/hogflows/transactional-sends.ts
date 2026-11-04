@@ -2,13 +2,13 @@ import { DateTime } from 'luxon'
 
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { logger } from '~/common/utils/logger'
-import { UUIDT } from '~/common/utils/utils'
+import { UUID, UUIDT } from '~/common/utils/utils'
 import { Team } from '~/types'
 
 import { HogFlow } from '../../schema/hogflow'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, HogFunctionInvocationGlobals } from '../../types'
 import { convertToHogFunctionFilterGlobal } from '../../utils/hog-function-filtering'
-import { createInvocationResult } from '../../utils/invocation-utils'
+import { createCanceledInvocationResult } from '../../utils/invocation-utils'
 import type { CyclotronV2JobProducer } from '../cyclotron-v2'
 import { v2JobToInvocation } from '../cyclotron-v2/job-codec'
 import type { InvocationResultsService } from '../invocation-results.service'
@@ -20,6 +20,7 @@ import { EmailSuppressionService } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { createHogFlowInvocation } from './hogflow-executor.service'
+import type { HogFlowManagerService } from './hogflow-manager.service'
 import { checkHogFlowQuotaLimits } from './hogflow-quota-limiting'
 import { TRANSACTIONAL_EMAIL_EVENT } from './hogflow-sensitivity'
 import { IdempotencyKeys } from './idempotency-keys'
@@ -34,8 +35,6 @@ const SCHEDULED_AT_FINGERPRINT_MARKER = 'scheduled_at'
 // Counted from the message's creation, so a later reschedule cannot extend it.
 const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 60 * 60 * 1000
 const PRIORITY_CLASS: EmailQueuePriorityClass = 'fast'
-// The job id column is a uuid, so any other id can name no job.
-const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // A request without `scheduled_at` keeps the fingerprint that older versions store, so their keys still match.
 const transactionalEmailFingerprint = (
@@ -249,6 +248,7 @@ export class TransactionalSends {
 
 export type ScheduledTransactionalSendsDeps = {
     jobs: Pick<CyclotronV2JobProducer, 'cancelUnclaimed' | 'rescheduleUnclaimed'>
+    hogFlows: Pick<HogFlowManagerService, 'getHogFlow'>
     invocationResults: Pick<InvocationResultsService, 'monitoringService' | 'invocationResultsRowsService'>
     emailStatus: EmailStatusService
 }
@@ -263,7 +263,7 @@ export class ScheduledTransactionalSends {
     constructor(private readonly deps: ScheduledTransactionalSendsDeps) {}
 
     async cancel(teamId: number, messageId: string): Promise<ScheduledSendCancelResult> {
-        if (!UUID_SHAPE.test(messageId)) {
+        if (!UUID.validateString(messageId, false)) {
             return { outcome: 'not_found' }
         }
         const result = await this.deps.jobs.cancelUnclaimed(teamId, messageId)
@@ -279,7 +279,7 @@ export class ScheduledTransactionalSends {
     }
 
     async reschedule(teamId: number, messageId: string, requestedAt: Date): Promise<ScheduledSendRescheduleResult> {
-        if (!UUID_SHAPE.test(messageId)) {
+        if (!UUID.validateString(messageId, false)) {
             return { outcome: 'not_found' }
         }
         const now = new Date()
@@ -288,9 +288,7 @@ export class ScheduledTransactionalSends {
             return { outcome: 'invalid_scheduled_at' }
         }
         const scheduledAt = requestedAt > now ? requestedAt : now
-        const result = await this.deps.jobs.rescheduleUnclaimed(teamId, messageId, scheduledAt, {
-            scheduledAt: scheduledAt.toISOString(),
-        })
+        const result = await this.deps.jobs.rescheduleUnclaimed(teamId, messageId, scheduledAt)
         if (result.outcome !== 'rescheduled') {
             return { outcome: result.outcome }
         }
@@ -301,18 +299,9 @@ export class ScheduledTransactionalSends {
     // No worker ever sees a job canceled before its claim, so this writes what the worker writes for a canceled run.
     private async recordCanceledRun(job: CyclotronJobInvocation): Promise<void> {
         const { monitoringService, invocationResultsRowsService } = this.deps.invocationResults
-        // `hogFlow` keys the lifecycle row as `hog_flow`, so it replaces the run's `running` row.
-        const invocation = { ...job, hogFlow: { id: job.functionId } as HogFlow }
-        const result = createInvocationResult(invocation, {}, { finished: true })
-        result.canceled = true
-        result.logs.push({ level: 'info', timestamp: DateTime.now(), message: 'Run canceled before it was sent' })
-        result.metrics.push({
-            team_id: job.teamId,
-            app_source_id: job.parentRunId ?? job.functionId,
-            metric_kind: 'other',
-            metric_name: 'canceled',
-            count: 1,
-        })
+        // The loaded flow gives the metrics their version. A flow that is gone still cancels.
+        const hogFlow = await this.deps.hogFlows.getHogFlow(job.functionId).catch(() => null)
+        const result = createCanceledInvocationResult(job, 'Run canceled before it was sent', hogFlow ?? undefined)
         if ((job.state as CyclotronJobInvocationHogFlow['state'] | null)?.triggerMetricPending) {
             result.metrics.push({
                 team_id: job.teamId,
