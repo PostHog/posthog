@@ -241,9 +241,9 @@ export interface CdpCoreServicesDeps {
      */
     frequencyCapValkey: RedisV2 | null
     /**
-     * SES Valkey pool for the sandbox daily caps only. Sandbox-enabled cdp-api sets it for test
-     * sends, so its own-sender sends keep running without the SES Valkey. Unset falls back to
-     * `emailValidationValkey`, which the email workers have.
+     * Bounded SES Valkey pool for the sandbox daily caps only, set where the sandbox sender is on.
+     * Unset turns the caps' check into `check_failed`, so a sandbox send never claims through an
+     * unbounded pool.
      */
     sandboxEmailCapValkey?: RedisV2 | null
 }
@@ -490,9 +490,8 @@ export function createCdpCoreServices(
     const teamEmailRateLimiter = deps.emailValidationValkey
         ? new RateLimiterService(deps.emailValidationValkey, { name: 'team-email' })
         : null
-    const sandboxEmailCapValkey = deps.sandboxEmailCapValkey ?? deps.emailValidationValkey
-    const sandboxEmailRateLimiter = sandboxEmailCapValkey
-        ? new RateLimiterService(sandboxEmailCapValkey, { name: 'sandbox-email' })
+    const sandboxEmailRateLimiter = deps.sandboxEmailCapValkey
+        ? new RateLimiterService(deps.sandboxEmailCapValkey, { name: 'sandbox-email' })
         : null
     const sandboxEmailSender = new SandboxEmailSender(
         {

@@ -52,7 +52,10 @@ import { CyclotronJobQueueRateLimitedPostgresV2 } from './cdp/services/job-queue
 import { createFrequencyCapValkeyPool } from './cdp/services/messaging/frequency-cap-valkey-pool'
 import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
-import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
+import {
+    createSandboxEmailCapValkeyPool,
+    createSesRateLimiterValkeyPool,
+} from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
@@ -138,8 +141,8 @@ export class PluginServer implements NodeServer {
         // Build typed deps objects for consumers. `emailValidationValkey` and `frequencyCapValkey`
         // are null in the shared deps and set only by the cyclotron workers that run the hogflow
         // email action (see `withEmailActionValkeys` at their loaders below) — no
-        // other consumer touches the SES or frequency cap Valkey. Sandbox-enabled cdp-api
-        // opens a separate SES pool for the sandbox daily caps only.
+        // other consumer touches the SES or frequency cap Valkey. Sandbox-enabled cdp-api and
+        // email workers open a separate, bounded SES pool for the sandbox daily caps only.
         const cdpDeps: CdpConsumerBaseDeps | undefined = needsCdp
             ? {
                   postgres: this.postgres!,
@@ -248,15 +251,7 @@ export class PluginServer implements NodeServer {
                     this.config,
                     {
                         ...cdpDeps!,
-                        ...(this.config.WORKFLOWS_SANDBOX_SENDER_ENABLED
-                            ? {
-                                  sandboxEmailCapValkey: createSesRateLimiterValkeyPool(
-                                      this.config,
-                                      'sandbox-email-cap',
-                                      { optional: true }
-                                  ),
-                              }
-                            : {}),
+                        ...this.sandboxEmailCapValkey(),
                         idempotencyValkey: createIdempotencyValkeyPool(this.config),
                     },
                     { hogQueue: kafkaQueue, hogflowQueue: postgresV2Queue },
@@ -475,14 +470,22 @@ export class PluginServer implements NodeServer {
      * Null when no SES Valkey host is configured (local dev), in which case
      * EmailValidationService degrades to its local cache + DNS.
      *
-     * Also grants the dedicated frequency cap Valkey pool, which the same send path checks.
+     * Also grants the dedicated frequency cap Valkey pool, which the same send path checks, and the
+     * bounded sandbox daily cap pool where the sandbox sender is on.
      */
     private withEmailActionValkeys(deps: CdpConsumerBaseDeps): CdpConsumerBaseDeps {
         return {
             ...deps,
             emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation'),
             frequencyCapValkey: createFrequencyCapValkeyPool(this.config),
+            ...this.sandboxEmailCapValkey(),
         }
+    }
+
+    private sandboxEmailCapValkey(): Pick<CdpConsumerBaseDeps, 'sandboxEmailCapValkey'> {
+        return this.config.WORKFLOWS_SANDBOX_SENDER_ENABLED
+            ? { sandboxEmailCapValkey: createSandboxEmailCapValkeyPool(this.config) }
+            : {}
     }
 
     private getCleanupResources(): CleanupResources {
