@@ -125,7 +125,7 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
 
         assert self.check_in_team.called is checked
 
-    def test_admission_refuses_a_create_past_the_cap_and_sees_every_platform_edit(self) -> None:
+    def test_admission_refuses_a_create_past_the_cap_and_sees_an_edit_that_turns_the_alert_on(self) -> None:
         admitted: list[tuple[bool, bool, int | None]] = []
 
         def admit(
@@ -150,8 +150,14 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
                     configuration_id=configuration_id,
                     change=lambda current: replace(current, enabled=False),
                 )
+                platform_writes.update_configuration(
+                    team_id=self.team.id,
+                    source_kinds=[SourceKind.LOGS.value],
+                    configuration_id=configuration_id,
+                    change=lambda current: replace(current, enabled=True),
+                )
 
-        assert admitted == [(True, True, 5), (True, True, 5), (False, False, 5)]
+        assert admitted == [(True, True, 5), (True, True, 5), (False, True, 5)]
         assert count_configurations(team_id=self.team.id, source_kind=SourceKind.LOGS) == 1
 
     def test_deleting_a_firing_native_alert_resolves_by_its_own_id_before_its_destinations_go(self) -> None:
