@@ -3,16 +3,18 @@
     "properties": {
         "client_request_id": {
             "description": "A new unique identifier for this request, for example a UUID. If the response is lost, send the same call again with the same value. Do not reuse the value for a different request.",
-            "maxLength": 200,
+            "maxLength": 128,
             "minLength": 1,
             "type": "string"
         },
         "context": {
             "description": "Optional background text for the goal, for example relevant code, a local diff summary, or earlier findings. PostHog Agent cannot read local files.",
+            "maxLength": 4096,
             "type": "string"
         },
         "goal": {
             "description": "The goal for PostHog Agent, in plain language. Include what the user wants to know or get done, and what a good answer contains.",
+            "maxLength": 4096,
             "minLength": 1,
             "type": "string"
         },
@@ -30,11 +32,13 @@
         },
         "ref": {
             "description": "Optional branch, tag, or commit in the repository. The default branch is used when it is omitted. The commit stays fixed for the whole operation.",
+            "maxLength": 255,
             "minLength": 1,
             "type": "string"
         },
         "repository": {
             "description": "Optional GitHub repository in the format organization/repository. Set it when the goal needs the code. The project GitHub integration must have access to it.",
+            "maxLength": 255,
             "pattern": "^[\\w.-]+\\/[\\w.-]+$",
             "type": "string"
         }

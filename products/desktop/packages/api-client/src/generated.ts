@@ -19069,6 +19069,7 @@ export namespace Endpoints {
                 repository: string;
                 search: string;
                 sources: Array<
+                    | "agent_mcp"
                     | "autoresearch"
                     | "context_layer"
                     | "error_tracking"
