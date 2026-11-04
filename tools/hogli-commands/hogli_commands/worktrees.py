@@ -37,6 +37,7 @@ from pathlib import Path
 import click
 from hogli.manifest import REPO_ROOT
 
+from . import hints
 from .devbox import hogland, mutagen
 from .devbox.coder import (
     delete_workspace,
@@ -247,6 +248,11 @@ class WorktreeBox:
 )
 @click.option("--dry-run", is_flag=True, help="Show what would be removed without deleting.")
 @click.option("--yes", "-y", is_flag=True, help="Skip the confirmation prompt.")
+@click.option(
+    "--unattended",
+    is_flag=True,
+    help="For a scheduler: implies --yes and runs at most once per mode every 24 hours.",
+)
 def worktrees_clean(
     before: str | None,
     mode: str | None,
@@ -259,6 +265,7 @@ def worktrees_clean(
     keep_boxes: bool,
     dry_run: bool,
     yes: bool,
+    unattended: bool,
 ) -> None:
     """Find and clean up stale agent worktrees by age and deletion mode."""
 
@@ -276,6 +283,11 @@ def worktrees_clean(
         )
 
     mode = mode.lower()
+    if unattended:
+        if not _unattended_run_due(mode, dry_run):
+            click.echo(f"Skipped: an unattended --mode {mode} run happened in the last 24 hours.")
+            return
+        yes = True
     box_action = _resolve_box_action(stop_boxes, delete_boxes, keep_boxes, mode)
     orphan_policy = _resolve_orphan_policy(orphans, mode)
     repo_root = _resolve_repo(repo)
@@ -635,6 +647,22 @@ def _resolve_orphan_policy(explicit: str | None, mode: str) -> str:
     if explicit is not None:
         return explicit.lower()
     return "ask" if mode == "full" else "yes"
+
+
+_UNATTENDED_INTERVAL_S = 24 * 60 * 60
+
+
+def _unattended_run_due(mode: str, dry_run: bool) -> bool:
+    """Allow one --unattended run per mode per day. Flox activation calls this on
+    every shell, so the stamp is what keeps it from rescanning worktrees each time."""
+
+    stamp = f"worktrees:clean:{mode}"
+    last = hints.last_check_run(stamp)
+    if last is not None and time.time() - last.timestamp() < _UNATTENDED_INTERVAL_S:
+        return False
+    if not dry_run:
+        hints.record_check_run(stamp)
+    return True
 
 
 def _include_orphans(policy: str, orphans: list[Worktree], dry_run: bool, yes: bool) -> bool:

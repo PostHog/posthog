@@ -193,12 +193,14 @@ fi
 
 # ── Go toolchain isolation ─────────────────────────────────────────
 # User shells often export GOROOT/GOCACHE for Homebrew, asdf, or other local Go
-# installs. Keep flox builds on the pinned Go toolchain and cache compiled
-# packages inside the flox environment so host Go upgrades cannot poison builds.
+# installs. Keep flox builds on the pinned Go toolchain and in caches this repo
+# owns so host Go upgrades cannot poison builds. The caches are shared by every
+# worktree: Go keys the build cache by toolchain and the module cache by module
+# version, so a per-worktree copy only costs disk.
 unset GOROOT
 export GOTOOLCHAIN=local
-export GOPATH="$FLOX_ENV_CACHE/go"
-export GOCACHE="$FLOX_ENV_CACHE/go-build"
+export GOPATH="${XDG_CACHE_HOME:-$HOME/.cache}/posthog/go"
+export GOCACHE="${XDG_CACHE_HOME:-$HOME/.cache}/posthog/go-build"
 export GOMODCACHE="$GOPATH/pkg/mod"
 # Go creates the module cache read-only by default, and `rm -rf` on a worktree
 # cannot delete a read-only directory tree.
@@ -365,6 +367,19 @@ fi
 # Expose hogli on PATH via the uv-managed venv
 if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
+fi
+
+# ── Stale worktree cleanup ──────────────────────────────────────────
+# Agent tools create worktrees far faster than anyone removes them, and each
+# checkout is about 1 GB of real disk before its caches. Reap idle ones in the
+# background. --unattended limits this to one run per mode per day and skips
+# worktrees with unsaved or unpushed work. POSTHOG_WORKTREES_AUTOCLEAN=0 opts out.
+if [[ "${POSTHOG_WORKTREES_AUTOCLEAN:-1}" != "0" ]] && [[ -z "${CI:-}" ]] && [[ -x "$UV_PROJECT_ENVIRONMENT/bin/hogli" ]]; then
+  (
+    "$UV_PROJECT_ENVIRONMENT/bin/hogli" worktrees:clean --before 14d --mode full --unattended
+    "$UV_PROJECT_ENVIRONMENT/bin/hogli" worktrees:clean --before 7d --mode deps --unattended
+  ) >"$FLOX_ENV_CACHE/worktrees-clean.log" 2>&1 &
+  disown
 fi
 
 # Install shell completions for hogli

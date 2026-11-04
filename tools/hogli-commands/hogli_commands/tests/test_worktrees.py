@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import json
 import math
 import subprocess
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from unittest.mock import patch
 
 import click
-from hogli_commands import worktrees
+from hogli_commands import hints, worktrees
 from hogli_commands.devbox import config as devbox_config
 from hogli_commands.worktrees import (
     Worktree,
@@ -29,6 +31,7 @@ from hogli_commands.worktrees import (
     _registered_worktrees,
     _resolve_box_action,
     _resolve_orphan_policy,
+    _unattended_run_due,
     _worktree_roots,
 )
 
@@ -56,6 +59,27 @@ def _git_stub(responses: dict[str, tuple[int, str]]):
 
 # Frozen reference clock (2023-11-14T22:13:20Z) for deterministic cutoff math.
 _NOW = 1_700_000_000.0
+
+
+class TestUnattendedRunDue:
+    @pytest.fixture(autouse=True)
+    def _isolated_hints_state(self, tmp_path):
+        with patch.object(hints, "_get_state_path", return_value=tmp_path / "hogli_hints.json") as state:
+            yield state.return_value
+
+    def test_second_run_same_day_is_refused_per_mode(self) -> None:
+        assert _unattended_run_due("full", dry_run=False)
+        assert not _unattended_run_due("full", dry_run=False)
+        assert _unattended_run_due("deps", dry_run=False)
+
+    def test_dry_run_does_not_consume_the_day(self) -> None:
+        assert _unattended_run_due("full", dry_run=True)
+        assert _unattended_run_due("full", dry_run=False)
+
+    def test_run_older_than_a_day_is_due(self, _isolated_hints_state: Path) -> None:
+        stale = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
+        _isolated_hints_state.write_text(json.dumps({"last_runs": {"worktrees:clean:full": stale}}))
+        assert _unattended_run_due("full", dry_run=False)
 
 
 class TestParseCutoff:

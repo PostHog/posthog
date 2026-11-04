@@ -111,8 +111,8 @@ bash = '''
   fi
   unset GOROOT
   export GOTOOLCHAIN=local
-  export GOPATH="$FLOX_ENV_CACHE/go"
-  export GOCACHE="$FLOX_ENV_CACHE/go-build"
+  export GOPATH="${XDG_CACHE_HOME:-$HOME/.cache}/posthog/go"
+  export GOCACHE="${XDG_CACHE_HOME:-$HOME/.cache}/posthog/go-build"
   export GOMODCACHE="$GOPATH/pkg/mod"
   export GOFLAGS=-modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
@@ -140,8 +140,8 @@ zsh = '''
   fi
   unset GOROOT
   export GOTOOLCHAIN=local
-  export GOPATH="$FLOX_ENV_CACHE/go"
-  export GOCACHE="$FLOX_ENV_CACHE/go-build"
+  export GOPATH="${XDG_CACHE_HOME:-$HOME/.cache}/posthog/go"
+  export GOCACHE="${XDG_CACHE_HOME:-$HOME/.cache}/posthog/go-build"
   export GOMODCACHE="$GOPATH/pkg/mod"
   export GOFLAGS=-modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
@@ -167,8 +167,8 @@ zsh = '''
 fish = '''
   set -e GOROOT
   set -gx GOTOOLCHAIN local
-  set -gx GOPATH "$FLOX_ENV_CACHE/go"
-  set -gx GOCACHE "$FLOX_ENV_CACHE/go-build"
+  set -gx GOPATH (set -q XDG_CACHE_HOME; and echo $XDG_CACHE_HOME; or echo $HOME/.cache)/posthog/go
+  set -gx GOCACHE (set -q XDG_CACHE_HOME; and echo $XDG_CACHE_HOME; or echo $HOME/.cache)/posthog/go-build
   set -gx GOMODCACHE "$GOPATH/pkg/mod"
   set -gx GOFLAGS -modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
@@ -187,8 +187,13 @@ fish = '''
 tcsh = '''
   unsetenv GOROOT
   setenv GOTOOLCHAIN local
-  setenv GOPATH "$FLOX_ENV_CACHE/go"
-  setenv GOCACHE "$FLOX_ENV_CACHE/go-build"
+  if ($?XDG_CACHE_HOME) then
+    setenv GOPATH "$XDG_CACHE_HOME/posthog/go"
+    setenv GOCACHE "$XDG_CACHE_HOME/posthog/go-build"
+  else
+    setenv GOPATH "$HOME/.cache/posthog/go"
+    setenv GOCACHE "$HOME/.cache/posthog/go-build"
+  endif
   setenv GOMODCACHE "$GOPATH/pkg/mod"
   setenv GOFLAGS -modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
