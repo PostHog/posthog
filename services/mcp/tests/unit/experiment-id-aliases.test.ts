@@ -157,8 +157,14 @@ describe('feature flag id aliases', () => {
         'feature-flag-set-release-condition-rollout': { condition_index: 0, rollout_percentage: 25, version: 3 },
     }
 
-    // `id` on these is a scheduled change id, not a flag id.
-    const NON_FLAG_ID_TOOLS = new Set(['scheduled-changes-delete', 'scheduled-changes-get', 'scheduled-changes-update'])
+    // `id` on these is a scheduled change id or a rollout plan id, not a flag id.
+    const NON_FLAG_ID_TOOLS = new Set([
+        'feature-flag-rollout-plan-advance',
+        'feature-flag-rollout-plan-fail',
+        'scheduled-changes-delete',
+        'scheduled-changes-get',
+        'scheduled-changes-update',
+    ])
 
     it('covers every generated flag tool that takes a flag id', () => {
         const idTools = toolsWithIdParam(FEATURE_FLAG_TOOLS).filter((name) => !NON_FLAG_ID_TOOLS.has(name))

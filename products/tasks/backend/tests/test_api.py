@@ -2321,6 +2321,7 @@ class TestTaskAPI(BaseTaskAPITest):
             posthog_mcp_scopes=scopes,
         )
 
+        assert result is not None and result.run_id is not None
         run = TaskRun.objects.get(id=result.run_id)
         assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == (scopes if scopes is not None else "full")
         assert dispatched_run_scopes(task, run.state) == (scopes if scopes is not None else "full")

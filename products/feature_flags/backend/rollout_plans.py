@@ -39,6 +39,7 @@ logger = structlog.get_logger(__name__)
 ROLLOUT_PLAN_MCP_SCOPES = [*MCP_READ_SCOPES, "feature_flag_rollout_plan:write"]
 TITLE_MAX_LENGTH = 255
 MAX_LISTED_PLANS = 20
+SCHEDULE_FAILURE_REASON = "PostHog could not schedule the next health check."
 
 
 def get_rollout_plan(plan_id: UUID, *, team: Team) -> FeatureFlagRolloutPlan:
@@ -233,6 +234,8 @@ def _apply_step(plan: FeatureFlagRolloutPlan, *, team: Team, percentage: int) ->
 
 
 def _schedule_next_check(plan: FeatureFlagRolloutPlan, *, at: datetime | None) -> str | None:
+    if plan.task_id is None:
+        return SCHEDULE_FAILURE_REASON
     result = tasks_facade.run_task(
         plan.task_id,
         plan.team_id,
@@ -247,7 +250,7 @@ def _schedule_next_check(plan: FeatureFlagRolloutPlan, *, at: datetime | None) -
     )
     if result is None or result.error is not None or result.run_id is None:
         logger.warning("feature_flag_rollout_plan_schedule_failed", plan_id=str(plan.pk))
-        return "PostHog could not schedule the next health check."
+        return SCHEDULE_FAILURE_REASON
     FeatureFlagRolloutPlan.objects.filter(pk=plan.pk).update(latest_run_id=result.run_id)
     plan.latest_run_id = result.run_id
     return None
