@@ -203,7 +203,11 @@ export class CdpEventsConsumer<
                     const clickHouseEvent = parseJSON(message.value!.toString())
                     // Without this, a message that is no event at all reads as an event with no team id
                     // and takes the invalid team id skip, which loses bytes a later schema could still read.
-                    if (typeof clickHouseEvent !== 'object' || clickHouseEvent === null) {
+                    if (
+                        typeof clickHouseEvent !== 'object' ||
+                        clickHouseEvent === null ||
+                        Array.isArray(clickHouseEvent)
+                    ) {
                         throw new Error('not_an_event')
                     }
                     return clickHouseEvent as RawClickHouseEvent

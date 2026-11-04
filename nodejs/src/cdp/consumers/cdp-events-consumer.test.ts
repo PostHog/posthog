@@ -784,6 +784,11 @@ describe('CdpEventsConsumer', () => {
                     bad: () => createKafkaMessage('not json at all'),
                 },
                 {
+                    name: 'a message that is an array, not an event object',
+                    step: 'parse',
+                    bad: () => createKafkaMessage([]),
+                },
+                {
                     name: 'an event whose properties are not JSON',
                     step: 'parse',
                     bad: (teamId: number) => createKafkaMessage(createIncomingEvent(teamId, { properties: '{' })),
