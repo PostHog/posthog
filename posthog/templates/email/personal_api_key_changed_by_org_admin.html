@@ -1,0 +1,31 @@
+{% extends "email/base.html" %}
+{% block heading %}An admin changed your personal API keys{% endblock %}
+{% block section %}
+    <p>
+        <strong>{{ acting_user_email }}</strong>, an admin of <strong>{{ organization_name }}</strong>, made these changes to your personal API keys:
+    </p>
+    <ul>
+        {% for change in changes %}
+            <li>
+                <strong>{{ change.label }}</strong>{% if change.mask_value %} ({{ change.mask_value }}){% endif %}:
+                {% if change.outcome == "rolled" %}
+                    The admin rolled this key, so its old value no longer works in any organization. Roll the key again in your settings to get a new value.
+                {% elif change.outcome == "deleted" %}
+                    The admin deleted this key.
+                {% elif change.outcome == "access_removed" %}
+                    The admin removed this key's access to {{ organization_name }}. The key still works in your other organizations. If you add {{ organization_name }} back to the key, roll the key first, because the admin removed its access for a reason.
+                {% endif %}
+            </li>
+        {% endfor %}
+    </ul>
+    <div class="mb mt text-center">
+        <a class="button" href="{{ url }}">View your personal API keys</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{{ url }}">{{ url }}</a>
+        </p>
+    </div>
+{% endblock %} {% block preheader %}{{ preheader }}{% endblock %}

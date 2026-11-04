@@ -2527,6 +2527,47 @@ def send_personal_api_key_exposed(user_id: int, personal_api_key_id: str, old_ma
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_personal_api_keys_changed_by_org_admin(
+    user_id: int, organization_id: str, acting_user_email: str, changes: list[dict[str, str]]
+) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    user = User.objects.filter(pk=user_id).first()
+    if user is None:
+        return
+    organization = Organization.objects.filter(id=organization_id).first()
+    # The organization name is text that an admin controls, in an email to another user. A name that
+    # looks like a link gets a placeholder.
+    organization_name = sanitize_display_name(
+        organization.name if organization else None,
+        fallback="your organization",
+        context={
+            "task": "send_personal_api_keys_changed_by_org_admin",
+            "field": "organization_name",
+            "organization_id": organization_id,
+        },
+    )
+    subject = f"An admin of {organization_name} changed your personal API keys"
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"personal-api-keys-changed-by-org-admin-{user.uuid}-{timezone.now().timestamp()}",
+        subject=subject,
+        template_name="personal_api_key_changed_by_org_admin",
+        template_context={
+            "preheader": subject,
+            "organization_name": organization_name,
+            "acting_user_email": acting_user_email,
+            "changes": changes,
+            "url": f"{settings.SITE_URL}/settings/user-api-keys",
+        },
+    )
+    message.add_user_recipient(user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_feature_flags_secure_api_key_exposed(team_id: int, mask_value: str, more_info: str) -> None:
     if not is_email_available(with_absolute_urls=True):
         return

@@ -1,15 +1,31 @@
-from typing import Any
+from typing import Any, cast
 
+from django.db import transaction
 from django.db.models import QuerySet
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import mixins, serializers, viewsets
+from rest_framework.exceptions import NotFound
+from rest_framework.request import Request
+from rest_framework.response import Response
 
-from posthog.api.organization_personal_api_key_actions import KeyReachResolver
+from posthog.api.organization_personal_api_key_actions import (
+    KeyActionOutcome,
+    KeyActionResult,
+    KeyReachResolver,
+    OrganizationPersonalAPIKeyActions,
+)
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
 from posthog.constants import AvailableFeature
+from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey, get_organization_personal_api_keys
-from posthog.permissions import OrganizationAdminReadPermissions, PremiumFeaturePermission
+from posthog.permissions import (
+    OrganizationAdminReadPermissions,
+    PremiumFeaturePermission,
+    TimeSensitiveActionPermission,
+)
+from posthog.tasks.email import send_personal_api_keys_changed_by_org_admin
 
 
 class OrganizationPersonalAPIKeyOwnerSerializer(serializers.Serializer):
@@ -96,6 +112,15 @@ class OrganizationPersonalAPIKeySerializer(serializers.ModelSerializer):
         return bool(resolver.reach(key, organization_id).other_organization_ids)
 
 
+class OrganizationPersonalAPIKeyActionResultSerializer(serializers.Serializer):
+    outcome = serializers.ChoiceField(
+        choices=KeyActionOutcome.choices,
+        help_text="What happened to the key. 'rolled': the key has a new secret that nobody sees, and the old "
+        "secret no longer works anywhere. 'deleted': the key no longer exists. 'access_removed': the key no "
+        "longer works in this organization and keeps working in the owner's other organizations.",
+    )
+
+
 @extend_schema(extensions={"x-product": "platform_features"})
 class OrganizationPersonalAPIKeyViewSet(
     TeamAndOrgViewSetMixin,
@@ -104,7 +129,7 @@ class OrganizationPersonalAPIKeyViewSet(
 ):
     scope_object = "INTERNAL"
     serializer_class = OrganizationPersonalAPIKeySerializer
-    permission_classes = [OrganizationAdminReadPermissions, PremiumFeaturePermission]
+    permission_classes = [OrganizationAdminReadPermissions, PremiumFeaturePermission, TimeSensitiveActionPermission]
     premium_feature = AvailableFeature.ORGANIZATION_SECURITY_SETTINGS
     queryset = PersonalAPIKey.objects.none()
     # PersonalAPIKey has no organization_id; the parent lookup resolves through the owner's membership.
@@ -112,6 +137,15 @@ class OrganizationPersonalAPIKeyViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return get_organization_personal_api_keys(self.organization).order_by("-last_used_at", "-created_at")
+
+    def dangerously_get_object(self) -> PersonalAPIKey:
+        # The object permission checks read the organization from the object. They cannot run on a key, because a
+        # key belongs to a user and can reach several organizations. The view permissions already require an admin
+        # of the organization in the URL, and this queryset holds only the keys that reach that organization.
+        key = self.filter_queryset(self.get_queryset()).filter(pk=self.kwargs["pk"]).first()
+        if key is None:
+            raise NotFound()
+        return key
 
     def get_serializer(self, *args: Any, **kwargs: Any) -> serializers.BaseSerializer:
         context = kwargs.setdefault("context", self.get_serializer_context())
@@ -123,3 +157,42 @@ class OrganizationPersonalAPIKeyViewSet(
         context = super().get_serializer_context()
         context["team_names"] = {team.id: team.name for team in self.organization.teams.all()}
         return context
+
+    @extend_schema(
+        operation_id="organization_personal_api_keys_roll",
+        request=None,
+        responses={200: OrganizationPersonalAPIKeyActionResultSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def roll(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        key = self.get_object()
+        return self._action_response(self._key_actions().roll(key.id))
+
+    @extend_schema(
+        operation_id="organization_personal_api_keys_revoke",
+        request=None,
+        responses={200: OrganizationPersonalAPIKeyActionResultSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def revoke(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        key = self.get_object()
+        return self._action_response(self._key_actions().revoke(key.id))
+
+    def _key_actions(self) -> OrganizationPersonalAPIKeyActions:
+        return OrganizationPersonalAPIKeyActions(self.organization, cast(User, self.request.user))
+
+    def _action_response(self, result: KeyActionResult | None) -> Response:
+        if result is None:
+            raise NotFound()
+        organization_id = str(self.organization.id)
+        acting_user_email = cast(User, self.request.user).email
+        changes = [{"label": result.label, "mask_value": result.mask_value, "outcome": str(result.outcome)}]
+        transaction.on_commit(
+            lambda: send_personal_api_keys_changed_by_org_admin.delay(
+                user_id=result.owner_id,
+                organization_id=organization_id,
+                acting_user_email=acting_user_email,
+                changes=changes,
+            )
+        )
+        return Response(OrganizationPersonalAPIKeyActionResultSerializer({"outcome": result.outcome}).data)
