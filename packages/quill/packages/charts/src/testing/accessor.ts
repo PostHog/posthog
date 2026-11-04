@@ -138,6 +138,13 @@ export interface ChartAccessor<Meta = unknown> {
         /** The CSS color of the value text, or null for other charts. */
         valueColor(): string | null
     }
+    flame: {
+        /** The zoom path as shown, from `All` down to the focused node. A deep path collapses its
+         *  middle crumbs into an ellipsis, which is not listed. */
+        breadcrumb(): string[]
+        /** The search summary (`3 matches · 12% of total`), or null without a search. */
+        searchSummary(): string | null
+    }
     /** The legend container in this chart's render scope, or null when the legend is hidden. */
     legend(): HTMLElement | null
     /** Legend rows in this chart's render scope — label plus the row's secondary text (a slope
@@ -342,6 +349,18 @@ export function getChart<Meta = unknown>(
                 return value === null ? null : { value, label: text('label'), min: text('min'), max: text('max') }
             },
             valueColor: () => gaugePart('value')?.style.color ?? null,
+        },
+        flame: {
+            breadcrumb: () =>
+                Array.from(
+                    wrapper
+                        .closest('[data-hog-charts-flame]')
+                        ?.querySelectorAll<HTMLElement>('[data-attr="hog-chart-flame-breadcrumb"]') ?? []
+                ).map((el) => el.textContent ?? ''),
+            searchSummary: () =>
+                wrapper
+                    .closest('[data-hog-charts-flame]')
+                    ?.querySelector('[data-attr="hog-chart-flame-search-summary"]')?.textContent ?? null,
         },
         legend: () => scope.querySelector<HTMLElement>('[data-hog-charts-legend]'),
         legendItems: () => readLegendItems(scope),
