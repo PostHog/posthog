@@ -219,6 +219,49 @@ describe('sourceConnectSceneLogic', () => {
         expect(sourceConnectSceneLogic.values.storedCredential).toBeNull()
     })
 
+    it('reloads an item after another item failed in between', async () => {
+        jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+        await expectLogic(sourceConnectSceneLogic, () =>
+            sourceConnectSceneLogic.actions.loadMigrationPrefill(MIGRATION_ID, ITEM_ID)
+        ).toFinishAllListeners()
+        useMocks({ get: { '/api/projects/:team_id/warehouse_migrations/:id/items/:item_id/': () => [500, {}] } })
+        await expectLogic(sourceConnectSceneLogic, () =>
+            sourceConnectSceneLogic.actions.loadMigrationPrefill(MIGRATION_ID, OTHER_ITEM_ID)
+        ).toFinishAllListeners()
+
+        useMocks({ get: { '/api/projects/:team_id/warehouse_migrations/:id/items/:item_id/': ITEM } })
+        await expectLogic(sourceConnectSceneLogic, () =>
+            sourceConnectSceneLogic.actions.loadMigrationPrefill(MIGRATION_ID, ITEM_ID)
+        ).toFinishAllListeners()
+
+        expect(sourceConnectSceneLogic.values.credentialsForm.payload.host).toEqual('db.example.com')
+        jest.restoreAllMocks()
+    })
+
+    it('drops a pending prefill when the migration link is removed', async () => {
+        let release: () => void = () => {}
+        const released = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/warehouse_migrations/:id/items/:item_id/': async () => {
+                    await released
+                    return [200, ITEM]
+                },
+            },
+        })
+        router.actions.push(
+            `/data-warehouse/connect?kind=Postgres&migration_id=${MIGRATION_ID}&migration_item_id=${ITEM_ID}`
+        )
+        router.actions.push('/data-warehouse/connect?kind=Postgres')
+        release()
+        await expectLogic(sourceConnectSceneLogic).toFinishAllListeners()
+
+        expect(sourceConnectSceneLogic.values.credentialsForm.payload).toEqual({})
+        expect(sourceConnectSceneLogic.values.migrationPrefillLoading).toBe(false)
+    })
+
     it('keeps the prefill of the latest item when an earlier request finishes last', async () => {
         let releaseFirst: () => void = () => {}
         const firstReleased = new Promise<void>((resolve) => {
