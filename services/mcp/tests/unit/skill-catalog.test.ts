@@ -1,6 +1,7 @@
 import { strToU8, zipSync } from 'fflate'
 import { describe, expect, it, vi } from 'vitest'
 
+import { maxResponseBytes } from '@/lib/response-budget'
 import type { ProjectSkillCatalog } from '@/skills/project-skill-catalog'
 import {
     formatLearnFile,
@@ -11,7 +12,7 @@ import {
     searchLearnFile,
     SkillCatalog,
 } from '@/skills/skill-catalog'
-import { ExecLearnCatalog } from '@/tools/exec-learn'
+import { ExecLearnCatalog, LEARN_GUIDE_TOKEN_BUDGET } from '@/tools/exec-learn'
 
 function makeArchive(files: Record<string, string>): Uint8Array {
     return zipSync(Object.fromEntries(Object.entries(files).map(([path, content]) => [path, strToU8(content)])))
@@ -587,6 +588,26 @@ describe('SkillCatalog and exec learn', () => {
                 'Unknown skill: "missing"'
             )
             expect(invocations).toEqual([])
+        })
+
+        it('defers whole skills past the response budget and reports only the skills it returned', async () => {
+            const body = 'x'.repeat(Math.floor(maxResponseBytes(LEARN_GUIDE_TOKEN_BUDGET) * 0.6))
+            const catalog = SkillCatalog.fromZip(
+                makeArchive({
+                    'big-a/SKILL.md': makeSkill('big-a', 'First large skill.', body),
+                    'big-b/SKILL.md': makeSkill('big-b', 'Second large skill.', body),
+                })
+            )
+            const invocations: { skill: string }[] = []
+            const learn = new ExecLearnCatalog([], { posthog: catalog }, (inv) => invocations.push(inv))
+
+            const output = await learn.execute('posthog:big-a posthog:big-b')
+
+            expect([
+                output.includes('Skill: posthog:big-b'),
+                output.endsWith('Run `learn posthog:big-b` in a separate command.]'),
+            ]).toEqual([false, true])
+            expect(invocations.map((inv) => inv.skill)).toEqual(['big-a'])
         })
 
         it('keeps learn working when the listener throws', async () => {
