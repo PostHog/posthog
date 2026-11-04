@@ -34,9 +34,10 @@ export interface TaskShareState {
     spaces: TaskSpace[]
 }
 
-// Mirrors products/tasks/backend/visibility.py. Slack tasks in a shared thread are readable by
-// the team whatever their space, so the space cannot make them private.
-const SPACE_INDEPENDENT_ORIGIN_PRODUCTS = new Set(['slack'])
+// Mirrors products/tasks/backend/visibility.py. For these origins the space does not decide who can
+// read the task: Slack tasks in a shared thread are team readable, and scout trial tasks stay
+// creator only. The task DTO does not show which scout tasks are trials, so all scout tasks are left out.
+const SPACE_INDEPENDENT_ORIGIN_PRODUCTS = new Set(['slack', 'signals_scout'])
 // Tasks from these origins stay team readable while they have no space.
 const TEAM_READABLE_ORIGIN_PRODUCTS = new Set([
     'signal_report',
@@ -91,10 +92,15 @@ function taskLink(taskId: string): string {
 }
 
 // Undo runs outside the logic so it still works after the person leaves the task.
-async function undoMove(projectId: string, taskId: string, previousSpaceId: string): Promise<void> {
+function notifyTaskChanged(taskId: string): void {
+    todaySessionMenuLogic.findMounted()?.actions.sessionUpdated(taskId)
+}
+
+async function undoMove(projectId: string, taskId: string, previousSpaceId: string | null): Promise<void> {
     try {
         const updated = await tasksPartialUpdate(projectId, taskId, { channel: previousSpaceId })
         taskShareLogic.findMounted({ taskId })?.actions.channelChanged(updated.channel ?? null)
+        notifyTaskChanged(taskId)
         posthog.capture('task visibility changed', { task_id: taskId, visibility: 'undo' })
         toast.success({ title: 'The change is undone' })
     } catch {
@@ -295,6 +301,7 @@ export const taskShareLogic = kea<taskShareLogicType>([
             try {
                 const updated = await tasksPartialUpdate(projectId, taskId, { channel: spaceId })
                 actions.channelChanged(updated.channel ?? null)
+                notifyTaskChanged(taskId)
                 posthog.capture('task visibility changed', { task_id: taskId, visibility })
                 const copied =
                     visibility === 'public' &&
@@ -307,9 +314,7 @@ export const taskShareLogic = kea<taskShareLogicType>([
                             : copied
                               ? 'Paste the link to share it.'
                               : 'Could not copy the link. Use Copy link in the Public menu.',
-                    action: previousSpaceId
-                        ? { label: 'Undo', onClick: () => void undoMove(projectId, taskId, previousSpaceId) }
-                        : undefined,
+                    action: { label: 'Undo', onClick: () => void undoMove(projectId, taskId, previousSpaceId) },
                 })
             } catch {
                 toast.error({

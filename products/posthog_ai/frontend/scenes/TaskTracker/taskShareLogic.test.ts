@@ -71,6 +71,7 @@ describe('taskShareLogic', () => {
         ['a task in the team space', { channel: 'space-team' }, 'public'],
         ['a Slack task in the personal space', { channel: 'space-me', originProduct: 'slack' }, null],
         ['a user task with no space', {}, 'private'],
+        ['a scout task, which can be a creator-only trial', { originProduct: 'signals_scout' }, null],
         ['a signal report task with no space', { originProduct: 'signal_report' }, 'public'],
         ['a task with no space and no creator', { creatorUuid: null }, 'public'],
     ])('shows the visibility of %s', (_, overrides, expected) => {
