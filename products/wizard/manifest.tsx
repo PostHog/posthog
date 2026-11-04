@@ -4,7 +4,7 @@ export const manifest: ProductManifest = {
     name: 'Wizard',
     scenes: {
         WizardRuns: {
-            import: () => import('./frontend/WizardRunsScene'),
+            import: () => import('./frontend/scenes/WizardRunsScene'),
             projectBased: true,
             name: 'Wizard runs',
             description: 'Run the setup agent in the cloud, then review the changes it produces.',

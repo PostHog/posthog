@@ -879,7 +879,7 @@ export function OverviewTab({
                                     icon={<IconTrash />}
                                     loading={bulkDeleteResponseLoading}
                                     onClick={() => {
-                                        const description = `Are you sure you want to delete ${ctx.selectedCount} feature flag${ctx.selectedCount !== 1 ? 's' : ''}? This action cannot be undone.`
+                                        const description = `Are you sure you want to delete ${ctx.selectedCount} feature flag${ctx.selectedCount !== 1 ? 's' : ''}? You can restore most flags from the results that open next. Flags on the newer configuration format can't be restored yet.`
                                         LemonDialog.open({
                                             title: `Delete ${ctx.selectedCount} feature flag${ctx.selectedCount !== 1 ? 's' : ''}?`,
                                             description,
