@@ -21,6 +21,7 @@ import { QuillCheckEditorDialog } from 'products/data_quality/frontend/QuillChec
 
 import { catalogTablesLogic } from '../catalogTablesLogic'
 import { NewCertificationModal } from '../components/NewCertificationModal'
+import { CatalogTablesBulkBar } from './CatalogTablesBulkBar'
 import { CatalogTablesTable } from './CatalogTablesTable'
 import { CatalogTablesToolbar } from './CatalogTablesToolbar'
 
@@ -88,7 +89,7 @@ function LoadErrors(): JSX.Element {
 }
 
 function TablesContent(): JSX.Element {
-    const { rowsLoaded, rowsError } = useValues(catalogTablesLogic)
+    const { rowsLoaded, rowsError, selectedRows } = useValues(catalogTablesLogic)
     const { loadDatabase } = useActions(databaseTableListLogic)
     const { loadOverview } = useActions(dataQualityOverviewLogic)
 
@@ -112,6 +113,7 @@ function TablesContent(): JSX.Element {
             <LoadErrors />
             <QuillRunAllBanners />
             <CatalogTablesTable />
+            {selectedRows.length > 0 && <CatalogTablesBulkBar />}
         </>
     )
 }

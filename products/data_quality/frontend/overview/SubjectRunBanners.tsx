@@ -6,7 +6,7 @@ import { SubjectGroup, dataQualityOverviewLogic } from './dataQualityOverviewLog
 
 export function SubjectRunBanners({ group }: { group: SubjectGroup }): JSX.Element | null {
     const { runTarget, runError, pollTimedOut } = useValues(dataQualityOverviewLogic)
-    const { runChecks, loadOverview } = useActions(dataQualityOverviewLogic)
+    const { retryRun, loadOverview } = useActions(dataQualityOverviewLogic)
 
     const scopedToThisSubject = runTarget?.kind === 'subject' && runTarget.subjectKey === group.subjectKey
     if (!scopedToThisSubject) {
@@ -28,11 +28,7 @@ export function SubjectRunBanners({ group }: { group: SubjectGroup }): JSX.Eleme
                         type="error"
                         action={{
                             children: 'Retry',
-                            onClick: () =>
-                                runChecks(
-                                    { kind: 'subject', subjectKey: group.subjectKey },
-                                    group.checks.map((check) => check.id)
-                                ),
+                            onClick: retryRun,
                         }}
                     >
                         {runError}
