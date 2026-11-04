@@ -15,6 +15,7 @@ from rest_framework.views import APIView
 
 from posthog.hogql.property_access_types import RestrictedProperty
 
+from posthog.api.livestream_impersonation import LivestreamImpersonation
 from posthog.auth import refuse_blocked_account
 from posthog.ip_restrictions import get_ip_restrictions_for_principal
 from posthog.jwt import PosthogJwtAudience, decode_jwt
@@ -59,6 +60,7 @@ class LivestreamAuthentication(ActivityCredentialMixin, BaseAuthentication):
             if impersonated_by_id is not None and (
                 type(impersonated_by_id) is not int
                 or not User.objects.filter(id=impersonated_by_id, is_active=True, is_staff=True).exists()
+                or not LivestreamImpersonation.verify(claims, claims["user_id"], impersonated_by_id)
             ):
                 raise ValueError("Invalid impersonation identity")
             user = User.objects.get(id=claims["user_id"], is_active=True)

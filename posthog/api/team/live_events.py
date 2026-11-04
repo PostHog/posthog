@@ -3,9 +3,11 @@
 from datetime import timedelta
 
 from django.conf import settings
+from django.utils import timezone
 
 from rest_framework.request import Request
 
+from posthog.api.livestream_impersonation import LivestreamImpersonation
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.helpers.impersonation import get_original_user_id_from_session
 from posthog.jwt import PosthogJwtAudience, encode_jwt, signing_key_fingerprint
@@ -47,7 +49,9 @@ def _reset_default_data_color_theme_id_cache() -> None:
     _default_theme_id_cache = None
 
 
-def _live_events_token_cache_key(team: Team, user_id: int | None, impersonated_by_id: int | None = None) -> str:
+def _live_events_token_cache_key(
+    team: Team, user_id: int | None, impersonation: LivestreamImpersonation | None = None
+) -> str:
     """Build the cache key for the live-events JWT.
 
     Includes a short fingerprint of `settings.JWT_SIGNING_KEY` so that rotating the
@@ -58,19 +62,22 @@ def _live_events_token_cache_key(team: Team, user_id: int | None, impersonated_b
     """
     signing_fingerprint = signing_key_fingerprint(settings.JWT_SIGNING_KEY)
     key = f"live_events_token:{signing_fingerprint}:{team.id}:{user_id}:{team.api_token}:{team.organization_id}"
-    return f"{key}:impersonated_by:{impersonated_by_id}" if impersonated_by_id is not None else key
+    return f"{key}:impersonation:{impersonation.cache_key}" if impersonation is not None else key
 
 
-def get_or_mint_live_events_token(team: Team, user_id: int | None, *, impersonated_by_id: int | None = None) -> str:
+def get_or_mint_live_events_token(
+    team: Team, user_id: int | None, *, impersonation: LivestreamImpersonation | None = None
+) -> str:
     """Return a cached live-events JWT for this (team, user) pair, minting one if missing.
 
-    The JWT itself is valid for 7 days. The cache TTL is 24h, so any token returned
+    Ordinary JWTs are valid for 7 days. Their cache TTL is 24h, so a token returned
     from cache still has at least 6 days of remaining validity. The cache key includes
     every field that ends up in the claims so api-token rotations or organization
     moves automatically force a fresh mint, plus a JWT_SIGNING_KEY fingerprint so
     signing-key rotation auto-partitions the cache namespace (no manual flush needed).
+    Impersonated tokens expire with their source credential and use a separate cache entry.
     """
-    cache_key = _live_events_token_cache_key(team, user_id, impersonated_by_id)
+    cache_key = _live_events_token_cache_key(team, user_id, impersonation)
     cached = get_safe_cache(cache_key)
     if cached is not None:
         return cached
@@ -81,11 +88,27 @@ def get_or_mint_live_events_token(team: Team, user_id: int | None, *, impersonat
         "user_id": user_id,
         "organization_id": str(team.organization_id),
     }
-    if impersonated_by_id is not None:
-        claims["impersonated_by_id"] = impersonated_by_id
-    token = encode_jwt(claims, timedelta(days=7), PosthogJwtAudience.LIVESTREAM)
-    safe_cache_set(cache_key, token, timeout=LIVE_EVENTS_TOKEN_TTL_SECONDS)
+    lifetime = timedelta(days=7)
+    if impersonation is not None:
+        claims.update(impersonation.claims())
+        lifetime = timedelta(seconds=int((impersonation.expires_at - timezone.now()).total_seconds()))
+    token = encode_jwt(claims, lifetime, PosthogJwtAudience.LIVESTREAM)
+    safe_cache_set(cache_key, token, timeout=min(LIVE_EVENTS_TOKEN_TTL_SECONDS, int(lifetime.total_seconds())))
     return token
+
+
+def _impersonation_for_request(request: Request, impersonated_by_id: int) -> LivestreamImpersonation | None:
+    user_id = request.user.id
+    if user_id is None:
+        return None
+    authenticator = getattr(request, "successful_authenticator", None)
+    if isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return LivestreamImpersonation.from_oauth(str(authenticator.access_token.pk), user_id, impersonated_by_id)
+    session_key = request.session.session_key
+    if not session_key:
+        return None
+    impersonation = LivestreamImpersonation.from_session(session_key, user_id, impersonated_by_id)
+    return impersonation if impersonation is not None and impersonation.bind_session(session_key) else None
 
 
 def live_events_token_for_request(team: Team, request: Request | None) -> str | None:
@@ -100,9 +123,11 @@ def live_events_token_for_request(team: Team, request: Request | None) -> str | 
         impersonated_by_id = authenticator.access_token.impersonated_by_id
     elif authenticator is None or isinstance(authenticator, SessionAuthentication):
         impersonated_by_id = get_original_user_id_from_session(request)
-    if (
-        impersonated_by_id is not None
-        and not User.objects.filter(id=impersonated_by_id, is_active=True, is_staff=True).exists()
-    ):
+    if impersonated_by_id is None:
+        return get_or_mint_live_events_token(team, request.user.id)
+    if not User.objects.filter(id=impersonated_by_id, is_active=True, is_staff=True).exists():
         return None
-    return get_or_mint_live_events_token(team, request.user.id, impersonated_by_id=impersonated_by_id)
+    impersonation = _impersonation_for_request(request, impersonated_by_id)
+    if impersonation is None:
+        return None
+    return get_or_mint_live_events_token(team, request.user.id, impersonation=impersonation)

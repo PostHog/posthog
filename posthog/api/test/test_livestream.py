@@ -1,10 +1,12 @@
 import hashlib
 from datetime import timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.contrib.sessions.backends.db import SessionStore
+from django.conf import settings
+from django.contrib.auth import SESSION_KEY
 from django.core.signing import TimestampSigner
 from django.utils import timezone
 
@@ -18,12 +20,15 @@ from posthog.api.livestream import LivestreamAuthentication
 from posthog.api.team.live_events import live_events_token_for_request
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.constants import AvailableFeature
-from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.models import OrganizationDomain, OrganizationMembership, PropertyDefinition, User
-from posthog.models.oauth import OAuthAccessToken
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
+from posthog.session.backend import SessionStore
+from posthog.session.models import Session
 from posthog.test.authentication_checks import covers_authentication
 from posthog.test.persons import create_group_type_mapping
+from posthog.utils import get_safe_cache
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -43,8 +48,20 @@ class TestLivestreamAuthorization(APIBaseTest):
             audience,
         )
 
-    @parameterized.expand([("session",), ("oauth",)])
-    def test_preserves_verified_staff_impersonation_without_reusing_member_tokens(self, credential: str) -> None:
+    @parameterized.expand(
+        [
+            ("session", "revoked"),
+            ("session", "timed_out"),
+            ("session", "staff"),
+            ("session", "idle_timed_out"),
+            ("session", "binding_missing"),
+            ("oauth", "revoked"),
+            ("oauth", "timed_out"),
+            ("oauth", "staff"),
+        ]
+    )
+    @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
+    def test_bounds_livestream_impersonation_to_its_source(self, credential: str, ending: str) -> None:
         staff = User.objects.create_user(
             email="livestream-staff@example.com", first_name="Staff", password="test-password", is_staff=True
         )
@@ -52,21 +69,52 @@ class TestLivestreamAuthorization(APIBaseTest):
         request.user = self.user
         request.auth = None
         request.session = SessionStore()
+        source_expires_at = timezone.now() + timedelta(seconds=90)
         with patch.object(request, "_authenticator", None, create=True):
             ordinary = live_events_token_for_request(self.team, request)
             assert ordinary is not None
             authenticator = None
+            source_session: dict[str, str | float] = {}
             if credential == "session":
-                request.session[la_settings.USER_SESSION_FLAG] = TimestampSigner().sign(str(staff.id))
+                source_session = {
+                    SESSION_KEY: str(self.user.id),
+                    la_settings.USER_SESSION_FLAG: TimestampSigner().sign(str(staff.id)),
+                    settings.SESSION_COOKIE_CREATED_AT_KEY: source_expires_at.timestamp()
+                    - settings.IMPERSONATION_TIMEOUT_SECONDS,
+                    settings.IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY: timezone.now().timestamp(),
+                }
+                request.session.update(source_session)
+                request.session.save()
             else:
                 authenticator = OAuthAccessTokenAuthentication()
-                authenticator.access_token = OAuthAccessToken(user=self.user, impersonated_by=staff, scope="query:read")
+                application = OAuthApplication.objects.create(
+                    name="Test livestream client",
+                    user=staff,
+                    client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                    authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                    algorithm="RS256",
+                    redirect_uris="https://example.com/callback",
+                )
+                authenticator.access_token = OAuthAccessToken.objects.create(
+                    user=self.user,
+                    impersonated_by=staff,
+                    application=application,
+                    token="test-impersonated-livestream-source",
+                    scope="query:read",
+                    expires=source_expires_at,
+                )
             with patch.object(request, "_authenticator", authenticator, create=True):
                 impersonated = live_events_token_for_request(self.team, request)
                 assert impersonated is not None and impersonated != ordinary
                 assert live_events_token_for_request(self.team, request) == impersonated
+            claims = decode_jwt(impersonated, PosthogJwtAudience.LIVESTREAM)
+            assert claims["exp"] <= source_expires_at.timestamp()
+            if request.session.session_key:
+                assert request.session.session_key not in impersonated
+                assert request.session.session_key not in claims.values()
             request.session.clear()
             assert live_events_token_for_request(self.team, request) == ordinary
+            request.session.update(source_session)
         OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
         self.client.logout()
         headers = {"Accept": "application/json"}
@@ -79,16 +127,36 @@ class TestLivestreamAuthorization(APIBaseTest):
         )
         assert response.status_code == 200, response.content
         assert response.json()["ip_restrictions"] == []
-        if credential == "session":
+        if ending == "staff":
             staff.is_staff = False
             staff.save(update_fields=["is_staff"])
-        else:
-            staff.is_active = False
-            staff.save(update_fields=["is_active"])
-        revoked = self.client.get(
-            "/api/livestream/authorize/", headers={**headers, "Authorization": f"Bearer {impersonated}"}
-        )
-        assert revoked.status_code == 401
+        elif ending == "revoked":
+            if credential == "session":
+                Session.objects.filter(session_key=request.session.session_key).delete()
+            else:
+                assert authenticator is not None
+                OAuthAccessToken.objects.filter(pk=authenticator.access_token.pk).delete()
+        elif ending == "idle_timed_out":
+            request.session[settings.IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY] = (
+                timezone.now().timestamp() - settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS - 1
+            )
+            request.session.save()
+        expiry_check = source_expires_at + timedelta(seconds=1) if ending == "timed_out" else timezone.now()
+        with (
+            time_machine.travel(expiry_check, tick=False),
+            patch(
+                "posthog.api.livestream_impersonation.get_safe_cache",
+                wraps=get_safe_cache,
+            ) as source_cache,
+        ):
+            if ending == "binding_missing":
+                source_cache.return_value = None
+            revoked = self.client.get(
+                "/api/livestream/authorize/", headers={**headers, "Authorization": f"Bearer {impersonated}"}
+            )
+            assert revoked.status_code == 401
+            with patch.object(request, "_authenticator", authenticator, create=True):
+                assert live_events_token_for_request(self.team, request) is None
 
     @parameterized.expand(
         [
@@ -225,9 +293,19 @@ class TestLivestreamAuthorization(APIBaseTest):
             self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization).status_code, expected_status
         )
 
-    @parameterized.expand([(None,), (PosthogJwtAudience.IMPERSONATED_USER,)])
-    def test_rejects_other_authentication(self, audience: PosthogJwtAudience | None) -> None:
+    @parameterized.expand(
+        [(None, False), (PosthogJwtAudience.IMPERSONATED_USER, False), (PosthogJwtAudience.LIVESTREAM, True)]
+    )
+    def test_rejects_other_authentication(
+        self, audience: PosthogJwtAudience | None, unbound_impersonation: bool
+    ) -> None:
         authorization = f"Bearer {self._token(audience)}" if audience else ""
+        if unbound_impersonation:
+            self.user.is_staff = True
+            self.user.save(update_fields=["is_staff"])
+            claims = decode_jwt(self._token(), PosthogJwtAudience.LIVESTREAM)
+            claims["impersonated_by_id"] = self.user.id
+            authorization = f"Bearer {encode_jwt(claims, timedelta(days=7), PosthogJwtAudience.LIVESTREAM)}"
         self.assertEqual(
             self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization).status_code, 401
         )
