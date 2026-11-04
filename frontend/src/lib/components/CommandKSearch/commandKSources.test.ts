@@ -6,12 +6,14 @@ import { GroupTypeIndex, SearchResponse, SearchableEntity } from '~/types'
 import { alertsList } from 'products/alerts/frontend/generated/api'
 import { conversationsTicketsList } from 'products/conversations/frontend/generated/api'
 import { productToursList } from 'products/product_tours/frontend/generated/api'
+import { hogFlowsList } from 'products/workflows/frontend/generated/api'
 
 import { REMOTE_REQUESTS, RemoteContext, RemoteRequest, requestDebounceMs, settleRequest } from './commandKSources'
 
 jest.mock('products/alerts/frontend/generated/api', () => ({ alertsList: jest.fn() }))
 jest.mock('products/conversations/frontend/generated/api', () => ({ conversationsTicketsList: jest.fn() }))
 jest.mock('products/product_tours/frontend/generated/api', () => ({ productToursList: jest.fn() }))
+jest.mock('products/workflows/frontend/generated/api', () => ({ hogFlowsList: jest.fn() }))
 jest.mock('~/generated/core/api', () => ({
     ...jest.requireActual('~/generated/core/api'),
     fileSystemSearchRetrieve: jest.fn(),
@@ -233,6 +235,23 @@ describe('settleRequest', () => {
                     href: '/support/tickets/42',
                 }),
             ])
+        })
+
+        test.each([
+            ['type:workflows name:venue', () => hogFlowsList, ['1', { search: 'venue', limit: 20 }, expect.anything()]],
+            [
+                'type:workflows name:venue nudge',
+                () => api.search.list,
+                [{ q: 'nudge', entities: ['hog_flow'], include_counts: false }, expect.anything()],
+            ],
+        ])('keeps name: apart from the full-text search for %s', async (query, endpoint, params) => {
+            jest.mocked(hogFlowsList).mockResolvedValue({
+                count: 1,
+                results: [{ id: 'w1', name: 'Revenue nudge', created_at: '2026-01-01T00:00:00Z' }],
+            } as any)
+            const result = await settleRequest(objects, query, new AbortController().signal, context)
+            expect(endpoint()).toHaveBeenCalledWith(...params)
+            expect(result?.results.results?.map((item) => item.href)).toEqual(['/workflows/w1/workflow'])
         })
 
         test.each([

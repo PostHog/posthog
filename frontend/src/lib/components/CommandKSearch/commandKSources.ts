@@ -3,6 +3,7 @@ import {
     SearchItem,
     accountToSearchItem,
     alertToSearchItem,
+    hogFlowToSearchItem,
     fileSystemEntryToSearchItem,
     groupToSearchItem,
     personToSearchItem,
@@ -28,6 +29,7 @@ import { conversationsTicketsList } from 'products/conversations/frontend/genera
 import { accountsList } from 'products/customer_analytics/frontend/generated/api'
 import { personsList } from 'products/persons/frontend/generated/api'
 import { productToursList } from 'products/product_tours/frontend/generated/api'
+import { hogFlowsList } from 'products/workflows/frontend/generated/api'
 
 import { fileSystemTypesFor } from './commandKFilterOptions'
 import { TypeSearchTerms, parseToken, tokenize, typeSearchTerms } from './commandKQuery'
@@ -226,7 +228,20 @@ const TYPE_SEARCHES: Record<string, TypeSearch> = {
         )
         return response.results.map(ticketResultToSearchItem)
     },
-    workflows: unifiedTypeSearch('hog_flow', 'workflows'),
+    workflows: async (terms, signal, context) => {
+        if (!terms.name) {
+            return unifiedTypeSearch('hog_flow', 'workflows')(terms, signal, context)
+        }
+        if (terms.freeText) {
+            return unifiedTypeSearch('hog_flow', 'workflows')({ ...terms, text: terms.freeText }, signal, context)
+        }
+        const response = await hogFlowsList(
+            String(context.currentTeamId),
+            { search: terms.name, limit: RESULTS_LIMIT },
+            { signal }
+        )
+        return response.results.map(hogFlowToSearchItem)
+    },
 }
 
 const PHRASE_FILTER_KEYS = new Set(['is', 'name'])

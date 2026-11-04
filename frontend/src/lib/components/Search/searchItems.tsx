@@ -17,6 +17,7 @@ import type { TicketApi } from 'products/conversations/frontend/generated/api.sc
 import { getAccountStatusTags } from 'products/customer_analytics/frontend/components/Accounts/accountStatusTags'
 import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 import type { ProductTourApi } from 'products/product_tours/frontend/generated/api.schemas'
+import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { filterSearchItems } from './utils'
 
@@ -303,6 +304,19 @@ export const alertToSearchItem = (alert: AlertApi): SearchItem => {
         href: urls.alert(alert.id),
         itemType: 'alert',
         record: { type: 'alert', id: alert.id },
+    }
+}
+
+export const hogFlowToSearchItem = (flow: HogFlowMinimalApi): SearchItem => {
+    const name = flow.name || 'Untitled workflow'
+    return {
+        id: `hog_flow-${flow.id}`,
+        name,
+        displayName: name,
+        category: 'results',
+        href: urls.workflow(flow.id, 'workflow'),
+        itemType: 'hog_flow',
+        record: { type: 'workflows', id: flow.id, created_at: flow.created_at },
     }
 }
 
