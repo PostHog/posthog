@@ -6568,6 +6568,9 @@ class SignalReportArtefactViewSet(
                 "signals_github_login_to_user_map": login_map,
                 "signals_reviewer_user_uuid_map": uuid_map,
                 "signals_scout_display_names": scout_display_names,
+                "signals_report_user_authored": SignalReport.objects.filter(
+                    id=self._validated_report_id(), team_id=self.team.id, user_authored=True
+                ).exists(),
                 "signals_compact_ranking_scores": True,
                 "signals_reviewer_history": [
                     artefact
