@@ -1,32 +1,29 @@
 import { BindLogic } from 'kea'
 import { useActions, useValues } from 'kea'
 
-import { IconComment, IconGear, IconPencil } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSwitch, Popover } from '@posthog/lemon-ui'
+import { IconComment, IconGear } from '@posthog/icons'
+import { LemonButton, Popover } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 
 import { AddIntegrationButton } from 'products/marketing_analytics/frontend/components/AddIntegrationButton'
-import { overviewMetricsLogic } from 'products/marketing_analytics/frontend/overview/overviewMetricsLogic'
 
 import { MarketingAnalyticsTab, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../logic/marketingAnalyticsTilesLogic'
 import { ConversionGoalFilterButton } from './ConversionGoalFilterButton'
 import { ConversionGoalModal } from './ConversionGoalModal'
 import { IntegrationFilter } from './IntegrationFilter'
+import { MarketingAnalyticsOptionsMenu } from './MarketingAnalyticsOptionsMenu'
 
 export const MarketingAnalyticsFilters = ({
     tabs,
@@ -36,27 +33,10 @@ export const MarketingAnalyticsFilters = ({
     searchOnly?: boolean
 }): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const {
-        compareFilter,
-        dateFilter,
-        shouldFilterTestAccounts,
-        optionsOpen,
-        isPerformanceTab,
-        includeConversionGoals,
-        canToggleConversionGoals,
-        activeTab,
-    } = useValues(marketingAnalyticsLogic)
-    const { openEditor } = useActions(overviewMetricsLogic({ viewKey: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }))
+    const { compareFilter, dateFilter, optionsOpen, isPerformanceTab, activeTab } = useValues(marketingAnalyticsLogic)
     const showMetricEditor = !searchOnly && activeTab !== MarketingAnalyticsTab.SEARCH_PERFORMANCE
     const showSearch = isPerformanceTab && !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
-    const { currentTeamLoading } = useValues(teamLogic)
-    const { setCompareFilter, setDates, updateFilterTestAccounts, setOptionsOpen, setShowConversionGoals } =
-        useActions(marketingAnalyticsLogic)
-    // The setting lives on the project, so flipping it changes what everyone sees.
-    const editRestrictionReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
-    })
+    const { setCompareFilter, setDates, setOptionsOpen } = useActions(marketingAnalyticsLogic)
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
@@ -114,61 +94,10 @@ export const MarketingAnalyticsFilters = ({
                             onClickOutside={() => setOptionsOpen(false)}
                             placement="bottom-end"
                             overlay={
-                                // Ordered by how often they get touched, so the rarely-changed
-                                // project setting sits last.
-                                <div className="flex w-80 max-w-[90vw] flex-col gap-4 p-3">
-                                    {showMetricEditor && (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            fullWidth
-                                            icon={<IconPencil />}
-                                            onClick={() => {
-                                                setOptionsOpen(false)
-                                                openEditor()
-                                            }}
-                                            data-attr="marketing-configure-metrics"
-                                        >
-                                            Edit top-line metrics
-                                        </LemonButton>
-                                    )}
-                                    {canToggleConversionGoals && (
-                                        <div>
-                                            <div className="text-muted mb-2 text-xs font-semibold uppercase">
-                                                Conversions
-                                            </div>
-                                            <LemonSwitch
-                                                bordered
-                                                fullWidth
-                                                label="Include conversion goals"
-                                                checked={includeConversionGoals}
-                                                onChange={setShowConversionGoals}
-                                                // Kept from the old Ad performance tab, so existing click data still matches.
-                                                data-attr="marketing-ad-performance-conversion-goals"
-                                            />
-                                        </div>
-                                    )}
-                                    {!showSearch && (
-                                        <div>
-                                            <div className="text-muted mb-2 text-xs font-semibold uppercase">
-                                                Integrations
-                                            </div>
-                                            <IntegrationFilter />
-                                        </div>
-                                    )}
-                                    {(showMetricEditor || canToggleConversionGoals || !showSearch) && (
-                                        <LemonDivider className="my-0" />
-                                    )}
-                                    {/* Only the event side honors this: ad spend comes from the platforms. */}
-                                    <TestAccountFilterSwitch
-                                        fullWidth
-                                        checked={shouldFilterTestAccounts}
-                                        onChange={updateFilterTestAccounts}
-                                        disabledReason={
-                                            editRestrictionReason ?? (currentTeamLoading ? 'Saving…' : undefined)
-                                        }
-                                    />
-                                </div>
+                                <MarketingAnalyticsOptionsMenu
+                                    showMetricEditor={showMetricEditor}
+                                    showIntegrations={!showSearch}
+                                />
                             }
                         >
                             <LemonButton
