@@ -67,7 +67,8 @@ def get_analytics_alert_scope(*, team_id: int) -> AlertScope:
 
     This reads only the scope. The caller still checks that the source is enabled. The result is
     `investigated_only` when the row or the key is missing, when the stored value is unknown, and when
-    the rollout flag is off for the team's organization.
+    the rollout flag is off for the team's organization. The rollout flag gates only `all_firing_alerts`,
+    so `off` applies to every team.
     """
     source_product, source_type = ALERT_SCOPE_SOURCE
     snapshot = get_source_config(team_id=team_id, source_product=source_product, source_type=source_type)
@@ -80,6 +81,8 @@ def get_analytics_alert_scope(*, team_id: int) -> AlertScope:
         scope = AlertScope(raw_scope)
     except ValueError:
         return AlertScope.INVESTIGATED_ONLY
+    if scope == AlertScope.OFF:
+        return scope
     if scope == AlertScope.INVESTIGATED_ONLY or not _analytics_all_alerts_enabled(team_id):
         return AlertScope.INVESTIGATED_ONLY
     return scope

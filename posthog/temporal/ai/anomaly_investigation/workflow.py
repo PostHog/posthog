@@ -55,6 +55,7 @@ from products.notebooks.backend.facade.content import build_markdown_notebook_co
 from products.notebooks.backend.facade.contracts import NotebookData
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.signals.backend.facade import api as signals
+from products.signals.backend.facade.source_configs import get_analytics_alert_scope
 
 if TYPE_CHECKING:
     from products.product_analytics.backend.facade.models import Insight
@@ -65,6 +66,7 @@ logger = structlog.get_logger(__name__)
 # contract, and inbox support for this pair are added in a separate PR; this module only emits.
 SIGNAL_SOURCE_PRODUCT = "analytics"
 SIGNAL_SOURCE_TYPE = "anomaly_investigation"
+_ALERT_SCOPE_OFF = "off"
 
 
 # Sized to cover a realistic worst-case sequential agent run: up to MAX_TOOL_CALLS + 2 LLM turns
@@ -286,6 +288,15 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         return deliveries
 
     try:
+        if await sync_to_async(get_analytics_alert_scope, thread_sensitive=False)(team_id=team.id) == _ALERT_SCOPE_OFF:
+            logger.info(
+                "anomaly_investigation.signal_skipped",
+                alert_id=str(alert.id),
+                **_subject_ids(subject),
+                verdict=result.report.verdict,
+                reason="alert_scope_off",
+            )
+            return deliveries
         await _emit_investigation_signal(
             team=team,
             alert=alert,

@@ -211,8 +211,9 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. "
     "The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) "
     "accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the "
-    "investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts "
-    "without the investigation agent. Other sources reject this key."
+    "investigation agent confirmed into signals, `all_firing_alerts` also includes alerts "
+    "without the investigation agent, and `off` turns no alerts into signals. Alert checks, "
+    "notifications, and investigations still run with `off`. Other sources reject this key."
 )
 
 

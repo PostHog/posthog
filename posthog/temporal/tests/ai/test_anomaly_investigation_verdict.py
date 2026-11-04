@@ -35,6 +35,7 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.notebooks.backend.facade.content import is_markdown_notebook_content
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.signals.backend.models import SignalSourceConfig
 
 
 class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
@@ -147,15 +148,23 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         # A suppressed notification must not pay for a chart render.
         mock_render.assert_not_called()
 
+    @parameterized.expand([("default_scope", None), ("investigated_only", "investigated_only"), ("off", "off")])
     @pytest.mark.asyncio
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.prepare_alert_insight_chart_url", return_value=None)
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.signals.emit_signal")
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
     @patch("temporalio.activity.heartbeat")
     @patch("temporalio.activity.info")
-    async def test_completed_investigation_emits_signal(
-        self, mock_info, _heartbeat, mock_run, mock_emit, _prepare
+    async def test_completed_investigation_emits_signal_unless_scope_is_off(
+        self, _name, alert_scope, mock_info, _heartbeat, mock_run, mock_emit, _prepare
     ) -> None:
+        if alert_scope is not None:
+            await SignalSourceConfig.objects.acreate(
+                team=self.team,
+                source_product="analytics",
+                source_type="anomaly_investigation",
+                config={"alert_scope": alert_scope},
+            )
         mock_info.return_value.heartbeat_timeout = None
         mock_run.return_value = InvestigationRunResult(
             report=InvestigationReport(
@@ -177,6 +186,9 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
             )
         )
 
+        if alert_scope == "off":
+            mock_emit.assert_not_awaited()
+            return
         mock_emit.assert_awaited_once()
         kwargs = mock_emit.await_args.kwargs
         assert kwargs["source_product"] == "analytics"

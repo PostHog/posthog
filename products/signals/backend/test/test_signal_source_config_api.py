@@ -576,6 +576,7 @@ class TestSignalSourceConfigSerializerValidation(SimpleTestCase):
         [
             ("investigated_only", "analytics", "anomaly_investigation", "investigated_only", True),
             ("all_firing_alerts", "analytics", "anomaly_investigation", "all_firing_alerts", True),
+            ("off", "analytics", "anomaly_investigation", "off", True),
             ("unknown_value", "analytics", "anomaly_investigation", "everything", False),
             ("null", "analytics", "anomaly_investigation", None, False),
             ("unhashable", "analytics", "anomaly_investigation", ["all_firing_alerts"], False),
@@ -828,6 +829,7 @@ class TestGetAnalyticsAlertScope(BaseTest):
             ("unhashable_stored_value", {"alert_scope": ["all_firing_alerts"]}, True, "investigated_only"),
             ("all_firing_alerts_flag_on", {"alert_scope": "all_firing_alerts"}, True, "all_firing_alerts"),
             ("all_firing_alerts_flag_off", {"alert_scope": "all_firing_alerts"}, False, "investigated_only"),
+            ("off_flag_off", {"alert_scope": "off"}, False, "off"),
         ]
     )
     def test_scope(self, _name, config, flag_enabled, expected):
