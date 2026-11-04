@@ -282,4 +282,73 @@ describe('settleRequest', () => {
             expect(result?.results.results).toEqual([expect.objectContaining({ productCategory })])
         })
     })
+
+    describe('an is: type that covers several file system types', () => {
+        const objects = REMOTE_REQUESTS.find((request) => request.id === 'objects')!
+        const entry = (type: string, id: string, created_at: string): object => ({
+            id,
+            path: `Unfiled/Destinations/${id}`,
+            type,
+            ref: id,
+            created_at,
+        })
+        const searchesSent = (mock: jest.Mock | jest.SpyInstance, argIndex: number): string[] =>
+            mock.mock.calls.map((call: any[]) => call[argIndex].search).sort()
+
+        beforeEach(() => {
+            jest.useRealTimers()
+            jest.spyOn(api.fileSystem, 'list').mockImplementation(
+                async ({ search }) =>
+                    ({
+                        count: 1,
+                        results: String(search).includes('site_destination')
+                            ? [entry('hog_function/site_destination', 'browser', '2026-01-02T00:00:00Z')]
+                            : [entry('hog_function/destination', 'webhook', '2026-01-01T00:00:00Z')],
+                    }) as any
+            )
+            jest.mocked(fileSystemSearchRetrieve).mockResolvedValue({
+                results: [],
+                type_counts: [],
+                matched_all_words: true,
+                matched_words: [],
+                counts_capped: false,
+                matched_with_typos: false,
+            } as any)
+        })
+
+        test.each([
+            [
+                'type:hog_function/destination user:me',
+                ['type:hog_function/destination user:me', 'type:hog_function/site_destination user:me'],
+                [],
+            ],
+            [
+                'type:hog_function/destination slack',
+                [],
+                ['type:hog_function/destination slack', 'type:hog_function/site_destination slack'],
+            ],
+            [
+                '-type:hog_function/destination slack',
+                [],
+                ['-type:hog_function/destination -type:hog_function/site_destination slack'],
+            ],
+        ])('searches every type the scope covers for %s', async (query, listSearches, rankedSearches) => {
+            await settleRequest(objects, query, new AbortController().signal, context)
+            expect(searchesSent(jest.mocked(api.fileSystem.list), 0)).toEqual(listSearches)
+            expect(searchesSent(jest.mocked(fileSystemSearchRetrieve), 1)).toEqual(rankedSearches)
+        })
+
+        it('merges the types newest first', async () => {
+            const result = await settleRequest(
+                objects,
+                'type:hog_function/destination',
+                new AbortController().signal,
+                context
+            )
+            expect(result?.results.results?.map((item) => item.record?.type)).toEqual([
+                'hog_function/site_destination',
+                'hog_function/destination',
+            ])
+        })
+    })
 })

@@ -29,8 +29,9 @@ import { accountsList } from 'products/customer_analytics/frontend/generated/api
 import { personsList } from 'products/persons/frontend/generated/api'
 import { productToursList } from 'products/product_tours/frontend/generated/api'
 
+import { fileSystemTypesFor } from './commandKFilterOptions'
 import { TypeSearchTerms, parseToken, tokenize, typeSearchTerms } from './commandKQuery'
-import { freeWords } from './commandKRanking'
+import { compareRanks, freeWords } from './commandKRanking'
 
 export const RESULTS_LIMIT = 20
 export const REMOTE_DEBOUNCE_MS = 150
@@ -265,6 +266,48 @@ export function requestDebounceMs(request: RemoteRequest, query: string): number
     return fast ? OBJECTS_DEBOUNCE_MS : REMOTE_DEBOUNCE_MS
 }
 
+function fileSystemSearches(search: string): string[] {
+    const raws = tokenize(search).map((token) => token.raw)
+    const index = raws.findIndex((raw) => {
+        const token = parseToken(raw)
+        return token.filter?.key === 'is' && fileSystemTypesFor(token.value).length > 1
+    })
+    if (index === -1) {
+        return [search]
+    }
+    const token = parseToken(raws[index])
+    const replaced = (replacement: string): string =>
+        [...raws.slice(0, index), replacement, ...raws.slice(index + 1)].join(' ')
+    const types = fileSystemTypesFor(token.value)
+    return token.negated
+        ? [replaced(types.map((type) => `-type:${type}`).join(' '))]
+        : types.map((type) => replaced(`type:${type}`))
+}
+
+async function fetchFileSystemResults(
+    search: string,
+    signal: AbortSignal,
+    context: RemoteContext,
+    featureFlags: Record<string, unknown>
+): Promise<SearchItem[]> {
+    if (freeWords(search).length > 0) {
+        return await fetchRankedResults(search, signal, context, featureFlags)
+    }
+    const response = await api.fileSystem.list({ search, limit: RESULTS_LIMIT, notType: 'folder', signal })
+    return response.results
+        .filter((entry) => isFileSystemEntryTypeEnabled(entry, featureFlags))
+        .map((entry) => fileSystemEntryToSearchItem(entry, { id: entry.id, category: 'results' }))
+}
+
+const createdAtOf = (item: SearchItem): string => String(item.record?.created_at ?? '')
+
+function mergeFileSystemResults(batches: SearchItem[][], ranked: boolean): SearchItem[] {
+    const items = batches.flat()
+    return ranked
+        ? items.sort((a, b) => compareRanks(a.rankKey ?? [], b.rankKey ?? []))
+        : items.sort((a, b) => createdAtOf(b).localeCompare(createdAtOf(a))).slice(0, RESULTS_LIMIT)
+}
+
 export const REMOTE_REQUESTS: RemoteRequest[] = [
     {
         id: 'objects',
@@ -276,14 +319,13 @@ export const REMOTE_REQUESTS: RemoteRequest[] = [
                 return { results: typeResults }
             }
             const featureFlags = featureFlagLogic.findMounted()?.values.featureFlags ?? {}
-            if (freeWords(search).length > 0) {
-                return { results: await fetchRankedResults(search, signal, context, featureFlags) }
-            }
-            const response = await api.fileSystem.list({ search, limit: RESULTS_LIMIT, notType: 'folder', signal })
+            const searches = fileSystemSearches(search)
+            const batches = await Promise.all(
+                searches.map((each) => fetchFileSystemResults(each, signal, context, featureFlags))
+            )
             return {
-                results: response.results
-                    .filter((entry) => isFileSystemEntryTypeEnabled(entry, featureFlags))
-                    .map((entry) => fileSystemEntryToSearchItem(entry, { id: entry.id, category: 'results' })),
+                results:
+                    batches.length === 1 ? batches[0] : mergeFileSystemResults(batches, freeWords(search).length > 0),
             }
         },
     },

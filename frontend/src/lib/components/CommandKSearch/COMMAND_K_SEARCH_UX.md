@@ -151,7 +151,9 @@ Quote values with spaces: `createdBy:"Ada Lovelace"`, `in:"Team Growth"`.
 
 The backend tokenizes these in `FileSystemViewSet._apply_search_to_queryset` (`posthog/api/file_system/file_system.py`), including `-` negation and quotes.
 The frontend maps friendly keys to backend keys (`is:` → `type:`, `createdBy:` → `user:`) and sends one `search` string.
-`is:` also offers alert, ticket, destination, and transformation, which no manifest lists (`EXTRA_TYPES` in `commandKFilterOptions.tsx`). Types that the file system does not hold search their own API (see [Ranked results](#ranked-results)).
+`is:` also offers insight alert, ticket, destination, and transformation, which no manifest lists (`EXTRA_TYPES` in `commandKFilterOptions.tsx`). Types that the file system does not hold search their own API (see [Ranked results](#ranked-results)).
+`is:alert` covers insight alerts only, because the log alerts list has no search, and its **View all** row opens the insight alerts tab.
+`is:destination` covers server and browser destinations (`hog_function/destination` and `hog_function/site_destination`), like the Destinations page. The file system search takes one `type:` value, so Command K sends one search per type with the other filters kept, and merges the results. `-is:destination` excludes both types in one search.
 
 ### Suggested next filters
 

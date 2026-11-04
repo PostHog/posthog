@@ -135,7 +135,7 @@ describe('viewAllFor', () => {
     })
 
     test.each([
-        ['alert', 'alert', 'View all alerts', '/alerts'],
+        ['alert', 'alert', 'View all insight alerts', '/alerts?alert_type=insights'],
         ['ticket', 'ticket', 'View all tickets', '/support/tickets'],
         ['destination', 'hog_function/destination', 'View all destinations', '/data-management/destinations'],
         [

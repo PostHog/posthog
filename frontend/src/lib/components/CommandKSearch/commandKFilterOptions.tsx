@@ -33,15 +33,21 @@ interface FileSystemTypeDefinition {
     iconType?: string
     listHref?: () => string
     listSearchParam?: 'search'
+    fileSystemTypes?: string[]
 }
 
 const EXTRA_TYPES: Record<string, FileSystemTypeDefinition> = {
-    alert: { name: 'Alert', iconType: 'inbox', listHref: () => urls.alerts() },
+    alert: {
+        name: 'Insight alert',
+        iconType: 'inbox',
+        listHref: () => combineUrl(urls.alerts(), { alert_type: 'insights' }).url,
+    },
     ticket: { name: 'Ticket', iconType: 'conversations', listHref: () => urls.supportTickets() },
     'hog_function/destination': {
         name: 'Destination',
         iconType: 'data_destination',
         listHref: () => urls.destinations(),
+        fileSystemTypes: ['hog_function/destination', 'hog_function/site_destination'],
     },
     'hog_function/transformation': {
         name: 'Transformation',
@@ -57,6 +63,8 @@ const COMMAND_K_TYPES: Record<string, FileSystemTypeDefinition> = {
 
 const typeDefinition = (type: string): FileSystemTypeDefinition | undefined =>
     Object.hasOwn(COMMAND_K_TYPES, type) ? COMMAND_K_TYPES[type] : undefined
+
+export const fileSystemTypesFor = (type: string): string[] => typeDefinition(type)?.fileSystemTypes ?? [type]
 
 // Some manifest names are already plural, such as "Tasks".
 export const pluralTypeName = (label: string): string => {
