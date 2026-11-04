@@ -4,6 +4,8 @@ import { logger } from '~/common/utils/logger'
 
 import type { CdpConfig } from '../../config'
 
+const OPTIONAL_VALKEY_TIMEOUT_MS = 250
+
 export type RateLimiterValkeyConfig = Pick<
     CdpConfig,
     | 'SES_RATE_LIMITER_VALKEY_HOST'
@@ -24,8 +26,6 @@ export type RateLimiterValkeyConfig = Pick<
  * callers treat that as "feature disabled in this environment" and proceed
  * without it.
  */
-const OPTIONAL_POOL_TIMEOUT_MS = 1000
-
 export function createSesRateLimiterValkeyPool(
     config: RateLimiterValkeyConfig,
     name = 'ses-rate-limiter',
@@ -43,6 +43,7 @@ export function createSesRateLimiterValkeyPool(
 
     const tls = config.SES_RATE_LIMITER_VALKEY_TLS ? {} : undefined
 
+    // A caller that works without this Valkey must not stop when it is down, or wait on it long.
     const pool = createRedisV2PoolFromConfig({
         connection: {
             url: config.SES_RATE_LIMITER_VALKEY_HOST,
@@ -50,14 +51,14 @@ export function createSesRateLimiterValkeyPool(
                 port: config.SES_RATE_LIMITER_VALKEY_PORT,
                 password: config.SES_RATE_LIMITER_VALKEY_PASSWORD,
                 tls,
-                ...(optional ? { commandTimeout: OPTIONAL_POOL_TIMEOUT_MS } : {}),
+                ...(optional ? { commandTimeout: OPTIONAL_VALKEY_TIMEOUT_MS } : {}),
             },
             name,
             exitOnRepeatedErrors: !optional,
         },
         poolMinSize: optional ? 0 : config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
-        ...(optional ? { acquireTimeoutMillis: OPTIONAL_POOL_TIMEOUT_MS } : {}),
+        ...(optional ? { acquireTimeoutMillis: OPTIONAL_VALKEY_TIMEOUT_MS } : {}),
     })
     return optional ? withoutOfflineQueue(pool) : pool
 }
