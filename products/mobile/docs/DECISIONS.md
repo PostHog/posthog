@@ -4,19 +4,14 @@ Choices the build contract left open, with the reason for each.
 
 ## Toolchain and versions
 
-- **Expo SDK patch level.** `expo ~57.0.8` resolved to 57.0.26, the newest release older than
-  7 days. Its `bundledNativeModules.json` expects React Native 0.86.3, Reanimated 4.5.1 and
-  Worklets 0.10.1, so those are pinned instead of desktop's 0.86.0 / 4.5.0 / 0.10.0.
-  `react-native-gesture-handler` follows Expo's `~2.32.0`, not 3.x.
-- **React 19.2.6** matches desktop and sits in `expo.install.exclude` with `react-dom` and
-  `typescript`, the same way desktop does it.
-- **Release age.** `pnpm-workspace.yaml` sets `minimumReleaseAge: 10080` (7 days), the same as
-  the repo root. This is why `posthog-react-native` is `^4.78.0` (desktop's `^4.80.0` is newer
-  than 7 days) and why `expo-doctor` still lists patch releases from 2026-10-06. Bump them with
-  `npx expo install --fix` once they are a week old.
-- **Extra packages.** `@react-native-community/datetimepicker` (Expo's 9.1.0) for "Custom…"
-  snooze; `@react-native/jest-preset` and `@react-native/metro-config` 0.86.3 to settle peer
-  dependencies; `jest` 29 and `@types/jest` for `jest-expo` 57.
+- **Expo SDK 58.** The app pins React Native 0.88.1, Reanimated 4.7.1, Worklets 0.13.0,
+  and Gesture Handler 3.3.0 to the SDK's supported versions. The lockfile records the exact dependency set.
+- **React 19.3.0** and the matching test renderer keep the app and tests on the same runtime.
+  React, React DOM, and TypeScript remain in `expo.install.exclude`.
+- **Release age and trust.** The standalone workspace retains the repository's 7-day release age
+  and `trustPolicy: no-downgrade`. Exact trust exceptions stay in `pnpm-workspace.yaml` for review.
+- **Extra packages.** `@react-native-community/datetimepicker` 9.2.1 provides "Custom…" snooze.
+  React Native's Jest preset and Metro config follow 0.88.1; Jest 29 runs with `jest-expo` 58.
 - **No `metro.config.js`.** This directory is the workspace root, so Expo's default config
   resolves everything. No monorepo watch folders are needed.
 - **pnpm workspace.** `packages: ['.']` makes this a single-package workspace so pnpm never walks
@@ -24,7 +19,7 @@ Choices the build contract left open, with the reason for each.
 - **Typed routes off.** They need `expo start` to generate types before `tsc` passes. Expo removed
   the generated-type entries from `tsconfig.json#include` on first start for the same reason.
 - **EAS** uses Node 24.13.0, the repo's version.
-- **Charts.** `victory-native` 42.0.1 on `@shopify/react-native-skia` 2.6.2, the Skia version Expo SDK 57 pins.
+- **Charts.** `victory-native` 42.0.1 on `@shopify/react-native-skia` 2.14.0, the Skia version Expo SDK 58 pins.
   It is the only candidate with line and bar charts and scrubbing on the UI thread (`useChartPressState`).
   The runner-up, `react-native-gifted-charts`, was rejected because it scrubs on the JS thread.
   Skia's install script links its prebuilt binaries, so `pnpm-workspace.yaml` allows it in `onlyBuiltDependencies`.
