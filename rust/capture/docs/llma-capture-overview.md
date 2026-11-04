@@ -34,7 +34,7 @@ Authentication is a `Bearer <token>` Authorization header, validated before any 
 
 - Event part: 32KB (`MAX_EVENT_SIZE`).
 - Event + properties combined: 960KB (`MAX_COMBINED_SIZE`, 1MB minus 64KB of headroom).
-- Request body: 110% of `AI_MAX_SUM_OF_PARTS_BYTES` (default 25MB), enforced by the router's body limit and the streaming body reader.
+- Request body: 110% of the AI event cap (`AI_MAX_EVENT_BYTES`, default 12 MB), enforced by the router's body limit and the streaming body reader. A disabled cap (`0`) uses the 48 MB ceiling instead.
 
 ### Compression
 

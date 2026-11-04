@@ -366,7 +366,7 @@ pub async fn build_components(
         config.historical_rerouting_threshold_days,
         config.is_mirror_deploy,
         config.verbose_sample_percent,
-        config.ai_max_sum_of_parts_bytes,
+        config.ai_max_sum_of_parts_bytes(),
         config.ai_max_event_bytes,
         config.body_chunk_read_timeout_ms,
         config.body_read_chunk_size_kb,

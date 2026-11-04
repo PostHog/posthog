@@ -22,6 +22,7 @@ import {
     INGESTION_UPSTREAM_PRODUCER,
     type ProducerName,
 } from '~/ingestion/common/outputs/producers'
+import { AI_MEDIA_OFFLOAD_MIN_BYTES } from '~/ingestion/pipelines/ai/ai-event-limits'
 
 /** Default for FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '' disables the personless default so it is opt-in per team via config. */
 export const DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS = ''
@@ -461,7 +462,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         AI_BLOB_S3_TIMEOUT_MS: 30000,
         AI_BLOB_OFFLOAD_TEAMS: '',
         // Keep the floor above base64-packed embedding vectors so logged embeddings stay inline as text.
-        AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: 20480,
+        // The shortest base64 that decodes to AI_MEDIA_OFFLOAD_MIN_BYTES, so no media of that size stays inline.
+        AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: Math.ceil(AI_MEDIA_OFFLOAD_MIN_BYTES / 3) * 4,
         AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: 50,
         // Chunk-wide cap on concurrent blob uploads, so blob-heavy traffic
         // can't monopolize the S3 socket pool.
