@@ -826,7 +826,7 @@ class TestTransactionalEmail(APIBaseTest):
         else:
             assert response.json() == {"message_id": "first-send", "replayed": True}
 
-    def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(self, mock_post, _flag, _capture):
+    def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(self, mock_post, _flag, capture):
         issues = [{"code": "unrecognized_keys", "keys": ["attachments"], "path": ["send"], "message": "Unrecognized"}]
         mock_post.return_value = MagicMock(status_code=400, json=lambda: {"error": json.dumps(issues)})
 
@@ -840,6 +840,7 @@ class TestTransactionalEmail(APIBaseTest):
         body = response.json()
         assert (body["code"], body["attr"]) == ("invalid_request", "attachments")
         assert body["why"] and body["fix"]
+        assert capture.call_args.kwargs["properties"]["error_code"] == "field_not_accepted"
 
     @parameterized.expand(
         [

@@ -608,6 +608,12 @@ def _queue(
         refusal_code = _refusal_code(response)
         unknown_field = _unknown_send_field(refusal_code) if response.status_code == 400 else None
         if unknown_field is not None:
+            logger.warning(
+                "transactional_email_field_not_accepted",
+                team_id=team_id,
+                hog_flow_id=str(hog_flow_id),
+                field=unknown_field,
+            )
             raise FieldNotAccepted(unknown_field)
         refusal = PIPELINE_REFUSALS.get(refusal_code or "")
         if refusal is None and response.status_code == 400:
