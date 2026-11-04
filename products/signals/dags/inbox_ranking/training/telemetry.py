@@ -143,6 +143,15 @@ def promotion_event(
 
 
 _DELTA_KEYS = ("paired_seeds", "mean_delta_auc", "min_delta_auc", "max_delta_auc", "wins")
+_INTERVAL_KEYS = ("low", "high", "teams")
+# Saved insights read `within_team` and `pooled`, so the keys of those two reads never change.
+_REPORT_READS = (
+    "within_team",
+    "within_team_non_dogfood",
+    "within_team_macro",
+    "within_team_non_dogfood_macro",
+    "pooled",
+)
 
 
 def _pair_comparison_events(block: Mapping[str, Any], context: Mapping[str, Any]) -> list[TrainingEvent]:
@@ -174,8 +183,7 @@ def _pair_comparison_events(block: Mapping[str, Any], context: Mapping[str, Any]
                         }
                     interval = deltas.get("macro_team_interval") or {}
                     properties |= {
-                        f"{comparison}_within_user_macro_interval_{key}": interval.get(key)
-                        for key in ("low", "high", "teams")
+                        f"{comparison}_within_user_macro_interval_{key}": interval.get(key) for key in _INTERVAL_KEYS
                     }
                 events.append(TrainingEvent(event=EXPERIMENT_COMPARED_EVENT, properties=properties))
     return events
@@ -184,7 +192,8 @@ def _pair_comparison_events(block: Mapping[str, Any], context: Mapping[str, Any]
 def experiment_comparison_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
     """One event per head of an experiment candidate's `vs_baseline` block. The per-seed AUC lists
     stay in `metadata.json`: an insight cannot chart a JSON array, so the event carries the gaps.
-    A pair experiment's block gives one event per head, scope and slice instead."""
+    The non-dogfood macro delta also carries its team interval. A pair experiment's block gives one
+    event per head, scope and slice instead."""
     block = metadata.get("vs_baseline") or {}
     context = {key: metadata.get(key) for key in ("model_name", "model_version", "run_id", "recipe_hash")}
     if block.get("grain") == PAIR_GRAIN:
@@ -198,10 +207,12 @@ def experiment_comparison_events(metadata: Mapping[str, Any]) -> list[TrainingEv
                 "seeds": len(block.get("seeds", [])),
                 "head": head,
                 **{key: grade.get(key) for key in ("train_rows", "holdout_rows", "holdout_positives")},
+                **{f"{read}_{key}": (grade.get(read) or {}).get(key) for read in _REPORT_READS for key in _DELTA_KEYS},
                 **{
-                    f"{read}_{key}": (grade.get(read) or {}).get(key)
-                    for read in ("within_team", "pooled")
-                    for key in ("paired_seeds", "mean_delta_auc", "min_delta_auc", "max_delta_auc", "wins")
+                    f"within_team_non_dogfood_macro_interval_{key}": (
+                        grade.get("within_team_non_dogfood_macro_team_interval") or {}
+                    ).get(key)
+                    for key in _INTERVAL_KEYS
                 },
             },
         )

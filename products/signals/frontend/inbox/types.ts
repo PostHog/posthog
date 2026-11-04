@@ -247,6 +247,21 @@ export function linearTeamIdsFromConfig(config: Record<string, any> | null | und
     return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string' && id.length > 0) : []
 }
 
+/** Product analytics source only: which firing insight alerts become signals. */
+export const SOURCE_ALERT_SCOPE_KEY = 'alert_scope'
+
+export enum SignalAlertScope {
+    InvestigatedOnly = 'investigated_only',
+    AllFiringAlerts = 'all_firing_alerts',
+}
+
+// Anything unknown reads as investigated only, matching the backend's fallback.
+export function alertScopeFromConfig(config: Record<string, any> | null | undefined): SignalAlertScope {
+    return config?.[SOURCE_ALERT_SCOPE_KEY] === SignalAlertScope.AllFiringAlerts
+        ? SignalAlertScope.AllFiringAlerts
+        : SignalAlertScope.InvestigatedOnly
+}
+
 // ── Inbox IA: page tabs, report sections, scope ──────────────────────────────
 
 /**
