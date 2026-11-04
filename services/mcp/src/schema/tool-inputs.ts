@@ -989,7 +989,7 @@ export const ExecuteSQLSchema = z.object({
         .optional()
         .default(true)
         .describe(
-            'Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).'
+            'Whether to shorten values over 500 characters and cap the result at a preview of about 64,000 characters. Defaults to true. Set to false when you need every row and full values (e.g., for dumping to a file).'
         ),
     connectionId: z
         .string()
