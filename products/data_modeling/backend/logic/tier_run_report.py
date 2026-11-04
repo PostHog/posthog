@@ -27,8 +27,7 @@ from products.data_modeling.backend.logic.cohort_scheduling import (
     tier_schedule_id,
     tier_sort_key,
 )
-from products.data_modeling.backend.logic.freshness import clamp_to_source_floor, compute_effective_cadences
-from products.data_modeling.backend.logic.node_frequency import build_frequency_graph
+from products.data_modeling.backend.logic.node_frequency import build_frequency_graph, scheduled_cadences
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.data_modeling_job import (
     DataModelingJob,
@@ -150,10 +149,7 @@ def untargeted_nodes(dag: DAG) -> list[Node]:
 def _desired_tiers(dag: DAG) -> dict[Tier, set[str]]:
     """The cohorts the reconciler would build, mirroring its propagation + clamp + bucketing."""
     graph = build_frequency_graph(dag)
-    effective = compute_effective_cadences(
-        nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets
-    )
-    effective, _clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
+    effective, _clamped = scheduled_cadences(graph)
     return bucket_into_cadence_tiers(effective, graph.declared_anchors)
 
 

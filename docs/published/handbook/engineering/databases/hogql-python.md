@@ -59,6 +59,13 @@ Circular dependencies fail with a query error. Soft saves skip column inference 
 Query preparation shares a 60-second cooperative deadline across parsing, resolution, transformations, and printing.
 AST visitors check the deadline while walking; native parser calls are checked when they return, rather than interrupted mid-call.
 
+## Disabling projection optimization
+
+Set `HOGQL_PROJECTION_OPTIMIZATION_ENABLED` to `false` in Django admin's instance settings to disable unused-column pruning and exported event-property narrowing for every project.
+The setting defaults to `true` and overrides the `optimizeProjections` query modifier when disabled.
+Workers pick up the change within about a minute; it affects newly compiled queries, not running queries or cached results.
+Disabling these optimizations can increase query time and memory use. Set the instance setting back to `true` to restore the normal per-query behavior.
+
 ## Pattern matching during query preparation
 
 Expressions inside HogQL placeholders execute in the Python HogVM.
@@ -135,6 +142,9 @@ Pass the printed SQL and `HogQLContext.values` together to the database driver.
 
 Built-in tables also accept the `posthog` namespace, such as `SELECT id FROM posthog.persons` and `SELECT count() FROM posthog.groups`.
 Explicit aliases work with these names, for example `SELECT p.id FROM posthog.persons AS p`.
+
+Trusted internal ASTs can set `JoinExpr.table_schema` to bind a table without adding it to the public catalog.
+User SQL still resolves tables through the catalog. Never bind table names taken from user expressions.
 
 The HogQL database schema is in flux. You will soon be able to explore it in the [PostHog app itself](https://github.com/PostHog/posthog/pull/14591).
 

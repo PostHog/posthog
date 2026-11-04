@@ -297,6 +297,7 @@ from posthog.schema_enums import (
     SessionTableVersion as SessionTableVersion,
     Shelf as Shelf,
     SlackIntegrationScope as SlackIntegrationScope,
+    SlackIntegrationScopeInReview as SlackIntegrationScopeInReview,
     SlashCommandName as SlashCommandName,
     SliceContent as SliceContent,
     SnapchatAdsConversionFields as SnapchatAdsConversionFields,
@@ -662,9 +663,22 @@ class AssistantDataVisualizationBoxPlotSettings(BaseModel):
     )
 
 
+class AssistantDataVisualizationColumnDisplaySettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = Field(
+        default=None,
+        description="Table column description shown in the header tooltip.",
+    )
+
+
 class AssistantDataVisualizationColumnSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    display: AssistantDataVisualizationColumnDisplaySettings | None = Field(
+        default=None, description="Display settings for this column."
     )
     formatting: AssistantDataVisualizationAxisFormatting | None = Field(
         default=None,
@@ -1226,6 +1240,7 @@ class ChartSettingsDisplay(BaseModel):
         extra="forbid",
     )
     color: str | None = None
+    description: str | None = None
     displayType: DisplayType | None = None
     excludeFromTotal: bool | None = Field(
         default=None,
@@ -2777,19 +2792,6 @@ class MetricChartSettings(BaseModel):
     )
 
 
-class MetricsAlertConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    check_ongoing_interval: bool | None = Field(
-        default=None,
-        description=(
-            "When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one."
-        ),
-    )
-    type: Literal["MetricsAlertConfig"] = "MetricsAlertConfig"
-
-
 class MetricsDashboardVariableSelection(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3987,7 +3989,8 @@ class AssistantDataVisualizationColumn(BaseModel):
     )
     column: str = Field(..., description="Name of a column returned by the SQL query.")
     settings: AssistantDataVisualizationColumnSettings | None = Field(
-        default=None, description="Optional number formatting for this column."
+        default=None,
+        description="Optional display and number-formatting settings for this column.",
     )
 
 
@@ -6969,6 +6972,13 @@ class MarketingAnalyticsRecommendationsSource(BaseModel):
         default=None,
         description="Google Ads search term table for Performance Max campaigns.",
     )
+    queryPageTable: str | None = Field(
+        default=None,
+        description=(
+            "Google Search Console table with one row per query and page, used to find"
+            " the page that ranks for a search."
+        ),
+    )
     queryTable: str | None = Field(
         default=None,
         description=("Google Search Console table with one row per query, or per query and page."),
@@ -7165,6 +7175,23 @@ class MetricPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["metric_attribute"] = "metric_attribute"
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class MetricsAlertConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    check_ongoing_interval: bool | None = Field(
+        default=None,
+        description=(
+            "When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one."
+        ),
+    )
+    type: Literal["MetricsAlertConfig"] = "MetricsAlertConfig"
+    variables: dict[str, MetricsDashboardVariableSelection] | None = Field(
+        default=None,
+        description="Values for the `$name` variables in the insight's query.",
+    )
 
 
 class MetricsDashboardVariable(BaseModel):
@@ -17474,6 +17501,10 @@ class CalendarHeatmapResponse(BaseModel):
 class ChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    annotationsScope: AnnotationScope | None = Field(
+        default=None,
+        description=("Shows only the annotations saved at this level. Unset shows every level."),
     )
     barGap: float | None = None
     boxPlot: BoxPlotSettings | None = None
@@ -29745,6 +29776,10 @@ class MCPMissingCapabilitiesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = Field(
+        default=None,
+        description="Exclude reports from the project's internal and test users.",
+    )
     kind: Literal["MCPMissingCapabilitiesQuery"] = "MCPMissingCapabilitiesQuery"
     limit: int | None = Field(default=None, description="Page size; defaults to 100, capped at 500.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")

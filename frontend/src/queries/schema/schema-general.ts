@@ -60,6 +60,7 @@ import {
     SessionPropertyFilter,
     SessionRecordingType,
     SlackIntegrationScope,
+    SlackIntegrationScopeInReview,
     StepOrderValue,
 } from '~/types'
 
@@ -67,9 +68,9 @@ import { BIVisualizationNode } from './schema-business-intelligence'
 import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
-// Re-exported so the codegen picks it up and emits a matching `StrEnum` in posthog/schema.py.
-// The runtime const lives in `~/types` as `SLACK_INTEGRATION_SCOPES`.
-export { SlackIntegrationScope }
+// Re-exported so the codegen picks them up and emits matching `StrEnum`s in posthog/schema.py.
+// The runtime consts live in `~/types` as `SLACK_INTEGRATION_SCOPES` and `SLACK_INTEGRATION_SCOPES_IN_REVIEW`.
+export { SlackIntegrationScope, SlackIntegrationScopeInReview }
 
 /**
  * PostHog Query Schema definition.
@@ -1476,6 +1477,7 @@ export interface ChartSettingsFormatting {
 export interface ChartSettingsDisplay {
     color?: string
     label?: string
+    description?: string
     trendLine?: boolean
     yAxisPosition?: 'left' | 'right'
     displayType?: 'auto' | 'line' | 'bar' | 'area'
@@ -1590,6 +1592,8 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showAnnotations?: boolean
+    /** Shows only the annotations saved at this level. Unset shows every level. */
+    annotationsScope?: AnnotationScope
     /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     showValuesOnSeries?: boolean
@@ -4170,6 +4174,8 @@ export interface MCPMissingCapabilitiesQueryResponse extends AnalyticsQueryRespo
 export interface MCPMissingCapabilitiesQuery extends DataNode<MCPMissingCapabilitiesQueryResponse> {
     kind: NodeKind.MCPMissingCapabilitiesQuery
     dateRange?: DateRange
+    /** Exclude reports from the project's internal and test users. */
+    filterTestAccounts?: boolean
     /** Case-insensitive substring match over the report text. */
     search?: string
     /** Page size; defaults to 100, capped at 500. */
@@ -7213,6 +7219,8 @@ export interface MetricsAlertConfig {
     type: 'MetricsAlertConfig'
     /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
     check_ongoing_interval?: boolean
+    /** Values for the `$name` variables in the insight's query. */
+    variables?: Record<string, MetricsDashboardVariableSelection>
 }
 
 /** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */
@@ -8575,6 +8583,8 @@ export interface MarketingAnalyticsRecommendationsSource {
     performanceMaxSearchTermTable?: string
     /** Google Search Console table with one row per query, or per query and page. */
     queryTable?: string
+    /** Google Search Console table with one row per query and page, used to find the page that ranks for a search. */
+    queryPageTable?: string
     /** Google Search Console sites table, used to infer the brand name. */
     sitesTable?: string
 }

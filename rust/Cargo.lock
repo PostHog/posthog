@@ -2853,6 +2853,7 @@ dependencies = [
  "chrono-tz",
  "cohort-core",
  "common-alloc",
+ "common-cohort-team-access",
  "common-database",
  "common-kafka",
  "common-liveness",
@@ -11163,7 +11164,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "url",
 ]
 
 [[package]]
