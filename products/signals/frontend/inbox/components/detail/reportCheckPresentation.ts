@@ -123,9 +123,26 @@ function joinDetail(parts: (string | null | undefined)[]): string {
 }
 
 const MONITORING_CHECK_ROWS: Record<
-    NonNullable<SignalReportCheckApi['monitoring_timing']>['state'],
+    | NonNullable<SignalReportCheckApi['monitoring_timing']>['state']
+    | NonNullable<NonNullable<SignalReportCheckApi['monitoring_timing']>['final_verification_state']>,
     Pick<ReportCheckRowData, 'tag' | 'detail'>
 > = {
+    monitoring: {
+        tag: { label: 'Monitoring', type: 'primary' },
+        detail: 'Final verification is scheduled for the end of this check’s observation window.',
+    },
+    verifying: {
+        tag: { label: 'Verifying', type: 'primary' },
+        detail: 'The scout is running the final check.',
+    },
+    assessment_required: {
+        tag: { label: 'Inconclusive', type: 'warning' },
+        detail: 'Final verification could not settle this check. Further assessment is needed.',
+    },
+    verification_complete: {
+        tag: { label: 'Verification complete', type: 'info' },
+        detail: 'A final verdict has been recorded for this check.',
+    },
     scheduled: {
         tag: { label: 'Scheduled', type: 'primary' },
         detail: 'Interim measurements collect evidence during this check’s observation window.',
@@ -136,7 +153,7 @@ const MONITORING_CHECK_ROWS: Record<
     },
     window_ended: {
         tag: { label: 'Awaiting verification', type: 'warning' },
-        detail: 'The observation window has ended. Interim measurements have stopped. A final verdict has not been recorded.',
+        detail: 'The observation window has ended. Final verification is pending.',
     },
     no_interim_measurements: {
         tag: { label: 'Observing', type: 'primary' },
@@ -164,6 +181,21 @@ const MONITORING_CHECK_ROWS: Record<
     },
 }
 
+function pendingCheckRow(check: SignalReportCheckApi, lane: string | null): Pick<ReportCheckRowData, 'tag' | 'detail'> {
+    const start = check.soak_minutes
+        ? `${check.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(check.soak_minutes)} after this report is resolved`
+        : 'Starts when this report is resolved'
+    return { tag: { label: 'Waiting', type: 'muted' }, detail: joinDetail([start, lane && `${lane} runs it`]) }
+}
+
+function runningCheckRow(check: SignalReportCheckApi, lane: string | null): Pick<ReportCheckRowData, 'tag' | 'detail'> {
+    const startedAgo = dayjs(check.dispatched_at).fromNow()
+    return {
+        tag: { label: 'Running', type: 'primary' },
+        detail: lane ? `${lane} started ${startedAgo}` : `Started ${startedAgo}`,
+    }
+}
+
 function openCheckRow(
     check: SignalReportCheckApi,
     reportStatus: SignalReportStatusEnumApi
@@ -175,23 +207,16 @@ function openCheckRow(
         }
     }
     if (check.monitoring_timing) {
-        return MONITORING_CHECK_ROWS[check.monitoring_timing.state]
+        return MONITORING_CHECK_ROWS[check.monitoring_timing.final_verification_state ?? check.monitoring_timing.state]
     }
     const lane = laneLabel(check)
 
     if (check.status === 'pending') {
-        const start = check.soak_minutes
-            ? `${check.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(check.soak_minutes)} after this report is resolved`
-            : 'Starts when this report is resolved'
-        return { tag: { label: 'Waiting', type: 'muted' }, detail: joinDetail([start, lane && `${lane} runs it`]) }
+        return pendingCheckRow(check, lane)
     }
 
     if (isRunning(check)) {
-        const startedAgo = dayjs(check.dispatched_at).fromNow()
-        return {
-            tag: { label: 'Running', type: 'primary' },
-            detail: lane ? `${lane} started ${startedAgo}` : `Started ${startedAgo}`,
-        }
+        return runningCheckRow(check, lane)
     }
 
     // An `awaiting_data` verdict keeps the check open, so the row says why it looks again.
