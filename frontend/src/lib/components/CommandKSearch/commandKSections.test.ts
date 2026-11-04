@@ -555,6 +555,71 @@ describe('buildSections', () => {
         }
     )
 
+    const SETTING_ROWS: SearchItem[] = [
+        {
+            id: 'settings-project-surveys',
+            name: 'Surveys',
+            category: 'settings',
+            parentName: 'Project settings',
+            href: '/settings/project-surveys',
+        },
+        {
+            id: 'settings-project-surveys-appearance',
+            name: 'Default survey appearance',
+            category: 'settings',
+            parentName: 'Project settings › Surveys',
+            href: '/settings/project-surveys#appearance',
+        },
+        {
+            id: 'settings-project-customization-display-name',
+            name: 'Project details',
+            category: 'settings',
+            parentName: 'Project settings › Customization',
+            searchKeywords: ['rename'],
+            href: '/settings/project-customization#display-name',
+        },
+        {
+            id: 'settings-project-customization-date-and-time',
+            name: 'Date & time',
+            category: 'settings',
+            parentName: 'Project settings › Customization',
+            searchKeywords: ['timezone'],
+            href: '/settings/project-customization#date-and-time',
+        },
+    ]
+
+    test.each(
+        [
+            ['surveys', 'settings-project-surveys'],
+            ['rename project', 'settings-project-customization-display-name'],
+            ['project timezone', 'settings-project-customization-date-and-time'],
+        ].flatMap(([query, id]) => [
+            [query, id, false],
+            [query, id, true],
+        ]) as [string, string, boolean][]
+    )('finds the setting for %s (%s), unified ranking %s', (query, id, unifiedRanking) => {
+        const products: SearchItem[] = [
+            { id: 'product-surveys', name: 'Surveys', category: 'products', href: '/surveys' },
+        ]
+        const remote = emptyRemoteSlots()
+        remote.results = { cache: { [query]: [] } }
+        const sections = buildSections(
+            input('search', {
+                local: { ...emptyLocal(), settings: SETTING_ROWS, products },
+                remote,
+                remoteQueries: { results: query },
+                localQuery: query,
+                unifiedRanking,
+            })
+        )
+
+        const ids = sections.flatMap((section) =>
+            section.rows.flatMap((row) => (row.kind === 'item' ? [row.item.id] : []))
+        )
+        expect(ids).toContain(id)
+        expect(sections.filter((section) => section.label === 'Settings').length).toBeLessThanOrEqual(1)
+    })
+
     test.each([false, true])(
         'lists the level landing rows before a nested setting named Settings, unified ranking %s',
         (unifiedRanking) => {

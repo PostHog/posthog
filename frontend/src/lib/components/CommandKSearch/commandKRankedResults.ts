@@ -66,12 +66,12 @@ function rankLocalItems(items: SearchItem[], query: string, groupKey: string): R
 
 function rankItems(items: SearchItem[], query: string, groupKey: string): RankedItem[] {
     return items.flatMap((item) => {
-        const ranked = rankLocalItem(
-            query,
-            String(item.displayName || item.name),
-            item.searchKeywords,
-            !!item.parentName
-        )
+        const name = String(item.displayName || item.name)
+        const aliases =
+            groupKey === 'settings' && item.parentName
+                ? [...(item.searchKeywords ?? []), [name, ...(item.searchKeywords ?? []), item.parentName].join(' ')]
+                : item.searchKeywords
+        const ranked = rankLocalItem(query, name, aliases, !!item.parentName)
         return ranked
             ? [
                   {

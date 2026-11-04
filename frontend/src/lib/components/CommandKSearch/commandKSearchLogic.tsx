@@ -1111,7 +1111,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                         via
                     )
                 } else if (row.kind === 'expand') {
-                    const index = values.selectableRows.indexOf(row)
+                    const index = values.selectableRows.findIndex((candidate) => candidate.key === row.key)
                     actions.expandGroup(row.group)
                     const next = values.selectableRows[index]
                     if (next) {

@@ -244,6 +244,7 @@ describe('searchListsLogic', () => {
         ['2fa', 'settings-user-profile-2fa', true],
         ['rename project', 'settings-project-customization-display-name', false],
         ['desktop images', 'settings-project-ai-cloud-environments-ai-cloud-custom-images', false],
+        ['password', 'settings-user-profile-change-password', true],
     ])('finds the Command K setting row %s', (query, id, ranked) => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true })
         const component = {} as JSX.Element
@@ -275,7 +276,10 @@ describe('searchListsLogic', () => {
                 id: 'user-profile',
                 level: 'user',
                 title: 'Profile',
-                settings: [{ id: '2fa', title: 'Two-factor authentication', component }],
+                settings: [
+                    { id: '2fa', title: 'Two-factor authentication', component },
+                    { id: 'change-password', title: component, keywords: ['password'], component },
+                ],
             },
         ])
         const items = logic.values.commandKSettingsItems

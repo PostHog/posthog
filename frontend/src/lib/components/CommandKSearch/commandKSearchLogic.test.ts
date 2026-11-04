@@ -1,6 +1,8 @@
+import { searchListsLogic } from 'lib/components/Search/searchListsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import type { SettingSectionId } from '~/scenes/settings/types'
 import { initKeaTests } from '~/test/init'
 
 import { commandKSearchLogic } from './commandKSearchLogic'
@@ -113,5 +115,40 @@ describe('commandKSearchLogic', () => {
 
         expect(logic.values.chips).toEqual([expect.objectContaining({ key: 'is', value: 'insight', negated: false })])
         expect(logic.values.text).toEqual('revenue')
+    })
+
+    it('moves the highlight to the first new setting when a Show all row from an earlier render is clicked', () => {
+        searchListsLogic({ commandPalette: true }).actions.setSettingsMap(
+            Array.from({ length: 10 }, (_, index) => ({
+                id: `user-zebra-${index}` as SettingSectionId,
+                level: 'user' as const,
+                title: `Zebra ${index}`,
+                settings: [],
+            }))
+        )
+        logic.actions.inputChanged('zebra', 5, false)
+        const query = logic.values.remoteQueries.results as string
+        logic.actions.remoteLoaded(query, {
+            results: [
+                {
+                    id: 'dashboard-1',
+                    name: 'Zebra board',
+                    category: 'results',
+                    record: { type: 'dashboard', ref: '1' },
+                    rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0],
+                },
+            ],
+        })
+        const renderedRow = logic.values.selectableRows.find((row) => row.kind === 'expand')
+        expect(renderedRow).toBeTruthy()
+        const index = logic.values.selectableRows.indexOf(renderedRow!)
+
+        logic.actions.remoteLoaded(query, { persons: [] })
+        expect(logic.values.selectableRows).not.toContain(renderedRow)
+        logic.actions.activateRow(renderedRow!, false, 'click')
+
+        const revealed = logic.values.selectableRows[index]
+        expect(revealed).toMatchObject({ kind: 'item', item: { category: 'settings' } })
+        expect(logic.values.highlightedKey).toBe(revealed.key)
     })
 })

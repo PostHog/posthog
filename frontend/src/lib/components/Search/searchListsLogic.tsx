@@ -163,15 +163,15 @@ export interface searchListsLogicMeta {
             billingEntryUrl: string | null
         ) => SearchItem[]
         commandKSettingsItems: (
-            settingsMap: any,
+            settingsMap: SettingSection[],
             featureFlags: FeatureFlagsSet,
-            isCloudOrDev: any,
-            preflight: any,
-            currentTeam: any,
-            currentOrganization: any,
+            isCloudOrDev: boolean | undefined,
+            preflight: PreflightStatus | null,
+            currentTeam: TeamPublicType | TeamType | null,
+            currentOrganization: OrganizationType | null,
             hasOrganizationIntegrations: boolean,
             billingEntryUrl: string | null,
-            isAdminOrOwner: any,
+            isAdminOrOwner: boolean | null,
             user: UserType | null
         ) => SearchItem[]
     }

@@ -508,8 +508,9 @@ const commandKSectionSearchItems = (section: CommandKSettingsSection, billingEnt
     const title = section.titleString ?? sentenceCaseId(section.id)
     const context = settingsContextText(section.level, title)
     const ownsSettings = !section.to
+    const settingTitle = (setting: SettingSummary): string => setting.titleString ?? sentenceCaseId(setting.id)
     const isOwnItem = (setting: SettingSummary): boolean =>
-        ownsSettings && !!setting.titleString && setting.titleString.toLowerCase() !== title.toLowerCase()
+        ownsSettings && settingTitle(setting).toLowerCase() !== title.toLowerCase()
     const folded = section.settings.filter((setting) => !isOwnItem(setting))
     const sectionItem = settingsItem(
         `settings-${section.id}`,
@@ -531,7 +532,7 @@ const commandKSectionSearchItems = (section: CommandKSettingsSection, billingEnt
         ...section.settings.filter(isOwnItem).map((setting) =>
             settingsItem(
                 `settings-${section.id}-${setting.id}`,
-                setting.titleString!,
+                settingTitle(setting),
                 urls.settings(section.id, setting.id),
                 { level: section.level, sectionId: section.id, settingId: setting.id },
                 {

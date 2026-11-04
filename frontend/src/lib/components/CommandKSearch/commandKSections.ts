@@ -4,7 +4,7 @@ import { SETTINGS_THEME_ITEM_ID, filterSearchItems } from 'lib/components/Search
 import type { SearchCorrection } from './commandKCorrection'
 import { CursorContext, FilterDefinition, FilterOptions, ValueOption, matchValueOptions } from './commandKQuery'
 import { buildRankedResults } from './commandKRankedResults'
-import { FILTER_TOKEN, freeWords, strictLocalMatches } from './commandKRanking'
+import { FILTER_TOKEN, freeWords, searchWords, strictLocalMatches, tokenTypos } from './commandKRanking'
 import { REMOTE_SOURCES, RESULTS_LIMIT, RemoteSource, SECONDARY_LIMIT } from './commandKSources'
 
 export const RECENTS_LIMIT = 5
@@ -265,6 +265,28 @@ export function pickDisplayedQuery(
 const exactSettingsMatches = (settings: SearchItem[], localQuery: string): SearchItem[] =>
     localQuery ? matchLocal('settings', settings, localQuery, true) : []
 
+const matchesWord = (words: string[]) => (token: string) => words.some((word) => tokenTypos(token, word) === 0)
+
+function settingsMatches(items: SearchItem[], query: string): SearchItem[] {
+    const tokens = searchWords(query)
+    if (!tokens.length) {
+        return []
+    }
+    const byNameOrAlias = strictLocalMatches(items, query)
+    const named = new Set(byNameOrAlias.map((item) => item.id))
+    const acrossFields = items.filter((item) => {
+        if (named.has(item.id)) {
+            return false
+        }
+        const own = matchesWord(
+            [String(item.displayName || item.name), ...(item.searchKeywords ?? [])].flatMap(searchWords)
+        )
+        const context = matchesWord(searchWords(item.parentName ?? ''))
+        return tokens.some(own) && tokens.every((token) => own(token) || context(token))
+    })
+    return [...byNameOrAlias, ...acrossFields]
+}
+
 const LOCAL_MATCH_CACHE_SIZE = 50
 const localMatchCache = new WeakMap<SearchItem[], Map<string, SearchItem[]>>()
 
@@ -281,7 +303,12 @@ function matchLocal(source: LocalSource, items: SearchItem[], query: string, ran
         return cached
     }
     const fuzzy = source === 'create' ? filterNewItems(items, query) : filterSearchItems(items, query)
-    const matches = strict ? strictLocalMatches(fuzzy, query) : fuzzy
+    const matches =
+        strict && source === 'settings'
+            ? settingsMatches(items, query)
+            : strict
+              ? strictLocalMatches(fuzzy, query)
+              : fuzzy
     if (byQuery.size >= LOCAL_MATCH_CACHE_SIZE) {
         byQuery.delete(byQuery.keys().next().value!)
     }
@@ -312,8 +339,12 @@ export const settingsQuery = (localQuery: string, unifiedRanking: boolean): stri
     unifiedRanking ? localQuery.replace(/_/g, ' ') : localQuery
 
 export function rankableSettings(local: LocalLists, localQuery: string): SearchItem[] {
-    const productNames = new Set(local.products.filter((item) => !item.parentName).map(plainName))
-    return exactSettingsMatches(local.settings, localQuery).filter((item) => !productNames.has(plainName(item)))
+    const productDestinations = new Set(
+        local.products.filter((item) => !item.parentName).map((item) => `${plainName(item)}|${item.href ?? ''}`)
+    )
+    return exactSettingsMatches(local.settings, localQuery).filter(
+        (item) => !productDestinations.has(`${plainName(item)}|${item.href ?? ''}`)
+    )
 }
 
 function rankedResultsSections(
