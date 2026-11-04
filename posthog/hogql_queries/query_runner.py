@@ -146,8 +146,10 @@ from posthog.hogql.warehouse_warnings import accumulator_scope
 from posthog import settings
 from posthog.api_queries_budget import (
     API_QUERIES_BUDGET_ERRORS_COUNTER,
+    LIMITED_EVENT,
     BudgetSpec,
     budget_enabled,
+    budget_logger,
     budget_spec_for,
     claim_limited_event,
     refill_and_read,
@@ -251,9 +253,6 @@ from products.access_control.backend.facade.user_access_control import (
 from products.web_analytics.backend.hogql_queries.first_pageview_flag import resolve_first_pageview_filters_modifier
 
 logger = structlog.get_logger(__name__)
-# Named so posthog/settings/logs.py can opt it into INFO: the posthoganalytics SDK clamps the
-# "posthog" logger tree to WARNING, which would drop the budget line under __name__.
-budget_logger = structlog.get_logger("posthog.api_queries_budget")
 
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
@@ -613,6 +612,7 @@ def enforce_api_queries_budget(team: Team, query: object | None = None) -> None:
     API_QUERIES_BUDGET_LIMITED_COUNTER.labels(outcome=outcome).inc()
     budget_logger.info(
         "api_queries_budget_limited",
+        budget="bytes",
         organization_id=str(team.organization_id),
         team_id=team.pk,
         remaining_bytes=status.remaining_bytes,
@@ -626,8 +626,9 @@ def enforce_api_queries_budget(team: Team, query: object | None = None) -> None:
             product = _budget_event_product(query)
             report_team_action(
                 team,
-                "api queries budget limited",
+                LIMITED_EVENT,
                 {
+                    "budget": "bytes",
                     "outcome": outcome,
                     "team_id": team.pk,
                     "organization_plan": _organization_plan(team),

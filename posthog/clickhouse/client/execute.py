@@ -21,7 +21,16 @@ from prometheus_client import Counter
 
 from posthog.hogql import query_stats
 
-from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER, QueryCost, debit, record_request_query_cost
+from posthog.api_queries_budget import (
+    API_QUERIES_BUDGET_ERRORS_COUNTER,
+    API_QUERIES_CPU_BUDGET_UNMETERED_COUNTER,
+    QueryCost,
+    cpu_budget_enabled,
+    debit,
+    debit_org_cpu,
+    observe_org_cpu_budget,
+    record_request_query_cost,
+)
 from posthog.clickhouse.client.connection import (
     MAX_QUERY_SIZE_BYTES,
     ClickHouseUser,
@@ -34,6 +43,7 @@ from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.client.limit import get_llm_analytics_rate_limiter
 from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator
 from posthog.clickhouse.query_tagging import (
+    AccessMethod,
     Feature,
     Product,
     QueryTags,
@@ -218,6 +228,32 @@ def _meter_budgeted_query(team_id: str, query_info: Any) -> None:
         capture_exception(e)
 
 
+def _cpu_budget_org_id(tags: QueryTags) -> Optional[str]:
+    """The organization whose CPU budget this query counts against, or None when it is not budgeted."""
+    if (
+        tags.access_method != AccessMethod.PERSONAL_API_KEY
+        or tags.product == Product.ENDPOINTS
+        or tags.org_id is None
+        or not cpu_budget_enabled()
+    ):
+        return None
+    return str(tags.org_id)
+
+
+def _meter_cpu_budget(org_id: str, summary: Optional[QuerySummary]) -> None:
+    # Runs after the pooled connection is released, and must never raise.
+    try:
+        if summary is None:
+            return
+        if summary.cpu_us is None:
+            API_QUERIES_CPU_BUDGET_UNMETERED_COUNTER.inc()
+            return
+        debit_org_cpu(org_id, summary.cpu_us)
+    except Exception as e:
+        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="cpu_meter").inc()
+        capture_exception(e)
+
+
 def _query_info_to_meter(client: Any, query_info_before: Any) -> Optional[Any]:
     """The query info to meter for the query that just ran on `client`, or None.
 
@@ -250,17 +286,26 @@ def _query_stats_summary(client: Any, query_info_before: Any) -> Optional[QueryS
     return QuerySummary(
         rows=int(progress.rows or 0),
         elapsed_ns=int(progress.elapsed_ns or 0),
+        cpu_us=getattr(query_info, "cpu_us", None),
     )
 
 
-def _record_query_stats(client: Any, query_info_before: Any, execute_start_time: float, workload: Workload) -> None:
+def _take_query_summary(client: Any, query_info_before: Any) -> Optional[QuerySummary]:
+    # Read once per execution, because taking a stopped query's stashed record clears it.
+    try:
+        return _query_stats_summary(client, query_info_before)
+    except Exception:
+        logger.warning("query_stats_summary_failed", exc_info=True)
+        return None
+
+
+def _record_query_stats(summary: Optional[QuerySummary], execute_start_time: float, workload: Workload) -> None:
     """Add what this query read to the request's totals.
 
     Also runs after a failure, since a stopped query has still read rows. Never raises: the totals
     are advisory.
     """
     try:
-        summary = _query_stats_summary(client, query_info_before)
         if summary is None:
             return
         # elapsed_ns is 0 on old protocol revisions; fall back to the client-side round trip.
@@ -566,6 +611,10 @@ def sync_execute(
     }
     start_time = perf_counter()
     budgeted_query_info: Optional[Any] = None
+    query_summary: Optional[QuerySummary] = None
+    cpu_budget_org_id = _cpu_budget_org_id(tags)
+    if cpu_budget_org_id is not None:
+        observe_org_cpu_budget(cpu_budget_org_id, team_id=tags.team_id, product=tags.product)
 
     try:
         QUERY_STARTED_COUNTER.labels(
@@ -596,7 +645,8 @@ def sync_execute(
                 # in the outer finally, once the connection is back in the pool.
                 if tags.api_queries_budgeted and tags.team_id:
                     budgeted_query_info = _query_info_to_meter(client, query_info_before)
-                _record_query_stats(client, query_info_before, execute_start_time, workload)
+                query_summary = _take_query_summary(client, query_info_before)
+                _record_query_stats(query_summary, execute_start_time, workload)
             if (
                 "INSERT INTO" in prepared_sql
                 and hasattr(client, "last_query")
@@ -621,6 +671,8 @@ def sync_execute(
         execution_time = perf_counter() - start_time
         if budgeted_query_info is not None:
             _meter_budgeted_query(str(tags.team_id), budgeted_query_info)
+        if cpu_budget_org_id is not None:
+            _meter_cpu_budget(cpu_budget_org_id, query_summary)
 
         QUERY_FINISHED_COUNTER.labels(
             team_id=str(team_id or ""),

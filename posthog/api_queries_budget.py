@@ -11,11 +11,17 @@ when it is read, so a debit never needs to know the team's rate. The balance flo
 hour of refill, so the query that crosses the line can never lock a team out for longer than an
 hour. Everything fails open.
 
+A second bucket per organization counts the CPU time of personal API key queries outside Endpoints,
+in CPU microseconds, at a flat API_QUERIES_CPU_BUDGET_SECONDS_PER_HOUR. sync_execute reads it before
+each such query and debits it after. It only observes: an exhausted bucket is counted and reported,
+and the query still runs.
+
 Exports:
 * BudgetSpec, budget_spec_for, budget_enabled
 * refill_and_read, debit, seconds_until_positive
 * QueryCost, reset_request_query_cost, record_request_query_cost, get_request_query_cost
 * claim_limited_event
+* cpu_budget_enabled, CpuBudgetStatus, org_cpu_budget_status, debit_org_cpu, observe_org_cpu_budget
 """
 
 import math
@@ -25,10 +31,12 @@ from typing import Any, Optional
 
 from django.conf import settings
 
+import structlog
 from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.ph_client import ph_background_capture
 from posthog.redis import get_client
 
 BUDGET_KEY_PREFIX = "@posthog/api-queries-budget/"
@@ -44,11 +52,35 @@ API_QUERIES_BUDGET_ERRORS_COUNTER = Counter(
     labelnames=["op"],
 )
 
+API_QUERIES_CPU_BUDGET_LIMITED_COUNTER = Counter(
+    "posthog_api_queries_cpu_budget_limited_total",
+    "Personal API key queries started while their organization's hourly CPU budget was exhausted.",
+    labelnames=["outcome"],  # observed
+)
+
+API_QUERIES_CPU_BUDGET_UNMETERED_COUNTER = Counter(
+    "posthog_api_queries_cpu_budget_unmetered_total",
+    "Personal API key queries that ran on a client that reports no CPU, such as the HTTP client.",
+)
+
+LIMITED_EVENT = "api queries budget limited"
+
+# Named so posthog/settings/logs.py can opt it into INFO: the posthoganalytics SDK clamps the
+# "posthog" logger tree to WARNING, which would drop the budget line under __name__.
+budget_logger = structlog.get_logger("posthog.api_queries_budget")
+
 
 @frozen
 class BudgetSpec:
     bytes_per_hour: float
     capacity_bytes: float
+
+
+@frozen
+class CpuBudgetStatus:
+    remaining_cpu_us: float
+    cpu_us_per_hour: float
+    retry_after_seconds: int
 
 
 @frozen
@@ -85,8 +117,24 @@ def budget_spec_for(organization: Any, events_last_year: Optional[int] = None) -
     return _spec(min(max(bytes_per_hour, scaled), float(settings.API_QUERIES_BUDGET_MAX_BYTES_PER_HOUR)))
 
 
+def cpu_budget_enabled() -> bool:
+    return float(settings.API_QUERIES_CPU_BUDGET_SECONDS_PER_HOUR) > 0
+
+
+def _cpu_us_per_hour() -> float:
+    return float(settings.API_QUERIES_CPU_BUDGET_SECONDS_PER_HOUR) * 1_000_000
+
+
+def _cpu_capacity_us() -> float:
+    return _cpu_us_per_hour() * float(settings.API_QUERIES_BUDGET_CAPACITY_HOURS)
+
+
 def _bucket_key(team_id: str) -> str:
     return f"{BUDGET_KEY_PREFIX}team/{team_id}"
+
+
+def _cpu_bucket_key(org_id: str) -> str:
+    return f"{BUDGET_KEY_PREFIX}cpu/org/{org_id}"
 
 
 def _budget_redis_client():
@@ -130,22 +178,46 @@ return tostring(tokens)
 """
 
 
-def refill_and_read(team_id: str, spec: BudgetSpec, now: Optional[float] = None) -> Optional[float]:
+def _refill_and_read(
+    key: str, per_hour: float, capacity: float, now: Optional[float], error_op: str
+) -> Optional[float]:
     try:
         result = _budget_redis_client().eval(
             _REFILL_AND_READ,
             1,
-            _bucket_key(team_id),
+            key,
             now if now is not None else time.time(),
-            spec.bytes_per_hour,
-            spec.capacity_bytes,
+            per_hour,
+            capacity,
             BUDGET_TTL_SECONDS,
         )
         return float(result)
     except Exception as e:
-        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="read").inc()
+        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op=error_op).inc()
         capture_exception(e)
         return None
+
+
+def _debit(key: str, amount: int, capacity: float, per_hour: float, error_op: str) -> Optional[float]:
+    try:
+        result = _budget_redis_client().eval(
+            _DEBIT,
+            1,
+            key,
+            int(amount),
+            capacity,
+            per_hour,
+            BUDGET_TTL_SECONDS,
+        )
+        return float(result)
+    except Exception as e:
+        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op=error_op).inc()
+        capture_exception(e)
+        return None
+
+
+def refill_and_read(team_id: str, spec: BudgetSpec, now: Optional[float] = None) -> Optional[float]:
+    return _refill_and_read(_bucket_key(team_id), spec.bytes_per_hour, spec.capacity_bytes, now, "read")
 
 
 def debit(team_id: str, bytes_read: int) -> Optional[float]:
@@ -154,46 +226,104 @@ def debit(team_id: str, bytes_read: int) -> Optional[float]:
     if not budget_enabled() or bytes_read <= 0:
         return None
     free = _free_spec()
-    try:
-        result = _budget_redis_client().eval(
-            _DEBIT,
-            1,
-            _bucket_key(team_id),
-            int(bytes_read),
-            free.capacity_bytes,
-            free.bytes_per_hour,
-            BUDGET_TTL_SECONDS,
-        )
-        return float(result)
-    except Exception as e:
-        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="debit").inc()
-        capture_exception(e)
+    return _debit(_bucket_key(team_id), bytes_read, free.capacity_bytes, free.bytes_per_hour, "debit")
+
+
+def debit_org_cpu(org_id: str, cpu_us: int) -> Optional[float]:
+    """Take the CPU microseconds off the organization's bucket. Returns the remaining balance, or None
+    when the CPU budget is disabled or Redis failed."""
+    if not cpu_budget_enabled() or cpu_us <= 0:
         return None
+    return _debit(_cpu_bucket_key(org_id), cpu_us, _cpu_capacity_us(), _cpu_us_per_hour(), "cpu_debit")
+
+
+def org_cpu_budget_status(org_id: str, now: Optional[float] = None) -> Optional[CpuBudgetStatus]:
+    if not cpu_budget_enabled():
+        return None
+    per_hour = _cpu_us_per_hour()
+    remaining = _refill_and_read(_cpu_bucket_key(org_id), per_hour, _cpu_capacity_us(), now, "cpu_read")
+    if remaining is None:
+        return None
+    return CpuBudgetStatus(
+        remaining_cpu_us=remaining,
+        cpu_us_per_hour=per_hour,
+        retry_after_seconds=_seconds_until_positive(remaining, per_hour),
+    )
 
 
 LIMITED_EVENT_INTERVAL_SECONDS = 3600
 
 
-def claim_limited_event(team_id: str) -> bool:
+def _claim_limited_event(key: str, error_op: str) -> bool:
     try:
-        return bool(
-            _budget_redis_client().set(
-                f"{BUDGET_KEY_PREFIX}limited-event/{team_id}", "1", nx=True, ex=LIMITED_EVENT_INTERVAL_SECONDS
-            )
-        )
+        return bool(_budget_redis_client().set(key, "1", nx=True, ex=LIMITED_EVENT_INTERVAL_SECONDS))
     except Exception as e:
-        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event").inc()
+        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op=error_op).inc()
         capture_exception(e)
         return False
 
 
-def seconds_until_positive(remaining: float, spec: BudgetSpec) -> int:
+def claim_limited_event(team_id: str) -> bool:
+    return _claim_limited_event(f"{BUDGET_KEY_PREFIX}limited-event/{team_id}", "limited_event")
+
+
+def _claim_cpu_limited_event(org_id: str) -> bool:
+    return _claim_limited_event(f"{BUDGET_KEY_PREFIX}limited-event/cpu/org/{org_id}", "cpu_limited_event")
+
+
+def _seconds_until_positive(remaining: float, per_hour: float) -> int:
     if remaining > 0:
         return 0
-    if spec.bytes_per_hour <= 0:
+    if per_hour <= 0:
         return 1
     # A zero balance is still exhausted, and DRF only sends Retry-After for a positive wait.
-    return max(1, math.ceil(-remaining / (spec.bytes_per_hour / 3600.0)))
+    return max(1, math.ceil(-remaining / (per_hour / 3600.0)))
+
+
+def seconds_until_positive(remaining: float, spec: BudgetSpec) -> int:
+    return _seconds_until_positive(remaining, spec.bytes_per_hour)
+
+
+def observe_org_cpu_budget(org_id: str, team_id: Optional[int], product: Optional[str]) -> None:
+    """Count and report a personal API key query whose organization has no CPU budget left.
+
+    Never refuses and never raises, so a Redis or analytics failure cannot fail the query.
+    """
+    try:
+        status = org_cpu_budget_status(org_id)
+        if status is None or status.remaining_cpu_us > 0:
+            return
+        outcome = "observed"
+        API_QUERIES_CPU_BUDGET_LIMITED_COUNTER.labels(outcome=outcome).inc()
+        budget_logger.info(
+            "api_queries_budget_limited",
+            budget="cpu",
+            organization_id=org_id,
+            team_id=team_id,
+            remaining_cpu_seconds=status.remaining_cpu_us / 1_000_000,
+            cpu_seconds_per_hour=status.cpu_us_per_hour / 1_000_000,
+            retry_after_seconds=status.retry_after_seconds,
+            outcome=outcome,
+        )
+        if _claim_cpu_limited_event(org_id):
+            ph_background_capture()(
+                distinct_id=org_id,
+                event=LIMITED_EVENT,
+                properties={
+                    "budget": "cpu",
+                    "outcome": outcome,
+                    "team_id": team_id,
+                    "cpu_seconds_per_hour": status.cpu_us_per_hour / 1_000_000,
+                    "remaining_cpu_seconds": status.remaining_cpu_us / 1_000_000,
+                    "retry_after_seconds": status.retry_after_seconds,
+                    "access_method": "personal_api_key",
+                    "product": str(product) if product else None,
+                },
+                groups={"instance": settings.SITE_URL, "organization": org_id},
+            )
+    except Exception as e:
+        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="cpu_check").inc()
+        capture_exception(e)
 
 
 def reset_request_query_cost() -> None:

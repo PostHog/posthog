@@ -1068,6 +1068,10 @@ API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR: float = get_from_env(
 API_QUERIES_BUDGET_MAX_BYTES_PER_HOUR: float = get_from_env(
     "API_QUERIES_BUDGET_MAX_BYTES_PER_HOUR", 5_000_000_000_000.0, type_cast=float
 )
+# Per organization, for personal API key queries outside Endpoints. 0 turns the CPU budget off.
+API_QUERIES_CPU_BUDGET_SECONDS_PER_HOUR: float = get_from_env(
+    "API_QUERIES_CPU_BUDGET_SECONDS_PER_HOUR", 0.0, type_cast=float
+)
 
 ####
 # /api/environments deprecation

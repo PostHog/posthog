@@ -96,6 +96,7 @@ class TestApiQueriesBudgetEnforcement(BaseTest):
         team, event, properties = report.call_args.args
         assert team == self.team
         assert event == "api queries budget limited"
+        assert properties["budget"] == "bytes"
         assert properties["outcome"] == outcome
         assert properties["team_id"] == self.team.pk
         assert properties["organization_plan"] == "free"

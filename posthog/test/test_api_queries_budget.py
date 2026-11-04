@@ -2,7 +2,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
@@ -11,24 +11,46 @@ from parameterized import parameterized
 
 from posthog.api_queries_budget import (
     API_QUERIES_BUDGET_ERRORS_COUNTER,
+    API_QUERIES_CPU_BUDGET_LIMITED_COUNTER,
+    API_QUERIES_CPU_BUDGET_UNMETERED_COUNTER,
     BUDGET_KEY_PREFIX,
     BUDGET_REDIS_TIMEOUT_SECONDS,
+    LIMITED_EVENT,
     BudgetSpec,
+    CpuBudgetStatus,
     QueryCost,
     budget_spec_for,
     claim_limited_event,
     debit,
+    debit_org_cpu,
     get_request_query_cost,
+    org_cpu_budget_status,
     record_request_query_cost,
     refill_and_read,
     reset_request_query_cost,
     seconds_until_positive,
 )
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Product, reset_query_tags, tag_queries
+from posthog.clickhouse.client.connection import ProxyClient
+from posthog.clickhouse.query_tagging import AccessMethod, Product, reset_query_tags, tag_queries
 from posthog.redis import get_client
 
 SPEC = BudgetSpec(bytes_per_hour=3600.0, capacity_bytes=7200.0)
+CPU_BUDGET_SETTINGS = {"API_QUERIES_CPU_BUDGET_SECONDS_PER_HOUR": 1, "API_QUERIES_BUDGET_CAPACITY_HOURS": 24}
+CPU_CAPACITY_US = 24_000_000
+
+
+def _cpu_key(org_id: object) -> str:
+    return f"{BUDGET_KEY_PREFIX}cpu/org/{org_id}"
+
+
+def _cpu_tokens(org_id: object) -> float | None:
+    tokens = get_client().hget(_cpu_key(org_id), "tokens")
+    return None if tokens is None else float(tokens)
+
+
+def _clear_cpu_budget(org_id: object) -> None:
+    get_client().delete(_cpu_key(org_id), f"{BUDGET_KEY_PREFIX}limited-event/cpu/org/{org_id}")
 
 
 @override_settings(
@@ -119,6 +141,22 @@ class TestTokenBucket(SimpleTestCase):
     def test_disabled_budget_does_not_debit(self):
         assert debit(self.team_id, 1000) is None
 
+    @override_settings(**CPU_BUDGET_SETTINGS)
+    def test_org_cpu_bucket_counts_microseconds_and_floors_at_minus_one_hour(self):
+        org_id = self.team_id
+        assert org_cpu_budget_status(org_id, now=1000.0) == CpuBudgetStatus(
+            remaining_cpu_us=CPU_CAPACITY_US, cpu_us_per_hour=1_000_000, retry_after_seconds=0
+        )
+        assert debit_org_cpu(org_id, 100 * CPU_CAPACITY_US) == -1_000_000
+        status = org_cpu_budget_status(org_id, now=1000.0)
+        assert status is not None and status.retry_after_seconds == 3600
+        get_client().delete(_cpu_key(org_id))
+
+    def test_disabled_cpu_budget_has_no_status_and_does_not_debit(self):
+        assert org_cpu_budget_status(self.team_id) is None
+        assert debit_org_cpu(self.team_id, 1000) is None
+        assert _cpu_tokens(self.team_id) is None
+
     def test_redis_errors_fail_open_and_count(self):
         read_before = API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="read")._value.get()
         debit_before = API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="debit")._value.get()
@@ -160,9 +198,98 @@ class TestBudgetedQueryMetering(ClickhouseTestMixin, BaseTest):
     # so bound the scan inside a subquery or the read never terminates.
     BOUNDED_QUERY = "SELECT sum(number) FROM (SELECT number FROM system.numbers LIMIT 10000)"
 
+    CPU_QUERY = "SELECT count() FROM numbers_mt(50000000) WHERE sipHash64(number) % 7 = 3"
+
     def setUp(self):
         super().setUp()
         reset_request_query_cost()
+        _clear_cpu_budget(self.organization.pk)
+
+    def tearDown(self):
+        reset_query_tags()
+        _clear_cpu_budget(self.organization.pk)
+        super().tearDown()
+
+    def _tag_api_key_query(self, **tags) -> str:
+        client_query_id = str(uuid4())
+        tag_queries(
+            **{
+                "access_method": AccessMethod.PERSONAL_API_KEY,
+                "org_id": self.organization.pk,
+                "team_id": self.team.pk,
+                "product": Product.API,
+                "client_query_id": client_query_id,
+                **tags,
+            }
+        )
+        return client_query_id
+
+    def _query_log_cpu_us(self, client_query_id: str) -> int:
+        sync_execute("SYSTEM FLUSH LOGS")
+        rows = sync_execute(
+            """
+            SELECT sum(ProfileEvents['OSCPUVirtualTimeMicroseconds'])
+            FROM system.query_log
+            WHERE initial_query_id LIKE %(query_id)s AND type != 'QueryStart'
+            """,
+            {"query_id": f"{self.team.pk}_{client_query_id}_%"},
+        )
+        return int(rows[0][0])
+
+    @override_settings(**CPU_BUDGET_SETTINGS)
+    def test_api_key_query_debits_the_org_cpu_budget_by_the_cpu_query_log_reports(self):
+        client_query_id = self._tag_api_key_query()
+        sync_execute(self.CPU_QUERY)
+        reset_query_tags()
+        debited_us = CPU_CAPACITY_US - (_cpu_tokens(self.organization.pk) or CPU_CAPACITY_US)
+        logged_us = self._query_log_cpu_us(client_query_id)
+        assert logged_us > 100_000
+        assert abs(debited_us - logged_us) <= 0.05 * logged_us
+
+    @override_settings(**CPU_BUDGET_SETTINGS)
+    def test_api_key_query_the_server_stops_still_debits_its_cpu(self):
+        client_query_id = self._tag_api_key_query()
+        with pytest.raises(Exception, match="max execution time"):
+            sync_execute(
+                "SELECT count() FROM numbers_mt(1000000000000) WHERE sipHash64(number) % 7 = 3",
+                settings={"max_execution_time": 1},
+            )
+        reset_query_tags()
+        debited_us = CPU_CAPACITY_US - (_cpu_tokens(self.organization.pk) or CPU_CAPACITY_US)
+        assert debited_us >= 0.5 * self._query_log_cpu_us(client_query_id) > 0
+
+    @parameterized.expand(
+        [
+            ("endpoints_product", {"product": Product.ENDPOINTS}, CPU_BUDGET_SETTINGS),
+            ("session_auth", {"access_method": None}, CPU_BUDGET_SETTINGS),
+            ("project_secret_api_key", {"access_method": AccessMethod.PROJECT_SECRET_API_KEY}, CPU_BUDGET_SETTINGS),
+            ("cpu_budget_disabled", {}, {"API_QUERIES_CPU_BUDGET_SECONDS_PER_HOUR": 0}),
+        ]
+    )
+    def test_query_outside_the_cpu_budget_never_touches_it(self, _name, tags, budget_settings):
+        with override_settings(**budget_settings):
+            self._tag_api_key_query(**tags)
+            sync_execute(self.BOUNDED_QUERY)
+        assert not get_client().exists(_cpu_key(self.organization.pk))
+
+    @override_settings(**CPU_BUDGET_SETTINGS)
+    def test_exhausted_cpu_budget_is_counted_and_reported_once_but_never_refuses(self):
+        debit_org_cpu(str(self.organization.pk), 100 * CPU_CAPACITY_US)
+        before = API_QUERIES_CPU_BUDGET_LIMITED_COUNTER.labels(outcome="observed")._value.get()
+        self._tag_api_key_query()
+        with patch("posthog.api_queries_budget.ph_background_capture") as background_capture:
+            capture = background_capture.return_value
+            assert sync_execute(self.BOUNDED_QUERY) == [(49995000,)]
+            assert sync_execute(self.BOUNDED_QUERY) == [(49995000,)]
+        assert API_QUERIES_CPU_BUDGET_LIMITED_COUNTER.labels(outcome="observed")._value.get() == before + 2
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["event"] == LIMITED_EVENT
+        assert capture.call_args.kwargs["distinct_id"] == str(self.organization.pk)
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["budget"] == "cpu"
+        assert properties["outcome"] == "observed"
+        assert properties["product"] == "api"
+        assert properties["remaining_cpu_seconds"] <= 0
 
     def test_budgeted_query_debits_the_team_budget(self):
         spec = budget_spec_for(self.organization)
@@ -208,15 +335,29 @@ class QueryDied(Exception):
     pass
 
 
+@override_settings(**CPU_BUDGET_SETTINGS)
 class TestFailedQueryMetering(BaseTest):
+    def setUp(self):
+        super().setUp()
+        _clear_cpu_budget(self.organization.pk)
+
+    def tearDown(self):
+        _clear_cpu_budget(self.organization.pk)
+        super().tearDown()
+
     def test_connection_failure_does_not_remeter_previous_query(self):
         reset_request_query_cost()
         fake_client = MagicMock()
-        fake_client.last_query = SimpleNamespace(progress=SimpleNamespace(bytes=9999))
+        fake_client.last_query = SimpleNamespace(progress=SimpleNamespace(bytes=9999), cpu_us=9999)
         fake_client.execute.side_effect = QueryDied("network down before connecting")
         pool = MagicMock()
         pool.__enter__.return_value = fake_client
-        tag_queries(api_queries_budgeted=True, team_id=self.team.pk)
+        tag_queries(
+            api_queries_budgeted=True,
+            team_id=self.team.pk,
+            access_method=AccessMethod.PERSONAL_API_KEY,
+            org_id=self.organization.pk,
+        )
         try:
             with patch("posthog.clickhouse.client.execute.get_client_from_pool", return_value=pool):
                 with pytest.raises(QueryDied):
@@ -224,3 +365,43 @@ class TestFailedQueryMetering(BaseTest):
         finally:
             reset_query_tags()
         assert get_request_query_cost() is None
+        assert _cpu_tokens(self.organization.pk) == CPU_CAPACITY_US
+
+    def test_http_client_query_counts_as_cpu_unmetered(self):
+        http_client = MagicMock()
+        http_client.query.return_value = SimpleNamespace(summary={"read_rows": "1"}, result_set=[(1,)])
+        before = API_QUERIES_CPU_BUDGET_UNMETERED_COUNTER._value.get()
+        tag_queries(team_id=self.team.pk, access_method=AccessMethod.PERSONAL_API_KEY, org_id=self.organization.pk)
+        try:
+            with patch("posthog.clickhouse.client.execute.get_client_from_pool", return_value=ProxyClient(http_client)):
+                assert sync_execute("SELECT 1") == [(1,)]
+        finally:
+            reset_query_tags()
+        assert API_QUERIES_CPU_BUDGET_UNMETERED_COUNTER._value.get() == before + 1
+        assert _cpu_tokens(self.organization.pk) == CPU_CAPACITY_US
+
+
+@override_settings(**CPU_BUDGET_SETTINGS)
+class TestCpuBudgetCoversApiKeyRoutes(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        _clear_cpu_budget(self.organization.pk)
+
+    def tearDown(self):
+        _clear_cpu_budget(self.organization.pk)
+        super().tearDown()
+
+    @parameterized.expand([("events", "query:read"), ("persons", "person:read")])
+    def test_api_key_list_route_debits_and_observes_the_org_cpu_budget(self, route, scope):
+        headers = {"Authorization": f"Bearer {self.create_personal_api_key_with_scopes([scope])}"}
+        url = f"/api/projects/{self.team.id}/{route}/"
+
+        assert self.client.get(url, headers=headers).status_code == 200
+        tokens = _cpu_tokens(self.organization.pk)
+        assert tokens is not None and tokens < CPU_CAPACITY_US
+
+        debit_org_cpu(str(self.organization.pk), 100 * CPU_CAPACITY_US)
+        before = API_QUERIES_CPU_BUDGET_LIMITED_COUNTER.labels(outcome="observed")._value.get()
+        response = self.client.get(url, headers=headers)
+        assert response.status_code == 200, response.content
+        assert API_QUERIES_CPU_BUDGET_LIMITED_COUNTER.labels(outcome="observed")._value.get() > before
