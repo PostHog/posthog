@@ -238,11 +238,16 @@ fn install_metrics_recorder() {
     const BUCKETS: &[f64] = &[
         1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
     ];
-    metrics_exporter_prometheus::PrometheusBuilder::new()
+    let handle = metrics_exporter_prometheus::PrometheusBuilder::new()
         .set_buckets(BUCKETS)
         .expect("buckets are not empty")
         .install_recorder()
         .expect("no other recorder is installed");
+    // Histogram samples stay buffered until upkeep drains them, as the production exporter does.
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        handle.run_upkeep();
+    });
 }
 
 fn main() {

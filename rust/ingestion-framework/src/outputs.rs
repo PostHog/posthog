@@ -20,16 +20,6 @@ pub struct KafkaMessage {
 
 impl KafkaMessage {
     /// The last value of a repeated key wins, as in `parseKafkaHeaders`.
-    pub fn header_map(&self) -> std::collections::HashMap<String, String> {
-        let mut map = std::collections::HashMap::new();
-        for (key, value) in &self.headers {
-            if let Some(value) = value {
-                map.insert(key.clone(), String::from_utf8_lossy(value).into_owned());
-            }
-        }
-        map
-    }
-
     pub fn header(&self, name: &str) -> Option<String> {
         self.headers
             .iter()
