@@ -4,24 +4,26 @@ Move one email at a time. Pick a low-risk email first, switch it, check a few re
 
 ## Map the send call
 
-A PostHog send takes a template ID, one recipient, the values for the template's placeholders, the recipient's distinct ID, and an idempotency key. The subject, body, sender and reply-to address live on the template, so move them out of the code and into the template.
+Keep the email in the app's code unless the user chose a PostHog template. A code send takes a `template_key` that names the email, one recipient, the subject, the HTML and/or text body, the recipient's distinct ID, and an idempotency key. A template send takes a template ID and the values for its placeholders in place of the key, subject and body.
 
-| Provider                  | What the code sends today                                                   | In PostHog                                                                                                                |
-| ------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Customer.io transactional | `transactional_message_id`, `to`, `identifiers`, `message_data`             | Almost the same shape. `templateId` / `template_id`, `to`, `distinctId` / `distinct_id`, `templateData` / `template_data` |
-| Loops                     | `transactionalId`, `email`, `dataVariables`                                 | `templateId`, `to`, `templateData`                                                                                        |
-| Postmark                  | `TemplateAlias` or `TemplateId`, `To`, `TemplateModel`                      | `templateId`, `to`, `templateData`                                                                                        |
-| SendGrid                  | `templateId`, `to`, `dynamicTemplateData`                                   | `templateId`, `to`, `templateData`                                                                                        |
-| Mailgun                   | `template`, `to`, `h:X-Mailgun-Variables`                                   | `templateId`, `to`, `templateData`                                                                                        |
-| Amazon SES                | A template name and template data, or a raw subject and body                | `templateId`, `to`, `templateData`                                                                                        |
-| Resend, Mandrill, Brevo   | Often a subject and an HTML body, or a React Email component, built in code | Build the email as a PostHog template, then send `templateId`, `to`, `templateData`                                       |
-| nodemailer or SMTP        | A subject and a body built in code                                          | Build the email as a PostHog template, then send `templateId`, `to`, `templateData`                                       |
+| Provider                  | What the code sends today                                                   | In PostHog, as code                                                              |
+| ------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Resend, Mandrill, Brevo   | Often a subject and an HTML body, or a React Email component, built in code | The same subject and body, with `templateKey`, `to`, `subject`, `html`           |
+| nodemailer or SMTP        | A subject and a body built in code                                          | The same subject and body, with `templateKey`, `to`, `subject`, `html` or `text` |
+| Amazon SES                | A template name and template data, or a raw subject and body                | A raw subject and body as they are; a stored template becomes code first         |
+| SendGrid                  | `templateId`, `to`, `dynamicTemplateData`                                   | The template becomes code first, then `templateKey`, `to`, `subject`, `html`     |
+| Postmark                  | `TemplateAlias` or `TemplateId`, `To`, `TemplateModel`                      | The template becomes code first, then `templateKey`, `to`, `subject`, `html`     |
+| Mailgun                   | `template`, `to`, `h:X-Mailgun-Variables`                                   | The template becomes code first, then `templateKey`, `to`, `subject`, `html`     |
+| Loops                     | `transactionalId`, `email`, `dataVariables`                                 | The template becomes code first, then `templateKey`, `to`, `subject`, `html`     |
+| Customer.io transactional | `transactional_message_id`, `to`, `identifiers`, `message_data`             | The template becomes code first, then `templateKey`, `to`, `subject`, `html`     |
+
+In Python the fields are `template_key`, `to`, `subject`, `html` and `text`. For a PostHog template, every row sends `templateId`, `to` and `templateData` (`template_id`, `to`, `template_data`) instead.
 
 ## Move the content
 
-- Recreate the email as a PostHog template with the `designing-email-templates` skill. Start from the email the provider sends today, so it keeps the same logo, colors, and layout. Ask the user for its HTML or a screenshot if you can't read it. For an email built in code, such as a React Email component, render it once and use the result as the starting design.
-- Rename the placeholders to Liquid: a variable `name` becomes `{{ variables.name }}`. The template can't read person properties, so pass every value in `templateData`.
-- Values that the old code computed in the template language, such as loops or conditions, become Liquid tags. Keep the logic that needs backend data in the backend, and pass the result.
+- **An email built in code** stays where it is. Only the send call changes.
+- **An email stored at the provider** becomes code: export its HTML, or ask the user for it or a screenshot if you can't read it, and write it as a function in the repo that takes the values the provider's template variables held. When the app uses React Email, write it as a component. Keep the same logo, colors, and layout.
+- **For a PostHog template** instead, recreate the email with the `designing-email-templates` skill, starting from the email the provider sends today. Rename the placeholders to Liquid: a variable `name` becomes `{{ variables.name }}`. The template can't read person properties, so pass every value in `templateData`. Values that the old template computed, such as loops or conditions, become Liquid tags, and logic that needs backend data stays in the backend.
 
 ## Check before the switch
 
@@ -33,4 +35,4 @@ A PostHog send takes a template ID, one recipient, the values for the template's
 
 ## After the switch
 
-Watch the first sends. Read a few statuses from the user's code, and look at the template's **Sends** and **Metrics** tabs. Remove the old provider's code for that email only when the user is happy with it.
+Watch the first sends. Read a few statuses from the user's code, and, for a PostHog template, look at its **Sends** and **Metrics** tabs. Remove the old provider's code for that email only when the user is happy with it.
