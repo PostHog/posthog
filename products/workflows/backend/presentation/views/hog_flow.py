@@ -201,6 +201,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowHasNoDraft,
     WorkflowListFiltersInvalid,
     WorkflowListQuery,
+    WorkflowListRow,
     WorkflowNotFound,
     WorkflowProposalConflicts,
     WorkflowProposalNotFound,
@@ -326,6 +327,7 @@ from products.workflows.backend.facade.workflows import (
     get_workflow,
     get_workflow_edit_state,
     get_workflow_ref,
+    list_workflow_summaries,
     list_workflows,
     literal_opt_out_category_id,
     literal_static_cohort_id,
@@ -3323,14 +3325,14 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
         return super().validate(attrs)
 
     def get_user_access_level(self, obj: Any) -> Optional[str]:
-        if isinstance(obj, Workflow):
+        if isinstance(obj, (Workflow, WorkflowListRow)):
             # The service resolved the level when it built the contract.
             return obj.user_access_level
         return super().get_user_access_level(obj)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        if isinstance(instance, Workflow):
+        if isinstance(instance, (Workflow, WorkflowListRow)):
             # The service masked the secret inputs when it built the contract.
             return data
         # Never return secret function inputs. Replace each set secret with the {"secret": True}
@@ -4925,13 +4927,6 @@ class HogFlowListSummarySerializer(HogFlowSummarySerializer):
         ),
     )
 
-    pending_suggestions = serializers.SerializerMethodField(
-        help_text="How many suggested changes are waiting on this workflow."
-    )
-    suggestions_enabled = serializers.SerializerMethodField(
-        help_text="Whether someone turned suggestions on for this workflow."
-    )
-
     class Meta(HogFlowSummarySerializer.Meta):
         fields = [*HogFlowSummarySerializer.Meta.fields, "type", "pending_suggestions", "suggestions_enabled"]
         read_only_fields = fields
@@ -5409,7 +5404,6 @@ class HogFlowViewSet(
             raise exceptions.ValidationError({"search": "Search term cannot exceed 200 characters"})
 
         return WorkflowListQuery(
-            summaries=self.action == "summaries",
             search=search,
             created_by_uuid=created_by_uuid,
             types=frozenset(types),
@@ -5423,6 +5417,19 @@ class HogFlowViewSet(
             field_filters={name: params[name] for name in WORKFLOW_FIELD_FILTER_PARAMS if name in params},
         )
 
+    def _list_reader(self, request: Request) -> UserAccessControl | None:
+        # Service credentials are synthetic users that UserAccessControl cannot evaluate.
+        return None if is_service_auth(request) else self.user_access_control
+
+    @staticmethod
+    def _filters_invalid(invalid: WorkflowListFiltersInvalid) -> exceptions.ValidationError:
+        return exceptions.ValidationError(
+            {
+                name: [exceptions.ErrorDetail(error.message, code=error.code) for error in errors]
+                for name, errors in invalid.errors.items()
+            }
+        )
+
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query = self._list_query()
 
@@ -5431,19 +5438,13 @@ class HogFlowViewSet(
                 page = list_workflows(
                     team_id=self.team_id,
                     query=query,
-                    # Service credentials are synthetic users that UserAccessControl cannot evaluate.
-                    user_access_control=None if is_service_auth(request) else self.user_access_control,
+                    user_access_control=self._list_reader(request),
                     # Half implemented: admins may want to list workflows they cannot open.
-                    include_all_if_admin=self.action == "list" and request.GET.get("admin_include_all") == "true",
+                    include_all_if_admin=request.GET.get("admin_include_all") == "true",
                     page=page_request,
                 )
             except WorkflowListFiltersInvalid as invalid:
-                raise exceptions.ValidationError(
-                    {
-                        name: [exceptions.ErrorDetail(error.message, code=error.code) for error in errors]
-                        for name, errors in invalid.errors.items()
-                    }
-                )
+                raise self._filters_invalid(invalid)
 
             # The MCP summary serializer has no last_run, so only the full list row pays for the lookup.
             if self.get_serializer_class() is HogFlowMinimalSerializer:
@@ -5524,14 +5525,24 @@ class HogFlowViewSet(
         summary="List workflow summaries",
         description=(
             "Workflow rows without the step graph, for loading a whole project's list page by page. "
-            "Sorted newest created first. Takes the same filters as the list."
+            "Sorted newest created first. Takes the list's filters, but not its sort options or `admin_include_all`."
         ),
         parameters=SUMMARIES_QUERY_PARAMETERS,
         responses={200: HogFlowListSummarySerializer(many=True)},
     )
     @action(detail=False, methods=["GET"], url_path="summaries")
     def summaries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self.list(request, *args, **kwargs)
+        query = self._list_query()
+
+        def fetch(page_request: PageRequest) -> Page[WorkflowListRow]:
+            try:
+                return list_workflow_summaries(
+                    team_id=self.team_id, query=query, user_access_control=self._list_reader(request), page=page_request
+                )
+            except WorkflowListFiltersInvalid as invalid:
+                raise self._filters_invalid(invalid)
+
+        return facade_page_response(self, fetch)
 
     @staticmethod
     def _is_mcp_request(request: Request) -> bool:

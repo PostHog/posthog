@@ -647,11 +647,37 @@ class Workflow:
     user_access_level: str | None
     # Tag names, sorted.
     tags: tuple[str, ...] = ()
-    # Read on list pages only, and ``workflow_type`` on summary pages only. A single-workflow read leaves
-    # them None and fills ``schedules``.
-    workflow_type: str | None = None
+    # Read on the list only. A single-workflow read leaves both None and ``schedules`` filled.
     pending_suggestions: int | None = None
     suggestions_enabled: bool | None = None
+
+
+@frozen
+class WorkflowListRow:
+    """One row of a summary page: a workflow's metadata and type, without the step graph or the staged draft.
+
+    Each set secret input in ``trigger`` is already replaced by the ``{"secret": True}`` presence marker.
+    The other fields read as they do on ``Workflow``.
+    """
+
+    id: UUID
+    team_id: int
+    name: str | None
+    description: str
+    version: int
+    status: str
+    origin_product: str | None
+    created_at: datetime
+    created_by: "User | None"
+    updated_at: datetime
+    trigger: Any
+    user_access_level: str | None
+    # Tag names, sorted.
+    tags: tuple[str, ...]
+    # A HogFlowType value, decided by the same rules as the list's ``type`` filter.
+    workflow_type: str
+    pending_suggestions: int
+    suggestions_enabled: bool
 
 
 @frozen
@@ -740,7 +766,6 @@ class WorkflowListQuery:
     service validates them and raises WorkflowListFiltersInvalid when one does not parse.
     """
 
-    summaries: bool = False
     search: str = ""
     created_by_uuid: UUID | None = None
     types: frozenset[str] = frozenset()

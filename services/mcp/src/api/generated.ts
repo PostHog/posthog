@@ -52688,12 +52688,12 @@ export namespace Schemas {
        * * `transactional_email` - Transactional Email */
       readonly type: HogFlowTypeEnum;
       /**
-         * How many suggested changes are waiting on this workflow.
+         * How many suggested changes are waiting for a person on this workflow. Counted on the list only.
          * @nullable
          */
       readonly pending_suggestions: number | null;
       /**
-         * Whether someone turned suggestions on for this workflow.
+         * Whether someone turned suggestions on for this workflow. Read on the list only.
          * @nullable
          */
       readonly suggestions_enabled: boolean | null;
