@@ -40,9 +40,9 @@ class TestWorkflowSetupStatusAPI(APIBaseTest):
             actions=[{"id": "step", "type": action_type}],
         )
 
-    @parameterized.expand([("no sender",), ("only the sandbox sender",)])
-    def test_a_new_project_starts_at_the_channel(self, name: str) -> None:
-        if name == "only the sandbox sender":
+    @parameterized.expand([("no sender", False), ("only the sandbox sender", True)])
+    def test_a_new_project_starts_at_the_channel(self, _name: str, with_sandbox_row: bool) -> None:
+        if with_sandbox_row:
             Integration.objects.create(
                 team=self.team,
                 kind="email",

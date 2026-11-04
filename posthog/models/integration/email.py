@@ -1,7 +1,7 @@
 """Native email-sending integration (SES / maildev) and its cleanup signal."""
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -45,6 +45,10 @@ SANDBOX_EMAIL_INTEGRATION_ID = "posthog-sandbox"
 SANDBOX_SENDER_MANAGED_MESSAGE = "The sandbox sender is managed by PostHog."
 
 
+def is_sandbox_email_sender(config: Mapping[str, Any] | None) -> bool:
+    return (config or {}).get("provider") == SANDBOX_EMAIL_PROVIDER
+
+
 def is_sandbox_sender_domain(domain: str) -> bool:
     sandbox_domain = settings.WORKFLOWS_SANDBOX_SENDER_DOMAIN
     return bool(sandbox_domain) and (domain == sandbox_domain or domain.endswith(f".{sandbox_domain}"))
@@ -60,7 +64,7 @@ class EmailIntegration:
 
     @property
     def is_sandbox_sender(self) -> bool:
-        return self.integration.config.get("provider") == SANDBOX_EMAIL_PROVIDER
+        return is_sandbox_email_sender(self.integration.config)
 
     def ensure_user_managed(self) -> None:
         if self.is_sandbox_sender:
