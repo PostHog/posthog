@@ -4,9 +4,18 @@ import { memo } from 'react'
 import { SaveToDatasetButton } from '../../../datasets/SaveToDatasetButton'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from '../components/TraceView'
 import { traceExportLogic } from '../traceExportLogic'
+import { traceMessagesOpeningLogic } from '../traceMessagesOpeningLogic'
 import { traceReviewLogic, traceReviewLogicValues } from '../traceReviewLogic'
 import { traceViewModelLogic, traceViewModelLogicValues } from '../traceViewModelLogic'
-import { FeedbackEntry, LabeledLink, MatchDirection, NodeDetailTab, SummaryItemKind, TraceMode } from '../types'
+import {
+    FeedbackEntry,
+    LabeledLink,
+    MatchDirection,
+    MessagesOpening,
+    NodeDetailTab,
+    SummaryItemKind,
+    TraceMode,
+} from '../types'
 import { confirmRemoveFromQueue } from './confirmRemoveFromQueue'
 import { TraceReviewActions } from './TraceReviewActions'
 import { traceReviewBridgeLogic } from './traceReviewBridgeLogic'
@@ -57,6 +66,7 @@ type ReadyValues = Pick<
         traceExportLoading: boolean
         traceCopying: boolean
         backLink: LabeledLink | null
+        messagesOpening: MessagesOpening
     }
 
 interface ReadyActions {
@@ -79,6 +89,7 @@ interface ReadyActions {
     retryTraceFeedback: () => void
     loadReviewStatus: () => void
     removeFromQueue: () => void
+    setMessagesOpening: (opening: MessagesOpening) => void
 }
 
 function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewReadyProps | null {
@@ -133,6 +144,8 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
                   tab: values.detailTab,
                   onTabChange: actions.setDetailTab,
                   onViewInThread: values.canViewInThread ? actions.viewInThread : null,
+                  messagesOpening: values.messagesOpening,
+                  onMessagesOpeningChange: actions.setMessagesOpening,
                   actions: values.datasetItemSource ? <SaveToDatasetButton {...values.datasetItemSource} /> : null,
                   stepFeedback: values.selectedStepFeedback
                       ? {
@@ -215,6 +228,8 @@ export const TraceViewContainer = memo(function TraceViewContainer({
         useValues(reviewLogic)
     const { loadReviewStatus, removeFromQueue } = useActions(reviewLogic)
     useMountedLogic(traceReviewBridgeLogic({ traceId }))
+    const { messagesOpening } = useValues(traceMessagesOpeningLogic)
+    const { setMessagesOpening } = useActions(traceMessagesOpeningLogic)
 
     const readyProps =
         status === 'ready'
@@ -257,8 +272,9 @@ export const TraceViewContainer = memo(function TraceViewContainer({
                       queueHref,
                       canEditReviews,
                       removeFromQueueLoading,
+                      messagesOpening,
                   },
-                  { ...actions, exportTrace, copyTrace, loadReviewStatus, removeFromQueue }
+                  { ...actions, exportTrace, copyTrace, loadReviewStatus, removeFromQueue, setMessagesOpening }
               )
             : null
 
