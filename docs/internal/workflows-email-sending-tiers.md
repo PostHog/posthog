@@ -38,7 +38,7 @@ Workflow email steps and template test sends offer it as a sender. In a step it 
 Users cannot edit, verify, or remove the managed integration, make it the project default, use it for transactional email, or register their own integration on the shared domain.
 The managed integration is excluded from project SES tenant migration, identity cleanup, data suggestions, and the reputation page's domain breakdown.
 Configure the shared SES route, then enable `WORKFLOWS_SANDBOX_SENDER_ENABLED` on the worker and CDP API. Enable `workflows-sandbox-sender` last, and only for test projects until the worker reads the tenant pause and organization block in every region.
-The sandbox sender is available only in workflow email steps and test sends. Broadcasts, destinations, sender rotation, custom From values, and Reply-To overrides are rejected. Unchanged stored sender settings remain editable.
+The sandbox sender is available only in workflow email steps and test sends. Broadcasts, transactional email workflows, destinations, sender rotation, custom From values, and Reply-To overrides are rejected. Unchanged stored sender settings remain editable.
 Saves check the sandbox sender whenever the sandbox settings are configured, whatever `workflows-sandbox-sender` says for the project. The flag only gates adoption and provisioning, so turning it off never lifts these limits from a sender the project already has.
 When a project has a verified own sender, a workflow with email steps on the sandbox sender shows a banner that moves all of those steps to the own sender in one click.
 The switch saves as a draft change. An active workflow keeps sending from the sandbox sender until someone publishes.
