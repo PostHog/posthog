@@ -513,6 +513,12 @@ class ClickhouseProducer:
             while not all(result.done() for result in results) and (remaining := deadline - time.monotonic()) > 0:
                 for producer in producers:
                     producer.poll(min(remaining, 0.1))
+            if not all(result.done() for result in results):
+                # The timeout can run out during a pause of this process, for example while another thread
+                # holds the GIL. The delivery reports can then already be in the producer's queue, so read
+                # them with a poll that does not wait before deciding the wait failed.
+                for producer in producers:
+                    producer.poll(0)
         for result in results:
             if not result.done():
                 raise DeliveryTimeoutError(results)

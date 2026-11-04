@@ -263,14 +263,15 @@ _ROUNDTRIP = os.environ.get("KAFKA_ROUNDTRIP_TESTS") == "1"
 class ClickhouseProducerDeliveryTestCase(SimpleTestCase):
     @parameterized.expand(
         [
-            ("acknowledged", True, None, None),
-            ("failed", True, KafkaError(KafkaError._MSG_TIMED_OUT), KafkaException),  # type: ignore[attr-defined]
-            ("unacknowledged", False, None, DeliveryTimeoutError),
+            ("acknowledged", True, None, None, 0.05),
+            ("acknowledged_after_the_timeout_ran_out", True, None, None, 0.0),
+            ("failed", True, KafkaError(KafkaError._MSG_TIMED_OUT), KafkaException, 0.05),  # type: ignore[attr-defined]
+            ("unacknowledged", False, None, DeliveryTimeoutError, 0.05),
         ]
     )
     @override_settings(TEST=False)
     def test_wait_for_delivery(
-        self, _name: str, delivered: bool, error: KafkaError | None, expected: type[Exception] | None
+        self, _name: str, delivered: bool, error: KafkaError | None, expected: type[Exception] | None, timeout: float
     ) -> None:
         result = ProduceResult(topic="events_json")
         producer = MagicMock()
@@ -279,10 +280,10 @@ class ClickhouseProducerDeliveryTestCase(SimpleTestCase):
 
         with patch("posthog.kafka_client.routing.get_producer", return_value=producer):
             if expected is None:
-                ClickhouseProducer().wait_for_delivery([result], timeout=0.05)
+                ClickhouseProducer().wait_for_delivery([result], timeout=timeout)
             else:
                 with pytest.raises(expected):
-                    ClickhouseProducer().wait_for_delivery([result], timeout=0.05)
+                    ClickhouseProducer().wait_for_delivery([result], timeout=timeout)
 
         producer.flush.assert_not_called()
 
