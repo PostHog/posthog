@@ -363,7 +363,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             claimed_user = self._extract_user_from_user_handle(user_handle_b64)
             return self._handle_authentication_failure(request, claimed_user) or _login_error(
                 PASSKEY_NOT_VERIFIED_ERROR
-                if self._is_registered_credential(credential_id)
+                if self._is_registered_credential(claimed_user, credential_id)
                 else PASSKEY_NOT_REGISTERED_ERROR
             )
 
@@ -422,14 +422,18 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
 
         return None
 
-    def _is_registered_credential(self, credential_id: str) -> bool:
-        # Matches the lookup in WebauthnBackend.authenticate. The credential ID is a random value the
-        # authenticator holds, so this tells the caller only whether their own passkey is still known.
+    def _is_registered_credential(self, claimed_user: User | None, credential_id: str) -> bool:
+        # Scoped to the user the unsigned userHandle names, so the lookup uses the (user, credential_id)
+        # index. A spoofed handle only changes which of two refusal messages the caller sees.
+        if not claimed_user:
+            return False
         try:
             credential_id_bytes = base64url_to_bytes(credential_id)
         except Exception:
             return False
-        return WebauthnCredential.objects.filter(credential_id=credential_id_bytes, verified=True).exists()
+        return WebauthnCredential.objects.filter(
+            user=claimed_user, credential_id=credential_id_bytes, verified=True
+        ).exists()
 
     def _extract_user_from_user_handle(self, user_handle_b64: str) -> User | None:
         """Extract user from base64url-encoded userHandle (UUID bytes)."""
