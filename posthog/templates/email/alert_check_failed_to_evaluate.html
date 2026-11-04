@@ -1,6 +1,6 @@
 {% extends "email/base.html" %}
 {% block heading %}{{ alert_name }}{% endblock %} {% block section %}
-{% if detector_unavailable %}
+{% if detector_unavailable or detector_paused %}
     <p>PostHog could not run the AI detector for this alert, so this check did not run.</p>
 {% else %}
     <p>
@@ -18,18 +18,20 @@
     <br />
     <i>{{ alert_error }}</i>
 </p>
-<p>
-    {% if not detector_unavailable %}Review the alert settings.{% endif %}
-    {% if next_check_at %}
-        PostHog will try again on {{ next_check_at|date:"F j, Y, g:i A T" }}.
-    {% else %}
-        PostHog will try again at the next scheduled check.
-    {% endif %}
-    If it fails again, contact support.
-</p>
+{% if not detector_paused %}
+    <p>
+        {% if not detector_unavailable %}Review the alert settings.{% endif %}
+        {% if next_check_at %}
+            PostHog will try again on {{ next_check_at|date:"F j, Y, g:i A T" }}.
+        {% else %}
+            PostHog will try again at the next scheduled check.
+        {% endif %}
+        If it fails again, contact support.
+    </p>
+{% endif %}
 <div class="mb mt text-center">
     <a class="button" href="{% absolute_uri alert_url %}">
-        {% if detector_unavailable %}View alert{% else %}Review alert{% endif %}
+        {% if detector_unavailable or detector_paused %}View alert{% else %}Review alert{% endif %}
     </a>
 </div>
 {% endblock %}

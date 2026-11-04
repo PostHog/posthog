@@ -402,7 +402,7 @@ class RunInvestigationSafetyNetWorkflow(PostHogWorkflow):
 
 @temporalio.workflow.defn(name="cleanup-alert-checks")
 class CleanupAlertChecksWorkflow(PostHogWorkflow):
-    """Purge old AlertCheck rows on a daily schedule."""
+    """Purge old AlertCheck and InsightAlertInvestigation rows on a daily schedule."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> None:

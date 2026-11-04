@@ -3,7 +3,8 @@ from threading import Barrier
 from typing import TYPE_CHECKING
 
 import pytest
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import patch
 
 from django.db import connection, connections
 from django.test import SimpleTestCase
@@ -17,6 +18,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.signals.backend.facade.source_configs import get_analytics_alert_scope
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.serializers import SignalSourceConfigSerializer
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
@@ -568,6 +570,31 @@ class TestSignalSourceConfigSerializerValidation(SimpleTestCase):
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["config"]["linear_team_ids"] == ["team-1", "team-2"]
 
+    @parameterized.expand(
+        [
+            ("investigated_only", "analytics", "anomaly_investigation", "investigated_only", True),
+            ("all_firing_alerts", "analytics", "anomaly_investigation", "all_firing_alerts", True),
+            ("unknown_value", "analytics", "anomaly_investigation", "everything", False),
+            ("null", "analytics", "anomaly_investigation", None, False),
+            ("unhashable", "analytics", "anomaly_investigation", ["all_firing_alerts"], False),
+            ("other_source", "github", "issue", "all_firing_alerts", False),
+        ]
+    )
+    def test_alert_scope(self, _name, source_product, source_type, value, expected_valid):
+        serializer = SignalSourceConfigSerializer(
+            data={"source_product": source_product, "source_type": source_type, "config": {"alert_scope": value}}
+        )
+        assert serializer.is_valid() is expected_valid, serializer.errors
+        if not expected_valid:
+            assert "alert_scope" in str(serializer.errors["config"])
+
+    def test_alert_scope_is_validated_on_config_set(self) -> None:
+        instance = SignalSourceConfig(source_product="github", source_type="issue", config={})
+        serializer = SignalSourceConfigSerializer(
+            instance, data={"config_set": {"alert_scope": "all_firing_alerts"}}, partial=True
+        )
+        assert not serializer.is_valid()
+
 
 class TestScoutSourceCanonicalization(APIBaseTest):
     """The scout source config is a project-level singleton: the scout fleet canonicalizes child
@@ -773,6 +800,43 @@ class TestIsSourceEnabledGating(APIBaseTest):
             )
 
         assert SignalSourceConfig.is_source_enabled(self.team.id, "signals_scout", "cross_source_issue") is expected
+
+
+class TestGetAnalyticsAlertScope(BaseTest):
+    @parameterized.expand(
+        [
+            ("no_row", None, True, "investigated_only"),
+            ("no_key", {}, True, "investigated_only"),
+            ("unknown_stored_value", {"alert_scope": "everything"}, True, "investigated_only"),
+            ("unhashable_stored_value", {"alert_scope": ["all_firing_alerts"]}, True, "investigated_only"),
+            ("all_firing_alerts_flag_on", {"alert_scope": "all_firing_alerts"}, True, "all_firing_alerts"),
+            ("all_firing_alerts_flag_off", {"alert_scope": "all_firing_alerts"}, False, "investigated_only"),
+        ]
+    )
+    def test_scope(self, _name, config, flag_enabled, expected):
+        if config is not None:
+            SignalSourceConfig.objects.create(
+                team=self.team, source_product="analytics", source_type="anomaly_investigation", config=config
+            )
+
+        with patch(
+            "products.signals.backend.facade.source_configs.feature_enabled_or_false", return_value=flag_enabled
+        ):
+            assert get_analytics_alert_scope(team_id=self.team.id) == expected
+
+    def test_flag_service_error_reads_default_scope(self) -> None:
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="analytics",
+            source_type="anomaly_investigation",
+            config={"alert_scope": "all_firing_alerts"},
+        )
+
+        with patch(
+            "products.signals.backend.facade.source_configs.feature_enabled_or_false",
+            side_effect=RuntimeError("flag service down"),
+        ):
+            assert get_analytics_alert_scope(team_id=self.team.id) == "investigated_only"
 
 
 @pytest.mark.django_db(transaction=True)

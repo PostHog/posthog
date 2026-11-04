@@ -238,6 +238,8 @@ class TestSystemTablesTeamScoping(BaseTest):
             ("inbox_report_checks", "config"),
             ("inbox_report_artefacts", "content"),
             ("inbox_report_actions", "metadata"),
+            ("activity_logs", "credential_id"),
+            ("activity_logs", "impersonated_by_id"),
         ]
     )
     def test_viewer_restricted_fields_are_not_queryable(self, table_name, field_name):
