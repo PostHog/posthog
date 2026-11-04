@@ -18,7 +18,9 @@ use logs_ingestion::pipeline::scenario::{kafka_message, scenario_parts, PinnedCl
 use logs_ingestion::pipeline::LogsIngestionConsumer;
 use logs_ingestion::rate_limiter::{RedisTokenBucket, TokenBucketRedis};
 use logs_ingestion::service::config::{ConsumerLoopConfig, ServiceConfig};
-use logs_ingestion::service::consumer_loop::{run_consumer_loop, BackgroundTask, BatchProcessor};
+use logs_ingestion::service::consumer_loop::{
+    run_consumer_loop, BackgroundTask, BatchProcessor, BatchSource,
+};
 use logs_ingestion::service::kafka_outputs::KafkaOutputs;
 use logs_ingestion::service::kafka_source::{recv_batch, KafkaBatchSource};
 use logs_ingestion::service::{create_consumer, create_producers, shadow_deps};
@@ -265,6 +267,27 @@ impl BatchProcessor for FailingProcessor {
             .boxed(),
         ))
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fatal_consumer_error_fails_the_next_batch() {
+    let cluster = mock_cluster();
+    let config = ServiceConfig::from_env(&env_for(&cluster.bootstrap_servers())).unwrap();
+    let mut source = KafkaBatchSource::new(create_consumer(&config).unwrap());
+    let reason = std::ffi::CString::new("test fatal error").unwrap();
+    // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
+    unsafe {
+        rdkafka::bindings::rd_kafka_test_fatal_error(
+            source.consumer().client().native_ptr(),
+            rdkafka::bindings::rd_kafka_resp_err_t::RD_KAFKA_RESP_ERR__FENCED,
+            reason.as_ptr(),
+        );
+    }
+    let error = source
+        .next_batch(10, Duration::from_millis(200))
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("fatal"), "{error}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

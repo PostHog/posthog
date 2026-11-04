@@ -234,7 +234,12 @@ impl BatchSource for KafkaBatchSource {
         // Rebalance callbacks run inside recv, so every message here was read under this epoch or an older one.
         self.dispatch_epochs = self.consumer.context().epochs.snapshot();
         let consumer = &self.consumer;
-        retry_consume(|| recv_batch(consumer, max, timeout)).await
+        let batch = retry_consume(|| recv_batch(consumer, max, timeout)).await;
+        // A fatal error is reported once, and later polls return empty batches, so the client state decides.
+        if let Some((code, reason)) = consumer.client().fatal_error() {
+            anyhow::bail!("fatal kafka consumer error {code:?}: {reason}");
+        }
+        batch
     }
 
     fn epochs(&self, offsets: &OffsetsToStore) -> Vec<u64> {
