@@ -1,42 +1,29 @@
 import posthog from 'posthog-js'
-import { type ErrorInfo, type ReactNode, useCallback, useMemo } from 'react'
+import { type ErrorInfo, type ReactNode, useMemo } from 'react'
 
 import { IconArrowRight, IconInfo } from '@posthog/icons'
-import {
-    DefaultTooltip,
-    createTooltipDateFormatter,
-    useChartTheme,
-    type ChangeColor,
-    type MetricChange,
-    type Series,
-    type TooltipContext,
-} from '@posthog/quill-charts'
+import { createTooltipDateFormatter, useChartTheme, type MetricChange, type Series } from '@posthog/quill-charts'
 import {
     Metric,
     MetricDelta,
     MetricHeader,
     MetricSparkline,
+    MetricSubtitle,
     MetricTitle,
     MetricValue,
 } from '@posthog/quill-components/metric'
 import { cn, Skeleton, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@posthog/quill-primitives'
 
-import { getColorVar } from 'lib/colors'
 import { AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
 import { formatPercentageDiff, humanFriendlyNumber } from 'lib/utils/numbers'
+
+import { METRICS_BAD_WHEN_RISING } from './workflowMetricsSummaryLogic'
 
 const SPARKLINE_HEIGHT = 160
 
 // `Metric` is content, not a surface, so the tile keeps the surrounding scene's chrome rather than
 // quill's Card — the step tables and trends chart below it are still Lemon surfaces.
 const CARD_CHROME = 'flex min-w-[16rem] flex-1 flex-col rounded border bg-surface-primary py-3'
-
-// The period-over-period pill stays neutral (grey), matching how these tiles reported change before —
-// several workflow metrics (Failed, Bounced, Rate Limited) are "bad when rising", so green/red good/bad
-// coloring would mislead. The chevron still shows direction.
-function neutralChange(): ChangeColor {
-    return { background: 'transparent', foreground: getColorVar('muted') }
-}
 
 // `Metric` contains a render throw to this tile instead of letting it take the scene down, which also
 // keeps it out of error tracking — report it so a silently broken tile is still visible.
@@ -143,7 +130,6 @@ export function WorkflowMetricCard({
         return label == null ? null : { value: total - totalPreviousPeriod, label }
     }, [total, totalPreviousPeriod])
 
-    const neutral = neutralChange()
     const labelFormatter = useMemo(
         () =>
             timeSeries
@@ -155,18 +141,14 @@ export function WorkflowMetricCard({
                 : undefined,
         [timeSeries?.interval, timeSeries?.labels, timeSeries?.timezone]
     )
-    const renderTooltip = useCallback(
-        (ctx: TooltipContext) => (
-            <DefaultTooltip
-                {...ctx}
-                sortedByValue
-                showTotal
-                labelFormatter={labelFormatter}
-                valueFormatter={(value: number) => humanFriendlyNumber(value)}
-            />
-        ),
-        [labelFormatter]
-    )
+
+    const restingSubtitle = !previousPeriodTimeSeries
+        ? 'Total'
+        : previousLabel
+          ? `${previousLabel}: ${humanFriendlyNumber(totalPreviousPeriod)}${
+                total === totalPreviousPeriod ? ' (no change)' : change ? ` ${change.label}` : ''
+            }`
+          : `vs. ${humanFriendlyNumber(totalPreviousPeriod)} prior`
 
     const cardClassName = cn(
         CARD_CHROME,
@@ -209,14 +191,14 @@ export function WorkflowMetricCard({
                     data={data}
                     series={sparklineSeries}
                     labels={timeSeries?.labels}
+                    formatLabel={labelFormatter}
+                    restingSubtitle={restingSubtitle}
                     theme={theme}
                     color={total === 0 ? colorIfZero : color}
                     change={previousLabel ? null : change}
-                    positiveColor={neutral}
-                    negativeColor={neutral}
+                    goodDirection={METRICS_BAD_WHEN_RISING.has(name) ? 'down' : 'up'}
                     formatValue={(v) => humanFriendlyNumber(v)}
                     sparklineHeight={SPARKLINE_HEIGHT}
-                    sparklineTooltip={renderTooltip}
                 >
                     <MetricHeader>
                         <MetricTitle className="min-w-0">
@@ -241,12 +223,7 @@ export function WorkflowMetricCard({
                         <MetricDelta />
                     </MetricHeader>
                     <MetricValue className={compact ? 'mt-1' : 'mt-2'} />
-                    {previousLabel && previousPeriodTimeSeries && (
-                        <div className="text-xs text-muted" data-attr="workflow-metric-card-previous">
-                            {`${previousLabel}: ${humanFriendlyNumber(totalPreviousPeriod)}`}
-                            {total === totalPreviousPeriod ? ' (no change)' : change ? ` ${change.label}` : ''}
-                        </div>
-                    )}
+                    <MetricSubtitle className="mt-1" />
                     <MetricSparkline className={compact ? '-mx-3 mt-2 h-16' : '-mx-3 mt-4'} />
                 </Metric>
                 {footer && (
