@@ -4,16 +4,16 @@ import { LazyLoader } from '~/common/utils/lazy-loader'
 import { BoundedPrimaryLookup } from '../../utils/bounded-primary-lookup'
 
 type OrganizationMemberSnapshot = {
-    // Normalized address to the address as the user stored it.
-    verifiedEmails: ReadonlyMap<string, string>
+    // Normalized address to every address members stored for it: legacy accounts can differ only in case.
+    verifiedEmails: ReadonlyMap<string, readonly string[]>
     unverifiedEmails: ReadonlySet<string>
     expiresAt: number
 }
 
 export type BlockedRecipient = { readonly address: string; readonly unverifiedMember: boolean }
 
-// `deliverTo` holds the stored address of each allowed recipient, in the order the recipients came in.
-export type RecipientCheck = { readonly blocked: BlockedRecipient[]; readonly deliverTo: string[] }
+// `deliverTo` maps each allowed recipient, as it came in, to the address to deliver to.
+export type RecipientCheck = { readonly blocked: BlockedRecipient[]; readonly deliverTo: ReadonlyMap<string, string> }
 
 const MAX_SNAPSHOT_AGE_MS = 60_000
 const REFRESH_AGE_MS = MAX_SNAPSHOT_AGE_MS - 1_000
@@ -60,13 +60,16 @@ export class OrganizationMembersService {
             ? await this.loadOwnSnapshot(String(teamId))
             : await this.getFreshSnapshot(String(teamId))
         const blocked: BlockedRecipient[] = []
-        const deliverTo: string[] = []
+        const deliverTo = new Map<string, string>()
         for (const address of recipients) {
             const stored = snapshot.verifiedEmails.get(normalizeEmail(address))
-            if (stored === undefined) {
+            // When members stored the address in different cases, only an exact match names one of them,
+            // because a mail server may treat each case of the local part as its own mailbox.
+            const match = stored?.length === 1 ? stored[0] : stored?.find((email) => email === address.trim())
+            if (match === undefined) {
                 blocked.push({ address, unverifiedMember: snapshot.unverifiedEmails.has(normalizeEmail(address)) })
             } else {
-                deliverTo.push(stored)
+                deliverTo.set(address, match)
             }
         }
         return { blocked, deliverTo }
@@ -84,12 +87,13 @@ export class OrganizationMembersService {
         const expiresAt = this.now() + MAX_SNAPSHOT_AGE_MS
         const rows = await this.lookupMembers(teamIds.map(Number))
         const members = new Map(
-            teamIds.map((id) => [id, { verified: new Map<string, string>(), unverified: new Set<string>() }])
+            teamIds.map((id) => [id, { verified: new Map<string, string[]>(), unverified: new Set<string>() }])
         )
         for (const row of rows) {
             const { verified, unverified } = members.get(String(row.team_id))!
             if (row.is_email_verified === true) {
-                verified.set(normalizeEmail(row.email), row.email.trim())
+                const key = normalizeEmail(row.email)
+                verified.set(key, [...(verified.get(key) ?? []), row.email.trim()])
             } else {
                 unverified.add(normalizeEmail(row.email))
             }
