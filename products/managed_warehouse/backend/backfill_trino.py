@@ -106,6 +106,15 @@ def _log_retry(state: RetryCallState) -> None:
     )
 
 
+_retry_transient = retry(
+    retry=retry_if_exception(_is_transient),
+    stop=stop_after_attempt(STATEMENT_ATTEMPTS),
+    wait=wait_exponential(multiplier=1, min=4, max=60),
+    before_sleep=_log_retry,
+    reraise=True,
+)
+
+
 class TrinoBackfillCatalog:
     """The DuckLake statements of one backfill, run in the organization's Trino catalog."""
 
@@ -133,7 +142,7 @@ class TrinoBackfillCatalog:
             condition = f"{escape_trino_identifier('team_id')} <> {int(self._team_id)}"
             if isinstance(replacement, DuckLakeDayReplacement):
                 condition += f" AND {_day_predicate(replacement)}"
-            if not self._run(f"SELECT 1 FROM {self._table(table)} WHERE {condition} LIMIT 1"):
+            if not self._execute(f"SELECT 1 FROM {self._table(table)} WHERE {condition} LIMIT 1"):
                 return
         raise ValueError(
             f"Refusing to {change} the shared table '{table}' through Trino, because that would also remove the rows "
@@ -143,14 +152,7 @@ class TrinoBackfillCatalog:
     def _table(self, table: str) -> str:
         return f"{self._catalog}.{escape_trino_identifier(BACKFILL_SCHEMA)}.{escape_trino_identifier(table)}"
 
-    @retry(
-        retry=retry_if_exception(_is_transient),
-        stop=stop_after_attempt(STATEMENT_ATTEMPTS),
-        wait=wait_exponential(multiplier=1, min=4, max=60),
-        before_sleep=_log_retry,
-        reraise=True,
-    )
-    def _run(self, statement: str) -> list[list[Any]]:
+    def _execute(self, statement: str) -> list[list[Any]]:
         # Every statement here can run again. DDL has IF [NOT] EXISTS, deleting a range twice deletes nothing more,
         # and add_files records its import_id, so a repeat of an applied import adds nothing.
         # CREATE OR REPLACE runs before the add_files that fills the table, so a repeat recreates an empty table.
@@ -161,13 +163,25 @@ class TrinoBackfillCatalog:
         finally:
             cursor.close()
 
+    @_retry_transient
+    def _run(self, statement: str) -> list[list[Any]]:
+        return self._execute(statement)
+
+    @_retry_transient
+    def _run_removal(self, table: str, change: str, replacement: Replacement | None, statement: str) -> list[list[Any]]:
+        # A commit conflict means that another writer changed the table, so every attempt checks the rows again.
+        self._refuse_shared_table(table, change, replacement)
+        return self._execute(statement)
+
     def ensure_table(
         self, table: str, columns: Mapping[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
     ) -> None:
         if drop_first:
+            drop = f"DROP TABLE IF EXISTS {self._table(table)}"
             if table in SHARED_TABLES and self._columns(table):
-                self._refuse_shared_table(table, "drop")
-            self._run(f"DROP TABLE IF EXISTS {self._table(table)}")
+                self._run_removal(table, "drop", None, drop)
+            else:
+                self._run(drop)
         if create_if_missing:
             self._run(f"CREATE SCHEMA IF NOT EXISTS {self._catalog}.{escape_trino_identifier(BACKFILL_SCHEMA)}")
             self._run(f"CREATE TABLE IF NOT EXISTS {self._table(table)} ({_column_definitions(columns)})")
@@ -198,10 +212,14 @@ class TrinoBackfillCatalog:
         return {str(name): str(data_type) for name, data_type in rows}
 
     def replace_table(self, table: str, columns: Mapping[str, str]) -> None:
-        self._refuse_shared_table(table, "rebuild")
         # Views can select a column that the export does not write, so the rebuilt table keeps it.
         kept = {name: data_type for name, data_type in self._columns(table).items() if name not in columns}
-        self._run(f"CREATE OR REPLACE TABLE {self._table(table)} ({_column_definitions({**columns, **kept})})")
+        self._run_removal(
+            table,
+            "rebuild",
+            None,
+            f"CREATE OR REPLACE TABLE {self._table(table)} ({_column_definitions({**columns, **kept})})",
+        )
 
     def validate_file_count(self, files: Sequence[str]) -> None:
         if len(files) > ADD_FILES_MAX_FILES:
@@ -218,8 +236,6 @@ class TrinoBackfillCatalog:
         Repeating a call with the same import_id and files is a no-op, so a call whose response was lost can be
         repeated.
         """
-        if replacement is not None:
-            self._refuse_shared_table(table, "replace rows in", replacement)
         self.validate_file_count(files)
         options = [
             f"files => ARRAY[{', '.join(escape_trino_string(path) for path in files)}]",
@@ -235,13 +251,16 @@ class TrinoBackfillCatalog:
                 ]
             case DuckLakeTableReplacement():
                 options.append("replace => true")
-        rows = self._run(f"ALTER TABLE {self._table(table)} EXECUTE add_files({', '.join(options)})")
+        statement = f"ALTER TABLE {self._table(table)} EXECUTE add_files({', '.join(options)})"
+        if replacement is None:
+            rows = self._run(statement)
+        else:
+            rows = self._run_removal(table, "replace rows in", replacement, statement)
         return sum(int(row[1]) for row in rows if len(row) > 1 and row[0] == "added_data_files")
 
     def delete_rows(self, table: str, replacement: Replacement) -> None:
         """Remove the rows an export replaces when the export wrote no files."""
-        self._refuse_shared_table(table, "replace rows in", replacement)
         statement = f"DELETE FROM {self._table(table)}"
         if isinstance(replacement, DuckLakeDayReplacement):
             statement += f" WHERE {_day_predicate(replacement)}"
-        self._run(statement)
+        self._run_removal(table, "replace rows in", replacement, statement)

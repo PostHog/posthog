@@ -35,8 +35,8 @@ class _Cursor:
 
     def execute(self, statement: str) -> None:
         self._connection.statements.append(statement)
-        if self._connection.failures:
-            raise self._connection.failures.pop(0)
+        if self._connection.failures and (failure := self._connection.failures.pop(0)) is not None:
+            raise failure
         self._rows = self._connection.rows_for(statement)
 
     def fetchall(self) -> list[list[object]]:
@@ -52,8 +52,8 @@ class _FakeTrino:
     def __init__(
         self,
         columns: dict[str, str] | None = None,
-        failures: list[Exception] | None = None,
-        other_team_rows: bool = False,
+        failures: list[Exception | None] | None = None,
+        other_team_rows: bool | list[bool] = False,
     ) -> None:
         self.statements: list[str] = []
         self.failures = failures or []
@@ -68,16 +68,17 @@ class _FakeTrino:
             return [[name, data_type] for name, data_type in self._columns.items()]
         if "EXECUTE add_files" in statement:
             return [["added_data_files", 2]]
-        if statement.startswith("SELECT 1 FROM") and self._other_team_rows:
-            return [[1]]
+        if statement.startswith("SELECT 1 FROM"):
+            rows = self._other_team_rows
+            return [[1]] if (rows.pop(0) if isinstance(rows, list) else rows) else []
         return []
 
 
 def _catalog(
     columns: dict[str, str] | None = None,
-    failures: list[Exception] | None = None,
+    failures: list[Exception | None] | None = None,
     team_id: int | None = None,
-    other_team_rows: bool = False,
+    other_team_rows: bool | list[bool] = False,
 ) -> tuple[TrinoBackfillCatalog, _FakeTrino]:
     connection = _FakeTrino(columns, failures, other_team_rows)
     return TrinoBackfillCatalog(cast("Connection", connection), team_id=team_id), connection
@@ -377,7 +378,7 @@ class TestTransientFailures:
         assert len(connection.statements) == 1
 
     def test_raises_the_last_transient_failure_after_bounded_attempts(self, _sleep) -> None:
-        failures: list[Exception] = [
+        failures: list[Exception | None] = [
             _query_error(TrinoExternalError, "DUCKLAKE_COMMIT_CONFLICT", "EXTERNAL") for _ in range(10)
         ]
         catalog, connection = _catalog(failures=failures)
@@ -386,3 +387,17 @@ class TestTransientFailures:
             _register(catalog)
 
         assert 1 < len(connection.statements) < 10
+
+    def test_checks_the_rows_again_when_a_base_table_change_retries(self, _sleep) -> None:
+        conflict = _query_error(TrinoExternalError, "DUCKLAKE_COMMIT_CONFLICT", "EXTERNAL")
+        catalog, connection = _catalog(team_id=7, failures=[None, conflict], other_team_rows=[False, True])
+
+        with pytest.raises(ValueError, match="shared"):
+            catalog.register_files(
+                "events",
+                ["s3://bucket/backfill/a.parquet"],
+                import_id="run1_ab12",
+                replacement=DuckLakeDayReplacement(column="timestamp", day=date(2024, 1, 31)),
+            )
+
+        assert [statement.split()[0] for statement in connection.statements] == ["SELECT", "ALTER", "SELECT"]
