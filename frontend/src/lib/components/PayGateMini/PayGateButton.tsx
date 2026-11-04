@@ -4,10 +4,6 @@ import posthog from 'posthog-js'
 import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
-import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
-
-import { BillingProductV2Type } from '~/types'
-
 import { PayGateMiniLogicProps, payGateMiniLogic } from './payGateMiniLogic'
 import type { payGateMiniLogicType } from './payGateMiniLogic'
 
@@ -23,18 +19,15 @@ function usePayGateButton({
     currentUsage,
     onClick,
 }: PayGateMiniLogicProps & Pick<LemonButtonProps, 'onClick'>): UsePayGateButtonReturn {
-    const { productWithFeature, ctaLink, ctaLabel, ctaDisabledReason, gateVariant, isPaymentEntryFlow } = useValues(
-        payGateMiniLogic({ feature, currentUsage })
-    )
-    const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
+    const logic = payGateMiniLogic({ feature, currentUsage })
+    const { productWithFeature, ctaLink, ctaLabel, ctaDisabledReason, gateVariant, isPaymentEntryFlow } =
+        useValues(logic)
+    const { startPaymentEntryFlow } = useActions(logic)
 
     const clickHandlerProps = isPaymentEntryFlow
         ? {
               onClick: (ev: React.MouseEvent<HTMLButtonElement>) => {
-                  startPaymentEntryFlow(
-                      productWithFeature as BillingProductV2Type,
-                      window.location.pathname + window.location.search
-                  )
+                  startPaymentEntryFlow()
                   if (onClick) {
                       onClick(ev)
                   }

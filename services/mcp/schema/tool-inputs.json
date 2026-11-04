@@ -772,56 +772,12 @@
                                             "description": "One finding in one sentence, with the numbers from the query that found it. Mark the name that matters with **double asterisks**."
                                         },
                                         "query": {
-                                            "description": "The query that found this, as you ran it (for example a TrendsQuery with a breakdown). It becomes a link to that chart, and a TrendsQuery also draws as a chart in the explanation.",
+                                            "description": "The query that found this, as you ran it. The explanation runs it again and draws the result beside the finding. An insight query (`TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `StickinessQuery`, `PathsQuery` or `LifecycleQuery`) draws with its insight chart. A `HogQLQuery` draws from its rows: select the x-axis column first (a time bucket or a label), then either the numbers to draw, or one text column to break down by followed by one number. Order by the x-axis column. SQL returns 100 rows unless it sets a `LIMIT`.",
                                             "type": "object",
                                             "propertyNames": {
                                                 "type": "string"
                                             },
                                             "additionalProperties": {}
-                                        },
-                                        "chart": {
-                                            "description": "Numbers to draw beside this finding when its query is not a TrendsQuery, such as SQL. Copy them from the result you got.",
-                                            "type": "object",
-                                            "properties": {
-                                                "type": {
-                                                    "type": "string",
-                                                    "enum": ["line", "bar"],
-                                                    "description": "`line` for values over time, `bar` for a value per label."
-                                                },
-                                                "labels": {
-                                                    "minItems": 1,
-                                                    "maxItems": 200,
-                                                    "type": "array",
-                                                    "items": {
-                                                        "type": "string"
-                                                    },
-                                                    "description": "The x-axis labels in order, such as hours or referrers, written as the person should read them."
-                                                },
-                                                "series": {
-                                                    "minItems": 1,
-                                                    "maxItems": 6,
-                                                    "type": "array",
-                                                    "items": {
-                                                        "type": "object",
-                                                        "properties": {
-                                                            "name": {
-                                                                "type": "string",
-                                                                "minLength": 1,
-                                                                "maxLength": 80
-                                                            },
-                                                            "values": {
-                                                                "type": "array",
-                                                                "items": {
-                                                                    "type": "number"
-                                                                },
-                                                                "description": "One value per label, in the same order."
-                                                            }
-                                                        },
-                                                        "required": ["name", "values"]
-                                                    }
-                                                }
-                                            },
-                                            "required": ["type", "labels", "series"]
                                         },
                                         "url": {
                                             "description": "A link to the source when it is not a query, for example a commit, a pull request or a deploy.",
@@ -1879,6 +1835,381 @@
                 "required": ["id"]
             },
             "description": "The complete desired set of shared (saved) metrics for the experiment — this REPLACES all existing saved-metric links, it does not append. To add or remove one, first read the experiment's current saved_metrics via experiment-get and resend the full set. Pass an empty array to detach all shared metrics."
+        },
+        "ScannerEstimateRecordingsFilterSchema": {
+            "description": "Which recordings to count, as a `RecordingsQuery`. Omit every filter to count every recording. The date range is ignored, because the estimate counts a recent window (`window_days` in the response) and scales it to 30 days.",
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "default": "RecordingsQuery",
+                    "type": "string",
+                    "const": "RecordingsQuery"
+                },
+                "events": {
+                    "description": "Events a recording must contain, such as `{\"id\": \"$pageview\", \"type\": \"events\", \"order\": 0}`. Each can carry `properties` that filter that event.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "actions": {
+                    "description": "Saved actions a recording must contain, such as `{\"id\": 12, \"type\": \"actions\", \"order\": 0}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "properties": {
+                    "description": "Recording, session, person and cohort filters, such as `{\"type\": \"recording\", \"key\": \"visited_page\", \"value\": \"/checkout\", \"operator\": \"icontains\"}` or `{\"type\": \"cohort\", \"key\": \"id\", \"value\": 7, \"operator\": \"in\"}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "having_predicates": {
+                    "description": "Duration filters, such as `{\"type\": \"recording\", \"key\": \"active_seconds\", \"value\": 60, \"operator\": \"gt\"}`. These always apply with AND, whatever `operand` says.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "console_log_filters": {
+                    "description": "Console log filters, such as `{\"type\": \"log_entry\", \"key\": \"level\", \"value\": [\"error\"], \"operator\": \"exact\"}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "operand": {
+                    "description": "How `events`, `actions`, `properties` and `console_log_filters` combine. `AND`, the default when omitted, keeps recordings that match every condition. `OR` keeps recordings that match any one. An explicit `null` is read as `OR`. `having_predicates` and `filter_test_accounts` always apply with AND.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "enum": ["AND", "OR"]
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "filter_test_accounts": {
+                    "description": "Leave out recordings from internal and test accounts.",
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "additionalProperties": {}
+        },
+        "ScannerRecordingsFilterSchema": {
+            "description": "Which recordings the scanner watches, as a `RecordingsQuery`. Omit every filter to watch every new recording. The date range is ignored, because the schedule controls time.",
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "default": "RecordingsQuery",
+                    "type": "string",
+                    "const": "RecordingsQuery"
+                },
+                "events": {
+                    "description": "Events a recording must contain, such as `{\"id\": \"$pageview\", \"type\": \"events\", \"order\": 0}`. Each can carry `properties` that filter that event.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "actions": {
+                    "description": "Saved actions a recording must contain, such as `{\"id\": 12, \"type\": \"actions\", \"order\": 0}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "properties": {
+                    "description": "Recording, session, person and cohort filters, such as `{\"type\": \"recording\", \"key\": \"visited_page\", \"value\": \"/checkout\", \"operator\": \"icontains\"}` or `{\"type\": \"cohort\", \"key\": \"id\", \"value\": 7, \"operator\": \"in\"}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "having_predicates": {
+                    "description": "Duration filters, such as `{\"type\": \"recording\", \"key\": \"active_seconds\", \"value\": 60, \"operator\": \"gt\"}`. These always apply with AND, whatever `operand` says.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "console_log_filters": {
+                    "description": "Console log filters, such as `{\"type\": \"log_entry\", \"key\": \"level\", \"value\": [\"error\"], \"operator\": \"exact\"}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "operand": {
+                    "description": "How `events`, `actions`, `properties` and `console_log_filters` combine. `AND`, the default when omitted, keeps recordings that match every condition. `OR` keeps recordings that match any one. An explicit `null` is read as `OR`. `having_predicates` and `filter_test_accounts` always apply with AND.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "enum": ["AND", "OR"]
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "filter_test_accounts": {
+                    "description": "Leave out recordings from internal and test accounts.",
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "additionalProperties": {}
+        },
+        "ScannerUpdateRecordingsFilterSchema": {
+            "description": "The filter that replaces the scanner's current one, as a `RecordingsQuery`. It is not merged: any field you leave out is cleared, and `{}` watches every new recording. To change part of the filter, read the current one with `vision-scanners-get`, change it, and send it back in full. The date range is ignored, because the schedule controls time.",
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "default": "RecordingsQuery",
+                    "type": "string",
+                    "const": "RecordingsQuery"
+                },
+                "events": {
+                    "description": "Events a recording must contain, such as `{\"id\": \"$pageview\", \"type\": \"events\", \"order\": 0}`. Each can carry `properties` that filter that event.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "actions": {
+                    "description": "Saved actions a recording must contain, such as `{\"id\": 12, \"type\": \"actions\", \"order\": 0}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "properties": {
+                    "description": "Recording, session, person and cohort filters, such as `{\"type\": \"recording\", \"key\": \"visited_page\", \"value\": \"/checkout\", \"operator\": \"icontains\"}` or `{\"type\": \"cohort\", \"key\": \"id\", \"value\": 7, \"operator\": \"in\"}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "having_predicates": {
+                    "description": "Duration filters, such as `{\"type\": \"recording\", \"key\": \"active_seconds\", \"value\": 60, \"operator\": \"gt\"}`. These always apply with AND, whatever `operand` says.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "console_log_filters": {
+                    "description": "Console log filters, such as `{\"type\": \"log_entry\", \"key\": \"level\", \"value\": [\"error\"], \"operator\": \"exact\"}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "operand": {
+                    "description": "How `events`, `actions`, `properties` and `console_log_filters` combine. `AND`, the default when omitted, keeps recordings that match every condition. `OR` keeps recordings that match any one. An explicit `null` is read as `OR`. `having_predicates` and `filter_test_accounts` always apply with AND.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "enum": ["AND", "OR"]
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "filter_test_accounts": {
+                    "description": "Leave out recordings from internal and test accounts.",
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "additionalProperties": {}
         },
         "ScoreDefinitionConfigSchema": {
             "anyOf": [

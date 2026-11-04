@@ -587,6 +587,88 @@ export type PatchedPatchedDashboardOpenApiApiGroups = { [key: string]: Dashboard
  */
 export type PatchedPatchedDashboardOpenApiApiGroupTitles = { [key: string]: string } | null
 
+export type BreakdownTypeApi = (typeof BreakdownTypeApi)[keyof typeof BreakdownTypeApi]
+
+export const BreakdownTypeApi = {
+    Cohort: 'cohort',
+    Person: 'person',
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Element: 'element',
+    Group: 'group',
+    Session: 'session',
+    Hogql: 'hogql',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    RevenueAnalytics: 'revenue_analytics',
+} as const
+
+export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
+
+export const MultipleBreakdownTypeApi = {
+    Person: 'person',
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Element: 'element',
+    Group: 'group',
+    Session: 'session',
+    Hogql: 'hogql',
+    Cohort: 'cohort',
+    RevenueAnalytics: 'revenue_analytics',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+} as const
+
+export interface BreakdownApi {
+    group_type_index?: number | null
+    histogram_bin_count?: number | null
+    normalize_url?: boolean | null
+    property: string | number
+    type?: MultipleBreakdownTypeApi | null
+}
+
+export interface BreakdownFilterApi {
+    breakdown?: string | (string | number)[] | number | null
+    breakdown_group_type_index?: number | null
+    breakdown_hide_other_aggregation?: boolean | null
+    breakdown_histogram_bin_count?: number | null
+    breakdown_limit?: number | null
+    breakdown_normalize_url?: boolean | null
+    breakdown_path_cleaning?: boolean | null
+    breakdown_type?: BreakdownTypeApi | null
+    breakdowns?: BreakdownApi[] | null
+}
+
+/**
+ * * `second` - second
+ * * `minute` - minute
+ * * `hour` - hour
+ * * `day` - day
+ * * `week` - week
+ * * `month` - month
+ * * `quarter` - quarter
+ * * `year` - year
+ */
+export type IntervalTypeEnumApi = (typeof IntervalTypeEnumApi)[keyof typeof IntervalTypeEnumApi]
+
+export const IntervalTypeEnumApi = {
+    Second: 'second',
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Quarter: 'quarter',
+    Year: 'year',
+} as const
+
+export interface CompareFilterApi {
+    /** Whether to compare the current date range to a previous date range. */
+    compare?: boolean | null
+    /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+    compare_to?: string | null
+}
+
 /**
  * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
  *
@@ -607,6 +689,26 @@ export interface DashboardFiltersOpenApiApi {
     date_to?: string | null
     /** Dashboard-level property filters applied to every tile (PostHog property filter group). */
     properties?: unknown
+    /** Dashboard-level breakdown applied to every tile that supports one, replacing the tile's own breakdown. Example: {"breakdown_type": "event", "breakdown": "$browser"}. Null clears it. */
+    breakdown_filter?: BreakdownFilterApi | null
+    /** Time granularity forced onto every tile that supports one. Null means each tile keeps its own.
+     *
+     * * `second` - second
+     * * `minute` - minute
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * * `month` - month
+     * * `quarter` - quarter
+     * * `year` - year */
+    interval?: IntervalTypeEnumApi | null
+    /** Period comparison forced onto every tile that supports one. Null means each tile keeps its own. */
+    compareFilter?: CompareFilterApi | null
+    /**
+     * True forces test accounts out of every tile, false forces them in, null keeps each tile's setting.
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
 }
 
 export interface _DashboardPatchTileLayoutBoxOpenApiApi {
@@ -1319,7 +1421,7 @@ export interface PatchedPatchedDashboardOpenApiApi {
     name?: string | null
     description?: string
     pinned?: boolean
-    /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
+    /** Dashboard-level filters (date range, properties, breakdown, interval, comparison) applied across all tiles as the source of truth. */
     filters?: DashboardFiltersOpenApiApi
     /**
      * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
@@ -1377,6 +1479,23 @@ export interface PatchedPatchedDashboardOpenApiApi {
     use_dashboard?: number | null
     /** When deleting, also delete insights that are only on this dashboard. */
     delete_insights?: boolean
+}
+
+export interface AddInsightToDashboardRequestApi {
+    /** ID of an existing insight to place on the dashboard. The insight must belong to the same environment as the dashboard. Adding an insight the dashboard already shows changes nothing, and adding one that was removed from the dashboard restores its tile. */
+    insight_id: number
+}
+
+export interface DashboardTileBasicApi {
+    /** ID of the dashboard tile. */
+    readonly id: number
+    /** ID of the dashboard the tile sits on. */
+    readonly dashboard_id: number
+    /**
+     * Whether the tile was removed from the dashboard.
+     * @nullable
+     */
+    deleted?: boolean | null
 }
 
 export interface CopyDashboardGroupRequestApi {
@@ -1460,68 +1579,9 @@ export const InsightVizNodeApiKind = {
     InsightVizNode: 'InsightVizNode',
 } as const
 
-export type BreakdownTypeApi = (typeof BreakdownTypeApi)[keyof typeof BreakdownTypeApi]
-
-export const BreakdownTypeApi = {
-    Cohort: 'cohort',
-    Person: 'person',
-    Event: 'event',
-    EventMetadata: 'event_metadata',
-    Element: 'element',
-    Group: 'group',
-    Session: 'session',
-    Hogql: 'hogql',
-    DataWarehouse: 'data_warehouse',
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
-    RevenueAnalytics: 'revenue_analytics',
-} as const
-
-export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
-
-export const MultipleBreakdownTypeApi = {
-    Person: 'person',
-    Event: 'event',
-    EventMetadata: 'event_metadata',
-    Element: 'element',
-    Group: 'group',
-    Session: 'session',
-    Hogql: 'hogql',
-    Cohort: 'cohort',
-    RevenueAnalytics: 'revenue_analytics',
-    DataWarehouse: 'data_warehouse',
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
-} as const
-
-export interface BreakdownApi {
-    group_type_index?: number | null
-    histogram_bin_count?: number | null
-    normalize_url?: boolean | null
-    property: string | number
-    type?: MultipleBreakdownTypeApi | null
-}
-
-export interface BreakdownFilterApi {
-    breakdown?: string | (string | number)[] | number | null
-    breakdown_group_type_index?: number | null
-    breakdown_hide_other_aggregation?: boolean | null
-    breakdown_histogram_bin_count?: number | null
-    breakdown_limit?: number | null
-    breakdown_normalize_url?: boolean | null
-    breakdown_path_cleaning?: boolean | null
-    breakdown_type?: BreakdownTypeApi | null
-    breakdowns?: BreakdownApi[] | null
-}
-
 export interface CalendarHeatmapFilterApi {
     /** When true and the series math is `dau`/`unique_users`, each user contributes to the (day-of-week, hour) bucket of their session's first event only — matching the web overview session-start attribution. When false (default), the user contributes to every bucket they have any event in. No effect on `total` math (event counts are unchanged either way). */
     bucketBySessionStart?: boolean | null
-}
-
-export interface CompareFilterApi {
-    /** Whether to compare the current date range to a previous date range. */
-    compare?: boolean | null
-    /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
-    compare_to?: string | null
 }
 
 export interface EventPropertyFilterApi {
@@ -2629,6 +2689,8 @@ export interface QueryStatusApi {
 export interface ResolvedDateRangeResponseApi {
     date_from: string
     date_to: string
+    /** The earliest timestamp the query reads, when only its first interval depends on rows from before date_from. Lifecycle sets it to the start of the interval before the range. */
+    read_from?: string | null
 }
 
 export interface QueryTimingApi {
@@ -2677,9 +2739,16 @@ export interface AccessControlFilterWarningApi {
     type?: 'access_control'
 }
 
+/**
+ * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+ */
+export type TrendsQueryResponseApiActionNames = { [key: string]: string } | null
+
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface TrendsQueryResponseApi {
+    /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+    action_names?: TrendsQueryResponseApiActionNames
     boxplot_data?: BoxPlotDatumApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -4351,9 +4420,16 @@ export interface PathsV2QueryApi {
     version?: number | null
 }
 
+/**
+ * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+ */
+export type StickinessQueryResponseApiActionNames = { [key: string]: string } | null
+
 export type StickinessQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface StickinessQueryResponseApi {
+    /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+    action_names?: StickinessQueryResponseApiActionNames
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
@@ -4505,9 +4581,16 @@ export interface LifecycleFilterApi {
     toggledLifecycles?: LifecycleToggleApi[] | null
 }
 
+/**
+ * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+ */
+export type LifecycleQueryResponseApiActionNames = { [key: string]: string } | null
+
 export type LifecycleQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface LifecycleQueryResponseApi {
+    /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+    action_names?: LifecycleQueryResponseApiActionNames
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
@@ -5488,13 +5571,15 @@ export interface MarketingAnalyticsItemApi {
 
 export interface Response12Api {
     columns?: unknown[] | null
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string | null
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -5521,12 +5606,14 @@ export interface Response12Api {
 export type Response13ApiResults = { [key: string]: MarketingAnalyticsItemApi }
 
 export interface Response13Api {
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
@@ -5935,6 +6022,112 @@ export interface Response19Api {
     warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
+export type AccountsTableAccountFieldApi =
+    (typeof AccountsTableAccountFieldApi)[keyof typeof AccountsTableAccountFieldApi]
+
+export const AccountsTableAccountFieldApi = {
+    Name: 'name',
+    ExternalId: 'external_id',
+    CreatedAt: 'created_at',
+    UpdatedAt: 'updated_at',
+    ChurnedAt: 'churned_at',
+    IgnoredAt: 'ignored_at',
+    StripeCustomerId: 'stripe_customer_id',
+    HubspotDealId: 'hubspot_deal_id',
+    BillingId: 'billing_id',
+    SfdcId: 'sfdc_id',
+    ZendeskId: 'zendesk_id',
+} as const
+
+export interface AccountsTableAccountFieldColumnApi {
+    field: AccountsTableAccountFieldApi
+    kind?: 'account_field'
+}
+
+export const AccountsTableTagsColumnApiValue = {
+    kind: 'tags',
+} as const
+export type AccountsTableTagsColumnApi = typeof AccountsTableTagsColumnApiValue
+
+export const AccountsTableNoteCountColumnApiValue = {
+    kind: 'note_count',
+} as const
+export type AccountsTableNoteCountColumnApi = typeof AccountsTableNoteCountColumnApiValue
+
+export interface AccountsTableRelationshipColumnApi {
+    /** Team-scoped relationship definition to return for each account. */
+    definitionId: string
+    kind?: 'relationship'
+}
+
+export interface AccountsTableCustomPropertyColumnApi {
+    /** Team-scoped custom property definition to return for each account. */
+    definitionId: string
+    kind?: 'custom_property'
+}
+
+export type WindowDaysApi = (typeof WindowDaysApi)[keyof typeof WindowDaysApi]
+
+export const WindowDaysApi = {
+    Number7: 7,
+    Number14: 14,
+    Number30: 30,
+    Number90: 90,
+} as const
+
+export interface AccountsTableCustomPropertyHistoryColumnApi {
+    /** Team-scoped numeric custom property definition whose write history should be returned. */
+    definitionId: string
+    kind?: 'custom_property_history'
+    /** Number of days of history to return. The current value is included even when it is older. */
+    windowDays: WindowDaysApi
+}
+
+export type AccountsTableCustomPropertyDisplayTypeApi =
+    (typeof AccountsTableCustomPropertyDisplayTypeApi)[keyof typeof AccountsTableCustomPropertyDisplayTypeApi]
+
+export const AccountsTableCustomPropertyDisplayTypeApi = {
+    Text: 'text',
+    Link: 'link',
+    Number: 'number',
+    Currency: 'currency',
+    Percent: 'percent',
+    Date: 'date',
+    Datetime: 'datetime',
+    Boolean: 'boolean',
+    Select: 'select',
+} as const
+
+export interface AccountsTableCustomPropertyOptionApi {
+    color: string
+    id?: string | null
+    label: string
+}
+
+export interface AccountsTableCustomPropertySourceApi {
+    id: string
+}
+
+export interface AccountsTableCustomPropertyDefinitionApi {
+    description?: string | null
+    display_type: AccountsTableCustomPropertyDisplayTypeApi
+    has_workflow_reference: boolean
+    id: string
+    is_big_number?: boolean | null
+    is_canonical: boolean
+    name: string
+    options?: AccountsTableCustomPropertyOptionApi[] | null
+    source?: AccountsTableCustomPropertySourceApi | null
+}
+
+export interface AccountsTableRelationshipDefinitionApi {
+    description?: string | null
+    id: string
+    is_controlled: boolean
+    is_single_holder?: boolean | null
+    name: string
+}
+
 export interface AccountsTableCustomPropertyHistoryPointApi {
     timestamp: string
     value: number
@@ -5981,6 +6174,17 @@ export interface AccountsTableRowApi {
 }
 
 export interface Response20Api {
+    columns?:
+        | (
+              | AccountsTableAccountFieldColumnApi
+              | AccountsTableTagsColumnApi
+              | AccountsTableNoteCountColumnApi
+              | AccountsTableRelationshipColumnApi
+              | AccountsTableCustomPropertyColumnApi
+              | AccountsTableCustomPropertyHistoryColumnApi
+          )[]
+        | null
+    customPropertyDefinitions?: AccountsTableCustomPropertyDefinitionApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore: boolean
@@ -5995,6 +6199,7 @@ export interface Response20Api {
     offset: number
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    relationshipDefinitions?: AccountsTableRelationshipDefinitionApi[] | null
     /** The resolved previous/comparison period date range, when comparing against another period */
     resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
@@ -6462,6 +6667,13 @@ export interface ExperimentEventExposureConfigApi {
     version?: number | null
 }
 
+export interface ExperimentWarehouseNativeUnitBindingApi {
+    /** Which ids represent that unit, such as `billing_customer_id`. */
+    id_namespace: string
+    /** What was randomized, as a stable project-scoped label such as `customer` or `account`. */
+    unit_type: string
+}
+
 export type ExperimentWarehouseNativeExposureConfigApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentWarehouseNativeExposureConfigApi {
@@ -6471,6 +6683,7 @@ export interface ExperimentWarehouseNativeExposureConfigApi {
     /** Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling. */
     query: string
     response?: ExperimentWarehouseNativeExposureConfigApiResponse
+    unit: ExperimentWarehouseNativeUnitBindingApi
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -6601,6 +6814,7 @@ export interface ExperimentWarehouseNativeNodeApi {
     /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure. */
     query: string
     response?: ExperimentWarehouseNativeNodeApiResponse
+    unit: ExperimentWarehouseNativeUnitBindingApi
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -8036,13 +8250,15 @@ export const MarketingAnalyticsOrderByEnumApi = {
 
 export interface MarketingAnalyticsTableQueryResponseApi {
     columns?: unknown[] | null
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string | null
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -8117,12 +8333,14 @@ export interface MarketingAnalyticsTableQueryApi {
 export type MarketingAnalyticsAggregatedQueryResponseApiResults = { [key: string]: MarketingAnalyticsItemApi }
 
 export interface MarketingAnalyticsAggregatedQueryResponseApi {
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
@@ -8638,67 +8856,6 @@ export interface AccountsQueryApi {
     version?: number | null
 }
 
-export type AccountsTableAccountFieldApi =
-    (typeof AccountsTableAccountFieldApi)[keyof typeof AccountsTableAccountFieldApi]
-
-export const AccountsTableAccountFieldApi = {
-    Name: 'name',
-    ExternalId: 'external_id',
-    CreatedAt: 'created_at',
-    UpdatedAt: 'updated_at',
-    ChurnedAt: 'churned_at',
-    IgnoredAt: 'ignored_at',
-    StripeCustomerId: 'stripe_customer_id',
-    HubspotDealId: 'hubspot_deal_id',
-    BillingId: 'billing_id',
-    SfdcId: 'sfdc_id',
-    ZendeskId: 'zendesk_id',
-} as const
-
-export interface AccountsTableAccountFieldColumnApi {
-    field: AccountsTableAccountFieldApi
-    kind?: 'account_field'
-}
-
-export const AccountsTableTagsColumnApiValue = {
-    kind: 'tags',
-} as const
-export type AccountsTableTagsColumnApi = typeof AccountsTableTagsColumnApiValue
-
-export const AccountsTableNoteCountColumnApiValue = {
-    kind: 'note_count',
-} as const
-export type AccountsTableNoteCountColumnApi = typeof AccountsTableNoteCountColumnApiValue
-
-export interface AccountsTableRelationshipColumnApi {
-    /** Team-scoped relationship definition to return for each account. */
-    definitionId: string
-    kind?: 'relationship'
-}
-
-export interface AccountsTableCustomPropertyColumnApi {
-    /** Team-scoped custom property definition to return for each account. */
-    definitionId: string
-    kind?: 'custom_property'
-}
-
-export type WindowDaysApi = (typeof WindowDaysApi)[keyof typeof WindowDaysApi]
-
-export const WindowDaysApi = {
-    Number7: 7,
-    Number14: 14,
-    Number30: 30,
-    Number90: 90,
-} as const
-
-export interface AccountsTableCustomPropertyHistoryColumnApi {
-    /** Team-scoped numeric custom property definition whose write history should be returned. */
-    definitionId: string
-    kind?: 'custom_property_history'
-    /** Number of days of history to return. The current value is included even when it is older. */
-    windowDays: WindowDaysApi
-}
-
 export type AccountsTableAccountFieldOperatorApi =
     (typeof AccountsTableAccountFieldOperatorApi)[keyof typeof AccountsTableAccountFieldOperatorApi]
 
@@ -8841,6 +8998,17 @@ export interface AccountsTableCountThresholdMetricApi {
 }
 
 export interface AccountsTableQueryResponseApi {
+    columns?:
+        | (
+              | AccountsTableAccountFieldColumnApi
+              | AccountsTableTagsColumnApi
+              | AccountsTableNoteCountColumnApi
+              | AccountsTableRelationshipColumnApi
+              | AccountsTableCustomPropertyColumnApi
+              | AccountsTableCustomPropertyHistoryColumnApi
+          )[]
+        | null
+    customPropertyDefinitions?: AccountsTableCustomPropertyDefinitionApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore: boolean
@@ -8855,6 +9023,7 @@ export interface AccountsTableQueryResponseApi {
     offset: number
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    relationshipDefinitions?: AccountsTableRelationshipDefinitionApi[] | null
     /** The resolved previous/comparison period date range, when comparing against another period */
     resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
@@ -8919,6 +9088,8 @@ export interface AccountsTableQueryApi {
               | AccountsTableCustomPropertyFilterApi
           )[]
         | null
+    /** Omit missing definitions and custom-property filters incompatible with their current types. */
+    ignoreMissingDefinitions?: boolean | null
     /** Include churned accounts. Churned accounts are hidden by default. */
     includeChurned?: boolean | null
     /** Include ignored accounts. Ignored accounts are hidden by default. */
@@ -8935,6 +9106,7 @@ export interface AccountsTableQueryApi {
     response?: AccountsTableQueryResponseApi | null
     sort?: AccountsTableSortApi | null
     tags?: QueryLogTagsApi | null
+    useDefaultColumns?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -9209,6 +9381,14 @@ export const DisplayTypeApi = {
     Area: 'area',
 } as const
 
+export type ValueLabelsApi = (typeof ValueLabelsApi)[keyof typeof ValueLabelsApi]
+
+export const ValueLabelsApi = {
+    Auto: 'auto',
+    Show: 'show',
+    Hide: 'hide',
+} as const
+
 export type YAxisPositionApi = (typeof YAxisPositionApi)[keyof typeof YAxisPositionApi]
 
 export const YAxisPositionApi = {
@@ -9218,9 +9398,14 @@ export const YAxisPositionApi = {
 
 export interface ChartSettingsDisplayApi {
     color?: string | null
+    description?: string | null
     displayType?: DisplayTypeApi | null
+    /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
+    excludeFromTotal?: boolean | null
     label?: string | null
     trendLine?: boolean | null
+    /** Overrides the chart's "Show values on series" for this series. Unset or 'auto' follows the chart setting. */
+    valueLabels?: ValueLabelsApi | null
     yAxisPosition?: YAxisPositionApi | null
 }
 
@@ -9256,6 +9441,8 @@ export interface ChartAxisApi {
 export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface ChartSettingsApi {
+    /** Shows only the annotations saved at this level. Unset shows every level. */
+    annotationsScope?: AnnotationScopeApi | null
     barGap?: number | null
     boxPlot?: BoxPlotSettingsApi | null
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
@@ -9335,6 +9522,22 @@ export interface DataVisualizationNodeApi {
     tableSettings?: TableSettingsApi | null
     /** version of the node, used for schema migrations */
     version?: number | null
+}
+
+export type BICatalogMetricStatusApi = (typeof BICatalogMetricStatusApi)[keyof typeof BICatalogMetricStatusApi]
+
+export const BICatalogMetricStatusApi = {
+    Approved: 'approved',
+    Proposed: 'proposed',
+} as const
+
+export interface CatalogMetricContextApi {
+    id: string
+    isDrifted: boolean
+    owner?: string | null
+    status: BICatalogMetricStatusApi
+    unit: string
+    updatedAt?: string | null
 }
 
 export type BIDateBucketApi = (typeof BIDateBucketApi)[keyof typeof BIDateBucketApi]
@@ -9633,6 +9836,8 @@ export interface BIValueApi {
 export interface BIConfigApi {
     /** Catalog provenance only: the snapshot does not track subsequent definition edits. */
     catalogMetric?: string | null
+    /** Catalog metadata at copy time, not a live approval of the worksheet. */
+    catalogMetricContext?: CatalogMetricContextApi | null
     chartType: ChartDisplayTypeApi
     colorBy?: string | null
     columns: BIFieldApi[]
@@ -9723,13 +9928,6 @@ export type _InsightQuerySchemaApi =
     | DataVisualizationNodeApi
     | BIVisualizationNodeApi
     | HogQueryApi
-
-export interface DashboardTileBasicApi {
-    readonly id: number
-    readonly dashboard_id: number
-    /** @nullable */
-    deleted?: boolean | null
-}
 
 /**
  * Warnings attached to the query response that produced an insight's results.
@@ -9889,12 +10087,28 @@ export interface InsightFilterOverrideContextApi {
 }
 
 /**
+ * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
  * @nullable
  */
 export type InsightApiResolvedDateRange = {
     readonly date_from?: string
     readonly date_to?: string
 } | null
+
+/**
+ * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+ * @nullable
+ */
+export type InsightApiResolvedCompareDateRange = {
+    readonly date_from?: string
+    readonly date_to?: string
+} | null
+
+/**
+ * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+ * @nullable
+ */
+export type InsightApiActionNames = { [key: string]: string } | null
 
 /**
  * Simplified serializer to speed response times when loading large amounts of objects.
@@ -9993,8 +10207,21 @@ export interface InsightApi {
     readonly hogql: string | null
     /** @nullable */
     readonly types: readonly unknown[] | null
-    /** @nullable */
+    /**
+     * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+     * @nullable
+     */
     readonly resolved_date_range: InsightApiResolvedDateRange
+    /**
+     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+     * @nullable
+     */
+    readonly resolved_compare_date_range: InsightApiResolvedCompareDateRange
+    /**
+     * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+     * @nullable
+     */
+    readonly action_names: InsightApiActionNames
     /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
     readonly query_scan: unknown
     /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
@@ -10704,15 +10931,6 @@ export interface DataColorThemeApi {
     readonly created_by: UserBasicApi
 }
 
-export interface PaginatedDataColorThemeListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DataColorThemeApi[]
-}
-
 export interface PatchedDataColorThemeApi {
     readonly id?: number
     /** @maxLength 100 */
@@ -10992,6 +11210,18 @@ export type DashboardsDestroyParams = {
 export type DashboardsDestroyFormat = (typeof DashboardsDestroyFormat)[keyof typeof DashboardsDestroyFormat]
 
 export const DashboardsDestroyFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsAddInsightCreateParams = {
+    format?: DashboardsAddInsightCreateFormat
+}
+
+export type DashboardsAddInsightCreateFormat =
+    (typeof DashboardsAddInsightCreateFormat)[keyof typeof DashboardsAddInsightCreateFormat]
+
+export const DashboardsAddInsightCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const
@@ -11296,14 +11526,3 @@ export const DashboardsWidgetCatalogRetrieveWidgetTypeItem = {
     SessionReplayList: 'session_replay_list',
     SurveyResults: 'survey_results',
 } as const
-
-export type DataColorThemesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}

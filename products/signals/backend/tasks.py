@@ -1,3 +1,4 @@
+import time
 from contextlib import suppress
 from datetime import timedelta
 from decimal import Decimal
@@ -53,6 +54,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalScratchpad,
 )
+from products.signals.backend.personal_ranking_tasks import build_personal_inbox_ranking as build_personal_inbox_ranking
 from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.pull_request_label import apply_pull_request_label
@@ -63,6 +65,7 @@ from products.signals.backend.report_generation.repo_activity import (
     repository_activity_needs_rebuild,
 )
 from products.signals.backend.report_inbox_state import reconcile_report_inbox_state, teams_with_reports
+from products.signals.backend.report_monitoring_signals import emit_due_monitoring_research
 from products.signals.backend.reviewer_pr_assignment import deliver_pull_request_assignment
 from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
 from products.signals.backend.scout_harness.background_bands import refresh_background_bands
@@ -89,7 +92,11 @@ from products.signals.backend.support_writeback import (
     post_pull_request_to_tickets,
     task_can_write_support_ticket_update,
 )
-from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
+from products.signals.backend.tracker_issues import (
+    close_tracker_issue_for_report,
+    complete_monitoring_tracker_issues,
+    link_pull_request_to_tracker_issue,
+)
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
@@ -139,27 +146,6 @@ def launch_inbox_onboarding_job(self: Task, team_id: int, job: str) -> None:
     )
 
     InboxOnboardingActivation(team_id).run(job, final_attempt=self.request.retries >= self.max_retries)
-
-
-@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
-@with_team_scope()
-def reconcile_inbox_onboarding(team_id: int, failed_checks: int = 0) -> None:
-    from products.signals.backend.onboarding_completion import (
-        InboxOnboardingReconciler,  # noqa: PLC0415 - keep onboarding dependencies off task discovery
-        RepositoryCheckUnavailable,
-    )
-
-    try:
-        pending = InboxOnboardingReconciler(team_id, priority=Priority.BATCH).run()
-    except RepositoryCheckUnavailable as error:
-        reconcile_inbox_onboarding.apply_async(
-            args=[team_id],
-            kwargs={"failed_checks": failed_checks + 1},
-            countdown=max(min(60 * 2 ** min(failed_checks, 4), 900), error.retry_after),
-        )
-        return
-    if pending:
-        reconcile_inbox_onboarding.apply_async(args=[team_id], countdown=60)
 
 
 @shared_task(
@@ -321,6 +307,8 @@ def close_dismissed_report_pr(
     ignore_result=True,
     bind=True,
     max_retries=5,
+    soft_time_limit=45,
+    time_limit=60,
 )
 @with_team_scope()
 def close_report_tracker_issue(
@@ -341,6 +329,18 @@ def close_report_tracker_issue(
     )
     if retry_needed:
         raise self.retry(countdown=min(60 * (2**self.request.retries), 900))
+
+
+@shared_task(ignore_result=True, soft_time_limit=45, time_limit=60)
+@skip_team_scope_audit
+def sweep_monitoring_tracker_issues() -> None:
+    complete_monitoring_tracker_issues(deadline=time.monotonic() + 40)
+
+
+@shared_task(ignore_result=True, soft_time_limit=45, time_limit=60)
+@skip_team_scope_audit
+def sweep_monitoring_research_requests() -> None:
+    emit_due_monitoring_research(deadline=time.monotonic() + 40, limit=100)
 
 
 @shared_task(
@@ -516,7 +516,7 @@ def deliver_scout_slack_thread_replies(
         scout_report_slack_message(
             team_id=team_id,
             report_id=report_id,
-            slack_workspace_id=integration.integration_id,
+            slack_workspace_id=integration.integration_id or "",
             thread_ts=thread_ts,
         )
         if report_id is not None
@@ -527,7 +527,7 @@ def deliver_scout_slack_thread_replies(
         if message is not None:
             record_scout_report_slack_replies(
                 team_id=team_id,
-                slack_workspace_id=integration.integration_id,
+                slack_workspace_id=integration.integration_id or "",
                 channel=message.channel,
                 thread_ts=thread_ts,
                 reply_ts=posted,

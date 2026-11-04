@@ -46,9 +46,14 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters impor
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_SEQ_COLUMN,
+    HISTORY_NAMING,
     ChangeEventBatcher,
+    HistoryNaming,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
+    history_columns,
+    is_history_table_mode,
+    reserved_column_collisions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.billing_expiry import (
     blocked_past_buffer_retention,
@@ -72,6 +77,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCSlotNotConfiguredError,
     classify_cdc_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import SourceHistoryNamings
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import (
     CDC_EXTRACTION_WORKFLOW_ID_PREFIX,
@@ -200,6 +206,7 @@ class CDCExtractActivity:
         self.split_key_columns: dict[str, list[str]] = {}
         # Missing entry = sync all columns; otherwise the set is the projection (always includes PKs).
         self.enabled_columns_by_table: dict[str, set[str]] = {}
+        self.history_naming_by_table: dict[str, HistoryNaming] = {}
         self.adapter: typing.Any = None
         self.reader: typing.Any = None
         self.batcher: ChangeEventBatcher | None = None
@@ -208,7 +215,7 @@ class CDCExtractActivity:
         # Transaction-boundary tracking for safe mid-run slot advances. All events of
         # one transaction share the same commit end LSN (position_serialized), so an LSN
         # change marks a fully-yielded transaction. We only ever micro-advance the slot
-        # past transactions that are completely yielded — see _read_wal_loop.
+        # past transactions that are completely yielded — see _read_changes_loop.
         self.current_txn_lsn: str | None = None
         self.last_complete_txn_end_lsn: str | None = None
         # End of WAL before this run peeked, and whether the peek reached the end of the backlog.
@@ -350,23 +357,39 @@ class CDCExtractActivity:
     # ------------------------------------------------------------------
     # Per-flush processing
     # ------------------------------------------------------------------
+    def _writes_buffer_for(self, table_name: str) -> bool:
+        return (
+            table_name in self.schema_by_name
+            and table_name in self._buffered_table_names
+            and table_name not in self._tables_awaiting_reset
+        )
+
     def _process_flush(self, tables: dict[str, pa.Table]) -> None:
         """Enrich one micro-batch and write each captured table's changes to the S3 change buffer."""
         events_extracted = 0
 
+        assert self.batcher is not None
+        for table_name, error in self.batcher.reserved_collisions.items():
+            if self._writes_buffer_for(table_name):
+                raise error
+
         for table_name, raw_table in tables.items():
             schema = self.schema_by_name.get(table_name)
-            if (
-                schema is None
-                or table_name not in self._buffered_table_names
-                or table_name in self._tables_awaiting_reset
-            ):
+            if schema is None or not self._writes_buffer_for(table_name):
                 continue
 
             self._safe_heartbeat()
 
             # raw_table has one row per source change event.
             events_extracted += raw_table.num_rows
+
+            # The batcher already refused the capture columns. The history table's own columns are
+            # checked here, because only the schema says whether this table keeps history.
+            history = self.history_naming_by_table.get(table_name)
+            if history is not None:
+                taken = reserved_column_collisions(raw_table.column_names, history_columns(history))
+                if taken:
+                    raise CDCReservedColumnError(f"Table {table_name} has history table column(s) {taken}")
 
             key_columns = self.pk_columns_by_table.get(table_name, [])
 
@@ -377,11 +400,10 @@ class CDCExtractActivity:
             if not enriched_table.num_rows:
                 continue
 
-            # A source column named _ph_cdc_seq means the batcher could not append the
-            # engine position; writing anyway would name, order, and clean up files by
-            # customer data — cleanup can then delete unconsumed files (see errors.py).
+            # The batcher refuses a source column of this name, so only a capture bug gets here. Writing
+            # without the engine position could make cleanup delete unconsumed files (see errors.py).
             if not has_engine_seq(enriched_table):
-                raise CDCReservedColumnError(f"Table {table_name} has a source column named {CDC_SEQ_COLUMN}")
+                raise RuntimeError(f"Table {table_name} reached the buffer without the engine position")
             self._write_buffer_file(schema, table_name, enriched_table)
 
         if events_extracted:
@@ -426,7 +448,7 @@ class CDCExtractActivity:
             self._pre_read_position = self.reader.current_position()
 
             self._load_pk_columns()
-            self._read_wal_loop()
+            self._read_changes_loop()
             # A read that got this far proves the slot is back, so a reset held for it can finish on
             # the next run even if recovery never runs again.
             for schema in self.cdc_schemas:
@@ -598,7 +620,17 @@ class CDCExtractActivity:
             }
         )
 
+        history_namings: SourceHistoryNamings | None = None
         for schema in self.cdc_schemas:
+            if is_history_table_mode(schema.cdc_table_mode):
+                if history_namings is None:
+                    assert self.source is not None
+                    history_namings = SourceHistoryNamings(self.source)
+                # A taken name fails this table's own import. Capture then refuses only the names every
+                # history table reserves, so the source's other tables keep syncing.
+                self.history_naming_by_table[schema.name] = (
+                    history_namings.naming_unless_taken(schema) or HISTORY_NAMING
+                )
             enabled = schema.enabled_columns
             # `None` = sync all; `[]` = retain PKs + incremental only. Match the
             # invariant used by build_select_clause / pipeline_sync / filter_dwh_columns.
@@ -744,7 +776,7 @@ class CDCExtractActivity:
 
         return heartbeat
 
-    def _read_wal_loop(self) -> None:
+    def _read_changes_loop(self) -> None:
         """Read WAL events with periodic micro-batch flushes, bounded per peek.
 
         Each pass peeks at most ``CDC_MAX_CHANGES_PER_READ`` changes so a large backlog can't
@@ -874,7 +906,7 @@ class CDCExtractActivity:
             self._process_flush(tables)
             metrics.get_micro_batches_flushed_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
 
-        commit_lsn = self.reader.last_commit_end_lsn
+        commit_lsn = self.reader.last_commit_position
         if commit_lsn is not None and commit_lsn != self.last_confirmed_lsn:
             self._handle_truncates()
             self._confirm_position(commit_lsn)
@@ -1121,7 +1153,7 @@ class CDCExtractActivity:
         # A mid-run page advance already released the WAL it committed, so the slot moved this run.
         advanced = self.last_confirmed_lsn is not None
         if truncated_tables:
-            truncate_end_lsn = self.reader.last_commit_end_lsn
+            truncate_end_lsn = self.reader.last_commit_position
             if truncate_end_lsn is not None:
                 self._confirm_position(truncate_end_lsn)
                 self.log.info("slot_advanced_past_truncate", position=truncate_end_lsn)
@@ -1168,7 +1200,7 @@ class CDCExtractActivity:
         trailing transactions with no row events. A TRUNCATE on its own is one: this run already
         handled it, and reading it again would reset the table a second time.
         """
-        target = self.reader.last_commit_end_lsn or self.last_end_lsn
+        target = self.reader.last_commit_position or self.last_end_lsn
         if target is not None and target != self.last_confirmed_lsn:
             self._confirm_position(target)
             self.last_end_lsn = target
@@ -1193,7 +1225,7 @@ class CDCExtractActivity:
         """
         assert self.adapter is not None
         assert self.source is not None
-        if not self.adapter.parse_cdc_config(self.source).slot_name:
+        if not self.adapter.parse_cdc_config(self.source).stream_name:
             raise CDCSlotNotConfiguredError()
 
     # ------------------------------------------------------------------
@@ -1226,7 +1258,7 @@ class CDCExtractActivity:
             schema.save(update_fields=["status", "latest_error", "updated_at"])
             self._schema_log(schema).warning("cdc_schema_reset_for_slot_recovery", schema_id=str(schema.id))
 
-        resource_fields = self.adapter.recreate_slot(
+        resource_fields = self.adapter.recreate_stream(
             self.source, tables=[self._qualified_table_name(s) for s in self.cdc_schemas]
         )
 
@@ -1511,8 +1543,7 @@ def validate_cdc_prerequisites_activity(inputs: ValidateCDCPrerequisitesInput) -
         management_mode=inputs.management_mode,  # type: ignore[arg-type]
         tables=inputs.tables,
         schema=inputs.schema,
-        slot_name=inputs.slot_name,
-        publication_name=inputs.publication_name,
+        setup={"cdc_slot_name": inputs.slot_name, "cdc_publication_name": inputs.publication_name},
     )
 
 
@@ -1568,7 +1599,7 @@ def cleanup_orphan_slots_activity() -> None:
 
             # Restore the original filter semantics on decrypted values: skip sources that
             # don't have CDC enabled with both a slot and publication name to clean up.
-            if not (cdc_config.enabled and cdc_config.slot_name and cdc_config.publication_name):
+            if not (cdc_config.enabled and cdc_config.stream_resources_configured):
                 continue
 
             sources_checked += 1
@@ -1576,7 +1607,7 @@ def cleanup_orphan_slots_activity() -> None:
             source_log = log.bind(
                 source_id=str(source.id),
                 team_id=source.team_id,
-                slot_name=cdc_config.slot_name,
+                slot_name=cdc_config.stream_name,
                 management_mode=cdc_config.management_mode,
             )
 
@@ -1595,7 +1626,7 @@ def cleanup_orphan_slots_activity() -> None:
                     source_log.info("cleaning_up_deleted_source_slot")
                     try:
                         with adapter.management_connection(source, connect_timeout=10) as conn:
-                            adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
+                            adapter.drop_stream(conn, source)
                         slots_dropped += 1
                     except Exception:
                         source_log.exception("failed_to_cleanup_deleted_source_slot")
@@ -1639,20 +1670,20 @@ def cleanup_orphan_slots_activity() -> None:
             source_started = dt.datetime.now(tz=dt.UTC)
             try:
                 with adapter.management_connection(source, connect_timeout=10) as conn:
-                    lag_bytes = adapter.get_lag_bytes(conn, cdc_config.slot_name)
-                    retention_cap_mb = adapter.get_retention_cap_mb(conn)
+                    lag = adapter.get_lag(conn, source)
             except Exception:
                 source_log.exception("failed_to_check_slot_lag")
                 metrics.get_sweeper_source_errors_metric().add(1)
                 sources_errored += 1
                 continue
 
-            if lag_bytes is None:
+            if lag is None:
                 source_log.warning("slot_not_found_or_no_flush_lsn")
                 continue
 
-            metrics.get_wal_lag_metric(source.team_id, str(source.id)).set(lag_bytes)
-            lag_mb = lag_bytes / (1024 * 1024)
+            metrics.get_wal_lag_metric(source.team_id, str(source.id)).set(lag.behind_bytes)
+            lag_mb = lag.behind_bytes / (1024 * 1024)
+            retention_cap_mb = lag.retention_cap_mb
 
             critical_threshold_mb = cdc_config.lag_critical_threshold_mb
             if retention_cap_mb is not None:
@@ -1670,13 +1701,13 @@ def cleanup_orphan_slots_activity() -> None:
                     source_log.warning("auto_dropping_slot_critical_lag")
                     try:
                         with adapter.management_connection(source, connect_timeout=10) as conn:
-                            adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
-                            # drop_resources is best-effort, so it logs a refused drop (an active slot, a missing
+                            adapter.drop_stream(conn, source)
+                            # drop_stream is best-effort, so it logs a refused drop (an active slot, a missing
                             # grant) instead of raising. Pausing capture then would leave nothing to advance the
                             # slot, so the source keeps running and the next sweep retries the drop.
-                            if adapter.slot_exists(conn, cdc_config.slot_name):
+                            if adapter.stream_exists(conn, source):
                                 raise RuntimeError(
-                                    f"Replication slot {cdc_config.slot_name} still exists after the drop"
+                                    f"Replication slot {cdc_config.stream_name} still exists after the drop"
                                 )
 
                         slots_dropped += 1

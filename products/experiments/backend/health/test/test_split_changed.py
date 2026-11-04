@@ -18,9 +18,15 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
-from products.experiments.backend.health.checks.srm import reads_flag_history, srm
+from products.experiments.backend.health.checks.srm import (
+    reads_flag_history,
+    reads_segments,
+    segments_first_exposed_after,
+    srm,
+)
 from products.experiments.backend.health.context import (
     ExposureEvents,
+    ExposureSegment,
     ExposureTotals,
     FlagHistoryNotCheckedReason,
     HealthContext,
@@ -35,6 +41,7 @@ from products.experiments.backend.health.skips import (
     not_applicable,
 )
 from products.experiments.backend.health.test.factories import ENDED, RUNNING, RUNNING_CONTEXT, Status, flag_history
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 from products.feature_flags.backend.facade.edits import SplitChange, parse_variants
 
 LAUNCHED_AT = datetime(2026, 9, 12, 10, 0, tzinfo=UTC)
@@ -296,6 +303,7 @@ class TestSplitChangedMidRun(TestCase):
             (
                 "unknown_exposure",
                 _context(EVEN, UNEVEN, exposed_before_first=None),
+                None,
                 {
                     "change_count": 1,
                     "first_changed_at": "2026-09-12T13:04:00+00:00",
@@ -310,6 +318,7 @@ class TestSplitChangedMidRun(TestCase):
             (
                 "few_exposed",
                 _context(EVEN, UNEVEN, exposed_units=4),
+                None,
                 {
                     "change_count": 1,
                     "first_changed_at": "2026-09-12T13:04:00+00:00",
@@ -324,8 +333,8 @@ class TestSplitChangedMidRun(TestCase):
             (
                 "not_checked",
                 _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                "exposure_filters",
                 {
-                    "reason": "exposure_filters",
                     "change_count": 1,
                     "first_changed_at": "2026-09-12T13:04:00+00:00",
                     "last_changed_at": "2026-09-12T13:04:00+00:00",
@@ -338,15 +347,16 @@ class TestSplitChangedMidRun(TestCase):
             (
                 "not_checked_without_history_access",
                 _context(EVEN, not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
-                {"reason": "no_history_access"},
+                "no_history_access",
+                {},
             ),
         ]
     )
-    def test_evidence(self, _name: str, ctx: HealthContext, expected: dict[str, Any]) -> None:
+    def test_evidence(self, _name: str, ctx: HealthContext, reason: str | None, expected: dict[str, Any]) -> None:
         finding = _split_code_finding(ctx)
 
         assert isinstance(finding, ExperimentHealthFinding)
-        self.assertEqual(finding.evidence, expected)
+        self.assertEqual((finding.reason, finding.evidence), (reason, expected))
 
     @parameterized.expand(
         [
@@ -499,6 +509,8 @@ def _totals(after_change: dict[str, int], *, counts_groups: bool = False) -> Exp
         },
         hours_since_launch=72,
         counts_groups=counts_groups,
+        filters_test_accounts=False,
+        has_positive_test_account_filter=False,
     )
 
 
@@ -533,6 +545,31 @@ class TestSrmAfterSplitChange(TestCase):
                 _context(EVEN, UNEVEN, exposed_units=5),
                 _totals({"control": 250, "test": 250}),
                 ("split_changed", "don't match the current split either (p < 0.001), so look for another cause too."),
+            ),
+            (
+                "retest_fails_in_one_library",
+                _context(EVEN, UNEVEN, exposed_units=5),
+                replace(
+                    _totals({"control": 250, "test": 250}),
+                    segments=(
+                        ExposureSegment(
+                            dimension=ExposureSegmentDimension.LIBRARY,
+                            value="web",
+                            exposed_by_variant={"control": 800, "test": 200},
+                        ),
+                        ExposureSegment(
+                            dimension=ExposureSegmentDimension.LIBRARY,
+                            value="posthog-node",
+                            exposed_by_variant={"control": 50, "test": 450},
+                        ),
+                    ),
+                ),
+                (
+                    "split_changed",
+                    "so look for another cause too. The mismatch comes from users whose first exposure was sent by the "
+                    '"posthog-node" library. Check that the code there sends the exposure for every user in every '
+                    "variant. Follow the steps in",
+                ),
             ),
             (
                 "too_few_for_a_retest",
@@ -588,14 +625,101 @@ class TestSrmAfterSplitChange(TestCase):
         self.assertEqual((outcome.subcode, outcome.severity), (subcode, ExperimentHealthFindingSeverity.WARNING))
         self.assertIn(text, f"{outcome.title} {outcome.detail}")
 
-    @parameterized.expand([("failing_test", 0.00001, True), ("passing_test", 0.01, False)])
-    def test_reads_the_flag_history_only_for_a_mismatch(self, _name: str, p_value: float, expected: bool) -> None:
+    @parameterized.expand(
+        [
+            ("failing_test", RUNNING_CONTEXT, MATCHES_THE_NEW_SPLIT, 0.00001, (True, True, None)),
+            ("passing_test", RUNNING_CONTEXT, MATCHES_THE_NEW_SPLIT, 0.01, (False, False, None)),
+            (
+                "split_change_explains_it",
+                _context(EVEN, UNEVEN, exposed_units=5),
+                MATCHES_THE_NEW_SPLIT,
+                0.00001,
+                (True, False, FIRST_CHANGE_AT.date()),
+            ),
+            (
+                "split_change_with_a_failed_retest",
+                _context(EVEN, UNEVEN, exposed_units=5),
+                {"control": 250, "test": 250},
+                0.00001,
+                (True, True, FIRST_CHANGE_AT.date()),
+            ),
+            (
+                "activation",
+                replace(RUNNING_CONTEXT, exposure_events=ACTIVATION_EVENTS),
+                MATCHES_THE_NEW_SPLIT,
+                0.00001,
+                (True, False, None),
+            ),
+        ]
+    )
+    def test_reads_the_flag_history_and_the_segments_only_for_a_mismatch(
+        self,
+        _name: str,
+        ctx: HealthContext,
+        after_change: dict[str, int],
+        p_value: float,
+        expected: tuple[bool, bool, date | None],
+    ) -> None:
+        ctx = replace(ctx, exposures=replace(_totals(after_change), sample_ratio_mismatch_p_value=p_value))
+
+        self.assertEqual((reads_flag_history(ctx), reads_segments(ctx), segments_first_exposed_after(ctx)), expected)
+
+    @parameterized.expand(
+        [
+            (
+                "same_skew_before_the_change",
+                {"control": 600, "test": 400},
+                {"control": 0, "test": 0},
+                (None, True, None),
+                "The variant split changed after launch, but the users first exposed before the change show the same "
+                "mismatch as those first exposed after it, so the change doesn't explain it.",
+            ),
+            (
+                "another_skew_before_the_change",
+                {"control": 500, "test": 500},
+                {"control": 0, "test": 0},
+                ("split_changed", True, date(2026, 9, 14)),
+                "don't match the current split either (p < 0.001), so look for another cause too.",
+            ),
+            (
+                "another_skew_on_the_change_day",
+                {"control": 600, "test": 400},
+                {"control": 5000, "test": 0},
+                ("split_changed", True, date(2026, 9, 14)),
+                "don't match the current split either (p < 0.001), so look for another cause too.",
+            ),
+        ]
+    )
+    def test_rules_out_a_split_change_when_the_skew_predates_it(
+        self,
+        _name: str,
+        before_change: dict[str, int],
+        on_change_day: dict[str, int],
+        expected: tuple[str | None, bool, date | None],
+        text: str,
+    ) -> None:
+        after_change = {"control": 600, "test": 400}
+        days = {date(2026, 9, 12): before_change, date(2026, 9, 14): on_change_day, date(2026, 9, 15): after_change}
+        total_exposures = {variant: sum(day[variant] for day in days.values()) for variant in after_change}
+        whole_run = sum(total_exposures.values())
+        totals = replace(
+            _totals(after_change),
+            total_exposures=total_exposures,
+            sample_ratio_expected={"control": 0.8 * whole_run, "test": 0.2 * whole_run},
+            daily_exposures={
+                variant: {day: day_counts[variant] for day, day_counts in days.items()} for variant in after_change
+            },
+        )
         ctx = replace(
-            RUNNING_CONTEXT,
-            exposures=replace(_totals(MATCHES_THE_NEW_SPLIT), sample_ratio_mismatch_p_value=p_value),
+            _context(EVEN, UNEVEN, exposed_units=5, first_change_at=datetime(2026, 9, 14, 13, 4, tzinfo=UTC)),
+            exposures=totals,
         )
 
-        self.assertEqual(reads_flag_history(ctx), expected)
+        outcome = srm(ctx)
+
+        assert isinstance(outcome, ExperimentHealthFinding)
+        self.assertEqual((outcome.subcode, reads_segments(ctx), segments_first_exposed_after(ctx)), expected)
+        self.assertIn(text, outcome.detail)
 
     def test_names_the_cause_the_evidence_and_the_next_step(self) -> None:
         outcome = srm(replace(_context(EVEN, UNEVEN, exposed_units=5), exposures=_totals(MATCHES_THE_NEW_SPLIT)))

@@ -20,6 +20,7 @@ from typing import assert_never
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user import User
 from posthog.slack.channels import post_message
@@ -162,10 +163,9 @@ class SlackThread:
 
 
 def post_in_thread(thread: SlackThread, message: str) -> None:
-    integration = Integration.objects.filter(
-        id=thread.integration_id, team_id=thread.integration_team_id, kind="slack"
-    ).first()
-    if integration is None:
+    try:
+        integration = IntegrationManager.slack.oauth.get(thread.integration_team_id, thread.integration_id)
+    except IntegrationNotFound:
         logger.warning("slack_command_reply_integration_missing", integration_id=thread.integration_id)
         return
     try:

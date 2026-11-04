@@ -118,6 +118,7 @@ export const getCategoryDisplayName = (category: string): string => {
         tools: 'Products',
         'data-management': 'Data management',
         [SEARCH_TAB_CATEGORY]: 'Tabs',
+        shortcuts: 'Shortcuts',
         settings: 'Settings',
         early_access_feature: 'Early access features',
         suggested: 'Suggested',
@@ -147,7 +148,7 @@ export const getCategoryDisplayName = (category: string): string => {
         session_recording_playlist: 'Session recording filter',
         hog_flow: 'Workflows',
         health: 'Health',
-        misc: 'Misc',
+        actions: 'Actions',
     }
 
     return displayNames[category] || category

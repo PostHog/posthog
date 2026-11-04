@@ -3,8 +3,8 @@ import React, { useCallback, useMemo, useRef } from 'react'
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
 import { bandCenter, type BarChartPrivate, groupedBarCenter } from '../../core/bar-layout'
-import { applyChartDefaults } from '../../core/chart-config'
 import { Chart } from '../../core/Chart'
+import { applyChartDefaults } from '../../core/chart-config'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useLatest } from '../../core/hooks/useLatest'
 import {
@@ -20,6 +20,7 @@ import {
     toYAxisScales,
     yTickCountForHeight,
 } from '../../core/scales'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     BarChartConfig,
     ChartDimensions,
@@ -46,7 +47,8 @@ export interface BarChartProps<Meta = unknown> {
     series: Series<Meta>[]
     labels: string[]
     config?: BarChartConfig
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     /** Right-click counterpart of `onPointClick`. See `ChartProps.onPointContextMenu`. */
@@ -75,7 +77,7 @@ function BarChartInner<Meta = unknown>({
     series,
     labels,
     config: rawConfig,
-    theme,
+    theme: themeProp,
     tooltip,
     onPointClick,
     onPointContextMenu,
@@ -85,6 +87,7 @@ function BarChartInner<Meta = unknown>({
     dataAttr,
     children,
 }: Omit<BarChartProps<Meta>, 'onError'>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const config = useMemo(() => applyChartDefaults(rawConfig), [rawConfig])
     const {
         yScaleType = 'linear',

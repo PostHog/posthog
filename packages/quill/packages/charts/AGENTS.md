@@ -26,6 +26,7 @@ This file is the map. Prop-level semantics live in the JSDoc on the config and p
 | `SlopeChart`           | Change between two points — one line per series, `data: [start, end]`                                                                       |
 | `Sparkline`            | Tiny inline trend, no axes — gradient line or stacked bars; tooltip off by default                                                          |
 | `MetricCard`           | Headline number + sparkline + change pill (dashboard stat tiles)                                                                            |
+| `Gauge`                | One value against a min and max, colored by thresholds (Apdex, error budget, CPU); optional target tick                                     |
 
 Share of total over time takes a time-series chart in its 100% form: `TimeSeriesLineChart` with `fill` series and `percentStackView` for a stacked area, or `TimeSeriesBarChart` with `barLayout: 'percent'` for bars.
 Pick the one that matches the design you are copying.
@@ -41,6 +42,7 @@ const theme = useChartTheme() // reads CSS vars, tracks light/dark switches
 <LineChart series={series} labels={labels} theme={theme} />
 ```
 
+- `theme` is optional. A chart without it uses the nearest `ChartThemeProvider` (`<ChartThemeProvider value={theme}>`), then the CSS vars. Wrap the app root once instead of passing `theme` to every chart.
 - Series colors come from `--data-color-1..15`; chrome from `--color-graph-axis-label` / `--color-graph-axis-line` / `--color-graph-crosshair`. `themeFromCssVars()` is the one-shot version; `DEFAULT_CHART_COLORS` is the no-DOM fallback.
 - Omit `color` on a series to get palette assignment by index (preferred). An explicit `color` must be a concrete color (hex, rgb): line, area, and bar series hand it to the canvas unresolved, so resolve `var(--...)` in the host first. Only `Heatmap`, `ScatterChart`, and `SankeyChart` (node and link colors) resolve `var()` themselves.
 - The theme helpers carry the default chrome (faint dashed grid, stronger axis line, dashed crosshair), and `DEFAULT_CHART_CONFIG` carries the matching switches. Consumers opt out field by field (`showGrid: false`). Details: [docs/axes.md](./src/docs/axes.md).
@@ -84,7 +86,7 @@ Charts fill their container and need a parent with real dimensions — a zero-he
 </TimeSeriesLineChart>
 ```
 
-- Overlays (`ReferenceLine`/`ReferenceLines`, `ValueLabels`, `AxisTitles`, `TrendLineOverlay`, `HighlightedRange`, `AnomalyPointsLayer`) compose as children. Custom overlays read `useChartLayout()` / `useChartHover()`. [docs/overlays.md](./src/docs/overlays.md)
+- Overlays (`ReferenceLine`/`ReferenceLines`, `ValueLabels`, `AxisTitles`, `TrendLineOverlay`, `HighlightedRange`, `ValueBand`, `AnomalyPointsLayer`) compose as children. Custom overlays read `useChartLayout()` / `useChartHover()`. [docs/overlays.md](./src/docs/overlays.md)
 - The built-in `DefaultTooltip` is configured through `config.tooltip`; a `tooltip` render prop replaces its content. [docs/tooltips.md](./src/docs/tooltips.md)
 - `config.legend` renders the built-in legend: plain click isolates, modifier click toggles. [docs/legend.md](./src/docs/legend.md)
 - Axis format, baseline, min/max, multi-axis, grid and axis-line chrome, margins. [docs/axes.md](./src/docs/axes.md)
@@ -109,18 +111,18 @@ Import helpers from `@posthog/quill-charts/testing` (jsdom only): `setupChartTes
 
 ## Docs index
 
-| Doc                                                | Covers                                                                                                                       |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| [src/README.md](./src/README.md)                   | Public surface, setup, theme, custom tooltip and overlay basics, sparkline                                                   |
-| [docs/chart-types.md](./src/docs/chart-types.md)   | Per-chart behavior: scatter, funnel, slope, pie, proportion bar, bar list, box plot, heatmap, sankey, sparkline, metric card |
-| [docs/axes.md](./src/docs/axes.md)                 | Defaults, grid and axis chrome, x-axis labels, y format, baseline and range, multi-axis, margins, blank-plot diagnosis       |
-| [docs/bars.md](./src/docs/bars.md)                 | Layouts, per-bar overrides, `minBarSize`, `trackData`, hit-testing, trend lines, combo                                       |
-| [docs/tooltips.md](./src/docs/tooltips.md)         | `config.tooltip`, `DefaultTooltip` props, custom pieces, context fields, touch                                               |
-| [docs/legend.md](./src/docs/legend.md)             | Click model, controlled state, visibility groups, row rendering, layout caps                                                 |
-| [docs/overlays.md](./src/docs/overlays.md)         | Built-in overlays and writing a custom one                                                                                   |
-| [docs/interactions.md](./src/docs/interactions.md) | Clicks, drag-to-zoom, 2D brush, hover                                                                                        |
-| [docs/CONTRIBUTING.md](./src/docs/CONTRIBUTING.md) | Layers, conventions, adding a chart type                                                                                     |
-| [docs/TESTING.md](./src/docs/TESTING.md)           | The accessor contract and test recipes                                                                                       |
+| Doc                                                | Covers                                                                                                                              |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| [src/README.md](./src/README.md)                   | Public surface, setup, theme, custom tooltip and overlay basics, sparkline                                                          |
+| [docs/chart-types.md](./src/docs/chart-types.md)   | Per-chart behavior: scatter, funnel, slope, pie, proportion bar, bar list, box plot, heatmap, sankey, gauge, sparkline, metric card |
+| [docs/axes.md](./src/docs/axes.md)                 | Defaults, grid and axis chrome, x-axis labels, y format, baseline and range, multi-axis, margins, blank-plot diagnosis              |
+| [docs/bars.md](./src/docs/bars.md)                 | Layouts, per-bar overrides, `minBarSize`, `trackData`, hit-testing, trend lines, combo                                              |
+| [docs/tooltips.md](./src/docs/tooltips.md)         | `config.tooltip`, `DefaultTooltip` props, custom pieces, context fields, touch                                                      |
+| [docs/legend.md](./src/docs/legend.md)             | Click model, controlled state, visibility groups, row rendering, layout caps                                                        |
+| [docs/overlays.md](./src/docs/overlays.md)         | Built-in overlays and writing a custom one                                                                                          |
+| [docs/interactions.md](./src/docs/interactions.md) | Clicks, drag-to-zoom, 2D brush, hover                                                                                               |
+| [docs/CONTRIBUTING.md](./src/docs/CONTRIBUTING.md) | Layers, conventions, adding a chart type                                                                                            |
+| [docs/TESTING.md](./src/docs/TESTING.md)           | The accessor contract and test recipes                                                                                              |
 
 ## Maintenance
 

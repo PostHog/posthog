@@ -5,6 +5,7 @@ import httpx
 import anthropic
 from parameterized import parameterized
 
+from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.llm.errors import (
     ContextWindowExceededError,
     ModelNotFoundError,
@@ -170,6 +171,48 @@ class TestAnthropicStreamOutputSchema:
 
         assert kwargs["output_config"] == {"format": {"type": "json_schema", "schema": schema}}
         assert "output_config" not in self._stream_kwargs(None)
+
+
+class TestAnthropicAttachmentParts:
+    @parameterized.expand(
+        [
+            (
+                "link",
+                AttachmentPart(mime_type="image/png", url="https://example.com/a.png"),
+                {"type": "url", "url": "https://example.com/a.png"},
+            ),
+            (
+                "inline",
+                AttachmentPart(mime_type="image/png", data=b"hi"),
+                {"type": "base64", "media_type": "image/png", "data": "aGk="},
+            ),
+            (
+                "pdf_link",
+                AttachmentPart(mime_type="application/pdf", url="https://example.com/a.pdf"),
+                {"type": "url", "url": "https://example.com/a.pdf"},
+                "document",
+            ),
+        ]
+    )
+    def test_attachment_parts_are_sent_as_blocks(
+        self, _name: str, image: AttachmentPart, expected_source: dict, expected_type: str = "image"
+    ):
+        request = CompletionRequest(
+            model="claude-haiku-4-5",
+            messages=[{"role": "user", "content": [image, {"type": "text", "text": "hi"}]}],
+            provider="anthropic",
+        )
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.return_value.content = []
+            mock_client.messages.create.return_value.usage = MagicMock(input_tokens=1, output_tokens=1)
+            AnthropicAdapter().complete(request, api_key="sk-ant-test", analytics=AnalyticsContext(capture=False))
+
+        assert mock_client.messages.create.call_args.kwargs["messages"][0]["content"] == [
+            {"type": expected_type, "source": expected_source},
+            {"type": "text", "text": "hi"},
+        ]
 
 
 def _make_bad_request_error(message: str) -> anthropic.BadRequestError:

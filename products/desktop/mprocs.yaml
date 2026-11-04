@@ -37,12 +37,6 @@ procs:
         groups:
             layer: Tools
 
-    mobile-ios:
-        shell: 'node scripts/pnpm-run.mjs --filter @posthog/mobile run ios'
-        autostart: false
-        groups:
-            layer: Application
-
     chromium-log:
         shell: 'tail -F ~/.posthog-code/logs-dev/chromium.log'
         groups:

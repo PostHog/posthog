@@ -10,6 +10,19 @@ from personhog.types.v1.common_pb2 import (
     ReadOptions,
 )
 from personhog.service.v1.service_pb2_grpc import PersonHogServiceStub
+from personhog.lifecycle.v1.lifecycle_pb2_grpc import PersonHogLifecycleStub
+
+# Aliased: the facade's delete messages above already use these names.
+from personhog.lifecycle.v1.lifecycle_pb2 import (
+    DELETE_PERSON_OUTCOME_DELETED,
+    DELETE_PERSON_OUTCOME_NOT_FOUND,
+    DELETE_PERSON_OUTCOME_SKIPPED_CONFLICT,
+    DELETE_PERSON_OUTCOME_UNSPECIFIED,
+    DeletePersonOutcome,
+    DeletePersonResult as LifecycleDeletePersonResult,
+    DeletePersonsRequest as LifecycleDeletePersonsRequest,
+    DeletePersonsResponse as LifecycleDeletePersonsResponse,
+)
 from personhog.types.v1.cohort_pb2 import (
     CheckCohortMembershipRequest,
     CohortMembership,
@@ -117,6 +130,8 @@ from personhog.types.v1.person_pb2 import (
     ListPersonsForTeamResponse,
     RaisePersonVersionFloorsRequest,
     RaisePersonVersionFloorsResponse,
+    RaisePersonVersionRequest,
+    RaisePersonVersionResponse,
     RestorePersonsRequest,
     RestorePersonsResponse,
     RestoredDistinctId,
@@ -128,6 +143,7 @@ from personhog.types.v1.person_pb2 import (
     RestoredPerson,
     DISTINCT_ID_WRITE_ACTION_INSERT,
     DISTINCT_ID_WRITE_ACTION_RAISE,
+    DISTINCT_ID_WRITE_ACTION_TOMBSTONE,
     DISTINCT_ID_WRITE_OUTCOME_APPLIED,
     DISTINCT_ID_WRITE_OUTCOME_UNCHANGED,
     DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED,

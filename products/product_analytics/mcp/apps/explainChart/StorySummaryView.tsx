@@ -64,7 +64,7 @@ export function StorySummaryView({
                                 <li key={index}>
                                     <button
                                         type="button"
-                                        className="flex w-full cursor-pointer items-center gap-2.5 rounded-md border-0 bg-transparent px-2 py-1.5 text-start hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
+                                        className="flex w-full cursor-pointer items-center gap-2.5 rounded-md border-0 bg-transparent px-2 py-1.5 text-start hover:bg-fill-hover focus-visible:outline-2 focus-visible:outline-ring"
                                         onClick={() => onSelect(index)}
                                         onMouseEnter={() => onPreview(index)}
                                         onMouseLeave={() => onPreview(null)}

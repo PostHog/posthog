@@ -2,11 +2,9 @@ import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, r
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
-import { errorTrackingIssuesSummaryRegenerateCreate, errorTrackingIssuesSummaryRetrieve } from '../../generated/api'
+import { errorTrackingIssuesSummaryRetrieve } from '../../generated/api'
 import type {
     ErrorTrackingStoredIssueSummaryApi,
     ErrorTrackingIssueSummaryResponseApi,
@@ -30,8 +28,6 @@ export interface issueSummaryLogicValues {
     feedback: IssueSummaryFeedback | null
     loadFailed: boolean
     polling: boolean
-    regenerating: boolean
-    replacedGeneratedAt: string | null
     summary: ErrorTrackingStoredIssueSummaryApi | null
     summaryResponse: ErrorTrackingIssueSummaryResponseApi | null
     summaryResponseLoading: boolean
@@ -62,21 +58,6 @@ export interface issueSummaryLogicActions {
     pollTimedOut: () => {
         value: true
     }
-    regenerateSummary: () => any
-    regenerateSummaryFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    regenerateSummarySuccess: (
-        summaryResponse: ErrorTrackingIssueSummaryResponseApi | null,
-        payload?: any
-    ) => {
-        summaryResponse: ErrorTrackingIssueSummaryResponseApi | null
-        payload?: any
-    }
     sendFeedback: (feedback: IssueSummaryFeedback) => {
         feedback: IssueSummaryFeedback
     }
@@ -95,10 +76,7 @@ export interface issueSummaryLogicMeta {
         summary: (
             summaryResponse: ErrorTrackingIssueSummaryResponseApi | null
         ) => ErrorTrackingStoredIssueSummaryApi | null
-        awaitingSummary: (
-            summaryResponse: ErrorTrackingIssueSummaryResponseApi | null,
-            replacedGeneratedAt: string | null
-        ) => boolean
+        awaitingSummary: (summaryResponse: ErrorTrackingIssueSummaryResponseApi | null) => boolean
         view: (
             summaryResponse: ErrorTrackingIssueSummaryResponseApi | null,
             summary: ErrorTrackingStoredIssueSummaryApi | null,
@@ -140,12 +118,6 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
                         return values.summaryResponse
                     }
                 },
-                regenerateSummary: async (): Promise<ErrorTrackingIssueSummaryResponseApi | null> => {
-                    return await errorTrackingIssuesSummaryRegenerateCreate(
-                        getCurrentTeamId().toString(),
-                        props.issueId
-                    )
-                },
             },
         ],
     })),
@@ -172,33 +144,10 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
                 stopPolling: () => false,
             },
         ],
-        // The `generated_at` of the summary a regeneration replaces. Reads return that summary as ready
-        // until the new one lands, so polling compares against it.
-        replacedGeneratedAt: [
-            null as string | null,
-            {
-                regenerateSummarySuccess: (_, { summaryResponse }) =>
-                    summaryResponse?.status === IssueSummaryStatusEnumApi.Generating
-                        ? (summaryResponse.summary?.generated_at ?? null)
-                        : null,
-                stopPolling: () => null,
-            },
-        ],
-        regenerating: [
-            false,
-            {
-                regenerateSummary: () => true,
-                regenerateSummarySuccess: (_, { summaryResponse }) =>
-                    summaryResponse?.status === IssueSummaryStatusEnumApi.Generating,
-                regenerateSummaryFailure: () => false,
-                stopPolling: () => false,
-            },
-        ],
         feedback: [
             null as IssueSummaryFeedback | null,
             {
                 sendFeedback: (_, { feedback }) => feedback,
-                regenerateSummarySuccess: () => null,
             },
         ],
     }),
@@ -209,13 +158,9 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
                 summaryResponse?.summary ?? null,
         ],
         awaitingSummary: [
-            (s) => [s.summaryResponse, s.replacedGeneratedAt],
-            (
-                summaryResponse: ErrorTrackingIssueSummaryResponseApi | null,
-                replacedGeneratedAt: string | null
-            ): boolean =>
-                summaryResponse?.status === IssueSummaryStatusEnumApi.Generating ||
-                (replacedGeneratedAt !== null && summaryResponse?.summary?.generated_at === replacedGeneratedAt),
+            (s) => [s.summaryResponse],
+            (summaryResponse: ErrorTrackingIssueSummaryResponseApi | null): boolean =>
+                summaryResponse?.status === IssueSummaryStatusEnumApi.Generating,
         ],
         view: [
             (s) => [s.summaryResponse, s.summary, s.loadFailed, s.timedOut],
@@ -260,11 +205,6 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
                 cache.disposables.dispose('summaryPollDeadline')
             },
             pollTimedOut: () => {
-                // A regenerate whose inputs did not change keeps the same `generated_at`, so it always ends here.
-                // Read `regenerating` first, because `stopPolling` resets it.
-                if (values.regenerating && values.summary) {
-                    lemonToast.info('No new summary yet. Check back later.')
-                }
                 actions.stopPolling()
             },
             markLoadFailed: () => {
@@ -297,17 +237,6 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
                         model: summary.model,
                         generated_at: summary.generated_at,
                     })
-                }
-            },
-            regenerateSummary: () => {
-                posthog.capture('error_tracking_issue_summary_regenerated', { issue_id: props.issueId })
-            },
-            regenerateSummarySuccess: ({ summaryResponse }) => {
-                if (summaryResponse?.status === IssueSummaryStatusEnumApi.Generating) {
-                    actions.startPolling()
-                    scheduleNextPoll()
-                } else if (summaryResponse?.summary) {
-                    lemonToast.info('This summary is already up to date.')
                 }
             },
             sendFeedback: ({ feedback }) => {

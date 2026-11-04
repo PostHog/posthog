@@ -24,6 +24,7 @@ from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 from products.feature_flags.backend.canary import run_local_eval_canary
 from products.feature_flags.backend.cross_region_flag_sync import sync_cross_region_flags
+from products.feature_flags.backend.flag_analytics import report_django_local_evaluation_usage
 from products.feature_flags.backend.flags_cache import (
     cleanup_stale_expiry_tracking,
     clear_flags_cache,
@@ -85,6 +86,16 @@ def sync_cross_region_flags_task() -> None:
     fast, sub-second signal-driven cache rebuilds sharing that queue.
     """
     sync_cross_region_flags()
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
+def report_django_local_evaluation_usage_task() -> None:
+    """Celery entrypoint for report_django_local_evaluation_usage.
+
+    On the long-running queue for the same reason as sync_cross_region_flags_task:
+    the usage-ingestion call blocks for its retries when that service stalls.
+    """
+    report_django_local_evaluation_usage()
 
 
 # Pinned: products.cohorts dispatches this by name (a static import would close a product-dependency

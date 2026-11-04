@@ -1,10 +1,13 @@
 import json
 import builtins
+import dataclasses
 from collections import defaultdict
 from collections.abc import Sequence
+from copy import deepcopy
 from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
@@ -26,7 +29,7 @@ from pydantic import (
     ValidationError as PydanticValidationError,
 )
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.exceptions import APIException, ParseError, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
@@ -45,6 +48,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
+from posthog.api.query import add_query_response_identity_headers, get_query_request_analytics_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import insight_query_access_error
@@ -62,7 +66,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, tag_queries, tags_context
 from posthog.constants import INSIGHT
 from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError, QueryErrorCategory, classify_query_error
-from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
+from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -83,6 +87,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 )
 from posthog.hogql_queries.query_runner import ExecutionMode, enforce_api_queries_budget
 from posthog.hogql_queries.refresh_policy import ComputeSurface, resolve_execution_mode
+from posthog.hogql_queries.utils.result_series import get_response_action_names
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
@@ -104,7 +109,6 @@ from posthog.models.file_system.file_system import delete_files
 from posthog.models.organization import Organization
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDT
 from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     get_authenticator_scoped_team_ids,
@@ -120,7 +124,6 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.renderers import SafeJSONRenderer
-from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.scopes import scopes_not_covered
@@ -137,7 +140,10 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
-from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.access_control.backend.facade.user_access_control import (
+    UserAccessControl,
+    access_level_satisfied_for_resource,
+)
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -155,7 +161,7 @@ from products.dashboards.backend.facade.api import (
     DashboardNotFound,
     DashboardTileBasicSerializer,
     InsightTilePlacement,
-    active_tile_count,
+    check_insight_tile_limit,
     dashboard_refs,
     hide_tiles_for_insights,
     insight_has_listed_tile,
@@ -229,7 +235,7 @@ def log_and_report_insight_activity(
     insight: Insight,
     insight_id: int,
     insight_short_id: str,
-    organization_id: UUIDT,
+    organization_id: UUID,
     team_id: int,
     user: User,
     was_impersonated: bool,
@@ -268,6 +274,22 @@ def log_and_report_insight_activity(
                 organization=organization,
                 request=request,
             )
+
+
+def viewable_insight_or_404(*, team_id: int, insight_id: int, user_access_control: UserAccessControl) -> Insight:
+    """The live insight of this team with this ID, for an endpoint of another product that acts on it.
+
+    Raises NotFound when the team has no such insight, and PermissionDenied when access rules hide it.
+    """
+    insight = Insight.objects.filter(team_id=team_id, pk=insight_id).first()
+    if insight is None:
+        raise NotFound()
+    # The request's access control answers only for the team in the URL, and the insight can belong to a
+    # sibling environment of the project, whose own rules decide.
+    insight_access = user_access_control.for_team_ids([insight.team_id])[insight.team_id]
+    if not insight_access.check_access_level_for_object(insight, "viewer"):
+        raise PermissionDenied("You don't have permission to view this insight.")
+    return insight
 
 
 class QuerySchemaParser(JSONParser):
@@ -553,6 +575,16 @@ class _InsightResultWarnings(RootModel):
     root: list[DataWarehouseSyncWarning | AccessControlFilterWarning]
 
 
+RESOLVED_DATE_RANGE_SCHEMA = {
+    "type": "object",
+    "nullable": True,
+    "properties": {
+        "date_from": {"type": "string", "format": "date-time"},
+        "date_to": {"type": "string", "format": "date-time"},
+    },
+}
+
+
 @extend_schema_serializer(deprecate_fields=["dashboards"])
 class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
@@ -604,7 +636,11 @@ class InsightSerializer(InsightBasicSerializer):
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
-    resolved_date_range = serializers.SerializerMethodField(read_only=True)
+    action_names = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="The name of each action the insight's series reference, keyed by action id. A series saved without "
+        "a name displays this name.",
+    )
     query_scan = serializers.SerializerMethodField(
         read_only=True,
         help_text="What ClickHouse read for this insight's last slow run, with the findings of its query scan.",
@@ -661,6 +697,8 @@ class InsightSerializer(InsightBasicSerializer):
             "hogql",
             "types",
             "resolved_date_range",
+            "resolved_compare_date_range",
+            "action_names",
             "query_scan",
             "warnings",
             "_create_in_folder",
@@ -732,15 +770,11 @@ class InsightSerializer(InsightBasicSerializer):
             for dashboard_id in new_dashboard_ids:
                 if dashboard_id in existing_dashboard_ids:
                     continue
-                check_count_limit(
+                check_insight_tile_limit(
                     team=team,
-                    key=LimitKey.MAX_INSIGHTS_PER_DASHBOARD,
-                    current_count=active_tile_count(dashboard_id),
+                    dashboard_id=dashboard_id,
+                    dashboard_name=dashboard_names.get(dashboard_id),
                     user=self.context["request"].user,
-                    resource_properties={
-                        "dashboard_id": dashboard_id,
-                        "dashboard_name": dashboard_names.get(dashboard_id) or "",
-                    },
                 )
 
         return super().validate(attrs)
@@ -1109,18 +1143,32 @@ class InsightSerializer(InsightBasicSerializer):
     def get_types(self, insight: Insight):
         return self.insight_result(insight).types
 
-    @extend_schema_field(
-        {
-            "type": "object",
-            "nullable": True,
-            "properties": {
-                "date_from": {"type": "string", "format": "date-time"},
-                "date_to": {"type": "string", "format": "date-time"},
-            },
-        }
-    )
+    @extend_schema_field(RESOLVED_DATE_RANGE_SCHEMA)
     def get_resolved_date_range(self, insight: Insight):
         return self.insight_result(insight).resolved_date_range
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField(), allow_null=True))
+    def get_action_names(self, insight: Insight):
+        return self.insight_result(insight).action_names
+
+    resolved_date_range = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "The period that this insight's query covered, with both ends resolved to timestamps."
+            " Null when the insight has no result yet or its query type does not report the range."
+        ),
+    )
+    resolved_compare_date_range = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "The earlier period that this insight's query compared against, with both ends resolved to timestamps."
+            " Null when comparison is off, when the insight has no result yet, or when its query type does not report the range."
+        ),
+    )
+
+    @extend_schema_field(RESOLVED_DATE_RANGE_SCHEMA)
+    def get_resolved_compare_date_range(self, insight: Insight):
+        return self.insight_result(insight).resolved_compare_date_range
 
     @extend_schema_field(OpenApiTypes.ANY)
     def get_query_scan(self, insight: Insight):
@@ -1306,22 +1354,16 @@ class InsightSerializer(InsightBasicSerializer):
             entry = QueryCache(team_id=insight.team_id, cache_key=expected_cache_key).lookup().entry
             cached_response = entry.as_full_response() if entry else None
             if cached_response:
-                return InsightResult(
-                    result=cached_response.get("results"),
-                    has_more=cached_response.get("hasMore"),
-                    columns=cached_response.get("columns"),
-                    last_refresh=cached_response.get("last_refresh"),
+                action_names = cached_response.get("action_names")
+                if action_names is None and isinstance(insight.query, dict):
+                    # An entry cached before responses carried `action_names` lacks the field, and this shortcut
+                    # skips the runner that fills it on a cache hit.
+                    action_names = get_response_action_names(insight.team, upgrade(deepcopy(insight.query)))
+                return dataclasses.replace(
+                    InsightResult.from_response_dict(cached_response),
                     cache_key=expected_cache_key,
                     is_cached=True,
-                    timezone=cached_response.get("timezone"),
-                    next_allowed_client_refresh=cached_response.get("next_allowed_client_refresh"),
-                    cache_target_age=cached_response.get("cache_target_age"),
-                    timings=cached_response.get("timings"),
-                    query_status=cached_response.get("query_status"),
-                    hogql=cached_response.get("hogql"),
-                    types=cached_response.get("types"),
-                    query_scan=cached_response.get("query_scan"),
-                    warnings=cached_response.get("warnings"),
+                    action_names=action_names,
                 )
             else:
                 EXPORT_QUERY_CACHE_MISS.inc()
@@ -1391,7 +1433,7 @@ class InsightSerializer(InsightBasicSerializer):
                         variables_override=variables_override,
                         tile_filters_override=tile_filters_override,
                         cache_age_seconds=shared_cache_age_seconds,
-                        analytics_props=get_request_analytics_properties(self.context["request"]),
+                        analytics_props=get_query_request_analytics_properties(self.context["request"]),
                         allow_raw_results=allow_raw_results,
                     )
                     access_method: DashboardAccessMethod | None = self.context.get("dashboard_access_method")
@@ -2082,6 +2124,9 @@ class InsightViewSet(
     queryset = Insight.objects_including_soft_deleted.all()
 
     parser_classes = (QuerySchemaParser,)
+
+    def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
+        return add_query_response_identity_headers(super().finalize_response(request, response, *args, **kwargs))
 
     def get_throttles(self):
         """Apply LLM-specific throttles to the AI metadata endpoint."""

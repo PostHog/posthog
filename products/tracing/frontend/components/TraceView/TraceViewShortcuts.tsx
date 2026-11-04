@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 
 import { tracingConfigLogic } from 'products/tracing/frontend/tracingConfigLogic'
 

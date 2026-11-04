@@ -35,6 +35,7 @@ The full task composer remains available during startup.
 Follow-up messages collect in "Up next" and send after the first response finishes.
 Once the agent starts, Steer can send them before the current turn ends.
 The thread hides empty and whitespace-only assistant messages during streaming and history replay.
+The PostHog AI thread and embedded run views render Pi session logs independently of the `pi-acp` rollout flag.
 
 An idle sandbox resume does not run an agent turn, so it does not send a finished notification or mark the run's activity completed.
 
@@ -226,7 +227,7 @@ Available read scopes: `action:read`, `cohort:read`, `dashboard:read`, `error_tr
 Available write scopes: `action:write`, `cohort:write`, `dashboard:write`,
 `experiment:write`, `feature_flag:write`, `insight:write`, `survey:write`, and others.
 
-Internal scopes (`task:write`, `llm_gateway:read`) are always added automatically.
+Internal scopes (`task:write`, `inbox:write`, `llm_gateway:read`) are always added automatically.
 
 An empty list (`posthog_mcp_scopes=[]`) omits the built-in PostHog MCP connection.
 Internal credentials for task lifecycle and model calls remain available, including the local `task_summary_update` tool.

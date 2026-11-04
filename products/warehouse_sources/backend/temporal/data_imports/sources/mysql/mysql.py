@@ -213,7 +213,17 @@ class MySQLUnavoidableFilesortError(Exception):
 # config error.
 _CANT_CONNECT_CODE = 2003
 
-_SYSTEM_SCHEMAS = ("information_schema", "mysql", "performance_schema", "sys")
+_SYSTEM_SCHEMAS = (
+    "information_schema",
+    "mysql",
+    "performance_schema",
+    "sys",
+    # Vitess's internal sidecar database (vreplication/schema-tracking metadata). It shows
+    # up in `information_schema` like any other schema, but VTGate doesn't expose it as a
+    # routable keyspace, so a sync-all-databases discovery that picks it up fails every
+    # streaming read against it with "unknown database '_vt' in vschema" (VT05003).
+    "_vt",
+)
 
 
 def _configured_schema(config: MySQLSourceConfig) -> str | None:

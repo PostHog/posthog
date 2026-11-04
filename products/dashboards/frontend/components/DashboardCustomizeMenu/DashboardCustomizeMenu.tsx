@@ -33,7 +33,10 @@ const GRID_COMPACTION_OPTIONS: {
                 <span className="text-xs font-medium">
                     {DASHBOARD_GRID_COMPACTION_LABELS[DashboardGridCompaction.Vertical]}
                 </span>
-                <LemonTag type="success">Recommended</LemonTag>
+                {/* Lemon tags read --success, which quill redefines as a pale fill inside its popovers */}
+                <span data-not-quill className="contents">
+                    <LemonTag type="success">Recommended</LemonTag>
+                </span>
                 <DashboardTileMovementPreview mode={DashboardGridCompaction.Vertical} />
             </span>
         ),

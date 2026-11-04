@@ -435,6 +435,7 @@ Faire,api_key,,,,,faire
 FarosAi,,,,,,faros-ai
 Fastbill,,,,,,fastbill
 Fastly,api_key,,,,,fastly
+Fathom,,,,,,fathom
 Fauna,,,,,,fauna
 Featurebase,api_key,,,,,featurebase
 Feishu,,,,,,feishu
@@ -830,6 +831,7 @@ MySQL,host port database user password using_ssl verify_server_certificate ca_ce
 Mycase,,,,,,mycase
 N8n,host api_key,,,,,n8n
 NagerDate,,,,country_codes,,nager-date
+Nango,,,,,,nango
 Nasa,,,,,,nasa
 NationBuilder,,,,,,nation-builder
 Navan,,,,,,navan
@@ -964,7 +966,7 @@ PlanetScalePostgres,connection_string host port database user password verify_se
 Planhat,api_key,,,,,planhat
 PlanningCenter,,,,,,planning-center
 PlatformSh,api_token platform,,,,,platform-sh
-Plausible,api_key site_id host,,,,,plausible
+Plausible,api_key site_id host,,,custom_property_keys,,plausible
 Plivo,auth_id auth_token,,,,,plivo
 Plunk,api_key base_url,,,,,plunk
 PluralsightFlow,workspace api_key,,,,,pluralsight-flow
@@ -1021,7 +1023,7 @@ RakutenAdvertising,,,,,,rakuten-advertising
 Ramp,environment client_id client_secret,,,,,ramp
 Rapid7Insightvm,api_key region,,,,,rapid7-insightvm
 Raygun,personal_access_token,,,,,raygun
-Razorpay,key_id key_secret,,,,,razorpay
+Razorpay,key_id key_secret razorpayx_account_number,,,,,razorpay
 RecallAI,api_key region,,,,,recall-ai
 Recharge,api_key,,,,,recharge
 Recreation,api_key,,,,,recreation
@@ -1184,6 +1186,7 @@ Square,access_token environment,,,,,square
 Squarespace,api_key,,,,,squarespace
 StackAdapt,,,,,,stack-adapt
 StackOverflowForTeams,team api_token,,,,,stack-overflow-for-teams
+Stamped,,,,,,stamped
 Starburst,,,,,,starburst
 Statsig,api_key,,,,,statsig
 Statuscake,api_key,,,,,statuscake

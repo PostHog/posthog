@@ -12,7 +12,8 @@ from slack_sdk.web.async_client import AsyncWebClient
 from slack_sdk.web.async_slack_response import AsyncSlackResponse
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models.integration import SlackIntegration
 from posthog.slack.formatting import channel_id_from_target
 from posthog.slack.markdown import slack_rich_text
 from posthog.storage import object_storage
@@ -49,7 +50,9 @@ _RETRYABLE_SLACK_ERRORS = frozenset(
     }
 )
 
-MAX_SLACK_UPLOAD_BYTES = 1 * 1024 * 1024
+# Slack accepts uploads up to 1 GB. This lower cap guards the delivery activity, which holds
+# every chart in memory at once, not the Slack API. Keep it well above a normal chart render.
+MAX_SLACK_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
 @dataclass
@@ -63,19 +66,24 @@ class SlackMessage:
     unfurl: bool = True
 
 
-@dataclass
+@frozen
 class SlackDeliveryResult:
     main_message_sent: bool
     total_thread_messages: int
     failed_thread_message_indices: list[int]
+    undelivered_asset_count: int = 0
 
     @property
     def is_partial_failure(self) -> bool:
-        return self.main_message_sent and len(self.failed_thread_message_indices) > 0
+        return self.main_message_sent and not self.is_complete_success
 
     @property
     def is_complete_success(self) -> bool:
-        return self.main_message_sent and len(self.failed_thread_message_indices) == 0
+        return (
+            self.main_message_sent
+            and len(self.failed_thread_message_indices) == 0
+            and self.undelivered_asset_count == 0
+        )
 
 
 @frozen
@@ -84,6 +92,11 @@ class SlackGallery:
     initial_comment: str
     file_uploads: list[dict[str, Any]] = field(default_factory=list)
     blocks: list[dict[str, Any]] = field(default_factory=list)
+    undelivered_asset_count: int = 0
+
+
+def _ai_data_processing_approved(subscription: Subscription, integration: IntegrationRecord | None) -> bool:
+    return integration is not None and bool(subscription.team.organization.is_ai_data_processing_approved)
 
 
 def _asset_image_bytes(asset: ExportedAsset) -> bytes | None:
@@ -182,7 +195,7 @@ def _ai_summary_block(change_summary: str) -> dict[str, Any]:
 
 
 def _subscription_footer_blocks(
-    subscription: Subscription, resource_info: SubscriptionResource, integration: Integration | None
+    subscription: Subscription, resource_info: SubscriptionResource, integration: IntegrationRecord | None
 ) -> list[dict[str, Any]]:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     action_elements: list[dict] = [
@@ -202,7 +215,7 @@ def _subscription_footer_blocks(
         {"type": "divider"},
         {"type": "actions", "elements": action_elements},
     ]
-    ai_enabled = bool(integration and integration.team.organization.is_ai_data_processing_approved)
+    ai_enabled = _ai_data_processing_approved(subscription, integration)
     if explore_hint := slack_followup_invite(integration, utm_tags=utm_tags, ai_enabled=ai_enabled):
         blocks.append(explore_hint)
 
@@ -216,7 +229,7 @@ def _prepare_slack_gallery(
     is_new_subscription: bool = False,
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
-    integration: Integration | None = None,
+    integration: IntegrationRecord | None = None,
 ) -> SlackGallery:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     resource_info = subscription.resource_info
@@ -274,7 +287,7 @@ def _prepare_slack_gallery(
         f"<{resource_info.url}?{utm_tags}|View in PostHog> · <{subscription.url}?{utm_tags}|Manage subscription>"
     )
 
-    ai_enabled = bool(integration and integration.team.organization.is_ai_data_processing_approved)
+    ai_enabled = _ai_data_processing_approved(subscription, integration)
     if explore_hint := slack_followup_invite_text(integration, utm_tags=utm_tags, ai_enabled=ai_enabled):
         lines.append(explore_hint)
 
@@ -315,6 +328,7 @@ def _prepare_slack_gallery(
         initial_comment="\n\n".join(lines),
         file_uploads=file_uploads,
         blocks=blocks,
+        undelivered_asset_count=len(unattached_assets),
     )
 
 
@@ -391,9 +405,9 @@ def _blocks_for_asset(asset: ExportedAsset, resource_url: str, *, include_insigh
     return blocks
 
 
-def get_slack_integration_for_team(team_id: int) -> Integration | None:
+def get_slack_integration_for_team(team_id: int) -> IntegrationRecord | None:
     """Get Slack integration for a team. Returns None if not found."""
-    return Integration.objects.filter(team_id=team_id, kind="slack").first()
+    return IntegrationManager.slack.oauth.find(team_id)
 
 
 def send_slack_subscription_report(
@@ -420,7 +434,7 @@ def _prepare_slack_message(
     is_new_subscription: bool = False,
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
-    integration: Integration | None = None,
+    integration: IntegrationRecord | None = None,
 ) -> SlackMessage:
     """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
@@ -497,7 +511,7 @@ def _prepare_slack_message(
 
 
 def send_slack_message_with_integration(
-    integration: Integration,
+    integration: IntegrationRecord,
     subscription: Subscription,
     assets: list[ExportedAsset],
     total_asset_count: int,
@@ -573,7 +587,7 @@ async def _send_slack_message_with_retry(
 
 
 async def deliver_slack_message_data(
-    integration: Integration,
+    integration: IntegrationRecord,
     subscription: Subscription,
     message_data: SlackMessage,
 ) -> SlackDeliveryResult:
@@ -629,7 +643,7 @@ async def deliver_slack_message_data(
 
 
 async def deliver_slack_gallery(
-    integration: Integration, subscription: Subscription, gallery: SlackGallery
+    integration: IntegrationRecord, subscription: Subscription, gallery: SlackGallery
 ) -> SlackDeliveryResult:
     slack_integration = SlackIntegration(integration, source="subscriptions")
     async with aiohttp.ClientSession(trust_env=True) as slack_session:
@@ -647,6 +661,7 @@ async def deliver_slack_gallery(
                 main_message_sent=True,
                 total_thread_messages=0,
                 failed_thread_message_indices=[],
+                undelivered_asset_count=gallery.undelivered_asset_count,
             )
 
         for attempt in range(3):
@@ -673,11 +688,16 @@ async def deliver_slack_gallery(
         subscription_id=subscription.id,
         file_count=len(gallery.file_uploads),
     )
-    return SlackDeliveryResult(main_message_sent=True, total_thread_messages=0, failed_thread_message_indices=[])
+    return SlackDeliveryResult(
+        main_message_sent=True,
+        total_thread_messages=0,
+        failed_thread_message_indices=[],
+        undelivered_asset_count=gallery.undelivered_asset_count,
+    )
 
 
 async def send_slack_message_with_integration_async(
-    integration: Integration,
+    integration: IntegrationRecord,
     subscription: Subscription,
     assets: list[ExportedAsset],
     total_asset_count: int,

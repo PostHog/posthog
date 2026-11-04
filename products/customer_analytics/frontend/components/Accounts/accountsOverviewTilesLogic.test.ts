@@ -158,13 +158,14 @@ describe('tileCaption', () => {
     }
     const count: AccountsOverviewTile = { id: 'c', label: 'Accounts', metric: { type: 'count' } }
 
-    // A custom caption must win over the derived one, an empty/whitespace caption must fall
-    // back to it, and, since count tiles have no derived caption, a custom caption is the
-    // only way they get a subtitle at all. A regression in the precedence silently either
-    // drops the user's subtitle or blanks the auto one.
+    // A custom caption must win over the derived one, an unset caption must fall back to it,
+    // and a blank caption must hide the subtitle. Count tiles have no derived caption, so a
+    // custom caption is the only way they get a subtitle at all. A regression in the precedence
+    // silently drops the user's subtitle, blanks the auto one, or brings the auto one back over
+    // a subtitle that the user cleared.
     it.each<[string, AccountsOverviewTile, string | undefined]>([
         ['custom overrides derived', { ...sum, caption: 'Monthly recurring' }, 'Monthly recurring'],
-        ['whitespace-only caption falls back to derived', { ...sum, caption: '   ' }, 'sum of MRR'],
+        ['whitespace-only caption hides the subtitle', { ...sum, caption: '   ' }, undefined],
         ['undefined caption uses derived', sum, 'sum of MRR'],
         [
             'derived caption keeps the scale suffix',

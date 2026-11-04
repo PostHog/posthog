@@ -522,6 +522,7 @@ async function bundleEntry(project, entry) {
         platform: 'browser',
         target: 'es2022',
         jsx: 'automatic',
+        tsconfigRaw: {},
         minify: true,
         sourcemap: false,
         logLevel: 'silent',

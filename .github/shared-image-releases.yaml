@@ -10,6 +10,7 @@ filters:
         # The extract worker imports the whole warehouse_sources backend
         # (models, facade, scheduling, tasks) and the data_warehouse facade.
         - 'products/warehouse_sources/backend/**'
+        - 'products/warehouse_sources/sources/**'
         - 'products/data_warehouse/backend/**'
         - 'posthog/warehouse/**'
         - Dockerfile
@@ -23,6 +24,7 @@ filters:
         - 'posthog/temporal/data_modeling/**'
         - 'products/customer_analytics/backend/**'
         - 'products/warehouse_sources/backend/**'
+        - 'products/warehouse_sources/sources/**'
         - 'posthog/temporal/common/**'
         - 'posthog/management/commands/start_temporal_worker.py'
         - pyproject.toml
@@ -73,6 +75,10 @@ images:
         channels:
             experiments-recalculation-activity:
                 repository: posthog-temporal-workers/experiments-recalculation-activity
+                filter: experimentsRecalculationActivity
+                bootstrapPolicyDigest: a06fc277bfb801b6da6406ac2a8d0ed82ac09c13e1ac37234c8a4e01b44b1313
+            experiments-recalculation-precompute:
+                repository: posthog-temporal-workers/experiments-recalculation-precompute
                 filter: experimentsRecalculationActivity
                 bootstrapPolicyDigest: a06fc277bfb801b6da6406ac2a8d0ed82ac09c13e1ac37234c8a4e01b44b1313
             data-warehouse-metadata:

@@ -22,6 +22,7 @@ from two_factor.utils import default_device
 from posthog.cloud_utils import is_dev_mode
 from posthog.email import is_email_available, is_http_email_service_available
 from posthog.helpers.email_utils import ESPSuppressionReason, check_esp_suppression
+from posthog.models.organization import Organization
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.redis import get_client
@@ -141,13 +142,17 @@ def enforce_two_factor(request, user):
         raise PermissionDenied(detail="2FA verification required", code="two_factor_verification_required")
 
 
-def missing_two_factor_step(request: HttpRequest, user: User) -> Literal["setup", "verification"] | None:
+def missing_two_factor_step(
+    request: HttpRequest, user: User, organization: Organization | None = None
+) -> Literal["setup", "verification"] | None:
+    """`organization` defaults to the user's current organization. Pass another one to check its policy,
+    such as the organization of a project the user grants access to."""
     # We currently don't enforce 2FA for any SSO-authenticated users, as we depend on the SSO provider to handle 2FA
     # TODO: This will soon be made configurable
     if is_sso_authentication_backend(request):
         return None
 
-    organization = getattr(user, "organization", None)
+    organization = organization or getattr(user, "organization", None)
     if not organization or not organization.enforce_2fa:
         return None
 
@@ -313,6 +318,9 @@ class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
 code_based_verification_token_generator = CodeBasedVerificationTokenGenerator()
 
 
+EMAIL_CODE_IGNORES_ESP_SUPPRESSION_FLAG = "email-code-ignore-esp-suppression"
+
+
 @dataclass
 class CodeBasedVerificationCheckResult:
     should_send: bool
@@ -322,6 +330,25 @@ class CodeBasedVerificationCheckResult:
 
 
 class CodeBasedVerifier:
+    def _ignores_esp_suppression(self, user: User) -> bool:
+        # The SDK fetches definitions over HTTP when none are loaded, even with only_evaluate_locally,
+        # so login must not evaluate the flag until they load. Missing definitions or an error keep
+        # the suppression check.
+        try:
+            if posthoganalytics.feature_flag_definitions() is None:
+                return False
+            return bool(
+                posthoganalytics.feature_enabled(
+                    EMAIL_CODE_IGNORES_ESP_SUPPRESSION_FLAG,
+                    str(user.distinct_id),
+                    only_evaluate_locally=True,
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception:
+            mfa_logger.warning("email_code_esp_suppression_flag_unreadable", user_id=user.pk, exc_info=True)
+            return False
+
     def _capture_suppression_bypass_event(self, user: User, reason: str, cached: bool) -> None:
         try:
             posthoganalytics.capture(
@@ -363,6 +390,10 @@ class CodeBasedVerifier:
         if is_email_code_exempt(user.email):
             mfa_logger.info("Code-based verification bypassed via access rule", user_id=user.pk)
             return CodeBasedVerificationCheckResult(should_send=False)
+
+        # Skips the lookup and does not only ignore its result, because a failed lookup also counts as suppressed.
+        if self._ignores_esp_suppression(user):
+            return CodeBasedVerificationCheckResult(should_send=True)
 
         suppression_result = check_esp_suppression(user.email)
         if suppression_result.is_suppressed:

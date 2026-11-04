@@ -584,6 +584,74 @@ export interface PaginatedVisionAlertEventListApi {
 }
 
 /**
+ * * `emerging` - Emerging
+ * * `active` - Active
+ * * `fading` - Fading
+ * * `dormant` - Dormant
+ */
+export type ClusterStatusEnumApi = (typeof ClusterStatusEnumApi)[keyof typeof ClusterStatusEnumApi]
+
+export const ClusterStatusEnumApi = {
+    Emerging: 'emerging',
+    Active: 'active',
+    Fading: 'fading',
+    Dormant: 'dormant',
+} as const
+
+export interface VariantCountApi {
+    /** The variant key, or `__unattributed__` for members with none. */
+    key: string
+    /** The group's members in this variant in the window. */
+    observation_count: number
+    /** Distinct people among them. */
+    people_count: number
+}
+
+export interface ClusterApi {
+    /** The cluster id. Pass it as `theme` or `group` to `vision-scanners-observations-list` to read members. */
+    id: string
+    /** The scanner whose observations the cluster groups. */
+    scanner_id: string
+    /** The scanner's name. */
+    scanner_name: string
+    /**
+     * A short model-written search phrase for a theme. Null for a group, and for a theme too small to be named; `example_summary` stands in.
+     * @nullable
+     */
+    name: string | null
+    /** Where the cluster stands, from its members: `emerging` (first member this week), `active`, `fading` (last week under half of the week before) or `dormant` (no member for two weeks).
+     *
+     * * `emerging` - Emerging
+     * * `active` - Active
+     * * `fading` - Fading
+     * * `dormant` - Dormant */
+    status: ClusterStatusEnumApi
+    /** Readable observations in the window: issue observations, plus routine ones with `include_routine`. */
+    observation_count: number
+    /** Distinct people among them; a session without an identified person counts as one. */
+    people_count: number
+    /** Members in the same-length window just before `date_from`, to compare the trend against. */
+    previous_observation_count: number
+    /** When the window's oldest member was observed. */
+    first_seen: string
+    /** When the window's newest member was observed. */
+    last_seen: string
+    /** Up to 3 of the window's highest-ranked members, best first. */
+    example_observation_ids: string[]
+    /** One-line summary of the best example; the readable label for a group, which has no name. */
+    example_summary: string
+    /** The window's members split by experiment variant, largest first. Empty unless `by_variant` is set. Compare each variant's share of the group with its share of the scanner's sessions, since variants are sampled at different rates. */
+    variants: VariantCountApi[]
+}
+
+export interface ClusterListApi {
+    /** Clusters with at least one member in the window. */
+    results: ClusterApi[]
+    /** Whether another page follows at `offset + limit`. */
+    has_more: boolean
+}
+
+/**
  * * `configured` - Configured
  * * `inline` - Inline
  */
@@ -971,6 +1039,8 @@ export interface VisionQuotaApi {
     readonly projected_monthly_credits: number
     /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. A capped scanner contributes at most what its own credit limit has left this period, folded back into a 30-day rate. A monthly rate: only the part falling in the days left of the period lands this period. Scanners without a computed estimate contribute 0. */
     readonly scanners_monthly_credits: number
+    /** The part of `scanners_monthly_credits` that lands between now and `period_end`. Use it for rest-of-period forecasts; billing forecasts from the same figure. */
+    readonly scanners_period_credits: number
     /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
     readonly backfills_committed_credits: number
     /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
@@ -1242,6 +1312,13 @@ export interface ScannerExperimentTargetingApi {
     variant?: string | null
 }
 
+export type UnrunnableReasonEnumApi = (typeof UnrunnableReasonEnumApi)[keyof typeof UnrunnableReasonEnumApi]
+
+export const UnrunnableReasonEnumApi = {
+    NoAiConsent: 'no_ai_consent',
+    CreatorLostAccess: 'creator_lost_access',
+} as const
+
 /**
  * A Replay Vision scanner: its type, targeting query, and AI configuration.
  */
@@ -1283,6 +1360,14 @@ export interface ReplayScannerApi {
      * * `template` - Template
      * * `scratch` - From scratch */
     creation_method?: ScannerCreationMethodEnumApi | null
+    /**
+     * The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Only the app's value is kept: any other caller is reported as its own source, such as `mcp`. Ignored on update.
+     * @nullable
+     * @pattern ^[a-z0-9_]{1,64}$
+     */
+    entry_point?: string | null
+    /** Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`. */
+    take_over_as_creator?: boolean
     /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config: unknown
     /** The current prompt condensed by AI into the one question the scanner answers about a session. Falls back to the prompt's first line when no question matches the current prompt. */
@@ -1366,6 +1451,13 @@ export interface ReplayScannerApi {
     readonly dashboard_suggested: boolean
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at: string
+    /**
+     * Why the scanner's recording filter cannot run, from the last sweep or estimate that tried it. Cleared when the filter changes or a sweep runs it.
+     * @nullable
+     */
+    readonly filter_error: string | null
+    /** Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. The sweep turns an enabled scanner off when either applies. */
+    readonly unrunnable_reason: UnrunnableReasonEnumApi | null
     readonly created_at: string
     /** User who created the scanner. */
     readonly created_by: UserBasicApi | null
@@ -1427,6 +1519,14 @@ export interface PatchedReplayScannerApi {
      * * `template` - Template
      * * `scratch` - From scratch */
     creation_method?: ScannerCreationMethodEnumApi | null
+    /**
+     * The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Only the app's value is kept: any other caller is reported as its own source, such as `mcp`. Ignored on update.
+     * @nullable
+     * @pattern ^[a-z0-9_]{1,64}$
+     */
+    entry_point?: string | null
+    /** Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`. */
+    take_over_as_creator?: boolean
     /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config?: unknown
     /** The current prompt condensed by AI into the one question the scanner answers about a session. Falls back to the prompt's first line when no question matches the current prompt. */
@@ -1510,6 +1610,13 @@ export interface PatchedReplayScannerApi {
     readonly dashboard_suggested?: boolean
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at?: string
+    /**
+     * Why the scanner's recording filter cannot run, from the last sweep or estimate that tried it. Cleared when the filter changes or a sweep runs it.
+     * @nullable
+     */
+    readonly filter_error?: string | null
+    /** Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. The sweep turns an enabled scanner off when either applies. */
+    readonly unrunnable_reason?: UnrunnableReasonEnumApi | null
     readonly created_at?: string
     /** User who created the scanner. */
     readonly created_by?: UserBasicApi | null
@@ -2134,8 +2241,8 @@ export interface SignalScoutConfigOptionsApi {
      */
     repositories?: string[]
     /**
-     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-     * @maxItems 14
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 15
      */
     write_scopes?: string[]
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -2184,6 +2291,27 @@ export interface SignalScoutConfigOptionsApi {
 }
 
 /**
+ * * `variant-analysis` - Variant analysis
+ * * `daily-digest` - Daily digest
+ * * `root-cause` - Root cause
+ * * `weekly-themes` - Weekly themes
+ * * `trend-watch` - Trend watch
+ * * `new-issues` - New issue watch
+ * * `scratch` - Start from scratch
+ */
+export type ScoutTemplateKeyEnumApi = (typeof ScoutTemplateKeyEnumApi)[keyof typeof ScoutTemplateKeyEnumApi]
+
+export const ScoutTemplateKeyEnumApi = {
+    VariantAnalysis: 'variant-analysis',
+    DailyDigest: 'daily-digest',
+    RootCause: 'root-cause',
+    WeeklyThemes: 'weekly-themes',
+    TrendWatch: 'trend-watch',
+    NewIssues: 'new-issues',
+    Scratch: 'scratch',
+} as const
+
+/**
  * A scout to stand up for this scanner. The scanner comes from the URL, never the body: it is
  * what the caller's access is checked against, and what the scout is recorded as belonging to.
  *
@@ -2212,6 +2340,16 @@ export interface ScannerScoutCreateApi {
     config?: SignalScoutConfigOptionsApi
     /** Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only. */
     variant_analysis?: boolean
+    /** The template the body came from. A body left exactly as the template rendered it keeps following later edits to that template; an edited body stays as written.
+     *
+     * * `variant-analysis` - Variant analysis
+     * * `daily-digest` - Daily digest
+     * * `root-cause` - Root cause
+     * * `weekly-themes` - Weekly themes
+     * * `trend-watch` - Trend watch
+     * * `new-issues` - New issue watch
+     * * `scratch` - Start from scratch */
+    template_key?: ScoutTemplateKeyEnumApi
 }
 
 /**
@@ -2428,8 +2566,8 @@ export interface SignalScoutConfigApi {
      */
     repositories?: string[]
     /**
-     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-     * @maxItems 14
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 15
      */
     readonly write_scopes: readonly string[]
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -2515,6 +2653,29 @@ export interface ScannerScoutCreateResponseApi {
     created: boolean
     /** The scout's config, including the source recorded for it. */
     config: SignalScoutConfigApi
+}
+
+export interface ScannerScoutTemplateApi {
+    /** The template's id.
+     *
+     * * `variant-analysis` - Variant analysis
+     * * `daily-digest` - Daily digest
+     * * `root-cause` - Root cause
+     * * `weekly-themes` - Weekly themes
+     * * `trend-watch` - Trend watch
+     * * `new-issues` - New issue watch
+     * * `scratch` - Start from scratch */
+    key: ScoutTemplateKeyEnumApi
+    /** The template's name, as the template picker shows it. */
+    title: string
+    /** What a scout made from this template does. */
+    description: string
+    /** The name the create form starts with. */
+    default_name: string
+    /** The default run schedule, as a cron expression in the project timezone. */
+    cron: string
+    /** The scout's instructions, rendered for this scanner. */
+    body: string
 }
 
 export interface VariantsExperimentApi {
@@ -2697,6 +2858,8 @@ export interface DraftScannerRequestApi {
      * @maximum 2147483647
      */
     experiment_id?: number
+    /** A `RecordingsQuery` the person already chose, as the replay list holds it. The draft starts from it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND its own page, event, action or cohort filters onto it. It keeps them only when the combined filter still matches recent recordings, returns them in `query_additions`, and sizes the sampling dials against the combined `query`. `experiment_exposure` becomes the scanner's experiment and variants, which the draft keeps as they are. `date_from`/`date_to` are dropped, because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session exposure are refused, because a scanner cannot apply them. A query with no filters starts from every new recording. Omit to let the draft pick the sessions. */
+    query?: unknown
 }
 
 /**
@@ -2721,6 +2884,8 @@ export interface DraftScannerResponseApi {
     rationale: string
     /** `RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session. */
     query: unknown
+    /** When the request passed a `query`: the filters the draft ANDed onto it, which `query` already includes. Show them to the person as added by AI. Null when nothing was added or no `query` was passed. */
+    query_additions: unknown
     /** The quality pre-filter the draft chose for the goal. Null when the costing estimate failed, in which case the wizard keeps its defaults.
      *
      * * `focused` - Focused
@@ -2827,6 +2992,97 @@ export interface EstimateResponseApi {
 }
 
 /**
+ * * `embedding_pick` - Embedding Pick
+ * * `unviewed_recent` - Unviewed Recent
+ * * `recent` - Recent
+ */
+export type HighlightFeedReasonEnumApi = (typeof HighlightFeedReasonEnumApi)[keyof typeof HighlightFeedReasonEnumApi]
+
+export const HighlightFeedReasonEnumApi = {
+    EmbeddingPick: 'embedding_pick',
+    UnviewedRecent: 'unviewed_recent',
+    Recent: 'recent',
+} as const
+
+/**
+ * * `failure` - Failure
+ * * `struggle` - Struggle
+ * * `revenue` - Revenue
+ */
+export type HighlightFeedCategoryEnumApi =
+    (typeof HighlightFeedCategoryEnumApi)[keyof typeof HighlightFeedCategoryEnumApi]
+
+export const HighlightFeedCategoryEnumApi = {
+    Failure: 'failure',
+    Struggle: 'struggle',
+    Revenue: 'revenue',
+} as const
+
+/**
+ * Machine-readable reason an observation made the feed; the frontend renders the copy.
+ */
+export interface HighlightFeedReasonApi {
+    /** Why the observation is in the feed: `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+     *
+     * * `embedding_pick` - Embedding Pick
+     * * `unviewed_recent` - Unviewed Recent
+     * * `recent` - Recent */
+    kind: HighlightFeedReasonEnumApi
+    /** What the session reads like, for `embedding_pick`.
+     *
+     * * `failure` - Failure
+     * * `struggle` - Struggle
+     * * `revenue` - Revenue */
+    watch_category?: HighlightFeedCategoryEnumApi
+    /**
+     * Other sessions from the same scanner in the window that describe nearly the same thing, for `embedding_pick`. The feed shows one session per group.
+     * @nullable
+     */
+    similar_count?: number | null
+    /**
+     * Distinct people across the session's feed group in the window, for `embedding_pick`. A finding that reached more people ranks higher.
+     * @nullable
+     */
+    affected_people?: number | null
+}
+
+/**
+ * One feed entry: the observation plus why it ranked.
+ */
+export interface HighlightFeedItemApi {
+    /** The observation, in the standard shape. */
+    observation: ReplayObservationApi
+    /** Why this observation made the feed. */
+    reason: HighlightFeedReasonApi
+}
+
+/**
+ * Response of GET /vision/scanners/highlight_feed/.
+ */
+export interface HighlightFeedResponseApi {
+    /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
+    results: HighlightFeedItemApi[]
+    /** Whether a later page holds more ranked items. Request it with `offset` set past this page. */
+    has_more: boolean
+    /** The time this feed ranks as of. Send it back with later pages. */
+    as_of: string
+}
+
+/**
+ * Body of POST /vision/scanners/highlight_feed_impressions/.
+ */
+export interface HighlightFeedImpressionsApi {
+    /** The client's id for the feed load that showed these cards. One load counts each card once. */
+    feed_load_id: string
+    /**
+     * Observations the calling user saw in the Highlights feed, at most 100. Ids the user cannot read are ignored.
+     * @minItems 1
+     * @maxItems 100
+     */
+    observation_ids: string[]
+}
+
+/**
  * Body of POST /vision/scanners/inline_scan/ - a prompt or built-in scan plus the sessions to point it at.
  */
 export interface InlineScanRequestApi {
@@ -2911,96 +3167,6 @@ export interface ScannerStatsResponseApi {
     by_type: ScannerStatsByTypeApi
 }
 
-/**
- * * `embedding_pick` - Embedding Pick
- * * `unviewed_recent` - Unviewed Recent
- * * `recent` - Recent
- */
-export type WatchFeedReasonEnumApi = (typeof WatchFeedReasonEnumApi)[keyof typeof WatchFeedReasonEnumApi]
-
-export const WatchFeedReasonEnumApi = {
-    EmbeddingPick: 'embedding_pick',
-    UnviewedRecent: 'unviewed_recent',
-    Recent: 'recent',
-} as const
-
-/**
- * * `failure` - Failure
- * * `struggle` - Struggle
- * * `revenue` - Revenue
- */
-export type WatchFeedCategoryEnumApi = (typeof WatchFeedCategoryEnumApi)[keyof typeof WatchFeedCategoryEnumApi]
-
-export const WatchFeedCategoryEnumApi = {
-    Failure: 'failure',
-    Struggle: 'struggle',
-    Revenue: 'revenue',
-} as const
-
-/**
- * Machine-readable reason an observation made the feed; the frontend renders the copy.
- */
-export interface WatchFeedReasonApi {
-    /** Why the observation is in the feed: `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
-     *
-     * * `embedding_pick` - Embedding Pick
-     * * `unviewed_recent` - Unviewed Recent
-     * * `recent` - Recent */
-    kind: WatchFeedReasonEnumApi
-    /** What the session reads like, for `embedding_pick`.
-     *
-     * * `failure` - Failure
-     * * `struggle` - Struggle
-     * * `revenue` - Revenue */
-    watch_category?: WatchFeedCategoryEnumApi
-    /**
-     * Other sessions from the same scanner in the window that describe nearly the same thing, for `embedding_pick`. The feed shows one session per group.
-     * @nullable
-     */
-    similar_count?: number | null
-    /**
-     * Distinct people across the session's feed group in the window, for `embedding_pick`. A finding that reached more people ranks higher.
-     * @nullable
-     */
-    affected_people?: number | null
-}
-
-/**
- * One feed entry: the observation plus why it ranked.
- */
-export interface WatchFeedItemApi {
-    /** The observation, in the standard shape. */
-    observation: ReplayObservationApi
-    /** Why this observation made the feed. */
-    reason: WatchFeedReasonApi
-}
-
-/**
- * Response of GET /vision/scanners/watch_feed/.
- */
-export interface WatchFeedResponseApi {
-    /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
-    results: WatchFeedItemApi[]
-    /** Whether a later page holds more ranked items. Request it with `offset` set past this page. */
-    has_more: boolean
-    /** The time this feed ranks as of. Send it back with later pages. */
-    as_of: string
-}
-
-/**
- * Body of POST /vision/scanners/watch_feed_impressions/.
- */
-export interface WatchFeedImpressionsApi {
-    /** The client's id for the feed load that showed these cards. One load counts each card once. */
-    feed_load_id: string
-    /**
-     * Observations the calling user saw in the Highlights feed, at most 100. Ids the user cannot read are ignored.
-     * @minItems 1
-     * @maxItems 100
-     */
-    observation_ids: string[]
-}
-
 export type VisionAlertsListParams = {
     /**
      * Number of results to return per page.
@@ -3043,6 +3209,96 @@ export const VisionAlertsEventsListKind = {
     Unsnooze: 'unsnooze',
 } as const
 
+export type VisionGroupsListParams = {
+    /**
+     * Split each group's window counts by experiment variant in `variants`. Use it on experiment scanners.
+     */
+    by_variant?: boolean
+    /**
+     * Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Also count routine observations, so groups describe ordinary behavior and not only issues. Use it for experiment scanners, where the question is how each variant's users behave.
+     */
+    include_routine?: boolean
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Rows to skip, for the next page.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * `people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).
+     *
+     * * `people` - People
+     * * `observations` - Observations
+     * * `growth` - Growth
+     * * `recent` - Recent
+     * @minLength 1
+     */
+    order?: VisionGroupsListOrder
+    /**
+     * Only this scanner's clusters. Defaults to every scanner you can read.
+     */
+    scanner_id?: string
+    /**
+     * Experiment scanners only: count only members attributed to these variant keys (comma-separated). `__unattributed__` matches members with no attributed variant.
+     * @minLength 1
+     */
+    variant?: string
+}
+
+export type VisionGroupsListOrder = (typeof VisionGroupsListOrder)[keyof typeof VisionGroupsListOrder]
+
+export const VisionGroupsListOrder = {
+    People: 'people',
+    Observations: 'observations',
+    Growth: 'growth',
+    Recent: 'recent',
+} as const
+
+export type VisionGroupsRetrieveParams = {
+    /**
+     * Split each group's window counts by experiment variant in `variants`. Use it on experiment scanners.
+     */
+    by_variant?: boolean
+    /**
+     * Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Also count routine observations, so groups describe ordinary behavior and not only issues. Use it for experiment scanners, where the question is how each variant's users behave.
+     */
+    include_routine?: boolean
+    /**
+     * Only this scanner's clusters. Defaults to every scanner you can read.
+     */
+    scanner_id?: string
+    /**
+     * Experiment scanners only: count only members attributed to these variant keys (comma-separated). `__unattributed__` matches members with no attributed variant.
+     * @minLength 1
+     */
+    variant?: string
+}
+
 export type VisionObservationsListParams = {
     /**
      * Number of results to return per page.
@@ -3076,9 +3332,17 @@ export type VisionObservationsRetrieveParams = {
      */
     date_to?: string
     /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: boolean
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
-    labeled?: string
+    labeled?: boolean
     /**
      * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
      */
@@ -3108,6 +3372,10 @@ export type VisionObservationsRetrieveParams = {
      */
     tags?: string
     /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string
+    /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string
@@ -3120,7 +3388,11 @@ export type VisionObservationsRetrieveParams = {
      */
     verdict?: string
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string
+    /**
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string
 }
@@ -3315,6 +3587,14 @@ export type VisionScannersObservationsListParams = {
      */
     date_to?: string
     /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: boolean
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: boolean
@@ -3355,6 +3635,10 @@ export type VisionScannersObservationsListParams = {
      */
     tags?: string
     /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string
+    /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string
@@ -3367,7 +3651,11 @@ export type VisionScannersObservationsListParams = {
      */
     verdict?: string
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string
+    /**
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string
 }
@@ -3386,9 +3674,17 @@ export type VisionScannersObservationsRetrieveParams = {
      */
     date_to?: string
     /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: boolean
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
-    labeled?: string
+    labeled?: boolean
     /**
      * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
      */
@@ -3418,6 +3714,10 @@ export type VisionScannersObservationsRetrieveParams = {
      */
     tags?: string
     /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string
+    /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string
@@ -3430,7 +3730,11 @@ export type VisionScannersObservationsRetrieveParams = {
      */
     verdict?: string
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string
+    /**
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string
 }
@@ -3448,6 +3752,14 @@ export type VisionScannersObservationsSignalReportsListParams = {
      * Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone.
      */
     date_to?: string
+    /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: boolean
     /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
@@ -3481,6 +3793,10 @@ export type VisionScannersObservationsSignalReportsListParams = {
      */
     tags?: string
     /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string
+    /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string
@@ -3493,7 +3809,11 @@ export type VisionScannersObservationsSignalReportsListParams = {
      */
     verdict?: string
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string
+    /**
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string
 }
@@ -3536,9 +3856,17 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      */
     date_to?: string
     /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: boolean
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
-    labeled?: string
+    labeled?: boolean
     /**
      * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
      */
@@ -3568,6 +3896,10 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      */
     tags?: string
     /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string
+    /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string
@@ -3580,16 +3912,25 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      */
     verdict?: string
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string
+    /**
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string
 }
 
-export type VisionScannersWatchFeedRetrieveParams = {
+export type VisionScannersHighlightFeedRetrieveParams = {
     /**
      * The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.
      */
     as_of?: string
+    /**
+     * Comma-separated kinds of moment to include: `failure` (errors, failed requests, dead ends), `struggle` (repeated attempts, rage clicks, abandoned forms), `revenue` (failed payments, cancellations, usage limits). Defaults to all three. A pick keeps its rank within its scanner, so leaving a kind out drops its sessions without promoting weaker ones.
+     * @minLength 1
+     */
+    categories?: string
     /**
      * Comma-separated user IDs. Restrict the feed to observations from scanners those users created.
      * @minLength 1
@@ -3632,7 +3973,7 @@ export type VisionScannersWatchFeedRetrieveParams = {
      * * `experiment` - Experiment
      * @minLength 1
      */
-    scanner_type?: VisionScannersWatchFeedRetrieveScannerType
+    scanner_type?: VisionScannersHighlightFeedRetrieveScannerType
     /**
      * Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.
      * @minLength 1
@@ -3640,13 +3981,77 @@ export type VisionScannersWatchFeedRetrieveParams = {
     tags?: string
 }
 
-export type VisionScannersWatchFeedRetrieveScannerType =
-    (typeof VisionScannersWatchFeedRetrieveScannerType)[keyof typeof VisionScannersWatchFeedRetrieveScannerType]
+export type VisionScannersHighlightFeedRetrieveScannerType =
+    (typeof VisionScannersHighlightFeedRetrieveScannerType)[keyof typeof VisionScannersHighlightFeedRetrieveScannerType]
 
-export const VisionScannersWatchFeedRetrieveScannerType = {
+export const VisionScannersHighlightFeedRetrieveScannerType = {
     Monitor: 'monitor',
     Classifier: 'classifier',
     Scorer: 'scorer',
     Summarizer: 'summarizer',
     Experiment: 'experiment',
 } as const
+
+export type VisionThemesListParams = {
+    /**
+     * Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Rows to skip, for the next page.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * `people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).
+     *
+     * * `people` - People
+     * * `observations` - Observations
+     * * `growth` - Growth
+     * * `recent` - Recent
+     * @minLength 1
+     */
+    order?: VisionThemesListOrder
+    /**
+     * Only this scanner's clusters. Defaults to every scanner you can read.
+     */
+    scanner_id?: string
+}
+
+export type VisionThemesListOrder = (typeof VisionThemesListOrder)[keyof typeof VisionThemesListOrder]
+
+export const VisionThemesListOrder = {
+    People: 'people',
+    Observations: 'observations',
+    Growth: 'growth',
+    Recent: 'recent',
+} as const
+
+export type VisionThemesRetrieveParams = {
+    /**
+     * Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Only this scanner's clusters. Defaults to every scanner you can read.
+     */
+    scanner_id?: string
+}

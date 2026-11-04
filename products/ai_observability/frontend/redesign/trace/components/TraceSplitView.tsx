@@ -8,8 +8,12 @@ export interface TraceSplitViewProps {
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
-    detail: Omit<NodeDetailProps, 'onSelectNode'> | null
+    detail: Omit<NodeDetailProps, 'onSelectNode' | 'highlightQuery' | 'matchStepCount'> | null
     evalOutcomes: Record<string, EvalRollupOutcome>
+    feedbackCountByNodeId?: Record<string, number>
+    matchingNodeIds?: ReadonlySet<string> | null
+    highlightQuery?: string | null
+    matchStepCount?: number
 }
 
 export function TraceSplitView({
@@ -19,10 +23,14 @@ export function TraceSplitView({
     onPrefetchNode,
     detail,
     evalOutcomes,
+    feedbackCountByNodeId,
+    matchingNodeIds = null,
+    highlightQuery = null,
+    matchStepCount = 0,
 }: TraceSplitViewProps): JSX.Element {
     return (
-        <div className="@container">
-            <div className="flex flex-col gap-4 @3xl:flex-row @3xl:items-start">
+        <div className="@container h-full">
+            <div className="flex flex-col gap-4 @3xl:h-full @3xl:flex-row">
                 <aside className="w-full shrink-0 @3xl:w-72">
                     <TraceTree
                         nodes={tree}
@@ -30,11 +38,19 @@ export function TraceSplitView({
                         onSelectNode={onSelectNode}
                         onPrefetchNode={onPrefetchNode}
                         evalOutcomes={evalOutcomes}
+                        feedbackCountByNodeId={feedbackCountByNodeId}
+                        matchingNodeIds={matchingNodeIds}
+                        matchStepCount={matchStepCount}
                     />
                 </aside>
-                <div className="min-w-0 flex-1 @3xl:sticky @3xl:top-[var(--scene-title-section-height,50px)] @3xl:max-h-[calc(100vh-var(--scene-title-section-height,50px))] @3xl:overflow-y-auto">
+                <div className="min-w-0 flex-1 @3xl:overflow-y-auto">
                     {detail ? (
-                        <NodeDetail {...detail} onSelectNode={onSelectNode} />
+                        <NodeDetail
+                            {...detail}
+                            onSelectNode={onSelectNode}
+                            highlightQuery={highlightQuery}
+                            matchStepCount={matchStepCount}
+                        />
                     ) : (
                         <p className="m-0 text-secondary">Select a step to see its details.</p>
                     )}

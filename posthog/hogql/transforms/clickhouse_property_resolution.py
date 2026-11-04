@@ -39,14 +39,22 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS, null_if_sentinels
 from posthog.hogql.errors import QueryError
+from posthog.hogql.functions.clickhouse.json import JSON_KEY_PATH_FUNCTIONS
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import (
     mirrored_property_for_column,
-    native_property_path_overlaps_restriction,
+    property_path_overlaps_restriction,
     restricted_feature_flag_names,
+    restricted_key_path,
     restricted_property_keys_for_table_type,
+)
+from posthog.hogql.transforms.grouped_clauses import (
+    GroupedClauseTracker,
+    before_grouping,
+    is_grouped,
+    visit_after_grouping,
 )
 from posthog.hogql.type_system import (
     ComparisonCompatibility,
@@ -56,7 +64,7 @@ from posthog.hogql.type_system import (
     parse_sql_runtime_type,
     runtime_type_from_constant_type,
 )
-from posthog.hogql.utils import ilike_matches, like_matches
+from posthog.hogql.utils import ilike_matches, is_json_verbatim, like_matches
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.clickhouse.events_json import (
@@ -131,9 +139,7 @@ def resolve_materialized_property_source(
     # read, comparison, key-existence). The column holds the raw value, so a comparison like `WHERE properties.x = 'y'`
     # could otherwise read it and probe the value. Declining here makes the comparison optimizers fall back; the read
     # itself becomes a constant NULL in `_substitute_value_read`.
-    if property_name in restricted_property_keys_for_table_type(
-        field_type.table_type, context
-    ) or native_property_path_overlaps_restriction(property_name, field_type.table_type, context):
+    if property_path_overlaps_restriction(property_name, field_type.table_type, context):
         return None
 
     table_type = _unwrap_to_table_type(field_type)
@@ -195,7 +201,7 @@ def resolve_materialized_property_source(
 def resolve_json_subcolumn_source(
     field_type: ast.FieldType, table_name: str, field_name: str, property_name: str, context: HogQLContext
 ) -> MaterializedPropertySource | None:
-    if native_property_path_overlaps_restriction(property_name, field_type.table_type, context):
+    if property_path_overlaps_restriction(property_name, field_type.table_type, context):
         return None
     if not context.uses_new_events_schema():
         return None
@@ -214,6 +220,21 @@ def resolve_json_subcolumn_source(
             else None
         ),
     )
+
+
+def stored_key_json_text(field_type: ast.FieldType, key: str, context: HogQLContext) -> ast.Expr | None:
+    """The JSON text of `<blob>.<key>` on the JSON events table, read from the key's own stored column and serialized as
+    `JSONExtractRaw(document, key)` returns it from the rebuilt document. None when no single column holds what the
+    document shows: the document leaves `$feature_flags` out in favour of its `$feature/<key>` pairs, and a key that a
+    restriction touches reads the masked document as text. The read is the `PropertyAccess` that lowering builds, so
+    it gets no property type and the value pass resolves it like any other key read.
+    """
+    if key == "$feature_flags" or property_path_overlaps_restriction(key, field_type.table_type, context):
+        return None
+    read = ast.PropertyAccess(
+        expr=ast.Field(chain=[field_type.name], type=field_type), keys=[key], type=ast.StringType(nullable=True)
+    )
+    return ast.Call(name="toJSONString", args=[read], type=ast.StringType(nullable=True))
 
 
 def resolve_property_group_source(
@@ -257,15 +278,19 @@ def resolve_property_group_source(
 # `node.keys` is the key path (keys[0] is the property name; deeper keys index into the extracted value).
 
 
-def _is_json_verbatim(value: str) -> bool:
-    """True when JSON text stores the string unchanged: non-empty printable ASCII with no quote or backslash."""
-    return bool(value) and all(" " <= char <= "~" and char not in '"\\' for char in value)
-
-
 def _blob_field_type_of(node: ast.PropertyAccess) -> ast.FieldType | None:
     """The source blob column's `FieldType` (`node.expr.type`), the input to `resolve_materialized_property_source`."""
     expr_type = node.expr.type
     return expr_type if isinstance(expr_type, ast.FieldType) else None
+
+
+def _exported_json_text_read(expr: ast.Expr) -> ast.Field | None:
+    """The field behind `expr` if it reads a column the wrapper around a joined table filled with a property's JSON text."""
+    while isinstance(expr, ast.Alias):
+        expr = expr.expr
+    if isinstance(expr, ast.Field) and isinstance(expr.type, ast.PropertyType) and expr.type.joined_subquery_json_text:
+        return expr
+    return None
 
 
 # --- value substitution: rebuild the printer's materialized-column read as AST ----------------------------------------
@@ -655,31 +680,6 @@ def _is_moved_events_property(field_type: ast.FieldType, key: str, context: HogQ
     )
 
 
-# JSON functions that take a key path and that nothing earlier rewrites to read one property. The printer passes them
-# the serialized `properties` document, which never holds a key the native cleaner moves to `temporary_properties`.
-_TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS = frozenset(
-    {
-        "JSONExtractArrayRaw",
-        "JSONExtractKeys",
-        "JSONExtractKeysAndValues",
-        "JSONExtractKeysAndValuesRaw",
-        "JSONLength",
-        "JSONType",
-    }
-)
-
-_JSON_KEY_PATH_FUNCTIONS = _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS | {
-    "JSONExtract",
-    "JSONExtractBool",
-    "JSONExtractFloat",
-    "JSONExtractInt",
-    "JSONExtractRaw",
-    "JSONExtractString",
-    "JSONExtractUInt",
-    "JSONHas",
-}
-
-
 def _names_temporary_event_property(key: ast.Expr) -> ast.Expr:
     """The SQL form of `is_temporary_event_property`, for a key that is computed per row."""
     name = _call("toString", [key])
@@ -934,7 +934,12 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
     # directly and skip the wasted drop-then-extract. (The column resolvers also decline, so comparisons over a
     # restricted property never read the backing column either; their operand falls through to this same NULL.)
     source_property = _mirrored_source_property(field_type, context)
-    if (source_property or first_key) in restricted_property_keys_for_table_type(field_type.table_type, context):
+    restricted_keys = restricted_property_keys_for_table_type(field_type.table_type, context)
+    if (
+        source_property in restricted_keys
+        if source_property is not None
+        else restricted_key_path(node.keys, restricted_keys) is not None
+    ):
         _record_property_usage(context, None)
         return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
@@ -1165,7 +1170,7 @@ class _OptimizableProperty:
         return ast.ArrayAccess(array=self.bare_column(), property=_const(self.key), type=ast.StringType(nullable=False))
 
 
-class ClickHousePropertyResolver(CloningVisitor):
+class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
     """Rewrites lowered `PropertyAccess` reads (and comparisons over them) to read backing columns where they exist.
 
     After this pass, a backed property is an ordinary column expression; an unbacked (or restricted) one stays a
@@ -1184,7 +1189,6 @@ class ClickHousePropertyResolver(CloningVisitor):
         # Depth of `indexHint(...)` calls above the node being visited. A hint is an optimizer directive only, so a
         # comparison inside one must not grow a second, nested hint.
         self._index_hint_depth = 0
-        self._in_grouped_clause = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         scope: set[int] = set()
@@ -1196,18 +1200,16 @@ class ClickHousePropertyResolver(CloningVisitor):
                 table_type = getattr(table_type, "table_type", None)
             join = join.next_join
         self._tables_in_scope.append(scope)
-        was_in_grouped_clause = self._in_grouped_clause
-        self._in_grouped_clause = False
         try:
-            if not node.group_by and node.group_by_mode != "all":
-                return super().visit_select_query(node)
-            result = super().visit_select_query(replace(node, having=None, order_by=None))
-            self._in_grouped_clause = True
-            result.having = self.visit(node.having)
-            result.order_by = [self.visit(expr) for expr in node.order_by] if node.order_by else None
+            with self._grouped_clause(False):
+                if not is_grouped(node):
+                    return super().visit_select_query(node)
+                result = super().visit_select_query(before_grouping(node))
+            with self._grouped_clause(True):
+                for clause, value in visit_after_grouping(node, self.visit).items():
+                    setattr(result, clause, value)
             return result
         finally:
-            self._in_grouped_clause = was_in_grouped_clause
             self._tables_in_scope.pop()
 
     def _property_table_in_scope(self, field_type: ast.FieldType) -> bool:
@@ -1241,9 +1243,6 @@ class ClickHousePropertyResolver(CloningVisitor):
         Only a single-key access (`properties.x`, no deeper `.a.b`) maps to one backing column. A multi-key access reads
         the column and then JSON-extracts deeper, so it can't use the bare-column comparison rewrites.
         """
-        # Bare-column rewrites after aggregation can reference a column absent from GROUP BY.
-        if self._in_grouped_clause:
-            return None
         node = self._lowered_property_operand(expr)
         if node is not None and len(node.keys) == 1:
             field_type = _blob_field_type_of(node)
@@ -1328,7 +1327,137 @@ class ClickHousePropertyResolver(CloningVisitor):
 
     # --- comparison / call rewrites ---
 
+    def _rewrite_scalar_json_extract(self, node: ast.Call) -> ast.Expr | None:
+        """String, float or Bool extraction of one native property, or its JSON type, computed from its subcolumn.
+
+        Covers `JSONExtractString`, `JSONExtractFloat`, `JSONExtractBool`, `JSONExtract` to String or Float64, and
+        `JSONType`. The property pass has replaced the document with `ifNull(toJSONString(<subcolumn>), '')`, so the
+        function would serialize one value and parse it back. This reads the `Dynamic` value instead and reproduces
+        the function's result per stored type: a string passes through, a number or Bool becomes its text for a string
+        target, an integer becomes a number for a float target, a Bool does so only for typed `JSONExtract`, and a
+        missing key gives '' or 0 unless the target is Nullable. A stored Float64 keeps the function for a string
+        target, because JSON number formatting (an integer token for 2.0, exponent notation) decides the result. It
+        reads as false for a Bool target and as `Double` for `JSONType`, which the integer token of an integral float
+        would hide.
+
+        Integer extraction keeps ClickHouse's JSON parser: its coercion rules (fractional and exponent strings truncate,
+        Bool reads as 0, overflow reads as 0) take more SQL to emulate than the parse of one serialized value costs.
+        """
+        scalar_types = {
+            "JSONExtractString": "String",
+            "JSONExtractFloat": "Float64",
+            "JSONExtractBool": "Bool",
+            "JSONType": "String",
+        }
+        target = scalar_types.get(node.name)
+        nullable = False
+        path_args = node.args[1:]
+        if node.name == "JSONExtract" and len(node.args) >= 2:
+            type_arg = node.args[-1]
+            if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
+                return None
+            target = type_arg.value
+            nullable = target.startswith("Nullable(") and target.endswith(")")
+            if nullable:
+                target = target[len("Nullable(") : -1]
+            if target not in ("String", "Float64"):
+                return None
+            path_args = node.args[1:-1]
+        if target is None or not node.args:
+            return None
+        document = node.args[0]
+        if not (
+            isinstance(document, ast.Call)
+            and document.name == "ifNull"
+            and len(document.args) == 2
+            and isinstance(document.args[1], ast.Constant)
+            and document.args[1].value == ""
+            and isinstance(document.args[0], ast.Call)
+            and document.args[0].name == "toJSONString"
+            and len(document.args[0].args) == 1
+        ):
+            return None
+        access = self._lowered_property_operand(document.args[0].args[0])
+        if access is None or not all(isinstance(key, str) for key in access.keys):
+            return None
+        if not all(isinstance(arg, ast.Constant) and isinstance(arg.value, str) for arg in path_args):
+            return None
+        field_type = _blob_field_type_of(access)
+        assert field_type is not None
+        keys = cast(list[str], access.keys) + [cast(ast.Constant, arg).value for arg in path_args]
+        if self._is_virtual_feature_flag_property(field_type, keys[0]):
+            return None
+        source = resolve_materialized_property_source(field_type, keys[0], self.context)
+        if source is None or source.kind != "json_subcolumn":
+            return None
+        value = _call(
+            "accurateCast",
+            [_json_subcolumn_access(field_type, keys, source=source, is_nullable=True), _const("Dynamic")],
+        )
+        value_type = _call("dynamicType", [clone_expr(value)])
+        if node.name == "JSONType":
+            json_text = _json_subcolumn_value_expr(field_type, keys, source=source, as_json=True)
+            json_type = _call(
+                "if",
+                [
+                    _call("equals", [value_type, _const("Float64")]),
+                    _const("Double"),
+                    _call("JSONType", [_call("ifNull", [json_text, _const("")])]),
+                ],
+            )
+            json_type.type = node.type
+            return json_type
+        if target == "String":
+            result = _json_subcolumn_value_expr(field_type, keys, source=source)
+        elif node.name == "JSONExtractBool":
+            result = _call(
+                "and",
+                [
+                    _call("in", [value_type, ast.Tuple(exprs=[_const(t) for t in ("Bool", "Int64", "UInt64")])]),
+                    _call("notIn", [_call("toString", [value]), ast.Tuple(exprs=[_const("0"), _const("false")])]),
+                ],
+            )
+        else:
+            result = _call("toFloat64OrNull", [_call("toString", [clone_expr(value)])])
+            if node.name == "JSONExtract":
+                result = _call(
+                    "if",
+                    [
+                        _call("equals", [value_type, _const("Bool")]),
+                        _call("accurateCastOrNull", [value, _const(target)]),
+                        result,
+                    ],
+                )
+        if target == "String":
+            # Float serialization can become an integer token or overflow JSON's integer parser. Keep its defaults.
+            float_extract = replace(
+                node,
+                args=[
+                    _call("toJSONString", [clone_expr(value)]),
+                    *([node.args[-1]] if node.name == "JSONExtract" else []),
+                ],
+            )
+            result = _call("if", [_call("equals", [value_type, _const("Float64")]), float_extract, result])
+        if not nullable:
+            default = _const("") if target == "String" else _call("accurateCast", [_const(0), _const(target)])
+            result = _call("ifNull", [result, default])
+        result.type = node.type
+        return result
+
     def visit_call(self, node: ast.Call) -> ast.Expr:
+        if node.name == "toJSONString" and len(node.args) == 1:
+            exported_json_text = _exported_json_text_read(node.args[0])
+            if exported_json_text is not None:
+                # The column already holds the JSON text, so serializing it again would quote it. The read is a plain
+                # column either way, so the drop stays safe after grouping and runs before the grouped shortcut below.
+                return self.visit(exported_json_text)
+
+        if self._in_grouped_clause:
+            # Shortcuts can introduce raw columns unavailable after grouping. WindowFunction is a separate node,
+            # so its inputs keep the grouped context while ordinary aggregates above read original rows.
+            with self._call_arguments(node):
+                return super().visit_call(node)
+
         if node.name == "indexHint":
             self._index_hint_depth += 1
             try:
@@ -1358,13 +1487,13 @@ class ClickHousePropertyResolver(CloningVisitor):
         if boolean_conversion is not None:
             return boolean_conversion
 
+        scalar_json_extract = self._rewrite_scalar_json_extract(node)
+        if scalar_json_extract is not None:
+            return scalar_json_extract
+
         json_string_on_events_json = self._rewrite_to_json_string_on_events_json_subcolumn(node)
         if json_string_on_events_json is not None:
             return json_string_on_events_json
-
-        temporary_property_json_function = self._rewrite_json_function_on_temporary_property(node)
-        if temporary_property_json_function is not None:
-            return temporary_property_json_function
 
         runtime_key_json_function = self._rewrite_json_function_with_runtime_key(node)
         if runtime_key_json_function is not None:
@@ -1491,50 +1620,6 @@ class ClickHousePropertyResolver(CloningVisitor):
             args=[ast.Call(name="ifNull", args=[value, _sentinel("")]), *[self.visit(arg) for arg in node.args[2:]]],
         )
 
-    def _rewrite_json_function_on_temporary_property(self, node: ast.Call) -> ast.Expr | None:
-        """`f(properties, '$set', ...)` on native events, applied to the JSON of `$set` from `temporary_properties`."""
-        if (
-            not self.context.uses_new_events_schema()
-            or node.name not in _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS
-            or len(node.args) < 2
-        ):
-            return None
-        field_type = resolve_field_type(node.args[0])
-        if not isinstance(field_type, ast.FieldType) or not _is_events_properties(field_type, self.context):
-            return None
-        if not isinstance(node.args[1], ast.Constant):
-            return None
-        first_key = node.args[1].value
-        if not isinstance(first_key, str) or not is_temporary_event_property(first_key):
-            return None
-        source = resolve_json_subcolumn_source(
-            field_type, DISTRIBUTED_EVENTS_JSON_TABLE, "properties", first_key, self.context
-        )
-        if source is None:
-            # A restriction on the key or on one of its children leaves no source.
-            args: list[ast.Expr] = [
-                _temporary_properties_document(field_type),
-                *[self.visit(arg) for arg in node.args[1:]],
-            ]
-        else:
-            json_value = _json_subcolumn_value_expr(field_type, [first_key], source=source, as_json=True)
-            args = [
-                ast.Call(name="ifNull", args=[json_value, _sentinel("")], type=ast.StringType(nullable=False)),
-                *[self.visit(arg) for arg in node.args[2:]],
-            ]
-        return ast.Call(
-            start=node.start,
-            end=node.end,
-            type=node.type,
-            name=node.name,
-            args=args,
-            params=node.params,
-            distinct=node.distinct,
-            within_group=node.within_group,
-            order_by=node.order_by,
-            filter_expr=node.filter_expr,
-        )
-
     def _rewrite_json_function_with_runtime_key(self, node: ast.Call) -> ast.Expr | None:
         """`f(properties, <key computed per row>, ...)` on native events, reading the document that holds the key.
 
@@ -1544,7 +1629,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         """
         if (
             not self.context.uses_new_events_schema()
-            or node.name not in _JSON_KEY_PATH_FUNCTIONS
+            or node.name not in JSON_KEY_PATH_FUNCTIONS
             or len(node.args) < 2
             or isinstance(node.args[1], ast.Constant)
         ):
@@ -1841,7 +1926,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         first_key = first_key_arg.value
         if first_key in restricted_property_keys_for_table_type(field_type.table_type, self.context):
             return ast.Constant(value=False, type=ast.BooleanType(nullable=False))
-        if native_property_path_overlaps_restriction(first_key, field_type.table_type, self.context):
+        if property_path_overlaps_restriction(first_key, field_type.table_type, self.context):
             # Read the masked document so nested and computed keys cannot inspect a restricted child.
             if not _is_moved_events_property(field_type, first_key, self.context):
                 return None
@@ -1890,6 +1975,9 @@ class ClickHousePropertyResolver(CloningVisitor):
         return _call("isNotNull", [_json_subcolumn_value_expr(field_type, [first_key], source=source)])
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
+        if self._in_grouped_clause:
+            return super().visit_compare_operation(node)
+
         # Try each skip-index comparison rewrite in order. Each one consumes the property operand and returns the
         # rewritten comparison, so once one matches we must NOT also substitute the value. (session_id is left to the
         # printer — it optimizes a real column, not a property.)
@@ -1949,7 +2037,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         values = self._extract_string_constants(node.right)
         if not values or len(values) > PERSON_JSON_PREFILTER_MAX_NEEDLES:
             return None
-        if not all(_is_json_verbatim(value) for value in values):
+        if not all(is_json_verbatim(value) for value in values):
             return None
         return _call("multiSearchAny", [self.visit(access.expr), ast.Array(exprs=[_const(v) for v in values])])
 
@@ -2052,19 +2140,23 @@ class ClickHousePropertyResolver(CloningVisitor):
             source=source,
         )
 
-    def _numeric_property_to_compare_as_text(self, expr: ast.Expr, values: list[str]) -> _OptimizableProperty | None:
-        """A Numeric JSON property compared to non-numeric text, read as text the way the legacy table compares it.
+    def _typed_property_to_compare_as_text(self, expr: ast.Expr, values: list[str]) -> _OptimizableProperty | None:
+        """A Numeric or Boolean JSON property compared to text it cannot be read as, read as text the way the legacy
+        table compares it.
 
         A property definition keeps the type of the first value seen, so a Numeric key can still hold text that a
-        Float64 read never matches.
+        Float64 read never matches, and a Boolean key can hold text that the Bool read turns into NULL. Comparing that
+        NULL Bool to the text fails in ClickHouse ("Cannot parse a boolean"), or counts nothing inside an aggregate.
         """
+        if self._is_boolean_conversion(expr) and not self._is_swapper_boolean_conversion(expr):
+            return None
         single = self._single_key_property(expr)
         if single is None:
             return None
         field_type, property_name = single
         property_type = ast.PropertyType(field_type=field_type, chain=[property_name])
         semantic_type = runtime_type_from_constant_type(property_type.resolve_constant_type(self.context))
-        if semantic_type.family != "float":
+        if semantic_type.family not in ("float", "boolean"):
             return None
         if all(convert_literal_to_runtime_type(value, semantic_type) is not None for value in values):
             return None
@@ -2445,11 +2537,13 @@ class ClickHousePropertyResolver(CloningVisitor):
             values = self._extract_string_constants(node.right)
         if not values or any(not value or value.startswith(("[", "{")) for value in values):
             return None
-        if self._is_boolean_conversion(property_expr):
-            return None
-        prop = self._materialized_string_property(
-            property_expr, allow_dynamic_json=True
-        ) or self._numeric_property_to_compare_as_text(property_expr, values)
+        # A user-written `toBool(properties.x)` over a String property keeps its cast and is handled by
+        # `_optimize_materialized_equals`. The swapper's Boolean cast over a Boolean-typed property is the one looked
+        # through here, so that text the property cannot be read as compares as text.
+        prop = None
+        if not self._is_boolean_conversion(property_expr):
+            prop = self._materialized_string_property(property_expr, allow_dynamic_json=True)
+        prop = prop or self._typed_property_to_compare_as_text(property_expr, values)
         if prop is None or prop.source.kind != "json_subcolumn":
             return None
 
@@ -2641,6 +2735,32 @@ class ClickHousePropertyResolver(CloningVisitor):
         while isinstance(expr, ast.Alias):
             expr = expr.expr
         return isinstance(expr, ast.Call) and expr.name.lower() == "tobool"
+
+    @staticmethod
+    def _is_swapper_boolean_conversion(expr: ast.Expr) -> bool:
+        """True for the property swapper's own Boolean cast, `toBool(transform(toString(x), ['true', 'false'], [1, 0], NULL))`.
+
+        A user-written `toBool(toString(properties.x))` unwraps to the same property but is the user's cast to keep.
+        """
+        while isinstance(expr, ast.Alias):
+            expr = expr.expr
+        match expr:
+            case ast.Call(
+                name="toBool",
+                args=[
+                    ast.Call(
+                        name="transform",
+                        args=[
+                            ast.Call(name="toString", args=[_]),
+                            ast.Constant(value=["true", "false"]),
+                            ast.Constant(value=[1, 0]),
+                            ast.Constant(value=None),
+                        ],
+                    )
+                ],
+            ):
+                return True
+        return False
 
     def _optimize_materialized_ilike(self, node: ast.CompareOperation) -> ast.Expr | None:
         if node.op not in (ast.CompareOperationOp.ILike, ast.CompareOperationOp.NotILike):

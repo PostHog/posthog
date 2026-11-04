@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 80 enabled ops
+ * PostHog API - MCP 82 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -43,6 +43,91 @@ export const SignalsActivitySummaryVersionsRetrieveQueryParams = () => zod.objec
         .min(1)
         .optional()
         .describe('Return only this version, with its full profile. Returns 404 when the version does not exist.'),
+})
+
+/**
+ * Find the project members whose activity summary matches a topic, an object or a product, including people who only open the work and never edit it. Returns 404 when the search is not available for this project.
+ * @summary Search member activity summaries
+ */
+export const SignalsActivitySummaryMembersSearchParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsActivitySummaryMembersSearchQueryIncludeProfileDefault = false
+export const signalsActivitySummaryMembersSearchQueryLimitDefault = 10
+export const signalsActivitySummaryMembersSearchQueryLimitMax = 25
+
+export const signalsActivitySummaryMembersSearchQueryQueryMax = 500
+
+export const signalsActivitySummaryMembersSearchQuerySearchModeDefault = `hybrid`
+
+export const SignalsActivitySummaryMembersSearchQueryParams = () => zod.object({
+    exclude_user_uuids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Members to leave out, such as people you already checked.'),
+    include_profile: zod
+        .boolean()
+        .default(signalsActivitySummaryMembersSearchQueryIncludeProfileDefault)
+        .describe('Add the one-page markdown profile to each result. Set it only for the people you want to read.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(signalsActivitySummaryMembersSearchQueryLimitMax)
+        .default(signalsActivitySummaryMembersSearchQueryLimitDefault)
+        .describe('The most results to return, best match first.'),
+    product: zod
+        .enum([
+            'product_analytics',
+            'dashboards',
+            'web_analytics',
+            'session_replay',
+            'heatmaps',
+            'error_tracking',
+            'experiments',
+            'feature_flags',
+            'early_access_features',
+            'surveys',
+            'product_tours',
+            'notebooks',
+            'cohorts',
+            'persons',
+            'data_management',
+            'data_warehouse',
+            'data_pipelines',
+            'workflows',
+            'ai_observability',
+            'mcp_analytics',
+            'logs',
+            'tracing',
+            'endpoints',
+            'revenue_analytics',
+            'customer_analytics',
+            'inbox',
+            'canvases',
+            'support',
+        ])
+        .optional()
+        .describe(
+            'Only members who work in or visit this product.\n\n\* `product_analytics` - Product Analytics\n\* `dashboards` - Dashboards\n\* `web_analytics` - Web Analytics\n\* `session_replay` - Session Replay\n\* `heatmaps` - Heatmaps\n\* `error_tracking` - Error Tracking\n\* `experiments` - Experiments\n\* `feature_flags` - Feature Flags\n\* `early_access_features` - Early Access Features\n\* `surveys` - Surveys\n\* `product_tours` - Product Tours\n\* `notebooks` - Notebooks\n\* `cohorts` - Cohorts\n\* `persons` - Persons\n\* `data_management` - Data Management\n\* `data_warehouse` - Data Warehouse\n\* `data_pipelines` - Data Pipelines\n\* `workflows` - Workflows\n\* `ai_observability` - Ai Observability\n\* `mcp_analytics` - Mcp Analytics\n\* `logs` - Logs\n\* `tracing` - Tracing\n\* `endpoints` - Endpoints\n\* `revenue_analytics` - Revenue Analytics\n\* `customer_analytics` - Customer Analytics\n\* `inbox` - Inbox\n\* `canvases` - Canvases\n\* `support` - Support'
+        ),
+    query: zod
+        .string()
+        .max(signalsActivitySummaryMembersSearchQueryQueryMax)
+        .optional()
+        .describe(
+            'Natural language or keywords, such as an object name, a topic or a product area. Without a query, the search lists members with a summary, the newest summary first.'
+        ),
+    search_mode: zod
+        .enum(['hybrid', 'semantic', 'keyword'])
+        .default(signalsActivitySummaryMembersSearchQuerySearchModeDefault)
+        .describe(
+            '`hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and returns 503 when the vector search fails. `keyword` matches query terms in the profile, the headline, the theme labels and the names of owned and watched objects.\n\n\* `hybrid` - Hybrid\n\* `semantic` - Semantic\n\* `keyword` - Keyword'
+        ),
 })
 
 /**
@@ -193,6 +278,10 @@ export const signalsConfigCreateBodyMaxReportsPerDayMax = 2147483647
 
 export const signalsConfigCreateBodyPullRequestLabelMax = 50
 
+export const signalsConfigCreateBodyImplementationRepositoriesItemMax = 255
+
+export const signalsConfigCreateBodyImplementationRepositoriesMax = 20
+
 export const SignalsConfigCreateBody = () => zod.object({
     autostart_enabled: zod
         .boolean()
@@ -210,6 +299,12 @@ export const SignalsConfigCreateBody = () => zod.object({
         .nullish()
         .describe(
             "Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply."
+        ),
+    default_slack_notification_integration: zod
+        .number()
+        .nullish()
+        .describe(
+            "Connected Slack integration that owns `default_slack_notification_channel`. Send it together with the channel. A channel saved without it is routed through the team's oldest Slack integration, and clearing the channel clears this too."
         ),
     autostart_base_branches: zod
         .record(zod.string(), zod.string().max(signalsConfigCreateBodyAutostartBaseBranchesMaxOne))
@@ -283,6 +378,19 @@ export const SignalsConfigCreateBody = () => zod.object({
         .describe(
             "The label name self-driving applies, at most 50 characters. Null or blank means 'self-driving'. The label is created in the repository when it does not exist yet. Only used while pull_request_label_enabled is true."
         ),
+    implementation_repositories: zod
+        .array(zod.string().max(signalsConfigCreateBodyImplementationRepositoriesItemMax))
+        .max(signalsConfigCreateBodyImplementationRepositoriesMax)
+        .optional()
+        .describe(
+            "Extra GitHub repositories, as 'organization\/repository', that self-driving implementation tasks can read and write within the connected GitHub App's permissions, for example an assets repository for PR screenshots. A task gets only the entries with the same owner as its selected repository. They are not cloned, and the PR still targets the selected repository. Each new entry must be reachable through one of the project's GitHub installations. Changes apply to tasks started afterwards. Empty by default."
+        ),
+    anomaly_scoring_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether anomaly scoring scores this project's active trends insights every hour and writes the results as $anomaly_score events, which are not billed. True by default. Set false to stop new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
+        ),
 })
 
 export const SignalsReportsListParams = () => zod.object({
@@ -298,6 +406,7 @@ export const signalsReportsListQueryExcludeMax = 100
 
 export const signalsReportsListQueryIncludeSourceMetadataDefault = true
 export const signalsReportsListQueryIncludeUnlistedDefault = false
+export const signalsReportsListQueryLimitMax = 1000
 
 export const SignalsReportsListQueryParams = () => zod.object({
     actionability: zod
@@ -316,7 +425,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .enum(['me', 'mine'])
         .optional()
         .describe(
-            "'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started."
+            "'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user claimed: their own claims and claims by MCP agents acting for them. Internal task claims are not included."
         ),
     channel_id: zod
         .string()
@@ -365,7 +474,11 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             'Include reports kept out of the shared inbox. A report is kept out when the scout that authored it turned off its `inbox` output destination. Defaults to false. Fetching a report by id always works, whatever this value is.'
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(signalsReportsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod
         .string()
@@ -412,7 +525,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used."
+            "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills."
         ),
     source_id: zod
         .string()
@@ -565,7 +678,7 @@ export const SignalsReportsActionsRunCreateBody = () => zod.object({
 })
 
 /**
- * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links.
+ * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links. Adding PRs needs task:write as well as inbox:write.
  * @summary Claim or release a signal report
  */
 export const SignalsReportsClaimParams = () => zod.object({
@@ -1099,7 +1212,7 @@ export const SignalsReportArtefactsPartialUpdateBody = () => zod
     )
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pr_owner_assignment`, `pull_request`, `ranking_score`, `report_link`, `reviewer_corrections`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_authoring`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pr_owner_assignment`, `pull_request`, `ranking_score`, `report_link`, `reviewer_corrections`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const SignalsReportArtefactsDestroyParams = () => zod.object({
@@ -1184,6 +1297,7 @@ export const signalsReportChecksReplaceCreateBodyTitleMax = 200
 
 export const signalsReportChecksReplaceCreateBodyRationaleMax = 2000
 
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOnePurposeDefault = `expectation`
 export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesExclusiveMin = 0
 export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesMax = 527040
 
@@ -1216,6 +1330,12 @@ export const SignalsReportChecksReplaceCreateBody = () => zod.object({
             monitoring: zod
                 .union([
                     zod.object({
+                        purpose: zod
+                            .enum(['expectation', 'minimum_evidence'])
+                            .default(signalsReportChecksReplaceCreateBodyConfigOneMonitoringOnePurposeDefault)
+                            .describe(
+                                '`expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count.'
+                            ),
                         reference_period_minutes: zod
                             .number()
                             .gt(
@@ -1396,6 +1516,59 @@ export const SignalsReportsBulkStateCreateBody = () => zod.object({
 })
 
 /**
+ * Your open inbox reports, ranked for you by one language model call over your activity summary, the reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. The request never waits on the model. A current stored list returns quickly. Otherwise the request reads every candidate report, which can take some seconds, starts a background build and returns the last stored list with `stale: true`, or your reports in inbox order with `fallback_reason: building`, and `building: true`. Pass `wait_seconds` to wait a short time for the new list. Only the user the list is about can read it.
+ * @summary Get your personal ranked inbox
+ */
+export const SignalsReportsForMeRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReportsForMeRetrieveQueryFocusMax = 2000
+
+export const signalsReportsForMeRetrieveQueryLimitMax = 100
+
+export const signalsReportsForMeRetrieveQueryRefreshDefault = false
+export const signalsReportsForMeRetrieveQueryWaitSecondsDefault = 0
+export const signalsReportsForMeRetrieveQueryWaitSecondsMin = 0
+export const signalsReportsForMeRetrieveQueryWaitSecondsMax = 30
+
+export const SignalsReportsForMeRetrieveQueryParams = () => zod.object({
+    focus: zod
+        .string()
+        .max(signalsReportsForMeRetrieveQueryFocusMax)
+        .optional()
+        .describe(
+            'Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always starts a new build, and an unfocused request never reuses it. Pass `wait_seconds` to wait for it.'
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(signalsReportsForMeRetrieveQueryLimitMax)
+        .optional()
+        .describe(
+            'The most reports to return, best first. Defaults to 25. Values above the configured maximum (50) use the maximum.'
+        ),
+    refresh: zod
+        .boolean()
+        .default(signalsReportsForMeRetrieveQueryRefreshDefault)
+        .describe(
+            'Start a new build even when the stored one is current. The build runs in the background, so the response has `building: true`. Pass `wait_seconds` to wait for it.'
+        ),
+    wait_seconds: zod
+        .number()
+        .min(signalsReportsForMeRetrieveQueryWaitSecondsMin)
+        .max(signalsReportsForMeRetrieveQueryWaitSecondsMax)
+        .default(signalsReportsForMeRetrieveQueryWaitSecondsDefault)
+        .describe(
+            'When the request starts a build or one is running, wait for its list until this many seconds after the request started. Defaults to 0, which does not wait. A build usually takes 10 to 60 seconds.'
+        ),
+})
+
+/**
  * What each public outcome of the served ranking model predicts, with its horizon, cohort, base rate and readability from the model that scored this project's reports. Users who cannot see the ranking model get status not_available and no outcomes.
  * @summary List the ranking model's public outcomes
  */
@@ -1553,7 +1726,7 @@ export const signalsScoutCreateBodyConfigOneRepositoriesItemMax = 255
 
 export const signalsScoutCreateBodyConfigOneRepositoriesMax = 10
 
-export const signalsScoutCreateBodyConfigOneWriteScopesMax = 14
+export const signalsScoutCreateBodyConfigOneWriteScopesMax = 15
 
 export const signalsScoutCreateBodyConfigOnePrecheckQueryMax = 10000
 
@@ -1657,7 +1830,7 @@ export const SignalsScoutCreateBody = () => zod
                     .max(signalsScoutCreateBodyConfigOneWriteScopesMax)
                     .optional()
                     .describe(
-                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
                     ),
                 lifecycle_locked: zod
                     .boolean()
@@ -1855,7 +2028,7 @@ export const signalsScoutConfigCreateBodyRepositoriesItemMax = 255
 
 export const signalsScoutConfigCreateBodyRepositoriesMax = 10
 
-export const signalsScoutConfigCreateBodyWriteScopesMax = 14
+export const signalsScoutConfigCreateBodyWriteScopesMax = 15
 
 export const signalsScoutConfigCreateBodyPrecheckQueryMax = 10000
 
@@ -1919,7 +2092,7 @@ export const SignalsScoutConfigCreateBody = () => zod
             .max(signalsScoutConfigCreateBodyWriteScopesMax)
             .optional()
             .describe(
-                "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+                "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
             ),
         lifecycle_locked: zod
             .boolean()
@@ -2105,7 +2278,7 @@ export const signalsScoutConfigUpdateBodyRepositoriesItemMax = 255
 
 export const signalsScoutConfigUpdateBodyRepositoriesMax = 10
 
-export const signalsScoutConfigUpdateBodyWriteScopesMax = 14
+export const signalsScoutConfigUpdateBodyWriteScopesMax = 15
 
 export const signalsScoutConfigUpdateBodyPrecheckQueryMax = 10000
 
@@ -2267,7 +2440,7 @@ export const SignalsScoutConfigUpdateBody = () => zod
             .max(signalsScoutConfigUpdateBodyWriteScopesMax)
             .optional()
             .describe(
-                "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+                "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
             ),
         precheck_query: zod
             .string()
@@ -4143,6 +4316,7 @@ export const signalsScoutReportCheckCreateBodyTitleMax = 200
 
 export const signalsScoutReportCheckCreateBodyRationaleMax = 2000
 
+export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOnePurposeDefault = `expectation`
 export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneReferencePeriodMinutesExclusiveMin = 0
 export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneReferencePeriodMinutesMax = 527040
 
@@ -4196,6 +4370,14 @@ export const SignalsScoutReportCheckCreateBody = () => zod
                         monitoring: zod
                             .union([
                                 zod.object({
+                                    purpose: zod
+                                        .enum(['expectation', 'minimum_evidence'])
+                                        .default(
+                                            signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOnePurposeDefault
+                                        )
+                                        .describe(
+                                            '`expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count.'
+                                        ),
                                     reference_period_minutes: zod
                                         .number()
                                         .gt(
@@ -4486,7 +4668,9 @@ export const SignalsScoutScratchpadSearchQueryParams = () => zod.object({
     text: zod
         .string()
         .optional()
-        .describe('ILIKE substring match against `content`. Omit to return the most recent entries.'),
+        .describe(
+            'ILIKE substring match against `content` and `key`. Must contain 3 letters or digits in a row, or 2 next to a symbol such as `ai_` or `pr:`. Omit to return the most recent entries.'
+        ),
 })
 
 /**
@@ -4724,7 +4908,19 @@ export const SignalsSourceConfigsCreateBody = () => zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
+            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key."
+        ),
+    config_set: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.'
+        ),
+    config_remove: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config.'
         ),
 })
 
@@ -4897,7 +5093,19 @@ export const SignalsSourceConfigsUpdateBody = () => zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
+            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key."
+        ),
+    config_set: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.'
+        ),
+    config_remove: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config.'
         ),
 })
 
@@ -5063,6 +5271,18 @@ export const SignalsSourceConfigsPartialUpdateBody = () => zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
+            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key."
+        ),
+    config_set: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.'
+        ),
+    config_remove: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config.'
         ),
 })
