@@ -10,7 +10,7 @@ describe('deliveryWebhooksLogic', () => {
     let logic: ReturnType<typeof deliveryWebhooksLogic.build>
     let created: Record<string, any>[]
 
-    beforeEach(() => {
+    beforeEach(async () => {
         created = []
         useMocks({
             get: {
@@ -19,6 +19,13 @@ describe('deliveryWebhooksLogic', () => {
                     code: 'fetch(inputs.url, {})',
                     inputs_schema: [{ key: 'url', type: 'string' }],
                     icon_url: '/static/services/webhook.svg',
+                },
+                '/api/projects/:team_id/messaging_templates/': {
+                    results: [
+                        { id: 'template-receipt', name: 'Receipt', transactional_hog_flow_id: 'flow-receipt' },
+                        { id: 'template-reset', name: 'Password reset', transactional_hog_flow_id: 'flow-reset' },
+                        { id: 'template-newsletter', name: 'Newsletter', transactional_hog_flow_id: null },
+                    ],
                 },
             },
             post: {
@@ -32,17 +39,25 @@ describe('deliveryWebhooksLogic', () => {
         initKeaTests()
         logic = deliveryWebhooksLogic()
         logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
     })
 
     afterEach(() => {
         logic.unmount()
     })
 
-    it('creates a signed webhook that the webhooks list finds, and shows its secret once', async () => {
+    it.each<[string, string[], string[] | undefined]>([
+        ['every transactional email', [], undefined],
+        ['the picked transactional emails', ['Password reset'], ['flow-reset']],
+    ])('creates a signed webhook for %s that the webhooks list finds', async (_, picked, workflowIds) => {
+        expect(logic.values.transactionalEmailOptions.map(({ label }) => label)).toEqual(['Receipt', 'Password reset'])
         logic.actions.openAddModal()
         logic.actions.setWebhookFormValues({
             url: ' https://example.com/hooks ',
             events: ['$workflows_email_delivered', '$workflows_email_bounced'],
+            workflowIds: logic.values.transactionalEmailOptions
+                .filter(({ label }) => picked.includes(label))
+                .map(({ key }) => key),
         })
         logic.actions.submitWebhookForm()
         await expectLogic(logic).toFinishAllListeners()
@@ -58,6 +73,9 @@ describe('deliveryWebhooksLogic', () => {
         // The list asks the API for destinations whose filters contain this group.
         expect(webhook.filters.properties).toEqual(
             expect.arrayContaining(DELIVERY_WEBHOOK_LIST_FILTER_GROUPS[0].properties!)
+        )
+        expect(webhook.filters.properties.find((p: { key: string }) => p.key === '$workflow_id')?.value).toEqual(
+            workflowIds
         )
 
         const secret = logic.values.createdSecret

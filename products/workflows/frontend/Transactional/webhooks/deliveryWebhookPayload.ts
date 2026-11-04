@@ -75,14 +75,27 @@ function hostOf(url: string): string {
     }
 }
 
+// Every delivery event carries the ID of the workflow that sent it. A transactional email and a code-send key each
+// have their own workflow, so one filter covers both.
+function sentByWorkflowsProperty(workflowIds: string[]): EventPropertyFilter[] {
+    if (workflowIds.length === 0) {
+        return []
+    }
+    return [
+        { key: '$workflow_id', type: PropertyFilterType.Event, operator: PropertyOperator.Exact, value: workflowIds },
+    ]
+}
+
 export function buildDeliveryWebhookPayload({
     url,
     events,
+    workflowIds,
     signingSecret,
     template,
 }: {
     url: string
     events: DeliveryWebhookEventName[]
+    workflowIds: string[]
     signingSecret: string
     template: Pick<HogFunctionTemplateApi, 'code' | 'inputs_schema' | 'icon_url'>
 }): DeliveryWebhookCreateBody {
@@ -103,7 +116,7 @@ export function buildDeliveryWebhookPayload({
         filters: {
             source: 'events',
             events: events.map((event) => ({ id: event, name: event, type: 'events' })),
-            properties: [TRANSACTIONAL_EMAIL_PROPERTY],
+            properties: [TRANSACTIONAL_EMAIL_PROPERTY, ...sentByWorkflowsProperty(workflowIds)],
         },
         icon_url: template.icon_url,
         enabled: true,

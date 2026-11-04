@@ -5,12 +5,20 @@ import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonModal } from 
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
 import { DELIVERY_WEBHOOK_EVENTS } from './deliveryWebhookPayload'
 import { deliveryWebhooksLogic } from './deliveryWebhooksLogic'
 
 export function AddDeliveryWebhookModal(): JSX.Element {
-    const { isAddModalOpen, createdSecret, webhookForm, isWebhookFormSubmitting } = useValues(deliveryWebhooksLogic)
+    const {
+        isAddModalOpen,
+        createdSecret,
+        webhookForm,
+        isWebhookFormSubmitting,
+        transactionalEmailOptions,
+        templatesLoading,
+    } = useValues(deliveryWebhooksLogic)
     const { closeAddModal, submitWebhookForm, setWebhookFormValue } = useActions(deliveryWebhooksLogic)
 
     if (createdSecret) {
@@ -70,6 +78,19 @@ export function AddDeliveryWebhookModal(): JSX.Element {
             <Form logic={deliveryWebhooksLogic} formKey="webhookForm" className="flex flex-col gap-4">
                 <LemonField name="url" label="Endpoint URL">
                     <LemonInput placeholder="https://example.com/webhooks/email" autoFocus />
+                </LemonField>
+                <LemonField
+                    name="workflowIds"
+                    label="Transactional emails"
+                    help="Leave empty to get updates for every transactional email, including ones you add later."
+                >
+                    <LemonInputSelect
+                        mode="multiple"
+                        options={transactionalEmailOptions}
+                        loading={templatesLoading}
+                        placeholder="All transactional emails"
+                        data-attr="transactional-webhook-emails"
+                    />
                 </LemonField>
                 <LemonField name="events" label="Events">
                     <div className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-2">
