@@ -1,4 +1,4 @@
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from posthog.models.team import Team
 
@@ -57,8 +57,13 @@ class AnchoredDashboardsSource:
             )
             dashboard_ids = {dashboard.id for dashboard in recent}
         else:
+            dashboard_ids = set()
+        if not dashboard_ids:
             return Insight.objects.none()
-        insight_ids = dashboards_api.insight_ids_ever_on_dashboards(dashboard_ids)
+        # A removed tile counts too, matching the `Insight.dashboards` relation.
+        on_dashboards = Q()
+        for dashboard_id in sorted(dashboard_ids):
+            on_dashboards |= Q(id__in=dashboards_api.insight_ids_on_dashboard(dashboard_id, include_removed_tiles=True))
         return user_access_control.filter_queryset_by_access_level(
-            Insight.objects.filter(team=team, deleted=False, id__in=insight_ids).distinct()
+            Insight.objects.filter(on_dashboards, team=team, deleted=False).distinct()
         )
