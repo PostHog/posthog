@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { LemonRichContentEditor } from 'lib/components/RichContentEditor/LemonRichContentEditor'
+import { LazyLemonRichContentEditor } from 'lib/components/RichContentEditor/LazyRichContent'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -52,7 +52,7 @@ export const PlayerCommentModal = (): JSX.Element => {
                     </div>
                     <div>
                         <LemonField name="content">
-                            <LemonRichContentEditor
+                            <LazyLemonRichContentEditor
                                 placeholder="Comment on this recording? Use @ to mention team members"
                                 data-attr="create-recording-comment-input"
                                 onPressCmdEnter={submitRecordingComment}
