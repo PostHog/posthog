@@ -1,9 +1,10 @@
-"""Celery tasks that core's beat schedule registers.
+"""Celery tasks for core's beat schedule and integration callbacks.
 
 Importing this module loads the signals task module. Import it only from code that runs after
 ``django.setup()``, such as ``posthog/tasks/scheduled.py``.
 """
 
+from products.signals.backend.github_readiness_tasks import resume_github_blocked_reports
 from products.signals.backend.tasks import (
     enqueue_signals_rated_usage,
     pause_inactive_signal_scouts,
@@ -28,6 +29,7 @@ __all__ = [
     "refresh_signal_repository_activity",
     "refresh_signal_scout_background_bands",
     "sweep_first_report_notifications",
+    "resume_github_blocked_reports",
     "sweep_implementation_dispatches",
     "sweep_monitoring_research_requests",
     "sweep_monitoring_tracker_issues",

@@ -10,8 +10,15 @@ from parameterized import parameterized
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.team.team import Team
+from posthog.models.user_integration import UserIntegration
 from posthog.redis import get_client as get_redis_client
-from posthog.tasks.integrations import refresh_github_branch_cache, refresh_integration, refresh_integrations
+from posthog.tasks.integrations import (
+    recover_github_access,
+    refresh_github_branch_cache,
+    refresh_integration,
+    refresh_integrations,
+)
 
 
 class TestIntegrationsTasks(APIBaseTest):
@@ -19,6 +26,23 @@ class TestIntegrationsTasks(APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
+
+    @parameterized.expand([False, True])
+    def test_access_recovery_dispatches_only_connected_projects_and_their_children(self, reconnect: bool) -> None:
+        Integration.objects.create(team=self.team, kind="github", integration_id="123")
+        child = Team.objects.create(organization=self.organization, parent_team=self.team)
+        other = Team.objects.create(organization=self.organization)
+        Integration.objects.create(team=other, kind="github", integration_id="456")
+        personal = Team.objects.create(organization=self.organization)
+        UserIntegration.objects.create(user=self.user, kind="github", integration_id="123")
+        with (
+            patch("products.signals.backend.github_readiness_tasks.resume_github_blocked_reports.delay") as reports,
+            patch.object(GitHubIntegration, "refresh_access_token") as refresh,
+        ):
+            recover_github_access("123", self.team.id if reconnect else None)
+        self.assertEqual([args.args[0] for args in reports.call_args_list], [self.team.id, child.id])
+        self.assertNotIn(personal.id, [args.args[0] for args in reports.call_args_list])
+        self.assertEqual(refresh.call_count, 0 if reconnect else 1)
 
     def create_integration(
         self, kind: str, config: Optional[dict] = None, sensitive_config: Optional[dict] = None

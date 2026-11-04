@@ -24,6 +24,7 @@ from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models import Team, User
 from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX
 from posthog.models.integration import SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
+from posthog.models.integration.github_readiness import GitHubReadinessStatus
 
 from products.error_tracking.backend.facade import alerts as error_tracking_alerts
 from products.signals.backend import contracts
@@ -57,6 +58,8 @@ from products.signals.backend.enums import (
     SignalSourceType,
     SuggestedSourceProduct,
 )
+from products.signals.backend.github_optional import ProjectResearchAccess, project_research_access
+from products.signals.backend.presentation.research_access import ResearchAccessSerializer
 from products.signals.backend.report_check_monitoring_timing import (
     MonitoringCheckTiming,
     MonitoringCheckTimingState as MonitoringCheckTimingPhase,
@@ -563,6 +566,36 @@ class _AutostartBaseBranchesField(serializers.DictField):
 # singleton. Without this drf-spectacular types the response as a paginated list.
 @extend_schema_serializer(many=False)
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
+    github_readiness = serializers.SerializerMethodField(
+        help_text="Project-connected GitHub access, from cached integration state."
+    )
+    github_optional_available = serializers.SerializerMethodField(
+        help_text="Whether project data research is allowed without GitHub."
+    )
+    research_access = serializers.SerializerMethodField(
+        help_text="Server decision about project research availability. Implementation has separate access checks."
+    )
+
+    _project_access_state: ProjectResearchAccess | None = None
+
+    def _access(self, obj: SignalTeamConfig) -> ProjectResearchAccess:
+        if self._project_access_state is None:
+            self._project_access_state = project_research_access(
+                obj.team_id, verify=self.context.get("refresh_github", False)
+            )
+        return self._project_access_state
+
+    @extend_schema_field(serializers.ChoiceField(choices=GitHubReadinessStatus.choices))
+    def get_github_readiness(self, obj: SignalTeamConfig) -> str:
+        return self._access(obj).github_readiness
+
+    def get_github_optional_available(self, obj: SignalTeamConfig) -> bool:
+        return self._access(obj).github_optional_available
+
+    @extend_schema_field(ResearchAccessSerializer)
+    def get_research_access(self, obj: SignalTeamConfig) -> dict:
+        return dataclasses.asdict(self._access(obj).research_access)
+
     scout_instructions = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -768,6 +801,9 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = SignalTeamConfig
         fields = [
+            "github_readiness",
+            "github_optional_available",
+            "research_access",
             "id",
             "autostart_enabled",
             "default_autostart_priority",
@@ -2007,6 +2043,10 @@ class ReportResearchContextSerializer(serializers.Serializer):
 
 
 class SignalReportSerializer(serializers.ModelSerializer):
+    research_blocked_reason = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Machine-readable research access blocker, if any."
+    )
+
     startup_failure = ReportStartupFailureSerializer(
         read_only=True,
         allow_null=True,
@@ -2226,6 +2266,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = SignalReport
         fields = [
+            "research_blocked_reason",
             "id",
             "title",
             "summary",

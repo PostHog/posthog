@@ -207,13 +207,19 @@ class TestGitHubInstallationWebhook(TestCase):
 
         self.assertEqual(response.status_code, 202)
 
-    @parameterized.expand([("suspend",), ("unsuspend",)])
+    @parameterized.expand([("suspend", False), ("unsuspend", True), ("new_permissions_accepted", True)])
     @patch("posthog.credentials_service.instance_settings.get_instance_setting")
-    def test_reversible_action_does_not_delete_rows(self, action, mock_get_secret):
+    def test_reversible_action_does_not_delete_rows(self, action, recovers, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         self._team_integration("12345")
 
-        response = self._post({"action": action, "installation": {"id": 12345}})
+        with (
+            patch("posthog.tasks.integrations.recover_github_access.delay") as recover,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self._post({"action": action, "installation": {"id": 12345}})
+            recover.assert_not_called()
+        self.assertEqual(recover.call_args_list, [(("12345", None),)] if recovers else [])
 
         self.assertEqual(response.status_code, 202)
         self.assertTrue(Integration.objects.filter(kind="github", integration_id="12345").exists())
@@ -300,7 +306,11 @@ class TestGitHubInstallationWebhook(TestCase):
             sensitive_config={},
         )
 
-        with patch("posthog.api.github_callback.installation_events.logger") as mock_logger:
+        with (
+            patch("posthog.api.github_callback.installation_events.logger") as mock_logger,
+            patch("posthog.tasks.integrations.recover_github_access.delay") as recover,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             response = self._post(
                 {
                     "action": "added",
@@ -311,7 +321,9 @@ class TestGitHubInstallationWebhook(TestCase):
                 },
                 event_type="installation_repositories",
             )
+            recover.assert_not_called()
 
+        recover.assert_called_once_with("12345", None)
         self.assertEqual(response.status_code, 202)
         mock_logger.info.assert_called_once()
         self.assertEqual(mock_logger.info.call_args.kwargs["rows_updated"], 2)

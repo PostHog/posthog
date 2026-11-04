@@ -47,7 +47,9 @@ describe('Self-driving steering tools', () => {
             expect(request).toHaveBeenCalledWith({
                 method: name === 'inbox-steering-instructions-get' ? 'GET' : 'POST',
                 path: '/api/projects/42/signals/config/',
-                ...(name === 'inbox-steering-instructions-update' ? { body: { research_instructions: '' } } : {}),
+                ...(name === 'inbox-steering-instructions-update'
+                    ? { body: { research_instructions: '' } }
+                    : { query: { refresh_github: undefined } }),
             })
         }
     )
