@@ -8,7 +8,7 @@ import structlog
 
 from products.alerts.backend.models import AlertConfiguration
 from products.annotations.backend.models.annotation import Annotation
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
 from products.experiments.backend.facade import pulse as experiments_pulse
 from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
@@ -107,8 +107,8 @@ def _build_opportunity(
     )
 
 
-# A subscription or an experiment resolves to its id, because its model stays behind its product's facade.
-_LinkTarget = Insight | Dashboard | Annotation | AlertConfiguration | int
+# A dashboard, a subscription or an experiment resolves to its id, because its model stays behind its product's facade.
+_LinkTarget = Insight | Annotation | AlertConfiguration | int
 
 
 def _numeric_refs(evidence_type: EvidenceType, refs: set[str]) -> list[int]:
@@ -141,15 +141,16 @@ def _resolve_link_fks(team_id: int, evidence: list[EvidenceRef]) -> dict[tuple[E
             logger.warning("pulse_persist_non_uuid_ref", evidence_type=EvidenceType.ALERT, refs=sorted(invalid))
         for alert in AlertConfiguration.objects.filter(team_id=team_id, id__in=valid_uuids):
             resolved[(EvidenceType.ALERT, str(alert.id))] = alert
-    for evidence_type, model in (
-        (EvidenceType.DASHBOARD, Dashboard),
-        (EvidenceType.ANNOTATION, Annotation),
-    ):
-        refs = by_type.get(evidence_type)
-        if not refs:
-            continue
-        for obj in model.objects.filter(team_id=team_id, id__in=_numeric_refs(evidence_type, refs)):
-            resolved[(evidence_type, str(obj.id))] = obj
+    dashboard_refs = by_type.get(EvidenceType.DASHBOARD)
+    if dashboard_refs:
+        dashboard_ids = _numeric_refs(EvidenceType.DASHBOARD, dashboard_refs)
+        for dashboard_id in dashboards_api.live_dashboard_ids(team_id=team_id, dashboard_ids=dashboard_ids):
+            resolved[(EvidenceType.DASHBOARD, str(dashboard_id))] = dashboard_id
+    annotation_refs = by_type.get(EvidenceType.ANNOTATION)
+    if annotation_refs:
+        annotation_ids = _numeric_refs(EvidenceType.ANNOTATION, annotation_refs)
+        for annotation in Annotation.objects.filter(team_id=team_id, id__in=annotation_ids):
+            resolved[(EvidenceType.ANNOTATION, str(annotation.id))] = annotation
     experiment_refs = by_type.get(EvidenceType.EXPERIMENT)
     if experiment_refs:
         experiment_ids = _numeric_refs(EvidenceType.EXPERIMENT, experiment_refs)

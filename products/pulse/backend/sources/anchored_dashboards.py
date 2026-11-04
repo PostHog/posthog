@@ -3,7 +3,7 @@ from django.db.models import QuerySet
 from posthog.models.team import Team
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
 from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.config import BriefSettings
 from products.pulse.backend.models import BriefConfig
@@ -43,20 +43,22 @@ class AnchoredDashboardsSource:
         settings: BriefSettings,
         user_access_control: UserAccessControl,
     ) -> QuerySet[Insight]:
-        dashboard_ids = (config.anchors.get("dashboards") if config else None) or []
-        if dashboard_ids:
-            dashboards: QuerySet[Dashboard] = user_access_control.filter_queryset_by_access_level(
-                Dashboard.objects.filter(team=team, deleted=False, id__in=dashboard_ids)
+        anchored_ids = (config.anchors.get("dashboards") if config else None) or []
+        if anchored_ids:
+            dashboard_ids = dashboards_api.viewable_dashboard_ids(
+                team_id=team.id, dashboard_ids=anchored_ids, user_access_control=user_access_control
             )
         elif config is None:
             # Zero-config default brief only: the team's most recently accessed dashboards. A saved
             # config that anchors no dashboards gathers nothing here — its other anchors (e.g.
             # insights) are their own source's job, so the fallback would just duplicate them.
-            dashboards = user_access_control.filter_queryset_by_access_level(
-                Dashboard.objects.filter(team=team, deleted=False, last_accessed_at__isnull=False)
-            ).order_by("-last_accessed_at")[: settings.fallback_dashboard_count]
+            recent = dashboards_api.recently_accessed_dashboards(
+                team_id=team.id, limit=settings.fallback_dashboard_count, user_access_control=user_access_control
+            )
+            dashboard_ids = {dashboard.id for dashboard in recent}
         else:
             return Insight.objects.none()
+        insight_ids = dashboards_api.insight_ids_ever_on_dashboards(dashboard_ids)
         return user_access_control.filter_queryset_by_access_level(
-            Insight.objects.filter(team=team, deleted=False, dashboards__in=dashboards).distinct()
+            Insight.objects.filter(team=team, deleted=False, id__in=insight_ids).distinct()
         )

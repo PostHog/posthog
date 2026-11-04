@@ -12,7 +12,7 @@ from parameterized import parameterized
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.testing import create_dashboard
 from products.exports.backend.facade.api import (
     _validate_adhoc_export_context,
     create_export_asset_async,
@@ -150,15 +150,15 @@ class TestRenderPngExportInsightLookup(BaseTest):
         assert png == b"png"
 
     def test_renders_a_dashboard_of_the_team_only(self):
-        dashboard = Dashboard.objects.create(team=self.team, name="Checkout")
+        dashboard_id = create_dashboard(team_id=self.team.id, name="Checkout")
         other_team = Team.objects.create(organization=self.organization, name="Other")
-        other_dashboard = Dashboard.objects.create(team=other_team, name="Checkout")
+        other_dashboard_id = create_dashboard(team_id=other_team.id, name="Checkout")
 
-        asset, png = self._render(dashboard_id=dashboard.id)
+        asset, png = self._render(dashboard_id=dashboard_id)
 
-        assert (asset.dashboard_id, png) == (dashboard.id, b"png")
+        assert (asset.dashboard_id, png) == (dashboard_id, b"png")
         with self.assertRaises(ValueError):
-            render_png_export(team=self.team, created_by=self.user, dashboard_id=other_dashboard.id)
+            render_png_export(team=self.team, created_by=self.user, dashboard_id=other_dashboard_id)
 
     @parameterized.expand(
         [
