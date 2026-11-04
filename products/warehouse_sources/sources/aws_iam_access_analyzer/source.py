@@ -143,7 +143,7 @@ class AwsIamAccessAnalyzerSource(ResumableSource[AwsIamAccessAnalyzerSourceConfi
             label="AWS IAM Access Analyzer",
             caption="""Sync access analyzers, findings, archive rules, analyzed resources, finding details, and finding recommendations from one AWS region.
 
-Grant `access-analyzer:ListAnalyzers`, `access-analyzer:ListFindings`, `access-analyzer:ListArchiveRules`, `access-analyzer:ListAnalyzedResources`, `access-analyzer:GetFinding`, and `access-analyzer:GetFindingRecommendation` for the tables you select.
+Grant `access-analyzer:ListAnalyzers`, `access-analyzer:ListFindingsV2`, `access-analyzer:ListArchiveRules`, `access-analyzer:ListAnalyzedResources`, `access-analyzer:GetFindingV2`, and `access-analyzer:GetFindingRecommendation` for the tables you select.
 Connect with an IAM role, or enter an access key ID and secret access key. Add a session token for temporary credentials.
 Temporary credentials expire, so update them before later syncs.
 

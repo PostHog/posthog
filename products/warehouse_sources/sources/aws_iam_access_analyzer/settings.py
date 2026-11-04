@@ -88,8 +88,8 @@ ENDPOINTS: dict[str, Endpoint] = {
 }
 
 ACCESS_DENIED_MESSAGE = (
-    "AWS denied access. Grant access-analyzer:ListAnalyzers, access-analyzer:ListFindings, "
-    "access-analyzer:ListArchiveRules, access-analyzer:ListAnalyzedResources, access-analyzer:GetFinding, "
+    "AWS denied access. Grant access-analyzer:ListAnalyzers, access-analyzer:ListFindingsV2, "
+    "access-analyzer:ListArchiveRules, access-analyzer:ListAnalyzedResources, access-analyzer:GetFindingV2, "
     "and access-analyzer:GetFindingRecommendation for the tables you select."
 )
 
@@ -110,10 +110,10 @@ ERROR_MESSAGES = {
 
 # The IAM actions this source calls. A role session can use only these.
 AWS_SESSION_ACTIONS = (
-    "access-analyzer:GetFinding",
+    "access-analyzer:GetFindingV2",
     "access-analyzer:GetFindingRecommendation",
     "access-analyzer:ListAnalyzedResources",
     "access-analyzer:ListAnalyzers",
     "access-analyzer:ListArchiveRules",
-    "access-analyzer:ListFindings",
+    "access-analyzer:ListFindingsV2",
 )
