@@ -130,11 +130,11 @@ role "data" {
 # Beyond that they carry only the shared query_log_archive path. Role names are the
 # hostClusterRole macros migrations target: events, small, medium.
 role "events" {
-  env "local-multi" { layers = ["roles/shared/qla.hcl", "roles/coshared/named_collections", "roles/coshared/logs_avro_ingest", "roles/coshared/events_json_write", "roles/ingestion_events/local"] }
+  env "local-multi" { layers = ["roles/shared/qla.hcl", "roles/coshared/named_collections", "roles/coshared/logs_avro_ingest", "roles/coshared/events_json_write", "roles/shared/person_group_membership.hcl", "roles/coshared/person_group_membership_config", "roles/coshared/person_group_membership_write", "roles/ingestion_events/local"] }
 }
 
 role "small" {
-  env "local-multi" { layers = ["roles/shared/qla.hcl", "roles/shared/person_group_membership.hcl", "roles/coshared/person_group_membership_config", "roles/ingestion_small/shared", "roles/coshared/named_collections", "roles/coshared/aux_small", "roles/coshared/log_entries_write", "roles/coshared/log_entries_aux_write", "roles/coshared/session_replay_write", "roles/ingestion_small/local"] }
+  env "local-multi" { layers = ["roles/shared/qla.hcl", "roles/shared/person_group_membership.hcl", "roles/coshared/person_group_membership_config", "roles/coshared/person_group_membership_write", "roles/coshared/named_collections", "roles/coshared/aux_small", "roles/coshared/log_entries_write", "roles/coshared/log_entries_aux_write", "roles/coshared/session_replay_write", "roles/ingestion_small/local"] }
 }
 
 role "medium" {
@@ -146,7 +146,7 @@ role "medium" {
 # and not MULTINODE_CLICKHOUSE. Composed as the deduped union of the local-multi stacks it
 # hosts, so any name two of those roles declare fails this load instead of drifting.
 role "all" {
-  env "local-single" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/local", "roles/apm/shared", "roles/apm/local", "roles/coshared/ai_events_data", "roles/coshared/person_shims", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/coshared/log_entries_aux", "roles/coshared/aux_small", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/main_join_readers", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/log_entries_aux_write", "roles/coshared/session_replay_write", "roles/coshared/person_group_membership_config", "roles/ingestion_small/shared", "roles/data/shared", "roles/data/common", "roles/coshared/main_proxies", "roles/data/local", "roles/ingestion_events/local", "roles/ingestion_events/local-single", "roles/ingestion_small/local", "roles/ingestion_medium/local"] }
+  env "local-single" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/local", "roles/apm/shared", "roles/apm/local", "roles/coshared/ai_events_data", "roles/coshared/person_shims", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/coshared/log_entries_aux", "roles/coshared/aux_small", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/main_join_readers", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/log_entries_aux_write", "roles/coshared/session_replay_write", "roles/coshared/person_group_membership_config", "roles/coshared/person_group_membership_write", "roles/data/shared", "roles/data/common", "roles/coshared/main_proxies", "roles/data/local", "roles/ingestion_events/local", "roles/ingestion_events/local-single", "roles/ingestion_small/local", "roles/ingestion_medium/local"] }
 }
 
 # role "endpoints" {

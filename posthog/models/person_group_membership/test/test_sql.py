@@ -69,7 +69,7 @@ def test_ingestion_sql(build_sql: Callable[[], str], snapshot, settings) -> None
             ],
             False,
         ),
-        (INGESTION_MIGRATION, [[NodeRole.INGESTION_SMALL], [NodeRole.INGESTION_SMALL]], True),
+        (INGESTION_MIGRATION, [[NodeRole.INGESTION_EVENTS]] * 5, True),
     ],
     ids=["storage", "ingestion"],
 )
