@@ -173,7 +173,7 @@ export interface accountDotMatrixTileLogicMeta {
             displayResult: DotMatrixTileResult | null,
             config: DotMatrixTileConfig,
             activeMapping: DotMatrixSourceMapping,
-            seriesSelection: any
+            seriesSelection: string[]
         ) => {
             empty: string
             error: string | null
@@ -181,7 +181,7 @@ export interface accountDotMatrixTileLogicMeta {
             notices: string[]
         }
         selectedSeries: (
-            seriesSelection: any,
+            seriesSelection: string[],
             presentation: {
                 empty: string
                 error: string | null
