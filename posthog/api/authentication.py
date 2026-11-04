@@ -1598,10 +1598,8 @@ def social_grant_staff_to_google_workspace_members(
     backend: BaseAuth, response: dict[str, Any], user: User | None = None, **kwargs: Any
 ) -> None:
     """
-    Make an employee Django staff when they log in to dev with Google, so nobody has to grant it by hand.
-    This runs only on dev because staff on US and EU can access every customer organization.
-    A personal Google account can use a posthog.com address, so the step also checks the `hd` claim,
-    which Google sets only for Workspace accounts.
+    Employees on dev ask for Django staff. This step grants it when they log in to dev with Google,
+    so they do not have to ask. The `hd` claim confirms that our Google Workspace manages the account.
     """
     if (
         settings.CLOUD_DEPLOYMENT == "DEV"
