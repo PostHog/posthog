@@ -14,9 +14,11 @@ import { initKeaTests } from '~/test/init'
 import { Experiment, ExperimentStatus } from '~/types'
 
 import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
-import { ExperimentHealthPanel } from 'products/experiments/frontend/health/ExperimentHealthPanel'
+import { ExperimentHealthChip } from 'products/experiments/frontend/health/ExperimentHealthChip'
+import { ExperimentHealthTab } from 'products/experiments/frontend/health/ExperimentHealthTab'
 
 import { experimentLogic } from '../experimentLogic'
+import { experimentSceneLogic } from '../experimentSceneLogic'
 import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { Exposures } from './Exposures'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
@@ -96,7 +98,10 @@ describe('health finding reporting', () => {
     }
 
     // The same experiment for a person with the health findings flag: the server sends the flag-state finding.
-    const renderHealthPanel = (exposures: Record<string, unknown>): void => {
+    const renderHealth = (
+        exposures: Record<string, unknown>,
+        Surface: () => JSX.Element | null = ExperimentHealthTab
+    ): void => {
         logic.actions.setExperiment({
             ...NEW_EXPERIMENT,
             id: EXPERIMENT_ID,
@@ -124,7 +129,9 @@ describe('health finding reporting', () => {
         render(
             <Provider>
                 <BindLogic logic={experimentLogic} props={{ experimentId: EXPERIMENT_ID }}>
-                    <ExperimentHealthPanel />
+                    <BindLogic logic={experimentSceneLogic} props={{ experimentId: EXPERIMENT_ID }}>
+                        <Surface />
+                    </BindLogic>
                 </BindLogic>
             </Provider>
         )
@@ -192,8 +199,11 @@ describe('health finding reporting', () => {
         expect(findingEvents()).toEqual([[`experiment health finding ${step}`, code, kind]])
     })
 
-    it('reports each finding of the health panel as shown, with the codes of the warnings it replaces', () => {
-        renderHealthPanel(UNEVEN_EXPOSURES)
+    it.each([
+        { surface: 'header chip', Surface: ExperimentHealthChip },
+        { surface: 'health tab', Surface: ExperimentHealthTab },
+    ])('reports each issue as shown from the $surface, with the codes of the warnings it replaces', ({ Surface }) => {
+        renderHealth(UNEVEN_EXPOSURES, Surface)
 
         const shown = captureSpy.mock.calls
             .filter(([event]) => event === 'experiment health finding shown')
@@ -214,9 +224,9 @@ describe('health finding reporting', () => {
             kind: 'use_first_seen_variant',
         },
     ])(
-        'reports $code as $step with $kind when a person uses "$control" in the health panel',
+        'reports $code as $step with $kind when a person uses "$control" in the health tab',
         async ({ control, step, code, kind }) => {
-            renderHealthPanel(UNEVEN_EXPOSURES)
+            renderHealth(UNEVEN_EXPOSURES)
             captureSpy.mockClear()
 
             await userEvent.click(screen.getByText(control))
@@ -225,13 +235,14 @@ describe('health finding reporting', () => {
         }
     )
 
-    it('reports a finding of the health panel as opened when a person opens its detail', async () => {
-        renderHealthPanel(NO_EXPOSURES)
+    it('shows the detail of an issue on the health tab without reporting it as opened until a person reopens it', async () => {
+        renderHealth(NO_EXPOSURES)
+        expect(screen.getByText(/The linked feature flag is disabled/)).toBeInTheDocument()
         captureSpy.mockClear()
 
         const [flagStateWhy] = screen.getAllByText('Why?')
         await userEvent.click(flagStateWhy)
-        expect(screen.getByText(/The linked feature flag is disabled/)).toBeInTheDocument()
+        expect(findingEvents()).toEqual([])
         await userEvent.click(flagStateWhy)
 
         expect(findingEvents()).toEqual([['experiment health finding opened', 'flag_off_while_running', 'why']])

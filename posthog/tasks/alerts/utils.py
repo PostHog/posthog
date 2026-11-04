@@ -24,7 +24,7 @@ from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 from posthog.utils import absolute_uri
 
-from products.alerts.backend.facade.api import LLM_DETECTOR_UNAVAILABLE_ERROR_CODE
+from products.alerts.backend.facade.api import LLM_DETECTOR_PAUSED_ERROR_CODE, LLM_DETECTOR_UNAVAILABLE_ERROR_CODE
 from products.alerts.backend.facade.destinations import (
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
     alert_internal_event_delivered,
@@ -442,6 +442,7 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
             # The template drops its "review the alert settings" advice for this code, because
             # a check the AI detector could not complete is not something the owner can fix.
             "detector_unavailable": error.get("code") == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+            "detector_paused": error.get("code") == LLM_DETECTOR_PAUSED_ERROR_CODE,
         },
     )
     if not email_sent:

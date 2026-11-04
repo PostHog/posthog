@@ -63,6 +63,7 @@ from posthog.auth import InternalAPIAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
+from posthog.exceptions import InsufficientScope
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
@@ -184,6 +185,7 @@ from products.workflows.backend.facade.broadcast_conversion import (
 )
 from products.workflows.backend.facade.content import DRAFT_CONTENT_FIELDS, deep_merge, snapshot_content
 from products.workflows.backend.facade.contracts import (
+    EMAIL_FROM_CODE_FLAG,
     EmailDesignRenderFailed,
     EmailDesignRenderingNotConfigured,
     StaffPausedError,
@@ -288,6 +290,7 @@ from products.workflows.backend.facade.suggestions_scout import (
     suggestions_scout_status,
     sync_suggestions_scout,
 )
+from products.workflows.backend.facade.tasks import schedule_batch_run_settle
 from products.workflows.backend.facade.templates import get_function_template_schema
 from products.workflows.backend.facade.validation import (
     DURATION_PATTERN,
@@ -346,6 +349,7 @@ from products.workflows.backend.facade.writes import (
 from products.workflows.backend.presentation.views.graph_operations import apply_graph_operations
 from products.workflows.backend.presentation.views.graph_validation import validate_graph
 from products.workflows.backend.presentation.views.hog_flow_batch_job import (
+    BATCH_RUN_STATUS_HELP_TEXT,
     HogFlowBatchJobCancelResponseSerializer,
     HogFlowBatchJobSerializer,
 )
@@ -388,6 +392,22 @@ def _cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
         )
     except Exception:
         return False
+
+
+LISTED_ORIGIN_PRODUCTS: list[str] = [
+    origin for origin in HogFlowOriginProduct.values if origin != HogFlowOriginProduct.TRANSACTIONAL_EMAIL_KEYS
+]
+
+
+def _code_sends_rolled_out(team: Any) -> bool:
+    organization_id = str(team.organization_id)
+    return feature_enabled_or_false(
+        EMAIL_FROM_CODE_FLAG,
+        str(team.uuid),
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+        send_feature_flag_events=False,
+    )
 
 
 def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
@@ -723,14 +743,23 @@ def _strip_replay_vision_code(inputs: Any) -> None:
             analysis.pop(key, None)
 
 
+def _replay_vision_missing_scopes(request: Request | None) -> list[str]:
+    """The scopes a token must add to save or run a Replay Vision step."""
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if scopes is None or "*" in scopes:
+        return []
+    return [accepted[0] for accepted in _REPLAY_VISION_STEP_SCOPES if not any(s in scopes for s in accepted)]
+
+
+def _replay_vision_scope_message(scope: str) -> str:
+    return f"The Replay Vision step needs a key with the {scope} scope."
+
+
 def _replay_vision_step_error(request: Request | None, team: Team, inputs: Any) -> str | None:
     """Why the caller may not save or live-test a Replay Vision step with these inputs, or None."""
     _strip_replay_vision_code(inputs)
-    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
-    if scopes is not None and "*" not in scopes:
-        for accepted in _REPLAY_VISION_STEP_SCOPES:
-            if not any(scope in scopes for scope in accepted):
-                return f"The Replay Vision step needs a key with the {accepted[0]} scope."
+    if missing_scopes := _replay_vision_missing_scopes(request):
+        return _replay_vision_scope_message(missing_scopes[0])
     user = getattr(request, "user", None)
     if user is None or not user.is_authenticated or isinstance(user, SyntheticUser):
         return None
@@ -2678,7 +2707,7 @@ class SendCalendarQuerySerializer(serializers.Serializer):
 class SendCalendarBatchJobSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="ID of the batch run.")
     status = serializers.ChoiceField(
-        choices=HogFlowBatchJobState.choices, read_only=True, help_text="Status of the batch run."
+        choices=HogFlowBatchJobState.choices, read_only=True, help_text=BATCH_RUN_STATUS_HELP_TEXT
     )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the batch run started.")
 
@@ -3334,7 +3363,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         required=False,
         allow_null=True,
         help_text="Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when "
-        "creating a workflow. Filter the list with `?origin_product=`.",
+        "creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. "
+        "Filter the list with `?origin_product=`.",
     )
     source_record = serializers.RegexField(
         r"^[a-z_]+:[A-Za-z0-9_-]+$",
@@ -3711,6 +3741,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_resumed_at",
             "last_run",
         ]
+
+    def validate_origin_product(self, value: str | None) -> str | None:
+        if value == HogFlowOriginProduct.TRANSACTIONAL_EMAIL_KEYS:
+            raise serializers.ValidationError("A code send key's workflow is made by its first send.")
+        return value
 
     def validate(self, data):
         instance = cast(Optional[WorkflowEditState], self.instance)
@@ -4965,6 +5000,11 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
                 description="Only workflows someone turned suggestions on for.",
             ),
             OpenApiParameter(
+                "name",
+                OpenApiTypes.STR,
+                description="Only workflows whose name contains this text, ignoring case. Unlike `search`, it never reads descriptions, tags or step content.",
+            ),
+            OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
                 description="Case-insensitive search. Matches workflow name, description and tag names first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
@@ -4987,7 +5027,7 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
             OpenApiParameter(
                 "origin_product",
                 OpenApiTypes.STR,
-                enum=HogFlowOriginProduct.values,
+                enum=LISTED_ORIGIN_PRODUCTS,
                 description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
             ),
             OpenApiParameter(
@@ -5010,14 +5050,16 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
                 OpenApiTypes.STR,
                 description=(
                     "Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, "
-                    "sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and "
-                    "whether a schedule still has sends to come."
+                    "sent, partially_sent, failed, archived. Scheduled, sending, sent, partially_sent and failed "
+                    "come from the latest run and whether a schedule still has sends to come. A latest run that is "
+                    "completed reads as sent, partially_failed as partially_sent, and failed or cancelled as failed. "
+                    "With a schedule still to come, a completed or partially_failed latest run reads as scheduled."
                 ),
             ),
             OpenApiParameter(
                 "latest_send_first",
                 OpenApiTypes.BOOL,
-                description="Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last.",
+                description="Pass `true` to order by when each workflow's newest completed or partially_failed run finished, newest first. Workflows that never finished such a run come last.",
             ),
         ]
     ),
@@ -5118,8 +5160,8 @@ class HogFlowViewSet(
             after=after_date,
             before=before_date,
             breakdown_by=params.get("breakdown_by"),
-            name=params["name"].split(",") if params.get("name") else None,
-            kind=params["kind"].split(",") if params.get("kind") else None,
+            name=params.get("name") or None,
+            kind=params.get("kind") or None,
         )
         return Response(AppMetricResponseSerializer(instance=data).data)
 
@@ -5297,10 +5339,8 @@ class HogFlowViewSet(
                 )
 
         origin_product = params.get("origin_product")
-        if origin_product and origin_product not in HogFlowOriginProduct.values:
-            raise exceptions.ValidationError(
-                {"origin_product": f"Must be one of: {', '.join(HogFlowOriginProduct.values)}"}
-            )
+        if origin_product and origin_product not in LISTED_ORIGIN_PRODUCTS:
+            raise exceptions.ValidationError({"origin_product": f"Must be one of: {', '.join(LISTED_ORIGIN_PRODUCTS)}"})
 
         trigger = self._trigger_filter()
         tags = self._tags_filter()
@@ -5442,7 +5482,6 @@ class HogFlowViewSet(
         `person:read` and `group:read` on top of `hog_flow:write`.
         """
         hog_flow = self._workflow_ref()
-
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self._require_replay_vision_caller_access(request, self._edit_state().actions)
@@ -5456,7 +5495,7 @@ class HogFlowViewSet(
             team_id=self.team_id,
             function_kind="hog_flow",
             function_id=str(hog_flow.id),
-            payload=serializer.data,
+            payload={**serializer.data, "replay_code_sends": _code_sends_rolled_out(self.team)},
         )
 
         if res.status_code != 200:
@@ -6553,10 +6592,13 @@ class HogFlowViewSet(
     def _require_replay_vision_caller_access(self, request: Request, actions: Any) -> None:
         # A live test or a manual run starts the Replay Vision step as the workflow's owner, on sessions the caller
         # can pick, so the caller needs the access that saving the step needs.
+        missing_scopes = _replay_vision_missing_scopes(request)
         for step in actions if isinstance(actions, list) else []:
             config = (step.get("config") or {}) if isinstance(step, dict) else {}
             if config.get("template_id") != _REPLAY_VISION_TEMPLATE_ID:
                 continue
+            if missing_scopes:
+                raise InsufficientScope(missing_scopes, detail=_replay_vision_scope_message(missing_scopes[0]))
             error = _replay_vision_step_error(request, self.team, config.get("inputs"))
             if error is not None:
                 raise exceptions.PermissionDenied(error)
@@ -7872,7 +7914,8 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         terminal status, returns 200 without re-writing — the resolver retries
         this call via cyclotron retry semantics, so safe repeats are required.
 
-        Accepts: { status: "completed" | "failed" }
+        Accepts: { status: "completed" | "failed" }. A completed run can later move to
+        failed or partially_failed, once its child runs show errored sends.
         """
         if request.method != "PUT":
             return Response({"error": "Method not allowed"}, status=405)
@@ -7897,6 +7940,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         terminal_states = {
             HogFlowBatchJobState.COMPLETED,
+            HogFlowBatchJobState.PARTIALLY_FAILED,
             HogFlowBatchJobState.FAILED,
             HogFlowBatchJobState.CANCELLED,
         }
@@ -7913,6 +7957,10 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             )
 
         try:
+            if new_status == HogFlowBatchJobState.COMPLETED:
+                # The child runs send after completed, so a later check sets failed or partially_failed. It is
+                # queued before the write, so the resolver's retry queues it again if queueing fails.
+                schedule_batch_run_settle(team_id=team.id, batch_job_id=str(batch_job.id))
             set_batch_job_status(team_id=team.id, batch_job_id=batch_job.id, status=HogFlowBatchJobState(new_status))
             return Response(
                 InternalBatchJobStatusSerializer(

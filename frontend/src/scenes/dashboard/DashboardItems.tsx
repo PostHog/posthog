@@ -154,6 +154,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         copyToDashboard,
         copyGroupToDashboard,
         changeTileGroupDisplay,
+        renameTileGroup,
         setDashboardEditing,
         toggleTileGroup,
         selectTileGroupTab,
@@ -278,6 +279,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const onCopyGroupToDashboard = canEditDashboard && isEditablePlacement ? copyGroupToDashboard : undefined
     const onChangeGroupDisplay = canEditDashboard && isEditablePlacement ? changeTileGroupDisplay : undefined
+    const onRenameTileGroup = canEditDashboard && isEditablePlacement ? renameTileGroup : undefined
 
     const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
 
@@ -844,6 +846,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             isDropTarget={dropTargetKey === section.key}
             collapsedTileGroupKeys={collapsedTileGroupKeys}
             onToggleTileGroup={toggleTileGroup}
+            onRenameTileGroup={onRenameTileGroup}
             copyToDestinations={copyToDestinations}
             onCopyGroupToDashboard={onCopyGroupToDashboard}
             copyLoading={copyGroupToDashboardLoading}
@@ -867,6 +870,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         sections={tileGroupSections}
                         activeSectionKey={tileGroupSections[activeTabIndex].key}
                         onSelect={selectTileGroupTab}
+                        onRenameGroup={onRenameTileGroup}
                         copyToDestinations={copyToDestinations}
                         onCopyGroupToDashboard={onCopyGroupToDashboard}
                         copyLoading={copyGroupToDashboardLoading}

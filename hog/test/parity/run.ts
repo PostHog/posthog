@@ -27,7 +27,7 @@ function environment(serverUrl: string, home: string): Record<string, string> {
         POSTHOG_CLI_API_KEY: 'phx_parity',
         POSTHOG_CLI_PROJECT_ID: '1',
         POSTHOG_CLI_HOST: serverUrl,
-        HOG_API_KEY: 'phx_parity',
+        HOG_PERSONAL_API_KEY: 'phx_parity',
         HOG_PROJECT_ID: '1',
         HOG_HOST: serverUrl,
         NO_COLOR: '1',
