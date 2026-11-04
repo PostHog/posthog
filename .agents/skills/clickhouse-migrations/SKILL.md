@@ -35,11 +35,9 @@ Pick the role by **which cluster owns the object**, not by its type alone:
   tables in front of sharded or satellite tables, views, dictionaries. A non-sharded replicated table on
   `DATA` keeps a full copy on every main-cluster node, so it is the wrong home for a product rollup or
   pre-aggregate (see below).
-- `[NodeRole.INGESTION_EVENTS]`: writable tables, Kafka tables and materialized views for a consumer that reads all of `clickhouse_events_json`.
-  Every ClickHouse consumer of the full topic runs here.
-- `[NodeRole.INGESTION_SMALL]`: writable tables, Kafka tables and materialized views for lower-volume topics.
-  It also runs the person, distinct ID and groups consumers.
-  Do not put a full-topic consumer here because its dependencies are here. Create them on the consumer's role.
+- `[NodeRole.INGESTION_SMALL]`, `[NodeRole.INGESTION_MEDIUM]`, `[NodeRole.INGESTION_EVENTS]`: writable tables, Kafka tables, materialized views on the ingestion layer.
+  Choose by topic volume, and check where comparable consumers run.
+  `INGESTION_EVENTS` is for consumers of all of `clickhouse_events_json`, `INGESTION_MEDIUM` is for high-volume topics such as `clickhouse_flag_evaluations`, and `INGESTION_SMALL` is for lower-volume topics.
 - `[NodeRole.APM]`: the `ingestion-apm` nodes, the metrics ingestion layer. Kafka tables, `Null` input
   tables, materialized views and writable `Distributed` tables that write into storage on `LOGS`.
   Stateless like the other ingestion nodes, so storage tables never go here.
@@ -98,10 +96,7 @@ SETTINGS kafka_skip_broken_messages = 100,
 - `kafka_max_block_size` defaults to about a million rows, so 100000 is a reduction; lower for wide
   rows, not below ~1000.
 - `kafka_num_consumers` is per node, so the role's node count multiplies it; the total must not
-  exceed the topic's partitions. That is only the ceiling. Compare the load per consumer with a sibling on the same topic.
-- A new `kafka_group_name` starts at `earliest` and replays the topic's full retention.
-  No table setting changes this, so agree the start position with the ClickHouse team before the migration merges.
-  See "Starting a new consumer group" in `AGENTS.md`.
+  exceed the topic's partitions.
 - Columns and settings are fixed at creation: drop and recreate the table with its MV, no `SYNC`.
   `ALTER TABLE <mv> MODIFY QUERY` covers an MV-SELECT-only change. Never for
   `kafka_events_json_ws` / `events_json_ws_mv` — see Critical rules.
