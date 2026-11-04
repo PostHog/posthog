@@ -85,7 +85,7 @@ for model_tables in EMBEDDING_TABLES_1:
 # Create union view that combines all model-specific tables with model_name column
 operations.append(
     run_sql_with_exceptions(
-        DOCUMENT_EMBEDDINGS_UNION_VIEW_SQL(),
+        DOCUMENT_EMBEDDINGS_UNION_VIEW_SQL(EMBEDDING_TABLES_1),
         node_roles=[NodeRole.DATA],
     )
 )
