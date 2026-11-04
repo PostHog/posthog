@@ -1,9 +1,11 @@
 import base64
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
@@ -148,6 +150,7 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
     def _url(self, segment: str) -> str:
         return f"/api/projects/{self.team.id}/ai_observability/traces/{segment}/"
 
+    @time_machine.travel(T0 + timedelta(days=1), tick=False)
     def test_availability_reads_both_tables_with_a_read_key_and_stays_in_the_project(self) -> None:
         _create_trace(self.team, "application,trace")
         other_team = Team.objects.create(organization=self.organization, name="other")
@@ -171,28 +174,65 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
         self.client.logout()
         headers = {"authorization": f"Bearer {key}"}
 
-        response = self.client.post(
-            self._url("availability"),
-            {"trace_ids": ["application,trace", "evaluator/trace"]},
-            format="json",
-            headers=headers,
-        )
+        with self.capture_select_queries() as queries:
+            response = self.client.post(
+                self._url("availability"),
+                {"trace_ids": ["application,trace", "evaluator/trace"]},
+                format="json",
+                headers=headers,
+            )
 
         assert response.status_code == 200
         assert response.json() == {"available_trace_ids": ["application,trace", "evaluator/trace"]}
-        response = self.client.post(
-            self._url("availability"),
-            {"trace_ids": ["missing", "other-trace"]},
-            format="json",
-            headers=headers,
-        )
+        probes = [query for query in queries if "FROM system.columns" not in query]
+        assert len(probes) == 2
+        for query in probes:
+            self.assertQueryMatchesSnapshot(query)
+
+        with self.capture_select_queries() as queries:
+            response = self.client.post(
+                self._url("availability"),
+                {"trace_ids": ["missing", "other-trace"]},
+                format="json",
+                headers=headers,
+            )
         assert response.status_code == 200
         assert response.json() == {"available_trace_ids": []}
+        probes = [query for query in queries if "FROM system.columns" not in query]
+        assert len(probes) == 2
+        for query in probes:
+            self.assertQueryMatchesSnapshot(query)
+
+        with self.capture_select_queries() as queries:
+            response = self.client.post(
+                self._url("availability"),
+                {"trace_ids": ["application,trace", "application,trace"]},
+                format="json",
+                headers=headers,
+            )
+        assert response.status_code == 200
+        assert response.json() == {"available_trace_ids": ["application,trace"]}
+        assert len([query for query in queries if "FROM system.columns" not in query]) == 1
 
     def test_availability_rejects_more_than_two_traces(self) -> None:
         response = self.client.post(self._url("availability"), {"trace_ids": ["one", "two", "three"]}, format="json")
 
         assert response.status_code == 400
+
+    def test_availability_preserves_known_traces_when_the_fallback_times_out(self) -> None:
+        with patch.object(
+            trace_queries,
+            "execute_hogql_query",
+            side_effect=[SimpleNamespace(results=[["application,trace"]]), ClickHouseQueryTimeOut()],
+        ):
+            response = self.client.post(
+                self._url("availability"),
+                {"trace_ids": ["application,trace", "evaluator/trace"]},
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {"available_trace_ids": ["application,trace"]}
 
     @parameterized.expand([("plain id", "trace-1"), ("id with a dot", "run.42"), ("id with a slash", "a/b")])
     def test_returns_the_trace_in_camel_case(self, _name: str, trace_id: str) -> None:
