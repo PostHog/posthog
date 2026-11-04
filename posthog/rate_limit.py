@@ -10,7 +10,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.urls import resolve
 from django.utils import timezone
 
@@ -375,6 +375,7 @@ class SignupIPThrottle(IPThrottle):
 
     scope = "signup_ip"
     rate = settings.SIGNUP_IP_THROTTLE_RATE
+    cache = caches["signup_throttle"]
     reserved = False
 
     @contextmanager
