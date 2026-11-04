@@ -823,7 +823,7 @@ export class CyclotronV2Manager {
     private async findJob(teamId: number, id: string): Promise<{ status: string; cancelRequested: boolean } | null> {
         const result = await this.pool.query<{ status: string; cancel_requested: boolean }>(
             `SELECT status, cancel_requested_at IS NOT NULL AS cancel_requested FROM cyclotron_jobs
-             WHERE id = $1 AND team_id = $2`,
+             WHERE id = $1 AND team_id = $2 AND queue_name = 'email'`,
             [id, teamId]
         )
         const row = result.rows[0]
