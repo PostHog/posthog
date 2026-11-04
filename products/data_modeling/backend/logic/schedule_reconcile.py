@@ -105,10 +105,10 @@ def maybe_reconcile_dag(dag: DAG) -> None:
     transaction.on_commit(lambda: _reconcile_dag_best_effort(dag))
 
 
-def _reconcile_dag(dag: DAG) -> None:
+def _reconcile_dag(dag: DAG) -> list[str]:
     graph = build_frequency_graph(dag)
     _warn_on_invalid_targets(dag, graph)
-    reconcile_dag_schedules(dag, graph=graph)
+    return reconcile_dag_schedules(dag, graph=graph)
 
 
 def _reconcile_dag_best_effort(dag: DAG) -> None:
@@ -370,11 +370,11 @@ def apply_saved_query_frequency_anchor(
     return written
 
 
-def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) -> None:
+def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) -> list[str]:
     """Make Temporal's schedules for this DAG match its nodes' effective cadences.
 
     An empty tier set is a deliberate wind-down (last target reverted/cleared), so the DAG's
-    schedules are torn down.
+    schedules are torn down. Returns the ids of stale schedules that could not be deleted.
 
     While the plan floor is unreadable this only takes nodes with no cadence off their schedules, and
     then raises, because any other change could speed up a schedule the floor holds back.
@@ -393,7 +393,7 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) ->
         )
         raise PlanFloorUnavailableError(f"Plan refresh floor unavailable for team {team.pk}")
     desired_tiers = bucket_into_cadence_tiers(effective, graph.declared_anchors)
-    _apply_reconciliation(
+    return _apply_reconciliation(
         dag_id=str(dag.id),
         team_id=team.pk,
         organization_id=str(team.organization_id),
@@ -410,14 +410,16 @@ def reconcile_organization_dags(organization_id: str) -> None:
     a reconcile would create the first schedules of a DAG with none, and would delete a whole-DAG
     legacy schedule before `convert_dag_to_tiers` seeds the targets that replace it.
 
-    Raises after trying every DAG if any of them failed, because the plan change does not fire again.
+    Raises after trying every DAG if any of them failed or kept a stale schedule, because the plan
+    change does not fire again and a schedule on the old floor keeps running until something reconciles it.
     """
     failed = 0
     for dag in DAG.objects.filter(team__organization_id=organization_id).select_related("team"):
         try:
             schedule_ids = list_existing_schedule_ids(str(dag.id))
             if schedule_ids and all(is_tier_schedule_id(schedule_id) for schedule_id in schedule_ids):
-                _reconcile_dag(dag)
+                if _reconcile_dag(dag):
+                    failed += 1
         except Exception as error:
             logger.exception("Organization schedule reconcile failed", dag_id=str(dag.id), team_id=dag.team_id)
             capture_exception(error)
@@ -562,7 +564,7 @@ async def _apply_reconciliation(
     organization_id: str,
     team_timezone: str,
     desired_tiers: dict[Tier, set[str]],
-) -> None:
+) -> list[str]:
     unsupported = sorted({tier.interval for tier in desired_tiers if tier.interval not in SCHEDULABLE_BUCKETS})
     if unsupported:
         tiers = ", ".join(format_cadence(interval) for interval in unsupported)
@@ -617,12 +619,15 @@ async def _apply_reconciliation(
 
     # A failed delete leaves transient dual coverage (e.g. the legacy whole-DAG schedule alongside
     # tiers); the next reconcile sweeps it, so log and keep going rather than fail the converge.
+    failed_deletes: list[str] = []
     for schedule_id in plan.to_delete:
         try:
             await a_delete_schedule(temporal, schedule_id=schedule_id)
         except Exception as error:
             logger.exception("Failed to delete stale schedule", schedule_id=schedule_id, dag_id=dag_id)
             capture_exception(error)
+            failed_deletes.append(schedule_id)
+    return failed_deletes
 
 
 @async_to_sync

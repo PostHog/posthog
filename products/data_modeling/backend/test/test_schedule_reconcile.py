@@ -19,7 +19,6 @@ from products.data_modeling.backend.logic.node_frequency import (
     get_declared_anchor,
     get_declared_pin,
     get_declared_target,
-    saved_query_target_bounds,
     set_declared_anchor,
     set_declared_pin,
     set_declared_target,
@@ -639,7 +638,7 @@ class TestMaybeReconcileDag(BaseTest):
 
         with (
             mock.patch(f"{RECONCILE}.list_existing_schedule_ids", side_effect=schedules.__getitem__),
-            mock.patch(f"{RECONCILE}.reconcile_dag_schedules") as reconcile,
+            mock.patch(f"{RECONCILE}.reconcile_dag_schedules", return_value=[]) as reconcile,
         ):
             reconcile_organization_dags(str(self.organization.id))
 
@@ -657,6 +656,30 @@ class TestMaybeReconcileDag(BaseTest):
             reconcile_organization_dags(str(self.organization.id))
 
         self.assertCountEqual([call.args[0] for call in reconcile.call_args_list], [first, second])
+
+    def test_organization_reconcile_raises_when_a_stale_schedule_cannot_be_deleted(self):
+        dag = self._dag_with_target()
+        stale_id = tier_schedule_id(str(dag.id), H1)
+
+        async def fake_list_schedules(*_args, **_kwargs):
+            async def gen():
+                yield _listing(stale_id)
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+
+        with (
+            mock.patch(f"{RECONCILE}.list_existing_schedule_ids", return_value={stale_id}),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock(side_effect=RuntimeError("temporal down"))),
+            self.assertRaises(OrganizationReconcileError),
+        ):
+            reconcile_organization_dags(str(self.organization.id))
+
+        create.assert_called_once()
 
     def test_unreadable_plan_floor_leaves_a_legacy_whole_dag_schedule_running(self):
         dag = DAG.objects.create(team=self.team, name="legacy")
@@ -795,7 +818,7 @@ class TestMaybeReconcileDag(BaseTest):
         view.refresh_from_db()
         self.assertEqual(get_declared_target(view), M15)
 
-    def test_a_user_reader_cannot_be_fresher_than_a_managed_view_slowed_by_the_plan_floor(self):
+    def test_a_reader_of_a_managed_view_slowed_by_the_plan_floor_can_resave_its_cadence(self):
         self.organization.has_active_subscription = False
         self.organization.save(update_fields=["has_active_subscription"])
         dag = DAG.get_or_create_default(self.team)
@@ -811,15 +834,17 @@ class TestMaybeReconcileDag(BaseTest):
         reader = _saved_query_node(self.team, dag, "reader", NodeType.MAT_VIEW)
         Edge.objects.create(team=self.team, dag=dag, source=source, target=managed_view)
         Edge.objects.create(team=self.team, dag=dag, source=managed_view, target=reader)
-        assert reader.saved_query_id is not None
+        set_declared_target(reader, M15)
+        assert reader.saved_query is not None
 
-        with mock.patch(FLAG_RESULT, side_effect=_free_plan_floor({"min_interval": "6hour", "clamp_existing": True})):
-            resolved = saved_query_target_bounds(self.team.id, reader.saved_query_id)
+        with (
+            mock.patch(FLAG_RESULT, side_effect=_free_plan_floor({"min_interval": "6hour", "clamp_existing": True})),
+            mock.patch(f"{RECONCILE}.maybe_reconcile_dag"),
+        ):
+            apply_saved_query_frequency_target(reader.saved_query, M15)
 
-        assert resolved is not None
-        assert resolved.bounds.floor is not None
-        self.assertEqual(resolved.bounds.floor.value, H6)
-        self.assertEqual(resolved.bounds.floor.blocker, str(managed_view.id))
+        reader.refresh_from_db()
+        self.assertEqual(get_declared_target(reader), M15)
 
     def test_saving_a_cadence_finer_than_the_plan_floor_is_refused(self):
         self.organization.has_active_subscription = False

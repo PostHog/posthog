@@ -397,7 +397,6 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
             edges=edges,
             source_intervals=source_intervals,
             pinned=pinned,
-            plan_floor=schedule_plan_floor,
         )
         # A materialized view's data changes once per run, whatever its inputs do, so it counts as a
         # source at its run cadence. A query-time view passes its inputs' changes straight through.
