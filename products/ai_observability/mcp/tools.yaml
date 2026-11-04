@@ -813,9 +813,9 @@ tools:
         title: List evaluation report runs
         description: >
             List the run history for a specific evaluation report config. `id` is the report config's UUID, not the
-            evaluation's: to find it from an evaluation, call llma-evaluation-report-list with the evaluation's UUID
-            in `evaluation`. Each run record includes the generated report content, the evaluation period covered,
-            delivery status ('pending', 'delivered', 'failed'), and any delivery error details.
+            evaluation's: to find it from an evaluation, call llma-evaluation-report-list with the evaluation's UUID in
+            `evaluation`. Each run record includes the generated report content, the evaluation period covered, delivery
+            status ('pending', 'delivered', 'failed'), and any delivery error details.
         param_overrides:
             id:
                 aliases:
