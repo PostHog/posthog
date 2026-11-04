@@ -492,7 +492,7 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
 /// PG already holds a revived row. Once the mark settles, the document
 /// leaves the cache and the next read serves the revival from PG.
 #[tokio::test]
-async fn a_revival_is_served_once_the_death_documents_mark_settles() {
+async fn a_revival_is_served_over_the_death_document() {
     let pool = common::create_persons_pool().await;
     let mut harness = start_fence_harness(
         test_cached_person(),
@@ -565,21 +565,6 @@ async fn a_revival_is_served_once_the_death_documents_mark_settles() {
         .expect("the death document is cached");
     assert!(death.is_deleted);
 
-    // A stub-create revived the row in place: same id and uuid, version
-    // above the death document's.
-    sqlx::query(
-        "INSERT INTO posthog_person \
-             (id, team_id, uuid, properties, created_at, version, is_identified, is_deleted) \
-         VALUES ($1, $2, $3::uuid, '{\"revived\": true}'::jsonb, now(), $4, false, false)",
-    )
-    .bind(person_id)
-    .bind(team_id as i32)
-    .bind(&person_uuid)
-    .bind(death.version + 1)
-    .execute(&pool)
-    .await
-    .expect("insert revived row");
-
     let get = || {
         with_partition(
             GetPersonRequest {
@@ -590,14 +575,63 @@ async fn a_revival_is_served_once_the_death_documents_mark_settles() {
             partition,
         )
     };
+    let set_row = |version: i64| {
+        let pool = pool.clone();
+        let person_uuid = person_uuid.clone();
+        async move {
+            sqlx::query(
+                "INSERT INTO posthog_person \
+                     (id, team_id, uuid, properties, created_at, version, is_identified, is_deleted) \
+                 VALUES ($1, $2, $3::uuid, '{\"revived\": true}'::jsonb, now(), $4, false, false) \
+                 ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version",
+            )
+            .bind(person_id)
+            .bind(team_id as i32)
+            .bind(&person_uuid)
+            .bind(version)
+            .execute(&pool)
+            .await
+            .expect("write live row");
+        }
+    };
+
+    // A live row at the death version is pre-death state, not a revival.
+    set_row(death.version).await;
     let status = harness
         .client
         .get_person(get())
         .await
-        .expect_err("the death document answers while its mark stands");
+        .expect_err("the death document still answers");
     assert_eq!(status.code(), Code::NotFound);
 
-    // The writer commits past the death record; the prune settles its mark.
+    // A stub-create revived the row in place: same id and uuid, version
+    // above the death document's. It is served while the death mark stands.
+    set_row(death.version + 1).await;
+    let revived = harness
+        .client
+        .get_person(get())
+        .await
+        .expect("the revival is served over the cached death document")
+        .into_inner()
+        .person
+        .unwrap();
+    assert_eq!(revived.version, death.version + 1);
+    assert_eq!(revived.uuid, person_uuid);
+
+    // A miss while the mark stands recovers the death document from the
+    // changelog, and the revival is served over that too.
+    harness.cache.remove(partition, &key);
+    let recovered = harness
+        .client
+        .get_person(get())
+        .await
+        .expect("the revival is served over the recovered death document")
+        .into_inner()
+        .person
+        .unwrap();
+    assert_eq!(recovered.version, death.version + 1);
+
+    // The settle leaves the revived entry in place.
     let mark = harness
         .dirty_index
         .get(&key)
@@ -609,21 +643,13 @@ async fn a_revival_is_served_once_the_death_documents_mark_settles() {
     assert!(exhausted);
     assert_eq!(pruned.death_marks.len(), 1);
     drop_settled_death_documents(&harness.cache, &harness.locks, &pruned.death_marks).await;
-    assert!(
-        harness.cache.peek(partition, &key).is_none(),
-        "the settled death document leaves the cache"
+    assert_eq!(
+        harness
+            .cache
+            .peek(partition, &key)
+            .map(|entry| entry.version),
+        Some(death.version + 1)
     );
-
-    let revived = harness
-        .client
-        .get_person(get())
-        .await
-        .expect("the revival is served from PG after the settle")
-        .into_inner()
-        .person
-        .unwrap();
-    assert_eq!(revived.version, death.version + 1);
-    assert_eq!(revived.uuid, person_uuid);
 
     sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
         .bind(op)
