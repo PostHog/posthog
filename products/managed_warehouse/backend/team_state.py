@@ -39,6 +39,28 @@ def _get_cp_row(team_id: int) -> cp_teams.CPTeam | None:
     return next((team for team in teams if team.team_id == team_id), None)
 
 
+def _fresh_org_teams(team_id: int) -> list[cp_teams.CPTeam]:
+    # A cached read can miss a team that started to write a table within the cache TTL.
+    teams = cp_teams.list_org_teams(_get_org_id_for_team(team_id), use_cache=False)
+    if teams is None:
+        raise CPUnavailableError(f"duckgres control plane unreachable reading team state for team {team_id}")
+    return teams
+
+
+def _resolved_tables(team: cp_teams.CPTeam) -> tuple[str, str, str]:
+    return (team.resolved_events_table, team.resolved_persons_table, team.resolved_groups_table)
+
+
+def _refuse_base_tables_another_team_writes(team_id: int, tables: tuple[str, ...]) -> None:
+    # A Trino replacement on a base table that a team owns has no team filter, so it would remove these rows.
+    claimed = sorted({table for team in _fresh_org_teams(team_id) for table in _resolved_tables(team)} & set(tables))
+    if claimed:
+        raise ValueError(
+            f"Team {team_id} has no control-plane row, so it would write to {claimed}, "
+            "which another team of the organization writes"
+        )
+
+
 # --- events/persons table names (Dagster duckling backfill) -----------------------
 
 
@@ -47,11 +69,13 @@ def resolve_events_persons_tables(team_id: int) -> DucklingTables:
 
     Failure posture: raises :class:`CPUnavailableError` when the control plane can't
     answer and the cache is cold — the backfill run fails and retries rather than
-    writing to guessed tables.
+    writing to guessed tables. Raises ValueError when a team without a control-plane
+    row would fall back to a base table that another team of the organization writes.
     """
     row = _get_cp_row(team_id)
     if row is None:
         # Legacy single-team ducklings without a team row share the base tables.
+        _refuse_base_tables_another_team_writes(team_id, ("events", "persons"))
         return DucklingTables(events_table="events", persons_table="persons")
     events_table, persons_table = row.resolved_events_table, row.resolved_persons_table
     validate_duckgres_identifier(events_table)
@@ -71,23 +95,16 @@ def team_owned_tables(team_id: int) -> frozenset[str]:
 
     A replacement removes rows by time or by table, so it is safe only on a table that no other team of the
     organization writes. Returns an empty set when the team has no control-plane row, because ownership cannot be
-    proven. Raises :class:`CPUnavailableError` when the control plane can't answer.
+    proven. A team without a row cannot write a base table that another team resolves to, because
+    :func:`resolve_events_persons_tables` refuses it. Raises :class:`CPUnavailableError` when the control
+    plane can't answer.
     """
-    organization_id = _get_org_id_for_team(team_id)
-    # A cached read can miss a team that started to write the table within the cache TTL.
-    teams = cp_teams.list_org_teams(organization_id, use_cache=False)
-    if teams is None:
-        raise CPUnavailableError(f"duckgres control plane unreachable reading team state for team {team_id}")
+    teams = _fresh_org_teams(team_id)
     row = next((team for team in teams if team.team_id == team_id), None)
     if row is None:
         return frozenset()
-    others = {
-        table
-        for team in teams
-        if team.team_id != team_id
-        for table in (team.resolved_events_table, team.resolved_persons_table, team.resolved_groups_table)
-    }
-    return frozenset({row.resolved_events_table, row.resolved_persons_table, row.resolved_groups_table}) - others
+    others = {table for team in teams if team.team_id != team_id for table in _resolved_tables(team)}
+    return frozenset(_resolved_tables(row)) - others
 
 
 # --- data-imports schema (v3 sink hot path) ---------------------------------------
