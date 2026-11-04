@@ -27,6 +27,7 @@ import hashlib
 import dataclasses
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal, cast
 
@@ -80,6 +81,12 @@ from products.warehouse_sources.backend.presentation.views.external_data_source.
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.csv_types import (
     UnsupportedCsvColumnError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    ObjectStorageError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.filesystem import (
+    lookup_s3_bucket_region,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
     SelfManagedCredential,
     SelfManagedLocation,
@@ -131,6 +138,7 @@ class TableMigrationState(StrEnum):
 MigrationAction = Literal["none", "would_link", "linked", "link_failed", "limit_reached"]
 AbandonAction = Literal["would_abandon", "abandoned", "refused"]
 MergeAction = Literal["would_merge", "merged", "skipped"]
+SourceBackdateAction = Literal["would_backdate", "backdated", "unchanged"]
 
 
 @frozen
@@ -170,6 +178,15 @@ class SourceMergeOutcome:
 
 
 @frozen
+class SourceBackdateOutcome:
+    source_id: str
+    team_id: int
+    old_created_at: datetime
+    new_created_at: datetime | None
+    action: SourceBackdateAction
+
+
+@frozen
 class MigrationOptions:
     team_id: int | None = None
     table_ids: tuple[str, ...] = ()
@@ -206,34 +223,40 @@ class _Evaluation:
 
 
 def resolve_s3_bucket_region(bucket: str, credential: SelfManagedCredential) -> str | None:
-    """Ask S3 for the bucket's region with the table's own key.
+    """Ask S3 for the bucket's region with the table's own key, then without a key.
 
     S3 names the region in the `x-amz-bucket-region` header of a HEAD request, also when it
-    answers with a redirect or a 403, so a key that may only read objects still finds it.
+    answers with a redirect or a 403. A key that can't make the request at all gets no answer, and
+    the anonymous request still finds the region of a bucket that exists.
     """
-    if not credential.access_key.strip() or not credential.access_secret.strip():
-        return None
-    client = boto3.client(
-        "s3",
-        region_name="us-east-1",
-        aws_access_key_id=credential.access_key.strip(),
-        aws_secret_access_key=credential.access_secret.strip(),
-        config=BotoConfig(
-            connect_timeout=CONNECT_TIMEOUT_SECONDS,
-            read_timeout=READ_TIMEOUT_SECONDS,
-            retries={"max_attempts": MAX_REQUEST_ATTEMPTS, "mode": "standard"},
-        ),
-    )
-    response: Mapping[str, Any]
+    if credential.access_key.strip() and credential.access_secret.strip():
+        response: Mapping[str, Any]
+        try:
+            client = boto3.client(
+                "s3",
+                region_name="us-east-1",
+                aws_access_key_id=credential.access_key.strip(),
+                aws_secret_access_key=credential.access_secret.strip(),
+                config=BotoConfig(
+                    connect_timeout=CONNECT_TIMEOUT_SECONDS,
+                    read_timeout=READ_TIMEOUT_SECONDS,
+                    retries={"max_attempts": MAX_REQUEST_ATTEMPTS, "mode": "standard"},
+                ),
+            )
+            response = client.head_bucket(Bucket=bucket)
+        except ClientError as e:
+            response = e.response
+        except BotoCoreError:
+            response = {}
+        headers = response.get("ResponseMetadata", {}).get("HTTPHeaders", {})
+        region = headers.get("x-amz-bucket-region")
+        if isinstance(region, str) and region:
+            return region
+
     try:
-        response = client.head_bucket(Bucket=bucket)
-    except ClientError as e:
-        response = e.response
-    except BotoCoreError:
+        return lookup_s3_bucket_region(bucket)
+    except (ObjectStorageError, ClientError, BotoCoreError):
         return None
-    headers = response.get("ResponseMetadata", {}).get("HTTPHeaders", {})
-    region = headers.get("x-amz-bucket-region")
-    return region if isinstance(region, str) and region else None
 
 
 def _object_storage_sources() -> dict[StorageService, ObjectStorageSource[Any]]:
@@ -714,7 +737,7 @@ def _ensure_schema(table: DataWarehouseTable, plan: _TablePlan) -> ExternalDataS
         ):
             raise UnmappableTableError(f"another table in this bucket already uses the name '{table.name}'")
         ref = SelfManagedTableRef(table_id=str(table.id), url_pattern=table.url_pattern, format=table.format)
-        return ExternalDataSchema.objects.create(
+        schema = ExternalDataSchema.objects.create(
             name=table.name,
             team_id=table.team_id,
             source=source,
@@ -728,6 +751,13 @@ def _ensure_schema(table: DataWarehouseTable, plan: _TablePlan) -> ExternalDataS
                 }
             },
         )
+        if table.created_at is not None:
+            # Auto-set dates need an update after the rows exist.
+            ExternalDataSchema.objects.filter(team_id=table.team_id, pk=schema.pk).update(created_at=table.created_at)
+            ExternalDataSource.objects.filter(
+                team_id=table.team_id, pk=source.pk, created_at__gt=table.created_at
+            ).update(created_at=table.created_at)
+        return schema
 
 
 def migrate_self_managed_tables(
@@ -885,6 +915,70 @@ def _abandon(evaluation: _Evaluation, reason: str) -> None:
 
 
 _GroupId = tuple[int, str, str, str]
+
+
+def backdate_migration_sources(team_id: int | None, live_run: bool) -> list[SourceBackdateOutcome]:
+    """Use linked table dates for migration sources made by earlier runs."""
+
+    queryset = (
+        ExternalDataSource.objects.filter(connection_metadata__has_key=MIGRATION_MARKER_KEY)
+        .exclude(deleted=True)
+        .order_by("team_id", "id")
+    )
+    if team_id is not None:
+        queryset = queryset.filter(team_id=team_id)
+    sources_by_team: dict[int, list[ExternalDataSource]] = defaultdict(list)
+    for source in queryset:
+        sources_by_team[source.team_id].append(source)
+
+    outcomes: list[SourceBackdateOutcome] = []
+    for source_team_id, sources in sources_by_team.items():
+        schemas_by_source: dict[uuid.UUID, list[ExternalDataSchema]] = defaultdict(list)
+        table_ids: set[str] = set()
+        for schema in ExternalDataSchema.objects.filter(
+            team_id=source_team_id, source_id__in=[source.pk for source in sources], deleted=False
+        ):
+            ref = self_managed_table_ref(schema)
+            if ref is not None:
+                schemas_by_source[schema.source_id].append(schema)
+                table_ids.add(ref.table_id)
+        # Deleted tables still give their migration sources their original dates.
+        table_dates = {
+            str(table.pk): table.created_at
+            for table in DataWarehouseTable.raw_objects.filter(team_id=source_team_id, id__in=table_ids).only(
+                "id", "created_at"
+            )
+        }
+        for source in sources:
+            schema_dates: list[tuple[ExternalDataSchema, datetime]] = []
+            for schema in schemas_by_source[source.pk]:
+                ref = self_managed_table_ref(schema)
+                if ref is not None and (created_at := table_dates.get(ref.table_id)) is not None:
+                    schema_dates.append((schema, created_at))
+            oldest = min((created_at for _, created_at in schema_dates), default=None)
+            action: SourceBackdateAction = "unchanged"
+            if oldest is not None and oldest < source.created_at:
+                action = "would_backdate"
+                if live_run:
+                    with transaction.atomic():
+                        ExternalDataSource.objects.filter(
+                            team_id=source_team_id, pk=source.pk, deleted=False, created_at__gt=oldest
+                        ).update(created_at=oldest)
+                        for schema, created_at in schema_dates:
+                            ExternalDataSchema.objects.filter(
+                                team_id=source_team_id, pk=schema.pk, deleted=False
+                            ).update(created_at=created_at)
+                    action = "backdated"
+            outcomes.append(
+                SourceBackdateOutcome(
+                    source_id=str(source.pk),
+                    team_id=source_team_id,
+                    old_created_at=source.created_at,
+                    new_created_at=oldest if action != "unchanged" else None,
+                    action=action,
+                )
+            )
+    return outcomes
 
 
 def merge_duplicate_sources(team_id: int | None = None, live_run: bool = False) -> list[SourceMergeOutcome]:
