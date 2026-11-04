@@ -286,7 +286,7 @@ def mint_refusal(
         return _team_credit_refusal(team_id, bucket)
     except Exception:
         logger.warning(
-            "ai_gateway_token: credit lookup failed, run stays on the Python gateway",
+            "ai_gateway_token: credit lookup failed",
             extra={"team_id": team_id, "bucket": bucket},
             exc_info=True,
         )

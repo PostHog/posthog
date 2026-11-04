@@ -26,8 +26,8 @@ _PROVISION = "products.tasks.backend.temporal.process_task.activities.provision_
 
 
 @pytest.fixture(autouse=True)
-def mock_gateway_accounting() -> Iterator[None]:
-    with patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"):
+def mock_gateway_routing() -> Iterator[None]:
+    with patch(f"{_PROVISION}.run_gateway_env_vars", return_value={}):
         yield
 
 
@@ -292,24 +292,6 @@ def test_restricted_vm_rejects_invalid_legacy_context() -> None:
 @patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})
 @patch(f"{_PROVISION}.get_sandbox_jwt_public_key", return_value="pub")
 @patch(f"{_PROVISION}.get_sandbox_api_url", return_value="https://api.example")
-@override_settings(
-    SANDBOX_AI_GATEWAY_URL="https://ai-gateway.us.posthog.com",
-    SANDBOX_AI_GATEWAY_PRODUCTS="signals_scout",
-)
-def test_build_environment_variables_injects_ai_gateway_pair(_api, _jwt, _git):
-    # Pins this site's wiring of the shared helper: the conjunction itself is
-    # tested in test_utils.py, but deleting the update() call here would merge
-    # green without this assertion and Modal-provisioned sandboxes would
-    # silently stay on the legacy gateway.
-    env = _build_environment_variables(_context(), MagicMock(), "", "access-token")
-
-    assert env["AI_GATEWAY_URL"] == "https://ai-gateway.us.posthog.com"
-    assert env["AI_GATEWAY_PRODUCTS"] == "signals_scout"
-
-
-@patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})
-@patch(f"{_PROVISION}.get_sandbox_jwt_public_key", return_value="pub")
-@patch(f"{_PROVISION}.get_sandbox_api_url", return_value="https://api.example")
 @pytest.mark.parametrize(
     "state, expected_resume_run_id, expected_idle",
     [
@@ -451,6 +433,7 @@ def test_build_environment_variables_omits_otel_env_when_flag_disabled(_api, _jw
 @patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})
 @patch(f"{_PROVISION}.get_sandbox_jwt_public_key", return_value="pub")
 @patch(f"{_PROVISION}.get_sandbox_api_url", return_value="https://api.example")
+@override_settings(SANDBOX_LLM_GATEWAY_URL="https://gateway.us.posthog.com")
 def test_build_environment_variables_forwards_run_context_to_token_minting(_api, _jwt, _git):
     """The fresh-provisioning path must forward team, origin, stage, and internal
     into token minting; a dropped kwarg silently degrades every fresh run to the
@@ -465,6 +448,7 @@ def test_build_environment_variables_forwards_run_context_to_token_minting(_api,
         out = _build_environment_variables(ctx, task, "", "access-token")
     env.assert_called_once_with(ctx, task)
     assert out["AI_GATEWAY_TOKEN"] == "phe"
+    assert "LLM_GATEWAY_URL" not in out
 
 
 @pytest.mark.parametrize(

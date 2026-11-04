@@ -1619,36 +1619,31 @@ class TestBuildSandboxEnvironmentVariablesGateway(SimpleTestCase):
 
     def _build(self):
         ctx, task = _gateway_ctx_task()
-        return build_sandbox_environment_variables(github_token=None, access_token="tok", ctx=ctx, task=task)
+        ctx.state = {"ai_stage": "scout"}
+        task.stored_profile = None
+        with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe"):
+            return build_sandbox_environment_variables(github_token=None, access_token="tok", ctx=ctx, task=task)
 
     @override_settings(
+        SANDBOX_LLM_GATEWAY_URL="https://gateway.us.posthog.com",
         SANDBOX_AI_GATEWAY_URL="https://ai-gateway.us.posthog.com",
         SANDBOX_AI_GATEWAY_PRODUCTS="signals_scout,signals_research",
+        SANDBOX_AI_GATEWAY_MINT_KEY="phs_test_mint",
     )
     def test_both_settings_inject_both_vars(self, _api, _jwt):
         env = self._build()
         self.assertEqual(env["AI_GATEWAY_URL"], "https://ai-gateway.us.posthog.com")
         self.assertEqual(env["AI_GATEWAY_PRODUCTS"], "signals_scout,signals_research")
-
-    @override_settings(SANDBOX_AI_GATEWAY_URL="https://ai-gateway.us.posthog.com", SANDBOX_AI_GATEWAY_PRODUCTS=None)
-    def test_url_without_products_injects_neither(self, _api, _jwt):
-        # A URL with no product allowlist would route every sandbox caller, so a
-        # half-config must inject nothing.
-        env = self._build()
-        self.assertNotIn("AI_GATEWAY_URL", env)
-        self.assertNotIn("AI_GATEWAY_PRODUCTS", env)
-
-    @override_settings(SANDBOX_AI_GATEWAY_URL=None, SANDBOX_AI_GATEWAY_PRODUCTS="signals_scout")
-    def test_products_without_url_injects_neither(self, _api, _jwt):
-        env = self._build()
-        self.assertNotIn("AI_GATEWAY_URL", env)
-        self.assertNotIn("AI_GATEWAY_PRODUCTS", env)
+        self.assertEqual(env["AI_GATEWAY_TOKEN"], "phe")
+        self.assertNotIn("LLM_GATEWAY_URL", env)
 
 
 class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"))
+        self.enterContext(
+            patch("products.tasks.backend.temporal.process_task.utils.run_gateway_env_vars", return_value={})
+        )
 
     @parameterized.expand([False, True])
     @patch(

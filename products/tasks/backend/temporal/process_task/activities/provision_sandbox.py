@@ -602,9 +602,6 @@ def _build_environment_variables(
     # a script that a resume snapshot could control. It's blocked (constants.py) so a
     # user-supplied env var can't add it here.
 
-    if settings.SANDBOX_LLM_GATEWAY_URL:
-        environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
-
     environment_variables.update(run_gateway_env_vars(ctx, task))
     environment_variables.update(mcp_exec_skills_env_vars(ctx))
 

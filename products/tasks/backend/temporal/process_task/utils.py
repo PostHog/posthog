@@ -56,6 +56,7 @@ from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.desktop_gateway_token import (
     POSTHOG_CODE_CREDITS_EXHAUSTED_DETAIL,
+    PRODUCT_CREDIT_BUCKET,
     record_gateway_token_refusal,
 )
 from products.tasks.backend.logic.services.gateway_model_pin import (
@@ -1553,9 +1554,6 @@ def build_sandbox_environment_variables(
         }
     )
 
-    if settings.SANDBOX_LLM_GATEWAY_URL:
-        env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
-
     env_vars.update(run_gateway_env_vars(ctx, task))
     env_vars.update(mcp_exec_skills_env_vars(ctx))
 
@@ -1628,15 +1626,12 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
     ai_stage = (ctx.state or {}).get("ai_stage")
     profile = task.stored_profile
     profile_billing_product = profile.billing_product if profile else None
-    requires_go = (
-        resolve_sandbox_ai_product(
-            ctx.origin_product,
-            ai_stage,
-            internal=task.internal,
-            billing_product=(ctx.state or {}).get("billing_product"),
-            profile_billing_product=profile_billing_product,
-        )
-        == POSTHOG_CODE_PRODUCT
+    ai_product = resolve_sandbox_ai_product(
+        ctx.origin_product,
+        ai_stage,
+        internal=task.internal,
+        billing_product=(ctx.state or {}).get("billing_product"),
+        profile_billing_product=profile_billing_product,
     )
     try:
         env_vars = ai_gateway_env_vars(
@@ -1654,8 +1649,6 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
         )
         pinned = env_vars.pop(_PIN_KEY_ENV, None) or env_vars.get("AI_GATEWAY_PRODUCT")
         if not _record_pinned_gateway_product(ctx.run_id, ctx.state, pinned):
-            if requires_go:
-                raise posthog_code_token_unavailable("pin_unrecorded", ctx.team_id)
             if requires_pi_scout:
                 raise ProcessTaskTransientError(
                     "Could not record the Pi scout's gateway model pin.",
@@ -1663,14 +1656,10 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
                     RuntimeError("pin_unrecorded"),
                     capture=False,
                 )
-            # The model-change guard reads that stamp; unstamped, a run can move off its pin with no fallback.
-            for key in _TOKEN_ENV_KEYS:
-                env_vars.pop(key, None)
+            raise gateway_token_unavailable("pin_unrecorded", ctx.team_id, ai_product)
     except ProcessTaskError:
         raise
     except Exception as e:
-        if requires_go:
-            raise posthog_code_token_unavailable("mint_failed", ctx.team_id) from e
         if requires_pi_scout:
             raise ProcessTaskTransientError(
                 "The Pi scout's AI gateway is temporarily unavailable.",
@@ -1678,24 +1667,15 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
                 e,
                 capture=False,
             ) from e
-        # Degrading to the Python gateway beats failing the provisioning activity and the run.
-        AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
-        logger.warning(
-            "ai_gateway_token: routing failed, run stays on the Python gateway",
-            extra={"run_id": ctx.run_id},
-            exc_info=True,
-        )
-        env_vars = {}
+        raise gateway_token_unavailable("mint_failed", ctx.team_id, ai_product) from e
     if requires_pi_scout and not env_vars.get("AI_GATEWAY_TOKEN"):
         raise GatewayTokenUnavailableError(
             "Pi scouts require a scoped AI gateway token", {"team_id": ctx.team_id, "run_id": ctx.run_id}
         )
-    # Retry provisioning if coverage cannot be recorded; otherwise fallback usage can look fully accounted for.
-    record_gateway_routing(
-        run_id=ctx.run_id,
-        team_id=ctx.team_id,
-        uses_gateway=bool(env_vars.get("AI_GATEWAY_TOKEN")),
-    )
+    if not env_vars.get("AI_GATEWAY_TOKEN"):
+        raise gateway_token_unavailable("mint_failed", ctx.team_id, ai_product)
+    # Retry provisioning if coverage cannot be recorded.
+    record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=True)
     return env_vars
 
 
@@ -1712,7 +1692,6 @@ def _task_has_stamped_slack_run(task, origin_product: str | None, state: dict | 
     return TaskRun.objects.filter(task_id=task.id, state__interaction_origin="slack").exists()
 
 
-_TOKEN_ENV_KEYS = ("AI_GATEWAY_TOKEN", "AI_GATEWAY_TOKEN_CAP_USD")
 # Carries a narrower pin than the product's own to the run stamp; popped before the env reaches the sandbox.
 _PIN_KEY_ENV = "_AI_GATEWAY_PIN_KEY"
 
@@ -1735,9 +1714,7 @@ def _record_pinned_gateway_product(run_id: str, state: dict | None, minted_produ
     return True
 
 
-WORKFLOWS_PRODUCT = "workflows"
-WORKFLOWS_CREDITS_EXHAUSTED_REFUSAL = "ai_credits_exhausted"
-WORKFLOWS_CREDITS_EXHAUSTED_DETAIL = (
+AI_CREDITS_EXHAUSTED_DETAIL = (
     "This project has used its monthly PostHog AI credits. "
     "Raise the AI credit limit in billing settings, or wait for the next billing period."
 )
@@ -1745,7 +1722,7 @@ WORKFLOWS_CREDITS_EXHAUSTED_DETAIL = (
 
 def ai_gateway_env_vars(
     *,
-    team_id: int | None = None,
+    team_id: int,
     origin_product: str | None = None,
     ai_stage: str | None = None,
     internal: bool = False,
@@ -1767,24 +1744,15 @@ def ai_gateway_env_vars(
     ``AI_GATEWAY_TOKEN``, with the product it is pinned to and the run's stage as
     ``AI_GATEWAY_PRODUCT`` / ``AI_GATEWAY_AI_STAGE``; the agent routes on those and
     treats its own task-run fetch as the fallback. The agent server routes to the
-    Go gateway only when the token is present, so a missing token (mint failure,
-    or a caller that cannot supply run context) degrades the run to the Python
-    gateway, except a `posthog_code` run, which raises: the Python gateway
-    refuses `posthog_code`. A `workflows` run whose team is out of AI credits
-    also raises, because the Python gateway refuses it too.
+    Go gateway only when the token is present, so a run that cannot get one raises.
     """
-    ai_product = (
-        resolve_sandbox_ai_product(
-            origin_product,
-            ai_stage,
-            internal=internal,
-            billing_product=(state or {}).get("billing_product"),
-            profile_billing_product=profile_billing_product,
-        )
-        if team_id is not None
-        else None
+    ai_product = resolve_sandbox_ai_product(
+        origin_product,
+        ai_stage,
+        internal=internal,
+        billing_product=(state or {}).get("billing_product"),
+        profile_billing_product=profile_billing_product,
     )
-    requires_go = ai_product == POSTHOG_CODE_PRODUCT
     requires_pi_scout = (
         runtime == "pi" and origin_product == "signals_scout" and (state or {}).get("billing_product") != "posthog_ai"
     )
@@ -1798,104 +1766,92 @@ def ai_gateway_env_vars(
         raise GatewayTokenUnavailableError(
             "Pi scouts require configured scoped AI gateway routing.", {"team_id": team_id}
         )
-    if not (settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS):
-        if requires_go:
-            raise posthog_code_token_unavailable("not_configured", team_id)
-        return {}
-    # Without a mint key no attempt can mint.
-    if requires_go and not settings.SANDBOX_AI_GATEWAY_MINT_KEY:
-        raise posthog_code_token_unavailable("not_configured", team_id)
+    if not (
+        settings.SANDBOX_AI_GATEWAY_URL
+        and settings.SANDBOX_AI_GATEWAY_PRODUCTS
+        and settings.SANDBOX_AI_GATEWAY_MINT_KEY
+    ):
+        raise gateway_token_unavailable("not_configured", team_id, ai_product)
+    if not (
+        ai_product in MINTABLE_PRODUCTS
+        and sandbox_product_routed(ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS)
+    ):
+        raise gateway_token_unavailable("not_configured", team_id, ai_product)
+    refusal = mint_refusal(
+        ai_product,
+        team_id=team_id,
+        state=state,
+        model=model,
+        runtime=runtime,
+        internal=internal,
+        prior_slack_run=prior_slack_run,
+        origin_product=origin_product,
+    )
+    if refusal:
+        AI_GATEWAY_TOKEN_MINTS.labels(result="skipped").inc()
+        # The deploy's log formatter drops `extra`, so the message carries the fields.
+        # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs product, team id and a refusal code, no credential present
+        logger.info(
+            "ai_gateway_token: mint refused (ai_product=%s team_id=%s reason=%s)",
+            ai_product,
+            team_id,
+            refusal,
+            extra={"ai_product": ai_product, "team_id": team_id, "reason": refusal},
+        )
+        if requires_pi_scout:
+            record_gateway_token_refusal("sandbox", refusal, ai_product=ai_product)
+            raise GatewayTokenUnavailableError(
+                "The AI gateway refused the Pi scout token.", {"team_id": team_id, "reason": refusal}
+            )
+        raise gateway_token_unavailable(refusal, team_id, ai_product)
+    mint_kwargs: dict[str, Any] = {}
+    if requires_pi_scout:
+        mint_kwargs["raise_on_failure"] = True
+    if ai_product == POSTHOG_CODE_PRODUCT:
+        free_pin = posthog_code_allowed_models(team_id)
+        if free_pin is not None:
+            mint_kwargs["allowed_models"] = free_pin
+        mint_kwargs["limit_tier"] = posthog_code_limit_tier(team_id, distinct_id)
+    if run_id:
+        mint_kwargs["run_id"] = run_id
+    token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id, **mint_kwargs)
+    if not token:
+        raise gateway_token_unavailable("mint_failed", team_id, ai_product)
     env_vars = {
         "AI_GATEWAY_URL": settings.SANDBOX_AI_GATEWAY_URL,
         "AI_GATEWAY_PRODUCTS": settings.SANDBOX_AI_GATEWAY_PRODUCTS,
+        "AI_GATEWAY_TOKEN": token,
+        "AI_GATEWAY_TOKEN_CAP_USD": token_cap_usd(team_id, ai_product),
+        "AI_GATEWAY_PRODUCT": ai_product,
     }
-    if team_id is not None and ai_product is not None:
-        if not (
-            ai_product in MINTABLE_PRODUCTS
-            and sandbox_product_routed(ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS)
-        ):
-            if requires_go:
-                raise posthog_code_token_unavailable("not_configured", team_id)
-        else:
-            refusal = mint_refusal(
-                ai_product,
-                team_id=team_id,
-                state=state,
-                model=model,
-                runtime=runtime,
-                internal=internal,
-                prior_slack_run=prior_slack_run,
-                origin_product=origin_product,
-            )
-            if refusal:
-                AI_GATEWAY_TOKEN_MINTS.labels(result="skipped").inc()
-                # posthog_code_token_unavailable counts posthog_code refusals.
-                if not requires_go:
-                    record_gateway_token_refusal("sandbox", refusal, ai_product=ai_product)
-                # The deploy's log formatter drops `extra`, so the message carries the fields.
-                # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs product, team id and a refusal code, no credential present
-                logger.info(
-                    "ai_gateway_token: mint skipped, run stays on the Python gateway (ai_product=%s team_id=%s reason=%s)",
-                    ai_product,
-                    team_id,
-                    refusal,
-                    extra={"ai_product": ai_product, "team_id": team_id, "reason": refusal},
-                )
-                if requires_go:
-                    raise posthog_code_token_unavailable(refusal, team_id)
-                if requires_pi_scout:
-                    raise GatewayTokenUnavailableError(
-                        "The AI gateway refused the Pi scout token.", {"team_id": team_id, "reason": refusal}
-                    )
-                # The legacy gateway refuses an exhausted bucket with a retryable 429. A background
-                # workflow run has nobody to read the refusal, so the agent retries until the idle
-                # timeout and the run fails as lost. Fail it here with the real reason.
-                if ai_product == WORKFLOWS_PRODUCT and refusal == WORKFLOWS_CREDITS_EXHAUSTED_REFUSAL:
-                    raise GatewayTokenUnavailableError(
-                        WORKFLOWS_CREDITS_EXHAUSTED_DETAIL, {"team_id": team_id, "reason": refusal}
-                    )
-                return env_vars
-            mint_kwargs: dict[str, Any] = {}
-            if requires_pi_scout:
-                mint_kwargs["raise_on_failure"] = True
-            if ai_product == POSTHOG_CODE_PRODUCT:
-                free_pin = posthog_code_allowed_models(team_id)
-                if free_pin is not None:
-                    mint_kwargs["allowed_models"] = free_pin
-                mint_kwargs["limit_tier"] = posthog_code_limit_tier(team_id, distinct_id)
-            if run_id:
-                mint_kwargs["run_id"] = run_id
-            token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id, **mint_kwargs)
-            if token:
-                env_vars["AI_GATEWAY_TOKEN"] = token
-                env_vars["AI_GATEWAY_TOKEN_CAP_USD"] = token_cap_usd(team_id, ai_product)
-                env_vars["AI_GATEWAY_PRODUCT"] = ai_product
-                if "allowed_models" in mint_kwargs:
-                    env_vars[_PIN_KEY_ENV] = FREE_TIER_PIN_KEY
-                if ai_stage:
-                    env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage
-            elif requires_go:
-                raise posthog_code_token_unavailable("mint_failed", team_id)
+    if "allowed_models" in mint_kwargs:
+        env_vars[_PIN_KEY_ENV] = FREE_TIER_PIN_KEY
+    if ai_stage:
+        env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage
     return env_vars
 
 
 # Messages for reasons a retry won't change.
+_REFUSAL_MESSAGES = {
+    "ai_credits_exhausted": AI_CREDITS_EXHAUSTED_DETAIL,
+    "org_deactivated": "This organization is deactivated.",
+    "team_not_found": "This run's project no longer exists.",
+}
 _POSTHOG_CODE_REFUSAL_MESSAGES = {
     "model_outside_free_pin": "This run's model isn't included in the free plan. Choose a free-plan model or upgrade.",
     "model_outside_pin": "This run's model isn't available for PostHog Code cloud runs. Choose another model.",
     "posthog_code_credits_exhausted": POSTHOG_CODE_CREDITS_EXHAUSTED_DETAIL,
-    "org_deactivated": "This organization is deactivated.",
-    "team_not_found": "This run's project no longer exists.",
-    "not_configured": "Cloud runs can't reach PostHog AI: the AI gateway isn't configured for posthog_code.",
 }
 # A credit lookup or mint can succeed on the next attempt.
-_POSTHOG_CODE_TRANSIENT_REFUSALS = frozenset({"posthog_code_credits_unknown", "mint_failed", "pin_unrecorded"})
+_TRANSIENT_REFUSALS = frozenset(
+    {"mint_failed", "pin_unrecorded", *(f"{bucket}_unknown" for bucket in PRODUCT_CREDIT_BUCKET.values())}
+)
 
 
-def posthog_code_token_unavailable(reason: str, team_id: int | None) -> ProcessTaskError:
-    record_gateway_token_refusal("sandbox", reason, ai_product=POSTHOG_CODE_PRODUCT)
-    context: dict[str, Any] = {"team_id": team_id, "reason": reason}
-    if reason in _POSTHOG_CODE_TRANSIENT_REFUSALS:
+def gateway_token_unavailable(reason: str, team_id: int, ai_product: str) -> ProcessTaskError:
+    record_gateway_token_refusal("sandbox", reason, ai_product=ai_product)
+    context: dict[str, Any] = {"team_id": team_id, "ai_product": ai_product, "reason": reason}
+    if reason in _TRANSIENT_REFUSALS:
         # Also the run's final error after the last retry, so it can't promise one.
         return ProcessTaskTransientError(
             f"Couldn't get a PostHog AI token for this run (reason: {reason}). Try again in a few minutes.",
@@ -1903,10 +1859,16 @@ def posthog_code_token_unavailable(reason: str, team_id: int | None) -> ProcessT
             RuntimeError(reason),
             capture=False,
         )
-    message = _POSTHOG_CODE_REFUSAL_MESSAGES.get(reason, f"PostHog AI refused this run (reason: {reason}).")
     if reason == "not_configured":
-        logger.error("ai_gateway: posthog_code run with no gateway configured (team_id=%s)", team_id)
-        return ProcessTaskFatalError(message, context, RuntimeError(reason), capture=False)
+        logger.error("ai_gateway: %s run with no gateway configured (team_id=%s)", ai_product, team_id)
+        return ProcessTaskFatalError(
+            f"Cloud runs can't reach PostHog AI: the AI gateway isn't configured for {ai_product}.",
+            context,
+            RuntimeError(reason),
+            capture=False,
+        )
+    messages = _POSTHOG_CODE_REFUSAL_MESSAGES if ai_product == POSTHOG_CODE_PRODUCT else {}
+    message = messages.get(reason) or _REFUSAL_MESSAGES.get(reason, f"PostHog AI refused this run (reason: {reason}).")
     return GatewayTokenUnavailableError(message, context)
 
 

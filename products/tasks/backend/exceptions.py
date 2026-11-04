@@ -322,7 +322,7 @@ class CredentialUnavailableError(ProcessTaskFatalError, NonReportableError):
 
 
 class GatewayTokenUnavailableError(ProcessTaskFatalError, NonReportableError):
-    """No Go token for a posthog_code run, for a reason a retry won't change. Expected customer
+    """No Go token for a run, for a reason a retry won't change. Expected customer
     state, so not captured."""
 
     def __init__(self, message: str, context: dict[str, Any]):
