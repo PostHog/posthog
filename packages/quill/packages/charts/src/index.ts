@@ -139,16 +139,12 @@ export type {
     FlameBundleDatum,
     FlameChange,
     FlameChangeKind,
-    FlameColorBy,
     FlameDiffConfig,
     FlameGraphConfig,
     FlameGraphProps,
     FlameHit,
-    FlameLabelFont,
     FlameNode,
     FlameNodeDatum,
-    FlamePreset,
-    FlameSort,
     FlameTooltipContext,
 } from './charts/FlameGraph/types'
 

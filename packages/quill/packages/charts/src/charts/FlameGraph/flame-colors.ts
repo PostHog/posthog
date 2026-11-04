@@ -4,9 +4,9 @@ import { mixColors, prefersLightText, toSrgbColor } from '../../core/color-utils
 import { DEFAULT_CHART_COLORS } from '../../core/theme'
 import type { ChartTheme } from '../../core/types'
 import { classifyChange, type FlameDiffOptions, type FlameTree } from './flame-layout'
-import type { FlameChangeKind, FlameColorBy } from './types'
+import type { FlameChangeKind } from './types'
 
-export type ResolvedColorBy = Exclude<FlameColorBy, 'auto'>
+export type FlameColorBy = 'group' | 'name' | 'diff'
 
 /** Bitflags in {@link FlameColors.marks}. */
 export const MARK_NEW = 1
@@ -37,7 +37,7 @@ export interface FlameInk {
     faster: string
 }
 
-export function resolveInk(theme: ChartTheme, slowerColor?: string, fasterColor?: string): FlameInk {
+export function resolveInk(theme: ChartTheme): FlameInk {
     const palette = theme.colors.length > 0 ? theme.colors : DEFAULT_CHART_COLORS
     const background = toSrgbColor(theme.backgroundColor ?? FALLBACK_BACKGROUND)
     const dark = prefersLightText(background)
@@ -51,15 +51,12 @@ export function resolveInk(theme: ChartTheme, slowerColor?: string, fasterColor?
         dark,
         ink,
         neutral: mixColors(background, ink, 0.14),
-        slower: toSrgbColor(slowerColor ?? palette[4 % palette.length]),
-        faster: toSrgbColor(fasterColor ?? palette[0]),
+        slower: toSrgbColor(palette[4 % palette.length]),
+        faster: toSrgbColor(palette[0]),
     }
 }
 
-export function resolveColorBy(tree: FlameTree<unknown>, colorBy: FlameColorBy | undefined): ResolvedColorBy {
-    if (colorBy && colorBy !== 'auto') {
-        return colorBy
-    }
+export function resolveColorBy(tree: FlameTree<unknown>): FlameColorBy {
     if (tree.hasBaseline) {
         return 'diff'
     }
@@ -98,7 +95,7 @@ function diffStrength(ratio: number, threshold: number): number {
 
 export function computeFlameColors(
     tree: FlameTree<unknown>,
-    colorBy: ResolvedColorBy,
+    colorBy: FlameColorBy,
     theme: ChartTheme,
     ink: FlameInk,
     diff: FlameDiffOptions

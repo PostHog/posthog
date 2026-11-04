@@ -490,7 +490,10 @@ describe('ValueLabels', () => {
             scales: { x: xScale, y: (value) => 48 + value * 720, yTicks: () => [] },
             resolvePositionValue: (s) => tops[s.key],
         })
-        const { container } = renderInChart(ctx, <ValueLabels position="center" background={background} fontSize={16} rotation={-45} />)
+        const { container } = renderInChart(
+            ctx,
+            <ValueLabels position="center" background={background} fontSize={16} rotation={-45} />
+        )
         expect(labelDivs(container).map((label) => label.style.left)).toEqual(['120px', '300px', '588px'])
         const text = labelDivs(container)[0].querySelector('span')!
         expect(text.style.fontSize).toBe('16px')

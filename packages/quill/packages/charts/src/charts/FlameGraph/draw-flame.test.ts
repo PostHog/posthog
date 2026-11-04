@@ -6,16 +6,15 @@ const fakeCtx = {
 } as unknown as CanvasRenderingContext2D
 
 describe('LabelFitter', () => {
+    // Non-ASCII labels take the measured path, so uneven glyph widths matter there.
     it.each([
-        { font: 'monospace' as const, text: 'United Kingdom', available: 70, expected: 'United Ki…' },
-        { font: 'sans' as const, text: 'United Kingdom', available: 70, expected: 'United Ki…' },
-        { font: 'sans' as const, text: 'WWWWWW', available: 50, expected: 'WWW…' },
-        { font: 'sans' as const, text: 'Chrome', available: 42, expected: 'Chrome' },
-        { font: 'sans' as const, text: 'Chrome', available: 8, expected: '' },
-        { font: 'sans' as const, text: 'WWWaaaa', available: 50, expected: 'WWW…' },
-        { font: 'sans' as const, text: 'aaaaWWW', available: 56, expected: 'aaaaW…' },
-    ])('fits "$text" into $available px with $font labels', ({ font, text, available, expected }) => {
-        const label = new LabelFitter(font).fit(fakeCtx, text, available)
+        { text: 'United Kingdom', available: 70, expected: 'United Ki…' },
+        { text: 'Chrome', available: 8, expected: '' },
+        { text: 'ÉWWWWW', available: 50, expected: 'ÉWW…' },
+        { text: 'ÉWWaaaa', available: 50, expected: 'ÉWWa…' },
+        { text: 'Éaaaaaaa', available: 56, expected: 'Éaaaaaaa' },
+    ])('fits "$text" into $available px', ({ text, available, expected }) => {
+        const label = new LabelFitter().fit(fakeCtx, text, available)
         expect(label).toBe(expected)
         expect(fakeCtx.measureText(label).width).toBeLessThanOrEqual(available)
     })

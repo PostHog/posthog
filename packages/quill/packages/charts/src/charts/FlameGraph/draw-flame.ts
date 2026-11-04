@@ -1,13 +1,9 @@
-import { ELLIPSIS, FONT_FAMILY } from '../../utils/text-measure'
+import { ELLIPSIS } from '../../utils/text-measure'
 import { type FlameShades, type FlameInk, MARK_GONE, MARK_NEW } from './flame-colors'
 import { type FlameCell, type FlameRowGeometry, type FlameTree, MIN_NODE_PX, rowTop } from './flame-layout'
-import type { FlameLabelFont } from './types'
 
 const MONOSPACE_FONT_SIZE = 11
-const LABEL_FONTS: Record<FlameLabelFont, string> = {
-    monospace: `${MONOSPACE_FONT_SIZE}px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace`,
-    sans: `12px ${FONT_FAMILY}`,
-}
+const LABEL_FONT = `${MONOSPACE_FONT_SIZE}px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace`
 const LABEL_PADDING = 5
 /** Below this a cell is too narrow for even one character and an ellipsis. */
 const MIN_LABEL_WIDTH = LABEL_PADDING * 2 + 12
@@ -28,19 +24,15 @@ const MAX_CACHED_WIDTHS = 4096
  * and step down, which usually takes one or two measurements.
  */
 export class LabelFitter {
-    readonly font: string
+    readonly font = LABEL_FONT
     private charWidth = 0
     private readonly widths = new Map<string, number>()
-
-    constructor(private readonly kind: FlameLabelFont = 'monospace') {
-        this.font = LABEL_FONTS[kind]
-    }
 
     fit(ctx: CanvasRenderingContext2D, text: string, available: number): string {
         if (available <= 0 || !text) {
             return ''
         }
-        if (this.kind === 'monospace' && PRINTABLE_ASCII.test(text)) {
+        if (PRINTABLE_ASCII.test(text)) {
             if (this.charWidth === 0) {
                 this.charWidth = ctx.measureText('0123456789').width / 10 || MONOSPACE_FONT_SIZE * 0.6
             }

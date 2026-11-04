@@ -23,9 +23,7 @@ type Story = StoryObj<{}>
 export const PlainRotatedLabels: Story = {
     render: () => {
         const theme = useReactiveTheme()
-        const series: Series[] = [
-            { key: 'visits', label: 'Visits', color: '', data: [20, 35, 28, 60, 45, 70, 52] },
-        ]
+        const series: Series[] = [{ key: 'visits', label: 'Visits', color: '', data: [20, 35, 28, 60, 45, 70, 52] }]
         return (
             <Stage>
                 <LineChart series={series} labels={LABELS} config={CONFIG} theme={theme}>
