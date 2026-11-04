@@ -993,6 +993,10 @@ mod tests {
                 "a",
                 json!({"ping": format!("{signed} https://cdn.example.com/b")})
             )]),
+            json!([link(
+                "img",
+                json!({"attributionsrc": format!("https://cdn.example.com/b {signed}")})
+            )]),
             // The policy reads a host without its trailing dot, and a path once it is decoded.
             json!([link(
                 "img",

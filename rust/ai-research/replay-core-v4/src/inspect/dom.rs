@@ -718,7 +718,7 @@ fn link_attribute(name: &[u8]) -> Option<LinkForm> {
     if name == b"imagesrcset" {
         return Some(LinkForm::Srcset);
     }
-    if name == b"ping" {
+    if name == b"ping" || name == b"attributionsrc" {
         return Some(LinkForm::Urls);
     }
     if URLS.contains(&name) {

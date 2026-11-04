@@ -60,6 +60,7 @@ enum Slot {
     Filter,
     Import,
     SvgFill,
+    AttributionSrc,
 }
 
 const SLOTS: &[Slot] = &[
@@ -85,6 +86,7 @@ const SLOTS: &[Slot] = &[
     Slot::Filter,
     Slot::Import,
     Slot::SvgFill,
+    Slot::AttributionSrc,
 ];
 
 impl Slot {
@@ -97,6 +99,7 @@ impl Slot {
                 | Slot::Href
                 | Slot::FormAction
                 | Slot::DataSrc
+                | Slot::AttributionSrc
         )
     }
 
@@ -117,6 +120,7 @@ impl Slot {
                 | Slot::Filter
                 | Slot::Import
                 | Slot::SvgFill
+                | Slot::AttributionSrc
         )
     }
 
@@ -557,6 +561,11 @@ fn events(tc: &TestCase, placed: &[Placed], shape: Shape) -> String {
                 json!({"_cssText": format!("@import {};", function())}),
             )),
             Slot::SvgFill => added.push(element(&mut id, "rect", json!({"fill": function()}))),
+            Slot::AttributionSrc => added.push(element(
+                &mut id,
+                "img",
+                json!({"attributionsrc": format!("https://cdn.example.com/x {written}")}),
+            )),
             Slot::PictureSource => {
                 known.push(element(&mut id, "picture", json!({})));
                 let parent = id;

@@ -30,7 +30,7 @@ pub enum LinkForm {
     Url,
     /// Candidates with descriptors, as `imagesrcset` holds them.
     Srcset,
-    /// URLs apart by whitespace, as `ping` holds them.
+    /// URLs apart by whitespace, as `ping` and `attributionsrc` hold them.
     Urls,
 }
 
