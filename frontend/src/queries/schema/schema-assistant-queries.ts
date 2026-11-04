@@ -57,6 +57,11 @@ export interface AssistantDateRange {
      * ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.
      */
     date_to?: string | null
+    /**
+     * Exclude the current, still-collecting interval from the result.
+     * @default false
+     */
+    excludeIncompletePeriods?: boolean | null
 }
 
 /**
@@ -68,6 +73,11 @@ export interface AssistantDurationRange {
      * Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.
      */
     date_from: string
+    /**
+     * Exclude the current, still-collecting interval from the result.
+     * @default false
+     */
+    excludeIncompletePeriods?: boolean | null
 }
 
 export type AssistantDateRangeFilter = AssistantDateRange | AssistantDurationRange

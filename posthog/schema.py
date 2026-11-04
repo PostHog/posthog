@@ -725,6 +725,10 @@ class AssistantDateRange(BaseModel):
             " inclusive to the last moment of that day."
         ),
     )
+    excludeIncompletePeriods: bool | None = Field(
+        default=False,
+        description="Exclude the current, still-collecting interval from the result.",
+    )
 
 
 class AssistantDurationRange(BaseModel):
@@ -740,6 +744,10 @@ class AssistantDurationRange(BaseModel):
             " now, `-180d` last 180 days from now, `mStart` this month start,"
             " `-1dStart` yesterday's start."
         ),
+    )
+    excludeIncompletePeriods: bool | None = Field(
+        default=False,
+        description="Exclude the current, still-collecting interval from the result.",
     )
 
 
