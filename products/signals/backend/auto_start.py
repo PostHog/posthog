@@ -51,7 +51,11 @@ from products.signals.backend.models import (
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_IMPLEMENTATION
-from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
+from products.signals.backend.quota import (
+    capture_signal_report_quota_paused,
+    self_driving_limit_name,
+    self_driving_quota_gate,
+)
 from products.signals.backend.report_assignments import release_claim
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_generation.research import (
@@ -1768,7 +1772,7 @@ async def maybe_autostart_from_report_artefacts(
                 team, report_id=report_id, stage="reviewer_edit", enforced=gate.enforced
             )
         if gate.enforced:
-            return AutostartOutcome(status="blocked", reason="Self-driving spending limit reached")
+            return AutostartOutcome(status="blocked", reason=f"Self-driving {self_driving_limit_name(team)} reached")
     if await SignalReport.objects.filter(id=report_id, team_id=team_id, user_authored=True).aexists():
         logger.info(
             "signals auto-start re-eval skipped",
