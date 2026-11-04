@@ -156,7 +156,7 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
     # Get the unique persons enrolled in the feature along with their distinct ID.
     # Property access (rather than JSONExtractString) lets the HogQL printer use
     # materialized person-property columns when available.
-    # The persons.pdi join aggregates every distinct ID of the team, which runs out of memory
+    # Joining persons.pdi would aggregate every distinct ID of the team and run out of memory
     # on large teams. Prefilter to the enrolled persons' distinct IDs, then resolve ownership
     # per distinct_id like the person_distinct_ids view so moved or deleted IDs are skipped.
     try:

@@ -30,6 +30,12 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
             distinct_ids=["abc123"],
             properties={f"$feature_enrollment/{feature_flag.key}": True, "email": "test@example.com"},
         )
+        create_person(
+            team=team,
+            distinct_ids=["opted_out"],
+            properties={f"$feature_enrollment/{feature_flag.key}": False, "email": "out@example.com"},
+        )
+        create_person(team=team, distinct_ids=["never_enrolled"], properties={"email": "never@example.com"})
 
         send_events_for_early_access_feature_stage_change(feature.id, "concept", "beta")
 
@@ -123,6 +129,24 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
         mock_capture.assert_called_once()
         assert mock_capture.call_args.kwargs["distinct_id"] == "enrolled_id"
         assert mock_capture.call_args.kwargs["properties"]["user_email"] == "test@example.com"
+
+    @patch("posthog.tasks.early_access_feature.capture_exception")
+    @patch("posthog.tasks.early_access_feature.execute_hogql_query", side_effect=RuntimeError("query failed"))
+    def test_captures_and_reraises_query_error(self, _mock_query: MagicMock, mock_capture_exception: MagicMock) -> None:
+        feature_flag = FeatureFlag.objects.create(team=self.team, key="my-flag", filters={})
+        feature = EarlyAccessFeature.objects.create(
+            team=self.team,
+            feature_flag=feature_flag,
+            name="Test Feature",
+            description="desc",
+            stage=EarlyAccessFeature.Stage.BETA,
+        )
+
+        with self.assertRaises(RuntimeError):
+            send_events_for_early_access_feature_stage_change(feature.id, "concept", "beta")
+
+        mock_capture_exception.assert_called_once()
+        assert mock_capture_exception.call_args.kwargs["additional_properties"]["feature_id"] == str(feature.id)
 
     @patch("posthog.tasks.early_access_feature.capture_event")
     def test_no_event_for_enrolled_users_on_different_team(self, mock_capture: MagicMock) -> None:
