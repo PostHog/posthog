@@ -142,7 +142,7 @@ class InsightReferenceField(serializers.Field):
 
 
 class AnnotationSerializer(serializers.Serializer):
-    id = serializers.IntegerField(read_only=True, label="ID")
+    id = serializers.IntegerField(read_only=True, label="ID", help_text="Unique ID of the annotation.")
     content = serializers.CharField(
         required=False,
         allow_null=True,
@@ -175,13 +175,29 @@ class AnnotationSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Optional dashboard ID to attach this annotation to. Must belong to the current project.",
     )
-    dashboard_name = serializers.CharField(read_only=True, allow_null=True)
-    insight_short_id = serializers.CharField(read_only=True, allow_null=True)
-    insight_name = serializers.CharField(read_only=True, allow_null=True)
-    insight_derived_name = serializers.CharField(read_only=True, allow_null=True)
-    created_by = UserBasicSerializer(read_only=True)
-    created_at = serializers.DateTimeField(read_only=True, allow_null=True)
-    updated_at = serializers.DateTimeField(read_only=True)
+    dashboard_name = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Name of the dashboard in `dashboard_id`, or null when there is none.",
+    )
+    insight_short_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Short ID of the insight in `dashboard_item`, or null when there is none.",
+    )
+    insight_name = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Name of the insight in `dashboard_item`, or null when it has none."
+    )
+    insight_derived_name = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Generated name of the insight in `dashboard_item`, shown when the insight has no name.",
+    )
+    created_by = UserBasicSerializer(read_only=True, help_text="User who created the annotation.")
+    created_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the annotation was created."
+    )
+    updated_at = serializers.DateTimeField(read_only=True, help_text="When the annotation was last changed.")
     deleted = serializers.BooleanField(
         required=False,
         help_text="Soft-delete flag. Set to true to hide the annotation, or false to restore it.",
