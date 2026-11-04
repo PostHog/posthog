@@ -247,6 +247,7 @@ from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerWrite
 from products.signals.backend.scout_authorship import inbox_hidden_report_filter
 from products.signals.backend.scout_harness.serializers import EmitReportRequestSerializer, EmitReportResponseSerializer
 from products.signals.backend.scout_harness.tools.report_author import (
+    AI_PROCESSING_NOT_APPROVED_REASON,
     USER_REPORT_DAILY_LIMIT,
     USER_REPORT_DAILY_LIMIT_REASON,
     UserReportAuthor,
@@ -2886,14 +2887,14 @@ class SignalReportViewSet(
             ),
             200: OpenApiResponse(
                 response=EmitReportResponseSerializer,
-                description=(
-                    "Nothing new was filed: a retry returned the first report (`idempotent_replay` true), "
-                    "or a preflight gate skipped the call (`skipped_reason` set)."
-                ),
+                description="Nothing new was filed: a retry returned the first report (`idempotent_replay` true).",
             ),
             400: OpenApiResponse(description="Invalid report shape (empty title, summary, or evidence)."),
             403: OpenApiResponse(
-                description="The caller is not a person, is a task sandbox, or report filing is not enabled."
+                description=(
+                    "The caller is not a person, is a task sandbox, report filing is not enabled, or the "
+                    "organization has not approved AI data processing."
+                )
             ),
             429: OpenApiResponse(description="The caller filed the daily maximum of reports for this project."),
         },
@@ -2922,6 +2923,12 @@ class SignalReportViewSet(
             client_name=resolve_external_agent_name(request),
         )
         result = emit_report_from_validated_data(team=self.team, author=author, data=request.validated_data)
+        if result.skipped_reason == AI_PROCESSING_NOT_APPROVED_REASON:
+            raise exceptions.PermissionDenied(
+                "This organization has not approved AI data processing, so no report was filed. An organization "
+                "admin must turn on 'Enable PostHog features that use third-party AI services' in "
+                "Organization settings → AI service providers."
+            )
         if result.skipped_reason == USER_REPORT_DAILY_LIMIT_REASON:
             resets_at = user_report_limit_resets_at(self.team)
             raise exceptions.Throttled(

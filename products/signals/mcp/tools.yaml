@@ -433,7 +433,8 @@ tools:
             `priority`, and `suggested_reviewers`: a person starts one from the report's actions. `suggested_reviewers`
             routes the report to the people who should read it. A `priority` requires a `priority_explanation`. Each
             person can file 20 reports per project per day; a 429 says when the limit resets, so do not retry before
-            then.
+            then. A 403 means the organization has not approved AI data processing: tell the person that an
+            organization admin must turn it on, and do not retry before then.
         exclude_params:
             - metrics
         required_when_set:
