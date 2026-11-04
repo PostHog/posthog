@@ -307,6 +307,38 @@ class TestSandboxSenderValidation(APIBaseTest):
         assert response.status_code == 201, response.json()
         assert not [query for query in queries.captured_queries if '"posthog_integration"' in query["sql"]]
 
+    def test_flag_off_save_looks_up_sandbox_senders_once_for_many_own_senders(self) -> None:
+        self.flag_enabled.return_value = False
+        workflow = self._workflow()
+        trigger, email_step, exit_step = workflow["actions"]
+        steps = []
+        for index in range(5):
+            own_sender = Integration.objects.create(
+                team=self.team,
+                kind="email",
+                config={"provider": "ses", "domain": "example.com", "email": f"sender{index}@example.com"},
+            )
+            step = deepcopy(email_step)
+            step["id"] = f"email-{index}"
+            step["config"]["inputs"]["email"]["value"]["from"] = {"integrationId": own_sender.id}
+            steps.append(step)
+        chain = [trigger, *steps, exit_step]
+        workflow["actions"] = chain
+        workflow["edges"] = [
+            {"from": source["id"], "to": target["id"], "type": "continue"} for source, target in zip(chain, chain[1:])
+        ]
+
+        def integration_queries() -> int:
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", workflow)
+            assert response.status_code == 201, response.json()
+            return len([query for query in queries.captured_queries if '"posthog_integration"' in query["sql"]])
+
+        with override_settings(SES_SANDBOX_TENANT_NAME=""):
+            without_sandbox_checks = integration_queries()
+
+        assert integration_queries() == without_sandbox_checks + 1
+
     def test_test_send_configuration_can_select_the_sandbox_sender(self) -> None:
         serializer = HogFunctionInvocationSerializer(
             data={"configuration": self._function()},
