@@ -19,6 +19,28 @@ export function scoutDisplayName(skillName: string | null | undefined): string |
     return rest.charAt(0).toUpperCase() + rest.slice(1)
 }
 
+// Products whose every signal type reads the same.
+const SOURCE_LINE_BY_PRODUCT = new Map<string, string>([
+    ['session_replay', 'Session replay · Problem segment'],
+    ['replay_vision', 'Replay vision · Scanner finding'],
+    ['health_checks', 'Health checks · Instrumentation issue'],
+])
+
+// Keyed `${source_product}/${source_type}`.
+const SOURCE_LINE_BY_PAIR = new Map<string, string>([
+    ['llm_analytics/evaluation', 'AI observability · Evaluation'],
+    ['llm_analytics/evaluation_report', 'AI observability · Evaluation report'],
+    ['zendesk/ticket', 'Zendesk · Ticket'],
+    ['github/issue', 'GitHub · Issue'],
+    ['linear/issue', 'Linear · Issue'],
+    ['conversations/ticket', 'Conversations · Ticket'],
+    ['pganalyze/issue', 'pganalyze · Issue'],
+    ['endpoints/endpoint_execution_failed', 'Endpoints · Endpoint execution failed'],
+    ['logs/alert_state_change', 'Logs · Alert state change'],
+    ['analytics/anomaly_investigation', 'Product analytics · Anomaly investigation'],
+    ['analytics/alert_firing', 'Product analytics · Alert firing'],
+])
+
 /** Human-readable "Product · Signal type" line for inbox / debug signal cards. */
 export function signalCardSourceLine(signal: { source_product: string; source_type: string; extra?: unknown }): string {
     const { source_product, source_type } = signal
@@ -26,50 +48,16 @@ export function signalCardSourceLine(signal: { source_product: string; source_ty
     if (source_product === 'error_tracking') {
         return errorTrackingSignalHeaderLine(source_type)
     }
-    if (source_product === 'session_replay') {
-        return 'Session replay · Problem segment'
-    }
-    if (source_product === 'replay_vision') {
-        return 'Replay vision · Scanner finding'
-    }
-    if (source_product === 'llm_analytics' && source_type === 'evaluation') {
-        return 'AI observability · Evaluation'
-    }
-    if (source_product === 'llm_analytics' && source_type === 'evaluation_report') {
-        return 'AI observability · Evaluation report'
-    }
-    if (source_product === 'zendesk' && source_type === 'ticket') {
-        return 'Zendesk · Ticket'
-    }
-    if (source_product === 'github' && source_type === 'issue') {
-        return 'GitHub · Issue'
-    }
-    if (source_product === 'linear' && source_type === 'issue') {
-        return 'Linear · Issue'
-    }
-    if (source_product === 'conversations' && source_type === 'ticket') {
-        return 'Conversations · Ticket'
-    }
-    if (source_product === 'pganalyze' && source_type === 'issue') {
-        return 'pganalyze · Issue'
-    }
-    if (source_product === 'endpoints' && source_type === 'endpoint_execution_failed') {
-        return 'Endpoints · Endpoint execution failed'
-    }
-    if (source_product === 'logs' && source_type === 'alert_state_change') {
-        return 'Logs · Alert state change'
-    }
-    if (source_product === 'analytics' && source_type === 'anomaly_investigation') {
-        return 'Product analytics · Anomaly investigation'
-    }
-    if (source_product === 'health_checks') {
-        return 'Health checks · Instrumentation issue'
-    }
     if (source_product === 'signals_scout') {
         const extra = signal.extra as { skill_name?: unknown } | undefined
         const skillName = typeof extra?.skill_name === 'string' ? extra.skill_name : undefined
         const name = scoutDisplayName(skillName)
         return name ? `Scout · ${name}` : 'Scout · Cross-source finding'
+    }
+    const known =
+        SOURCE_LINE_BY_PRODUCT.get(source_product) ?? SOURCE_LINE_BY_PAIR.get(`${source_product}/${source_type}`)
+    if (known) {
+        return known
     }
 
     const productLabel = source_product.replace(/_/g, ' ')

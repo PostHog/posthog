@@ -57,7 +57,7 @@ import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftSta
 import { loadEmailBrand } from '../MessageAudience/emailBrand'
 import { parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
 import { sandboxSenderEnabled, withFirstRunSender } from './firstRunSender'
-import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
+import { getRegisteredTriggerTypes, getTriggerDisplayType } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
     DEFAULT_STATE,
     isOneTimeSchedule,
@@ -108,6 +108,37 @@ export const TRIGGER_NODE_ID = 'trigger_node'
 export const EXIT_NODE_ID = 'exit_node'
 
 export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
+
+// A tile matches on the first event only, so each event of a linked trigger gets its own tile.
+function getEventTriggerTiles(config: TriggerAction['config']): string[] {
+    if (config.type !== 'event' && config.type !== 'internal-event') {
+        return [getTriggerDisplayType(config)]
+    }
+    const { filters } = config
+    const events: unknown[] = Array.isArray(filters?.events) ? filters.events : []
+    if (events.length < 2) {
+        return [getTriggerDisplayType(config)]
+    }
+    return events.map((event) => {
+        const singleEventConfig = { ...config, filters: { ...filters, events: [event] } }
+        return getTriggerDisplayType(singleEventConfig)
+    })
+}
+
+function withTriggerConfig(workflow: HogFlow, config: TriggerAction['config']): HogFlow {
+    const templateTriggerConfig = workflow.actions.find((action) => action.type === 'trigger')?.config
+    const templateTile = templateTriggerConfig ? getTriggerDisplayType(templateTriggerConfig) : null
+    const keepsTriggerType = getEventTriggerTiles(config).every((tile) => tile === templateTile)
+    return {
+        ...workflow,
+        // A frequency hash such as {person.id} fits only some trigger types. After a type change it can resolve
+        // empty, and an empty hash skips masking, so the workflow would run without its entry limit. Compare the
+        // trigger tiles, as the editor does, because tiles such as "Account property changed" store an `event` config.
+        trigger_masking: keepsTriggerType ? workflow.trigger_masking : null,
+        trigger: config,
+        actions: workflow.actions.map((action) => (action.type === 'trigger' ? { ...action, config } : action)),
+    }
+}
 
 export const NEW_WORKFLOW: HogFlow = {
     id: 'new',
@@ -3511,7 +3542,11 @@ export const workflowLogic = kea<workflowLogicType>([
                             delete (newWorkflow as any).updated_at
                             delete (newWorkflow as any).created_by
 
-                            return (await withDefaultEmailSender(newWorkflow as HogFlow)) as typeof newWorkflow
+                            const templateTriggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
+                            const templated = templateTriggerConfig
+                                ? withTriggerConfig(newWorkflow as HogFlow, templateTriggerConfig)
+                                : (newWorkflow as HogFlow)
+                            return (await withDefaultEmailSender(templated)) as typeof newWorkflow
                         }
                         const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
                         if (triggerConfig) {

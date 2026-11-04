@@ -151,6 +151,9 @@ class TestDiscoveryFingerprints:
             patch("posthog.temporal.experiments.activities.ExperimentQueryRunner") as mock_runner_class,
         ):
             mock_runner_class.return_value.run.return_value.model_dump.return_value = {"variant_results": []}
+            mock_runner_class.return_value.calculation_config = get_metric_calculation_config(
+                experiment, SAVED_FUNNEL["uuid"]
+            )
             results = _raw_saved_sync(hour=2)
             [discovered] = [r for r in results if r.experiment_id == experiment.id]
             outcome = _raw_saved_calc(experiment.id, discovered.metric_uuid, discovered.fingerprint)
