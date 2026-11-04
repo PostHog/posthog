@@ -51,9 +51,9 @@ export interface NoteContent {
 
 export interface ScoutNoteLeftContent {
     note: string
-    /** Blank when the note was addressed to every scout on the project. */
-    skill_name?: string
-    scout_note_id?: string
+    /** Blank when the note went to every scout. */
+    skill_name: string
+    scout_note_id: string
 }
 
 export interface SignalFindingContent {
@@ -359,7 +359,7 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     commit: 'Commit pushed',
     task_run: 'Task run',
     note: 'Note added',
-    scout_note_left: 'Scout note left',
+    scout_note_left: 'Note left for the scouts',
     priority_judgment: 'Priority assessed',
     actionability_judgment: 'Actionability assessed',
     safety_judgment: 'Safety assessed',

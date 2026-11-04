@@ -31,12 +31,10 @@ export function ReportNotesSection({
         return null
     }
 
-    const thisReport = new Map([[report.id.toLowerCase(), { id: report.id, title: report.title }]])
-
     return (
         <DetailSection
             icon={<IconPencil />}
-            title="Notes"
+            title="Scout notes"
             collapsible
             onToggleCollapsed={onToggleCollapsed}
             meta={
@@ -59,7 +57,9 @@ export function ReportNotesSection({
                             key={note.id}
                             note={note}
                             audience={reportNoteAudience(note.skill_name, scoutNamesBySkill)}
-                            content={linkReportIdsInNote(stripReportNotePrefix(report.id, note.content), thisReport, {
+                            // No report links: the ids a derived note quotes name this report, which the
+                            // reader is already on.
+                            content={linkReportIdsInNote(stripReportNotePrefix(report.id, note.content), new Map(), {
                                 truncateUnmatched: !isDirectScoutNote(note),
                             })}
                             onDelete={() => deleteNote(note.id)}

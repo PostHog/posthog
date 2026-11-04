@@ -1,9 +1,9 @@
 import { SCOUT_NOTE_MAX_CHARS } from '../logics/scoutNotesLogic'
 
 /**
- * A note left from a report names the report by id and nothing else. The id lets a scout fetch the
- * report and lets the report find its notes again through the list's `text` filter. The title stays
- * out because a directly left note is listed to callers who may not read reports.
+ * The notes API writes this prefix when a note is created with a `report_id` (`report_note_content`
+ * in `report_scout_notes.py`). A report finds its notes by that id, and strips the prefix where it
+ * would only repeat the report the reader is on.
  */
 function reportNotePrefix(reportId: string): string {
     return `Note on inbox report \`${reportId}\`:\n\n`
