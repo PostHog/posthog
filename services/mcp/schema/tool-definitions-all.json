@@ -3501,7 +3501,7 @@
         }
     },
     "conversations-tickets-reply-create": {
-        "description": "Post a reply or internal note to a support ticket. IMPORTANT: With is_private=false (the default), the reply IS DELIVERED to the customer via the ticket's channel (email, Slack, Teams, or GitHub). Set is_private=true to store an internal note visible only to team members.",
+        "description": "Post a reply or internal note to a support ticket. IMPORTANT: With is_private=false (the default), the reply IS DELIVERED to the customer via the ticket's channel (email, Slack, Teams, or GitHub). Set is_private=true to store an internal note visible only to team members. To include an image such as a screenshot, upload it first with media-image-upload-start and media-image-upload-complete, using purpose \"conversations\". Then pass rich_content as a TipTap doc that holds the text as paragraph nodes and the image as {\"type\": \"image\", \"attrs\": {\"src\": <url from media-image-upload-complete>, \"alt\": <short description>}}. Also put the image in message as markdown ![alt](url). An image in message alone does not reach the customer: email and Slack send only the images in rich_content. Every image src must be the url of an image uploaded to this project, otherwise the reply is rejected with a 400.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "Reply to support ticket",
@@ -11359,7 +11359,7 @@
         }
     },
     "media-image-upload-complete": {
-        "description": "Step 2 of the presigned upload flow. Verifies the file uploaded via media-image-upload-start, sniffs its real content type, and activates it — after this it appears in media-images-list and is publicly servable. Returns the permanent url; for emails, put it in the image block's values.src.url.",
+        "description": "Step 2 of the presigned upload flow. Verifies the file uploaded via media-image-upload-start, sniffs its real content type, and activates it — after this it is publicly servable and, unless its purpose is \"conversations\", appears in media-images-list. Returns the permanent url. For email templates, put it in the image block's values.src.url. For support ticket replies, follow conversations-tickets-reply-create.",
         "category": "Core",
         "feature": "core",
         "summary": "Complete image upload",
@@ -11374,7 +11374,7 @@
         }
     },
     "media-image-upload-start": {
-        "description": "Step 1 of the presigned upload flow for adding a local image to the media library. Returns upload_url and form_fields; POST the local file there with a shell, e.g. `curl -X POST <upload_url> -F key=value... -F file=@/path/to/image.png` (with the form_fields from the response, file last), then call media-image-upload-complete with the returned id. Never base64-encode image bytes into a tool call. Requires shell access. Check media-images-list first to reuse an existing image instead of uploading a duplicate.",
+        "description": "Step 1 of the presigned upload flow for adding a local image to the media library. Returns upload_url and form_fields; POST the local file there with a shell, e.g. `curl -X POST <upload_url> -F key=value... -F file=@/path/to/image.png` (with the form_fields from the response, file last), then call media-image-upload-complete with the returned id. Never base64-encode image bytes into a tool call. Requires shell access. Except for purpose \"conversations\" (support ticket reply images, which no library lists), check media-images-list first to reuse an existing image instead of uploading a duplicate.",
         "category": "Core",
         "feature": "core",
         "summary": "Start an image upload",

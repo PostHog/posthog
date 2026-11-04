@@ -1305,10 +1305,10 @@ export const TerminalNetplaySignalCreateBody = /* @__PURE__ */ zod.object({
 export const UploadedMediaCreateBody = /* @__PURE__ */ zod.object({
     image: zod.instanceof(File).describe('Image file. Must be under 4MB and a real, decodable image.'),
     purpose: zod
-        .enum(['email', 'canvas', 'experiment'])
+        .enum(['email', 'canvas', 'experiment', 'conversations'])
         .optional()
         .describe(
-            'Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).'
+            'Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). `conversations` marks a support reply image, which no library lists.'
         ),
 })
 
@@ -1327,7 +1327,9 @@ export const UploadedMediaStartUploadCreateBody = /* @__PURE__ */ zod.object({
     purpose: zod
         .string()
         .max(uploadedMediaStartUploadCreateBodyPurposeMax)
-        .describe("Library to add this image to once uploaded, e.g. 'email'."),
+        .describe(
+            "Library to add this image to once uploaded, e.g. 'email'. Use 'conversations' for a support ticket reply image. No library lists those."
+        ),
 })
 
 export const workloadTrustPoliciesCreateBodyNameMax = 200

@@ -5741,7 +5741,7 @@ export interface UploadedMediaStartUploadApi {
      */
     name: string
     /**
-     * Library to add this image to once uploaded, e.g. 'email'.
+     * Library to add this image to once uploaded, e.g. 'email'. Use 'conversations' for a support ticket reply image. No library lists those.
      * @maxLength 100
      */
     purpose: string
@@ -7461,7 +7461,7 @@ export const UploadedMediaListPurpose = {
 } as const
 
 /**
- * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).
+ * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). `conversations` marks a support reply image, which no library lists.
  */
 export type UploadedMediaCreateBodyPurpose =
     (typeof UploadedMediaCreateBodyPurpose)[keyof typeof UploadedMediaCreateBodyPurpose]
@@ -7470,12 +7470,13 @@ export const UploadedMediaCreateBodyPurpose = {
     Email: 'email',
     Canvas: 'canvas',
     Experiment: 'experiment',
+    Conversations: 'conversations',
 } as const
 
 export type UploadedMediaCreateBody = {
     /** Image file. Must be under 4MB and a real, decodable image. */
     image: Blob
-    /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
+    /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). `conversations` marks a support reply image, which no library lists. */
     purpose?: UploadedMediaCreateBodyPurpose
 }
 

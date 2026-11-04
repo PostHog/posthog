@@ -6092,7 +6092,7 @@ export const UploadedMediaListQueryParams = () => zod.object({
 })
 
 /**
- * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it appears in the library and is publicly servable.
+ * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it is publicly servable, and it appears in its library unless its purpose is upload-only (`conversations`).
  */
 export const UploadedMediaCompleteUploadCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this uploaded media.'),
@@ -6126,7 +6126,9 @@ export const UploadedMediaStartUploadCreateBody = () => zod.object({
     purpose: zod
         .string()
         .max(uploadedMediaStartUploadCreateBodyPurposeMax)
-        .describe("Library to add this image to once uploaded, e.g. 'email'."),
+        .describe(
+            "Library to add this image to once uploaded, e.g. 'email'. Use 'conversations' for a support ticket reply image. No library lists those."
+        ),
 })
 
 /**
