@@ -24,7 +24,7 @@ from products.posthog_ai.backend.services.system_prompt.service import PromptSer
 from products.tasks.backend.models import Task, TaskRun
 
 ROUTING = "products.posthog_ai.backend.message_routing"
-VIEW = "products.posthog_ai.backend.presentation.agent_operations"
+VIEW = "products.posthog_ai.backend.api.agent_operations"
 SERVICE = "products.posthog_ai.backend.services.agent_operations.service"
 SYS_PROMPT = {"type": "preset", "preset": "claude_code", "append": "SYS"}
 

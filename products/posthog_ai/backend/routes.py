@@ -1,7 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
-from products.posthog_ai.backend.api import MCPToolsViewSet, TurnSuggestionsViewSet
-from products.posthog_ai.backend.presentation.agent_operations import AgentOperationViewSet
+from products.posthog_ai.backend.api import AgentOperationViewSet, MCPToolsViewSet, TurnSuggestionsViewSet
 from products.posthog_ai.backend.presentation.terminal_ai import TerminalAIViewSet
 
 
