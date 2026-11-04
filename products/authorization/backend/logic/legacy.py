@@ -101,7 +101,7 @@ def _check(session: Session, request: CheckRequest) -> bool:
     if resource.id is None:
         if action == Action.MANAGE_ACCESS:
             return access.check_can_modify_access_levels_for_object(cast(Team, access.team))
-        return access.check_access_level_for_resource(scope, level)
+        return access.check_access_level_for_resource(scope, required_level=level)
 
     ref = ObjectAccessRef(
         resource=scope,
@@ -116,7 +116,7 @@ def _check(session: Session, request: CheckRequest) -> bool:
     )
     if action == Action.MANAGE_ACCESS:
         return access.check_can_modify_access_levels_for_ref(ref)
-    return access.check_access_level_for_ref(ref, level)
+    return access.check_access_level_for_ref(ref, required_level=level)
 
 
 def _check_membership(session: Session, request: CheckRequest) -> bool:
@@ -159,7 +159,7 @@ def _check_membership_type(session: Session, request: CheckRequest) -> bool:
     if principal is None:
         return False
     access = _access(session, principal, resource.project_id)
-    return access is not None and access.check_access_level_for_resource(_scope(resource.type), level)
+    return access is not None and access.check_access_level_for_resource(_scope(resource.type), required_level=level)
 
 
 def _check_project(
