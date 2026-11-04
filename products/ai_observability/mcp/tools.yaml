@@ -842,10 +842,14 @@ tools:
             idempotent: false
         title: Run evaluation
         description: >
-            Manually trigger an evaluation run for a specific $ai_generation event. Enqueues a Temporal workflow that
-            asynchronously executes the evaluation and stores the result as a '$ai_evaluation' event. Returns a
-            workflow_id and status "started". Pair with execute-sql to query results: SELECT * FROM events WHERE event =
-            '$ai_evaluation'.
+            Manually trigger an evaluation run for a specific $ai_generation event. Only works for evaluations whose
+            target is 'generation'; a 'trace' or 'session' evaluation is rejected with evaluation_target_mismatch. To
+            preview hog code on traces or sessions, use llma-evaluation-test-hog. To run an enabled trace or session
+            evaluation on one specific trace or session, use llma-evaluation-backfill-estimate and then
+            llma-evaluation-backfill-create with a condition on $ai_trace_id (or $ai_session_id), a window that contains
+            it, and rerun_existing true. Enqueues a Temporal workflow that asynchronously executes the evaluation and
+            stores the result as a '$ai_evaluation' event. Returns a workflow_id and status "started". Pair with
+            execute-sql to query results: SELECT * FROM events WHERE event = '$ai_evaluation'.
         param_overrides:
             evaluation_id:
                 aliases:
