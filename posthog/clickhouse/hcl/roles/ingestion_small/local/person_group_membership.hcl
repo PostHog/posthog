@@ -56,7 +56,7 @@ FROM (
     properties,
     timestamp
   FROM posthog.kafka_person_group_membership
-  WHERE dictHas('posthog.person_group_membership_config_dict', tuple(team_id)) AND person_mode != 'propertyless'
+  WHERE dictHas('posthog.person_group_membership_config_dict', tuple(team_id)) AND (person_mode != 'propertyless')
 )
 WHERE notEmpty(group_key)
 GROUP BY team_id, group_type_index, group_key, distinct_id

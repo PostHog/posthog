@@ -2721,7 +2721,7 @@ FROM
     WHERE
       dictHas('posthog.person_group_membership_config_dict', tuple(team_id))
     AND
-      person_mode != 'propertyless'
+      (person_mode != 'propertyless')
   )
 WHERE notEmpty(group_key)
 GROUP BY

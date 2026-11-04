@@ -195,7 +195,7 @@ FROM (
         properties,
         timestamp
     FROM {source_table}
-    WHERE dictHas('{dictionary}', tuple(team_id)) AND person_mode != 'propertyless'
+    WHERE dictHas('{dictionary}', tuple(team_id)) AND (person_mode != 'propertyless')
 )
 WHERE notEmpty(group_key)
 GROUP BY team_id, group_type_index, group_key, distinct_id"""
