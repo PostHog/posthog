@@ -900,7 +900,7 @@ def test_update_plan_deletions_admits_at_most_the_cap(cluster: ClickhouseCluster
         cluster,
         _events(first.id, _mid_month(11), 0, 1)
         + _events(second.id, _mid_month(11), 0, 1)
-        + _events(third.id, _mid_month(11), 0, 1)
+        + _events(third.id, _mid_month(30), 0, 1)
         + _events(young.id, _mid_month(1), 0, 1),
     )
 

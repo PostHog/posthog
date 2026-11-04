@@ -339,6 +339,7 @@ Organization admins set the retention in project and organization settings, and 
 
 - `update_plan_deletions` tracks each team's pass period in `TeamEventsPlanDeletion`: the set period, never past the plan's period, else the default period. It reads only the teams where `should_enforce_events_retention` is true, so a team without enforcement gets no pass and its set period is never capped by its plan.
   - It admits new teams in organization order, then team order. A team whose first pass, 3 months out, would delete events takes one place in `max_new_plan_deletion_teams`. Any other team is admitted without counting.
+  - To find those teams, it reads the month before each team's cutoff first. It reads further back only for the teams with no events in that month, so a team with a long history costs one month of reads.
   - A shorter period, from a downgrade or a change in Django admin, moves the team's next pass to at least 3 months out.
   - At the end it locks the teams' rows, reads each period again, and writes its changes in one transaction. A period saved in settings during the run is therefore kept. It then hands on the teams whose pass is due.
 - Saving a period in settings writes the row of each enforced team straight away, so the settings page can show the next deletion. A shorter period moves the next pass to at least 3 months out. The save writes the rows before and after it changes the period, so a row that still holds a period from before a plan change first catches up to the period in use. Those rows are admitted without the cap.
