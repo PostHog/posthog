@@ -38,6 +38,8 @@ async def start_recovered_report(team_id: int, report_id: str) -> None:
     ignore_result=True,
     soft_time_limit=240,
     time_limit=300,
+    acks_late=True,
+    reject_on_worker_lost=True,
     autoretry_for=(Exception,),
     retry_backoff=10,
     max_retries=5,

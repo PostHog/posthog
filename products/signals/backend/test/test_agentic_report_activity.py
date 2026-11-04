@@ -70,8 +70,12 @@ from products.signals.backend.report_generation.research import (
     _resolve_priority_response,
     run_multi_turn_research,
 )
-from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_generation.select_repo import (
+    RepoSelectionResult,
+    repository_candidates_for_signals,
+)
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric
+from products.signals.backend.report_monitoring_provenance import MonitoringRepositorySources
 from products.signals.backend.startup_failure import RESEARCH_STARTUP_FAILURE, research_startup_failure
 from products.signals.backend.supersession import ImplementationResearchContext
 from products.signals.backend.temporal.agentic.report import (
@@ -713,23 +717,32 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "github_optional,connected,reused,discovered",
+    "github_optional,connected,reused,discovered,private_origin",
     [
-        (False, True, True, False),
-        (False, False, False, False),
-        (True, True, True, False),
-        (True, False, True, False),
-        (True, True, True, True),
-        (True, False, True, True),
+        (False, True, True, False, False),
+        (False, False, False, False, False),
+        (True, True, True, False, False),
+        (True, False, True, False, False),
+        (True, True, True, True, False),
+        (True, False, True, True, False),
+        (False, True, False, False, True),
+        (True, True, False, False, True),
+        (False, True, True, False, True),
     ],
 )
 async def test_select_repository_activity_reuses_previous_selection(
-    monkeypatch, ateam, github_optional, connected, reused, discovered
+    monkeypatch, ateam, github_optional, connected, reused, discovered, private_origin
 ):
-    previous = RepoSelectionResult(repository="posthog/posthog", reason="Previously selected")
+    previous = RepoSelectionResult(
+        repository="EXAMPLE/PRIVATE" if private_origin and reused else "posthog/posthog", reason="Previously selected"
+    )
     if discovered:
         previous.autostart_eligible = False
         previous.research_context = ReportResearchContext(mode="repository_discovery", repository_status="available")
+    report = await SignalReport.objects.acreate(team=ateam, status="in_progress")
+    await SignalReportArtefact.objects.acreate(
+        team=ateam, report=report, type="repo_selection", content=previous.model_dump_json()
+    )
     if connected:
         await Integration.objects.acreate(
             team=ateam,
@@ -2781,6 +2794,26 @@ async def test_unresolved_selection_lets_research_choose_repository(
     assert persisted.repository == "example/app"
     assert persisted.requires_confirmation
     assert not persisted.autostart_eligible
+
+
+@pytest.mark.django_db
+def test_discovery_candidates_honor_monitoring_source_privacy(team: Team) -> None:
+    Integration.objects.create(
+        team=team,
+        kind="github",
+        integration_id="privacy-discovery",
+        config={"installation_id": "privacy-discovery"},
+        repository_cache=[
+            {"id": 1, "name": "private", "full_name": "example/private", "private": True},
+            {"id": 2, "name": "public", "full_name": "example/public", "private": False},
+        ],
+        repository_cache_updated_at=timezone.now(),
+    )
+    with patch(
+        "products.signals.backend.report_generation.select_repo.monitoring_repository_sources",
+        return_value=MonitoringRepositorySources(repositories=frozenset(), require_private_destination=True),
+    ):
+        assert repository_candidates_for_signals(team.id, _build_signals()) == ["example/private"]
 
 
 @pytest.mark.asyncio

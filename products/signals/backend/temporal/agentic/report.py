@@ -33,7 +33,8 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.assignment_flags import assignment_writer_enabled
 from products.signals.backend.auto_start import ReviewerContent
-from products.signals.backend.enums import ReportLinkKind, SuggestedSourceProduct
+from products.signals.backend.contracts import MonitoringUnresolvedSignalExtra
+from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType, SuggestedSourceProduct
 from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportCheck
 from products.signals.backend.receivers import _is_safety_suppressed
@@ -1266,6 +1267,20 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                     reason="no_repositories",
                     fallback=True,
                 )
+        if repository is not None:
+            sources = await database_sync_to_async(monitoring_repository_sources, thread_sensitive=False)(
+                input.team_id, input.signals
+            )
+            if sources is not None:
+                allowed = await database_sync_to_async(
+                    filter_repository_candidates_for_sources, thread_sensitive=False
+                )(input.team_id, [repository], sources.repositories, sources.require_private_destination)
+                if repository not in allowed:
+                    raise ApplicationError(
+                        "Monitoring source privacy does not permit this research repository.",
+                        type="MonitoringRepositoryPrivacyMismatch",
+                        non_retryable=True,
+                    )
 
         assignment = await database_sync_to_async(ReviewerRules, thread_sensitive=False)(
             team=await Team.objects.aget(id=input.team_id),

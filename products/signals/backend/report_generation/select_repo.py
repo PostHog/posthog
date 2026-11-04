@@ -12,7 +12,7 @@ nowhere to land; `summary.py` treats `repository=None` as
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING
 
 from posthog.egress.limiter.policies import Priority
@@ -32,6 +32,7 @@ from products.tasks.backend.facade.repo_selection import (
     RepoSelectionRejectedError,
     RepoSelectionResult,
     RepoSelectionUnavailableError,
+    filter_repository_candidates_for_sources,
     research_repository_candidates,
     resolve_team_github_integration,
     select_repository,
@@ -91,7 +92,13 @@ def persisted_repo_selection(report_id: str) -> RepoSelectionResult | None:
 def repository_candidates_for_signals(team_id: int, signals: list[SignalData]) -> list[str]:
     sources: set[str | None] = {source for signal in signals if (source := source_repository_from_signals([signal]))}
     candidate_sets = [set(research_repository_candidates(team_id, source)) for source in sources or {None}]
-    return sorted(set.intersection(*candidate_sets))
+    candidates = sorted(set.intersection(*candidate_sets))
+    monitoring = monitoring_repository_sources(team_id, signals)
+    if monitoring is None:
+        return candidates
+    return filter_repository_candidates_for_sources(
+        team_id, candidates, monitoring.repositories, monitoring.require_private_destination
+    )
 
 
 async def select_repository_for_team(
@@ -108,6 +115,8 @@ async def select_repository_for_team(
     on_research_session: Callable[[str, str], None] | None = None,
     source_repository: str | None = None,
     team_only: bool = False,
+    source_repositories: Collection[str] = (),
+    require_private_destination: bool = False,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request against the team's repos.
 
@@ -191,6 +200,7 @@ async def select_repository_for_report(
     verbose: bool = False,
     output_fn: OutputFn = None,
     team_only: bool = False,
+    monitoring_sources: MonitoringRepositorySources | None = None,
     on_research_session: Callable[[str, str], None] | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a set of signals.
@@ -219,4 +229,6 @@ async def select_repository_for_report(
         on_research_session=on_research_session,
         source_repository=source_repository_from_signals(signals),
         team_only=team_only,
+        source_repositories=monitoring_sources.repositories if monitoring_sources else (),
+        require_private_destination=monitoring_sources.require_private_destination if monitoring_sources else False,
     )

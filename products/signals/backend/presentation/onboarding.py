@@ -15,6 +15,7 @@ from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.exceptions import InsufficientScope
 from posthog.models.integration.github_readiness import GitHubReadinessStatus
 from posthog.models.user import User
 from posthog.oauth_provenance import is_sandbox_oauth_request

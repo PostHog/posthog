@@ -1062,6 +1062,8 @@ def start_requested_implementation(
 
     if repo_selection.requires_confirmation:
         raise RequestedImplementationUnavailable("Confirm the recommended repository before implementation")
+    if not monitoring_repository_allowed(request.team_id, request.report_id, repo_selection.repository):
+        raise RequestedImplementationUnavailable("The selected repository does not satisfy source privacy requirements")
 
     linked_tasks = {
         entry.task_id

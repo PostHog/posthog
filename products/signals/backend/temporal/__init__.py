@@ -15,6 +15,12 @@ from products.signals.backend.anomaly_scores.tick import (
     score_anomaly_insight_activity,
 )
 from products.signals.backend.github_readiness import check_report_github_readiness_activity
+from products.signals.backend.personal_ranking.tick import (
+    PersonalRankingTickWorkflow,
+    build_personal_ranking_pair_activity,
+    capture_personal_ranking_tick_activity,
+    plan_personal_ranking_tick_activity,
+)
 from products.signals.backend.ranking.sweep import InboxRankingScoringWorkflow, score_inbox_reports_activity
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
 from products.signals.backend.temporal.agentic.scout_coordinator import (

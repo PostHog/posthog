@@ -340,6 +340,43 @@ def _filter_candidates_by_source_visibility(
     return [repo for repo in candidate_repos if repo == source_repository or visibility.get(repo) is True]
 
 
+def _filter_repository_sources(
+    candidate_repos: list[str],
+    source_repositories: Collection[str],
+    visibility: Mapping[str, bool | None],
+    require_private_destination: bool,
+) -> list[str]:
+    allowed = candidate_repos
+    for source in source_repositories:
+        allowed = _filter_candidates_by_source_visibility(source, allowed, visibility)
+    if require_private_destination:
+        allowed = [repository for repository in allowed if visibility.get(repository) is True]
+    return allowed
+
+
+def filter_repository_candidates_for_sources(
+    team_id: int,
+    candidate_repos: list[str],
+    source_repositories: Collection[str],
+    require_private_destination: bool = False,
+) -> list[str]:
+    github = resolve_team_github_integration(team_id)
+    if github is None:
+        return []
+    sources = {repository.strip().lower() for repository in source_repositories}
+    normalized = {repository: repository.strip().lower() for repository in candidate_repos}
+    if github.repository_cache_is_stale():
+        try:
+            github.sync_repository_cache(priority=Priority.BATCH)
+        except Exception:
+            logger.warning("repo_selection.visibility_refresh_failed", exc_info=True)
+    visibility = (
+        {} if github.repository_cache_is_stale() else _candidate_visibility(github, [*normalized.values(), *sources])
+    )
+    allowed = _filter_repository_sources(list(normalized.values()), sources, visibility, require_private_destination)
+    return [repository for repository, name in normalized.items() if name in allowed]
+
+
 def research_repository_candidates(team_id: int, source_repository: str | None = None) -> list[str]:
     github = resolve_team_github_integration(team_id, team_only=True)
     if github is None:

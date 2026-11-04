@@ -27,6 +27,8 @@ GITHUB_BRANCH_REFRESH_RETRY_SECONDS = 5 * 60
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.INTEGRATIONS.value,
+    acks_late=True,
+    reject_on_worker_lost=True,
     autoretry_for=(Exception,),
     retry_backoff=True,
     max_retries=5,

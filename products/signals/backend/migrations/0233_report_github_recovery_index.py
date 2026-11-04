@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("posthog", "1416_uploadedmedia_serving_disabled_at"),
-        ("signals", "0230_report_research_context"),
+        ("signals", "0232_report_research_context"),
     ]
 
     operations = [

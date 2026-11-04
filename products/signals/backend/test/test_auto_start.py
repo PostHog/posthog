@@ -1726,7 +1726,12 @@ async def test_background_scout_reports_never_reach_autostart(run_origin, config
 )
 @pytest.mark.parametrize("monitoring,private_destination", [(False, False), (True, False), (True, True)])
 async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
-    repository_autostart_eligible, user_triggered, expect_task, confirmation_required
+    repository_autostart_eligible,
+    user_triggered,
+    expect_task,
+    confirmation_required,
+    monitoring: bool,
+    private_destination: bool,
 ):
     # A repo read out of the report's own text is a target for whoever clicks Create PR, so it must not
     # reach the reviewer-less fallback — the one path where nobody named the destination or the runner.

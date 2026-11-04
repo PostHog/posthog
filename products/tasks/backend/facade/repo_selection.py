@@ -38,6 +38,7 @@ __all__ = [
     "RepoSelectionUnavailableError",
     "RepoSelectionUsageLimitError",
     "get_github_token",
+    "filter_repository_candidates_for_sources",
     "research_repository_candidates",
     "list_team_connected_repositories",
     "repository_accessible_via_integration",

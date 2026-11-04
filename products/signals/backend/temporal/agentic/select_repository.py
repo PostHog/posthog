@@ -26,6 +26,7 @@ from products.signals.backend.report_generation.select_repo import (
     resolve_team_github_integration,
     select_repository_for_report,
 )
+from products.signals.backend.report_monitoring_provenance import monitoring_repository_sources
 from products.signals.backend.research_telemetry import capture_research_access_event
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPO_DISCOVERY_ENV_NAME,
@@ -43,7 +44,10 @@ from products.tasks.backend.facade.agents import (
     TurnPollTimeout,
 )
 from products.tasks.backend.facade.github_readiness import get_team_github_readiness
-from products.tasks.backend.facade.repo_selection import RepoSelectionUsageLimitError
+from products.tasks.backend.facade.repo_selection import (
+    RepoSelectionUsageLimitError,
+    filter_repository_candidates_for_sources,
+)
 from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 
 # Repo discovery only runs `gh` CLI commands — limit egress to GitHub hosts.
@@ -342,6 +346,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 spend_signal_id=input.signal_id,
                 sandbox_environment_id=sandbox_env_id,
                 team_only=input.github_optional,
+                monitoring_sources=sources,
                 on_research_session=capture_research_session,
             )
             # The shared selector takes a sole eligible repository without reading corrections.

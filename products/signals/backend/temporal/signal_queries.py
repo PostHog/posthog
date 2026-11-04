@@ -608,20 +608,22 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
+@frozen
 class FetchSignalsForReportInput:
     team_id: int
     report_id: str
     enabled_sources_only: bool = False
+    required_signal_id: str | None = None
 
 
-@dataclass(frozen=True)
+@frozen
 class FetchSignalsForReportOutput:
     signals: list[SignalData]
     # Signals assigned to the report before the disabled-source filter. Research progress counts
     # these, so a filtered signal does not read as a new signal that reaches the next bucket.
     # `None` in histories recorded before the field existed.
     fetched_signal_count: int | None = None
+    processed_pending_signal_id: str | None = None
 
 
 @temporalio.activity.defn
@@ -655,7 +657,29 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
             placeholders=placeholders,
         )
 
-        signals = [_parse_signal_row(row) for row in (result.results or [])]
+        signals = sorted(
+            (_parse_signal_row(row) for row in (result.results or [])),
+            key=lambda signal: (signal.timestamp, signal.signal_id),
+        )
+        fetched_ids = {signal.signal_id for signal in signals}
+        if not required_ids.issubset(fetched_ids):
+            raise ApplicationError(
+                "Required report signal is not visible in ClickHouse yet", type="RequiredReportSignalNotVisible"
+            )
+
+        if required_ids:
+            await (
+                SignalReport.objects.using("default")
+                .filter(
+                    team_id=input.team_id,
+                    id=input.report_id,
+                    status=SignalReport.Status.IN_PROGRESS,
+                    triggering_signal_id=input.required_signal_id,
+                    pending_triggering_signal_id=input.required_signal_id,
+                )
+                .aupdate(pending_triggering_signal_id=None)
+            )
+
         fetched_signal_count = len(signals)
         # A run that a new signal starts on a GitHub-blocked report has no recovery input, so the
         # persisted blocker also selects the filter, even after the workflow claims the report.
@@ -678,7 +702,13 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
             report_id=input.report_id,
             signal_count=len(signals),
         )
-        return FetchSignalsForReportOutput(signals=signals, fetched_signal_count=fetched_signal_count)
+        return FetchSignalsForReportOutput(
+            signals=signals,
+            fetched_signal_count=fetched_signal_count,
+            processed_pending_signal_id=pending_signal_id if pending_signal_id in fetched_ids else None,
+        )
+    except ApplicationError:
+        raise
     except Exception as e:
         logger.exception(
             f"Failed to fetch signals for report {input.report_id}: {e}",

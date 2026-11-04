@@ -451,8 +451,12 @@ class SignalReportSummaryWorkflow:
     async def _fetch_signals(
         self, inputs: SignalReportSummaryWorkflowInputs, log: FilteringBoundLogger
     ) -> FetchSignalsForReportOutput:
+        required_signal_id = inputs.signal_id if workflow.patched("signals-required-refresh-snapshot") else None
         fetch_input = FetchSignalsForReportInput(
-            team_id=inputs.team_id, report_id=inputs.report_id, enabled_sources_only=inputs.github_recovery
+            team_id=inputs.team_id,
+            report_id=inputs.report_id,
+            required_signal_id=required_signal_id,
+            enabled_sources_only=inputs.github_recovery,
         )
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
@@ -817,6 +821,7 @@ class SignalReportSummaryWorkflow:
                     summary=decision.summary,
                     processed_signal_count=signal_count,
                     researched_signal_count=fetch_result.fetched_signal_count,
+                    processed_pending_signal_id=fetch_result.processed_pending_signal_id,
                     source_products=source_products,
                     charts=decision.charts,
                     metrics=decision.metrics,
@@ -1162,6 +1167,7 @@ class MarkReportReadyInput:
     summary: str
     processed_signal_count: int
     researched_signal_count: int | None = None
+    processed_pending_signal_id: str | None = None
     source_products: list[str] = field(default_factory=list)
     # Chart payload to write alongside title/summary, in the same transaction: the JSON set to store,
     # `[]` to clear, or `None` to leave the column untouched. Defaults to `None` so an older workflow
