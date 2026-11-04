@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from uuid import UUID
 
 from django.db import transaction
@@ -63,7 +64,7 @@ def save_plan(
     migration: WarehouseMigration,
     snapshot: VendorSnapshot,
     *,
-    catalog: CatalogLookup = PENDING_CATALOG,
+    catalog: CatalogLookup = migration_catalog,
     connection_ids: Collection[str] | None = None,
 ) -> tuple[PlannedItem, ...]:
     """Plan the snapshot and store it with its items. The caller holds the migration row lock.
