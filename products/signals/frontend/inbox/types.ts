@@ -167,7 +167,7 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     refund_ineligibility_reason?: string | null
     /** The served ranking model's predictions. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     ranking?: ReportRankingApi | null
-    /** Coarse sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
+    /** Sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
     inbox_merge_key?: number | null
 }
 
@@ -245,6 +245,21 @@ export const SOURCE_LINEAR_TEAM_IDS_KEY = 'linear_team_ids'
 export function linearTeamIdsFromConfig(config: Record<string, any> | null | undefined): string[] {
     const raw = config?.[SOURCE_LINEAR_TEAM_IDS_KEY]
     return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string' && id.length > 0) : []
+}
+
+/** Product analytics source only: which firing insight alerts become signals. */
+export const SOURCE_ALERT_SCOPE_KEY = 'alert_scope'
+
+export enum SignalAlertScope {
+    InvestigatedOnly = 'investigated_only',
+    AllFiringAlerts = 'all_firing_alerts',
+}
+
+// Anything unknown reads as investigated only, matching the backend's fallback.
+export function alertScopeFromConfig(config: Record<string, any> | null | undefined): SignalAlertScope {
+    return config?.[SOURCE_ALERT_SCOPE_KEY] === SignalAlertScope.AllFiringAlerts
+        ? SignalAlertScope.AllFiringAlerts
+        : SignalAlertScope.InvestigatedOnly
 }
 
 // ── Inbox IA: page tabs, report sections, scope ──────────────────────────────

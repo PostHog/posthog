@@ -15,12 +15,31 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.schema_enums import AlertState
 
-from products.alerts_platform.backend.facade.contracts import DeliveryPath, DestinationType
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
+    DeliveryPath,
+    DestinationType,
+    IncidentAction,
+)
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 # The internal event an insight alert's destinations fire on. Do not take it from
 # `posthog.tasks.alerts.utils` instead, because that module imports this product's facade.
 INSIGHT_ALERT_EVENT_IDS: Final[tuple[str, ...]] = (LEGACY_INSIGHT_ALERT_EVENT,)
+
+# Every move into and out of a firing, so each trigger gets its resolve while messages still announce none.
+INSIGHT_ALERT_INCIDENT_OPENED_EVENT: Final = "$insight_alert_incident_opened"
+INSIGHT_ALERT_INCIDENT_CLOSED_EVENT: Final = "$insight_alert_incident_closed"
+INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION: Final[dict[str, str]] = {
+    IncidentAction.TRIGGER.value: INSIGHT_ALERT_INCIDENT_OPENED_EVENT,
+    IncidentAction.RESOLVE.value: INSIGHT_ALERT_INCIDENT_CLOSED_EVENT,
+}
+# Every event an insight alert's own destinations can listen on. The generic HogFunction API treats
+# the incident events as managed and refuses to edit them, so the insight API must be able to remove them.
+INSIGHT_ALERT_DESTINATION_EVENT_IDS: Final[tuple[str, ...]] = (
+    *INSIGHT_ALERT_EVENT_IDS,
+    *INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION.values(),
+)
 
 # Slack only, because `alert:write` is grantable to a sandboxed agent. A connected workspace is a
 # destination an admin chose, while every other transport takes a URL the caller supplies.
@@ -82,7 +101,7 @@ class HogFunctionPathReason(StrEnum):
     # body the HogFunction sends.
     NEW_WEBHOOK_BODY = "new_webhook_body"
     WEBHOOK_BODY_UNKNOWN = "webhook_body_unknown"
-    # Native insight delivery sends no incident actions, so a PagerDuty destination would open none.
+    # Native delivery sends PagerDuty incident actions only, never the firing event.
     PAGERDUTY_NOT_NATIVE = "pagerduty_not_native"
 
 
@@ -104,6 +123,7 @@ class DestinationEligibility:
     hold_backs: tuple[DestinationHoldBack, ...]
     # The md5 of the function's code, so the same code can be recognized across functions and teams.
     code_hash: str
+    event_ids: frozenset[str]
 
 
 @frozen
@@ -182,6 +202,11 @@ class MovedAlertCheck:
     triggered_dates: tuple[str, ...] = ()
     interval: str | None = None
     triggered_metadata: dict[str, Any] | None = None
+    investigation_status: str | None = None
+    investigation_verdict: str | None = None
+    investigation_summary: str | None = None
+    investigation_notebook_short_id: str | None = None
+    notification_suppressed_by_agent: bool = False
 
 
 @frozen
@@ -193,3 +218,13 @@ class MovedAlertCheckPage:
 
 class PlatformCannotOwn(ValueError):
     """An edit that would leave an alert the platform owns in a shape the platform cannot evaluate."""
+
+
+@frozen
+class InvestigationRelease:
+    """What a finished investigation of a platform evaluation hands back to the agent's workflow."""
+
+    # What the workflow starts: the held firing when the verdict let it go out, or the
+    # announcement of a changed verdict on a firing that already went out.
+    deliveries: tuple[AlertDeliveryRequest, ...]
+    previous_verdict: str | None

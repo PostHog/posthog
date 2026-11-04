@@ -19,11 +19,14 @@ const SEVERITY_LABELS: Record<HealthPanelFinding['severity'], string> = {
 export function HealthFindingRow({
     finding,
     onActedOn,
+    isDetailOpenAtFirst = false,
 }: {
     finding: HealthPanelFinding
     onActedOn?: () => void
+    /** Shows the detail without a click. Only a click reports the finding as opened, so this sends no event. */
+    isDetailOpenAtFirst?: boolean
 }): JSX.Element {
-    const [isDetailOpen, setIsDetailOpen] = useState(false)
+    const [isDetailOpen, setIsDetailOpen] = useState(isDetailOpenAtFirst)
     const detailId = useId()
     const { reportOpened, reportActedOn } = useHealthFindingReporting({
         code: finding.code,

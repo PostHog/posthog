@@ -587,6 +587,88 @@ export type PatchedPatchedDashboardOpenApiApiGroups = { [key: string]: Dashboard
  */
 export type PatchedPatchedDashboardOpenApiApiGroupTitles = { [key: string]: string } | null
 
+export type BreakdownTypeApi = (typeof BreakdownTypeApi)[keyof typeof BreakdownTypeApi]
+
+export const BreakdownTypeApi = {
+    Cohort: 'cohort',
+    Person: 'person',
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Element: 'element',
+    Group: 'group',
+    Session: 'session',
+    Hogql: 'hogql',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    RevenueAnalytics: 'revenue_analytics',
+} as const
+
+export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
+
+export const MultipleBreakdownTypeApi = {
+    Person: 'person',
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Element: 'element',
+    Group: 'group',
+    Session: 'session',
+    Hogql: 'hogql',
+    Cohort: 'cohort',
+    RevenueAnalytics: 'revenue_analytics',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+} as const
+
+export interface BreakdownApi {
+    group_type_index?: number | null
+    histogram_bin_count?: number | null
+    normalize_url?: boolean | null
+    property: string | number
+    type?: MultipleBreakdownTypeApi | null
+}
+
+export interface BreakdownFilterApi {
+    breakdown?: string | (string | number)[] | number | null
+    breakdown_group_type_index?: number | null
+    breakdown_hide_other_aggregation?: boolean | null
+    breakdown_histogram_bin_count?: number | null
+    breakdown_limit?: number | null
+    breakdown_normalize_url?: boolean | null
+    breakdown_path_cleaning?: boolean | null
+    breakdown_type?: BreakdownTypeApi | null
+    breakdowns?: BreakdownApi[] | null
+}
+
+/**
+ * * `second` - second
+ * * `minute` - minute
+ * * `hour` - hour
+ * * `day` - day
+ * * `week` - week
+ * * `month` - month
+ * * `quarter` - quarter
+ * * `year` - year
+ */
+export type IntervalTypeEnumApi = (typeof IntervalTypeEnumApi)[keyof typeof IntervalTypeEnumApi]
+
+export const IntervalTypeEnumApi = {
+    Second: 'second',
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Quarter: 'quarter',
+    Year: 'year',
+} as const
+
+export interface CompareFilterApi {
+    /** Whether to compare the current date range to a previous date range. */
+    compare?: boolean | null
+    /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+    compare_to?: string | null
+}
+
 /**
  * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
  *
@@ -607,6 +689,26 @@ export interface DashboardFiltersOpenApiApi {
     date_to?: string | null
     /** Dashboard-level property filters applied to every tile (PostHog property filter group). */
     properties?: unknown
+    /** Dashboard-level breakdown applied to every tile that supports one, replacing the tile's own breakdown. Example: {"breakdown_type": "event", "breakdown": "$browser"}. Null clears it. */
+    breakdown_filter?: BreakdownFilterApi | null
+    /** Time granularity forced onto every tile that supports one. Null means each tile keeps its own.
+     *
+     * * `second` - second
+     * * `minute` - minute
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * * `month` - month
+     * * `quarter` - quarter
+     * * `year` - year */
+    interval?: IntervalTypeEnumApi | null
+    /** Period comparison forced onto every tile that supports one. Null means each tile keeps its own. */
+    compareFilter?: CompareFilterApi | null
+    /**
+     * True forces test accounts out of every tile, false forces them in, null keeps each tile's setting.
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
 }
 
 export interface _DashboardPatchTileLayoutBoxOpenApiApi {
@@ -1319,7 +1421,7 @@ export interface PatchedPatchedDashboardOpenApiApi {
     name?: string | null
     description?: string
     pinned?: boolean
-    /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
+    /** Dashboard-level filters (date range, properties, breakdown, interval, comparison) applied across all tiles as the source of truth. */
     filters?: DashboardFiltersOpenApiApi
     /**
      * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
@@ -1477,68 +1579,9 @@ export const InsightVizNodeApiKind = {
     InsightVizNode: 'InsightVizNode',
 } as const
 
-export type BreakdownTypeApi = (typeof BreakdownTypeApi)[keyof typeof BreakdownTypeApi]
-
-export const BreakdownTypeApi = {
-    Cohort: 'cohort',
-    Person: 'person',
-    Event: 'event',
-    EventMetadata: 'event_metadata',
-    Element: 'element',
-    Group: 'group',
-    Session: 'session',
-    Hogql: 'hogql',
-    DataWarehouse: 'data_warehouse',
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
-    RevenueAnalytics: 'revenue_analytics',
-} as const
-
-export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
-
-export const MultipleBreakdownTypeApi = {
-    Person: 'person',
-    Event: 'event',
-    EventMetadata: 'event_metadata',
-    Element: 'element',
-    Group: 'group',
-    Session: 'session',
-    Hogql: 'hogql',
-    Cohort: 'cohort',
-    RevenueAnalytics: 'revenue_analytics',
-    DataWarehouse: 'data_warehouse',
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
-} as const
-
-export interface BreakdownApi {
-    group_type_index?: number | null
-    histogram_bin_count?: number | null
-    normalize_url?: boolean | null
-    property: string | number
-    type?: MultipleBreakdownTypeApi | null
-}
-
-export interface BreakdownFilterApi {
-    breakdown?: string | (string | number)[] | number | null
-    breakdown_group_type_index?: number | null
-    breakdown_hide_other_aggregation?: boolean | null
-    breakdown_histogram_bin_count?: number | null
-    breakdown_limit?: number | null
-    breakdown_normalize_url?: boolean | null
-    breakdown_path_cleaning?: boolean | null
-    breakdown_type?: BreakdownTypeApi | null
-    breakdowns?: BreakdownApi[] | null
-}
-
 export interface CalendarHeatmapFilterApi {
     /** When true and the series math is `dau`/`unique_users`, each user contributes to the (day-of-week, hour) bucket of their session's first event only — matching the web overview session-start attribution. When false (default), the user contributes to every bucket they have any event in. No effect on `total` math (event counts are unchanged either way). */
     bucketBySessionStart?: boolean | null
-}
-
-export interface CompareFilterApi {
-    /** Whether to compare the current date range to a previous date range. */
-    compare?: boolean | null
-    /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
-    compare_to?: string | null
 }
 
 export interface EventPropertyFilterApi {
@@ -6624,6 +6667,13 @@ export interface ExperimentEventExposureConfigApi {
     version?: number | null
 }
 
+export interface ExperimentWarehouseNativeUnitBindingApi {
+    /** Which ids represent that unit, such as `billing_customer_id`. */
+    id_namespace: string
+    /** What was randomized, as a stable project-scoped label such as `customer` or `account`. */
+    unit_type: string
+}
+
 export type ExperimentWarehouseNativeExposureConfigApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentWarehouseNativeExposureConfigApi {
@@ -6633,6 +6683,7 @@ export interface ExperimentWarehouseNativeExposureConfigApi {
     /** Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling. */
     query: string
     response?: ExperimentWarehouseNativeExposureConfigApiResponse
+    unit: ExperimentWarehouseNativeUnitBindingApi
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -6763,6 +6814,7 @@ export interface ExperimentWarehouseNativeNodeApi {
     /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure. */
     query: string
     response?: ExperimentWarehouseNativeNodeApiResponse
+    unit: ExperimentWarehouseNativeUnitBindingApi
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -8424,6 +8476,8 @@ export interface ErrorTrackingQueryApi {
     response?: ErrorTrackingQueryResponseApi | null
     /** Free-text search across exception type, message, and stack frames. */
     searchQuery?: string | null
+    /** Filter by issue severity. */
+    severity?: ErrorTrackingQueryIssueSeverityApi | null
     /** Filter by issue status. */
     status?: ErrorTrackingIssueStatusApi | string | null
     tags?: QueryLogTagsApi | null
@@ -9346,6 +9400,7 @@ export const YAxisPositionApi = {
 
 export interface ChartSettingsDisplayApi {
     color?: string | null
+    description?: string | null
     displayType?: DisplayTypeApi | null
     /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
     excludeFromTotal?: boolean | null
@@ -9388,6 +9443,8 @@ export interface ChartAxisApi {
 export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface ChartSettingsApi {
+    /** Shows only the annotations saved at this level. Unset shows every level. */
+    annotationsScope?: AnnotationScopeApi | null
     barGap?: number | null
     boxPlot?: BoxPlotSettingsApi | null
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */

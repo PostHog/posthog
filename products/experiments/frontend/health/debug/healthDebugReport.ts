@@ -376,6 +376,7 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
 export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugCheck[] {
     return [
         flagStateCheck(input),
+        serverOnlyCheck(input, 'flag_shared', null),
         serverOnlyCheck(input, 'split_changed_mid_run', splitChangedNote),
         serverOnlyCheck(input, 'bucketing_changed_mid_run', bucketingChangedNote),
         serverOnlyCheck(input, 'release_conditions_changed_mid_run', conditionsChangedNote),
