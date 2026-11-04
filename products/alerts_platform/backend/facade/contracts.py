@@ -901,6 +901,9 @@ class AlertDeliveryRequest:
     owned_by_platform: bool = False
     overflowed: int = 0
     overflow_is_lower_bound: bool = False
+    # A source's legacy webhook body and events describe its threshold alerts, so an appearance alert's
+    # deliveries never use them, including its failures.
+    alert_kind: PlatformAlertKind = PlatformAlertKind.THRESHOLD
     # How many activities the delivery workflow splits an evaluation into, by `MAX_TRANSITIONS_PER_DELIVERY`,
     # and which of them one activity sends. The workflow sets `part`.
     parts: int = 1
@@ -1842,6 +1845,9 @@ class SeenIdentity:
     seen_at: datetime
     labels: dict[str, str] = field(default_factory=dict)
     detail: dict[str, Any] = field(default_factory=dict)
+    # Its latest sighting in the window, so an identity resolved inside the window can still come back
+    # in it. None means the earliest sighting is the only one the feed reports.
+    last_seen_at: datetime | None = None
 
 
 @frozen

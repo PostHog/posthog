@@ -46,7 +46,7 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageLink,
     StoredAlertDestination,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.alerts_platform.backend.facade.enums import PlatformAlertKind, PlatformAlertOwner
 from products.alerts_platform.backend.logic import delivery_holds
 from products.alerts_platform.backend.logic.alert_destinations import (
     INCIDENT_DESTINATION_TYPES,
@@ -143,8 +143,7 @@ class _WebhookTransports:
 
     def _legacy_body(self) -> Callable[[AlertMessage], dict[str, Any]] | None:
         body = legacy_webhook.body_for(self._request.source)
-        # A source's legacy body describes its threshold alerts, so an appearance always gets the platform's.
-        if body is None or any(t.kind == AlertEventKind.APPEARED for t in self._announced.transitions):
+        if body is None or self._request.alert_kind != PlatformAlertKind.THRESHOLD:
             return None
         try:
             keeps_legacy_body = legacy_webhook.keeps_legacy_webhook_body(self._team)
@@ -412,12 +411,14 @@ def _split_by_path(
     paths, so nothing is sent twice. Moving an existing alert's destinations onto the platform must
     therefore disable the HogFunctions it copies, or each of them hears every transition as well.
     """
-    if not request.owned_by_platform or delivery_paths.emitter_for(request.source) is None:
+    if (
+        not request.owned_by_platform
+        or request.alert_kind != PlatformAlertKind.THRESHOLD
+        or delivery_paths.emitter_for(request.source) is None
+    ):
         return announced, ()
     if platform_destinations is not None:
-        # A source's legacy events describe its threshold alerts. An appearance has none to emit.
-        legacy = tuple(t for t in announced.transitions if t.kind != AlertEventKind.APPEARED)
-        return announced, _emissions(request, legacy)
+        return announced, _emissions(request, announced.transitions)
 
     # Read once per delivery, because the chooser reads every destination of the alert.
     @cache

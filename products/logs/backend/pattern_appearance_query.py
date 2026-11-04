@@ -14,12 +14,13 @@ from products.logs.backend.logs_query_runner import fail_fast_aggregate_settings
 
 
 def first_sightings(team_id: int, since: dt.datetime, until: dt.datetime, limit: int) -> list[tuple[Any, ...]]:
-    """Rows of (service, severity, version, pattern, environment, namespace, first bucket), earliest first."""
+    """Rows of (service, severity, version, pattern, environment, namespace, first bucket, last bucket), earliest first."""
     team = Team.objects.get(id=team_id)
     select = parse_select(
         """
         SELECT service_name, severity_text, pattern_version, pattern,
-               argMin(environment, time_bucket), argMin(namespace, time_bucket), min(time_bucket) AS first_bucket
+               argMin(environment, time_bucket), argMin(namespace, time_bucket), min(time_bucket) AS first_bucket,
+               max(time_bucket)
         FROM posthog.logs_pattern_buckets
         WHERE time_bucket >= {since} AND time_bucket < {until}
         GROUP BY service_name, severity_text, pattern_version, pattern
