@@ -312,6 +312,9 @@ describe('sandbox email content', () => {
         [`<body><p ${manyAttributes(6_000)}>Hello</p></body>`, null, null],
         [`<body><p title="x>" ${manyAttributes(6_000)}>Hello</p></body>`, null, null],
         [`<body><p>Hello</p><!--[if mso]><p ${manyAttributes(6_000)}>Outlook</p><![endif]--></body>`, null, null],
+        [`<body><!-- <x a=" --><p ${manyAttributes(6_000)}>Hello</p><!-- "> --></body>`, null, null],
+        [`<body><style><x a="</style><p ${manyAttributes(6_000)}>Hello</p><style>"></style></body>`, null, null],
+        [`<body><p>Hello</p><!--[if ${'('.repeat(60_000)}mso]><p>Outlook</p><![endif]--></body>`, null, null],
         [
             '<body><!--[if mso]><div style="display:none"><![if !mso]></div><![endif]><![endif]--><p>Hello</p>',
             null,

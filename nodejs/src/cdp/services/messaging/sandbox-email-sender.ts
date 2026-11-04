@@ -1,11 +1,10 @@
 import { randomUUID } from 'crypto'
 import {
     type DefaultTreeAdapterMap,
+    Parser,
     type TreeAdapter,
     defaultTreeAdapter,
     html as htmlSpec,
-    parse,
-    parseFragment,
     serialize,
     serializeOuter,
 } from 'parse5'
@@ -15,6 +14,11 @@ import { logger } from '~/common/utils/logger'
 import { TeamManager } from '~/common/utils/team-manager'
 
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
+
+const MAX_TEMPLATE_HTML_BYTES = 75_000
+const MAX_ELEMENT_DEPTH = 256
+const MAX_ATTRIBUTES_PER_TAG = 64
+const MAX_CONDITION_LENGTH = 100
 
 export interface SandboxEmailSenderConfig {
     enabled: boolean
@@ -200,6 +204,9 @@ type ConditionalMarker =
 class UnreadableConditional extends Error {}
 
 function conditionHolds(condition: string, client: ConditionalClient): boolean {
+    if (condition.length > MAX_CONDITION_LENGTH) {
+        throw new UnreadableConditional()
+    }
     const tokens = condition.match(/\(|\)|!|&|\||[a-z]+|\d+(?:\.\d+)?/gi) ?? []
     if (tokens.join('') !== condition.replace(/\s+/g, '')) {
         throw new UnreadableConditional()
@@ -289,59 +296,23 @@ function conditionHolds(condition: string, client: ConditionalClient): boolean {
     return value
 }
 
-const MAX_TEMPLATE_HTML_BYTES = 75_000
-const MAX_ELEMENT_DEPTH = 256
-const MAX_ATTRIBUTES_PER_TAG = 64
-
-function hasTagWithTooManyAttributes(html: string): boolean {
-    const space = /[\s/]/
-    const nameEnd = /[\s/>=]/
-    const valueEnd = /[\s>]/
-    let index = html.indexOf('<')
-    while (index !== -1) {
-        index += html[index + 1] === '/' ? 2 : 1
-        if (/[a-z]/i.test(html[index] ?? '')) {
-            while (index < html.length && !/[\s/>]/.test(html[index])) {
-                index += 1
-            }
-            let attributes = 0
-            while (index < html.length && html[index] !== '>') {
-                if (space.test(html[index])) {
-                    index += 1
-                    continue
-                }
-                attributes += 1
-                if (attributes > MAX_ATTRIBUTES_PER_TAG) {
-                    return true
-                }
-                index += 1
-                while (index < html.length && !nameEnd.test(html[index])) {
-                    index += 1
-                }
-                while (/\s/.test(html[index] ?? '')) {
-                    index += 1
-                }
-                if (html[index] !== '=') {
-                    continue
-                }
-                index += 1
-                while (/\s/.test(html[index] ?? '')) {
-                    index += 1
-                }
-                const quote = html[index]
-                if (quote === '"' || quote === "'") {
-                    const end = html.indexOf(quote, index + 1)
-                    index = end === -1 ? html.length : end + 1
-                } else {
-                    while (index < html.length && !valueEnd.test(html[index])) {
-                        index += 1
-                    }
-                }
-            }
+class AttributeBoundedParser extends Parser<DefaultTreeAdapterMap> {
+    constructor(...args: ConstructorParameters<typeof Parser<DefaultTreeAdapterMap>>) {
+        super(...args)
+        const tokenizer = this.tokenizer as unknown as {
+            currentToken: { attrs: unknown[] } | null
+            _leaveAttrName: () => void
         }
-        index = html.indexOf('<', index)
+        const leaveAttrName = tokenizer._leaveAttrName.bind(tokenizer)
+        tokenizer._leaveAttrName = () => {
+            if ((tokenizer.currentToken?.attrs.length ?? 0) >= MAX_ATTRIBUTES_PER_TAG) {
+                throw new Error(
+                    'The sandbox email template could not retain its identification footer. Update the template and try again.'
+                )
+            }
+            leaveAttrName()
+        }
     }
-    return false
 }
 
 const templateOwners = new WeakMap<DefaultTreeAdapterMap['parentNode'], DefaultTreeAdapterMap['template']>()
@@ -377,7 +348,7 @@ const depthBoundedTreeAdapter: TreeAdapter<DefaultTreeAdapterMap> = {
 }
 
 function parseBounded(html: string, scriptingEnabled = false): DefaultTreeAdapterMap['document'] {
-    return parse(html, { scriptingEnabled, treeAdapter: depthBoundedTreeAdapter })
+    return AttributeBoundedParser.parse(html, { scriptingEnabled, treeAdapter: depthBoundedTreeAdapter })
 }
 
 class TooLargeForSandbox extends Error {
@@ -464,15 +435,12 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
     if (Buffer.byteLength(html) + Buffer.byteLength(preheader ?? '') > MAX_TEMPLATE_HTML_BYTES) {
         throw new TooLargeForSandbox()
     }
-    if (hasTagWithTooManyAttributes(html) || hasTagWithTooManyAttributes(preheader ?? '')) {
-        throw new Error(
-            'The sandbox email template could not retain its identification footer. Update the template and try again.'
-        )
-    }
-    const preheaderText = parseFragment(preheader ?? '', {
+    const preheaderParser = AttributeBoundedParser.getFragmentParser(null, {
         scriptingEnabled: false,
         treeAdapter: depthBoundedTreeAdapter,
     })
+    preheaderParser.tokenizer.write(preheader ?? '', true)
+    const preheaderText = preheaderParser.getFragment()
     neutralizeRawTextElements(preheaderText.childNodes)
     const document = parseBounded(maybeAddPreheaderToEmail(html, serialize(preheaderText, { scriptingEnabled: false })))
     const body = htmlBody(document)
