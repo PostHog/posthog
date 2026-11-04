@@ -154,6 +154,7 @@ class ResourceType(StrEnum):
     LOOP = "loop"
     MCP_BUILTIN_AGENT = "mcp_builtin_agent"
     MCP_REGISTRY = "mcp_registry"
+    MESSAGING_PREFERENCE = "messaging_preference"
     OFFLINE_EVALUATION_INGESTION = "offline_evaluation_ingestion"
     ORGANIZATION_INTEGRATION = "organization_integration"
     ORGANIZATION_MEMBER = "organization_member"
@@ -176,6 +177,7 @@ class ResourceType(StrEnum):
     SUBSCRIPTION = "subscription"
     SUPPORT_TICKET = "support_ticket"
     TODAY = "today"
+    TRANSACTIONAL_EMAIL = "transactional_email"
     UPLOADED_MEDIA = "uploaded_media"
     USER = "user"
     USER_INTERVIEW = "user_interview"
@@ -184,6 +186,7 @@ class ResourceType(StrEnum):
     WEBHOOK = "webhook"
     WIZARD_RUN = "wizard_run"
     WIZARD_SESSION = "wizard_session"
+    WORKLOAD_TRUST_POLICY = "workload_trust_policy"
 
 
 class SubjectType(StrEnum):
