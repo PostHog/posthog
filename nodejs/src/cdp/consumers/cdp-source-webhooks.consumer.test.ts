@@ -884,7 +884,6 @@ describe('SourceWebhooksConsumer', () => {
                     return manualHogFlow
                 }
 
-                // Signs as Django does: the web tier's cancel key, on the manual run audience.
                 const mintManualRunToken = (claims: { teamId: number; hogFlowId: string }) =>
                     new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_MANUAL_RUN, hub.WORKFLOWS_CANCEL_JWT_SECRET).mint(
                         {
