@@ -1,4 +1,7 @@
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+
+import { QuillInsightSaveButton } from './QuillInsightSaveButton'
 
 export function InsightSaveButton({
     saveAs,
@@ -18,6 +21,20 @@ export function InsightSaveButton({
     // When provided, adds a "Save & add to dashboard" dropdown option that saves then opens the add-to-dashboard modal.
     onSaveAndAddToDashboard?: () => void
 }): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav) {
+        return (
+            <QuillInsightSaveButton
+                saveAs={saveAs}
+                saveInsight={saveInsight}
+                isSaved={isSaved}
+                insightSaving={insightSaving}
+                insightChanged={insightChanged}
+                addingToDashboard={addingToDashboard}
+                onSaveAndAddToDashboard={onSaveAndAddToDashboard}
+            />
+        )
+    }
     const disabled = isSaved && !insightChanged
     const saveAsAvailable = isSaved && !addingToDashboard
 

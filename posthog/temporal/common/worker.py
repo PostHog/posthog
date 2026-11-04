@@ -40,9 +40,12 @@ from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.shutdown import DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.common.utils import configure_asyncify_executor, shutdown_asyncify_executor
 from posthog.temporal.data_modeling.metrics import (
+    DATA_MODELING_DURATION_HISTOGRAM_BUCKETS,
+    DATA_MODELING_DURATION_HISTOGRAM_METRICS,
     DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS,
     DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
 )
@@ -69,6 +72,10 @@ from posthog.temporal.usage_report.metrics import (
 from products.alerts_platform.backend.facade.temporal import (
     ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS,
     ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS,
+    ALERTS_PLATFORM_TICK_HISTOGRAM_BUCKETS,
+    ALERTS_PLATFORM_TICK_HISTOGRAM_METRICS,
+    ALERTS_PLATFORM_TICK_KEYS_BUCKETS,
+    ALERTS_PLATFORM_TICK_KEYS_METRICS,
     AlertsPlatformTelemetryInterceptor,
 )
 from products.batch_exports.backend.facade.temporal import BatchExportsMetricsInterceptor
@@ -91,12 +98,16 @@ from products.logs.backend.facade.temporal import (
     LogsAlertingMetricsInterceptor,
 )
 from products.tasks.backend.facade.temporal import (
+    TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_BUCKETS,
+    TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_METRICS,
     TASKS_LATENCY_HISTOGRAM_BUCKETS,
     TASKS_LATENCY_HISTOGRAM_METRICS,
     TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS,
     TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS,
     TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS,
     TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS,
+    TASKS_NETWORK_BYTES_HISTOGRAM_BUCKETS,
+    TASKS_NETWORK_BYTES_HISTOGRAM_METRICS,
     TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS,
     TASKS_RUN_TOKENS_HISTOGRAM_METRICS,
     TASKS_RUN_TURNS_HISTOGRAM_BUCKETS,
@@ -375,6 +386,12 @@ async def create_worker(
         )
         | dict(
             zip(
+                TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_METRICS, itertools.repeat(TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_BUCKETS)
+            )
+        )
+        | dict(zip(TASKS_NETWORK_BYTES_HISTOGRAM_METRICS, itertools.repeat(TASKS_NETWORK_BYTES_HISTOGRAM_BUCKETS)))
+        | dict(
+            zip(
                 EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
                 itertools.repeat(EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS),
             )
@@ -397,6 +414,8 @@ async def create_worker(
                 itertools.repeat(ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
+        | dict(zip(ALERTS_PLATFORM_TICK_HISTOGRAM_METRICS, itertools.repeat(ALERTS_PLATFORM_TICK_HISTOGRAM_BUCKETS)))
+        | dict(zip(ALERTS_PLATFORM_TICK_KEYS_METRICS, itertools.repeat(ALERTS_PLATFORM_TICK_KEYS_BUCKETS)))
         | dict(zip(LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(zip(LOGS_ALERTING_COUNT_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS)))
         | dict(
@@ -432,6 +451,12 @@ async def create_worker(
                 itertools.repeat(DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
+        histogram_bucket_overrides |= dict(
+            zip(
+                DATA_MODELING_DURATION_HISTOGRAM_METRICS,
+                itertools.repeat(DATA_MODELING_DURATION_HISTOGRAM_BUCKETS),
+            )
+        )
     if task_queue == settings.DATA_WAREHOUSE_TASK_QUEUE:
         # Both metrics hold small counts. The default buckets are for latencies in milliseconds,
         # which puts every count into the first bucket.
@@ -450,6 +475,20 @@ async def create_worker(
             120.0,
             300.0,
             900.0,
+            1800.0,
+            3600.0,
+            7200.0,
+            21600.0,
+        ]
+        histogram_bucket_overrides["warehouse_import_attempt_duration_seconds"] = [
+            1.0,
+            5.0,
+            15.0,
+            30.0,
+            60.0,
+            120.0,
+            300.0,
+            600.0,
             1800.0,
             3600.0,
             7200.0,
@@ -529,7 +568,7 @@ async def create_worker(
             workflows=workflows,
             activities=activities,
             workflow_runner=UnsandboxedWorkflowRunner(),
-            graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
+            graceful_shutdown_timeout=graceful_shutdown_timeout or DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT,
             interceptors=supported_interceptors,
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS),
             tuner=WorkerTuner.create_resource_based(
@@ -555,7 +594,7 @@ async def create_worker(
             workflows=workflows,
             activities=activities,
             workflow_runner=UnsandboxedWorkflowRunner(),
-            graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
+            graceful_shutdown_timeout=graceful_shutdown_timeout or DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT,
             interceptors=supported_interceptors,
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS),
             max_concurrent_activities=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS,
@@ -573,7 +612,7 @@ async def create_worker(
             activities=config.activities,
             max_concurrent_activities=config.max_concurrent_activities,
             activity_executor=ThreadPoolExecutor(max_workers=config.max_concurrent_activities),
-            graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
+            graceful_shutdown_timeout=graceful_shutdown_timeout or DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT,
             interceptors=[
                 interceptor()
                 for interceptor in ALL_INTERCEPTOR_CLASSES

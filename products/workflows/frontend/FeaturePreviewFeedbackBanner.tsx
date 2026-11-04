@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { uuid } from 'lib/utils/dom'
@@ -29,7 +29,7 @@ export interface FeaturePreviewFeedbackBannerProps {
     /** Remembers a dismissal per person, so the banner does not come back on every visit. */
     dismissKey: string
     prompt: string
-    modalTitle: string
+    feedbackTitle: string
     feedbackPlaceholder: string
     /** Spacing around the banner, for surfaces whose content isn't inset. */
     className?: string
@@ -38,8 +38,9 @@ export interface FeaturePreviewFeedbackBannerProps {
 
 /**
  * The thumbs-up/thumbs-down strip a feature preview carries while we are still deciding whether to
- * keep it. The rating is recorded on click, so a rating survives someone who never opens the modal,
- * and the written note lands on the same submission id rather than a second response.
+ * keep it. The rating is recorded on click, so a rating survives someone who never writes a note,
+ * and the written note lands on the same submission id rather than a second response. The note box
+ * opens inside the banner, so the page stays visible while someone describes it.
  */
 export function FeaturePreviewFeedbackBanner({
     surveyId,
@@ -48,7 +49,7 @@ export function FeaturePreviewFeedbackBanner({
     surface,
     dismissKey,
     prompt,
-    modalTitle,
+    feedbackTitle,
     feedbackPlaceholder,
     className = 'm-2',
     'data-attr': dataAttr,
@@ -57,6 +58,7 @@ export function FeaturePreviewFeedbackBanner({
     const [submissionId, setSubmissionId] = useState<string | null>(null)
     const [feedbackText, setFeedbackText] = useState('')
     const [feedbackOpen, setFeedbackOpen] = useState(false)
+    const [feedbackSent, setFeedbackSent] = useState(false)
     // LemonBanner renders nothing once the dismissal is persisted, so without this the impression
     // is recorded on every visit for a banner nobody sees, and the response rate reads far too low.
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey }))
@@ -107,14 +109,17 @@ export function FeaturePreviewFeedbackBanner({
             feedback_surface: surface,
         })
         setFeedbackOpen(false)
+        setFeedbackSent(true)
         setFeedbackText('')
     }
 
     return (
-        <>
-            <LemonBanner type="info" dismissKey={dismissKey} className={className}>
+        <LemonBanner type="info" dismissKey={dismissKey} className={className}>
+            <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-secondary">{rating ? 'Thanks, your rating is saved.' : prompt}</div>
+                    <div className="text-secondary">
+                        {feedbackSent ? 'Thanks for the feedback.' : rating ? 'Thanks, your rating is saved.' : prompt}
+                    </div>
                     <div className="flex items-center gap-1">
                         <LemonButton
                             type={rating === 'useful' ? 'primary' : 'secondary'}
@@ -136,33 +141,36 @@ export function FeaturePreviewFeedbackBanner({
                         />
                     </div>
                 </div>
-            </LemonBanner>
-            <LemonModal
-                title={modalTitle}
-                description="Thanks, your rating is saved. What would make this better?"
-                isOpen={feedbackOpen}
-                onClose={() => setFeedbackOpen(false)}
-                data-attr={dataAttr ? `${dataAttr}-feedback` : undefined}
-                footer={
-                    <div className="flex justify-end gap-2">
-                        <LemonButton type="secondary" onClick={() => setFeedbackOpen(false)}>
-                            Not now
-                        </LemonButton>
-                        <LemonButton type="primary" disabled={!feedbackText.trim()} onClick={submitFeedback}>
-                            Send feedback
-                        </LemonButton>
+                {feedbackOpen ? (
+                    <div className="flex flex-col gap-2" data-attr={dataAttr ? `${dataAttr}-feedback` : undefined}>
+                        <div>
+                            <div className="font-semibold">{feedbackTitle}</div>
+                            <div className="text-secondary">What would make this better?</div>
+                        </div>
+                        <LemonTextArea
+                            value={feedbackText}
+                            onChange={setFeedbackText}
+                            placeholder={feedbackPlaceholder}
+                            minRows={3}
+                            autoFocus
+                            data-attr={dataAttr ? `${dataAttr}-feedback-text` : undefined}
+                        />
+                        <div className="flex justify-end gap-2">
+                            <LemonButton type="secondary" size="small" onClick={() => setFeedbackOpen(false)}>
+                                Not now
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                disabled={!feedbackText.trim()}
+                                onClick={submitFeedback}
+                            >
+                                Send feedback
+                            </LemonButton>
+                        </div>
                     </div>
-                }
-            >
-                <LemonTextArea
-                    value={feedbackText}
-                    onChange={setFeedbackText}
-                    placeholder={feedbackPlaceholder}
-                    minRows={4}
-                    autoFocus
-                    data-attr={dataAttr ? `${dataAttr}-feedback-text` : undefined}
-                />
-            </LemonModal>
-        </>
+                ) : null}
+            </div>
+        </LemonBanner>
     )
 }

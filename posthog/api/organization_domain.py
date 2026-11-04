@@ -10,6 +10,7 @@ from rest_framework.request import Request
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scim.utils import get_scim_base_url
 from posthog.api.scim_request_log import (
     PaginatedSCIMRequestLogSerializer,
     SCIMRequestLogQuerySerializer,
@@ -22,10 +23,8 @@ from posthog.event_usage import groups
 from posthog.models import OrganizationDomain, User
 from posthog.models.identity_provider_config import ConfigScope
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.scim_request_log import SCIMRequestLog
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
-
-from ee.api.scim.utils import get_scim_base_url
-from ee.models.scim_request_log import SCIMRequestLog
 
 DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
 

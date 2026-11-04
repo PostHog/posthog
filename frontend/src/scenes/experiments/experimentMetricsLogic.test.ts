@@ -11,7 +11,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { Experiment } from '~/types'
+import { Experiment, ExperimentStatus } from '~/types'
 
 import type { ExperimentMetricsRecalculationRunApi } from 'products/experiments/frontend/generated/api.schemas'
 
@@ -34,6 +34,9 @@ const SLOW_LOAD_MESSAGE = 'Loading results is taking longer than expected. Refre
 const neverSettles = (): Promise<never> => new Promise(() => {})
 
 const EXPERIMENT = experimentJson as unknown as Experiment
+const hoursAgo = (hours: number): string => new Date(Date.now() - hours * 60 * 60 * 1000).toISOString()
+// Relative, not a fixed date: a running experiment refreshes results older than the logic's staleness threshold.
+const ONE_HOUR_AGO = hoursAgo(1)
 const PRIMARY_METRIC_UUID = '434cb6ba-7fa6-4ca1-b7a0-8970b2d9a47d'
 const SECONDARY_METRIC_UUID = 'cbdd02f8-4a27-4017-a8d8-5f989b304ada'
 
@@ -65,7 +68,7 @@ const completedRecalculation = {
     completed_metrics: 2,
     started_at: new Date().toISOString(),
     completed_at: new Date().toISOString(),
-    query_to: '2026-06-10T00:05:00Z',
+    query_to: ONE_HOUR_AGO,
     results: [
         { metric_uuid: PRIMARY_METRIC_UUID, status: 'completed', result: primaryResult, error_message: null },
         { metric_uuid: SECONDARY_METRIC_UUID, status: 'completed', result: secondaryResult, error_message: null },
@@ -110,6 +113,28 @@ const partialFailureRecalculation = {
     ],
 }
 
+// A run the backend rejected because the experiment started too long ago. The create response has no
+// results; the latest read carries the earlier run's rows under the same window.
+const REJECTION_MESSAGE = 'This experiment started too long ago for its metrics to be recalculated.'
+const windowError = {
+    step: 'request',
+    message: REJECTION_MESSAGE,
+    error_type: 'recalculation_window_too_long',
+    retriable: false,
+}
+const rejectedRecalculation = {
+    ...baseRecalculation,
+    id: 'recalc-rejected',
+    status: 'failed',
+    completed_at: new Date().toISOString(),
+    metric_errors: { [PRIMARY_METRIC_UUID]: windowError, [SECONDARY_METRIC_UUID]: windowError },
+}
+const rejectedLatestRecalculation = {
+    ...rejectedRecalculation,
+    query_to: completedRecalculation.query_to,
+    results: completedRecalculation.results,
+}
+
 // Timeseries cold-start placeholder: completed-status, primary filled from timeseries, secondary is a gap.
 const timeseriesFallbackRecalculation = {
     ...baseRecalculation,
@@ -117,8 +142,8 @@ const timeseriesFallbackRecalculation = {
     status: 'completed',
     trigger: 'cold_run',
     completed_metrics: 1,
-    completed_at: '2026-06-10T00:05:00Z',
-    query_to: '2026-06-10T00:05:00Z',
+    completed_at: ONE_HOUR_AGO,
+    query_to: ONE_HOUR_AGO,
     result_source: 'timeseries_fallback',
     results: [{ metric_uuid: PRIMARY_METRIC_UUID, status: 'completed', result: primaryResult, error_message: null }],
 }
@@ -615,6 +640,123 @@ describe('experimentMetricsLogic', () => {
                 .toNotHaveDispatchedActions(['triggerRecalculation'])
         })
 
+        const staleCompletedRecalculation = { ...completedRecalculation, query_to: hoursAgo(13) }
+
+        it.each([
+            {
+                name: 'refreshes a running experiment whose latest results are stale',
+                experiment: EXPERIMENT,
+                latest: staleCompletedRecalculation,
+                loads: 1,
+                expectedTriggers: ['stale_refresh'],
+            },
+            {
+                // A stale refresh advances the window over every metric, so a separate heal would only add a run.
+                name: 'fills a gap in stale results with the stale refresh alone',
+                experiment: experimentWithExtraMetric,
+                latest: staleCompletedRecalculation,
+                loads: 1,
+                expectedTriggers: ['stale_refresh'],
+            },
+            {
+                name: 'refreshes stale results only once per page load',
+                experiment: EXPERIMENT,
+                latest: staleCompletedRecalculation,
+                loads: 2,
+                expectedTriggers: ['stale_refresh'],
+            },
+            {
+                name: 'does not refresh stale results while a run is active',
+                experiment: EXPERIMENT,
+                latest: { ...staleCompletedRecalculation, active_run: { id: 'recalc-2', status: 'in_progress' } },
+                loads: 1,
+                expectedTriggers: [],
+            },
+            {
+                name: 'does not refresh stale results on a stopped experiment',
+                experiment: { ...EXPERIMENT, end_date: '2025-01-30T21:55:00Z' } as Experiment,
+                latest: staleCompletedRecalculation,
+                loads: 1,
+                expectedTriggers: [],
+            },
+            {
+                name: 'does not refresh stale results on a paused experiment',
+                experiment: { ...EXPERIMENT, status: ExperimentStatus.Paused } as Experiment,
+                latest: staleCompletedRecalculation,
+                loads: 1,
+                expectedTriggers: [],
+            },
+            {
+                name: 'does not refresh an experiment with no metrics',
+                experiment: { ...EXPERIMENT, metrics: [], metrics_secondary: [], saved_metrics: [] } as Experiment,
+                latest: staleCompletedRecalculation,
+                loads: 1,
+                expectedTriggers: [],
+            },
+            {
+                name: 'does not refresh fresh results',
+                experiment: EXPERIMENT,
+                latest: completedRecalculation,
+                loads: 1,
+                expectedTriggers: [],
+            },
+        ])('$name', async ({ experiment, latest, loads, expectedTriggers }) => {
+            const postedTriggers: string[] = []
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [200, latest],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [
+                        200,
+                        completedRecalculation2,
+                    ],
+                },
+                post: {
+                    // A terminal run, so the refresh does not arm a poll timer.
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async ({ request }) => {
+                        const body = (await request.json()) as { trigger: string }
+                        postedTriggers.push(body.trigger)
+                        return [201, completedRecalculation2]
+                    },
+                },
+            })
+            jest.useFakeTimers()
+            try {
+                logic = experimentMetricsLogic({ experiment })
+                logic.mount()
+                for (let load = 1; load <= loads; load++) {
+                    if (load > 1) {
+                        logic.actions.loadLatestRecalculation()
+                    }
+                    // Lets the latest read, a create POST and one poll tick of an active run settle.
+                    await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+                }
+                expect(postedTriggers).toEqual(expectedTriggers)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('clears the recalculating marks when the backend answers a stale refresh with the existing run', async () => {
+            // The backend judges freshness with server time and returns the latest run, which has no results on create.
+            const { results: _, ...existingJob } = { ...completedRecalculation, is_existing: true }
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        staleCompletedRecalculation,
+                    ],
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [200, existingJob] },
+            })
+            mountLogic()
+
+            await expectLogic(logic)
+                .toDispatchActions(['triggerRecalculation', 'loadLatestRecalculation'])
+                .toFinishAllListeners()
+            expect(logic.values.recalculatingMetricUuids).toEqual([])
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+        })
+
         it('accepts a timeseries fallback that covers every metric without triggering a run', async () => {
             useMocks({
                 get: {
@@ -752,6 +894,81 @@ describe('experimentMetricsLogic', () => {
             expect(createMock).not.toHaveBeenCalled()
         })
 
+        it('keeps the earlier results and shows the message when the backend rejects the run', async () => {
+            let latest: object = completedRecalculation
+            useMocks({
+                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [200, latest] },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [201, rejectedRecalculation],
+                },
+            })
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'setPrimaryMetricsResults'])
+
+            latest = rejectedLatestRecalculation
+            await expectLogic(logic, () => {
+                logic.actions.triggerRecalculation('manual')
+            })
+                .toDispatchActions(['setCurrentRecalculation', 'loadLatestRecalculation', 'setCurrentRecalculation'])
+                .toNotHaveDispatchedActions(['pollRecalculation'])
+
+            expect(logic.values.recalculationRejectionMessage).toEqual(REJECTION_MESSAGE)
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+            expect(logic.values.primaryMetricsResultsErrors[0]).toBeNull()
+            expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
+            expect(logic.values.recalculatingMetricUuids).toEqual([])
+        })
+
+        it('does not heal a gap in a rejected run, because every heal gets the same rejection', async () => {
+            const createMock = jest.fn(() => [201, rejectedRecalculation])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        {
+                            ...rejectedLatestRecalculation,
+                            metric_errors: { [PRIMARY_METRIC_UUID]: windowError },
+                            results: completedRecalculation.results.slice(0, 1),
+                        },
+                    ],
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+            })
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'setPrimaryMetricsResults'])
+
+            await expectLogic(logic, () => {
+                logic.actions.triggerRecalculation('manual')
+            }).toDispatchActions(['loadLatestRecalculation', 'setCurrentRecalculation'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(createMock).toHaveBeenCalledTimes(1)
+        })
+
+        it('clears the metric loading marks when the reload after a rejection fails', async () => {
+            let latestStatus = 200
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        latestStatus,
+                        completedRecalculation,
+                    ],
+                },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [201, rejectedRecalculation],
+                },
+            })
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'setPrimaryMetricsResults'])
+
+            latestStatus = 500
+            await expectLogic(logic, () => {
+                logic.actions.triggerRecalculation('manual')
+            }).toDispatchActions(['loadLatestRecalculation', 'setRecalculationLoading'])
+
+            expect(logic.values.recalculatingMetricUuids).toEqual([])
+        })
+
         it('creates a recalculation for a stopped experiment to compute its final results', async () => {
             const stopped = { ...EXPERIMENT, status: undefined, end_date: '2025-01-01T00:00:00Z' } as Experiment
             const createMock = jest.fn(() => [201, pendingRecalculation])
@@ -876,7 +1093,7 @@ describe('experimentMetricsLogic', () => {
         })
 
         describe('manual refresh window', () => {
-            // query_to stays old, as on a stopped experiment, so the window can only come from completed_at.
+            // query_to stays an hour old, outside the window, so the window can only come from completed_at.
             const finishedMinutesAgo = <T extends object>(
                 latest: T,
                 minutesAgo: number

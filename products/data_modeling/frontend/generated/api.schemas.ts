@@ -7,6 +7,23 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface EdgeSummaryApi {
+    readonly id: string
+    /** ID of the upstream node. */
+    readonly source_id: string
+    /** ID of the downstream node. */
+    readonly target_id: string
+}
+
+export interface PaginatedEdgeSummaryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: EdgeSummaryApi[]
+}
+
 export interface EdgeApi {
     readonly id: string
     /** ID of the upstream node. */
@@ -17,15 +34,6 @@ export interface EdgeApi {
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
-}
-
-export interface PaginatedEdgeListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: EdgeApi[]
 }
 
 export interface PatchedEdgeApi {
@@ -94,6 +102,32 @@ export const NodeOriginEnumApi = {
     Warehouse: 'warehouse',
 } as const
 
+/**
+ * * `never` - never
+ * * `15min` - 15min
+ * * `30min` - 30min
+ * * `1hour` - 1hour
+ * * `6hour` - 6hour
+ * * `12hour` - 12hour
+ * * `24hour` - 24hour
+ * * `7day` - 7day
+ * * `30day` - 30day
+ */
+export type SavedQuerySyncFrequencyEnumApi =
+    (typeof SavedQuerySyncFrequencyEnumApi)[keyof typeof SavedQuerySyncFrequencyEnumApi]
+
+export const SavedQuerySyncFrequencyEnumApi = {
+    Never: 'never',
+    '15min': '15min',
+    '30min': '30min',
+    '1hour': '1hour',
+    '6hour': '6hour',
+    '12hour': '12hour',
+    '24hour': '24hour',
+    '7day': '7day',
+    '30day': '30day',
+} as const
+
 export interface NodeSuspensionApi {
     /** When the node was suspended. */
     at: string
@@ -159,6 +193,20 @@ export interface NodeApi {
     readonly user_tag: string | null
     /** @nullable */
     readonly sync_interval: string | null
+    /** How often this view refreshes. 'never' clears the cadence, and with it the pin. Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.
+     *
+     * * `never` - never
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    sync_frequency?: SavedQuerySyncFrequencyEnumApi
+    /** Pin this view to its own cadence. A pinned view does not refresh more often when downstream views or endpoints need fresher data, so they read data up to one pinned interval old. Requires a cadence. Set false to refresh as often as downstream views need again. */
+    pinned?: boolean
     /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
     readonly suspended: NodeApiSuspended
     /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
@@ -223,10 +271,104 @@ export interface PatchedNodeApi {
     readonly user_tag?: string | null
     /** @nullable */
     readonly sync_interval?: string | null
+    /** How often this view refreshes. 'never' clears the cadence, and with it the pin. Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.
+     *
+     * * `never` - never
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    sync_frequency?: SavedQuerySyncFrequencyEnumApi
+    /** Pin this view to its own cadence. A pinned view does not refresh more often when downstream views or endpoints need fresher data, so they read data up to one pinned interval old. Requires a cadence. Set false to refresh as often as downstream views need again. */
+    pinned?: boolean
     /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
     readonly suspended?: PatchedNodeApiSuspended
     /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
     readonly endpoint?: NodeEndpointApi | null
+}
+
+/**
+ * * `15min` - 15min
+ * * `30min` - 30min
+ * * `1hour` - 1hour
+ * * `6hour` - 6hour
+ * * `12hour` - 12hour
+ * * `24hour` - 24hour
+ * * `7day` - 7day
+ * * `30day` - 30day
+ */
+export type MaterializeSyncFrequencyEnumApi =
+    (typeof MaterializeSyncFrequencyEnumApi)[keyof typeof MaterializeSyncFrequencyEnumApi]
+
+export const MaterializeSyncFrequencyEnumApi = {
+    '15min': '15min',
+    '30min': '30min',
+    '1hour': '1hour',
+    '6hour': '6hour',
+    '12hour': '12hour',
+    '24hour': '24hour',
+    '7day': '7day',
+    '30day': '30day',
+} as const
+
+export interface NodePinDelayApi {
+    /** Node id of the downstream view or endpoint. */
+    id: string
+    /** Name of the downstream view or endpoint. */
+    name: string
+}
+
+export interface NodePinBlockerApi {
+    /**
+     * Node id of the downstream view that stops the pin, or null when the caller may not read it.
+     * @nullable
+     */
+    id: string | null
+    /**
+     * Name of the downstream view that stops the pin, or null when the caller may not read it.
+     * @nullable
+     */
+    name: string | null
+}
+
+export interface NodeFrequencyOptionApi {
+    /** A cadence the view could refresh at.
+     *
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    cadence: MaterializeSyncFrequencyEnumApi
+    /** Downstream views and endpoints that refresh more often than this cadence. If this view were pinned to it, they would read data older than their own cadence. */
+    delays_if_pinned: NodePinDelayApi[]
+    /** The downstream view that stops a pin at this cadence. It reads fresh data only through this view, so a pin this slow would leave it unable to refresh as often as its own cadence. Null when this cadence can be pinned. */
+    pin_blocked_by: NodePinBlockerApi | null
+    /** The cadence the view would run at if it held this cadence without a pin. Finer than this cadence when a downstream view needs fresher data than the pin allows.
+     *
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    unpinned_cadence: MaterializeSyncFrequencyEnumApi
+}
+
+export interface NodeFrequencyBoundsApi {
+    /** True when the view refreshes at its own cadence instead of as often as its downstream views and endpoints need. */
+    pinned: boolean
+    /** Every cadence a picker may show, finest first. Empty when the node has no view. */
+    options: NodeFrequencyOptionApi[]
 }
 
 export interface NodeResumeApi {
@@ -234,11 +376,203 @@ export interface NodeResumeApi {
     resumed: boolean
 }
 
+/**
+ * * `upstream` - Upstream
+ * * `downstream` - Downstream
+ */
+export type MaterializationRunDirectionEnumApi =
+    (typeof MaterializationRunDirectionEnumApi)[keyof typeof MaterializationRunDirectionEnumApi]
+
+export const MaterializationRunDirectionEnumApi = {
+    Upstream: 'upstream',
+    Downstream: 'downstream',
+} as const
+
+export interface NodeRunApi {
+    /** Run this view with all upstream dependencies or all downstream dependents.
+     *
+     * * `upstream` - Upstream
+     * * `downstream` - Downstream */
+    direction: MaterializationRunDirectionEnumApi
+}
+
+export interface NodeRunResponseApi {
+    /** The nodes included in the dependency run. */
+    node_ids: string[]
+}
+
 export interface LineageResponseApi {
     /** Every node reachable from the requested one, plus the node itself. */
     nodes: NodeApi[]
     /** Every edge between two of those nodes. */
     edges: EdgeApi[]
+}
+
+export interface ModelUsageTotalsApi {
+    /** Finished materialization runs, including failures and cancellations. */
+    runs: number
+    /** Runs with recorded usage. Other runs have unknown cost. */
+    measured_runs: number
+    /**
+     * Measured bytes read, including probes and retries. Null if unmeasured.
+     * @nullable
+     */
+    read_bytes: number | null
+    /**
+     * Measured rows read. Null if unmeasured.
+     * @nullable
+     */
+    read_rows: number | null
+    /**
+     * Measured CPU microseconds. Null if unmeasured.
+     * @nullable
+     */
+    cpu_microseconds: number | null
+    /**
+     * Measured ClickHouse query count. Null if unmeasured.
+     * @nullable
+     */
+    query_count: number | null
+}
+
+export interface ModelUsageEngineApi {
+    /** Finished materialization runs, including failures and cancellations. */
+    runs: number
+    /** Runs with recorded usage. Other runs have unknown cost. */
+    measured_runs: number
+    /**
+     * Measured bytes read, including probes and retries. Null if unmeasured.
+     * @nullable
+     */
+    read_bytes: number | null
+    /**
+     * Measured rows read. Null if unmeasured.
+     * @nullable
+     */
+    read_rows: number | null
+    /**
+     * Measured CPU microseconds. Null if unmeasured.
+     * @nullable
+     */
+    cpu_microseconds: number | null
+    /**
+     * Measured ClickHouse query count. Null if unmeasured.
+     * @nullable
+     */
+    query_count: number | null
+    /** Materialization engine: clickhouse or managed_warehouse. */
+    engine: string
+}
+
+export interface ModelUsageDayApi {
+    /** Finished materialization runs, including failures and cancellations. */
+    runs: number
+    /** Runs with recorded usage. Other runs have unknown cost. */
+    measured_runs: number
+    /**
+     * Measured bytes read, including probes and retries. Null if unmeasured.
+     * @nullable
+     */
+    read_bytes: number | null
+    /**
+     * Measured rows read. Null if unmeasured.
+     * @nullable
+     */
+    read_rows: number | null
+    /**
+     * Measured CPU microseconds. Null if unmeasured.
+     * @nullable
+     */
+    cpu_microseconds: number | null
+    /**
+     * Measured ClickHouse query count. Null if unmeasured.
+     * @nullable
+     */
+    query_count: number | null
+    /** UTC day on which the runs finished. */
+    day: string
+    /** Usage totals for each selected engine. */
+    engines: ModelUsageEngineApi[]
+}
+
+export interface ModelUsageRowApi {
+    /** Finished materialization runs, including failures and cancellations. */
+    runs: number
+    /** Runs with recorded usage. Other runs have unknown cost. */
+    measured_runs: number
+    /**
+     * Measured bytes read, including probes and retries. Null if unmeasured.
+     * @nullable
+     */
+    read_bytes: number | null
+    /**
+     * Measured rows read. Null if unmeasured.
+     * @nullable
+     */
+    read_rows: number | null
+    /**
+     * Measured CPU microseconds. Null if unmeasured.
+     * @nullable
+     */
+    cpu_microseconds: number | null
+    /**
+     * Measured ClickHouse query count. Null if unmeasured.
+     * @nullable
+     */
+    query_count: number | null
+    /**
+     * Model ID, or null if permanently deleted.
+     * @nullable
+     */
+    saved_query_id: string | null
+    /** Model name. */
+    name: string
+    /** Whether this model has been deleted. */
+    deleted: boolean
+    /** Usage totals for each selected engine. */
+    engines: ModelUsageEngineApi[]
+}
+
+export interface ModelStatusModelApi {
+    /** Model ID. */
+    saved_query_id: string
+    /** Model name. */
+    name: string
+    /** Whether this model has been deleted. */
+    deleted: boolean
+}
+
+export interface ModelStatusBreakdownApi {
+    /** Materialization engine: clickhouse or managed_warehouse. */
+    engine: string
+    /** Status of the latest run for the model and engine in this range. */
+    status: string
+    /** Number of models whose latest run has this status. */
+    count: number
+    /** Models whose latest run has this status. */
+    models: ModelStatusModelApi[]
+}
+
+export interface ModelUsageApi {
+    /** Inclusive UTC start date. */
+    date_from: string
+    /** Exclusive UTC end date. Today's incomplete usage is excluded. */
+    date_to: string
+    /** Totals over the whole date range. */
+    overview: ModelUsageTotalsApi
+    /** Daily usage, attributed to when each run finished. */
+    trends: ModelUsageDayApi[]
+    /** Model breakdown in the requested sort order. */
+    models: ModelUsageRowApi[]
+    /** Total number of models in the breakdown. */
+    count: number
+    /** Latest run status for each model and engine in the selected complete-day range. */
+    status_breakdown: ModelStatusBreakdownApi[]
+    /**
+     * Latest usage collection timestamp in this range.
+     * @nullable
+     */
+    usage_updated_at: string | null
 }
 
 export type DataModelingEdgesListParams = {
@@ -290,3 +624,96 @@ export type DataModelingNodesLineageRetrieveParams = {
      */
     saved_query_id?: string
 }
+
+export type DataModelingUsageListParams = {
+    /**
+     * Inclusive UTC start date for a custom range, up to 366 complete days.
+     */
+    date_from?: string
+    /**
+     * Inclusive UTC end date for a custom range. Today is always excluded.
+     */
+    date_to?: string
+    /**
+     * Number of complete UTC days, up to 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number
+    /**
+     * Materialization engine. All combines ClickHouse and managed warehouse usage.
+     *
+     * * `all` - All
+     * * `clickhouse` - ClickHouse
+     * * `managed_warehouse` - Managed warehouse
+     * @minLength 1
+     */
+    engine?: DataModelingUsageListEngine
+    /**
+     * Model breakdown page, starting at 1.
+     * @minimum 1
+     */
+    page?: number
+    /**
+     * Models per page, up to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    page_size?: number
+    /**
+     * Limit usage to one accessible materialized view.
+     */
+    saved_query_id?: string
+    /**
+     * Comma-separated materialized view IDs. Usage is limited to accessible views.
+     * @minLength 1
+     */
+    saved_query_ids?: string
+    /**
+     * Column to sort models by.
+     *
+     * * `name` - Model
+     * * `read_bytes` - Bytes read
+     * * `clickhouse_read_bytes` - ClickHouse bytes
+     * * `managed_warehouse_read_bytes` - Managed warehouse bytes
+     * * `cpu_microseconds` - CPU time
+     * * `runs` - Runs
+     * @minLength 1
+     */
+    sort_by?: DataModelingUsageListSortBy
+    /**
+     * Sort direction. Unmeasured values are always last.
+     *
+     * * `asc` - Ascending
+     * * `desc` - Descending
+     * @minLength 1
+     */
+    sort_direction?: DataModelingUsageListSortDirection
+}
+
+export type DataModelingUsageListEngine = (typeof DataModelingUsageListEngine)[keyof typeof DataModelingUsageListEngine]
+
+export const DataModelingUsageListEngine = {
+    All: 'all',
+    Clickhouse: 'clickhouse',
+    ManagedWarehouse: 'managed_warehouse',
+} as const
+
+export type DataModelingUsageListSortBy = (typeof DataModelingUsageListSortBy)[keyof typeof DataModelingUsageListSortBy]
+
+export const DataModelingUsageListSortBy = {
+    Name: 'name',
+    ReadBytes: 'read_bytes',
+    ClickhouseReadBytes: 'clickhouse_read_bytes',
+    ManagedWarehouseReadBytes: 'managed_warehouse_read_bytes',
+    CpuMicroseconds: 'cpu_microseconds',
+    Runs: 'runs',
+} as const
+
+export type DataModelingUsageListSortDirection =
+    (typeof DataModelingUsageListSortDirection)[keyof typeof DataModelingUsageListSortDirection]
+
+export const DataModelingUsageListSortDirection = {
+    Asc: 'asc',
+    Desc: 'desc',
+} as const

@@ -8,7 +8,6 @@ import type { LemonTableColumn } from 'lib/lemon-ui/LemonTable/types'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { urls } from 'scenes/urls'
 
-import { isLegacyExperiment } from '~/scenes/experiments/utils'
 import type { Experiment } from '~/types'
 import { ExperimentStatus } from '~/types'
 
@@ -68,7 +67,7 @@ export const RelatedExperimentsTable = ({
                                                     No-code
                                                 </LemonTag>
                                             )}
-                                            {isLegacyExperiment(experiment) && (
+                                            {experiment.is_legacy && (
                                                 <Tooltip
                                                     title="This experiment uses the legacy engine, so its results are no longer available."
                                                     docLink="https://posthog.com/docs/experiments/new-experimentation-engine"

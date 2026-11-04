@@ -5,6 +5,8 @@ import { urls } from 'scenes/urls'
 
 import { FeatureFlagType } from '~/types'
 
+import { canRestoreFeatureFlag } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+
 import { DependentFlag } from './featureFlagLogic'
 
 interface FeatureFlagDeleteBlocker {
@@ -95,7 +97,9 @@ export function openFeatureFlagDeleteDialog(
 
     LemonDialog.open({
         title: 'Delete feature flag?',
-        description: `Are you sure you want to delete "${featureFlag.key}"?`,
+        description: canRestoreFeatureFlag(featureFlag.filters)
+            ? `Are you sure you want to delete "${featureFlag.key}"?`
+            : `Are you sure you want to delete "${featureFlag.key}"? Deleting turns the flag off, and it can't be restored yet.`,
         primaryButton: {
             children: 'Delete',
             status: 'danger',

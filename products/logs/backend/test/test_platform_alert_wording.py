@@ -13,6 +13,7 @@ from products.cdp.backend.validation import generate_template_bytecode
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.platform_alert_wording import describe_logs_transition, legacy_logs_webhook_body
+from products.logs.backend.platform_source_config import logs_source_config
 
 from common.hogvm.python.execute import execute_bytecode
 
@@ -21,7 +22,10 @@ OCCURRED = datetime(2026, 10, 8, 18, 5, tzinfo=UTC)
 
 
 def _transition(
-    kind: AlertEventKind = AlertEventKind.FIRING, value: float | None = 11.0, filters: dict[str, Any] | None = None
+    kind: AlertEventKind = AlertEventKind.FIRING,
+    value: float | None = 11.0,
+    filters: dict[str, Any] | None = None,
+    flat: bool = False,
 ) -> AnnouncedTransition:
     return AnnouncedTransition(
         grouping_key="",
@@ -30,7 +34,9 @@ def _transition(
         value=value,
         labels={},
         condition=CONDITION,
-        source_config={**(filters or {}), "condition": CONDITION},
+        source_config={**(filters or {}), "condition": CONDITION}
+        if flat
+        else logs_source_config(filters or {}, CONDITION),
         error_message=None,
         occurred_at=OCCURRED,
     )
@@ -94,12 +100,13 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
                 ("Property filters applied",),
             ),
             ("no_filters", {}, ("All log levels and services",)),
+            ("flat_history_row", {"serviceNames": ["api"]}, ("Services: api",), True),
         ]
     )
     def test_the_context_names_the_filters_the_alert_watches(
-        self, _name: str, filters: dict[str, Any], expected: tuple[str, ...]
+        self, _name: str, filters: dict[str, Any], expected: tuple[str, ...], flat: bool = False
     ) -> None:
-        description = describe_logs_transition(project_id=7, transition=_transition(filters=filters))
+        description = describe_logs_transition(project_id=7, transition=_transition(filters=filters, flat=flat))
 
         assert description.context == expected
 
@@ -183,7 +190,7 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
             "service_names": ["api"],
             "severity_levels": ["error"],
             "logs_url_params": build_logs_url_params(
-                transition.source_config, date_from=OCCURRED - timedelta(minutes=10), date_to=OCCURRED
+                filters, date_from=OCCURRED - timedelta(minutes=10), date_to=OCCURRED
             ),
             "triggered_at": OCCURRED.isoformat(),
             "consecutive_failures": 2,
@@ -213,11 +220,13 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
         assert body["data"]["logs_url"] == aware["data"]["logs_url"]
 
     @parameterized.expand([("legacy_webhook_body",), ("message_link",)])
-    def test_a_logs_link_opens_the_window_the_check_queried(self, link: str) -> None:
+    def test_a_logs_link_opens_the_window_and_filters_the_check_queried(self, link: str) -> None:
         # The ingestion checkpoint clamped this check's window end to well before it was recorded.
         window_end = OCCURRED - timedelta(minutes=7)
+        status_regex = {"key": "http.status_code", "type": "log_attribute", "operator": "regex", "value": r"^4\d{2}$"}
+        filter_group = {"type": "AND", "values": [{"type": "AND", "values": [status_regex]}]}
         transition = replace(
-            _transition(filters={"serviceNames": ["api"]}),
+            _transition(filters={"serviceNames": ["api"], "filterGroup": filter_group}),
             evaluation_key=f"slot:{OCCURRED.isoformat()}|window:{window_end.isoformat()}",
         )
 
@@ -233,6 +242,7 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
         query = parse_qs(urlsplit(url).query)
         date_range = json.loads(query["dateRange"][0])
         assert date_range["date_to"] == window_end.isoformat()
+        assert json.loads(query["filterGroup"][0]) == filter_group
 
 
 def _render(node: Any, globals_: dict[str, Any]) -> Any:

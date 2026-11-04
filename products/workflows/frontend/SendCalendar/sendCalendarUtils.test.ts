@@ -12,12 +12,14 @@ import {
     calendarRange,
     calendarSendsForFlow,
     describeRepeat,
+    mergeCalendarFlows,
     dropTarget,
     moveBlockedReason,
     movedScheduleFields,
     periodLabel,
     scheduleSendTimes,
     sendAudience,
+    splitRange,
 } from './sendCalendarUtils'
 
 const schedule = (
@@ -277,5 +279,33 @@ describe('sendCalendarUtils', () => {
             starts_at: '2026-10-26T09:00:00.000Z',
             rrule: 'FREQ=WEEKLY;INTERVAL=1;BYDAY=MO',
         })
+    })
+
+    it('splits a long range into pieces the endpoint accepts', () => {
+        const start = dayjs.utc('2026-09-01')
+        const pieces = splitRange({ start, end: start.add(121, 'day') }, 92)
+
+        expect(pieces.map((piece) => [piece.start.toISOString(), piece.end.toISOString()])).toEqual([
+            ['2026-09-01T00:00:00.000Z', '2026-12-02T00:00:00.000Z'],
+            ['2026-12-02T00:00:00.000Z', '2026-12-31T00:00:00.000Z'],
+        ])
+    })
+
+    it('joins the runs of a flow that two range pieces returned', () => {
+        const run = (id: string): SendCalendarBatchJobApi => ({ id }) as SendCalendarBatchJobApi
+        const piece = (runs: SendCalendarBatchJobApi[]): SendCalendarFlowApi =>
+            ({ id: 'flow-1', batch_jobs: runs }) as unknown as SendCalendarFlowApi
+
+        const merged = mergeCalendarFlows([[piece([run('a'), run('b')])], [piece([run('b'), run('c')])]])
+
+        expect(merged.map((flow) => flow.batch_jobs.map((job) => job.id))).toEqual([['a', 'b', 'c']])
+    })
+
+    it('counts every send of an hourly schedule when given a higher limit', () => {
+        const hourly = { rrule: 'FREQ=HOURLY', starts_at: '2026-10-01T00:00:00Z', timezone: 'UTC' }
+        const range = { start: dayjs.utc('2026-10-01'), end: dayjs.utc('2026-10-31') }
+
+        expect(scheduleSendTimes(hourly, range)).toHaveLength(200)
+        expect(scheduleSendTimes(hourly, range, 5000)).toHaveLength(720)
     })
 })

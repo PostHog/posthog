@@ -1,12 +1,11 @@
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
-import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { GeoIPService } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 
 import type { CommonConfig } from '../../common/config'
-import { HealthCheckResult, PluginServerService, TeamId } from '../../types'
+import { HealthCheckResult, PluginServerService, Team, TeamId } from '../../types'
 import {
     CdpCoreServicesConfig,
     CdpCoreServicesDeps,
@@ -32,16 +31,17 @@ import { RecipientPreferencesService } from '../services/messaging/recipient-pre
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
 import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
+import { WorkflowsActivationReporter } from '../services/monitoring/workflows-activation-reporter'
 import { NativeDestinationExecutorService } from '../services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
 import { CdpUsageReporterService } from '../services/usage/cdp-usage-reporter.service'
+import { HogFunctionTypeType } from '../types'
 
 export type CdpConsumerBaseConfig = CdpCoreServicesConfig &
     Pick<CommonConfig, 'KAFKA_CLIENT_RACK'> &
     Pick<CdpConfig, 'CDP_OVERFLOW_QUEUE_ENABLED'>
 
 export interface CdpConsumerBaseDeps extends CdpCoreServicesDeps {
-    personRepository: PersonReadRepository
     geoipService: GeoIPService
     groupRepository: GroupReadRepository
     quotaLimiting: QuotaLimiting
@@ -74,6 +74,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
 
     emailService: EmailService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    workflowsActivationReporter: WorkflowsActivationReporter
     cdpUsageReporter: CdpUsageReporterService
     invocationResultsService: InvocationResultsService
     nativeDestinationExecutorService: NativeDestinationExecutorService
@@ -100,11 +101,13 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.hogInputsService = services.hogInputsService
         this.hogFunctionTemplateManager = services.hogFunctionTemplateManager
         this.hogFlowFunctionsService = services.hogFlowFunctionsService
+        this.personsManager = services.personsManager
         this.recipientsManager = services.recipientsManager
         this.recipientPreferencesService = services.recipientPreferencesService
         this.hogFlowExecutor = services.hogFlowExecutor
         this.emailService = services.emailService
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
+        this.workflowsActivationReporter = services.workflowsActivationReporter
         this.cdpUsageReporter = services.cdpUsageReporter
         this.invocationResultsService = services.invocationResultsService
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
@@ -113,7 +116,6 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
 
         // Base-only services
         this.hogMasker = new HogMaskerService(services.redis, services.valkeyShadow.writer)
-        this.personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.pluginDestinationExecutorService = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
     }
@@ -124,6 +126,19 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
             onShutdown: async () => await this.stop(),
             healthcheck: () => this.isHealthy(),
         }
+    }
+
+    /** The team, or null when it has no hog function of these types and no hog flow. */
+    protected async loadTeamWithHogFunctionsOrFlows(
+        teamId: TeamId,
+        hogTypes: HogFunctionTypeType[]
+    ): Promise<Team | null> {
+        const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
+            this.hogFunctionManager.getHogFunctionsForTeam(teamId, hogTypes),
+            this.hogFlowManager.getHogFlowsForTeam(teamId),
+            this.deps.teamManager.getTeam(teamId),
+        ])
+        return teamHogFunctions.length || teamHogFlows.length ? team : null
     }
 
     public async start(): Promise<void> {

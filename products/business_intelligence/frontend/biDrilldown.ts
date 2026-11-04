@@ -1,4 +1,5 @@
 import { dayjs } from 'lib/dayjs'
+import { escapeHogQLString } from 'lib/utils/hogql'
 
 import { BIConfig, BIFilter, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import {
@@ -8,7 +9,6 @@ import {
     VisualizationNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { escapeHogQLString } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { decodeBIComparisonCategory, decodeBIComparisonSeries, getBIComparisonDateExpression } from './biComparison'
@@ -22,6 +22,7 @@ import {
 } from './biEditorTypes'
 import { isBIConditionGroup, normalizeBIConditionGroup } from './biFilterGroups'
 import { getBIMemberLabel } from './biMemberAliases'
+import { isBIPivotTable } from './biTableLayout'
 
 export interface BIDrillSelection {
     filters: BIFilter[]
@@ -89,12 +90,7 @@ export function getBIDrillSelection(config: BIConfig, record: Record<string, unk
             continue
         }
         const displayValue = value
-        if (
-            config.chartType === ChartDisplayType.TwoDimensionalHeatmap ||
-            config.totals?.rows ||
-            config.totals?.columns ||
-            config.totals?.subtotals
-        ) {
+        if (isBIPivotTable(config) || config.totals?.rows || config.totals?.columns || config.totals?.subtotals) {
             if (value === 'Total') {
                 continue
             }

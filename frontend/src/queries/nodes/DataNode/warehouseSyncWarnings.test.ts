@@ -35,8 +35,8 @@ describe('warehouseSyncWarnings', () => {
             ],
             [
                 'billing limit reached drops the redundant tail',
-                'Sync of `t` (from Stripe) is paused because the data warehouse billing limit has been reached. Results may be out of date.',
-                'Sync of `t` (from Stripe) is paused because the data warehouse billing limit has been reached.',
+                'Sync of `t` (from Stripe) is paused because the Sources billing limit has been reached. Results may be out of date.',
+                'Sync of `t` (from Stripe) is paused because the Sources billing limit has been reached.',
             ],
             [
                 'billing limit too low drops the redundant tail',

@@ -1,4 +1,4 @@
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from posthog.models.team import Team
@@ -54,6 +54,10 @@ class TeamWorkflowsConfig(models.Model):
     # foreign key: the editors ignore an id that no longer points at a verified sender, and the
     # integration delete signal clears it.
     default_email_integration_id = models.BigIntegerField(null=True, blank=True)
+    # Team defaults for UTM tags on email links. New email steps copy them when they are created, and a
+    # bulk apply rewrites the steps whose values still follow them. Off by default.
+    email_utm_tags_enabled = models.BooleanField(default=False, db_default=False)
+    email_utm_params = models.JSONField(default=dict, db_default={}, blank=True)
 
     # Overrides for AI tasks created by workflows. Null keeps the product defaults;
     # zero pauses new task creation at that scope.
@@ -72,3 +76,7 @@ class TeamWorkflowsConfig(models.Model):
     # Max marketing messages per person per rolling window across all workflows; null on either means no cap.
     marketing_frequency_cap_max_messages = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
     marketing_frequency_cap_window_days = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
+    # How long a capped marketing message waits for a free slot before it is skipped; null skips it at once.
+    marketing_frequency_cap_hold_hours = models.IntegerField(
+        null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(168)]
+    )

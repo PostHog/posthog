@@ -105,6 +105,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
 
         dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
         content = json.loads(dismissal.content)
+        assert content["state"] == "suppressed"
         assert content["reason"] == "refunded"
         assert content["note"] == "does not fix the bug"
 
@@ -244,9 +245,8 @@ class TestSignalReportRefundAPI(APIBaseTest):
         report.refresh_from_db()
         assert report.status == expected_status
         # The permanent marker lands regardless of whether the status changed.
-        assert SignalReportArtefact.objects.filter(
-            report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
-        ).exists()
+        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        assert json.loads(dismissal.content)["state"] == expected_status
 
     @time_machine.travel(_NOW, tick=False)
     def test_invalid_reason_is_rejected(self, _flag):

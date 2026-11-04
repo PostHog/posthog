@@ -12,4 +12,9 @@ class AccessControlConfig(AppConfig):
         # wired as a side effect of the HogQL printer importing this module at django.setup();
         # that import is now deferred to compile time, so the wiring must happen here or the
         # receivers connect in no process and cache invalidation silently stops.
-        from products.access_control.backend import property_access_control  # noqa: F401, PLC0415
+        # Rules are written from the API and from product code in workers, so the audit
+        # receiver must connect in every process.
+        from products.access_control.backend import (
+            activity_logging,  # noqa: F401, PLC0415
+            property_access_control,  # noqa: F401, PLC0415
+        )

@@ -168,6 +168,18 @@ function describeWorkflowField(change: ActivityChange): JSX.Element[] {
             return describeWorkflowItems(change, 'variable')
         case 'schedule':
             return [describeScheduleChange(change)]
+        case 'tag':
+            return [
+                change.action === 'created' ? (
+                    <>
+                        added the tag <strong>{String(change.after)}</strong>
+                    </>
+                ) : (
+                    <>
+                        removed the tag <strong>{String(change.before)}</strong>
+                    </>
+                ),
+            ]
         default:
             return [<>updated {change.field}</>]
     }
@@ -340,6 +352,22 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> resumed email sending for the {objectNoun}:{' '}
+                    {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'converted_to_broadcast') {
+        return {
+            summary: activityLogSummary(
+                logItem,
+                'Moved to broadcasts',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> moved the {objectNoun} to broadcasts:{' '}
                     {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),

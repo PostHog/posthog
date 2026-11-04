@@ -17,7 +17,7 @@ For `gate` without `--external-router-url`, build the service binaries first:
 cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-identity -p personhog-test-harness
 ```
 
-The identity crate also builds `personhog-publisher`, which `--publish` spawns.
+The identity crate also builds `personhog-publisher`, which `--publish` spawns; `stack --monitor` needs `cargo build -p personhog-parity-monitor` as well.
 
 ## `gate` — the e2e correctness gate
 
@@ -120,6 +120,7 @@ It implies `--create-via-identity`. The publishers claim every team's rows, so t
 - Distinct ids: after the Postgres quiesce, the highest-version row per distinct id on the topic must equal the Postgres mapping (person uuid, `is_deleted`, version), and no distinct id may be on the topic that Postgres does not hold. Rows repeated at the same version are fine: a replay after a crash is the publisher's contract, and the consumers absorb it. Two different rows at one version are a violation, because a ReplacingMergeTree would keep either.
 - Merge events: the set of (old, new) person uuid pairs on the topic must equal the merged sources the merge lane journaled, each event carrying `schema_version` 1, a positive `merged_at_ms` and the key `<team_id>:<old uuid>` the cohort processor places it by. A source whose merge op never settled is excused either way; those are violations already. The event count is printed next to the pair count, so a replay shows in the output without failing the gate.
 - Deletes: after the delete leg, Postgres must hold every mapping as a tombstone under the same uuid, and the topic must match those rows exactly, version included.
+- The fold itself (strict decoding, highest version per distinct id, one merge target per person, the key check) is `personhog_common::cdc_parity`, shared with the Kafka feed parity checks; the gate only maps its findings to violations and adds the Postgres side.
 - The outbox must drain within 60 s after the Postgres quiesce, and again after the delete leg. A row the publisher cannot read stays pending with its `last_error` and is listed when the drain misses its deadline; a row parked by hand (`given_up_at`) is a violation, because only an operator sets it.
 
 `--publish-rows-per-pass` (default 100) keeps `LIFECYCLE_PUBLISH_MAX_ROWS_PER_PASS` small, so a wide merge drains across several passes and the pointer cursor is exercised.
@@ -284,6 +285,15 @@ target/debug/personhog-test-harness stack --publish --ready-file /tmp/personhog-
 Once the stack is up it prints one line, `PERSONHOG_STACK_READY {…}`, and writes the same JSON to `--ready-file` when given: the router and identity addresses as `host:port`, the persons database URL and table set, the changelog topic and the two publish topics, and the log directory.
 A parent process should wait for the file rather than parse stdout, which the logs share.
 A spawned service that exits ends the command with that service's last log lines, so a fixture never stays up over a dead stack.
+
+`--monitor` also spawns `personhog-parity-monitor` (build it too) against the publish topics and the Node path's topics named by `--monitor-node-distinct-ids-topic` and `--monitor-node-merge-events-topic`, which must exist before the stack starts; the ready line carries its metrics address as `monitor_addr`.
+The monitor assigns every partition before the ready line is written and runs with a 15 s grace and no warmup, so a test can read its `/metrics` once its traffic stops and assert that every entry settled as agreement.
+
+```bash
+target/debug/personhog-test-harness stack --publish --ready-file /tmp/personhog-stack.json \
+  --monitor --monitor-node-distinct-ids-topic clickhouse_person_distinct_id_test \
+  --monitor-node-merge-events-topic person_merge_events_test
+```
 
 ## `seed` / `cleanup` — manage traffic targets
 

@@ -5,6 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
+import { isHogQLQuery, isInsightQueryNode } from '~/queries/schema/node-guards'
 import { VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
 import {
     AgentMode,
@@ -34,7 +35,6 @@ import {
     QuerySchema,
     QuerySchemaRoot,
 } from '~/queries/schema/schema-general'
-import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { ActionType, EventDefinition, InsightModel } from '~/types'
 
 import { Scene } from '../sceneTypes'

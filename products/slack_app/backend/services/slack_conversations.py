@@ -100,10 +100,19 @@ def channel_is_ext_shared(slack: SlackIntegration, channel: str) -> bool:
     unreadable channel is treated as externally shared, which at worst asks the user
     to approve a channel that did not need it.
     """
+    return channel_ext_shared_state(slack, channel) is not False
+
+
+def channel_ext_shared_state(slack: SlackIntegration, channel: str) -> bool | None:
+    """Like ``channel_is_ext_shared``, but ``None`` when Slack could not say.
+
+    For a caller that can wait and ask again, a failed lookup is not the same as a shared
+    channel.
+    """
     try:
         info = slack.client.conversations_info(channel=channel)
         conversation: dict[str, Any] = info.get("channel") or {}
         return bool(conversation.get("is_ext_shared") or conversation.get("is_pending_ext_shared"))
     except Exception:
         logger.warning("slack_app_channel_info_failed", channel=channel)
-        return True
+        return None

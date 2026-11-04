@@ -321,7 +321,7 @@ export function formatNumber(value: number): string {
 const OBJECT_PATH_RULES: { kind: ContextObjectKind; re: RegExp }[] = [
   { kind: "insight", re: /^\/insights\/([^/?#]+)/ },
   { kind: "dashboard", re: /^\/dashboard\/(\d+)/ },
-  { kind: "flag", re: /^\/feature_flags\/(\d+)/ },
+  { kind: "flag", re: /^\/feature[-_]flags\/(\d+)/ },
   { kind: "experiment", re: /^\/experiments\/(\d+)/ },
   { kind: "survey", re: /^\/surveys\/([^/?#]+)/ },
   { kind: "error", re: /^\/error[_-]tracking\/([0-9a-f-]{8,})/i },

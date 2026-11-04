@@ -4,23 +4,17 @@ from products.alerts.backend.judge.contract import AnomalyKind
 
 
 class LLMDetectionVerdict(BaseModel):
-    """The structured output the model must return for one judged series."""
+    """The structured output the model must return about the current point of one series."""
 
     is_anomaly: bool = Field(
-        description="True only if something in this series genuinely warrants a person's attention."
+        description="True only if the current point genuinely warrants a person's attention, given its history."
     )
-    confidence: float = Field(ge=0.0, le=1.0, description="How confident you are in the verdict, from 0 to 1.")
-    kind: AnomalyKind = Field(description="The shape of what you saw. Use 'none' when is_anomaly is false.")
+    kind: AnomalyKind = Field(
+        description="The shape of what the current point shows. Use 'none' when is_anomaly is false."
+    )
     rationale: str = Field(
         description=(
-            "One or two plain sentences naming what you saw and why it is or isn't unusual. "
+            "One or two plain sentences about the current point: what you saw and why it is or isn't unusual. "
             "This is shown to the person who receives the alert."
         )
-    )
-    triggered_indices: list[int] = Field(
-        default_factory=list,
-        description=(
-            "Zero-based indices, into the point table you were given, of every point you consider "
-            "anomalous. Empty when is_anomaly is false."
-        ),
     )

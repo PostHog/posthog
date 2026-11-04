@@ -1,28 +1,35 @@
 """Activities for the scheduled experiment recalculation workflow.
 
 Each one wraps `scheduled_recalculation_logic` and reports its outcome to product analytics.
-Every activity is fire and forget: a failure skips one experiment and never stops the batch,
-because the recalculation workflow it starts owns its own retries and error reporting.
+A failure skips one experiment and never stops the batch, because the recalculation workflow
+it starts owns its own retries and error reporting.
 """
 
+from datetime import datetime
 from typing import Any
 
 from django.db import close_old_connections
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
 import temporalio.activity
+from temporalio.client import WorkflowFailureError
 
 from posthog.event_usage import groups
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
 from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
     MIN_TOTAL_EXPOSURES,
     SKIP_ACTIVE_RUN,
+    SKIP_DISPATCH_UNCERTAIN,
     SKIP_EXPOSURE_QUERY_FAILED,
     SKIP_INSUFFICIENT_EXPOSURES,
+    SKIP_START_WINDOW_ELAPSED,
     ScheduledRecalculationDiscovery,
     count_total_exposures,
     find_scheduled_recalculation_candidates,
@@ -116,7 +123,14 @@ async def check_experiment_exposures(experiment_id: int, hour: int) -> bool:
 
 
 @database_sync_to_async_pool
-def _start_scheduled_recalculation_sync(experiment_id: int, hour: int) -> ScheduledRecalculationStartResult:
+def _start_scheduled_recalculation_sync(
+    experiment_id: int, hour: int, start_before: datetime | None = None
+) -> ScheduledRecalculationStartResult:
+    if start_before is not None and timezone.now() >= start_before:
+        return ScheduledRecalculationStartResult(
+            experiment_id=experiment_id, started=False, skip_reason=SKIP_START_WINDOW_ELAPSED
+        )
+
     # Deferred: recalculation.py imports temporal.recalculation_logic at module level, and this
     # module is loaded from the temporal package's __init__, so a module-level import here closes
     # a cycle back into a partially initialized module.
@@ -141,6 +155,11 @@ def _start_scheduled_recalculation_sync(experiment_id: int, hour: int) -> Schedu
         capture_skip(experiment, hour, reason=skip.reason, detail=dict(skip.detail))
         return ScheduledRecalculationStartResult(experiment_id=experiment_id, started=False, skip_reason=skip.reason)
 
+    if start_before is not None and timezone.now() >= start_before:
+        return ScheduledRecalculationStartResult(
+            experiment_id=experiment_id, started=False, skip_reason=SKIP_START_WINDOW_ELAPSED
+        )
+
     try:
         payload = request_recalculation(experiment, None, ExperimentMetricsRecalculation.Trigger.SCHEDULED)
     except Exception:
@@ -154,6 +173,9 @@ def _start_scheduled_recalculation_sync(experiment_id: int, hour: int) -> Schedu
         return ScheduledRecalculationStartResult(
             experiment_id=experiment_id, started=False, skip_reason=SKIP_ACTIVE_RUN
         )
+    # Discovery selects only experiments younger than the age limit, so a rejected run is not expected here.
+    if payload["status"] != ExperimentMetricsRecalculation.Status.PENDING:
+        return ScheduledRecalculationStartResult(experiment_id=experiment_id, started=False)
 
     recalculation_id = str(payload["id"])
     try:
@@ -171,7 +193,12 @@ def _start_scheduled_recalculation_sync(experiment_id: int, hour: int) -> Schedu
             recalculation_id=recalculation_id,
             exc_info=True,
         )
-        return ScheduledRecalculationStartResult(experiment_id=experiment_id, started=False)
+        return ScheduledRecalculationStartResult(
+            experiment_id=experiment_id,
+            started=False,
+            recalculation_id=recalculation_id,
+            skip_reason=SKIP_DISPATCH_UNCERTAIN,
+        )
 
     capture_started(experiment, hour, recalculation_id)
     return ScheduledRecalculationStartResult(
@@ -180,6 +207,27 @@ def _start_scheduled_recalculation_sync(experiment_id: int, hour: int) -> Schedu
 
 
 @temporalio.activity.defn
-async def start_scheduled_recalculation(experiment_id: int, hour: int) -> ScheduledRecalculationStartResult:
+async def start_scheduled_recalculation(
+    experiment_id: int, hour: int, start_before: datetime | None = None
+) -> ScheduledRecalculationStartResult:
     """Create the recalculation row and dispatch its workflow, unless a recent or active run exists."""
-    return await _start_scheduled_recalculation_sync(experiment_id, hour)
+    return await _start_scheduled_recalculation_sync(experiment_id, hour, start_before)
+
+
+@temporalio.activity.defn
+async def wait_for_scheduled_recalculation(recalculation_id: str) -> None:
+    """Return once a started run's workflow has finished, whatever its outcome.
+
+    The run records its own outcome on its row, so a failed or cancelled run is not an error here.
+    """
+    from products.experiments.backend.recalculation import (  # noqa: PLC0415 — breaks that cycle
+        metrics_recalculation_workflow_id,
+    )
+
+    client = await async_connect()
+    handle = client.get_workflow_handle(metrics_recalculation_workflow_id(recalculation_id))
+    async with Heartbeater(factor=4):
+        try:
+            await handle.result()
+        except WorkflowFailureError:
+            pass

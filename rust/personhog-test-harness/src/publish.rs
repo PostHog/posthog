@@ -9,6 +9,10 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
+pub use personhog_common::cdc_parity::Mapping as PublishedMapping;
+use personhog_common::cdc_parity::{
+    DistinctIdRow, FeedState, MappingConflict, MergeConflict, MergeEvent,
+};
 use serde_json::{json, Value};
 use sqlx::postgres::PgPool;
 use sqlx::Row;
@@ -23,13 +27,6 @@ use crate::state::MergedSource;
 /// drain in seconds; the margin covers a crash-restart mid-drain.
 pub const DRAIN_DEADLINE: Duration = Duration::from_secs(60);
 const READ_DEADLINE: Duration = Duration::from_secs(30);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PublishedMapping {
-    pub person_uuid: Uuid,
-    pub is_deleted: bool,
-    pub version: i64,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpectedMapping {
@@ -51,8 +48,10 @@ pub struct PublishedMappings {
 
 pub struct PublishedMerges {
     pub pairs: HashSet<(Uuid, Uuid)>,
+    /// Resolved to violations where the person ids are known.
+    pub conflicts: Vec<MergeConflict>,
     /// Events read, duplicates included. More events than pairs is a
-    /// replay, which only a crash or a produce timeout should cause.
+    /// replay or a conflict.
     pub events: usize,
     pub foreign_events: usize,
 }
@@ -272,78 +271,45 @@ pub async fn read_published_mappings(
     fold_published_mappings(records.iter().map(|r| r.payload.as_slice()), team_id)
 }
 
-/// Fold distinct id rows into the state a ClickHouse reader would see: the
-/// highest version per distinct id. Two rows that differ at one version
-/// are a conflict whatever the version, because partition order decides
-/// which one a reader sees. Rows of other teams are counted and skipped; a
-/// row that does not decode is a publisher bug and fails the read outright.
+/// A row that does not decode is a publisher bug and fails the read.
 pub fn fold_published_mappings<'a>(
     payloads: impl IntoIterator<Item = &'a [u8]>,
     team_id: i64,
 ) -> Result<PublishedMappings> {
-    let mut rows: HashMap<String, PublishedMapping> = HashMap::new();
-    let mut seen: HashMap<(String, i64), PublishedMapping> = HashMap::new();
-    let mut conflicted: HashSet<(String, i64)> = HashSet::new();
+    let mut feed = FeedState::new();
     let mut conflicts = Vec::new();
     let mut foreign_rows = 0;
     for payload in payloads {
-        let value: Value = serde_json::from_slice(payload).context("decoding a distinct id row")?;
-        let Some(row_team) = value["team_id"].as_i64() else {
-            bail!("distinct id row without an integer team_id");
-        };
-        if row_team != team_id {
+        let row = DistinctIdRow::decode(payload)?;
+        if row.team_id != team_id {
             foreign_rows += 1;
             continue;
         }
-        let distinct_id = value["distinct_id"]
-            .as_str()
-            .context("distinct id row without a distinct_id")?
-            .to_string();
-        let person_uuid = value["person_id"]
-            .as_str()
-            .and_then(|s| Uuid::parse_str(s).ok())
-            .context("distinct id row without a person uuid")?;
-        let version = value["version"]
-            .as_i64()
-            .context("distinct id row without an integer version")?;
-        let is_deleted = match value["is_deleted"].as_u64() {
-            Some(0) => false,
-            Some(1) => true,
-            other => bail!("distinct id row with is_deleted {other:?}, expected 0 or 1"),
-        };
-        let row = PublishedMapping {
-            person_uuid,
-            is_deleted,
-            version,
-        };
-        let versioned = (distinct_id.clone(), version);
-        match seen.get(&versioned) {
-            Some(first) if *first != row && !conflicted.contains(&versioned) => {
-                conflicts.push(ConsistencyViolation {
-                    person_id: 0,
-                    key: format!("__published_mapping_conflict:{distinct_id}"),
-                    expected: json!(format!("one row at version {version}")),
-                    actual: json!([mapping_json(first), mapping_json(&row)]),
-                });
-                conflicted.insert(versioned);
-            }
-            Some(_) => {}
-            None => {
-                seen.insert(versioned, row.clone());
-            }
-        }
-        match rows.get(&distinct_id) {
-            Some(current) if current.version >= version => {}
-            _ => {
-                rows.insert(distinct_id, row);
-            }
+        if let Some(conflict) = feed.observe_mapping(&row) {
+            conflicts.push(mapping_conflict_violation(conflict));
         }
     }
+    let rows = feed
+        .mappings()
+        .map(|(key, mapping)| (key.distinct_id.clone(), mapping.clone()))
+        .collect();
     Ok(PublishedMappings {
         rows,
         conflicts,
         foreign_rows,
     })
+}
+
+fn mapping_conflict_violation(conflict: MappingConflict) -> ConsistencyViolation {
+    ConsistencyViolation {
+        person_id: 0,
+        key: format!("__published_mapping_conflict:{}", conflict.key.distinct_id),
+        expected: json!(format!("one row at version {}", conflict.version)),
+        actual: json!([
+            mapping_json(&conflict.first),
+            mapping_json(&conflict.second)
+        ]),
+    }
 }
 
 fn mapping_json(row: &PublishedMapping) -> Value {
@@ -479,59 +445,34 @@ pub async fn read_published_merges(
     )
 }
 
-/// The (old, new) pairs on the merge events topic. Every event must carry
-/// the wire shape and the key the cohort stream processor depends on; one
-/// that does not is a publisher bug and fails the read outright.
+/// An event without the wire shape or the key the cohort stream processor
+/// depends on is a publisher bug and fails the read.
 pub fn fold_published_merges<'a>(
     records: impl IntoIterator<Item = (Option<&'a [u8]>, &'a [u8])>,
     team_id: i64,
 ) -> Result<PublishedMerges> {
-    let mut pairs = HashSet::new();
+    let mut feed = FeedState::new();
+    let mut conflicts = Vec::new();
     let mut events = 0;
     let mut foreign_events = 0;
     for (key, payload) in records {
-        let value: Value = serde_json::from_slice(payload).context("decoding a merge event")?;
-        let Some(event_team) = value["team_id"].as_i64() else {
-            bail!("merge event without an integer team_id");
-        };
-        if event_team != team_id {
+        let event = MergeEvent::decode(key, payload)?;
+        if event.team_id != team_id {
             foreign_events += 1;
             continue;
         }
-        let uuid = |field: &str| {
-            value[field]
-                .as_str()
-                .and_then(|s| Uuid::parse_str(s).ok())
-                .with_context(|| format!("merge event without a {field} uuid"))
-        };
-        let old = uuid("old_person_uuid")?;
-        let new = uuid("new_person_uuid")?;
-        if value["schema_version"].as_u64() != Some(1) {
-            bail!(
-                "merge event with schema_version {}, expected 1",
-                value["schema_version"]
-            );
-        }
-        if value["merged_at_ms"].as_i64().is_none_or(|ms| ms <= 0) {
-            bail!(
-                "merge event with merged_at_ms {}, expected a positive integer",
-                value["merged_at_ms"]
-            );
-        }
-        // The processor keeps the old person's state on the worker this
-        // key selects, so a different key misplaces the merge silently.
-        let expected_key = format!("{team_id}:{old}");
-        if key != Some(expected_key.as_bytes()) {
-            bail!(
-                "merge event {old} -> {new} produced under key {:?}, expected {expected_key:?}",
-                key.map(String::from_utf8_lossy)
-            );
-        }
         events += 1;
-        pairs.insert((old, new));
+        if let Some(conflict) = feed.observe_merge(&event) {
+            conflicts.push(conflict);
+        }
     }
+    let pairs = feed
+        .merges()
+        .map(|(old, new)| (old.person_uuid, new))
+        .collect();
     Ok(PublishedMerges {
         pairs,
+        conflicts,
         events,
         foreign_events,
     })
@@ -539,9 +480,22 @@ pub fn fold_published_merges<'a>(
 
 pub fn verify_published_merges(
     expected: &ExpectedMerges,
-    published: &HashSet<(Uuid, Uuid)>,
+    published: &PublishedMerges,
 ) -> Vec<ConsistencyViolation> {
     let mut violations = Vec::new();
+    for conflict in &published.conflicts {
+        violations.push(ConsistencyViolation {
+            person_id: expected
+                .ids
+                .get(&conflict.old.person_uuid)
+                .copied()
+                .unwrap_or_default(),
+            key: "__published_merge_conflict".to_string(),
+            expected: json!(format!("one merge target for {}", conflict.old.person_uuid)),
+            actual: json!([conflict.first, conflict.second]),
+        });
+    }
+    let published = &published.pairs;
     let mut pairs: Vec<(&Uuid, &Uuid)> = expected.pairs.iter().collect();
     pairs.sort();
     for (old, new) in pairs {
@@ -575,6 +529,8 @@ pub fn verify_published_merges(
 
 #[cfg(test)]
 mod tests {
+    use personhog_common::cdc_parity::PersonKey;
+
     use super::*;
 
     fn keys(violations: Vec<ConsistencyViolation>) -> Vec<String> {
@@ -668,61 +624,60 @@ mod tests {
         );
     }
 
-    // A crash between the acks and the commit republishes rows; the fold
-    // must land on the highest version whatever the order, identical
-    // duplicates must not count as anything, and two different rows at one
-    // version must, because a ReplacingMergeTree would keep either.
+    // The fold rules live in personhog-common; this covers the gate's own
+    // mapping of its findings to violations and the foreign-row count.
     #[test]
-    fn duplicate_and_replayed_rows_fold_to_the_highest_version() {
-        let row = |uuid: u128, version: i64, is_deleted: u8| {
+    fn fold_findings_become_violations() {
+        let row = |uuid: u128, version: i64| {
             format!(
-                r#"{{"person_id":"{}","team_id":5,"distinct_id":"d","version":{version},"is_deleted":{is_deleted}}}"#,
+                r#"{{"person_id":"{}","team_id":5,"distinct_id":"d","version":{version},"is_deleted":0}}"#,
                 Uuid::from_u128(uuid)
             )
         };
         let other_team = r#"{"person_id":"00000000-0000-0000-0000-000000000002","team_id":6,"distinct_id":"d","version":9,"is_deleted":0}"#.to_string();
-        let payloads = [
-            row(1, 1, 0),
-            row(1, 2, 0),
-            row(1, 2, 0),
-            row(1, 1, 0),
-            other_team,
-        ];
+        let payloads = [row(1, 2), row(2, 2), row(1, 3), other_team];
         let folded =
             fold_published_mappings(payloads.iter().map(|p| p.as_bytes()), 5).expect("decodes");
         assert_eq!(
-            folded.rows,
-            HashMap::from([("d".to_string(), published(uuid(1), false, 2))])
+            keys(folded.conflicts),
+            vec!["__published_mapping_conflict:d"]
         );
-        assert!(folded.conflicts.is_empty());
+        assert_eq!(
+            folded.rows,
+            HashMap::from([("d".to_string(), published(uuid(1), false, 3))])
+        );
         assert_eq!(folded.foreign_rows, 1);
 
-        let conflicting = [row(1, 2, 0), row(2, 2, 0), row(1, 3, 0)];
-        let folded =
-            fold_published_mappings(conflicting.iter().map(|p| p.as_bytes()), 5).expect("decodes");
-        assert_eq!(
-            keys(folded.conflicts),
-            vec!["__published_mapping_conflict:d"]
-        );
-        assert_eq!(folded.rows["d"].version, 3);
-        // The same disagreement read after a higher version is still one.
-        let later = [row(1, 3, 0), row(1, 2, 0), row(2, 2, 0), row(2, 2, 0)];
-        let folded =
-            fold_published_mappings(later.iter().map(|p| p.as_bytes()), 5).expect("decodes");
-        assert_eq!(
-            keys(folded.conflicts),
-            vec!["__published_mapping_conflict:d"]
-        );
-        assert!(fold_published_mappings(
-            [br#"{"person_id":"00000000-0000-0000-0000-000000000001","team_id":"5","distinct_id":"d","version":1,"is_deleted":0}"#.as_slice()],
-            5
+        let event = |new: u128| {
+            format!(
+                r#"{{"team_id":5,"old_person_uuid":"{}","new_person_uuid":"{}","merged_at_ms":10,"schema_version":1}}"#,
+                uuid(1),
+                uuid(new)
+            )
+        };
+        let key = format!("5:{}", uuid(1)).into_bytes();
+        let records = [event(2), event(2), event(3)];
+        let folded = fold_published_merges(
+            records.iter().map(|p| (Some(key.as_slice()), p.as_bytes())),
+            5,
         )
-        .is_err());
+        .expect("decodes");
+        assert_eq!(
+            folded.conflicts,
+            vec![MergeConflict {
+                old: PersonKey::new(5, uuid(1)),
+                first: uuid(2),
+                second: uuid(3),
+            }]
+        );
+        assert_eq!(folded.pairs, HashSet::from([(uuid(1), uuid(2))]));
+        assert_eq!(folded.events, 3);
 
+        // Skipping an unreadable payload would pass a gate over a publisher that corrupts rows.
         assert!(
             fold_published_mappings([br#"{"team_id":5,"distinct_id":"d"}"#.as_slice()], 5).is_err()
         );
-        assert!(fold_published_mappings([row(1, 3, 2).as_bytes()], 5).is_err());
+        assert!(fold_published_merges([(None, event(2).as_bytes())], 5).is_err());
     }
 
     #[test]
@@ -732,13 +687,30 @@ mod tests {
             uncertain: HashSet::from([uuid(3)]),
             ids: HashMap::from([(uuid(1), 1), (uuid(2), 2), (uuid(3), 3)]),
         };
+        let read = |pairs: &[(Uuid, Uuid)], conflicts: Vec<MergeConflict>| PublishedMerges {
+            pairs: pairs.iter().copied().collect(),
+            conflicts,
+            events: pairs.len(),
+            foreign_events: 0,
+        };
         let check = |pairs: &[(Uuid, Uuid)]| {
-            keys(verify_published_merges(
-                &expected,
-                &pairs.iter().copied().collect(),
-            ))
+            keys(verify_published_merges(&expected, &read(pairs, Vec::new())))
         };
         assert!(check(&[(uuid(1), uuid(2))]).is_empty());
+        // A second target is reported against the journal's id of the person.
+        let conflicted = verify_published_merges(
+            &expected,
+            &read(
+                &[(uuid(1), uuid(2))],
+                vec![MergeConflict {
+                    old: PersonKey::new(5, uuid(1)),
+                    first: uuid(2),
+                    second: uuid(5),
+                }],
+            ),
+        );
+        assert_eq!(conflicted[0].person_id, 1);
+        assert_eq!(keys(conflicted), vec!["__published_merge_conflict"]);
         assert_eq!(check(&[]), vec!["__published_merge_missing"]);
         assert_eq!(
             check(&[(uuid(1), uuid(2)), (uuid(4), uuid(5))]),
@@ -750,36 +722,5 @@ mod tests {
         );
         // An uncertain source may or may not have merged.
         assert!(check(&[(uuid(1), uuid(2)), (uuid(3), uuid(2))]).is_empty());
-    }
-
-    // The processor places a merge by its key; an event under another key
-    // decodes fine and still lands on the wrong worker.
-    #[test]
-    fn merge_events_fold_to_pairs_and_keep_their_key() {
-        let event = |schema_version: u32, merged_at_ms: i64| {
-            format!(
-                r#"{{"team_id":5,"old_person_uuid":"{}","new_person_uuid":"{}","merged_at_ms":{merged_at_ms},"schema_version":{schema_version}}}"#,
-                uuid(1),
-                uuid(2)
-            )
-        };
-        let key = format!("5:{}", uuid(1));
-        let keyed = |payload: &str| -> (Option<Vec<u8>>, Vec<u8>) {
-            (Some(key.clone().into_bytes()), payload.as_bytes().to_vec())
-        };
-        let twice = [keyed(&event(1, 10)), keyed(&event(1, 10))];
-        let folded =
-            fold_published_merges(twice.iter().map(|(k, p)| (k.as_deref(), p.as_slice())), 5)
-                .expect("decodes");
-        assert_eq!(folded.pairs, HashSet::from([(uuid(1), uuid(2))]));
-        assert_eq!(folded.events, 2);
-
-        let bad = |key: Option<&[u8]>, payload: String| {
-            fold_published_merges([(key, payload.as_bytes())], 5).is_err()
-        };
-        assert!(bad(Some(key.as_bytes()), event(2, 10)));
-        assert!(bad(Some(key.as_bytes()), event(1, 0)));
-        assert!(bad(None, event(1, 10)));
-        assert!(bad(Some(b"5:wrong".as_slice()), event(1, 10)));
     }
 }

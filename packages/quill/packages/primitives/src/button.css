@@ -269,7 +269,7 @@
     }
 
     /* =========================================================================
-       Variant: link / link-muted
+       Variant: link / link-foreground / link-muted
        ========================================================================= */
     .quill-button--variant-link {
         color: var(--primary);
@@ -279,6 +279,15 @@
     .quill-button--variant-link:not(:disabled, [aria-disabled='true']):hover,
     .quill-button--variant-link[data-popup-open] {
         text-decoration: underline;
+    }
+
+    .quill-button--variant-link-foreground {
+        color: var(--foreground);
+    }
+
+    .quill-button--variant-link-foreground:not(:disabled, [aria-disabled='true']):hover,
+    .quill-button--variant-link-foreground[data-popup-open] {
+        background-color: var(--fill-hover);
     }
 
     .quill-button--variant-link-muted {
@@ -547,6 +556,37 @@
     }
 
     /* =========================================================================
+       Indicator
+       ========================================================================= */
+
+    /* The dot sits on the corner, outside the icon. The ring cuts it out of the
+       button border, so it defaults to the app background; set
+       `--quill-button-indicator-ring` when the button sits on another surface. */
+    .quill-button[data-indicator] {
+        position: relative;
+    }
+
+    .quill-button__indicator {
+        position: absolute;
+        inset-inline-end: -0.125rem;
+        top: -0.125rem;
+        width: 0.5rem;
+        height: 0.5rem;
+        pointer-events: none;
+        background-color: var(--primary);
+        border-radius: 9999px;
+        box-shadow: 0 0 0 2px var(--quill-button-indicator-ring, var(--background));
+    }
+
+    .quill-button__indicator[data-variant='warning'] {
+        background-color: var(--warning-foreground);
+    }
+
+    .quill-button__indicator[data-variant='destructive'] {
+        background-color: var(--destructive-foreground);
+    }
+
+    /* =========================================================================
        Loading
        ========================================================================= */
 
@@ -591,6 +631,10 @@
 
     .quill-button--variant-link[data-loading] > .quill-spinner {
         color: var(--primary);
+    }
+
+    .quill-button--variant-link-foreground[data-loading] > .quill-spinner {
+        color: var(--foreground);
     }
 
     .quill-button--variant-link-muted[data-loading] > .quill-spinner {

@@ -304,7 +304,7 @@ export const getMcpAnalyticsSessionsActivityOverviewUrl = (
 }
 
 /**
- * Aggregate counters, top tools, agent clients, and the most recent tool calls for the last 30 days, computed in one request. Powers the dashboard's activity view; always computed fresh so polling callers watch data arrive.
+ * Aggregate counters, top tools, agent clients, and the most recent tool calls for the last 30 days, computed in one request. Powers the dashboard's activity view. Results are cached for up to 5 minutes, or 20 seconds when the caller has property restrictions. An empty result is never cached.
  */
 export const mcpAnalyticsSessionsActivityOverview = async (
     projectId: string,

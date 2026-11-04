@@ -8,7 +8,7 @@ import {
 
 describe('libraryUtils', () => {
     test.each([
-        ['insight', true],
+        ['insight', false],
         ['feature_flag', true],
         ['dashboard', false],
         ['notebook', false],
@@ -28,7 +28,7 @@ describe('libraryUtils', () => {
 
     test.each([
         ['its own href first', { href: '/custom', type: 'insight', ref: 'abc' }, '/custom'],
-        ['the registered page for its type', { type: 'feature_flag', ref: '7' }, '/feature_flags/7'],
+        ['the registered page for its type', { type: 'feature_flag', ref: '7' }, '/feature-flags/7'],
         ['no link without a ref', { type: 'feature_flag' }, null],
         ['no link for an unknown type', { type: 'not_a_type', ref: '7' }, null],
     ])('links an object to %s', (_, entry, href) => {
@@ -36,13 +36,13 @@ describe('libraryUtils', () => {
     })
 
     test.each([
-        ['/feature_flags/920847', 'feature_flag'],
+        ['/feature-flags/920847', 'feature_flag'],
         ['/workflows/abc/workflow', 'workflows'],
         ['/replay/playlists/abc', 'session_recording_playlist'],
-        ['/feature_flags', 'feature_flag'],
+        ['/feature-flags', 'feature_flag'],
         ['/dashboard', null],
         ['/data-management/actions', 'action'],
-        ['/feature_flags/templates', null],
+        ['/feature-flags/templates', null],
         ['/workflows/library/templates/new', null],
         ['/notebooks/abc', null],
     ])('finds the object type of %s', (path, type) => {
@@ -50,8 +50,7 @@ describe('libraryUtils', () => {
     })
 
     test.each([
-        ['feature_flag', '/feature_flags'],
-        ['insight', '/insights'],
+        ['feature_flag', '/feature-flags'],
         ['cohort', '/cohorts'],
         ['session_recording_playlist', '/replay/playlists'],
         ['not_a_type', null],

@@ -288,7 +288,7 @@ function hasNoRenderableChildren(children: ReactNode): boolean {
 }
 
 const MENU_TRIGGER_CLASSES =
-    'flex items-center outline-hidden select-none px-2 h-7 rounded-sm text-xs font-medium hover:bg-fill-hover data-[popup-open]:bg-fill-selected disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent'
+    'flex items-center whitespace-nowrap outline-hidden select-none px-2 h-7 rounded-sm text-xs font-medium hover:bg-fill-hover data-[popup-open]:bg-fill-selected disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent'
 
 export function SceneMenuBarMenu({
     label,

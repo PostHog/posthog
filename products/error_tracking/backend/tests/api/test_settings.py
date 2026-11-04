@@ -32,7 +32,10 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
     def test_update_settings_with_session_auth(self):
         response = self.client.patch(
             f"{self._base_url()}/update_settings/",
-            {"project_rate_limit_value": 5000, "project_rate_limit_bucket_size_minutes": 60},
+            {
+                "project_rate_limit_value": 5000,
+                "project_rate_limit_bucket_size_minutes": 60,
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)

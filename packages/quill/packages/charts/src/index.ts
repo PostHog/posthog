@@ -49,7 +49,7 @@ export type { MetricCardProps, ChangeColor, MetricChange } from './components/Me
 export { resolveDelta } from './components/MetricCard/resolveDelta'
 export type { ResolvedDelta } from './components/MetricCard/resolveDelta'
 export { computeFallbackChangePercent } from './components/MetricCard/internals'
-export { useAnimatedNumber } from './components/MetricCard/useAnimatedNumber'
+export { useAnimatedNumber } from './core/hooks/useAnimatedNumber'
 export { useHoverIntent } from './components/MetricCard/useHoverIntent'
 
 // Base chart (for building new chart types)
@@ -79,6 +79,7 @@ export { Heatmap } from './charts/Heatmap/Heatmap'
 export type {
     HeatmapBrushData,
     HeatmapCellDatum,
+    HeatmapCellStyle,
     HeatmapConfig,
     HeatmapProps,
     HeatmapRowMeta,
@@ -114,6 +115,14 @@ export { useRadialLayout } from './core/radial-context'
 export type { RadialLayoutContextValue } from './core/radial-context'
 export type { RadialSlicePayload } from './core/hooks/useRadialInteraction'
 
+// Gauge
+export { Gauge } from './charts/Gauge/Gauge'
+export type { GaugeConfig, GaugeProps, GaugeTarget } from './charts/Gauge/Gauge'
+export { formatGaugeBand, GaugeTooltip } from './charts/Gauge/GaugeTooltip'
+export type { GaugeTooltipContext, GaugeTooltipProps, GaugeTooltipThreshold } from './charts/Gauge/GaugeTooltip'
+export { resolveGaugeBounds } from './charts/Gauge/gauge-layout'
+export type { GaugeBounds, GaugeThreshold, ResolveGaugeBoundsInput } from './charts/Gauge/gauge-layout'
+
 // Proportion bar
 export { ProportionBar } from './charts/ProportionBar/ProportionBar'
 export type { ProportionBarConfig, ProportionBarProps } from './charts/ProportionBar/ProportionBar'
@@ -121,6 +130,8 @@ export type { ProportionBarConfig, ProportionBarProps } from './charts/Proportio
 // Bar list
 export { BarList } from './charts/BarList/BarList'
 export type { BarListConfig, BarListProps } from './charts/BarList/BarList'
+export { StackedBarList } from './charts/BarList/StackedBarList'
+export type { StackedBarListConfig, StackedBarListProps } from './charts/BarList/StackedBarList'
 
 // Sankey
 export { SankeyChart } from './charts/SankeyChart/SankeyChart'
@@ -188,6 +199,7 @@ export type {
     ResolveValueFn,
     Series,
     SeriesType,
+    TimeScale,
     TooltipConfig,
     TooltipContext,
     ValueDomain,
@@ -197,9 +209,20 @@ export type {
 export { DEFAULT_Y_AXIS_ID, resolveAxisLines } from './core/types'
 
 // Theme: read a ChartTheme from quill data-viz CSS vars (with a built-in fallback palette)
-export { themeDefaultsFromCssVars, themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
+export {
+    ChartThemeProvider,
+    themeDefaultsFromCssVars,
+    themeFromCssVars,
+    useChartTheme,
+    useResolvedChartTheme,
+    DEFAULT_CHART_COLORS,
+} from './core/theme'
 export { applyChartDefaults, DEFAULT_CHART_CONFIG } from './core/chart-config'
 export type { ThemeFromCssOptions } from './core/theme'
+
+// Grid and axis lines, for chart types built on the Chart core
+export { drawAxes, drawGrid, resolveAxisLineColor } from './core/canvas-renderer'
+export type { DrawAxesOptions, DrawGridOptions } from './core/canvas-renderer'
 
 // Built-in tooltip (for reference or extension)
 export { DefaultTooltip, type DefaultTooltipProps } from './overlays/DefaultTooltip'
@@ -219,6 +242,8 @@ export type {
 } from './overlays/ReferenceLine'
 export { HighlightedRange } from './overlays/HighlightedRange'
 export type { HighlightedRangeProps } from './overlays/HighlightedRange'
+export { ValueBand } from './overlays/ValueBand'
+export type { ValueBandProps } from './overlays/ValueBand'
 export { ValueLabels } from './overlays/ValueLabels'
 export type { ValueLabelContext, ValueLabelFormatter, ValueLabelsProps } from './overlays/ValueLabels'
 export { AxisTitles } from './overlays/AxisTitles'

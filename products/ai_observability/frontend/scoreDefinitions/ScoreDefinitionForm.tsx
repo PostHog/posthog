@@ -67,6 +67,21 @@ export function ScoreDefinitionForm({
                         data-attr="llma-scorer-name-input"
                     />
                 </LemonField.Pure>
+                <LemonField.Pure
+                    label="Short name (optional)"
+                    htmlFor={`${id}-short-name`}
+                    help="Used in table headers and other compact views. Leave blank to use the full name."
+                >
+                    <LemonInput
+                        id={`${id}-short-name`}
+                        value={draft.shortName}
+                        onChange={(value) => setDraftField('shortName', value)}
+                        maxLength={40}
+                        disabled={disabled}
+                        placeholder="e.g. Quality"
+                        data-attr="aio-scorer-short-name-input"
+                    />
+                </LemonField.Pure>
                 <LemonField.Pure label="Description (optional)" htmlFor={`${id}-description`}>
                     <LemonTextArea
                         id={`${id}-description`}

@@ -1,12 +1,16 @@
+import { combineUrl } from 'kea-router'
+
 import { IconArrowRight } from '@posthog/icons'
 
 import { SearchItem } from 'lib/components/Search/searchItems'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { isFileSystemEntryTypeEnabled } from '~/layout/panel-layout/ProjectTree/utils'
 import { fileSystemTypes } from '~/products'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { OrganizationMemberType, UserType } from '~/types'
 
-import { FilterOptions, ResolvedQuery, ValueOption } from './commandKQuery'
+import { FilterOptions, ResolvedQuery, ValueOption, listSearchText } from './commandKQuery'
 import type { ViewAll } from './commandKSections'
 
 /** Short words people type for a type, on top of its name and key. */
@@ -22,6 +26,7 @@ interface FileSystemTypeDefinition {
     name?: string
     iconType?: string
     listHref?: () => string
+    listSearchParam?: 'search'
 }
 
 const FILE_SYSTEM_TYPES = fileSystemTypes as Record<string, FileSystemTypeDefinition>
@@ -83,29 +88,56 @@ export function buildFilterOptions(
     folders: FileSystemEntry[] | null
 ): FilterOptions {
     return {
-        is: typeOptions(),
+        is: typeOptions().filter((option) =>
+            isFileSystemEntryTypeEnabled(
+                { type: option.value },
+                featureFlagLogic.findMounted()?.values.featureFlags ?? {}
+            )
+        ),
         createdBy: userOptions(members, user),
         in: (folders ?? []).map((folder) => ({ value: folder.path, label: folder.path })),
         name: [],
     }
 }
 
-/** List pages for types whose manifest registers no `listHref`. */
-const LIST_HREF_FALLBACKS: Record<string, string> = {
-    dashboard: '/dashboard',
-    notebook: '/notebooks',
+interface ListPage {
+    href: string
+    searchParam?: 'search'
+}
+
+/** List pages for types whose manifest registers no `listHref`. A manifest `listHref` also makes Library redirect the type to that page. */
+const LIST_PAGE_FALLBACKS: Record<string, ListPage> = {
+    dashboard: { href: '/dashboard', searchParam: 'search' },
+    notebook: { href: '/notebooks' },
+}
+
+function listPageFor(type: string): ListPage | null {
+    const definition = typeDefinition(type)
+    if (definition?.listHref) {
+        return { href: definition.listHref(), searchParam: definition.listSearchParam }
+    }
+    return LIST_PAGE_FALLBACKS[type] ?? null
+}
+
+function listHrefFor({ href, searchParam }: ListPage, resolved: ResolvedQuery): string {
+    if (!searchParam) {
+        return href
+    }
+    const search = listSearchText(resolved)
+    return search ? combineUrl(href, { [searchParam]: search }).url : href
 }
 
 // With only filters the list page is the likely target; once there is search text, the matches matter more.
-export function viewAllFor({ filters, freeText }: ResolvedQuery): ViewAll | null {
-    const chip = filters.find((candidate) => candidate.key === 'is' && !candidate.negated)
+export function viewAllFor(resolved: ResolvedQuery): ViewAll | null {
+    const chip = resolved.filters.find((candidate) => candidate.key === 'is' && !candidate.negated)
     if (!chip) {
         return null
     }
-    const href = typeDefinition(chip.value)?.listHref?.() ?? LIST_HREF_FALLBACKS[chip.value]
-    if (!href) {
+    const listPage = listPageFor(chip.value)
+    if (!listPage) {
         return null
     }
+    const href = listHrefFor(listPage, resolved)
     const name = `View all ${pluralTypeName(chip.label)}`
     const item: SearchItem = {
         id: `view-all-${chip.value}`,
@@ -116,5 +148,5 @@ export function viewAllFor({ filters, freeText }: ResolvedQuery): ViewAll | null
         icon: <IconArrowRight className="size-4 shrink-0 text-muted-foreground" />,
         record: { type: chip.value },
     }
-    return { item, placement: freeText.trim() ? 'trail' : 'lead' }
+    return { item, placement: resolved.freeText.trim() ? 'trail' : 'lead' }
 }

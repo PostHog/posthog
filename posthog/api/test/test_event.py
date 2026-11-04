@@ -114,10 +114,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # personhog, not Postgres, so it's not in this count. Was 16 before passing team=team
         # into get_restricted_properties_for_team, which lets is_property_access_control_enabled
         # skip its per-call Team+organization lookup. +1 for the saved-expressions fetch in the
-        # HogQL database build. +1 for the flag-cache TTL instance setting, cold-cache here but
-        # TTL-cached per worker in production. +1 for the organization's flag_evaluations mode lookup in
-        # the HogQL database build.
-        with self.assertNumQueries(17):
+        # HogQL database build. +1 each for the flag-cache TTL, projection kill-switch and
+        # properties-narrowing instance settings, cold-cache here but TTL-cached per worker in production. +1 for the
+        # organization's flag_evaluations mode lookup in the HogQL database build.
+        with self.assertNumQueries(18):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
             assert response["results"][0]["event"] == "event_name"
 
@@ -152,10 +152,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # Group-type-mapping is read via personhog, not Postgres, so it's not in this count.
         # Was 24 before passing team=team into get_restricted_properties_for_team, which lets
         # is_property_access_control_enabled skip its per-call Team+organization lookup.
-        # +1 for the saved-expressions fetch in the HogQL database build. +1 for the flag-cache
-        # TTL instance setting, cold-cache here but TTL-cached per worker in production. +1 for
-        # the organization's flag_evaluations mode lookup in the HogQL database build.
-        expected_queries = 24 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 25
+        # +1 for the saved-expressions fetch in the HogQL database build. +1 each for the flag-cache
+        # TTL, projection kill-switch and properties-narrowing instance settings, cold-cache here but
+        # TTL-cached per worker in production. +1 for the organization's flag_evaluations mode lookup in the HogQL database build.
+        expected_queries = 25 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 26
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
@@ -963,7 +963,15 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["1"],
             is_identified=True,
         )
-        event_id = _create_event(team=self.team, event="event", distinct_id="1", timestamp=timezone.now())
+        sent_properties = {
+            "plan": None,
+            "billing": {"coupon": None, "seats": 3},
+            "items": [{"sku": "a", "note": None}],
+            "$set": {"email": None, "name": "n"},
+        }
+        event_id = _create_event(
+            team=self.team, event="event", distinct_id="1", timestamp=timezone.now(), properties=sent_properties
+        )
         flush_persons_and_events()
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}")
@@ -971,6 +979,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response_json = response.json()
         assert response_json["event"] == "event"
         assert response_json["person"] is None
+        assert response_json["properties"] == sent_properties
 
         with_person_response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}?include_person=true")
         assert with_person_response.status_code == status.HTTP_200_OK
@@ -1030,6 +1039,20 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/?limit=50000").json()
         assert len(response["results"]) == 2
+
+    @parameterized.expand(
+        [
+            ("non_numeric_limit", "limit", "abc"),
+            ("negative_limit", "limit", "-1"),
+            ("non_numeric_offset", "offset", "abc"),
+            ("negative_offset", "offset", "-1"),
+        ]
+    )
+    def test_list_rejects_bad_paging_params(self, _name: str, param: str, value: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?{param}={value}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == param
 
     @patch("posthog.api.event.get_persons_mapped_by_distinct_id")
     def test_list_without_include_person_skips_person_lookup(self, mock_get_persons):

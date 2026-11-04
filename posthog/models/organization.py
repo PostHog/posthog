@@ -1,7 +1,8 @@
 import sys
+from collections.abc import Collection
 from datetime import datetime, timedelta
 from functools import cache as functools_cache
-from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Self, TypedDict, Union
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -55,6 +56,7 @@ class OrganizationUsageInfo(TypedDict):
     feature_flag_requests: OrganizationUsageResource | None
     api_queries_read_bytes: OrganizationUsageResource | None
     llm_events: OrganizationUsageResource | None
+    mcp_events: OrganizationUsageResource | None
     ai_credits: OrganizationUsageResource | None
     signals_credits: OrganizationUsageResource | None
     posthog_code_credits: OrganizationUsageResource | None
@@ -164,6 +166,13 @@ def default_is_ai_training_opted_in():
 
 class Organization(ModelActivityMixin, UUIDTModel):
     class Meta:
+        indexes = [
+            models.Index(
+                fields=["id"],
+                condition=Q(is_active=False),
+                name="org_inactive_id_idx",
+            )
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["for_internal_metrics"],
@@ -371,8 +380,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
     __repr__ = sane_repr("name")
 
     @classmethod
-    def from_db(cls, db: Any, field_names: Any, values: Any) -> "Organization":
-        instance = super().from_db(db, field_names, values)
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        instance = super().from_db(db, field_names, values, **kwargs)
         instance._loaded_name = instance.__dict__.get("name")
         return instance
 
@@ -730,6 +739,61 @@ def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: 
     transaction.on_commit(_invalidate_cache)
     if settings.AI_GATEWAY_REDIS_URL:
         transaction.on_commit(_project_gateway_quota)
+
+
+@receiver(post_save, sender=Organization)
+def sync_active_state_to_billing_on_change(sender, instance: Organization, created: bool, **kwargs):
+    if created or not instance._is_active_changed or not is_cloud():
+        return
+
+    organization_id = str(instance.pk)
+    transaction.on_commit(lambda: _start_billing_active_sync_workflow(organization_id))
+
+
+BILLING_ACTIVE_SYNC_DISPATCH_TIMEOUT_SECONDS = 5
+
+
+def _start_billing_active_sync_workflow(organization_id: str) -> None:
+    # Imports deferred to keep the Temporal stack off the model import path.
+    import asyncio
+
+    from temporalio.common import WorkflowIDConflictPolicy
+
+    from posthog.temporal.billing_active_sync.sync_organization_active_state import (
+        RESYNC_SIGNAL,
+        SyncOrganizationActiveStateInputs,
+        SyncOrganizationActiveStateWorkflow,
+    )
+    from posthog.temporal.common.client import async_connect
+
+    async def _connect_and_start() -> None:
+        client = await asyncio.wait_for(async_connect(), timeout=BILLING_ACTIVE_SYNC_DISPATCH_TIMEOUT_SECONDS)
+        await asyncio.wait_for(
+            client.start_workflow(
+                SyncOrganizationActiveStateWorkflow.run,
+                SyncOrganizationActiveStateInputs(organization_id=organization_id),
+                id=f"billing-org-active-sync-{organization_id}",
+                task_queue=settings.BILLING_TASK_QUEUE,
+                # A running sync gets the signal and syncs again, so two POSTs for one org never race.
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                start_signal=RESYNC_SIGNAL,
+            ),
+            timeout=BILLING_ACTIVE_SYNC_DISPATCH_TIMEOUT_SECONDS,
+        )
+
+    try:
+        asyncio.run(_connect_and_start())
+    except Exception:
+        # The nightly reconciliation realigns billing; never fail the org save.
+        logger.warning("billing_active_state_sync_dispatch_failed", organization_id=organization_id, exc_info=True)
+
+
+class OrganizationAITerms(Organization):
+    # Gives staff one admin page for the AI terms an organization accepts, across products.
+    class Meta:
+        proxy = True
+        verbose_name = "AI terms and conditions"
+        verbose_name_plural = "AI terms and conditions"
 
 
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):

@@ -70,7 +70,17 @@ function loggedErrorsUrl(id: string, dateFrom: Dayjs, dateTo: Dayjs): string {
     return `${urls.workflow(id, 'invocations')}?${search.toString()}`
 }
 
-export function WorkflowOverviewHealth({ id, logicKey }: { id: string; logicKey: string }): JSX.Element {
+export function WorkflowOverviewHealth({
+    id,
+    logicKey,
+    appSourceId,
+    period = 'in this date range',
+}: {
+    id: string
+    logicKey: string
+    appSourceId?: string
+    period?: string
+}): JSX.Element {
     const logic = workflowOverviewLogic({ id, logicKey })
     const {
         healthTotals,
@@ -84,7 +94,7 @@ export function WorkflowOverviewHealth({ id, logicKey }: { id: string; logicKey:
     } = useValues(logic)
     const range = getDateRangeAbsolute()
     const { retry } = useActions(logic)
-    const { messagingChannels } = useValues(workflowMetricsSummaryLogic({ logicKey, id, overview: true }))
+    const { messagingChannels } = useValues(workflowMetricsSummaryLogic({ logicKey, id, overview: true, appSourceId }))
     const { emailSendingPaused } = useValues(workflowLogic)
 
     const loading = (healthTotalsLoading && !healthTotals) || (stepTotalsLoading && failedRuns === null)
@@ -143,7 +153,7 @@ export function WorkflowOverviewHealth({ id, logicKey }: { id: string; logicKey:
                         label="Failed steps"
                         value={humanFriendlyNumber(failedRuns ?? 0)}
                         tag={(failedRuns ?? 0) > 0 ? { label: 'Check logs', type: 'warning' } : RATE_LEVEL_TAG.healthy}
-                        tooltip="Steps that errored in this date range. A failed step either stops the run or continues, depending on the step's error setting."
+                        tooltip={`Steps that errored ${period}. A failed step either stops the run or continues, depending on the step's error setting.`}
                         detail={
                             (failedRuns ?? 0) > 0 ? (
                                 <Link

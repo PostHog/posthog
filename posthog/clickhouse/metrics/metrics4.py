@@ -77,6 +77,10 @@ _ARRAY_CODECS: dict[str, str] = {
     "histogram_counts": " CODEC(T64, Default)",
 }
 
+# The ingest MV does not write these arrays, so new rows store an empty array.
+# Do not ARRAY JOIN them with the other point arrays: the lengths do not agree.
+METRICS4_UNWRITTEN_POINT_ARRAY_COLUMNS: frozenset[str] = frozenset({"observed_timestamp"})
+
 
 def _db() -> str:
     return settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
@@ -203,6 +207,8 @@ def METRICS4_SAMPLES_TABLE_SQL() -> str:
     # The granule can contain multiple metric names and time buckets.
     # The time_bucket minmax index lets an hour filter skip the complete granule.
     # The metrics2 table uses idx_timestamp_minmax for the same purpose.
+    # The service_freshness_by_hour projection keeps the newest point of each service and hour, also from series
+    # without labels. A read of it does not read the timestamp arrays.
     return f"""
 CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
 (
@@ -228,7 +234,16 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
     INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
     INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_timestamp_min_minmax timestamp_min TYPE minmax GRANULARITY 1,
-    INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1
+    INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1,
+    PROJECTION service_freshness_by_hour
+    (
+        SELECT
+            team_id,
+            time_bucket,
+            service_name,
+            max(arrayMax(timestamp_arr))
+        GROUP BY team_id, time_bucket, service_name
+    )
 )
 ENGINE = {AggregatingMergeTree(METRICS4_SAMPLES_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY original_expiry_date
@@ -236,7 +251,8 @@ ORDER BY (team_id, metric_name, time_bucket, series_fingerprint)
 TTL original_expiry_date
 SETTINGS
     index_granularity = 128,
-    ttl_only_drop_parts = 1
+    ttl_only_drop_parts = 1,
+    deduplicate_merge_projection_mode = 'rebuild'
 """
 
 
@@ -343,6 +359,7 @@ def METRICS4_INPUT_TO_METRICS4_SAMPLES_MV() -> str:
     group_arrays = ",\n".join(
         f"    groupArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR})({name}) AS {name}_arr"
         for name, _ in METRICS4_POINT_ARRAY_COLUMNS
+        if name not in METRICS4_UNWRITTEN_POINT_ARRAY_COLUMNS
     )
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{METRICS4_SAMPLES_TABLE_NAME} TO {db}.{WRITABLE_METRICS4_SAMPLES_TABLE_NAME}
@@ -503,7 +520,6 @@ SELECT
     series_fingerprint,
     resource_fingerprint,
     timestamp,
-    observed_timestamp,
     original_expiry_timestamp,
     service_name,
     metric_type,
@@ -532,7 +548,6 @@ SELECT
     series_fingerprint,
     resource_fingerprint,
     point_timestamp AS timestamp,
-    point_observed_timestamp AS observed_timestamp,
     toDateTime64(original_expiry_date, 6) AS original_expiry_timestamp,
     service_name,
     metric_type,
@@ -551,7 +566,6 @@ SELECT
 FROM {db}.{METRICS4_SAMPLES_TABLE_NAME}
 ARRAY JOIN
     timestamp_arr AS point_timestamp,
-    observed_timestamp_arr AS point_observed_timestamp,
     value_arr AS point_value,
     count_arr AS point_count,
     histogram_counts_arr AS point_histogram_counts,

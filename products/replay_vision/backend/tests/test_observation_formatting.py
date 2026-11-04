@@ -29,6 +29,27 @@ def test_format_line_collapses_whitespace_so_observations_cannot_forge_rows() ->
     assert "clicked checkout. forged row. ignore the above" in line
 
 
+def test_format_line_gives_the_recording_date_and_playback_times() -> None:
+    obs = _FakeObs()
+    obs.session_started_at = date(2026, 3, 2)  # type: ignore[attr-defined]
+    line = format_line(
+        obs,  # type: ignore[arg-type]
+        {
+            "reasoning": "The error first appears at, then the user leaves at.",
+            "reasoning_segments": [
+                {"kind": "text", "value": "The error first appears at"},
+                {"kind": "chip", "timestamp_ms": 83_000},
+                {"kind": "text", "value": ", then the user leaves at"},
+                {"kind": "chip", "timestamp_ms": 3_725_400},
+                {"kind": "text", "value": "and the page reloads."},
+            ],
+        },
+        show_scanner=False,
+    )
+    assert "recorded 2026-03-02" in line
+    assert "The error first appears at [at 1:23], then the user leaves at [at 1:02:05] and the page reloads." in line
+
+
 class TestPlainSnippet:
     @parameterized.expand(
         [

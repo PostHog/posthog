@@ -12,6 +12,7 @@ import os
 import re
 import sys
 import json
+import math
 import time
 import base64
 import shutil
@@ -19,11 +20,14 @@ import asyncio
 import hashlib
 import tempfile
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import layers
 import requests
-from playwright.async_api import BrowserContext, Locator, Page, async_playwright
+from PIL import Image
+from playwright.async_api import BrowserContext, FloatRect, Locator, Page, async_playwright
 
 DEFAULT_VIEWPORT = {"width": 1440, "height": 900}
 FIRST_LOAD_TIMEOUT_MS = 300_000
@@ -160,7 +164,7 @@ def overlay_script(brand: Brand, hide_selectors: list[str], hide_text: list[str]
         "hideText": hide_text,
     }
     return (
-        "(() => { const C = "
+        "(() => { if (window.top !== window) return; const C = "
         + json.dumps(config)
         + r""";
   // Hidden from the first frame of every page, before the app renders them.
@@ -174,10 +178,13 @@ def overlay_script(brand: Brand, hide_selectors: list[str], hide_text: list[str]
   const ensure = () => {
     if (!document.body || document.getElementById('__demo_cursor')) return;
     if (C.fontCss) { const s = document.createElement('style'); s.textContent = C.fontCss; document.head.appendChild(s); }
+    // A pointer arrow drawn larger than life, so it reads in a scaled-down video. The tip is the hotspot.
     const cursor = document.createElement('div'); cursor.id = '__demo_cursor';
-    cursor.style.cssText = 'position:fixed;left:0;top:0;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;'
-      + 'background:' + C.accent + '55;border:2px solid ' + C.accent + ';z-index:2147483647;pointer-events:none;'
-      + 'transition:transform .08s;transform:translate(-100px,-100px)';
+    cursor.style.cssText = 'position:fixed;left:0;top:0;width:34px;height:34px;margin:-3px 0 0 -6px;z-index:2147483647;'
+      + 'pointer-events:none;transform-origin:6px 3px;transition:transform .08s;transform:translate(-100px,-100px)';
+    cursor.innerHTML = '<svg viewBox="0 0 24 24" width="34" height="34" style="filter:drop-shadow(0 2px 3px rgba(0,0,0,.35))">'
+      + '<path d="M5.5 3.2v16.1l4.2-4.1 2.7 6.2 2.6-1.1-2.7-6.1h5.9z" fill="#111" stroke="#fff" stroke-width="1.6" '
+      + 'stroke-linejoin="round"/></svg>';
     document.body.appendChild(cursor);
     const cap = document.createElement('div'); cap.id = '__demo_caption';
     cap.style.cssText = 'position:fixed;left:50%;bottom:32px;transform:translateX(-50%);max-width:1080px;padding:14px 24px;'
@@ -185,11 +192,22 @@ def overlay_script(brand: Brand, hide_selectors: list[str], hide_text: list[str]
       + 'font:700 21px/1.35 RoundHog,-apple-system,Inter,sans-serif;z-index:2147483646;pointer-events:none;'
       + 'text-align:left;box-shadow:0 10px 30px rgba(0,0,0,.25);display:none';
     document.body.appendChild(cap);
-    let x = -100, y = -100, s = 1;
+    let x = window.__demoCursorAt ? window.__demoCursorAt[0] : -100;
+    let y = window.__demoCursorAt ? window.__demoCursorAt[1] : -100;
+    let s = 1;
     const paint = () => { cursor.style.transform = `translate(${x}px,${y}px) scale(${s})`; };
-    document.addEventListener('mousemove', e => { x = e.clientX; y = e.clientY; paint(); }, true);
-    document.addEventListener('mousedown', () => { s = 0.7; paint(); }, true);
-    document.addEventListener('mouseup', () => { s = 1; paint(); }, true);
+    paint();
+    window.__demoMoveCursor = (nx, ny) => { x = nx; y = ny; paint(); };
+    window.__demoClick = (cx, cy) => {
+      s = 0.85; paint(); setTimeout(() => { s = 1; paint(); }, 140);
+      const ring = document.createElement('div');
+      ring.style.cssText = 'position:fixed;left:' + cx + 'px;top:' + cy + 'px;width:40px;height:40px;'
+        + 'margin:-20px 0 0 -20px;border-radius:50%;border:3px solid ' + C.accent + ';z-index:2147483646;pointer-events:none;'
+        + 'transform:scale(.3);opacity:.9;transition:transform .45s ease-out,opacity .45s ease-out';
+      document.body.appendChild(ring);
+      requestAnimationFrame(() => requestAnimationFrame(() => { ring.style.transform = 'scale(1.4)'; ring.style.opacity = '0'; }));
+      setTimeout(() => ring.remove(), 500);
+    };
   };
   const hide = () => {
     for (const sel of C.hideSelectors) document.querySelectorAll(sel).forEach(el => { el.style.display = 'none'; });
@@ -231,6 +249,7 @@ def card_html(brand: Brand, heading: str, subheading: str, hog: str, dark: bool 
     logo = brand.logos.get("white" if dark else "color", "")
     hog_img = f'<img src="{hog}" style="width:340px;height:340px;object-fit:contain">' if hog else ""
     return f"""<!doctype html><html><head><style>{brand.font_css}
+#__demo_cursor{{display:none!important}}
 body{{margin:0;height:100vh;background:{bg};color:{fg};font-family:RoundHog,-apple-system,Inter,sans-serif;
 display:flex;align-items:center;justify-content:center;overflow:hidden}}
 .logo{{position:absolute;top:44px;left:56px;width:180px}}
@@ -244,6 +263,7 @@ p{{font-weight:500;font-size:28px;line-height:1.35;margin:0;opacity:.8}}
 
 def terminal_html(brand: Brand, title: str) -> str:
     return f"""<!doctype html><html><head><style>{brand.font_css}
+#__demo_cursor{{display:none!important}}
 body{{margin:0;height:100vh;background:{brand.colors["dark"]};color:#d4d4d4;font:17px/1.6 Menlo,Consolas,monospace}}
 .logo{{position:absolute;top:36px;right:48px;width:140px;opacity:.9}}
 .title{{font:700 26px RoundHog,-apple-system,sans-serif;color:{brand.colors["cream"]};margin-bottom:24px}}
@@ -414,6 +434,11 @@ class Recorder:
         self.pop: Path | None = None
         self.voice_log: list[dict[str, Any]] = []
         self.base = Path(".")
+        self.mouse: tuple[float, float] = (720.0, 450.0)
+        # With a zoom in the storyboard, captions and stickers are drawn after the camera pass, so they don't zoom.
+        self.layered = any("zoom" in step for step in storyboard["steps"])
+        self.timeline: dict[str, list[dict[str, Any]]] = {"captions": [], "stickers": [], "cards": [], "zooms": []}
+        self.last_box: FloatRect | None = None
 
     def now(self) -> float:
         return time.monotonic() - self.t0
@@ -436,6 +461,11 @@ class Recorder:
             await asyncio.sleep(0.1)
 
     async def sticker(self, page: Page, spec: dict[str, Any]) -> None:
+        if self.layered:
+            self.timeline["stickers"].append({**spec, "at": self.now(), "text": self.vars.shown(spec.get("text", ""))})
+            if self.pop:
+                self.sounds.append((self.video_now() + 0.05, self.pop))
+            return
         position = STICKER_POSITIONS.get(spec.get("position", "bottom-right"), STICKER_POSITIONS["bottom-right"])
         await page.evaluate(
             "([src, label, pos, seconds]) => window.__sticker && window.__sticker(src, label, pos, seconds)",
@@ -449,12 +479,18 @@ class Recorder:
         if self.pop:
             self.sounds.append((self.video_now() + 0.05, self.pop))
 
-    async def waited(self, coro: Any, keep: float = CUT_KEEP_SECONDS) -> None:
+    async def show(self, page: Page, html: str) -> None:
+        await page.set_content(html)
+        await page.evaluate(
+            "document.fonts.ready.then(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))"
+        )
+
+    async def waited(self, coro: Any, keep: float = CUT_KEEP_SECONDS, shortest: float = 0.4, tail: float = 0.2) -> None:
         start = self.now()
         await coro
         end = self.now()
-        if end - start > keep + 0.4:
-            self.cuts.append((round(start + keep, 2), round(end - 0.2, 2)))
+        if end - start > keep + shortest:
+            self.cuts.append((round(start + keep, 2), round(end - tail, 2)))
 
     def url(self, path: str) -> str:
         path = self.vars.real(path)
@@ -476,15 +512,48 @@ class Recorder:
         return loc.nth(target.get("nth", 0))
 
     async def caption(self, page: Page, text: str) -> None:
+        if self.layered:
+            self.timeline["captions"].append({"at": self.now(), "text": self.vars.shown(text)})
+            return
         await page.evaluate("t => window.__caption && window.__caption(t)", self.vars.shown(text))
 
     async def glide(self, page: Page, loc: Locator) -> None:
         await loc.wait_for(state="visible", timeout=STEP_TIMEOUT_MS)
         await loc.scroll_into_view_if_needed()
         box = await loc.bounding_box()
+        self.last_box = box
         if box:
-            await page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, steps=25)
-            await asyncio.sleep(0.25)
+            await self.move_mouse(page, box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+            await asyncio.sleep(0.2)
+
+    async def move_mouse(self, page: Page, x: float, y: float) -> None:
+        # Ease in and out along a slight arc, over a time that grows with the distance, like a hand moves.
+        x0, y0 = self.mouse
+        distance = math.hypot(x - x0, y - y0)
+        frames = max(8, min(36, int(distance / 28)))
+        bend = min(distance * 0.08, 40)
+        for i in range(1, frames + 1):
+            t = i / frames
+            eased = 4 * t**3 if t < 0.5 else 1 - (-2 * t + 2) ** 3 / 2
+            arc = math.sin(math.pi * eased) * bend
+            await page.mouse.move(x0 + (x - x0) * eased, y0 + (y - y0) * eased - arc)
+            await page.evaluate(
+                "([x, y]) => window.__demoMoveCursor && window.__demoMoveCursor(x, y)",
+                [x0 + (x - x0) * eased, y0 + (y - y0) * eased - arc],
+            )
+            await asyncio.sleep(1 / FPS)
+        self.mouse = (x, y)
+
+    async def click_effect(self, page: Page) -> None:
+        await page.evaluate("([x, y]) => window.__demoClick && window.__demoClick(x, y)", list(self.mouse))
+
+    async def restore_cursor(self, page: Page) -> None:
+        # A new page starts without a pointer. Put it back where it was, so it does not jump in from a corner.
+        x, y = self.mouse
+        await page.evaluate(
+            "([x, y]) => { window.__demoCursorAt = [x, y]; window.__demoMoveCursor && window.__demoMoveCursor(x, y); }",
+            [x, y],
+        )
 
     async def log_in(self, context: BrowserContext) -> None:
         login = self.sb.get("login", {"email": "test@posthog.com", "password": "12345678"})
@@ -506,6 +575,11 @@ class Recorder:
         await page.close()
 
     async def card(self, page: Page, spec: dict[str, Any], key: str, dark: bool = False) -> None:
+        start = self.now()
+        await self._card(page, spec, key, dark)
+        self.timeline["cards"].append({"from": start, "to": self.now()})
+
+    async def _card(self, page: Page, spec: dict[str, Any], key: str, dark: bool = False) -> None:
         html = card_html(
             self.brand,
             self.vars.shown(spec.get("heading", "")),
@@ -513,12 +587,18 @@ class Recorder:
             self.brand.hog(spec.get("hog")),
             dark=dark,
         )
-        await page.set_content(html)
+        # The video runs a little behind the clock, so the cut runs past the moment the card is ready.
+        await self.waited(self.show(page, html), keep=0, shortest=0.05, tail=-0.3)
         self.speak(key)
         await asyncio.sleep(spec.get("hold", 1.0 if self.voice else 2.5))
         await self.finish_speaking()
 
     async def http(self, page: Page, spec: dict[str, Any], key: str) -> None:
+        start = self.now()
+        await self._http(page, spec, key)
+        self.timeline["cards"].append({"from": start, "to": self.now()})
+
+    async def _http(self, page: Page, spec: dict[str, Any], key: str) -> None:
         method = spec.get("method", "POST").upper()
         shown_url, real_url = self.url(self.vars.shown(spec["url"])), self.url(spec["url"])
         headers = spec.get("headers", {})
@@ -530,7 +610,12 @@ class Recorder:
             lines.append('    -H "Content-Type: application/json" \\')
             lines.append(f"    -d '{json.dumps(self.vars.shown(body), indent=2)}'")
         command = "\n".join(lines).rstrip(" \\")
-        await page.set_content(terminal_html(self.brand, self.vars.shown(spec.get("title", ""))))
+        await self.waited(
+            self.show(page, terminal_html(self.brand, self.vars.shown(spec.get("title", "")))),
+            keep=0,
+            shortest=0.05,
+            tail=-0.3,
+        )
         self.speak(key)
         await page.evaluate(
             """async (t) => { const el = document.getElementById('cmd');
@@ -561,6 +646,11 @@ class Recorder:
         await asyncio.sleep(spec.get("hold", 1.5 if self.voice else 3))
         await self.finish_speaking()
 
+    async def load(self, page: Page, step: dict[str, Any]) -> None:
+        await page.goto(self.url(step["goto"]), timeout=FIRST_LOAD_TIMEOUT_MS)
+        if "wait_for" in step:
+            await self.locate(page, step["wait_for"]).wait_for(timeout=STEP_TIMEOUT_MS)
+
     async def step(self, page: Page, step: dict[str, Any], key: str) -> None:
         if "card" in step:
             await self.card(page, step["card"], key)
@@ -569,12 +659,13 @@ class Recorder:
             await self.http(page, step["http"], key)
             return
         if "goto" in step:
-            await self.waited(page.goto(self.url(step["goto"]), timeout=FIRST_LOAD_TIMEOUT_MS), keep=0.2)
-        if "wait_for" in step and "goto" in step:
-            await self.waited(self.locate(page, step["wait_for"]).wait_for(timeout=STEP_TIMEOUT_MS), keep=0.2)
+            await self.waited(self.load(page, step), keep=0)
+            await self.restore_cursor(page)
         if "caption" in step:
             await self.caption(page, step["caption"])
         self.speak(key)
+        self.last_box = None
+        acting = self.now()
         if "scroll" in step:
             await page.mouse.wheel(0, step["scroll"])
             await asyncio.sleep(0.6)
@@ -583,25 +674,39 @@ class Recorder:
         if "click" in step:
             loc = self.locate(page, step["click"])
             await self.glide(page, loc)
+            await self.click_effect(page)
             await loc.click()
         if "type" in step:
             spec = step["type"]
             if "target" in spec:
                 loc = self.locate(page, spec["target"])
                 await self.glide(page, loc)
+                await self.click_effect(page)
                 await loc.click()
             for key in spec.get("keys", []):
                 name, _, times = key.partition(" x")
                 for _ in range(int(times or 1)):
                     await page.keyboard.press(name)
             await page.keyboard.type(self.vars.real(spec.get("text", "")), delay=spec.get("delay_ms", 80))
+        acted = self.now()
         if "wait_for" in step and "goto" not in step:
             await self.waited(self.locate(page, step["wait_for"]).wait_for(timeout=STEP_TIMEOUT_MS))
+        zoom = step.get("zoom")
+        detail = None
+        if zoom is True and self.last_box:
+            box, until = self.last_box, acted + layers.ZOOM_AFTER_ACTION
+            self.timeline["zooms"].append({"from": acting, "to": until, "box": box, "level": None})
+        elif isinstance(zoom, dict) and "target" in zoom:
+            target = self.locate(page, zoom["target"])
+            await self.waited(target.wait_for(state="visible", timeout=STEP_TIMEOUT_MS))
+            detail = {"from": self.now(), "box": await target.bounding_box(), "level": zoom.get("level")}
         if "sticker" in step:
             await self.sticker(page, step["sticker"])
         default_hold = 0.5 if self.voice else max(1.5, len(step.get("caption", "").split()) * 0.25)
         await asyncio.sleep(step.get("hold", default_hold))
         await self.finish_speaking()
+        if detail and detail["box"]:
+            self.timeline["zooms"].append({**detail, "to": self.now()})
 
     async def run(self, output: Path) -> dict[str, Any]:
         viewport = self.sb.get("viewport", DEFAULT_VIEWPORT)
@@ -657,20 +762,67 @@ class Recorder:
         if self.voice_log:
             log["voice"] = self.voice_log
         if raw_video and "error" not in log:
+            source, cuts, duration = raw_video, self.cuts, log["duration"]
+            if self.layered:
+                # The camera and overlay pass cuts the video itself, so the encode below only adds the sound.
+                source = output.with_suffix(".camera.mp4")
+                frames = _kept_frames(raw_video, self.cuts, duration, viewport)
+                # The overlay pass renders with Playwright's sync API, which can't run inside this event loop.
+                await asyncio.to_thread(
+                    layers.compose,
+                    sys.modules[__name__],
+                    self.brand,
+                    frames,
+                    self.timeline,
+                    viewport,
+                    viewport["width"],
+                    FPS,
+                    source,
+                )
+                cuts, duration = [], duration_of(source)
+                log["zooms"] = len(self.timeline["zooms"])
             encode(
-                raw_video,
+                source,
                 output,
-                self.cuts,
-                log["duration"],
+                cuts,
+                duration,
                 self.sounds,
                 self.sb["music"] if "music" in self.sb else None,
                 self.base,
             )
+            if source != raw_video:
+                source.unlink()
             contact_sheet(output)
         elif raw_video:
             shutil.copy(raw_video, output.with_suffix(".failed.webm"))
         shutil.rmtree(video_dir, ignore_errors=True)
         return log
+
+
+def _kept_frames(
+    raw: Path, cuts: list[tuple[float, float]], duration: float, viewport: dict[str, int]
+) -> Iterator[tuple[float, Image.Image]]:
+    """The frames of the raw take that stay in the video, with their time on the recording clock."""
+    width, height = viewport["width"], viewport["height"]
+    decode = subprocess.Popen(
+        ["ffmpeg", "-loglevel", "error", "-i", str(raw), "-vf", f"fps={FPS},scale={width}:{height}",
+         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        stdout=subprocess.PIPE,
+    )  # fmt: skip
+    assert decode.stdout is not None
+    size = width * height * 3
+    index = 0
+    while chunk := decode.stdout.read(size):
+        if len(chunk) < size:
+            break
+        t = index / FPS
+        index += 1
+        if t > duration + 0.5:
+            break
+        if not any(start <= t <= end for start, end in cuts):
+            yield t, Image.frombytes("RGB", (width, height), chunk)
+    decode.stdout.close()
+    decode.wait()
 
 
 def music_track(spec: dict[str, Any], seconds: float, base: Path) -> Path:
@@ -751,7 +903,8 @@ def encode(
     else:
         chains.append("[front]anull[mixed]")
     # -16 LUFS, the usual level for web video, so it plays as loud as other videos in Slack or Loom.
-    chains.append("[mixed]loudnorm=I=-16:TP=-1.5:LRA=11[aout]")
+    # apad keeps the audio running to the end of the video, so -shortest never cuts the video short.
+    chains.append("[mixed]loudnorm=I=-16:TP=-1.5:LRA=11,apad[aout]")
     graph = ";".join(chains)
     subprocess.run(
         [
@@ -816,7 +969,9 @@ def main() -> None:
     output = (storyboard_path.parent / storyboard.get("output", "demo.mp4")).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     values = {**os.environ, **storyboard.get("vars", {})}
-    recorder = Recorder(storyboard, Brand(repo_root), Vars(values, storyboard.get("secrets", [])))
+    variables = Vars(values, storyboard.get("secrets", []))
+    brand = Brand(repo_root)
+    recorder = Recorder(storyboard, brand, variables)
     recorder.base = storyboard_path.parent
     log = asyncio.run(recorder.run(output))
     if skipped:

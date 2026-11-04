@@ -446,6 +446,72 @@ class TestRestParityForObjectGrants(BaseTest):
         database = Database.create_for(team=self.team, user=self.user)
         assert "system.message_categories" in database._denied_tables
 
+    @parameterized.expand([("data_modeling_views", "id"), ("data_modeling_jobs", "saved_query_id")])
+    def test_denied_view_is_filtered_from_its_metadata_tables(self, table: str, column: str) -> None:
+        view_id = "018f0000-0000-0000-0000-000000000002"
+        self._ac(
+            resource="warehouse_view", resource_id=view_id, access_level="none", organization_member=self.membership
+        )
+
+        sql, context = self._compile(f"SELECT status FROM system.{table}")
+
+        placeholders = self._id_list_placeholders(context)
+        assert list(placeholders.values()) == [[view_id]]
+        deny_key = next(iter(placeholders))
+        assert f"notIn(toString(system__{table}.{column}), %({deny_key})s)" in sql
+
+    def _own_views(self, *names: str) -> list:
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+
+        return [
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=name, query={"kind": "HogQLQuery", "query": "SELECT 1"}, created_by=self.user
+            )
+            for name in names
+        ]
+
+    def _view_rules(self, access_level: str, view_ids: list[str]) -> None:
+        for view_id in view_ids:
+            self._ac(
+                resource="warehouse_view",
+                resource_id=view_id,
+                access_level=access_level,
+                organization_member=self.membership,
+            )
+
+    def test_view_creator_drops_out_of_the_jobs_deny_list(self) -> None:
+        own_view, _own_unruled_view = self._own_views("own_view", "own_unruled_view")
+        other_view_id = "018f0000-0000-0000-0000-000000000003"
+        self._view_rules("none", [str(own_view.id), other_view_id])
+
+        sql, context = self._compile("SELECT status FROM system.data_modeling_jobs")
+
+        assert list(self._id_list_placeholders(context).values()) == [[other_view_id]]
+        assert "notIn(toString(system__data_modeling_jobs.saved_query_id)" in sql
+
+    def test_view_creator_denied_only_their_own_view_gets_no_jobs_guard(self) -> None:
+        (own_view,) = self._own_views("own_view")
+        self._view_rules("none", [str(own_view.id)])
+
+        sql, context = self._compile("SELECT status FROM system.data_modeling_jobs")
+
+        assert self._id_list_placeholders(context) == {}
+        assert "warehouse_view" not in context.access_control_restricted_resources
+
+    def test_view_creator_without_resource_access_keeps_the_jobs_of_their_views(self) -> None:
+        own_view, own_unruled_view = self._own_views("own_view", "own_unruled_view")
+        other_view_id = "018f0000-0000-0000-0000-000000000003"
+        self._ac(resource="warehouse_objects", access_level="none")
+        self._view_rules("viewer", [str(own_view.id), other_view_id])
+
+        sql, context = self._compile("SELECT status FROM system.data_modeling_jobs")
+
+        keys = {tuple(v): k for k, v in self._id_list_placeholders(context).items()}
+        grant_key = keys[tuple(sorted([str(own_view.id), other_view_id]))]
+        owned_key = keys[(str(own_unruled_view.id),)]
+        column = "toString(system__data_modeling_jobs.saved_query_id)"
+        assert f"or(in({column}, %({grant_key})s), in({column}, %({owned_key})s))" in sql
+
     @parameterized.expand(
         [
             (f"{name}_{table}", resource_level, scope, parent, table, operator)
@@ -719,6 +785,55 @@ class TestWarehouseTableAccessControl(BaseTest):
         # allowed_table has no source, so no rule about sources may reach it.
         assert "allowed_table" not in database._denied_tables
 
+    def test_system_tables_listing_hides_denied_tables_and_tables_of_a_denied_source(self):
+        from posthog.hogql.parser import parse_select
+
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="src",
+            connection_id="conn",
+            destination_id="dest",
+            source_type="Stripe",
+            prefix="stripe_",
+        )
+        sourced_table = DataWarehouseTable.objects.create(
+            name="stripe_customers",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=self.credential,
+            external_data_source=source,
+            url_pattern="s3://bucket/stripe/*",
+            columns={"id": "String"},
+        )
+        self._create_ac(
+            resource="external_data_source",
+            resource_id=str(source.id),
+            access_level="none",
+            member=self._membership(),
+        )
+        self._create_ac(
+            resource="warehouse_table",
+            resource_id=str(self.denied_table.id),
+            access_level="none",
+            member=self._membership(),
+        )
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
+        prepared = prepare_ast_for_printing(
+            parse_select("SELECT name, columns FROM system.data_warehouse_tables"),
+            context=context,
+            dialect="clickhouse",
+        )
+        assert prepared is not None
+        sql = print_prepared_ast(prepared, context=context, dialect="clickhouse")
+
+        deny_lists = {k: v for k, v in context.values.items() if k.endswith("_sensitive") and isinstance(v, list)}
+        assert list(deny_lists.values()) == [sorted([str(sourced_table.id), str(self.denied_table.id)])]
+        deny_key = next(iter(deny_lists))
+        assert f"notIn(toString(system__data_warehouse_tables.id), %({deny_key})s)" in sql
+
     def test_warehouse_objects_resource_none_denies_all_tables(self):
         self._create_ac(resource="warehouse_objects", access_level="none")
 
@@ -727,6 +842,9 @@ class TestWarehouseTableAccessControl(BaseTest):
         # Both tables become inaccessible because warehouse_table inherits warehouse_objects
         assert "denied_table" in database._denied_tables
         assert "allowed_table" in database._denied_tables
+        assert "system.data_warehouse_tables" in database._denied_tables
+        assert "system.data_modeling_views" in database._denied_tables
+        assert "system.data_modeling_jobs" in database._denied_tables
 
     def test_warehouse_objects_resource_none_plus_specific_member_grant(self):
         # User has no warehouse_objects access, but has explicit viewer on allowed_table.

@@ -2,8 +2,9 @@ import { fireEvent, waitFor } from '@testing-library/react'
 
 import type { BarChartConfig, ChartTheme, PointClickData, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
-import { getHogChart, getHogChartTooltip, renderHogChart, waitForHogChartTooltip } from '../../testing'
+import { getChart, getChartTooltip, renderChart, waitForChartTooltip } from '../../testing'
 import { dimensions } from '../../testing/jsdom'
+import { measureLabelWidth } from '../../utils/text-measure'
 import { BarChart } from './BarChart'
 
 const THEME: ChartTheme = {
@@ -33,7 +34,7 @@ describe('BarChart', () => {
         ['percent', 'horizontal'],
     ])('%s / %s', (barLayout, axisOrientation) => {
         it('renders ticks for the value axis', () => {
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout, axisOrientation }} />
             )
             const valueTicks = axisOrientation === 'horizontal' ? chart.xTicks() : chart.yTicks()
@@ -57,7 +58,7 @@ describe('BarChart', () => {
             ['A', 'B'],
         ],
     ])('horizontal: %s anchors value axis at 0', (_name, series, labels) => {
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <BarChart
                 series={series}
                 labels={labels}
@@ -71,20 +72,20 @@ describe('BarChart', () => {
     })
 
     it('forwards `dataAttr` to the chart wrapper for product-test selection', () => {
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <BarChart series={SERIES} labels={LABELS} theme={THEME} dataAttr="bar-chart-instance" />
         )
         expect(chart.element.getAttribute('data-attr')).toBe('bar-chart-instance')
     })
 
     it('renders empty state without crashing', () => {
-        const { chart } = renderHogChart(<BarChart series={[]} labels={[]} theme={THEME} />)
+        const { chart } = renderChart(<BarChart series={[]} labels={[]} theme={THEME} />)
         expect(chart.seriesCount).toBe(0)
     })
 
     it('renders custom percent formatter when consumer supplies one', () => {
         const formatter = jest.fn((v: number) => `${Math.round(v * 1000) / 10}‰`)
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <BarChart
                 series={SERIES}
                 labels={LABELS}
@@ -97,7 +98,7 @@ describe('BarChart', () => {
     })
 
     it('applies a default percent formatter when consumer omits one', () => {
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'percent' }} />
         )
         expect(chart.yTicks().some((t) => /\d+%/.test(t))).toBe(true)
@@ -111,7 +112,7 @@ describe('BarChart', () => {
                 data: [Number.NaN, Number.NaN, Number.NaN],
             },
         ]
-        const { chart } = renderHogChart(<BarChart series={broken} labels={LABELS} theme={THEME} />)
+        const { chart } = renderChart(<BarChart series={broken} labels={LABELS} theme={THEME} />)
         expect(chart.seriesCount).toBe(1)
     })
 
@@ -129,7 +130,7 @@ describe('BarChart', () => {
                     },
                     { key: 'c', label: 'C', data: [3, 6, 9] },
                 ]
-                const { chart } = renderHogChart(
+                const { chart } = renderChart(
                     <BarChart series={series} labels={LABELS} theme={THEME} config={{ barLayout }} />
                 )
                 expect(chart.seriesCount).toBe(2)
@@ -139,21 +140,21 @@ describe('BarChart', () => {
 
     describe('axis configuration', () => {
         it('hides x-axis ticks when hideXAxis is true', () => {
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ hideXAxis: true }} />
             )
             expect(chart.xTicks()).toHaveLength(0)
         })
 
         it('hides y-axis ticks when hideYAxis is true', () => {
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ hideYAxis: true }} />
             )
             expect(chart.yTicks()).toHaveLength(0)
         })
 
         it('applies xTickFormatter to x-axis ticks', () => {
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart
                     series={SERIES}
                     labels={LABELS}
@@ -165,7 +166,7 @@ describe('BarChart', () => {
         })
 
         it('renders custom axis titles in horizontal orientation', () => {
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart
                     series={SERIES}
                     labels={LABELS}
@@ -181,9 +182,26 @@ describe('BarChart', () => {
             expect(chart.yAxisLabel()).toBe('Series')
         })
 
+        it.each<[Orientation, boolean]>([
+            ['horizontal', true],
+            ['vertical', false],
+        ])('%s: a wide chart raises the category label cap (shows full label: %s)', (axisOrientation, showsFull) => {
+            const label = 'filesystem::play_open_in_app'
+            const { chart } = renderChart(
+                <BarChart
+                    series={[{ key: 'a', label: 'A', data: [10] }]}
+                    labels={[label]}
+                    theme={THEME}
+                    config={{ axisOrientation, maxCategoryLabelWidth: measureLabelWidth(label) / 2 }}
+                />
+            )
+            const [tick] = axisOrientation === 'horizontal' ? chart.yTicks() : chart.xTicks()
+            expect(tick === label).toBe(showsFull)
+        })
+
         it('renders without crashing in yScaleType log with positive data', () => {
             const series: Series[] = [{ key: 'a', label: 'A', data: [1, 10, 100] }]
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart
                     series={series}
                     labels={LABELS}
@@ -201,7 +219,7 @@ describe('BarChart', () => {
 
     describe('hover & tooltip', () => {
         it('mounts a tooltip on hover', async () => {
-            const { chart } = renderHogChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} />)
+            const { chart } = renderChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} />)
             chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.element.textContent).toContain('Tue')
@@ -209,7 +227,7 @@ describe('BarChart', () => {
 
         it('invokes onPointClick with the clicked column', async () => {
             const onPointClick = jest.fn()
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} onPointClick={onPointClick} />
             )
             await chart.clickAtIndex(1)
@@ -229,7 +247,7 @@ describe('BarChart', () => {
                 expectedKeys: ['b'],
             },
         ])('$name', async ({ config, expectedKeys }) => {
-            const { chart } = renderHogChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} config={config} />)
+            const { chart } = renderChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} config={config} />)
             chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             // Stacked/percent order is cursor-resolved, so assert membership not declaration order.
@@ -239,7 +257,7 @@ describe('BarChart', () => {
         it('stacked tooltip shows each series own value, not the cumulative stack total', async () => {
             // At index 1: a=20 (bottom) and b=15 stacked on top. b's stacked top is 35, but the
             // tooltip must report b's own 15 — the segment, not the running total.
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />
             )
             chart.hoverAtIndex(1)
@@ -252,7 +270,7 @@ describe('BarChart', () => {
             // At index 1: a=20 (bottom of stack), b=15 (on top). The tooltip lists the whole stack in
             // declaration order — visual top-to-bottom ordering is handled downstream by DefaultTooltip's
             // yPixel sort, so seriesData stays declaration-ordered no matter which segment the cursor is over.
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />
             )
             chart.hoverAtIndex(1)
@@ -283,7 +301,7 @@ describe('BarChart', () => {
                 { key: 'b', label: 'B', data: [30] },
                 { key: 'filler', label: 'Filler', data: [30], visibility: { tooltip: false } },
             ]
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart
                     series={series}
                     labels={['step']}
@@ -303,7 +321,7 @@ describe('BarChart', () => {
 
         it('stacked onPointClick routes to the segment whose rect contains the cursor', async () => {
             const onPointClick = jest.fn()
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart
                     series={SERIES}
                     labels={LABELS}
@@ -339,7 +357,7 @@ describe('BarChart', () => {
         it('percent tooltip shows each series own fraction, not the cumulative fraction', async () => {
             // At index 1: a=20, b=15 → total 35. b sits on top of a, so b's cumulative top is 1.0,
             // but the tooltip must report b's own 15/35 fraction — the segment, not the running total.
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'percent' }} />
             )
             chart.hoverAtIndex(1)
@@ -353,7 +371,7 @@ describe('BarChart', () => {
             { index: 1, calls: 1, cursor: 'cursor-pointer' },
         ])('isPointClickable gates click and pointer at index $index', async ({ index, calls, cursor }) => {
             const onPointClick = jest.fn()
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart
                     series={SERIES}
                     labels={LABELS}
@@ -371,7 +389,7 @@ describe('BarChart', () => {
 
         it('stacked onPointClick reports each series own value, not the cumulative stack total', async () => {
             const onPointClick = jest.fn()
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart
                     series={SERIES}
                     labels={LABELS}
@@ -397,7 +415,7 @@ describe('BarChart', () => {
             ['grouped', { barLayout: 'grouped' } as BarChartConfig],
             ['stacked', { barLayout: 'stacked' } as BarChartConfig],
         ])('%s layout suppresses tooltip in the gap between band groups', async (_name, config) => {
-            const { chart } = renderHogChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} config={config} />)
+            const { chart } = renderChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} config={config} />)
             // d3.scaleBand with paddingInner=0.2 and paddingOuter=0.1 yields step = plotWidth / 3
             // for 3 labels. Bands occupy [0.1*step, 0.9*step], [1.1*step, 1.9*step], [2.1*step, 2.9*step]
             // — so x = plotLeft + 1.0*step is centred in the between-group gap.
@@ -412,7 +430,7 @@ describe('BarChart', () => {
         })
 
         it('stacked horizontal suppresses tooltip past the bar value extent', async () => {
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart
                     series={SERIES}
                     labels={LABELS}
@@ -439,11 +457,11 @@ describe('BarChart', () => {
                 clientX: dimensions.plotLeft + dimensions.plotWidth * 0.95,
                 clientY: yMidRow,
             })
-            await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
+            await waitFor(() => expect(getChartTooltip()?.textContent ?? '').toBe(''))
         })
 
         const hoverBandCenter = async (hitArea: 'bar' | 'band', index: number): Promise<void> => {
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart
                     series={[{ key: 'v', label: 'V', data: [100, 1, 0] }]}
                     labels={LABELS}
@@ -455,7 +473,7 @@ describe('BarChart', () => {
                 dimensions.plotLeft + ((i + 0.5) * dimensions.plotWidth) / LABELS.length
             const clientY = dimensions.plotTop + 4
             // The first bar fills the plot, so this hover proves the chart is live.
-            await waitForHogChartTooltip(3000, () =>
+            await waitForChartTooltip(3000, () =>
                 fireEvent.mouseMove(chart.element, { clientX: bandCenterX(0), clientY })
             )
             fireEvent.mouseMove(chart.element, { clientX: bandCenterX(index), clientY })
@@ -466,7 +484,7 @@ describe('BarChart', () => {
             ['an empty bucket', 2, 'Wed'],
         ])('band hit-testing reaches %s', async (_name, index, expectedLabel) => {
             await hoverBandCenter('band', index)
-            await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toContain(expectedLabel))
+            await waitFor(() => expect(getChartTooltip()?.textContent ?? '').toContain(expectedLabel))
         })
 
         it.each<[string, number]>([
@@ -474,7 +492,7 @@ describe('BarChart', () => {
             ['an empty bucket', 2],
         ])('bar hit-testing leaves %s unreachable', async (_name, index) => {
             await hoverBandCenter('bar', index)
-            await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
+            await waitFor(() => expect(getChartTooltip()?.textContent ?? '').toBe(''))
         })
 
         describe('sparse-stacked horizontal (overlap layout)', () => {
@@ -503,7 +521,7 @@ describe('BarChart', () => {
             ])(
                 'tooltip surfaces the visible segment with its own value for cursor in the %s',
                 async (_name, valueAtCursor, key, expectedValue) => {
-                    const { chart } = renderHogChart(
+                    const { chart } = renderChart(
                         <BarChart
                             series={SPARSE_SERIES}
                             labels={SPARSE_LABELS}
@@ -532,7 +550,7 @@ describe('BarChart', () => {
                 'onPointClick routes to the visible segment for cursor in the %s',
                 async (_name, valueAtCursor, key, expectedValue, expectedSeriesIndex) => {
                     const onPointClick = jest.fn()
-                    const { chart } = renderHogChart(
+                    const { chart } = renderChart(
                         <BarChart
                             series={SPARSE_SERIES}
                             labels={SPARSE_LABELS}
@@ -555,7 +573,7 @@ describe('BarChart', () => {
         })
 
         it('grouped layout still narrows when the cursor is above every bar (value-axis miss)', async () => {
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'grouped' }} />
             )
             // Same x as `hoverAtIndex(1)` (which lands inside `b`'s sub-band) but a y above
@@ -583,7 +601,7 @@ describe('BarChart', () => {
             'grouped onPointClick routes to the sub-bar column under the cursor, even above the bar — %s',
             async (_name, stepMultiplier, key, value) => {
                 const onPointClick = jest.fn()
-                const { chart } = renderHogChart(
+                const { chart } = renderChart(
                     <BarChart
                         series={SERIES}
                         labels={LABELS}
@@ -616,7 +634,7 @@ describe('BarChart', () => {
             'grouped onPointClick reports inTrackArea false when the cursor is within the bar fill — %s',
             async (_name, stepMultiplier, key) => {
                 const onPointClick = jest.fn()
-                const { chart } = renderHogChart(
+                const { chart } = renderChart(
                     <BarChart
                         series={SERIES}
                         labels={LABELS}
@@ -641,7 +659,7 @@ describe('BarChart', () => {
         )
 
         it('pins the tooltip on click when tooltip.pinnable is true', async () => {
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ tooltip: { pinnable: true } }} />
             )
             await chart.clickAtIndex(1)
@@ -659,7 +677,7 @@ describe('BarChart', () => {
                     visibility: { tooltip: false },
                 },
             ]
-            const { chart } = renderHogChart(<BarChart series={series} labels={LABELS} theme={THEME} />)
+            const { chart } = renderChart(<BarChart series={series} labels={LABELS} theme={THEME} />)
             chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.element.textContent).toContain('A')
@@ -669,7 +687,7 @@ describe('BarChart', () => {
 
     describe('children & error boundary', () => {
         it('renders custom overlay children', () => {
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME}>
                     <div data-attr="custom-child" />
                 </BarChart>
@@ -678,7 +696,7 @@ describe('BarChart', () => {
         })
 
         it('renders a ReferenceLine child via the accessor', () => {
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME}>
                     <ReferenceLine value={15} label="Target" />
                 </BarChart>
@@ -696,7 +714,7 @@ describe('BarChart', () => {
             }
             const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
             try {
-                const { chart } = renderHogChart(
+                const { chart } = renderChart(
                     <BarChart series={SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} onError={onError} />
                 )
                 chart.hoverAtIndex(1)
@@ -709,12 +727,12 @@ describe('BarChart', () => {
 
     describe('interactive legend', () => {
         it('renders no legend by default', () => {
-            const { container } = renderHogChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} />)
+            const { container } = renderChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} />)
             expect(container.querySelector('[data-attr="hog-chart-bar-legend"]')).toBeNull()
         })
 
         it('isolates a series when its legend row is clicked, and restores all on the next click', () => {
-            const { container, chart } = renderHogChart(
+            const { container, chart } = renderChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ legend: { show: true } }} />
             )
             expect(chart.seriesCount).toBe(2)
@@ -722,16 +740,16 @@ describe('BarChart', () => {
                 Array.from(container.querySelectorAll('[data-attr="hog-chart-bar-legend"] button'))
 
             fireEvent.click(buttons()[1])
-            expect(getHogChart(container).seriesCount).toBe(1)
+            expect(getChart(container).seriesCount).toBe(1)
             expect(buttons()[0].className).toContain('opacity-40')
             expect(buttons()[1].className).not.toContain('opacity-40')
 
             fireEvent.click(buttons()[1])
-            expect(getHogChart(container).seriesCount).toBe(2)
+            expect(getChart(container).seriesCount).toBe(2)
         })
 
         it('toggles just one series off and on when its legend row is meta-clicked', () => {
-            const { container, chart } = renderHogChart(
+            const { container, chart } = renderChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ legend: { show: true } }} />
             )
             expect(chart.seriesCount).toBe(2)
@@ -739,11 +757,11 @@ describe('BarChart', () => {
                 Array.from(container.querySelectorAll('[data-attr="hog-chart-bar-legend"] button'))
 
             fireEvent.click(buttons()[1], { metaKey: true })
-            expect(getHogChart(container).seriesCount).toBe(1)
+            expect(getChart(container).seriesCount).toBe(1)
             expect(buttons()[1].className).toContain('opacity-40')
 
             fireEvent.click(buttons()[1], { metaKey: true })
-            expect(getHogChart(container).seriesCount).toBe(2)
+            expect(getChart(container).seriesCount).toBe(2)
         })
     })
 
@@ -753,7 +771,7 @@ describe('BarChart', () => {
 
         it('fires onDateRangeZoom with the dragged label range on vertical bars', () => {
             const onDateRangeZoom = jest.fn()
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart series={FIVE_SERIES} labels={FIVE_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
             )
             chart.dragSelection(1, 3)
@@ -767,7 +785,7 @@ describe('BarChart', () => {
 
         it('does not fire on horizontal bars, whose interaction axis is vertical', () => {
             const onDateRangeZoom = jest.fn()
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <BarChart
                     series={FIVE_SERIES}
                     labels={FIVE_LABELS}

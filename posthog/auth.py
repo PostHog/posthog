@@ -49,8 +49,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
     LEGACY_PERSONAL_API_KEY_SALT,
     PERSONAL_API_KEY_AUTH_COUNTER,
-    PERSONAL_API_KEY_MODES_TO_TRY,
     PersonalAPIKey,
+    personal_api_key_modes_to_try,
 )
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, find_project_secret_api_key
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -65,6 +65,7 @@ from posthog.models.utils import (
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
+from posthog.scopes import LEGACY_SCOPE_FALLBACKS
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import get_trusted_client_ip
@@ -335,7 +336,7 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
         modes_tried = 0
 
         with tracer.start_as_current_span("posthog.auth.personal_api_key.db_lookup") as db_span:
-            for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
+            for mode, iterations in personal_api_key_modes_to_try(personal_api_key):
                 modes_tried += 1
                 secure_value = hash_key_value(
                     personal_api_key, mode=mode, legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations
@@ -356,9 +357,11 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
             if mode_used:
                 db_span.set_attribute("auth.hash_mode_used", mode_used)
 
+        source_display = cls._SOURCE_DISPLAY.get(source, source)
         if not personal_api_key_object:
-            source_display = cls._SOURCE_DISPLAY.get(source, source)
             raise AuthenticationFailed(detail=f"Personal API key found in request {source_display} is invalid.")
+        if personal_api_key_object.is_expired:
+            raise AuthenticationFailed(detail=f"Personal API key found in request {source_display} has expired.")
 
         # Upgrade the key if it's not in the latest mode. We can do this since above we've already checked
         # that the key is valid in some mode, and we do check for all modes one by one.
@@ -513,7 +516,9 @@ class ProjectSecretAPIKeyUser(SyntheticUser):
         self.project_secret_api_key = project_secret_api_key
 
     def readable_system_table_access_scopes(self) -> set[str]:
-        return {scope.split(":", 1)[0] for scope in self.project_secret_api_key.scopes or [] if ":" in scope}
+        scope_objects = {scope.split(":", 1)[0] for scope in self.project_secret_api_key.scopes or [] if ":" in scope}
+        # Same fallback as APIScopePermission, so a key that reads a split-off object's REST API also reads its tables.
+        return scope_objects | {new for new, legacy in LEGACY_SCOPE_FALLBACKS.items() if legacy in scope_objects}
 
 
 class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
@@ -1200,6 +1205,8 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
             )
         except (KeyError, PersonalAPIKey.DoesNotExist) as error:
             raise AuthenticationFailed(detail="Source personal API key is no longer valid.") from error
+        if personal_api_key.is_expired:
+            raise AuthenticationFailed(detail="Source personal API key is no longer valid.")
 
         refuse_blocked_account(request, personal_api_key.user, call_site="personal_api_key", impersonated=False)
         self.personal_api_key = personal_api_key

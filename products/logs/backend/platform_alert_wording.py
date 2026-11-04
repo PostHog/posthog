@@ -23,6 +23,7 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.logs.backend.alert_evaluation_key import window_end_of
 from products.logs.backend.alert_group_columns import GROUP_COLUMNS
 from products.logs.backend.logs_url_params import build_logs_url_params, has_filter_values
+from products.logs.backend.platform_source_config import filters_of, logs_alert_url
 
 # A resolve reports the count that ended the firing, so it is not a breach. A held check, which
 # only moves a paging incident, can be either, so it gets a neutral label.
@@ -33,11 +34,9 @@ _LABELS = {
 
 
 def describe_logs_transition(*, project_id: int, transition: AnnouncedTransition) -> SourceDescription:
-    # `source_config` holds the alert's filters beside the platform's `condition` key, which none
-    # of the readers below look at.
     return SourceDescription(
         details=_details(transition),
-        context=_context(transition.source_config),
+        context=_context(filters_of(transition.source_config)),
         data_link=MessageLink(label="View logs", url=_logs_url(project_id, transition)),
     )
 
@@ -79,7 +78,13 @@ def _context(filters: dict[str, Any]) -> tuple[str, ...]:
 
 def _logs_url(project_id: int, transition: AnnouncedTransition) -> str:
     params = _window_params(transition)
-    return absolute_uri(f"/project/{project_id}/logs" + (f"?{params}" if params else ""))
+    return _logs_page_url(project_id) + (f"?{params}" if params else "")
+
+
+def _logs_page_url(project_id: int) -> str:
+    # `absolute_uri` refuses any URL that holds `%5C`, and a regex filter encodes its backslash that
+    # way. The query goes on afterwards, which is safe because a query cannot change the link's host.
+    return absolute_uri(f"/project/{project_id}/logs")
 
 
 def in_utc(transition: AnnouncedTransition) -> AnnouncedTransition:
@@ -112,7 +117,7 @@ def _group_filters(transition: AnnouncedTransition) -> dict[str, Any]:
     `filterGroup` selection of the column. An alert with a list counted only logs inside it, so the
     group's value is one of them and the link narrows, never widens.
     """
-    filters = dict(transition.source_config)
+    filters = dict(filters_of(transition.source_config))
     selected: dict[str, str] = {}
     for column, group_column in GROUP_COLUMNS.items():
         if column in transition.labels:
@@ -158,8 +163,8 @@ def legacy_logs_webhook_body(
     """
     transition = in_utc(transition)
     occurred_at = transition.occurred_at
-    filters = transition.source_config
-    alert_url = absolute_uri(f"/project/{project_id}/logs/alerts/{alert_id}")
+    filters = filters_of(transition.source_config)
+    alert_url = logs_alert_url(project_id, alert_id)
     data: dict[str, Any] = {
         "alert_id": alert_id,
         "alert_name": alert_name,
@@ -174,7 +179,7 @@ def legacy_logs_webhook_body(
             "threshold_operator": condition["threshold_operator"],
             "window_minutes": condition["window_minutes"],
             # The legacy template always added the "?", even with no parameters.
-            "logs_url": absolute_uri(f"/project/{project_id}/logs?{_window_params(transition)}"),
+            "logs_url": f"{_logs_page_url(project_id)}?{_window_params(transition)}",
         }
     else:
         error_key = "last_error_message" if transition.kind == AlertEventKind.BROKEN else "error_message"

@@ -42,6 +42,15 @@ export function countOk<TInput, TOutput>(
     return (registry) => new OutputMetric(registry.registerSum(name, opts), key, () => 1)
 }
 
+export function countOkIf<TInput, TOutput>(
+    name: string,
+    predicate: (output: TOutput, input: TInput) => boolean,
+    key: (output: TOutput, input: TInput) => Record<string, string>,
+    opts?: MetricConfig
+): TopHogMetricFactory<TInput, TOutput> {
+    return (registry) => new OutputMetric(registry.registerSum(name, opts), key, () => 1, predicate)
+}
+
 export function sum<TInput, TOutput>(
     name: string,
     key: (input: TInput) => Record<string, string>,
@@ -185,12 +194,13 @@ class OutputMetric<TInput, TOutput> implements TopHogMetric<TInput, TOutput> {
     constructor(
         private readonly tracker: Recorder,
         private readonly key: (output: TOutput, input: TInput) => Record<string, string>,
-        private readonly value: (output: TOutput, input: TInput) => number
+        private readonly value: (output: TOutput, input: TInput) => number,
+        private readonly predicate: (output: TOutput, input: TInput) => boolean = always
     ) {}
 
     start(input: TInput): (result: PipelineResult<TOutput, string>) => void {
         return (result) => {
-            if (isOkResult(result)) {
+            if (isOkResult(result) && this.predicate(result.value, input)) {
                 this.tracker.record(this.key(result.value, input), this.value(result.value, input))
             }
         }
@@ -213,3 +223,7 @@ class TimingMetric<TInput, TOutput> implements TopHogMetric<TInput, TOutput> {
 }
 
 function noop(): void {}
+
+function always(): boolean {
+    return true
+}

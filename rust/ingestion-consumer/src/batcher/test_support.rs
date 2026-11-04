@@ -11,6 +11,7 @@ pub fn message(key: &str, partition: i32, offset: i64) -> SerializedKafkaMessage
         key: Some(key.to_string()),
         value: Some("{}".to_string()),
         headers: HashMap::new(),
+        generation: 0,
     }
 }
 

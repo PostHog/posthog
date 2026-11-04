@@ -3,8 +3,6 @@ import featureFlagKeys from "./feature-flag-keys.json" with { type: "json" };
 export const BILLING_FLAG = featureFlagKeys.BILLING_FLAG;
 export const CLOUD_COMPUTE_BILLING_FLAG =
   featureFlagKeys.CLOUD_COMPUTE_BILLING_FLAG;
-export const EXPERIMENT_SUGGESTIONS_FLAG =
-  featureFlagKeys.EXPERIMENT_SUGGESTIONS_FLAG;
 /** Autoresearch (metric-optimization loop). Staff-gated while it bakes. */
 export const AUTORESEARCH_FLAG = featureFlagKeys.AUTORESEARCH_FLAG;
 export const DISCOVERY_RUN_FLAG = featureFlagKeys.DISCOVERY_RUN_FLAG;

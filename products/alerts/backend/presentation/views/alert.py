@@ -1,10 +1,13 @@
 import json
 import uuid
-from typing import Annotated, Any, cast
+from datetime import datetime
+from functools import reduce
+from operator import or_
+from typing import Annotated, Any, Final, cast
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
+from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.utils import timezone
 
 import pydantic
@@ -16,7 +19,7 @@ from pydantic import (
 )
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.response import Response
 
 from posthog.schema import (
@@ -39,7 +42,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.email import is_email_available
 from posthog.event_usage import get_request_analytics_properties
-from posthog.exceptions import as_drf_validation_error
+from posthog.exceptions import InsufficientScope, as_drf_validation_error
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -48,11 +51,18 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
+from posthog.integrations import IntegrationManager
 from posthog.models import User
-from posthog.models.integration import Integration
+from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
+from posthog.query_creator_access import (
+    CreatorLeftOrganizationError,
+    assert_creator_can_run,
+    describe_owner_unavailable,
+    owner_unavailable_code,
+)
 from posthog.rate_limit import (
     AlertLLMSimulationBurstThrottle,
     AlertLLMSimulationDailyThrottle,
@@ -72,6 +82,7 @@ from posthog.tasks.alerts.utils import (
 )
 from posthog.utils import relative_date_parse
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import (
@@ -81,16 +92,24 @@ from products.alerts.backend.evaluation.validation import (
     validate_alert_insight_query,
 )
 from products.alerts.backend.facade.api import (
+    LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
-    MAX_PROMPT_POINTS,
     LLMAlertWrite,
     LLMDetectorError,
+    LLMDetectorPausedError,
     LLMDetectorUnavailableError,
     admit_llm_alert_write,
+    assign_alert_owner,
     is_llm_detector_config,
     llm_detector_access_error,
 )
-from products.alerts.backend.facade.contracts import INSIGHT_ALERT_DESTINATION_TYPES, INSIGHT_ALERT_EVENT_IDS
+from products.alerts.backend.facade.contracts import (
+    INSIGHT_ALERT_DESTINATION_EVENT_IDS,
+    INSIGHT_ALERT_DESTINATION_TYPES,
+    INSIGHT_ALERT_EVENT_IDS,
+    MovedAlertCheck,
+    PlatformCannotOwn,
+)
 from products.alerts.backend.facade.destinations import (
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     MAX_DESTINATIONS_PER_ALERT,
@@ -101,9 +120,20 @@ from products.alerts.backend.facade.destinations import (
     validate_destination_data,
 )
 from products.alerts.backend.facade.evaluation import DelayedEvaluationUnavailable, validate_evaluation_delay
+from products.alerts.backend.facade.platform import (
+    close_moved_alert_firings,
+    delete_moved_alert_copy,
+    follow_insight_alert,
+    hand_over_new_alert,
+    moved_alert_check_page,
+    moved_alert_fired_checks,
+    moved_alert_statuses,
+    write_moved_alert_edit,
+)
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,
+    apply_platform_state,
     apply_snooze,
     apply_threshold_change,
     apply_unsnooze,
@@ -119,6 +149,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
+    InvalidPlatformAlertEdit,
 )
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
@@ -241,10 +272,11 @@ def _enforce_llm_detector_rules(detector_config: Any) -> None:
 
 
 def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any) -> None:
-    """Refuse an AI preview the person asking cannot use.
+    """Refuse an AI preview or takeover the person asking cannot use.
 
     Saved alerts go through ``admit_llm_alert_write`` instead, which checks the alert's
-    creator: a preview has no alert, so the requester is the principal.
+    creator. A preview has no alert, and a takeover makes the requester the creator, so
+    both check the requester.
     """
     if DetectorType.LLM.value not in _detector_types(detector_config):
         return
@@ -288,8 +320,6 @@ def _validate_detector_params(config: dict) -> None:
     value of the wrong type is left for the schema.
     """
     for param, (min_val, max_val, label) in _DETECTOR_PARAM_RANGES.items():
-        if param == "window" and config.get("type") == DetectorType.LLM.value:
-            max_val = MAX_PROMPT_POINTS
         val = _as_number(config.get(param))
         if val is not None and (val < min_val or val > max_val):
             raise ValidationError(f"{label} must be between {min_val} and {max_val}.")
@@ -402,9 +432,10 @@ def _require_write_scope_for_charged_simulation(request, detector_config: Any) -
     # Session auth carries no scopes; it is gated by team membership and access control.
     if key_scopes is None or "*" in key_scopes or "alert:write" in key_scopes:
         return
-    raise PermissionDenied(
-        "Simulating the AI detector makes a model call, so it needs the 'alert:write' scope. "
-        "A statistical detector simulates with 'alert:read'."
+    raise InsufficientScope(
+        ["alert:write"],
+        detail="Simulating the AI detector makes a model call, so it needs the 'alert:write' scope. "
+        "A statistical detector simulates with 'alert:read'.",
     )
 
 
@@ -416,7 +447,7 @@ def _require_metrics_scope_for_programmatic_auth(context: dict[str, Any], insigh
     if insight.alertable_query_kind != NodeKind.METRICS_QUERY:
         return
     if _token_lacks_metrics_scope(context["request"]):
-        raise PermissionDenied("API key missing required scope 'metrics:read'")
+        raise InsufficientScope(["metrics:read"])
 
 
 class AlertConfigUnion(RootModel):
@@ -570,7 +601,12 @@ class AlertCheckSerializer(serializers.ModelSerializer):
         # Only reasons written for the alert's owner pass through. Anything else may carry an
         # internal detail, so the history shows a generic message instead.
         code = instance.error.get("code")
-        if code in ("email_unavailable", "invalid_configuration", LLM_DETECTOR_UNAVAILABLE_ERROR_CODE):
+        if code in (
+            "email_unavailable",
+            "invalid_configuration",
+            LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+            LLM_DETECTOR_PAUSED_ERROR_CODE,
+        ):
             return {"code": code, "message": message}
         return {"message": "This alert encountered an error. Check the alert configuration and try again."}
 
@@ -626,6 +662,11 @@ class AlertSubscriptionSerializer(serializers.ModelSerializer):
 class RelativeDateTimeField(serializers.DateTimeField):
     def to_internal_value(self, data):
         return data
+
+
+def _owner_unavailable_message(owner: User | None, error: Exception) -> str:
+    """The refusal for an enable the owner cannot run, naming the owner and the cause."""
+    return f"Can't enable this alert. {describe_owner_unavailable(owner, error)}"
 
 
 class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
@@ -889,6 +930,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             if instance.schedule_start_time is not None:
                 instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
                 instance.save(update_fields=["next_check_at"])
+            if hand_over_new_alert(team_id=instance.team_id, alert_id=instance.id, at=timezone.now()):
+                instance.refresh_from_db(fields=["owner", "owner_changed_at"])
 
         for user in subscribed_users:
             AlertSubscription.objects.create(
@@ -899,6 +942,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
+        # A handed-over copy is the platform's now, and a revived copy would lose its state.
+        if instance.enabled and not instance.platform_owned:
+            transaction.on_commit(
+                lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
+            )
         return instance
 
     @transaction.atomic
@@ -977,7 +1025,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "calculation_interval" in validated_data
             and validated_data["calculation_interval"] != instance.calculation_interval
         )
-        if enable_now or evaluation_changed or calculation_interval_changed:
+        rescheduled = enable_now or evaluation_changed or calculation_interval_changed
+        if rescheduled:
             if evaluation_changed:
                 apply_threshold_change(instance)
             # Keep the due timestamp so the scheduler metric can measure a
@@ -1015,14 +1064,31 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             schedule_start_time_changed = validated_data["schedule_start_time"] != instance.schedule_start_time
 
         instance = super().update(instance, validated_data)
+        rescheduled = rescheduled or schedule_restriction_changed or schedule_start_time_changed
         if schedule_restriction_changed or schedule_start_time_changed:
             instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
             instance.save(update_fields=["next_check_at"])
+        if instance.platform_owned:
+            try:
+                write_moved_alert_edit(
+                    team_id=instance.team_id,
+                    alert_id=instance.id,
+                    snooze_changed=snoozed_until_param is not serializers.empty,
+                    rescheduled=rescheduled,
+                )
+            except PlatformCannotOwn as error:
+                raise ValidationError(str(error)) from error
+            except InvalidPlatformAlertEdit as error:
+                raise ValidationError({error.field_name: str(error)}) from error
 
         instance.report_updated(
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
+        if enable_now and not instance.platform_owned:
+            transaction.on_commit(
+                lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
+            )
         return instance
 
     def validate_schedule_start_time(self, value: str | None) -> str | None:
@@ -1070,6 +1136,15 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         insight = attrs.get("insight") or (self.instance.insight if self.instance else None)
         if insight is None:
             raise ValidationError({"insight": ["Insight is required."]})
+        # Checks run as the owner, so an owner who cannot run them would only get the alert disabled again.
+        if self.instance is not None and attrs.get("enabled") is True and not self.instance.enabled:
+            try:
+                assert_creator_can_run(self.instance.created_by, self.instance.team, insight)
+            except (CreatorLeftOrganizationError, UserAccessControlError) as error:
+                raise ValidationError(
+                    {"enabled": [_owner_unavailable_message(self.instance.created_by, error)]},
+                    code=owner_unavailable_code(error),
+                )
         # Enforced from the object-level validate() so it runs on every create and update — including
         # a PATCH that omits `insight` (which skips the field-level validator), so an alert can't be
         # repointed at a flag-gated insight kind (or a scope-gated one) in an account where the flag
@@ -1190,7 +1265,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 }
             )
 
-        if self.context["request"].method == "POST":
+        # Only a create adds an alert; a takeover is a POST that enables an existing one.
+        if self.instance is None:
             if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):
                 raise ValidationError({"alert": [msg]})
 
@@ -1264,6 +1340,13 @@ class AlertSimulateSerializer(serializers.Serializer):
         help_text="Per-insight-kind alert config. For SQL insights, selects the evaluated column and "
         "read direction (last_row/first_row) so the preview matches the alert; ignored for trends.",
     )
+    alert = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="ID of the saved alert this preview is for. The AI detector reads the points that the "
+        "alert's earlier AI checks fired on, the same way a live check does. Omit it for a new alert.",
+    )
 
     def validate_insight(self, value):
         _require_insight_viewer_access(self.context, value)
@@ -1324,8 +1407,7 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
         child=serializers.FloatField(allow_null=True),
         help_text=(
             "Score for each point. Null can mean insufficient data or a valid unscored point. "
-            "AI previews report model confidence only for points flagged by an anomaly verdict; "
-            "all other points are null, including every point in a normal verdict."
+            "The AI detector has no score, so every point is null in an AI preview."
         ),
     )
     triggered_indices = serializers.ListField(
@@ -1343,6 +1425,15 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
         child=serializers.DictField(),
         required=False,
         help_text="Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields.",
+    )
+    rationale = serializers.CharField(
+        required=False,
+        help_text="AI detector only: the model's reason for its verdict on the latest point.",
+    )
+    kind = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="AI detector only: the shape the model saw at the latest point, or 'none'.",
     )
     breakdown_results = BreakdownSimulationResultSerializer(
         many=True,
@@ -1389,7 +1480,7 @@ class AlertCreateDestinationSerializer(serializers.Serializer):
         # The runtime refuses another team's integration anyway, so without this the destination
         # is created and then silently never posts.
         team = self.context["get_team"]()
-        if not Integration.objects.filter(team=team, id=attrs["slack_workspace_id"], kind="slack").exists():
+        if not IntegrationManager.slack.oauth.get_many(team.id, [attrs["slack_workspace_id"]]):
             raise ValidationError({"slack_workspace_id": "Connect this Slack workspace to PostHog first."})
         return attrs
 
@@ -1413,6 +1504,62 @@ class AlertDeleteDestinationSerializer(serializers.Serializer):
 class AlertListFiltersSerializer(serializers.Serializer):
     insight_tag = serializers.CharField(required=False, max_length=255)
     has_detector = OptionalBooleanField(required=False)
+
+
+def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) -> None:
+    """Shows each alert the platform owns as the platform has it, in place. Its own row stops
+    moving once the insight stack stops checking it."""
+    moved = {alert.id: alert for alert in alerts if alert.platform_owned}
+    if not moved:
+        return
+    statuses = moved_alert_statuses(team_id=next(iter(moved.values())).team_id, alert_ids=list(moved), now=now)
+    for alert_id, moved_status in statuses.items():
+        alert = moved[alert_id]
+        if moved_status.runtime is not None:
+            apply_platform_state(alert, moved_status.runtime.state)
+            alert.next_check_at = moved_status.runtime.next_check_at
+            alert.last_notified_at = moved_status.runtime.last_notified_at
+        if moved_status.last_check is not None:
+            alert.last_checked_at = moved_status.last_check.checked_at
+            # Annotated from the alert's own checks, which stop once the shadow ends.
+            alert.last_value = moved_status.last_check.value  # type: ignore[attr-defined]
+
+
+# How many fired checks of one moved alert the list returns for the chart's dots. The window holds a
+# check every 15 minutes for a 15-minute alert, and one alert that keeps firing must not fill the response.
+MOVED_ALERT_FIRED_CHECKS_LIMIT: Final = 500
+
+
+# The notebook model, reached through the check's link so this product does not import another's models.
+_NOTEBOOK: Final = cast(type[Any], AlertCheck._meta.get_field("investigation_notebook").related_model)
+
+
+def _as_alert_check(alert: AlertConfiguration, check: MovedAlertCheck) -> AlertCheck:
+    # Never saved. It carries what the check serializer shows.
+    return AlertCheck(
+        id=check.id,
+        alert_configuration=alert,
+        created_at=check.checked_at,
+        calculated_value=check.value,
+        condition=alert.condition,
+        state=check.state,
+        error=({"code": check.error_code} if check.error_code else {}) | {"message": check.error_message}
+        if check.error_message
+        else None,
+        targets_notified={},
+        anomaly_scores=list(check.anomaly_scores) or None,
+        triggered_points=list(check.triggered_points) or None,
+        triggered_dates=list(check.triggered_dates) or None,
+        interval=check.interval,
+        triggered_metadata=check.triggered_metadata,
+        investigation_status=check.investigation_status,
+        investigation_verdict=check.investigation_verdict,
+        investigation_summary=check.investigation_summary,
+        investigation_notebook=_NOTEBOOK(short_id=check.investigation_notebook_short_id)
+        if check.investigation_notebook_short_id
+        else None,
+        notification_suppressed_by_agent=check.notification_suppressed_by_agent,
+    )
 
 
 @extend_schema_view(
@@ -1592,14 +1739,14 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         checks_qs = instance.alertcheck_set.select_related("investigation_notebook").order_by("-created_at")
 
         checks_date_from = request.query_params.get("checks_date_from")
-        if checks_date_from:
-            parsed_date = relative_date_parse(checks_date_from, ZoneInfo("UTC"))
-            checks_qs = checks_qs.filter(created_at__gte=parsed_date)
+        checks_since = relative_date_parse(checks_date_from, ZoneInfo("UTC")) if checks_date_from else None
+        if checks_since is not None:
+            checks_qs = checks_qs.filter(created_at__gte=checks_since)
 
         checks_date_to = request.query_params.get("checks_date_to")
-        if checks_date_to:
-            parsed_date = relative_date_parse(checks_date_to, ZoneInfo("UTC"))
-            checks_qs = checks_qs.filter(created_at__lte=parsed_date)
+        checks_until = relative_date_parse(checks_date_to, ZoneInfo("UTC")) if checks_date_to else None
+        if checks_until is not None:
+            checks_qs = checks_qs.filter(created_at__lte=checks_until)
 
         has_date_filter = checks_date_from or checks_date_to
         raw_limit = request.query_params.get("checks_limit")
@@ -1620,12 +1767,39 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         else:
             offset = 0
 
-        checks_total = checks_qs.count()
-        instance.checks_total = checks_total
-        offset = min(offset, checks_total)
-        instance.checks = checks_qs[offset : offset + limit]
+        _show_platform_status([instance], now=timezone.now())
+        platform_page = (
+            moved_alert_check_page(
+                team_id=instance.team_id,
+                alert_id=instance.id,
+                since=checks_since,
+                until=checks_until,
+                limit=limit,
+                offset=offset,
+            )
+            if instance.platform_owned
+            else None
+        )
+        if platform_page is not None:
+            instance.checks_total = platform_page.total
+            instance.checks = [_as_alert_check(instance, check) for check in platform_page.checks]
+        else:
+            checks_total = checks_qs.count()
+            instance.checks_total = checks_total
+            offset = min(offset, checks_total)
+            instance.checks = checks_qs[offset : offset + limit]
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+    def perform_destroy(self, instance: AlertConfiguration) -> None:
+        # Before the delete, while the destinations a firing's resolve goes to still exist.
+        if instance.platform_owned:
+            close_moved_alert_firings(team_id=instance.team_id, alert_id=instance.id)
+        # The copy and the alert go together, so a failed delete leaves no moved alert without its copy.
+        with transaction.atomic():
+            if instance.platform_owned:
+                delete_moved_alert_copy(team_id=instance.team_id, alert_id=instance.id)
+            super().perform_destroy(instance)
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -1633,20 +1807,39 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Paginate first, then prefetch checks only for the page
         page = self.paginate_queryset(queryset)
         alerts = list(page) if page is not None else list(queryset)
+        _show_platform_status(alerts, now=timezone.now())
 
         # Prefetch firing checks for anomaly point display on chart.
         if alerts:
             alert_ids = [a.id for a in alerts]
+            moved_at = {alert.id: at for alert in alerts if (at := alert.platform_owned_since) is not None}
             firing_checks = (
                 AlertCheck.objects.filter(
                     alert_configuration_id__in=alert_ids,
                     triggered_points__isnull=False,
                 )
                 .exclude(triggered_points=[])
+                # A moved alert's own checks after the move are the shadow's, so the platform's replace them.
+                .exclude(
+                    reduce(
+                        or_,
+                        (Q(alert_configuration_id=alert_id, created_at__gte=at) for alert_id, at in moved_at.items()),
+                        Q(pk__in=[]),
+                    )
+                )
                 .select_related("investigation_notebook")
                 .order_by("-created_at")
             )
+            moved_checks = moved_alert_fired_checks(
+                team_id=self.team_id,
+                moved_at=moved_at,
+                not_before=timezone.now() - AlertCheck.RETENTION,
+                limit=MOVED_ALERT_FIRED_CHECKS_LIMIT,
+            )
+            alerts_by_id = {alert.id: alert for alert in alerts}
             checks_by_alert: dict[str, list] = {str(a.id): [] for a in alerts}
+            for alert_id, checks in moved_checks.items():
+                checks_by_alert[str(alert_id)] = [_as_alert_check(alerts_by_id[alert_id], check) for check in checks]
             for check in firing_checks:
                 checks_by_alert.setdefault(str(check.alert_configuration_id), []).append(check)
             for alert in alerts:
@@ -1658,6 +1851,42 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         serializer = self.get_serializer(alerts, many=True)
         return Response(serializer.data)
+
+    @extend_schema(
+        request=None,
+        responses={200: AlertSerializer},
+        description=(
+            "Make the requesting user the owner of this alert and enable it. Checks run with the owner's "
+            "access, so this is how an alert continues after its owner left."
+        ),
+    )
+    @action(detail=True, methods=["POST"], required_scopes=["alert:write"])
+    def take_ownership(self, request, *args, **kwargs):
+        alert = self.get_object()
+        user = cast(User, request.user)
+        try:
+            assert_creator_can_run(user, alert.team, alert.insight)
+        except (CreatorLeftOrganizationError, UserAccessControlError):
+            raise ValidationError("Can't take ownership: you don't have access to this insight.") from None
+        # The scheduled checks run as the owner, so an AI alert needs the requester on the rollout.
+        # An already enabled alert does not pass through the admission below, so it is checked here.
+        _enforce_llm_feature_access(self.get_serializer_context(), alert.detector_config)
+        # One transaction, so a refused enable leaves the owner as it was. The enable below reloads
+        # the row, so the owner is saved first.
+        with transaction.atomic():
+            # Same lock order as update(): insight, then alert row. The owner write below locks the row.
+            if not lock_insight_for_evaluation(team_id=alert.team_id, insight_id=alert.insight_id):
+                raise ValidationError({"insight": ["The insight no longer exists. Refresh the alert."]})
+            assign_alert_owner(
+                team_id=alert.team_id, alert_id=alert.id, user=user, was_impersonated=get_was_impersonated()
+            )
+            # The enable below saves this instance, so it must carry the new owner.
+            alert.refresh_from_db(fields=["created_by"])
+            # The enable runs the usual update path, so the insight query is validated as the new owner.
+            serializer = self.get_serializer(alert, data={"enabled": True}, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+        return Response(self.get_serializer(serializer.instance).data)
 
     @extend_schema(
         request=None,
@@ -1692,8 +1921,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         email_delivery_unavailable = bool(email_targets) and not is_email_available()
         if email_targets:
             try:
-                send_test_alert_email(alert, recipients=email_targets, idempotency_key=str(uuid.uuid4()))
-                successful_email_count = len(email_targets)
+                if send_test_alert_email(alert, recipients=email_targets, idempotency_key=str(uuid.uuid4())):
+                    successful_email_count = len(email_targets)
+                else:
+                    failed_delivery_channels.append("email")
             except Exception as error:
                 capture_exception(
                     error,
@@ -1806,7 +2037,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             soft_delete_alert_destinations(
                 team_id=self.team_id,
                 alert_id=str(alert.id),
-                allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
+                allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
                 hog_function_ids=hog_function_ids,
             )
         except AlertDestinationValidationError as error:
@@ -1863,6 +2094,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         series_index = serializer.validated_data["series_index"]
         date_from = serializer.validated_data.get("date_from")
         config = serializer.validated_data.get("config")
+        alert_id = serializer.validated_data.get("alert")
+        if alert_id is not None and not AlertConfiguration.objects.filter(team_id=self.team_id, id=alert_id).exists():
+            raise ValidationError({"alert": ["Alert not found."]})
 
         try:
             result = simulate_detector_on_insight(
@@ -1875,8 +2109,12 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 config=config,
                 is_agent_billable=not is_impersonated(request),
                 evaluation_delay_intervals=serializer.validated_data["evaluation_delay_intervals"],
+                alert_id=alert_id,
             )
         except (ValueError, IndexError, AlertExtractionError, DelayedEvaluationUnavailable) as e:
+            raise ValidationError(str(e))
+        except LLMDetectorPausedError as e:
+            # A 503 tells the user to try again in a moment, which cannot help until access or credits return.
             raise ValidationError(str(e))
         except LLMDetectorError as e:
             capture_exception(e)

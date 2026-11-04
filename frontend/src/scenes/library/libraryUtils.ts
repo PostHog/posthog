@@ -1,3 +1,4 @@
+import { ANALYTICS_FILE_SYSTEM_TYPES } from 'scenes/analytics/analyticsUtils'
 import { routes } from 'scenes/scenes'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -7,11 +8,8 @@ import { FileSystemType } from '~/types'
 
 // These file system types are working pages rather than saved objects, so they belong to Tools.
 export const TOOL_FILE_SYSTEM_TYPES = new Set(['endpoints', 'task'])
-// These file system types are views people open and read, so they belong to Views, next to canvases.
-export const VIEW_FILE_SYSTEM_TYPES = new Set(['dashboard', 'notebook'])
-
 // The objects people reach for most come first. Any other type follows in name order.
-const LIBRARY_TYPE_ORDER = ['insight', 'feature_flag', 'experiment', 'survey', 'cohort', 'action']
+const LIBRARY_TYPE_ORDER = ['feature_flag', 'experiment', 'survey', 'cohort', 'action']
 
 export interface LibraryObjectType {
     value: string
@@ -30,9 +28,9 @@ export function productObjectType(item: Pick<FileSystemImport, 'type' | 'iconTyp
     return baseObjectType(item.type) || item.iconType || ''
 }
 
-/** Whether a file system type shows in Library, rather than in Tools or Views. */
+/** Whether a file system type shows in Library, rather than in Tools or Analytics. */
 export function isLibraryType(type: string): boolean {
-    return !TOOL_FILE_SYSTEM_TYPES.has(type) && !VIEW_FILE_SYSTEM_TYPES.has(type)
+    return !TOOL_FILE_SYSTEM_TYPES.has(type) && !ANALYTICS_FILE_SYSTEM_TYPES.has(type)
 }
 
 export function isLibraryEntry(entry: Pick<FileSystemEntry, 'type'>): boolean {
@@ -74,7 +72,7 @@ function routeSegments(route: string): string[] {
 let parsedRoutes: { scene: string; parts: string[] }[] | null = null
 let objectTypeByScene: Map<string, string> | null = null
 
-// The router prefers a fixed segment to a parameter, so `/feature_flags/templates` opens its own scene.
+// The router prefers a fixed segment to a parameter, so `/feature-flags/templates` opens its own scene.
 function sceneForPath(path: string): string | null {
     parsedRoutes ??= Object.entries(routes).map(([route, [scene]]) => ({ scene, parts: routeSegments(route) }))
     const segments = routeSegments(path)

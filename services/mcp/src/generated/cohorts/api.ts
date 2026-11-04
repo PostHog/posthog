@@ -23,6 +23,7 @@ export const CohortsListQueryParams = () => zod.object({
         .describe(
             'Return a basic payload that omits the `query`, `groups`, `last_error_message`, and `experiment_set` fields (`filters` is kept). Useful for pickers that only need id\/name\/count.'
         ),
+    created_by_id: zod.number().optional().describe('Optional. Return only cohorts created by the user with this id.'),
     hide_behavioral_cohorts: zod
         .boolean()
         .optional()
@@ -37,6 +38,10 @@ export const CohortsListQueryParams = () => zod.object({
         .describe(
             "Optional. Match against cohort `name`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Results are ordered by relevance. When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries return a 400 error."
         ),
+    type: zod
+        .enum(['dynamic', 'static'])
+        .optional()
+        .describe('Optional. `static` returns only static cohorts, `dynamic` only dynamic ones.'),
 })
 
 export const CohortsCreateParams = () => zod.object({
@@ -366,8 +371,16 @@ export const CohortsAddPersonsToStaticCohortPartialUpdateParams = () => zod.obje
         ),
 })
 
+export const cohortsAddPersonsToStaticCohortPartialUpdateBodyPersonIdsMax = 1000
+
 export const CohortsAddPersonsToStaticCohortPartialUpdateBody = () => zod.object({
-    person_ids: zod.array(zod.string()).optional().describe('List of person UUIDs to add to the cohort'),
+    person_ids: zod
+        .array(zod.string())
+        .max(cohortsAddPersonsToStaticCohortPartialUpdateBodyPersonIdsMax)
+        .optional()
+        .describe(
+            'Person UUIDs to add to the cohort (the `id` column of the persons table, not distinct IDs). At most 1000 per request.'
+        ),
 })
 
 export const CohortsRemovePersonFromStaticCohortPartialUpdateParams = () => zod.object({

@@ -18,11 +18,15 @@ export interface APIKeyTableRow {
     last_rolled_at: string | null
 }
 
-interface APIKeyTableProps<T extends APIKeyTableRow = APIKeyTableRow> {
+/** Either confirm a roll with the default dialog and call `onRoll`, or replace that dialog entirely. */
+type APIKeyTableRollProps<T> =
+    | { onRoll: (id: string) => void; openRollDialog?: never }
+    | { openRollDialog: (key: T) => void; onRoll?: never }
+
+type APIKeyTableProps<T extends APIKeyTableRow = APIKeyTableRow> = APIKeyTableRollProps<T> & {
     keys: T[]
     loading: boolean
     onEdit: (id: string) => void
-    onRoll: (id: string) => void
     onDelete: (id: string) => void
     noun: string
     showCreatedBy?: boolean
@@ -75,6 +79,7 @@ export function APIKeyTable<T extends APIKeyTableRow = APIKeyTableRow>({
     extraColumnsAfterScopes,
     rowClassName,
     deleteDescription = 'This action cannot be undone.',
+    openRollDialog,
 }: APIKeyTableProps<T>): JSX.Element {
     const labelColumn: LemonTableColumn<T, any> = {
         title: 'Label',
@@ -190,13 +195,17 @@ export function APIKeyTable<T extends APIKeyTableRow = APIKeyTableRow>({
                     {
                         label: 'Roll',
                         onClick: () => {
+                            if (openRollDialog) {
+                                openRollDialog(key)
+                                return
+                            }
                             LemonDialog.open({
                                 title: `Roll key "${key.label}"?`,
                                 description: 'This will generate a new key. The old key will immediately stop working.',
                                 primaryButton: {
                                     status: 'danger',
                                     children: 'Roll',
-                                    onClick: () => onRoll(key.id),
+                                    onClick: () => onRoll?.(key.id),
                                 },
                                 secondaryButton: {
                                     children: 'Cancel',

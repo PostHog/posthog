@@ -16,4 +16,7 @@ export interface MessageTemplate {
     updated_at: string | null
     created_by: UserBasicType | null
     transactional_hog_flow_id?: MessageTemplateApi['transactional_hog_flow_id']
+    draft_content?: MessageTemplateApi['draft_content']
+    sensitive?: MessageTemplateApi['sensitive']
+    tags?: MessageTemplateApi['tags']
 }

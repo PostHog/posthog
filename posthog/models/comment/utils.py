@@ -7,7 +7,7 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
-from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
+from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES, OBSERVATION_COMMENT_SCOPES
 
 from products.cdp.backend.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 
@@ -27,6 +27,7 @@ SCOPE_TO_SOURCE_TYPE: dict[str, str] = {
     "Survey": "survey",
     "Experiment": "experiment",
     "ErrorTracking": "error_tracking",
+    "ReplayObservation": "replay_observation",
     # Unlike the PascalCase model-name scopes above, customer-facing ticket messages are written
     # with the literal "conversations_ticket" scope (see products/conversations), while internal
     # ticket discussions use the "Ticket" scope. Both are ticket-sourced.
@@ -38,10 +39,11 @@ SCOPE_TO_PATH_MAPPING: dict[str, str] = {
     "Replay": "/replay/{item_id}",
     "Notebook": "/notebooks/{item_id}",
     "Insight": "/insights/{item_id}",
-    "FeatureFlag": "/feature_flags/{item_id}",
+    "FeatureFlag": "/feature-flags/{item_id}",
     "Dashboard": "/dashboard/{item_id}",
     "Survey": "/surveys/{item_id}",
     "Experiment": "/experiments/{item_id}",
+    "ReplayObservation": "/replay-vision/observations/{item_id}",
     # See note above: customer-facing ticket messages use the "conversations_ticket" scope literal,
     # while internal ticket discussions use the "Ticket" scope. Both land on the ticket page.
     "conversations_ticket": "/support/tickets/{item_id}",
@@ -59,6 +61,7 @@ SCOPE_DISPLAY_NAMES: dict[str, str] = {
     "Survey": "a survey",
     "Experiment": "an experiment",
     "ErrorTracking": "an error tracking issue",
+    "ReplayObservation": "a Replay Vision observation",
     "Ticket": "a support ticket",
 }
 
@@ -115,6 +118,17 @@ def extract_plain_text_from_rich_content(rich_content: Optional[dict]) -> str:
     return "".join(text_parts)
 
 
+# Mention notifications and events outlive the access check made when they are sent, and the notifications
+# API and CDP destinations do not recheck the observation. So they carry this text instead of the note.
+OBSERVATION_NOTE_PLACEHOLDER = "A note on a Replay Vision observation. Open it in PostHog to read it."
+
+
+def _mention_fanout_content(comment: "Comment") -> str | None:
+    if comment.scope in OBSERVATION_COMMENT_SCOPES:
+        return OBSERVATION_NOTE_PLACEHOLDER
+    return extract_plain_text_from_rich_content(comment.rich_content) or comment.content
+
+
 def produce_discussion_mention_events(
     comment: "Comment",
     mentioned_user_ids: list[int],
@@ -130,7 +144,7 @@ def produce_discussion_mention_events(
             return
 
         item_url = build_comment_item_url(comment.scope, comment.item_id, slug)
-        comment_content = extract_plain_text_from_rich_content(comment.rich_content) or comment.content
+        comment_content = _mention_fanout_content(comment)
 
         commenter_data = {
             "id": str(commenter.id),
@@ -190,7 +204,7 @@ def send_mention_notifications(
         if not commenter:
             return
 
-        comment_content = extract_plain_text_from_rich_content(comment.rich_content) or comment.content
+        comment_content = _mention_fanout_content(comment)
         body = comment_content[:200] if comment_content else ""
 
         for user_id in mentioned_user_ids:

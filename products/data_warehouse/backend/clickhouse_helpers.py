@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.facade.models import (
     clickhouse_column_to_dwh_column,
     clickhouse_columns_to_dwh_columns,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     extract_available_column_names,
@@ -137,7 +138,7 @@ def reconcile_clickhouse_schemas(
 
     is_direct = source.is_direct_query
     source_schema_names = [s.name for s in source_schemas]
-    default_database = (source.job_inputs or {}).get("database")
+    default_database = SourceInputsStore.load(source).get("database")
     schema_models = {
         s.name: s
         for s in ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False).select_related(
@@ -258,7 +259,7 @@ def reproject_direct_clickhouse_table(
     source_database, source_table_name = get_clickhouse_source_location(
         schema_name=schema_row.name,
         schema_metadata=schema_row.schema_metadata,
-        default_database=(source.job_inputs or {}).get("database"),
+        default_database=SourceInputsStore.load(source).get("database"),
     )
     return upsert_direct_clickhouse_table(
         schema_row.table,

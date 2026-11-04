@@ -157,29 +157,42 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             maximum_interval=timedelta(seconds=RECALCULATION_RETRY_MAX_INTERVAL_SECONDS),
             maximum_attempts=MAX_METRIC_ATTEMPTS,
         )
-        results = await asyncio.gather(
-            *[
+        # Pre-patch histories scheduled every calculation on the workflow's queue, even when an old worker
+        # received a run with the field set, so they must replay with None.
+        activity_task_queue = (
+            inputs.activity_task_queue
+            if inputs.activity_task_queue and temporalio.workflow.patched("recalc-activity-task-queue-2026-10")
+            else None
+        )
+        calcs = []
+        for metric in metrics:
+            # Only a run on the activity queue flag uses the route that discovery set.
+            routed = bool(activity_task_queue and metric.task_queue)
+            task_queue = metric.task_queue if routed else activity_task_queue
+            # The activity and precompute queues have a fixed slot count, so a calc there waits for a slot instead
+            # of failing when the queue is full. Only a calc on the workflow's own queue keeps the total budget.
+            schedule_to_close_timeout = (
+                None if task_queue else timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS)
+            )
+            args: list[object] = [metric.experiment_id, metric.metric_uuid, recalculation_id, query_to, metric.role]
+            # An AUTO calc keeps the five arguments, so a worker that predates the mode argument still runs it.
+            if routed and metric.precomputation_mode is not None:
+                args.append(metric.precomputation_mode)
+            calcs.append(
                 temporalio.workflow.execute_activity(
                     calculate_experiment_metric_for_recalculation,
-                    args=[
-                        metric.experiment_id,
-                        metric.metric_uuid,
-                        recalculation_id,
-                        query_to,
-                        metric.role,
-                    ],
+                    args=args,
                     start_to_close_timeout=timedelta(seconds=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS),
-                    schedule_to_close_timeout=timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS),
+                    schedule_to_close_timeout=schedule_to_close_timeout,
                     heartbeat_timeout=timedelta(seconds=METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS),
                     retry_policy=calc_retry_policy,
+                    task_queue=task_queue,
                     # Round-robin dispatch across orgs under backlog; a no-op on namespaces without
                     # fairness support.
                     priority=Priority(fairness_key=inputs.fairness_key),
                 )
-                for metric in metrics
-            ],
-            return_exceptions=True,
-        )
+            )
+        results = await asyncio.gather(*calcs, return_exceptions=True)
 
         out_of_time = [
             metric

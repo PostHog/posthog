@@ -148,6 +148,16 @@ pub struct Config {
     #[envconfig(default = "0")]
     pub max_concurrent_requests: usize,
 
+    /// How long a request at a full pod waits for an admission slot before
+    /// it is shed (ms). 0 = shed immediately.
+    #[envconfig(default = "0")]
+    pub load_shed_wait_ms: u64,
+
+    /// Requests allowed to wait for a slot at once; beyond this the pod
+    /// sheds immediately. 0 = max_concurrent_requests.
+    #[envconfig(default = "0")]
+    pub load_shed_max_waiters: usize,
+
     /// Leader property writes in flight per get-or-create batch (0 acts as 1).
     #[envconfig(default = "8")]
     pub property_write_concurrency: usize,
@@ -234,10 +244,10 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub ingestion_warnings_kafka_message_timeout_ms: u32,
 
-    /// Warnings a second per type that one pod sends, shared by every team
+    /// Warnings of one type a minute that one pod sends, shared by every team
     /// on it; the rest are dropped as `type_budget_exhausted`.
     #[envconfig(default = "60")]
-    pub ingestion_warnings_type_budget_per_second: NonZeroU32,
+    pub ingestion_warnings_type_budget_per_minute: NonZeroU32,
 
     /// Throttle keys (team, distinct id, type) a pod remembers for the hour a
     /// key lives, at roughly 135 bytes each.
@@ -492,6 +502,10 @@ impl Config {
         )
     }
 
+    pub fn load_shed_wait(&self) -> Duration {
+        Duration::from_millis(self.load_shed_wait_ms)
+    }
+
     pub fn grpc_max_connection_age(&self) -> Option<Duration> {
         if self.grpc_max_connection_age_secs == 0 {
             None
@@ -518,8 +532,8 @@ impl Config {
         Duration::from_secs(self.lifecycle_op_retention_hours * 3600)
     }
 
-    pub fn ingestion_warnings_settings(&self) -> crate::warnings::WarningsSettings {
-        crate::warnings::WarningsSettings {
+    pub fn ingestion_warnings_settings(&self) -> common_ingestion_warnings::RowWarningsSettings {
+        common_ingestion_warnings::RowWarningsSettings {
             enabled: self.ingestion_warnings_enabled,
             kafka_hosts: self.ingestion_warnings_kafka_hosts.clone(),
             kafka_tls: self.ingestion_warnings_kafka_tls,
@@ -531,7 +545,7 @@ impl Config {
             kafka_linger_ms: self.ingestion_warnings_kafka_linger_ms,
             kafka_queue_messages: self.ingestion_warnings_kafka_queue_messages,
             kafka_message_timeout_ms: self.ingestion_warnings_kafka_message_timeout_ms,
-            type_budget_per_second: self.ingestion_warnings_type_budget_per_second,
+            type_budget_per_minute: self.ingestion_warnings_type_budget_per_minute,
             max_tracked_scopes: self.ingestion_warnings_max_tracked_scopes,
         }
     }

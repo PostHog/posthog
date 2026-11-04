@@ -1,3 +1,4 @@
+import datetime
 from typing import Any
 
 import structlog
@@ -23,6 +24,7 @@ def source_inputs(
     db_incremental_field_last_value_before_lookback: object | None = None,
     reset_pipeline: bool = False,
     api_version: str | None = None,
+    history_start: datetime.datetime | None = None,
     logger: FilteringBoundLogger | None = None,
     source_cursor: SourceCursorManager[Any] | None = None,
 ) -> SourceInputs:
@@ -50,4 +52,5 @@ def source_inputs(
         reset_pipeline=reset_pipeline,
         api_version=api_version,
         source_cursor=source_cursor,
+        history_start=history_start,
     )

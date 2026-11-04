@@ -1,8 +1,8 @@
 //! Merge-protocol follower consumers: `person_merge_events` (drain trigger, keyed by P_old) and
 //! `cohort_merge_state_transfer` (packaged state, keyed by P_new).
 //!
-//! Both use [`FollowerConsumer`] generic over a [`FollowerRoute`]. Followers never `subscribe()` —
-//! the events group's rebalance mirrors partition ownership onto them.
+//! Both use [`FollowerConsumer`] generic over a [`FollowerRoute`]. Followers never `subscribe()`:
+//! each is assigned the partitions this pod owns, like the events consumer.
 
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
@@ -27,6 +27,7 @@ use crate::observability::metrics::{
     COHORT_STREAM_TRANSFERS_CONSUME_BATCH_SIZE, COHORT_STREAM_TRANSFER_DESERIALIZE_ERRORS,
 };
 use crate::partitions::offset_tracker::OffsetTracker;
+use crate::partitions::stamp::CommitStamp;
 use crate::workers::MergeWorkerDeps;
 
 /// One merge trigger consumed from `person_merge_events`, paired with its commit coordinates.
@@ -178,6 +179,7 @@ impl FollowerRoute for CascadeRoute {
 pub struct FollowerConsumer<R: FollowerRoute> {
     consumer: Arc<StreamConsumer>,
     topic: String,
+    stamp: CommitStamp,
     dispatcher: Arc<EventDispatcher>,
     handle: Handle,
     recv_batch_size: usize,
@@ -187,9 +189,11 @@ pub struct FollowerConsumer<R: FollowerRoute> {
 }
 
 impl<R: FollowerRoute> FollowerConsumer<R> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         consumer: Arc<StreamConsumer>,
         topic: String,
+        stamp: CommitStamp,
         dispatcher: Arc<EventDispatcher>,
         handle: Handle,
         recv_batch_size: usize,
@@ -199,6 +203,7 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
         Self {
             consumer,
             topic,
+            stamp,
             dispatcher,
             handle,
             recv_batch_size,
@@ -232,6 +237,7 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
                         fsync_then_commit(
                             self.dispatcher.handle(),
                             &self.consumer,
+                            &self.stamp,
                             self.owned_committable_offsets(),
                             &self.topic,
                             CommitMode::Async,
@@ -253,6 +259,7 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
         fsync_then_commit(
             self.dispatcher.handle(),
             &self.consumer,
+            &self.stamp,
             offsets,
             &self.topic,
             CommitMode::Sync,

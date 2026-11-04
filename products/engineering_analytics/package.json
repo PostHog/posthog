@@ -6,6 +6,7 @@
     },
     "dependencies": {
         "@posthog/icons": "catalog:",
+        "@posthog/quill": "workspace:*",
         "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
@@ -19,6 +20,7 @@
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
+        "@tanstack/react-virtual": "*",
         "@types/react": "*",
         "@xyflow/react": "*",
         "elkjs": "*",

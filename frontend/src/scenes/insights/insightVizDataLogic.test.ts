@@ -9,8 +9,9 @@ import { QuerySourceUpdate, insightVizDataLogic } from 'scenes/insights/insightV
 
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
-import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
+import { LATEST_VERSIONS } from '~/queries/schema/latest-versions'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     FunnelsQuery,
     LifecycleQuery,
@@ -19,7 +20,6 @@ import {
     RetentionQuery,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import {
     BaseMathType,
@@ -1063,6 +1063,22 @@ describe('insightVizDataLogic', () => {
                 ...funnelsQueryDefault.funnelsFilter,
                 layout: FunnelLayout.horizontal,
             })
+        })
+
+        it('drops a debounced update when the insight type changes before it applies', async () => {
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateInsightFilter({
+                    formula: undefined,
+                    formulas: undefined,
+                    formulaNodes: [{ formula: '(A/B)*100' }],
+                })
+                builtInsightDataLogic.actions.setQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: funnelsQueryDefault,
+                } as Node)
+            }).toFinishAllListeners()
+
+            expect(builtInsightVizDataLogic.values.querySource).toEqual(funnelsQueryDefault)
         })
 
         it('clears the breakdown when switching to the Metric display', async () => {

@@ -331,7 +331,7 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
         )
 
 
-def _live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
+def live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
     """Single source of truth for the `has_experiment` predicate: a flag has a linked
     experiment iff a non-deleted Experiment row references it. The Rust flags service
     (rust/feature-flags/src/flags/feature_flag_list.rs) mirrors this in hand-written SQL —
@@ -344,12 +344,12 @@ def _live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
 
 def live_experiment_exists() -> Exists:
     """`Exists` subquery for `.annotate()` over many flags. For a single in-hand flag, use `flag_has_live_experiment`."""
-    return Exists(_live_experiments_for_flag(OuterRef("pk")))
+    return Exists(live_experiments_for_flag(OuterRef("pk")))
 
 
 def flag_has_live_experiment(feature_flag_id: int) -> bool:
     """Instance-level companion to `live_experiment_exists` — same predicate, one flag."""
-    return _live_experiments_for_flag(feature_flag_id).exists()
+    return live_experiments_for_flag(feature_flag_id).exists()
 
 
 def metric_display_rank(ordered_uuids: Sequence[str] | None) -> Callable[[str], int]:
@@ -546,6 +546,8 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         MANUAL = "manual", "Manual"
         AGENT_MCP = "agent_mcp", "Agent (MCP)"
         COLD_RUN = "cold_run", "Cold Run"
+        # The frontend refreshes a running experiment on page load when its latest results are older than its
+        # staleness threshold. Advances the window to now, so every metric recomputes.
         STALE_REFRESH = "stale_refresh", "Stale Refresh"
         # Deprecated: feature no longer available.
         AUTO_REFRESH = "auto_refresh", "Auto Refresh"
@@ -578,13 +580,13 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         """The subset of Trigger a client may send on POST. Each value must also exist on Trigger.
 
         The rest are set server side: agent_mcp by the view from the client header, timeseries_sync and
-        scheduled by their workflows. stale_refresh, auto_refresh and the deprecated values have no
-        sender.
+        scheduled by their workflows. auto_refresh and the deprecated values have no sender.
         """
 
         MANUAL = "manual", "Manual"
         MANUAL_RETRY = "manual_retry", "Manual Retry"
         COLD_RUN = "cold_run", "Cold Run"
+        STALE_REFRESH = "stale_refresh", "Stale Refresh"
         HEAL_LATEST_RUN = "heal_latest_run", "Heal Latest Run"
         EXPERIMENT_CONFIG_CHANGE = "experiment_config_change", "Experiment Config Change"
         METRIC_CONFIG_CHANGE = "metric_config_change", "Metric Config Change"

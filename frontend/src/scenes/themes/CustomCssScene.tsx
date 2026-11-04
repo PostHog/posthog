@@ -3,7 +3,9 @@ import { router } from 'kea-router'
 
 import { IconWrench } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -86,10 +88,16 @@ body[theme=light] {
 export function CustomCssScene(): JSX.Element {
     const { persistedCustomCss, previewingCustomCss } = useValues(themeLogic)
     const { saveCustomCss, setPreviewingCustomCss } = useActions(themeLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useOnMountEffect(() => {
         setPreviewingCustomCss(previewingCustomCss || persistedCustomCss || '')
     })
+
+    const saveAndSet = (): void => {
+        saveCustomCss()
+        router.actions.push(urls.projectRoot())
+    }
 
     const onPreview = (): void => {
         router.actions.push(urls.projectRoot())
@@ -104,21 +112,25 @@ export function CustomCssScene(): JSX.Element {
                     forceIcon: <IconWrench />,
                 }}
                 actions={
-                    <>
-                        <LemonButton type="secondary" onClick={onPreview} size="small">
-                            Preview
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => {
-                                saveCustomCss()
-                                router.actions.push(urls.projectRoot())
-                            }}
-                            size="small"
-                        >
-                            Save and set
-                        </LemonButton>
-                    </>
+                    todayRailNav ? (
+                        <>
+                            <Button variant="outline" onClick={onPreview}>
+                                Preview
+                            </Button>
+                            <Button variant="primary" onClick={saveAndSet}>
+                                Save and set
+                            </Button>
+                        </>
+                    ) : (
+                        <>
+                            <LemonButton type="secondary" onClick={onPreview} size="small">
+                                Preview
+                            </LemonButton>
+                            <LemonButton type="primary" onClick={saveAndSet} size="small">
+                                Save and set
+                            </LemonButton>
+                        </>
+                    )
                 }
             />
             <p>

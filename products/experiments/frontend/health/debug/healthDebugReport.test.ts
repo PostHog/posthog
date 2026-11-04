@@ -6,6 +6,7 @@ import { type HealthDebugInput, buildHealthDebugChecks } from './healthDebugRepo
 const PAUSED: ExperimentHealthFindingApi = {
     code: 'flag_off_while_running',
     subcode: 'running_but_flag_disabled',
+    reason: null,
     severity: 'warning',
     title: 'The experiment is paused',
     detail: '',
@@ -15,7 +16,7 @@ const PAUSED: ExperimentHealthFindingApi = {
 }
 
 const input = (overrides: Partial<HealthDebugInput>): HealthDebugInput => ({
-    health: { findings: [] },
+    health: { findings: [], checks: [] },
     browserWarning: null,
     browserNoMetricsWarning: false,
     isExperimentDraft: false,
@@ -37,35 +38,35 @@ describe('buildHealthDebugChecks', () => {
     }>([
         {
             name: 'browser rules agree with the server',
-            health: { findings: [PAUSED] },
+            health: { findings: [PAUSED], checks: [] },
             browserWarning: { key: 'running_but_flag_disabled' },
             browserNoMetricsWarning: false,
             expected: [],
         },
         {
             name: 'a flag-state warning only the server finds',
-            health: { findings: [PAUSED] },
+            health: { findings: [PAUSED], checks: [] },
             browserWarning: null,
             browserNoMetricsWarning: false,
             expected: ['flag_state:disagrees'],
         },
         {
             name: 'a flag-state subcode the page does not know, while the browser finds nothing',
-            health: { findings: [{ ...PAUSED, subcode: 'running_but_unknown_case' }] },
+            health: { findings: [{ ...PAUSED, subcode: 'running_but_unknown_case' }], checks: [] },
             browserWarning: null,
             browserNoMetricsWarning: false,
             expected: ['flag_state:disagrees'],
         },
         {
             name: 'no metrics on the page while the server counts one',
-            health: { findings: [] },
+            health: { findings: [], checks: [] },
             browserWarning: null,
             browserNoMetricsWarning: true,
             expected: ['no_metric:disagrees'],
         },
         {
             name: "an SRM finding in the server's exposure answer only",
-            health: { findings: [] },
+            health: { findings: [], checks: [] },
             browserWarning: null,
             browserNoMetricsWarning: false,
             extra: {

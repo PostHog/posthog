@@ -77,8 +77,8 @@ export function EvaluationTriggers({ conditions, onChange, unit }: EvaluationTri
                 return (
                     <div key={condition.id} className="bg-bg-light border rounded p-4 space-y-4">
                         {/* Header */}
-                        <div className="flex justify-between items-center">
-                            <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap justify-between items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                                 <h4 className="font-semibold">Condition set {index + 1}</h4>
                                 {current.length > 1 && (
                                     <div className="text-sm text-muted">{index === 0 ? 'IF' : 'OR IF'}</div>
@@ -111,7 +111,7 @@ export function EvaluationTriggers({ conditions, onChange, unit }: EvaluationTri
                                 Sampling percentage <span className="text-danger">*</span>
                             </label>
                             <div className="flex items-center gap-4 max-w-md">
-                                <div className="flex-1">
+                                <div className="flex-1 min-w-0">
                                     <LemonSlider
                                         value={percentageValue}
                                         onChange={(value) => updateConditionSet(index, { rollout_percentage: value })}
@@ -120,7 +120,7 @@ export function EvaluationTriggers({ conditions, onChange, unit }: EvaluationTri
                                         step={0.1}
                                     />
                                 </div>
-                                <div className="w-24">
+                                <div className="w-24 shrink-0">
                                     <LemonInput
                                         type="number"
                                         value={percentageValue}

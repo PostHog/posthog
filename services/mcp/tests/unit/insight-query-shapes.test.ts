@@ -19,7 +19,13 @@ const acceptedQueries = [
     },
     {
         shape: 'wrapped DataVisualizationNode',
-        query: { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'select 1' } },
+        query: {
+            kind: 'DataVisualizationNode',
+            source: { kind: 'HogQLQuery', query: 'select 1 as value' },
+            tableSettings: {
+                columns: [{ column: 'value', settings: { display: { description: 'Value in USD' } } }],
+            },
+        },
     },
     {
         shape: 'BI worksheet',
@@ -48,6 +54,18 @@ const acceptedQueries = [
     {
         shape: 'bare WebStatsTableQuery',
         query: { kind: 'WebStatsTableQuery', breakdownBy: 'Page', properties: [], dateRange: { date_from: '-7d' } },
+    },
+    {
+        shape: 'bare MetricsQuery',
+        query: {
+            kind: 'MetricsQuery',
+            clauses: [{ name: 'a', metricName: 'process.cpu.utilization', aggregation: 'avg' }],
+            dateRange: { date_from: '-24h' },
+        },
+    },
+    {
+        shape: 'bare MetricsHistogramQuery',
+        query: { kind: 'MetricsHistogramQuery', metricName: 'http.server.duration' },
     },
 ]
 

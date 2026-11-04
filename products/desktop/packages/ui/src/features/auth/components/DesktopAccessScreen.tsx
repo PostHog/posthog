@@ -2,6 +2,8 @@ import {
   ArrowClockwise,
   CaretDown,
   Coins,
+  GameController,
+  HourglassMedium,
   RocketLaunch,
   SignOut,
   WarningCircle,
@@ -25,13 +27,16 @@ import {
   Field,
   FieldLabel,
 } from "@posthog/quill";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { track } from "@posthog/ui/shell/analytics";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import {
   FIELD_CONTENT_CLASS,
   FIELD_TRIGGER_CLASS,
 } from "@posthog/ui/styles/fieldTrigger";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 interface OrganizationOption {
   id: string;
@@ -57,6 +62,22 @@ const BLOCKED_CONTENT = {
       "Organizations with pending or active prepaid credits can't use PostHog Desktop. Select another organization to continue. To discuss access, contact your PostHog account executive. If you don't have one, email sales@posthog.com.",
   },
 } as const;
+
+// The server blocks with a null reason only while new sign-ups are paused. It sends no
+// dedicated reason, because older Desktop builds and the LLM gateway reject unknown reasons.
+const SIGNUPS_PAUSED_CONTENT = {
+  icon: <HourglassMedium />,
+  title: "Desktop sign-ups are paused",
+  description:
+    "Sorry, we aren't letting new accounts into PostHog Desktop at the moment. Not ideal, we know.",
+};
+
+const POSTHOG_GAMES_URL = "https://posthog.com/sparks-joy";
+
+function openGames(): void {
+  track(ANALYTICS_EVENTS.DESKTOP_ACCESS_LINK_OPENED, { link: "games" });
+  openExternalUrl(POSTHOG_GAMES_URL);
+}
 
 interface DesktopAccessScreenProps {
   access: DesktopAccess;
@@ -116,13 +137,17 @@ export function DesktopAccessScreen({
     projects.find((project) => project.id === currentProjectId) ?? null;
   const controlsDisabled = isSwitching || access.status === "checking";
 
+  useEffect(() => {
+    if (access.status !== "blocked" && access.status !== "error") return;
+    track(ANALYTICS_EVENTS.DESKTOP_ACCESS_SCREEN_SHOWN, {
+      status: access.status,
+      reason: access.reason,
+    });
+  }, [access.status, access.reason]);
+
   const blockedContent = access.reason
     ? BLOCKED_CONTENT[access.reason]
-    : {
-        icon: <WarningCircle />,
-        title: "Desktop isn't available for this organization",
-        description: "Select another organization or project to continue.",
-      };
+    : SIGNUPS_PAUSED_CONTENT;
   const isTechnicalError = access.status === "error";
   const icon = isTechnicalError ? <WarningCircle /> : blockedContent?.icon;
   const title = isTechnicalError
@@ -131,6 +156,7 @@ export function DesktopAccessScreen({
   const description = isTechnicalError
     ? "Try again, or select another organization or project."
     : blockedContent?.description;
+  const isSignupsPaused = access.status === "blocked" && !access.reason;
 
   const footerRight = (
     <Button
@@ -154,9 +180,33 @@ export function DesktopAccessScreen({
             <EmptyHeader>
               <EmptyMedia variant="icon">{icon}</EmptyMedia>
               <EmptyTitle>{title}</EmptyTitle>
-              <EmptyDescription>{description}</EmptyDescription>
+              <EmptyDescription
+                className={
+                  isSignupsPaused ? "text-destructive-foreground" : undefined
+                }
+              >
+                {isSignupsPaused && (
+                  <WarningCircle
+                    aria-hidden="true"
+                    className="mr-1 inline-block align-text-bottom"
+                  />
+                )}
+                {description}
+              </EmptyDescription>
             </EmptyHeader>
             <EmptyContent className="w-full max-w-md gap-4">
+              {isSignupsPaused && (
+                <Button
+                  variant="primary"
+                  className="w-full"
+                  onClick={openGames}
+                  data-attr="desktop-access-games"
+                >
+                  <GameController />
+                  Play a hedgehog game instead
+                </Button>
+              )}
+
               <div className="flex w-full flex-col gap-4">
                 <Field className="min-w-0">
                   <FieldLabel htmlFor="desktop-access-organization">
@@ -302,7 +352,7 @@ export function DesktopAccessScreen({
               )}
 
               <Button
-                variant="primary"
+                variant={isSignupsPaused ? "outline" : "primary"}
                 loading={isRetrying}
                 disabled={isRetrying || isSwitching}
                 onClick={onRetry}
