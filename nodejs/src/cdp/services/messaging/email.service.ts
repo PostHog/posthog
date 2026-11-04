@@ -836,9 +836,7 @@ export class EmailService {
                     await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest)
                     break
                 case 'ses':
-                    await stages.time('ses_call', () =>
-                        this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait)
-                    )
+                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait, stages)
                     break
 
                 case 'unsupported':
@@ -1300,11 +1298,13 @@ export class EmailService {
         from: { email: string; name: string },
         trackingEnabled: boolean,
         isTest = false,
-        queueWait?: EmailQueueWait
+        queueWait?: EmailQueueWait,
+        stages?: EmailSendStageTimer
     ): Promise<void> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
+        const renderStartedAt = performance.now()
         const distinctId = resolveEmailTrackingDistinctId(result.invocation)
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
@@ -1413,11 +1413,13 @@ export class EmailService {
 
         const lane = emailLane(result.invocation)
         const sendStartedAt = performance.now()
+        stages?.add('render', sendStartedAt - renderStartedAt)
         try {
             const response = await this.sesV2Client.send(new SendEmailCommand(sendEmailParams))
             if (!response.MessageId) {
                 throw new Error('No messageId returned from SES')
             }
+            stages?.add('ses_call', performance.now() - sendStartedAt)
             sesSendDurationMs.labels({ result: 'success' }).observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ ...lane, result: 'success' }).inc()
             if (queueWait) {

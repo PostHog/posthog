@@ -321,6 +321,27 @@ describe('CyclotronJobQueuePostgresV2', () => {
         })
     })
 
+    describe('startAsConsumer', () => {
+        it('stamps each consumed invocation with the time this worker dequeued it', async () => {
+            const { queue } = createQueue()
+            let handleBatch: (jobs: any[]) => Promise<void> = () => Promise.resolve()
+            ;(queue as any).createWorker = () => ({
+                connect: (handler: typeof handleBatch) => {
+                    handleBatch = handler
+                    return Promise.resolve()
+                },
+            })
+            const consumeBatch = jest.fn().mockResolvedValue({ backgroundTask: Promise.resolve() })
+            await queue.startAsConsumer('hog', consumeBatch)
+
+            const before = Date.now()
+            await handleBatch([createDequeuedJob({ scheduled: DateTime.utc().minus({ seconds: 5 }) })])
+
+            const [consumed] = consumeBatch.mock.calls[0][0] as CyclotronJobInvocation[]
+            expect(consumed.queueDequeuedAt!.toMillis()).toBeGreaterThanOrEqual(before)
+        })
+    })
+
     describe('dequeueInvocations', () => {
         it('should call fail and remove from pending', async () => {
             const { queue } = createQueue()

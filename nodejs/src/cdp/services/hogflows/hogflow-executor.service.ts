@@ -339,9 +339,10 @@ export class HogFlowExecutorService {
         }
 
         while (!result || !result.finished) {
-            // A later action in this loop became due when the previous one finished, not when the job was scheduled.
+            // A later action in this loop became due when the previous one finished, not when the job was scheduled,
+            // and no dequeue started it.
             const nextInvocation: CyclotronJobInvocationHogFlow = result
-                ? { ...result.invocation, queueDueAt: DateTime.utc() }
+                ? { ...result.invocation, queueDueAt: DateTime.utc(), queueDequeuedAt: undefined }
                 : invocation
 
             // Here we could be continuing the hog function side of things?

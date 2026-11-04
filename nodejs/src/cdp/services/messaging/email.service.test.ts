@@ -831,6 +831,7 @@ describe('EmailService', () => {
                         'tracking',
                         'workflow_rate_limit',
                         'team_cap',
+                        'render',
                         'ses_call',
                     ]
                     const stageCounts = (): Promise<number[]> =>
