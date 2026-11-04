@@ -66,14 +66,17 @@ export interface AudienceSuggestionApi {
      * @nullable
      */
     min_count: number | null
-    /** People in the audience with an email address, counted when the suggestion was made. */
-    reachable_count: number
+    /**
+     * Roughly how many people in the audience have an email address, counted when the suggestion was made. Null while the count runs, or when it failed.
+     * @nullable
+     */
+    reachable_count: number | null
     /** The audience's cohort filters, in the cohorts endpoint's `filters` format. Saved as a static cohort. */
     cohort_filters: unknown
 }
 
 export interface AudienceSuggestionsResponseApi {
-    /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
+    /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends, the list can already hold cards being counted), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
      *
      * * `ready` - Ready
      * * `generating` - Generating
