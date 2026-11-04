@@ -193,11 +193,12 @@ fn changelog_records(harness: &FenceHarness) -> Vec<Person> {
     let mut records = Vec::new();
     loop {
         match consumer.poll(Duration::from_millis(300)) {
-            Some(result) => {
-                let msg = result.expect("kafka error");
+            Some(Ok(msg)) => {
                 records
                     .push(Person::decode(msg.payload().unwrap()).expect("decode changelog record"));
             }
+            Some(Err(error)) if common::is_transient_broker_error(&error) => {}
+            Some(Err(error)) => panic!("kafka error: {error}"),
             None if !records.is_empty() || std::time::Instant::now() >= deadline => break,
             None => {}
         }
