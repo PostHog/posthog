@@ -21,13 +21,9 @@ def dispatch_issue_changes_activity(inputs: ChangeDispatchInputs) -> ChangeDispa
     logger.info(
         "error_tracking.change_dispatch.complete",
         dispatched=outcome.dispatched,
-        delivered=outcome.delivered,
         undelivered=outcome.undelivered,
-        dropped=outcome.dropped,
     )
     return ChangeDispatchResult(
         dispatched=outcome.dispatched,
-        delivered=outcome.delivered,
         undelivered=outcome.undelivered,
-        dropped=outcome.dropped,
     )

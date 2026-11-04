@@ -2,8 +2,8 @@
 
 Delivery is at least once. Rows are marked dispatched in the transaction that claimed
 them, after every matched subscription delivered them, so a crash or a transient sink
-failure leaves them for the next run. A retried row goes to all its subscriptions again:
-internal events keep their uuid, and workflow starts are deduplicated by workflow id.
+failure leaves them for the next run. A retried row goes to all its subscriptions again,
+and internal events keep their uuid so downstream can recognize the repeat.
 """
 
 import time
@@ -20,14 +20,7 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.error_tracking.backend.logic.change_events import CDP_INTERNAL_EVENTS
-from products.error_tracking.backend.logic.change_subscriptions import (
-    Delivery,
-    Need,
-    Subscription,
-    WorkflowSink,
-    load_change_context,
-    start_change_workflows,
-)
+from products.error_tracking.backend.logic.change_subscriptions import Subscription
 from products.error_tracking.backend.models import ErrorTrackingIssueChange
 
 logger = structlog.get_logger(__name__)
@@ -39,32 +32,10 @@ SUBSCRIPTIONS: tuple[Subscription, ...] = (CDP_INTERNAL_EVENTS,)
 
 @frozen
 class DispatchOutcome:
-    # Rows marked dispatched, including dropped ones.
+    # Rows marked dispatched, including rows a subscription dropped.
     dispatched: int
-    # Successful (change, subscription) deliveries.
-    delivered: int
     # Rows left in the outbox because a subscription could not deliver them. The next run retries them.
     undelivered: int
-    # Rows marked dispatched although a subscription raised on them. Retrying cannot fix them.
-    dropped: int
-
-    def __add__(self, other: "DispatchOutcome") -> "DispatchOutcome":
-        return DispatchOutcome(
-            dispatched=self.dispatched + other.dispatched,
-            delivered=self.delivered + other.delivered,
-            undelivered=self.undelivered + other.undelivered,
-            dropped=self.dropped + other.dropped,
-        )
-
-
-NOTHING_DISPATCHED = DispatchOutcome(dispatched=0, delivered=0, undelivered=0, dropped=0)
-
-
-@frozen
-class _TeamOutcome:
-    delivered: int
-    undelivered: frozenset[UUID]
-    dropped: frozenset[UUID]
 
 
 def dispatch_pending_changes(
@@ -72,14 +43,15 @@ def dispatch_pending_changes(
 ) -> DispatchOutcome:
     """Dispatch batches until the outbox is empty, a delivery fails, or the time budget runs out."""
     deadline = time.monotonic() + time_budget.total_seconds()
-    total = NOTHING_DISPATCHED
+    dispatched = undelivered = 0
     while time.monotonic() < deadline:
         batch = _dispatch_batch(subscriptions, deadline)
-        total += batch
+        dispatched += batch.dispatched
+        undelivered += batch.undelivered
         # An undelivered row stops the run, so a persistent outage retries once per run instead of in a loop.
         if batch.undelivered or batch.dispatched < DISPATCH_BATCH_SIZE:
             break
-    return total
+    return DispatchOutcome(dispatched=dispatched, undelivered=undelivered)
 
 
 def _dispatch_batch(subscriptions: Sequence[Subscription], deadline: float) -> DispatchOutcome:
@@ -91,71 +63,40 @@ def _dispatch_batch(subscriptions: Sequence[Subscription], deadline: float) -> D
             .order_by("created_at", "id")[:DISPATCH_BATCH_SIZE]
         )
         if not changes:
-            return NOTHING_DISPATCHED
+            return DispatchOutcome(dispatched=0, undelivered=0)
 
         changes_by_team: dict[int, list[ErrorTrackingIssueChange]] = defaultdict(list)
         for change in changes:
             changes_by_team[change.team_id].append(change)
 
-        delivered = 0
         undelivered: set[UUID] = set()
-        dropped: set[UUID] = set()
         for team_id, team_changes in changes_by_team.items():
             # During an outage a sink waits for each team, so the budget is checked per team, not per batch.
             if time.monotonic() >= deadline:
                 undelivered |= {change.id for change in team_changes}
                 continue
-            team_outcome = _dispatch_team(team_id, team_changes, subscriptions)
-            delivered += team_outcome.delivered
-            undelivered |= team_outcome.undelivered
-            dropped |= team_outcome.dropped
+            undelivered |= _dispatch_team(team_id, team_changes, subscriptions)
 
         # A row that one subscription dropped and another could not deliver still waits for the retry.
         dispatched_ids = [change.id for change in changes if change.id not in undelivered]
         # nosemgrep: idor-lookup-without-team (cross-team outbox dispatcher; ids are rows this transaction claimed)
         ErrorTrackingIssueChange.objects.unscoped().filter(id__in=dispatched_ids).update(dispatched_at=timezone.now())
 
-    return DispatchOutcome(
-        dispatched=len(dispatched_ids),
-        delivered=delivered,
-        undelivered=len(undelivered),
-        dropped=len(dropped - undelivered),
-    )
+    return DispatchOutcome(dispatched=len(dispatched_ids), undelivered=len(undelivered))
 
 
 def _dispatch_team(
     team_id: int, changes: Sequence[ErrorTrackingIssueChange], subscriptions: Sequence[Subscription]
-) -> _TeamOutcome:
-    try:
-        matched = [
-            (subscription, matching)
-            for subscription in subscriptions
-            if (matching := [change for change in changes if subscription.accepts(change)])
-        ]
-        if not matched:
-            return _TeamOutcome(delivered=0, undelivered=frozenset(), dropped=frozenset())
-        needs: set[Need] = set().union(*(subscription.needs for subscription, _ in matched))
-        context = load_change_context(team_id, {change for _, matching in matched for change in matching}, needs)
-    except Exception:
-        # Matching or loading failed for the team. No retry can fix that data, and it must not head the outbox.
-        logger.exception("error_tracking_change_dispatch_team_failed", team_id=team_id)
-        return _TeamOutcome(delivered=0, undelivered=frozenset(), dropped=frozenset(change.id for change in changes))
-
-    delivered = 0
+) -> set[UUID]:
     undelivered: set[UUID] = set()
-    dropped: set[UUID] = set()
-    for subscription, matching in matched:
+    for subscription in subscriptions:
         try:
-            if isinstance(subscription.sink, WorkflowSink):
-                failed = start_change_workflows(subscription, matching)
-            else:
-                failed = subscription.sink.deliver([Delivery(change=change, context=context) for change in matching])
+            matching = [change for change in changes if subscription.accepts(change)]
+            if matching:
+                undelivered |= subscription.sink.deliver(team_id, matching)
         except Exception:
+            # No retry can fix the data that made the sink raise, and it must not head the outbox.
             logger.exception(
                 "error_tracking_change_subscription_failed", team_id=team_id, subscription=subscription.key
             )
-            dropped |= {change.id for change in matching}
-            continue
-        undelivered |= failed
-        delivered += len(matching) - len(failed)
-    return _TeamOutcome(delivered=delivered, undelivered=frozenset(undelivered), dropped=frozenset(dropped))
+    return undelivered
