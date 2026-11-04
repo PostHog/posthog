@@ -519,9 +519,10 @@ class CheckSpec(BaseModel):
         ge=MIN_CHECK_SOAK_HOURS,
         le=MAX_CHECK_SOAK_HOURS,
         description=(
-            "How long after the report is resolved to wait before measuring. The fix has to have "
-            f"been live a while for the result to mean anything. Defaults to {DEFAULT_CHECK_SOAK_HOURS} hours "
-            "for a new check; omission preserves an existing check’s wait."
+            "Verification duration in hours. Monitoring observes the entire fixed window from merge through "
+            "merge + soak_hours, without excluding a deployment buffer. Without Monitoring, this is the wait "
+            f"after resolution before measuring. Defaults to {DEFAULT_CHECK_SOAK_HOURS} hours for a new check; "
+            "omission preserves an existing check's duration."
         ),
     )
     run_interval_minutes: int | None = Field(
