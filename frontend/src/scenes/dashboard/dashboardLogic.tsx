@@ -25,7 +25,11 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 import type { Layout } from 'react-grid-layout'
 
 import { LemonButton, LemonDialog, lemonToast } from '@posthog/lemon-ui'
-import { dashboardsCopyGroupCreate, dashboardsPartialUpdate } from '@posthog/products-dashboards/frontend/generated/api'
+import {
+    dashboardsCopyGroupCreate,
+    dashboardsPartialUpdate,
+    dashboardsRetrieve,
+} from '@posthog/products-dashboards/frontend/generated/api'
 import type {
     DashboardTileGroupApi,
     DashboardWidgetRunResultApi,
@@ -634,6 +638,25 @@ function enqueueEditSave<T>(owner: TileSaveQueueOwner, save: () => Promise<T>): 
     return enqueueTileSave(owner, start, applied)
 }
 
+/** Writes the group straight to the API, so it lands even if the dashboard closes while the add runs. */
+export async function placeTilesInGroup(
+    teamId: number | null,
+    dashboardId: number,
+    tileIds: number[],
+    groupKey: string | null
+): Promise<void> {
+    if (!groupKey || tileIds.length === 0) {
+        return
+    }
+    try {
+        await dashboardsPartialUpdate(String(teamId), dashboardId, {
+            tiles: tileIds.map((id) => ({ id, group_key: groupKey })),
+        })
+    } catch {
+        lemonToast.error("Couldn't add the new tile to its group. Move it there with its Move to option.")
+    }
+}
+
 const groupKeyUpdate = (tile: DashboardTile, saved: TilePlacement | undefined): { group_key?: string | null } =>
     tileGroupChanged(tile, saved) ? { group_key: tile.group_key ?? null } : {}
 
@@ -792,8 +815,8 @@ export interface dashboardLogicValues {
     loadTimer: Date | null
     loadingPreview: boolean
     maxContext: MaxContextInput[]
-    nextAllowedDashboardRefresh: Dayjs | null
     newTileGroupKey: string | null
+    nextAllowedDashboardRefresh: Dayjs | null
     nextWidgetStaleAt: number | null
     oldestRefreshed: Dayjs | null
     pageVisibility: boolean
@@ -804,7 +827,6 @@ export interface dashboardLogicValues {
     projectTreeRef: ProjectTreeRef
     queryLoadQueue: TaskQueue
     readOnly: boolean
-    renamingTileGroupKey: string | null
     refreshEligibilityTick: number
     refreshMetrics: {
         completed: number
@@ -812,6 +834,7 @@ export interface dashboardLogicValues {
     }
     refreshStatus: Record<string, RefreshStatus>
     refreshTilesTotal: number | null
+    renamingTileGroupKey: string | null
     revealedTileGroup: RevealedTileGroup | null
     savedDashboardSettings: DashboardSettings
     savedTilePlacements: Record<DashboardTile['id'], TilePlacement>
@@ -874,9 +897,6 @@ export interface dashboardLogicActions {
         queryId: string
         queryStartTime: number
         shortId: InsightShortId
-    }
-    setAddTargetTileGroupKey: (groupKey: string | null) => {
-        groupKey: string | null
     }
     addTileGroup: (title?: string) => {
         title: string
@@ -992,6 +1012,9 @@ export interface dashboardLogicActions {
             toDashboard: number
             toDashboardName: string
         }
+    }
+    createTiles: (tiles: NewDashboardTile[]) => {
+        tiles: NewDashboardTile[]
     }
     dashboardNotFound: () => {
         value: true
@@ -1161,9 +1184,6 @@ export interface dashboardLogicActions {
         value: any
         variableId: string
     }
-    createTiles: (tiles: NewDashboardTile[]) => {
-        tiles: NewDashboardTile[]
-    }
     placeAddedTiles: (
         tileIds: number[],
         groupKey?: string | null
@@ -1230,9 +1250,6 @@ export interface dashboardLogicActions {
             tile: DashboardTile
         }
     }
-    setRenamingTileGroupKey: (groupKey: string | null) => {
-        groupKey: string | null
-    }
     renameTileGroup: (
         groupKey: string,
         title: string
@@ -1282,6 +1299,9 @@ export interface dashboardLogicActions {
         themeId: {
             themeId: number | null
         } | null
+    }
+    restoreTileGroups: (groups: Record<string, DashboardTileGroupApi>) => {
+        groups: Record<string, DashboardTileGroupApi>
     }
     retryDashboardLoad: () => {
         value: true
@@ -1349,6 +1369,9 @@ export interface dashboardLogicActions {
     }
     setAccessDeniedToDashboard: () => {
         value: true
+    }
+    setAddTargetTileGroupKey: (groupKey: string | null) => {
+        groupKey: string | null
     }
     setAddWidgetModalOpen: (open: boolean) => {
         open: boolean
@@ -1482,6 +1505,9 @@ export interface dashboardLogicActions {
     }
     setRefreshTilesTotal: (total: number) => {
         total: number
+    }
+    setRenamingTileGroupKey: (groupKey: string | null) => {
+        groupKey: string | null
     }
     setRevealedTileGroup: (revealedTileGroup: RevealedTileGroup | null) => {
         revealedTileGroup: RevealedTileGroup | null
@@ -1861,7 +1887,11 @@ export interface dashboardLogicMeta {
             currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
         ) => boolean
         sizeKey: (columns: number | null) => DashboardLayoutSize | undefined
-        layouts: (tiles: DashboardTile[], draftLayouts: Partial<Record<string, Layout>> | null) => ResponsiveLayouts
+        layouts: (
+            tiles: DashboardTile[],
+            draftLayouts: Partial<Record<string, Layout>> | null,
+            tileGroupSectionsEnabled: boolean
+        ) => ResponsiveLayouts
         layout: (
             layouts: Partial<Record<string, Layout>>,
             sizeKey: DashboardLayoutSize | undefined
@@ -2228,6 +2258,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /** Shows a group change before it saves. The API replaces every group on write. */
         setTileGroups: (groups: Record<string, DashboardTileGroupApi>) => ({ groups }),
         saveTileGroups: (groups: Record<string, DashboardTileGroupApi>) => ({ groups }),
+        /** Puts back the groups the server holds after a group save fails, leaving tiles and layout drafts alone. */
+        restoreTileGroups: (groups: Record<string, DashboardTileGroupApi>) => ({ groups }),
         saveDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => ({ tileSpacing }),
         saveDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => ({ layoutCompaction }),
         setDashboardCustomizeMenuOpen: (open: boolean) => ({ open }),
@@ -2979,6 +3011,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } as DashboardType
                 },
                 setTileGroups: (state, { groups }) =>
+                    state ? { ...state, customization: { ...state.customization, groups } } : state,
+                restoreTileGroups: (state, { groups }) =>
                     state ? { ...state, customization: { ...state.customization, groups } } : state,
                 setDashboardTileSpacing: (state, { tileSpacing }) =>
                     state
@@ -5826,15 +5860,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         placeAddedTiles: async ({ tileIds, groupKey = values.newTileGroupKey }) => {
-            if (groupKey && tileIds.length > 0) {
-                try {
-                    await dashboardsPartialUpdate(String(values.currentTeamId), props.id, {
-                        tiles: tileIds.map((id) => ({ id, group_key: groupKey })),
-                    })
-                } catch {
-                    lemonToast.error("Couldn't add the new tile to its group. Move it there with its Move to option.")
-                }
-            }
+            await placeTilesInGroup(values.currentTeamId, props.id, tileIds, groupKey)
             actions.loadDashboard({ action: DashboardLoadAction.Update })
         },
         setTileGroups: ({ groups }) => {
@@ -5847,19 +5873,33 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.saveTileGroups(groups)
         },
         saveTileGroups: async ({ groups }) => {
-            cache.savedTileGroups = null
-            // Other dashboard writes share this request's success and failure actions, so await this one.
-            await dashboardsModel.asyncActions.updateDashboard({ id: props.id, groups })
-            cache.tileGroupsSaving = false
-            const pendingTileGroups = cache.pendingTileGroups
-            cache.pendingTileGroups = null
-            if (cache.savedTileGroups !== groups) {
-                actions.loadDashboard({ action: DashboardLoadAction.Update })
-                lemonToast.error("Couldn't save the group change. Try again.")
-                return
-            }
-            if (pendingTileGroups) {
-                actions.setTileGroups(pendingTileGroups)
+            // The success listener marks this save as done, and a queued change waits for it, so stay mounted.
+            const releaseMount = dashboardLogic(props).mount()
+            try {
+                cache.savedTileGroups = null
+                // Other dashboard writes share this request's success and failure actions, so await this one.
+                await dashboardsModel.asyncActions.updateDashboard({ id: props.id, groups })
+                cache.tileGroupsSaving = false
+                const pendingTileGroups = cache.pendingTileGroups
+                cache.pendingTileGroups = null
+                if (cache.savedTileGroups !== groups) {
+                    lemonToast.error("Couldn't save the group change. Try again.")
+                    // A full reload would drop unsaved layout edits, so only the groups go back.
+                    try {
+                        const saved = await dashboardsRetrieve(String(values.currentTeamId), props.id)
+                        actions.restoreTileGroups(saved.customization?.groups ?? {})
+                    } catch {
+                        if (!values.draftLayouts) {
+                            actions.loadDashboard({ action: DashboardLoadAction.Update })
+                        }
+                    }
+                    return
+                }
+                if (pendingTileGroups) {
+                    actions.setTileGroups(pendingTileGroups)
+                }
+            } finally {
+                releaseMount()
             }
         },
         renameTileGroup: ({ groupKey, title }) => {
