@@ -88,6 +88,43 @@ export function decompressMessageValue(message: Message): Buffer {
     return messageUnzipped
 }
 
+export function statedDecodedBytes(message: Message): number {
+    const value = message.value
+    if (!value) {
+        return 0
+    }
+    let stated = 0
+    if (value.length >= 4) {
+        if (getContentEncoding(message.headers) === 'lz4') {
+            stated = value.readUInt32LE(0)
+        } else if (isGzipped(value)) {
+            stated = value.readUInt32LE(value.length - 4)
+        }
+    }
+    return Math.max(value.length, stated <= MAX_DECOMPRESSED_BYTES ? stated : 0)
+}
+
+export function splitByDecodedBytes(messages: Message[], maxBytes: number): Message[][] {
+    if (maxBytes <= 0 || messages.length === 0) {
+        return [messages]
+    }
+    const parts: Message[][] = []
+    let current: Message[] = []
+    let currentBytes = 0
+    for (const message of messages) {
+        const bytes = statedDecodedBytes(message)
+        if (current.length > 0 && currentBytes + bytes > maxBytes) {
+            parts.push(current)
+            current = []
+            currentBytes = 0
+        }
+        current.push(message)
+        currentBytes += bytes
+    }
+    parts.push(current)
+    return parts
+}
+
 // null when capture recorded no usable pair, which must not read as zero skew.
 function rawClockSkewMs(sentAt: string | undefined, now: string | undefined): number | null {
     if (!sentAt || !now) {
