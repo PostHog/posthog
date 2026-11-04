@@ -117,7 +117,6 @@ export class EmailSuppressionService {
         try {
             entry = (await this.lazyLoader.get(toKey(teamId, identifier))) ?? false
         } catch (error) {
-            // Fail closed: an unread list must not let mail reach a suppressed address. The caller holds the send.
             cdpEmailSuppressionTotal.inc({ result: 'lookup_failed' })
             logger.error('[EmailSuppression] Failed to check suppression', { teamId, error })
             throw new SuppressionLookupError()

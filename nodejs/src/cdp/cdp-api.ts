@@ -1328,7 +1328,7 @@ export class CdpApi {
         if (hogFlow.email_sending_paused_at) {
             return { outcome: 'sending_paused', status: 422 }
         }
-        // An unread list does not refuse the send. The email worker checks again and holds the email until it can read the list.
+        // The email worker checks the list again and holds the email until it can read it.
         const suppressed = await this.emailSuppressionService
             .isSuppressed(teamId, to, { transactional: true })
             .catch((error) => {

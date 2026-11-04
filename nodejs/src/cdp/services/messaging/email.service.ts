@@ -232,8 +232,12 @@ function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
 const CAP_RETRY_MIN_MS = 1_000
 const CAP_RETRY_MAX_MS = 60 * 60 * 1_000
 
-// Base wait before a send retries an unread suppression list. A jitter of up to 1x spreads a held backlog.
 const SUPPRESSION_RETRY_MS = 30_000
+
+// The jitter spreads a held backlog, so it does not retry against the database in one burst.
+function suppressionRetryDelayMs(attempt: number): number {
+    return Math.min(Math.floor(SUPPRESSION_RETRY_MS * 2 ** (attempt - 1) * (1 + Math.random())), CAP_RETRY_MAX_MS)
+}
 
 // How far denied sends park. Everything at or below the top bucket is a real slot.
 // Above the top bucket is overflow: the backlog is deeper than one hour of refill.
@@ -801,26 +805,29 @@ export class EmailService {
             success = true
             result.emailSendResult = { status: 'accepted' }
         } catch (error) {
-            // An unread suppression list reschedules like a throttle, except a test send, which cannot wait and fails.
-            if (error instanceof SESThrottleError || (error instanceof SuppressionLookupError && !isTest)) {
+            if (error instanceof SESThrottleError) {
                 // Treat as a transient delivery delay — reschedule rather than fail
                 // the job. Our local bucket is the primary throttle; this path
                 // catches the cases where SES disagrees with our estimate.
-                const retryAfterMs =
-                    error instanceof SESThrottleError
-                        ? error.retryAfterMs
-                        : Math.floor(SUPPRESSION_RETRY_MS * (1 + Math.random()))
                 result.finished = false
                 result.invocation.queueParameters = params
                 result.invocation.queueMetadata = invocation.queueMetadata
+                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
+                addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
+                // Skip the VM-state push and the metrics, because the retry that succeeds records both.
+                return result
+            } else if (error instanceof SuppressionLookupError && !isTest) {
+                // A test send runs in process and cannot wait for a retry, so it fails in the branch below.
+                const attempt = (invocation.queueMetadata?.suppressionLookupAttempts ?? 0) + 1
+                const retryAfterMs = suppressionRetryDelayMs(attempt)
+                result.finished = false
+                result.invocation.queueParameters = params
+                result.invocation.queueMetadata = { ...invocation.queueMetadata, suppressionLookupAttempts: attempt }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryAfterMs })
                 addLog(
                     'warn',
-                    error instanceof SESThrottleError
-                        ? `SES rate-limited (${error.errorCode}); rescheduling email in ${retryAfterMs}ms`
-                        : `Could not check the suppression list, so this email is waiting. Retrying in ${Math.round(retryAfterMs / 1000)}s. No action is needed on your side.`
+                    `Could not check the suppression list, so this email is waiting. Retrying in ${Math.round(retryAfterMs / 1000)}s. No action is needed on your side.`
                 )
-                // Skip the VM-state push and the metrics, because the retry that succeeds records both.
                 return result
             } else {
                 addLog('error', error.message)
