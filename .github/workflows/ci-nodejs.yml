@@ -816,9 +816,9 @@ jobs:
     rust_ingestion_e2e:
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
         if: (needs.changes.outputs.nodejs == 'true' || needs.changes.outputs.personhog_e2e == 'true') && github.event_name != 'push'
-        name: Rust ingestion consumer Node API e2e (depot-ubuntu-24.04)
+        name: Rust ingestion consumer Node API e2e (depot-ubuntu-24.04-4)
         needs: changes
-        runs-on: depot-ubuntu-24.04
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
