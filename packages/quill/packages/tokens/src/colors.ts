@@ -290,7 +290,7 @@ function generateInvertedSurfaceCSS(
     dataViz: { light: string; dark: string }
 ): string {
     const inLightMode = `:is(${INVERTED_SURFACE}, ${INVERTED_SURFACE} *)`
-    const inDarkMode = `:is(${darkSelector} ${INVERTED_SURFACE}, ${darkSelector} ${INVERTED_SURFACE} *)`
+    const inDarkMode = `:is(${darkSelector} ${INVERTED_SURFACE}, ${INVERTED_SURFACE}${darkSelector}, ${darkSelector} ${INVERTED_SURFACE} *, ${INVERTED_SURFACE}${darkSelector} *)`
 
     return `${inLightMode} {
   color-scheme: dark;
@@ -352,7 +352,7 @@ export function generateColorSystemCSS(
     // All vars gated behind the scope selector to avoid clashing
     // with the consumer's existing CSS custom properties.
     if (scope) {
-        const scopeSel = `:is(${scope}, ${scope} *)`
+        const scopeSel = `:is(${scope}, ${scope} *, ${INVERTED_SURFACE}, ${INVERTED_SURFACE} *)`
         // Handle both ancestor-dark (`.dark [data-quill]`) and same-element
         // dark (`[data-quill].dark`) so dark mode works regardless of where
         // the dark selector lives relative to the scope element.
