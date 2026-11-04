@@ -180,21 +180,33 @@ export class TransactionalSends {
         if (hogFlow.status !== 'active') {
             return 'not_sendable'
         }
-        if (await this.deps.teamWorkflowsConfig.getEmailSendingSuspension(teamId)) {
+        // The lookups run at the same time, and the checks below await them in order, so the first refusal in that
+        // order wins. The MX check's DNS lookup runs even when an earlier check refuses, which is acceptable because
+        // refusals are rare and the verdict is cached per domain.
+        const suspension = this.deps.teamWorkflowsConfig.getEmailSendingSuspension(teamId)
+        const suppressed = this.deps.emailSuppression.isSuppressed(teamId, to, { transactional: true })
+        const quota = checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
+        // A DNS failure lets the send through.
+        const recipientSkipReason = this.deps.emailValidation.getRecipientSkipReason(teamId, to)
+        // An earlier refusal returns before the later lookups are awaited, so their failures must not go unhandled.
+        const lookups: Promise<unknown>[] = [suspension, suppressed, quota, recipientSkipReason]
+        for (const lookup of lookups) {
+            lookup.catch(() => undefined)
+        }
+
+        if (await suspension) {
             return 'sending_suspended'
         }
         if (hogFlow.email_sending_paused_at) {
             return 'sending_paused'
         }
-        if (await this.deps.emailSuppression.isSuppressed(teamId, to, { transactional: true })) {
+        if (await suppressed) {
             return 'recipient_suppressed'
         }
-        const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
-        if (isLimited) {
+        if ((await quota).isLimited) {
             return 'quota_limited'
         }
-        // Last, because a cache miss costs a DNS lookup. A DNS failure lets the send through.
-        if (await this.deps.emailValidation.getRecipientSkipReason(teamId, to)) {
+        if (await recipientSkipReason) {
             return 'recipient_unreachable'
         }
         return null
