@@ -6,7 +6,7 @@ from typing import Any
 
 from posthog.models.team.team import Team
 
-from products.alerts_platform.backend.facade.api import copied_legacy_ids, count_configurations, hold_admission_lock
+from products.alerts_platform.backend.facade.api import count_configurations, hold_cap_lock
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.logs.backend.alert_utils import next_allowed_check_at
 from products.logs.backend.models import LogsAlertConfiguration
@@ -30,12 +30,12 @@ class AlertLimitReached(Exception):
 def claim_alert_slot(team_id: int) -> None:
     """Serializes the team's logs alert creates on every route, the platform's included, until the
     caller's transaction ends, and raises `AlertLimitReached` when the team is at its cap."""
-    hold_admission_lock(team_id=team_id, source_kind=SourceKind.LOGS)
+    hold_cap_lock(team_id=team_id, source_kind=SourceKind.LOGS)
     check_alert_slot(team_id)
 
 
 def check_alert_slot(team_id: int) -> None:
-    """Raises `AlertLimitReached` when the team is at its cap. The caller holds the admission lock."""
+    """Raises `AlertLimitReached` when the team is at its cap. The caller holds the cap lock."""
     if team_id in UNCAPPED_ALERT_TEAM_IDS:
         return
     if _alerts_of(team_id) >= MAX_ALERTS_PER_TEAM:
@@ -43,11 +43,10 @@ def check_alert_slot(team_id: int) -> None:
 
 
 def _alerts_of(team_id: int) -> int:
-    """Every logs alert of the team: each platform configuration, copies included, and each logs row
-    with no copy. The count stays right once logs rows stop being written, and once they are deleted."""
-    copied = copied_legacy_ids(team_id=team_id, source_kind=SourceKind.LOGS)
-    uncopied = LogsAlertConfiguration.objects.filter(team_id=team_id).exclude(id__in=copied).count()
-    return count_configurations(team_id=team_id, source_kind=SourceKind.LOGS) + uncopied
+    """Every logs alert of the team: each logs row, and each platform alert with no logs row."""
+    return LogsAlertConfiguration.objects.filter(team_id=team_id).count() + count_configurations(
+        team_id=team_id, source_kind=SourceKind.LOGS, native_only=True
+    )
 
 
 def first_check_at(team_id: int, schedule_restriction: dict[str, Any]) -> datetime:

@@ -150,7 +150,7 @@ def mirror_platform_edit(
     """Locks the insight row of an alert edited through the platform API, and returns its writer."""
     alert = (
         AlertConfiguration.objects.select_for_update(no_key=True, of=("self",))
-        .select_related("threshold", "insight", "team__organization")
+        .select_related("threshold", "insight")
         # A copy lives on the project's team. An insight alert in one of its environments is never
         # handed over, so the copy of one is the insight stack's and refuses the edit.
         .filter(team_id=team_id, id=legacy_configuration_id)
@@ -215,12 +215,13 @@ def admit_platform_write(
     and the Max tool check. A create counts against the plan's alerts. A write that turns an alert on
     needs the plan to include its cadence, and a real-time one counts against the active real-time limit.
     Without these, the next evaluation would switch the alert off again."""
+    turns_on = edit.enabled and (current is None or not current.enabled)
+    interval = _PLAN_GATED_INTERVALS.get(check_interval_minutes) if turns_on and check_interval_minutes else None
+    if current is not None and interval is None:
+        return
     organization = Team.objects.select_related("organization").get(id=team_id).organization
     if current is None and (error := AlertConfiguration.check_alert_limit(team_id, organization)):
         raise PlatformAlertCreateRefused(error)
-    if not edit.enabled or (current is not None and current.enabled):
-        return
-    interval = _PLAN_GATED_INTERVALS.get(check_interval_minutes) if check_interval_minutes is not None else None
     if interval is None:
         return
     error = AlertConfiguration.interval_entitlement_error(calculation_interval=interval, organization=organization)

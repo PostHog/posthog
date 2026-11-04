@@ -119,12 +119,12 @@ def _validated(
     return validated
 
 
-def hold_admission_lock(team_id: int, source_kind: SourceKind) -> None:
-    """Serializes a team's admissions for a kind until the caller's transaction ends. A source that
-    also creates alerts outside the platform takes it too, so its count and the platform's agree."""
+def hold_cap_lock(team_id: int, source_kind: SourceKind) -> None:
+    """Serializes a team's cap checks for a kind until the caller's transaction ends. A source that
+    also creates alerts outside the platform takes it too, so two creates cannot both pass a count."""
     # In autocommit the lock ends with its own statement, so it would serialize nothing.
     if not connection.in_atomic_block:
-        raise RuntimeError("The admission lock must be taken inside a transaction.")
+        raise RuntimeError("The cap lock must be taken inside a transaction.")
     # A transaction-scoped advisory lock per team and kind, rather than a lock on the Team row, which
     # foreign-key checks from every child write also take.
     with connection.cursor() as cursor:
@@ -148,7 +148,7 @@ def _admit(
     cap = spec.native.max_per_team if spec.native is not None and current is None else None
     if spec.admit is None and cap is None:
         return
-    hold_admission_lock(team_id, source_kind)
+    hold_cap_lock(team_id, source_kind)
     if cap is not None and platform_reads.count_configurations(team_id=team_id, source_kind=source_kind.value) >= cap:
         raise PlatformAlertCreateRefused(
             f"This project has reached the limit of {cap} alerts of this type. Delete one to add another."

@@ -359,28 +359,25 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     @classmethod
     def _counted(cls, team_id: int, *, active_real_time: bool = False, exclude_id: str | None = None) -> int:
-        """The team's insight alerts: each platform configuration, copies included, and each insight row
-        with no copy. The count stays right for an alert that only the platform holds."""
+        """The team's insight alerts: each insight row, and each platform alert with no insight row."""
         # Deferred: the platform's read logic stays off django.setup(), where this model loads in every process.
-        from products.alerts_platform.backend.facade.api import copied_legacy_ids, count_configurations  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.api import count_configurations  # noqa: PLC0415
         from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
         from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES  # noqa: PLC0415
 
-        rows = cls.objects.filter(team_id=team_id).exclude(
-            id__in=copied_legacy_ids(team_id=team_id, source_kind=SourceKind.INSIGHT)
-        )
+        rows = cls.objects.filter(team_id=team_id)
         if active_real_time:
             rows = rows.filter(calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True)
         if exclude_id:
             rows = rows.exclude(pk=exclude_id)
-        # An excluded alert is never an enabled real-time one, so its copy is not in this count either.
-        on_platform = count_configurations(
+        native = count_configurations(
             team_id=team_id,
             source_kind=SourceKind.INSIGHT,
+            native_only=True,
             enabled_only=active_real_time,
             check_interval_minutes=REAL_TIME_CADENCE_MINUTES if active_real_time else None,
         )
-        return on_platform + rows.count()
+        return rows.count() + native
 
     @classmethod
     def supports_high_frequency_intervals(cls, organization: Organization) -> bool:
