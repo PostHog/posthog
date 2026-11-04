@@ -15,7 +15,6 @@ from posthog.sync import database_sync_to_async
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
 from ee.hogai.context.insight.context import InsightContext
-from ee.hogai.context.insight.format.sql import SQLResultsFormatter
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.execute_sql.compatibility_hints import ACCEPTED_CAST_TYPES, NESTABLE_BINARY_FUNCTIONS
 from ee.hogai.tools.execute_sql.mcp_tool import (
@@ -26,7 +25,27 @@ from ee.hogai.tools.execute_sql.mcp_tool import (
 )
 
 
+def _exception_rows(count: int) -> list[list[object]]:
+    stack = "\n".join(
+        f"    at renderWidget{frame} (https://app.example.com/static/chunk-{frame}.js:{100 + frame}:15)"
+        for frame in range(20)
+    )
+    return [
+        [
+            f"01920000-0000-7000-8000-{index:012d}",
+            f"2026-10-01T12:{index % 60:02d}:00Z",
+            f"TypeError: Cannot read properties of undefined (reading 'widget_{index}')\n{stack}",
+            f"https://app.example.com/dashboards/{index}?tab=overview&filters=%7B%22date_from%22%3A%22-7d%22%7D",
+            {"$browser": "Chrome", "$os": "Mac OS X", "$lib": "web", "widget_id": f"wdg_{index}"},
+        ]
+        for index in range(count)
+    ]
+
+
 class TestExecuteSQLMCPOutputLimits(SimpleTestCase):
+    # chars / 4, the estimate the MCP server reports as output tokens.
+    DEFAULT_TOKEN_BUDGET = 16_000
+
     @parameterized.expand(
         [
             ("default", EventSource.MCP, True),
@@ -35,21 +54,23 @@ class TestExecuteSQLMCPOutputLimits(SimpleTestCase):
             ("first_party_untruncated", EventSource.POSTHOG_AI, False),
         ]
     )
-    async def test_mcp_preserves_large_results(self, _name: str, source: EventSource, truncate: bool) -> None:
-        value = "example text " * 200
+    async def test_mcp_bounds_default_results(self, _name: str, source: EventSource, truncate: bool) -> None:
+        rows = _exception_rows(500)
         tool = ExecuteSQLMCPTool(team=Team(id=1, organization=Organization()), user=User(), event_source=source)
-        response = {"columns": ["text", "json"], "results": [[value, {"example": value}] for _ in range(100)]}
+        response = {"columns": ["uuid", "timestamp", "message", "current_url", "properties"], "results": rows}
         with patch("ee.hogai.context.insight.query_executor.process_query_dict", return_value=response):
             result = await tool.execute(
                 ExecuteSQLMCPToolArgs(
-                    query="SELECT text, json FROM example_table", connectionId="example-connection", truncate=truncate
+                    query="SELECT uuid, timestamp, message, current_url, properties FROM example_table",
+                    connectionId="example-connection",
+                    truncate=truncate,
                 )
             )
-        self.assertGreater(len(result.content), SQLResultsFormatter.MAX_RESULT_CHARS)
-        self.assertEqual(result.content.count(value), 100 if truncate else 200)
-        self.assertNotIn("SQL result preview", result.content)
-        if not truncate:
-            self.assertNotIn("...truncated", result.content)
+        if truncate:
+            self.assertLessEqual(len(result.content) / 4, self.DEFAULT_TOKEN_BUDGET)
+            self.assertIn("[SQL result preview: Showing ", result.content)
+        else:
+            self.assertTrue(all(row[2] in result.content for row in rows))
 
 
 class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
