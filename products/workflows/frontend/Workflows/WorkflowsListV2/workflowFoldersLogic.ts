@@ -64,10 +64,10 @@ export interface workflowFoldersLogicValues {
     folderJumpSearch: string
     folderMatchesText: MatchesText<WorkflowFolderFileRow>
     folderPaths: string[]
-    folderTreeEntries: (FileSystemEntry | FileSystemImport)[]
     folderRows: WorkflowListRow[]
     folderSearchItems: WorkflowFolderFileRow[]
     folderTemplates: FileSystemEntry[]
+    folderTreeEntries: (FileSystemEntry | FileSystemImport)[]
     hasActiveQuery: boolean
     matchingRows: WorkflowListRow[]
     matchingTemplates: FileSystemEntry[]
@@ -133,6 +133,9 @@ export interface workflowFoldersLogicActions {
     openFolder: (folder: string | null) => {
         folder: string | null
     }
+    reloadBrowserIfIndexLost: () => {
+        value: true
+    }
     revealFolder: (folder: string | null) => {
         folder: string | null
     }
@@ -157,9 +160,6 @@ export interface workflowFoldersLogicActions {
     }
     setFolderDraftName: (name: string) => {
         name: string
-    }
-    reloadBrowserIfIndexLost: () => {
-        value: true
     }
     setFolderJumpSearch: (search: string) => {
         search: string
