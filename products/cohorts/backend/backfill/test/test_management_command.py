@@ -18,6 +18,7 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 
+from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTable
 from products.cohorts.backend.backfill.sizing import (
     BehavioralScanEstimate,
     PersonSeedEstimate,
@@ -30,6 +31,8 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillRunStatus,
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 # The catalog drops a leaf with no bytecode or a `conditionHash` that is not 16 characters, and
 # `_calculate_realtime_support` grants `cohort_type=REALTIME` only when every leaf compiled to
@@ -56,7 +59,7 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
         self.addCleanup(patcher.stop)
 
     def _scan_estimate(
-        self, team_id: int, event_names: list[str], *, max_events_per_day: int
+        self, team_id: int, event_names: list[str], *, flag_calls_table: FlagCallsTable, max_events_per_day: int
     ) -> BehavioralScanEstimate:
         return BehavioralScanEstimate(
             days_sampled=7,
@@ -178,6 +181,42 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
             ),
             [selected.id],
         )
+
+    def test_the_scan_estimate_counts_flag_calls_from_the_table_the_run_pins(self) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS},
+        )
+        Cohort.objects.create(
+            team=self.team,
+            cohort_type=CohortType.REALTIME,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "$feature_flag_called",
+                            "event_type": "events",
+                            "value": "performed_event",
+                            "conditionHash": "flagcall00000001",
+                            "time_value": 7,
+                            "time_interval": "day",
+                            "event_filters": [
+                                {"key": "$feature_flag", "type": "event", "value": "beta-feature", "operator": "exact"}
+                            ],
+                            "bytecode": _BYTECODE,
+                        }
+                    ],
+                }
+            },
+        )
+
+        call_command("create_cohort_backfill_run", team_id=self.team.id, trigger="team_enablement")
+
+        run = CohortBackfillRun.objects.for_team(self.team.id).get()
+        self.assertEqual(run.pinned["flag_calls_table"], FlagCallsTable.FLAG_EVALUATIONS)
+        self.assertEqual(self.scan_estimate.call_args.kwargs["flag_calls_table"], FlagCallsTable.FLAG_EVALUATIONS)
 
     def test_disaster_recovery_boundary_is_persisted_without_promoting_the_run(self) -> None:
         self._cohort("$pageview")
