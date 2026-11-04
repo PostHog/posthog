@@ -216,7 +216,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 />
                 <Markdown>
                     {dedent`
-                        Then create a \`lib/posthog-server.js\` file that initializes PostHog from \`posthog-node\`. With \`enableExceptionAutocapture\`, it captures uncaught exceptions and unhandled promise rejections on the Node.js server. Create the client inside the function, not at the top level of the module, where it breaks the edge runtime.
+                        Then create a \`lib/posthog-server.js\` file that initializes PostHog from \`posthog-node\`. With \`enableExceptionAutocapture\`, it captures uncaught exceptions and unhandled promise rejections. Turn it on for the Node.js runtime only: the edge runtime cannot register process listeners, so the client would fail to start there.
 
                         This looks like this:
                     `}
@@ -236,8 +236,8 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                     host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
                                     flushAt: 1,
                                     flushInterval: 0,
-                                    // Uncaught exceptions and unhandled promise rejections on the Node.js server
-                                    enableExceptionAutocapture: true,
+                                    // Uncaught exceptions and unhandled promise rejections, on the Node.js runtime only
+                                    enableExceptionAutocapture: process.env.NEXT_RUNTIME === 'nodejs',
                                   })
                                   return posthogServer
                                 }
