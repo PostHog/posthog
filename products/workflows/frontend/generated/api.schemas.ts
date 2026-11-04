@@ -66,14 +66,17 @@ export interface AudienceSuggestionApi {
      * @nullable
      */
     min_count: number | null
-    /** People in the audience with an email address, counted when the suggestion was made. */
-    reachable_count: number
+    /**
+     * Roughly how many people in the audience have an email address, counted when the suggestion was made. Null while the count runs, or when it failed.
+     * @nullable
+     */
+    reachable_count: number | null
     /** The audience's cohort filters, in the cohorts endpoint's `filters` format. Saved as a static cohort. */
     cohort_filters: unknown
 }
 
 export interface AudienceSuggestionsResponseApi {
-    /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
+    /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends, the list can already hold cards being counted), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
      *
      * * `ready` - Ready
      * * `generating` - Generating
@@ -1153,6 +1156,7 @@ export interface MessageAssetApi {
  * * `queued` - Queued
  * * `active` - Active
  * * `completed` - Completed
+ * * `partially_failed` - Partially failed
  * * `cancelled` - Cancelled
  * * `failed` - Failed
  */
@@ -1163,6 +1167,7 @@ export const HogFlowBatchJobStateEnumApi = {
     Queued: 'queued',
     Active: 'active',
     Completed: 'completed',
+    PartiallyFailed: 'partially_failed',
     Cancelled: 'cancelled',
     Failed: 'failed',
 } as const
@@ -1170,12 +1175,13 @@ export const HogFlowBatchJobStateEnumApi = {
 export interface HogFlowBatchJobApi {
     /** ID of the batch run. */
     readonly id: string
-    /** Not currently tracked — stays at its initial value. Use the workflow logs/metrics endpoints for run outcome.
+    /** Status of the batch run. waiting: the audience's cohort is still calculating. queued and active: the run is enrolling its audience. completed: the whole audience was enrolled. When every enrolled person's run has ended, or a day after the run completed, PostHog checks for errored sends. A completed run stays completed when no send errored, becomes partially_failed when some sends errored, and becomes failed when every send errored. failed also means the run could not enroll its audience. cancelled: someone stopped the run. A send errors when its step throws, for example on a template that does not render. Provider failures such as bounces are not errored sends; read them from the run's metrics.
      *
      * * `waiting` - Waiting
      * * `queued` - Queued
      * * `active` - Active
      * * `completed` - Completed
+     * * `partially_failed` - Partially failed
      * * `cancelled` - Cancelled
      * * `failed` - Failed */
     status?: HogFlowBatchJobStateEnumApi
@@ -1205,6 +1211,7 @@ export interface HogFlowBatchJobCancelResponseApi {
      * * `queued` - Queued
      * * `active` - Active
      * * `completed` - Completed
+     * * `partially_failed` - Partially failed
      * * `cancelled` - Cancelled
      * * `failed` - Failed */
     status: HogFlowBatchJobStateEnumApi
@@ -2299,12 +2306,13 @@ export type SendCalendarFlowApiAudiencePropertiesItem = { [key: string]: unknown
 export interface SendCalendarBatchJobApi {
     /** ID of the batch run. */
     readonly id: string
-    /** Status of the batch run.
+    /** Status of the batch run. waiting: the audience's cohort is still calculating. queued and active: the run is enrolling its audience. completed: the whole audience was enrolled. When every enrolled person's run has ended, or a day after the run completed, PostHog checks for errored sends. A completed run stays completed when no send errored, becomes partially_failed when some sends errored, and becomes failed when every send errored. failed also means the run could not enroll its audience. cancelled: someone stopped the run. A send errors when its step throws, for example on a template that does not render. Provider failures such as bounces are not errored sends; read them from the run's metrics.
      *
      * * `waiting` - Waiting
      * * `queued` - Queued
      * * `active` - Active
      * * `completed` - Completed
+     * * `partially_failed` - Partially failed
      * * `cancelled` - Cancelled
      * * `failed` - Failed */
     readonly status: HogFlowBatchJobStateEnumApi
@@ -3119,7 +3127,7 @@ export type HogFlowsListParams = {
      */
     broadcast_eligible?: boolean
     /**
-     * Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.
+     * Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, partially_sent, failed, archived. Scheduled, sending, sent, partially_sent and failed come from the latest run and whether a schedule still has sends to come. A latest run that is completed reads as sent, partially_failed as partially_sent, and failed or cancelled as failed. With a schedule still to come, a completed or partially_failed latest run reads as scheduled.
      */
     broadcast_status?: string
     created_at?: string
@@ -3129,7 +3137,7 @@ export type HogFlowsListParams = {
     created_by?: string
     id?: string
     /**
-     * Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last.
+     * Pass `true` to order by when each workflow's newest completed or partially_failed run finished, newest first. Workflows that never finished such a run come last.
      */
     latest_send_first?: boolean
     /**
