@@ -37846,10 +37846,14 @@
                                 {
                                     "const": "threads",
                                     "type": "string"
+                                },
+                                {
+                                    "const": "th",
+                                    "type": "string"
                                 }
                             ],
-                            "maxItems": 9,
-                            "minItems": 9,
+                            "maxItems": 10,
+                            "minItems": 10,
                             "type": "array"
                         },
                         "idField": {
@@ -39665,7 +39669,8 @@
                 "whatsapp",
                 "audience_network",
                 "facebook_marketplace",
-                "threads"
+                "threads",
+                "th"
             ],
             "type": "string"
         },
