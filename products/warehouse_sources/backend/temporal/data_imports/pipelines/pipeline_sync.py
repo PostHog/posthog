@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import hogql_type_name_for_clickhouse_type
+from products.warehouse_sources.backend.self_managed_access import assert_adoption_keeps_access
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     HISTORY_NAMING,
     LEGACY_HISTORY_NAMING,
@@ -490,6 +491,10 @@ async def validate_schema_and_update_table(
 
             if table_created is None:
                 table_created = find_replaced_self_managed_table(external_data_schema, job.pipeline)
+                if table_created is not None and table_created.external_data_source_id is None:
+                    # Adoption makes the table resolve through the source's rules. Fail before the
+                    # table changes when the rules no longer keep everyone's access.
+                    assert_adoption_keeps_access(table_created, job.pipeline)
 
             # A reported row_count of 0 does not always mean the run wrote nothing: the v3 consumer
             # can read 0 on a redelivered final batch, and a resumed run counts only its own attempt.
