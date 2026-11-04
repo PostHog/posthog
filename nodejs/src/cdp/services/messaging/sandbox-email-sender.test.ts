@@ -275,6 +275,8 @@ describe('sandbox email content', () => {
         ['<body><p>Hello</p><!--[if !mso]><!-->', null, null],
         ['<body><!--[if mso]><p>Outlook</p><![endif]--><p>Hello</p><!--[if gte mso 9]><p>Old Outlook</p>', null, null],
         ['<body><![if !mso]><p>Hello</p>', null, null],
+        ['<body><!--[if !mso]><!--><p title="<![endif]">Hello</p>', null, null],
+        ['<body><!--[if !mso]><!--><p>Hello</p><!-- <![endif] note -->', null, null],
         ['<body><p>Hello</p><template><!--[if !mso]><p>Example</p>', null, null],
         ['', '', 'The sandbox email template must include HTML or text content. Update the template and try again.'],
     ])('rejects content that cannot retain the footer: %s', async (html, text, error) => {
