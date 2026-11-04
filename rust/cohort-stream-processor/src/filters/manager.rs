@@ -419,9 +419,12 @@ impl CatalogRefresher {
                 "filter catalog dropped cohort rows of teams it does not process",
             );
         }
+        let processing = teams.scope().clone();
         let cascade_enabled = self.cascade_enabled;
         self.catalog
-            .build_and_store(seq, move || build_catalog_from_rows(rows, cascade_enabled))
+            .build_and_store(seq, move || {
+                build_catalog_from_rows(rows, processing, cascade_enabled)
+            })
             .await
     }
 
@@ -703,6 +706,10 @@ mod tests {
                 "a job admitted during a read must not count the refresh as begun after it",
             );
         }
+        assert!(
+            catalog.load().processes(TeamId(5)),
+            "a granted team with no realtime cohort is processed, so its merges still drain",
+        );
     }
 
     #[tokio::test]
@@ -871,14 +878,19 @@ mod tests {
         let gen1 = handle.load().generation();
 
         // Same condition set → same signature → generation unchanged (the memo survives the refresh).
-        handle.publish(FilterCatalog::from_teams([(
-            TeamId(7),
-            team_with_one_behavioral(),
-        )]));
+        // The scope is outside the signature, so a grant of a team with no cohort is such a refresh.
+        handle.publish(FilterCatalog::for_processing(
+            TeamAllowlist::Only(HashSet::from([7, 8])),
+            [(TeamId(7), team_with_one_behavioral())],
+        ));
         assert_eq!(
             handle.load().generation(),
             gen1,
             "a no-op refresh reuses the generation",
+        );
+        assert!(
+            handle.load().processes(TeamId(8)),
+            "a refresh with the same signature still publishes its scope",
         );
 
         // A different condition hash → signature changes → generation advances (memo invalidates).

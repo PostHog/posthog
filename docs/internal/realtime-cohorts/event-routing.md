@@ -244,7 +244,8 @@ The processor sees firehose offset 9870001 from partition 3 for p-1 a second tim
 - The shuffler and the processor each read their own copy of `REALTIME_COHORT_TEAM_ALLOWLIST` at startup, and each polls Postgres on its own schedule.
   Both also let through the teams that a `cohort_realtime_team_access` row grants, and each reads that table about every 15 seconds.
   Only teams that both let through are processed, so a newly granted team can lose about half a minute of events until both have read the grant.
-  Merges also need the team in Node's merge allowlist.
+  Node ingestion produces merges only for the teams in its own `PERSON_MERGE_EVENTS_TEAM_ALLOWLIST`.
+  Set that list to `*`, because the processor drops the merges of teams it does not process.
 - The processor recognizes applied events with a high-water mark per source partition, not a set of offsets.
   The shuffler's producer does not guarantee ordering on retries, so an event that is overtaken by a later event from the same source partition is skipped as if it were a replay.
 - The broker timestamp on `cohort_stream_events` is the shuffler's send time, not the event's time.
