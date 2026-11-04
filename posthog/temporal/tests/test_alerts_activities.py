@@ -86,9 +86,11 @@ from products.alerts.backend.evaluation.contract import (
 )
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.facade.api import (
+    LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     LLMDetectorMisconfiguredError,
+    LLMDetectorPausedError,
     LLMDetectorUnavailableError,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus, Threshold
@@ -1277,6 +1279,26 @@ class TestEvaluateAlert:
         await sync_to_async(check.refresh_from_db)()
         assert check.targets_notified
 
+    async def test_a_paused_ai_detector_errors_once_and_leaves_the_alert_enabled(self, alert_with_user) -> None:
+        message = "The AI detector is not enabled for your account."
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=LLMDetectorPausedError(message),
+            ),
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+        ):
+            env = ActivityEnvironment()
+            first = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id)))
+            repeated = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id)))
+
+        assert (first.new_state, first.should_notify, repeated.should_notify) == (AlertState.ERRORED, True, False)
+        mock_capture.assert_not_called()
+        check = await sync_to_async(AlertCheck.objects.get)(pk=first.alert_check_id)
+        assert check.error == {"code": LLM_DETECTOR_PAUSED_ERROR_CODE, "message": message}
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
+        assert refreshed.enabled is True
+
     @pytest.mark.parametrize(
         "owner_change, expected_message",
         [
@@ -1788,21 +1810,29 @@ class TestNotifyAlert:
         assert mock_send_alert_email.call_args.kwargs["template_context"]["next_check_at"] == next_check_at
 
     @pytest.mark.parametrize(
-        "error,detector_unavailable",
+        "error,detector_unavailable,detector_paused",
         [
-            ({"message": "boom"}, False),
-            ({"message": "boom", "code": "invalid_configuration"}, False),
-            ({"message": LLM_DETECTOR_UNAVAILABLE_MESSAGE, "code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE}, True),
+            ({"message": "boom"}, False, False),
+            ({"message": "boom", "code": "invalid_configuration"}, False, False),
+            (
+                {"message": LLM_DETECTOR_UNAVAILABLE_MESSAGE, "code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE},
+                True,
+                False,
+            ),
+            ({"message": "No AI credits left.", "code": LLM_DETECTOR_PAUSED_ERROR_CODE}, False, True),
         ],
     )
     async def test_error_email_marks_an_unavailable_detector(
-        self, alert_with_user, error, detector_unavailable
+        self, alert_with_user, error, detector_unavailable, detector_paused
     ) -> None:
         with patch("posthog.tasks.alerts.utils.send_alert_email") as mock_send_alert_email:
             await sync_to_async(send_notifications_for_errors)(alert_with_user, error, "notification-key")
 
         template_context = mock_send_alert_email.call_args.kwargs["template_context"]
-        assert template_context["detector_unavailable"] is detector_unavailable
+        assert (template_context["detector_unavailable"], template_context["detector_paused"]) == (
+            detector_unavailable,
+            detector_paused,
+        )
 
     async def test_error_notification_does_not_include_an_unsubscribed_creator(self, alert, auser) -> None:
         await sync_to_async(AlertConfiguration.objects.filter(pk=alert.id).update)(created_by_id=auser.id)

@@ -18,6 +18,7 @@ import type {
     LineageResponseApi,
     ModelUsageApi,
     NodeApi,
+    NodeFrequencyBoundsApi,
     NodeResumeApi,
     NodeRunApi,
     NodeRunResponseApi,
@@ -236,6 +237,24 @@ export const dataModelingNodesDestroy = async (projectId: string, id: string, op
     return apiMutator<void>(getDataModelingNodesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getDataModelingNodesFrequencyBoundsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/data_modeling_nodes/${id}/frequency_bounds/`
+}
+
+/**
+ * The cadences this view could refresh at, and what pinning it to each one would delay downstream.
+ */
+export const dataModelingNodesFrequencyBoundsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<NodeFrequencyBoundsApi> => {
+    return apiMutator<NodeFrequencyBoundsApi>(getDataModelingNodesFrequencyBoundsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
