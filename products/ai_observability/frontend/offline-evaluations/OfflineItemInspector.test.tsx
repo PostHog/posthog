@@ -8,7 +8,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
 import * as api from '../generated/api'
@@ -17,9 +16,8 @@ import { traceDrawerLogic } from '../redesign/trace/traceDrawerLogic'
 import { detailExperiment, detailItems, offlineDetailItemResults } from './offlineDetailFixtures'
 import { OfflineItemInspector } from './OfflineItemInspector'
 
-jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
-
 jest.mock('../generated/api', () => ({
+    aiObservabilityTracesAvailabilityCreate: jest.fn(),
     aiObservabilityOfflineExperimentsItemsRetrieve: jest.fn(),
     aiObservabilityOfflineExperimentsItemsPayloadRetrieve: jest.fn(),
     aiObservabilityOfflineExperimentsItemsResultsList: jest.fn(),
@@ -73,8 +71,8 @@ describe('OfflineItemInspector', () => {
                 data: { reasoning: 'The answer matches the reference.' },
             })
             const onClose = jest.fn()
-            let confirmTraces!: (response: { results: string[][] }) => void
-            jest.mocked(performQuery).mockReturnValue(
+            let confirmTraces!: (response: { available_trace_ids: string[] }) => void
+            jest.mocked(api.aiObservabilityTracesAvailabilityCreate).mockReturnValue(
                 new Promise((resolve) => {
                     confirmTraces = resolve
                 })
@@ -93,7 +91,7 @@ describe('OfflineItemInspector', () => {
             await screen.findByText('The answer matches the reference.')
             expect(screen.queryByText('Application trace', { selector: 'a *' })).not.toBeInTheDocument()
             expect(screen.queryByText('Evaluator trace', { selector: 'a *' })).not.toBeInTheDocument()
-            await act(async () => confirmTraces({ results: [['app-trace'], ['judge-trace']] }))
+            await act(async () => confirmTraces({ available_trace_ids: ['app-trace', 'judge-trace'] }))
             const link = (await screen.findByText(label, { selector: 'a *' })).closest('a')!
             expect(screen.getByText('Result metadata').closest('details')).not.toHaveAttribute('open')
             const traceId = label === 'Application trace' ? 'app-trace' : 'judge-trace'

@@ -148,6 +148,52 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
     def _url(self, segment: str) -> str:
         return f"/api/projects/{self.team.id}/ai_observability/traces/{segment}/"
 
+    def test_availability_reads_both_tables_with_a_read_key_and_stays_in_the_project(self) -> None:
+        _create_trace(self.team, "application,trace")
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        bulk_create_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "event_uuid": event_id,
+                    "distinct_id": "user-1",
+                    "team": team,
+                    "timestamp": T0,
+                    "properties": {"$ai_trace_id": trace_id},
+                }
+                for event_id, team, trace_id in [
+                    (GENERATION, self.team, "evaluator/trace"),
+                    (TRACE_EVENT, other_team, "other-trace"),
+                ]
+            ]
+        )
+        key = self.create_personal_api_key_with_scopes(["llm_analytics:read"])
+        self.client.logout()
+        headers = {"authorization": f"Bearer {key}"}
+
+        response = self.client.post(
+            self._url("availability"),
+            {"trace_ids": ["application,trace", "evaluator/trace"]},
+            format="json",
+            headers=headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"available_trace_ids": ["application,trace", "evaluator/trace"]}
+        response = self.client.post(
+            self._url("availability"),
+            {"trace_ids": ["missing", "other-trace"]},
+            format="json",
+            headers=headers,
+        )
+        assert response.status_code == 200
+        assert response.json() == {"available_trace_ids": []}
+
+    def test_availability_rejects_more_than_two_traces(self) -> None:
+        response = self.client.post(self._url("availability"), {"trace_ids": ["one", "two", "three"]}, format="json")
+
+        assert response.status_code == 400
+
     @parameterized.expand([("plain id", "trace-1"), ("id with a dot", "run.42"), ("id with a slash", "a/b")])
     def test_returns_the_trace_in_camel_case(self, _name: str, trace_id: str) -> None:
         _create_trace(self.team, trace_id)

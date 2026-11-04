@@ -21,6 +21,7 @@ export interface TraceDrawerListConfig {
     openingMode?: TraceOpeningMode
     detailTab?: NodeDetailTab
     rowClick: boolean
+    showNavigation?: boolean
 }
 
 export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig> = {
@@ -74,6 +75,7 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         backTo: 'offline-experiment',
         backLabel: 'Back to experiment',
         rowClick: false,
+        showNavigation: false,
     },
     'cluster-traces': {
         pathMatcher: /^\/ai-observability\/clusters\/[^/]+\/[^/]+$/,

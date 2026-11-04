@@ -447,6 +447,23 @@ def _read_trace(
     return read(unhinted_window())
 
 
+def load_available_trace_ids(team: Team, user: User | None, trace_ids: Sequence[str]) -> list[str]:
+    return [
+        trace_id
+        for trace_id in dict.fromkeys(trace_ids)
+        if _read_trace(
+            "ai_trace_availability",
+            _trace_exists_query,
+            team,
+            user,
+            trace_id,
+            None,
+            widen_unhinted=True,
+            workload=Workload.ONLINE,
+        )
+    ]
+
+
 def load_trace(
     team: Team,
     user: User | None,
