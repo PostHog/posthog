@@ -225,7 +225,7 @@ jobs:
             # gate reads this output, so the label cannot reach them while the paths
             # filter says false. Nothing under .github/ is in the backend filter, so
             # a sharding or timing script change was untestable on its own PR.
-            backend: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && 'true' || (steps.filter.outputs.backend || 'true') }}
+            backend: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && 'true' || ((steps.filter.outputs.backend || 'true') == 'true' || steps.filter.outputs.product_skills_read_at_runtime == 'true') && 'true' || 'false' }}
             timing_scripts: ${{ fromJSON(toJSON(steps.filter.outputs)).timing_scripts }}
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
@@ -397,6 +397,9 @@ jobs:
                         # files from `backend_files`.
                         - '!**/*.md'
                         - '!**/*.mdx'
+                      product_skills_read_at_runtime:
+                        - 'products/signals/skills/**'
+                        - 'products/review_hog/skills/**'
                       legacy:
                         # Non-product backend code — when only products/ change,
                         # turbo-discover uses Turbo query affectedness to detect changed

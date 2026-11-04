@@ -209,4 +209,38 @@ describe('telemetry', () => {
         ])
         expect(uploads[1]!.properties).toMatchObject({ success: true, skipped_already_present: 1, uploaded: 0 })
     })
+
+    test('a command that needs no credentials never opens the keychain for telemetry', async () => {
+        let keychainReads = 0
+        const result = await runHog(['commands'], {
+            ...ON,
+            env: { CLAUDECODE: '1' },
+            files: {
+                '/home/test/.config/hog/settings.json': JSON.stringify({
+                    logins: {
+                        'https://us.posthog.com': {
+                            store: 'keychain',
+                            type: 'personal_api_key',
+                            projectId: '1',
+                            host: 'https://us.posthog.com',
+                        },
+                    },
+                    host: 'https://us.posthog.com',
+                }),
+            },
+            secrets: () => ({
+                get: async () => {
+                    keychainReads++
+                    return null
+                },
+                set: async () => {},
+                delete: async () => true,
+            }),
+            respond: () => ({ status: 200, body: {} }),
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(events(result).length).toBeGreaterThan(0)
+        expect(keychainReads).toBe(0)
+    })
 })

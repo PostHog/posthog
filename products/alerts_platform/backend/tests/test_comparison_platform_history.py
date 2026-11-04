@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -52,11 +53,11 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
     def _row(
         self, configuration: PlatformAlertConfiguration, *, evaluation_key: str, **overrides
     ) -> PlatformAlertEventRow:
-        return PlatformAlertEventRow(
+        row = PlatformAlertEventRow(
             team_id=self.team.id,
             source_kind="logs",
             configuration_id=configuration.id,
-            alert_id=overrides.pop("alert_id", uuid4()),
+            alert_id=uuid4(),
             grouping_key="",
             evaluation_key=evaluation_key,
             kind="firing",
@@ -73,8 +74,8 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
             consecutive_failures=0,
             muted_notification="",
             occurred_at=OCCURRED_AT,
-            **overrides,
         )
+        return replace(row, **overrides)
 
     def _record(self, configuration: PlatformAlertConfiguration, *, evaluation_key: str, **overrides) -> None:
         insert_events(self.team.id, [self._row(configuration, evaluation_key=evaluation_key, **overrides)])
@@ -158,16 +159,18 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("another_source", {"source_kind": "insight"}),
-            ("a_grouped_configuration", {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}}),
+            ("another_source", {"source_kind": "insight"}, {}),
+            ("a_grouped_configuration", {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}}, {}),
+            ("a_verdict_follow_up", {}, {"kind": "verdict_changed", "previous_state": "firing"}),
         ]
     )
     def test_a_check_with_no_comparable_verdict_is_not_in_a_logs_comparison(
-        self, _name: str, overrides: dict[str, Any]
+        self, _name: str, overrides: dict[str, Any], row_overrides: dict[str, Any]
     ) -> None:
         self._record(
             self._configuration(legacy_configuration_id=uuid4(), **overrides),
             evaluation_key="run:2026-09-30T11:59:00+00:00",
+            **row_overrides,
         )
 
         assert self._read() == []
