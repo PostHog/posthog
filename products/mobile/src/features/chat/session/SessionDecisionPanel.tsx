@@ -18,6 +18,7 @@ interface SessionDecisionPanelProps {
     onRetryNotice?: () => void
     noticePending?: boolean
     onDismissNotice: () => void
+    onReconnect?: () => void
 }
 
 export function SessionDecisionPanel({
@@ -26,6 +27,7 @@ export function SessionDecisionPanel({
     pending,
     onAnswer,
     onDismissNotice,
+    onReconnect,
     onRetryNotice,
     noticePending,
 }: SessionDecisionPanelProps): ReactElement | null {
@@ -39,6 +41,15 @@ export function SessionDecisionPanel({
             {notice ? (
                 <View style={styles.notice} testID="session-decision-notice">
                     <Text style={styles.noticeText}>{notice}</Text>
+                    {onReconnect ? (
+                        <Pressable44
+                            onPress={onReconnect}
+                            accessibilityLabel="Reconnect to the agent"
+                            testID="session-reconnect"
+                        >
+                            <Text style={styles.reconnectText}>Reconnect</Text>
+                        </Pressable44>
+                    ) : null}
                     {onRetryNotice ? (
                         <Pressable44
                             onPress={onRetryNotice}
@@ -91,6 +102,10 @@ const useStyles = createStyles(({ colors }) => ({
         ...type.meta,
         color: colors.orange,
         flex: 1,
+    },
+    reconnectText: {
+        ...type.meta,
+        color: colors.orange,
     },
     retry: { paddingHorizontal: 8 },
     retryText: { ...type.meta, color: colors.orange },

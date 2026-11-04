@@ -731,6 +731,7 @@ mod tests {
             "posthog-ruby2.0.0",
             "posthog-rails/3.18.0",
             "posthog-php/3.0.0",
+            "posthog-laravel/0.1.0",
             "posthog-java/1.0.0",
             "posthog-server/1.0.0",
             "posthog-go/0.1.0",

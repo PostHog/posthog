@@ -5,6 +5,8 @@ import { JWT, PosthogJwtAudience, hasJwtKeys, makeOptionalJwt } from '~/cdp/util
 import { INTERNAL_SERVICE_CALL_HEADER_NAME } from '~/common/api/middleware/internal-api-auth'
 import { logger } from '~/common/utils/logger'
 
+import { RecordingApiRole } from './types'
+
 /**
  * Authorization for recording-api routes.
  *
@@ -49,6 +51,29 @@ function pathTeamId(req: Request): number {
     return match && /^(0|[1-9]\d*)$/.test(match[1]) ? parseInt(match[1], 10) : NaN
 }
 
+// Pinned to HS256 to match the Python minter, and logged by failure class only, never the token.
+function verifyBearer(
+    jwt: JWT,
+    token: string,
+    audience: PosthogJwtAudience,
+    options: { maxAge?: string } = {}
+): Record<string, unknown> | undefined {
+    try {
+        const payload = jwt.verify(token, audience, {
+            algorithms: ['HS256'],
+            clockTolerance: CLOCK_TOLERANCE_SECONDS,
+            ...options,
+        })
+        return payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : undefined
+    } catch (err) {
+        logger.warn('Recording API JWT verification failed', {
+            audience,
+            reason: err instanceof Error ? err.name : 'unknown',
+        })
+        return undefined
+    }
+}
+
 function timingSafeEqual(a: string, b: string): boolean {
     // Trim so a secret mounted from a file with a trailing newline still matches a sender that
     // trimmed it (mirrors the shared internal-api-auth middleware's newline handling).
@@ -79,6 +104,32 @@ export function assertRecordingApiAuthConfigured(opts: {
     }
 }
 
+/**
+ * Each role must hold exactly the auth it serves. A process serving the browser route needs the blocks secret in
+ * production, since no other secret is accepted there. A public process holds no service secret, so it skips the
+ * internal check that would otherwise demand one.
+ */
+export function assertRecordingApiRoleAuthConfigured(opts: {
+    role: RecordingApiRole
+    isProd: boolean
+    blocksJwtSecret: string
+    jwtSecret: string
+    allowLegacySecret: boolean
+    legacySecret: string
+}): void {
+    if (opts.role !== 'internal' && opts.isProd && !hasJwtKeys(opts.blocksJwtSecret || '')) {
+        throw new Error('recording-api serving browser blocks needs RECORDING_API_BLOCKS_JWT_SECRET in production')
+    }
+    if (opts.role !== 'public') {
+        assertRecordingApiAuthConfigured(opts)
+    }
+}
+
+// The browser block route checks its own browser token, so only a process serving it exempts it from the shared secret.
+export function internalApiAuthExcludedPathPrefixes(role: RecordingApiRole): string[] {
+    return ['/api/projects/', ...(role === 'internal' ? [] : ['/replay-blocks/'])]
+}
+
 export function createRecordingApiAuthMiddleware(options: RecordingApiAuthOptions) {
     const { jwtSecret, legacySecret, allowLegacySecret, op } = options
     // Build the verifier once. Comma-separated keys give zero-downtime rotation (verify against all);
@@ -98,25 +149,9 @@ export function createRecordingApiAuthMiddleware(options: RecordingApiAuthOption
         if (jwt) {
             const bearer = getBearerToken(req)
             if (bearer) {
-                let payload: ReturnType<JWT['verify']>
-                try {
-                    payload = jwt.verify(bearer, PosthogJwtAudience.RECORDING_API, {
-                        // Pin HS256 to match the Python minter (encode/decode pin JWT_ALGORITHM);
-                        // don't accept other HMAC variants the library would otherwise allow.
-                        algorithms: ['HS256'],
-                        clockTolerance: CLOCK_TOLERANCE_SECONDS,
-                    })
-                } catch (err) {
-                    // Log the failure class (e.g. TokenExpiredError, JsonWebTokenError) — never the token —
-                    // so rollout/rotation 401s are diagnosable. Then fall through to the legacy secret or 401.
-                    logger.warn('Recording API JWT verification failed', {
-                        reason: err instanceof Error ? err.name : 'unknown',
-                        path: req.path,
-                    })
-                    payload = undefined
-                }
-                if (payload && typeof payload === 'object') {
-                    const claims = payload as { team_id?: unknown; op?: unknown }
+                // An invalid token falls through to the legacy secret (transition) or a 401.
+                const claims = verifyBearer(jwt, bearer, PosthogJwtAudience.RECORDING_API)
+                if (claims) {
                     const tokenTeamId = Number(claims.team_id)
                     const requestTeamId = pathTeamId(req)
                     if (!Number.isInteger(tokenTeamId) || tokenTeamId !== requestTeamId) {
@@ -145,5 +180,45 @@ export function createRecordingApiAuthMiddleware(options: RecordingApiAuthOption
         }
 
         res.status(401).json({ error: 'Unauthorized' })
+    }
+}
+
+// A browser block token older than this is refused whatever its exp, so a leaked one stops working soon.
+const REPLAY_BLOCKS_TOKEN_MAX_AGE = '2h'
+
+// The browser block route accepts only browser tokens, a separate audience from the service tokens above.
+// There is no legacy fallback and no dev bypass: without a secret, every request is refused.
+export function createReplayBlocksAuthMiddleware(jwtSecret: string) {
+    const jwt = makeOptionalJwt(jwtSecret)
+
+    return (req: Request, res: Response, next: NextFunction): void => {
+        // Only a served block may be cached, so every other answer on this route says no-store.
+        res.set('Cache-Control', 'no-store')
+        const bearer = getBearerToken(req)
+        const claims =
+            jwt && bearer
+                ? verifyBearer(jwt, bearer, PosthogJwtAudience.REPLAY_BLOCKS, { maxAge: REPLAY_BLOCKS_TOKEN_MAX_AGE })
+                : undefined
+        if (!claims || typeof claims.exp !== 'number') {
+            res.status(401).json({ error: 'Unauthorized' })
+            return
+        }
+        // String equality also requires the canonical path spelling, so /01/ never shares a cache entry with /1/.
+        if (
+            !Number.isInteger(claims.team_id) ||
+            String(claims.team_id) !== req.params.team_id ||
+            claims.session_id !== req.params.session_id ||
+            // The viewer is in the URL so each viewer's blocks are separate browser cache entries: after an account
+            // switch the new viewer's URLs never match the previous viewer's cached blocks.
+            typeof claims.sub !== 'string' ||
+            !claims.sub ||
+            claims.sub !== req.params.viewer
+        ) {
+            res.status(403).json({ error: 'Forbidden: token not scoped to this recording' })
+            return
+        }
+        res.locals.replayBlocksCaller = claims.sub
+        res.locals.replayBlocksTier = claims.tier
+        next()
     }
 }

@@ -120,6 +120,13 @@ class SchedulingUnavailableError(Exception):
     The caller decides what to keep, because the saved query itself is not at fault."""
 
 
+def is_raw_managed_trino_query(query: object) -> bool:
+    """A raw Trino view stores Trino SQL that only hosted Trino can run, so ClickHouse and lineage skip it."""
+    return (
+        isinstance(query, dict) and query.get("executionTarget") == "managed_trino" and bool(query.get("sendRawQuery"))
+    )
+
+
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, DeletedMetaFields):
     class Status(models.TextChoices):
         """Possible states of this SavedQuery."""
@@ -298,6 +305,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     @property
     def name_chain(self) -> list[str]:
         return self.name.split(".")
+
+    @property
+    def is_raw_managed_trino(self) -> bool:
+        return is_raw_managed_trino_query(self.query)
 
     def schedule_materialization(
         self, reconcile: bool = True, trigger_immediate_run: bool = False, triggered_by_id: int | None = None

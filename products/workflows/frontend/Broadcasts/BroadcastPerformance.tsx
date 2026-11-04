@@ -2,9 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
+import { EmailMetricsIncidentBanner } from '../EmailMetricsIncidentBanner'
 import { EmailLinksTable } from '../Workflows/EmailLinksTable'
 import { BroadcastPerformanceLogicProps, broadcastPerformanceLogic } from './broadcastPerformanceLogic'
 import { BroadcastSendActivity } from './BroadcastSendActivity'
@@ -62,6 +64,7 @@ export function BroadcastPerformance({
 
     return (
         <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface-primary p-4">
+            <EmailMetricsIncidentBanner dateFrom={dayjs(props.runStartedAt)} />
             <div className="grid grid-cols-2 gap-4 @xl:grid-cols-3 @4xl:grid-cols-6">
                 {headline.map(({ label, value, detail }) => (
                     <div key={label} className="flex flex-col">

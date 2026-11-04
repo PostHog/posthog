@@ -2,6 +2,7 @@ import re
 from collections import defaultdict
 from collections.abc import Iterable
 from typing import Literal
+from urllib.parse import quote
 
 import tldextract
 
@@ -70,6 +71,8 @@ ADS_CAMPAIGNS_URL = "https://ads.google.com/aw/campaigns"
 ADS_KEYWORDS_URL = "https://ads.google.com/aw/keywords"
 ADS_NEGATIVE_KEYWORDS_URL = "https://ads.google.com/aw/keywords/negative"
 ADS_SEARCH_TERMS_URL = "https://ads.google.com/aw/keywords/searchterms"
+SEARCH_CONSOLE_PERFORMANCE_URL = "https://search.google.com/search-console/performance/search-analytics"
+SEARCH_CONSOLE_URL = "https://search.google.com/search-console"
 REVIEW_TERMS_SHOWN = 3
 # A non-brand campaign is up for review when its cost per conversion reaches this multiple of the non-brand average.
 REVIEW_CPA_MULTIPLE = 3
@@ -113,6 +116,13 @@ class OrganicQueryStats:
 
 
 @frozen
+class RankingPage:
+    query: str
+    page: str
+    impressions: float
+
+
+@frozen
 class TermKeywordStats:
     term: str
     keyword: str
@@ -129,6 +139,7 @@ class RecommendationInputs:
     currency: str | None
     days: int
     term_keywords: tuple[TermKeywordStats, ...] = ()
+    ranking_pages: tuple[RankingPage, ...] = ()
 
 
 @frozen
@@ -215,6 +226,12 @@ class _Recommender:
             current = self.top_keyword.get(keyword_row.term)
             if current is None or keyword_row.cost > current.cost:
                 self.top_keyword[keyword_row.term] = keyword_row
+        top_pages: dict[str, RankingPage] = {}
+        for page_row in inputs.ranking_pages:
+            current_page = top_pages.get(page_row.query)
+            if current_page is None or page_row.impressions > current_page.impressions:
+                top_pages[page_row.query] = page_row
+        self.ranking_page = {query: row.page for query, row in top_pages.items()}
 
     def run(self) -> list[MarketingAnalyticsRecommendation]:
         campaign_rules = sorted(self._campaign_rules(), key=lambda rec: -(rec.impact or 0))
@@ -518,16 +535,18 @@ class _Recommender:
                     MarketingAnalyticsRecommendationRule.CONTENT_GAP,
                     term,
                     "Create or improve a page for this search",
-                    f"Converts in Ads at a CPA of {self._money(term.cost / term.conversions)} "
-                    f"(account {self._money(cpa)}), but "
+                    f"You pay {self._money(term.cost * self.per_month)}/mo in Ads for this search, which converts "
+                    f"at a CPA of {self._money(term.cost / term.conversions)} (account {self._money(cpa)}). "
                     + (
-                        f"ranks #{term.organic.position:.1f} organically"
+                        f"It ranks #{term.organic.position:.1f} organically, so moving that page into the top 3 "
                         if term.organic
-                        else "does not rank organically"
-                    ),
+                        else "It does not rank organically, so a new page in the top 3 "
+                    )
+                    + "could bring these visitors without ad spend.",
                     term.conversions * cpa,
                     "gain",
                     "measured",
+                    steps=self._content_gap_steps(term),
                 )
                 for term in terms
                 if term.term not in self.brand_terms
@@ -570,6 +589,7 @@ class _Recommender:
                     max(term.organic.impressions * TOP3_CTR - term.organic.clicks, 0) * term.cost / term.clicks,
                     "gain",
                     "estimated",
+                    steps=self._improve_page_steps(term.term),
                 )
                 for term in terms
                 if term.organic
@@ -934,6 +954,60 @@ class _Recommender:
             url=ADS_CAMPAIGNS_URL,
             linkText="Campaigns",
         )
+
+    def _content_gap_steps(self, term: _Term) -> tuple[Step, ...]:
+        keep_ad = Step(text="Keep the ad running until the page reaches the top 3, then test pausing it.")
+        if term.organic:
+            return (*self._improve_page_steps(term.term), keep_ad)
+        return (
+            Step(
+                text="Create a page that answers this search. Use the search in the page title and main heading.",
+                copyValue=term.term,
+            ),
+            self._internal_links_step(),
+            Step(
+                text="In Search Console, use URL inspection to request indexing of the new page.",
+                url=self._search_console_url(SEARCH_CONSOLE_URL),
+                linkText="Search Console",
+            ),
+            keep_ad,
+        )
+
+    def _improve_page_steps(self, query: str) -> tuple[Step, ...]:
+        page = self.ranking_page.get(query)
+        find_page = (
+            Step(text="Open the page that ranks for this search.", copyValue=page, url=page, linkText="page")
+            if page
+            else Step(
+                text="In Search Console, open Performance, filter by this search and check the Pages tab to find "
+                "the page that ranks.",
+                copyValue=query,
+                url=self._search_console_url(SEARCH_CONSOLE_PERFORMANCE_URL),
+                linkText="Performance",
+            )
+        )
+        return (
+            find_page,
+            Step(
+                text="Use the search in the page title and main heading, and answer it near the top of the page.",
+                copyValue=query,
+            ),
+            self._internal_links_step(),
+            Step(
+                text="In Search Console, use URL inspection to request indexing of the updated page.",
+                url=self._search_console_url(SEARCH_CONSOLE_URL),
+                linkText="Search Console",
+            ),
+        )
+
+    def _search_console_url(self, url: str) -> str:
+        # With several properties the right one is unknown, so Search Console opens its property picker.
+        sites = set(self.inputs.site_urls)
+        return f"{url}?resource_id={quote(sites.pop(), safe='')}" if len(sites) == 1 else url
+
+    @staticmethod
+    def _internal_links_step() -> Step:
+        return Step(text="Link to the page from related pages on your site, using the search as the link text.")
 
     def _term_recommendation(
         self,

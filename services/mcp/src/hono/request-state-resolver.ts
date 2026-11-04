@@ -80,6 +80,7 @@ export interface ResolvedState {
     sessionContext: MCPSessionContext | null
     allTools: Tool<ZodObjectAny>[]
     scopeGatedTools: ScopeGatedTool[]
+    findScopeGatedTool: (name: string) => ScopeGatedTool | undefined
     flagGatedTools: FlagGatedTool[]
     /**
      * The tools a scout run with a picked tool list holds, from token introspection.
@@ -89,6 +90,7 @@ export interface ResolvedState {
     heldTools?: ReadonlySet<string> | undefined
     /** The task a sandbox token is bound to, from token introspection. */
     sandboxTaskId?: string | undefined
+    supportsStepUp: boolean
     /**
      * Whether the caller's team may reach third-party MCP tools through `exec`.
      * Gated on the same flag as the gateway UI — the tools are the gateway's payoff,
@@ -344,6 +346,14 @@ export class RequestStateResolver {
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions).filter(isHeld) : []
+        // A call to a gated tool reports the missing scope before the tool runs. Tools mode builds
+        // the list only on the first miss instead of scanning the catalog on every request.
+        let toolsModeScopeGatedTools: ScopeGatedTool[] | undefined
+        const findScopeGatedTool = (name: string): ScopeGatedTool | undefined =>
+            (useSingleExec
+                ? scopeGatedTools
+                : (toolsModeScopeGatedTools ??= getScopeGatedTools(apiKeyScopes, filterOptions).filter(isHeld))
+            ).find((tool) => tool.name === name)
         // Only exec redirects a call to a gated tool; tools mode just omits it.
         const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions).filter(isHeld) : []
 
@@ -368,10 +378,12 @@ export class RequestStateResolver {
             sessionContext,
             allTools,
             scopeGatedTools,
+            findScopeGatedTool,
             flagGatedTools,
             gatewayToolFilter: { tools, features, excludeTools },
             heldTools,
             sandboxTaskId: _apiKey?.sandbox_task_id,
+            supportsStepUp: _apiKey?.supports_step_up === true,
             gatewayToolsEnabled:
                 useSingleExec &&
                 !readOnly &&

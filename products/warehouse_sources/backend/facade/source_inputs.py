@@ -22,6 +22,7 @@ class SourceInputsStore:
     assign = staticmethod(_store.SourceInputsStore.assign)
     save = staticmethod(_store.SourceInputsStore.save)
     create = staticmethod(_store.SourceInputsStore.create)
+    discard_created = staticmethod(_store.SourceInputsStore.discard_created)
     update_runtime = staticmethod(_store.SourceInputsStore.update_runtime)
     update_oauth_inputs = staticmethod(_store.SourceInputsStore.update_oauth_inputs)
     aload = staticmethod(_store.SourceInputsStore.aload)

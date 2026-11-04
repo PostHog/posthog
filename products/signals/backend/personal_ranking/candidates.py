@@ -5,7 +5,7 @@ That order is the model order: the fallback when the LLM does not rank a report.
 """
 
 import datetime
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Literal
 
 from django.db.models import Max, QuerySet
@@ -295,6 +295,26 @@ def gather_candidates(
     """`with_sources=False` skips the ClickHouse read of each report's source, which only the prompt shows."""
     can_view_ranking = can_view_inbox_ranking(user, team)
     merged = merge_pools(_pools(team, user, config, now=now, can_view_ranking=can_view_ranking), config.max_candidates)
+    return _load_candidates(team, user, merged, can_view_ranking=can_view_ranking, with_sources=with_sources)
+
+
+def stored_candidates(team: Team, user: User, report_ids: Sequence[str]) -> list[Candidate]:
+    """The current facts of the reports a stored list considered, with no pool query and no source read.
+
+    A report that no longer exists drops out, and no new report joins. `pools` is empty, because only a build reads it.
+    """
+    return _load_candidates(
+        team,
+        user,
+        {report_id: [] for report_id in report_ids},
+        can_view_ranking=can_view_inbox_ranking(user, team),
+        with_sources=False,
+    )
+
+
+def _load_candidates(
+    team: Team, user: User, merged: Mapping[str, Sequence[str]], *, can_view_ranking: bool, with_sources: bool
+) -> list[Candidate]:
     if not merged:
         return []
     ids = list(merged)

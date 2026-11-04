@@ -52,7 +52,7 @@ TIMEOUT_MAX_METRIC_ATTEMPTS = 2
 # being polled constantly. The random position in the band spreads out metrics that bounced in the same burst,
 # so their retries do not arrive together. The per-org app limiter skips Temporal activities, so this delay is
 # what lets the cluster drain. The sum of the bands, at most 600 s, stays inside
-# METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS.
+# METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS where that budget applies.
 CAPACITY_RETRY_FIRST_DELAY_MIN_SECONDS = 10
 CAPACITY_RETRY_FIRST_DELAY_MAX_SECONDS = 20
 CAPACITY_RETRY_BACKOFF_COEFFICIENT = 2.0
@@ -80,7 +80,9 @@ METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS = 300
 # Total budget for one metric across all its attempts and retry delays, queue wait included (the calc
 # activity's schedule_to_close_timeout). It keeps the IN_PROGRESS phase (this budget, the failure backstop and
 # the finish step) below the staleness TTL in recalculation.py, so a slow but healthy run is never treated as
-# stale. The budget ends a metric before MAX_METRIC_ATTEMPTS when its attempts are slow.
+# stale. The budget ends a metric before MAX_METRIC_ATTEMPTS when its attempts are slow. Only a calc on the
+# workflow's own queue gets it. A calc on the activity or precompute queue waits for a slot with no total budget,
+# so its run can outlast the staleness TTL.
 METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS = 1200
 
 # Without a heartbeat, Temporal can deliver a cancellation to the calc activity only after start_to_close,
@@ -116,6 +118,8 @@ class ExperimentMetricsRecalculationWorkflowInputs:
     # Task queue for the metric calculation activity, chosen when the run starts so replay stays deterministic.
     # None keeps the activity on the workflow's own queue.
     activity_task_queue: str | None = None
+    # The key version that the run files its results under, chosen when the run is requested.
+    calculation_key_version: int = 1
 
 
 @dataclasses.dataclass(frozen=False)
@@ -159,6 +163,7 @@ class MetricOutOfTimeFailure:
     experiment_id: int
     metric_uuid: str
     role: str  # "primary" or "secondary"
+    calculation_key_version: int = 1
 
 
 @dataclasses.dataclass

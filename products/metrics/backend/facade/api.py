@@ -69,9 +69,15 @@ from products.metrics.backend.metric_attributes_query_runner import (
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
-from products.metrics.backend.metric_query_runner import MAX_RAW_SERIES, MetricQueryRunner, _pick_interval
+from products.metrics.backend.metric_query_runner import (
+    MAX_QUERY_SPAN,
+    MAX_RAW_SERIES,
+    MetricQueryRunner,
+    _pick_interval,
+)
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
+from products.metrics.backend.promql import run_promql_range
 from products.metrics.backend.query_concurrency import query_concurrency_slots
 from products.metrics.backend.variable_options import check_options_window, compile_regex, list_variable_options
 from products.metrics.backend.variables import from_dashboard, with_values
@@ -436,6 +442,21 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             if clause.aggregation.is_raw
             else series_by_clause[clause.name]
         )
+    ]
+
+
+def run_promql_query(
+    *, team: Team, expr: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
+) -> list[MetricSeries]:
+    """Run a PromQL range query on Snuffle. The caller checks the Snuffle feature flag. `date_to` is exclusive."""
+    if date_to <= date_from:
+        raise ValueError("date_to must be after date_from")
+    if date_to - date_from > MAX_QUERY_SPAN:
+        raise ValueError(f"date range too wide; the maximum span is {MAX_QUERY_SPAN.days} days")
+    with query_concurrency_slots(team):
+        series = run_promql_range(team, expr, date_from, date_to, interval)
+    return [
+        replace(s, points=tuple(p for p in s.points if dt.datetime.fromisoformat(p.time) < date_to)) for s in series
     ]
 
 
