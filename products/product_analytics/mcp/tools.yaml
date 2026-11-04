@@ -363,7 +363,8 @@ tools:
             List saved insights in the project with optional filtering by favorited status or search term. Returns
             metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the
             actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`.
-            Each alert on an insight is listed by id, name, state and enabled; call alert-get for its full configuration.
+            Each alert on an insight is listed by id, name, state and enabled; call alert-get for its full
+            configuration.
         exclude_params:
             - basic
             - format
