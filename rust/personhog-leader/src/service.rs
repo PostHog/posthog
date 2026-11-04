@@ -830,13 +830,24 @@ impl PersonHogLeaderService {
     }
 }
 
+/// The first instant Postgres accepts in a `timestamptz`: Julian day 0,
+/// which Postgres documents as 4713 BC (Julian calendar) and chrono
+/// renders as -4713-11-24 (proleptic Gregorian). chrono reaches much
+/// further back, so this is the binding bound.
+const PG_TIMESTAMPTZ_MIN_MS: i64 = -210_866_803_200_000;
+
+/// Upper bound on the epoch-millisecond timestamps the leader will put in
+/// a changelog record: the last instant of year 9999. Inside both chrono's
+/// and Postgres's ranges; nothing legitimate sits above it.
+const MAX_EPOCH_MS_YEAR_9999: i64 = 253_402_300_799_999;
+
 /// Whether the writer can bind this epoch-millisecond value as a
-/// `timestamptz`. It is the conversion the writer itself runs, so the two
-/// cannot disagree. Rows written before personhog carry a client's zero
-/// `DateTime` (year 1) as `created_at`, and those must keep writing; only
-/// a value chrono cannot represent is refused.
+/// `timestamptz`: chrono must represent it and Postgres must accept it.
+/// Rows written before personhog carry a client's zero `DateTime` (year 1)
+/// as `created_at`, and those must keep writing.
 fn writeable_epoch_ms(ms: i64) -> bool {
-    Utc.timestamp_millis_opt(ms).single().is_some()
+    (PG_TIMESTAMPTZ_MIN_MS..=MAX_EPOCH_MS_YEAR_9999).contains(&ms)
+        && Utc.timestamp_millis_opt(ms).single().is_some()
 }
 
 /// The granularity `last_seen_at` is stored at. Matches ingestion's own
@@ -1915,6 +1926,7 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
+    use chrono::Datelike;
     use common_kafka::config::KafkaConfig;
     use envconfig::Envconfig;
     use personhog_proto::personhog::types::v1::{LifecycleOpType, ReleaseOutcome};
@@ -1946,9 +1958,28 @@ mod tests {
             "the writer converts with the same call, so year 1 binds"
         );
 
+        // The bounds are Postgres's, not chrono's: both ends convert, and
+        // one millisecond past either end is refused.
+        let floor = Utc.timestamp_millis_opt(PG_TIMESTAMPTZ_MIN_MS).unwrap();
+        assert_eq!(
+            (floor.year(), floor.month(), floor.day()),
+            (-4713, 11, 24),
+            "Julian day 0 in the proleptic Gregorian calendar"
+        );
+        assert!(Utc
+            .timestamp_millis_opt(MAX_EPOCH_MS_YEAR_9999)
+            .single()
+            .is_some());
+        assert!(writeable_epoch_ms(PG_TIMESTAMPTZ_MIN_MS));
+        assert!(writeable_epoch_ms(MAX_EPOCH_MS_YEAR_9999));
+        assert!(!writeable_epoch_ms(PG_TIMESTAMPTZ_MIN_MS - 1));
+        assert!(!writeable_epoch_ms(MAX_EPOCH_MS_YEAR_9999 + 1));
+
         for (field, created_at, last_seen_at) in [
             ("created_at", i64::MIN, None),
+            ("created_at", PG_TIMESTAMPTZ_MIN_MS - 1, None),
             ("created_at", i64::MAX, None),
+            ("last_seen_at", YEAR_ONE_MS, Some(-300_000_000_000_000)),
             ("last_seen_at", YEAR_ONE_MS, Some(i64::MAX)),
         ] {
             let refused = CachedPerson {

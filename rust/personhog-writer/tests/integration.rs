@@ -121,6 +121,30 @@ async fn writer_upserts_a_year_one_created_at() {
     assert_eq!(row.0, year_one);
     assert_eq!(row.1, Some(year_one));
 
+    // The leader admits down to Postgres's own floor, Julian day 0, so
+    // that exact instant has to bind as well.
+    const PG_TIMESTAMPTZ_MIN_MS: i64 = -210_866_803_200_000;
+    let floor_person = Person {
+        created_at: PG_TIMESTAMPTZ_MIN_MS,
+        ..make_person(team_id as i64, 2, 1)
+    };
+    assert!(matches!(
+        writer.upsert_batch(vec![floor_person]).await,
+        BatchOutcome::Success
+    ));
+    let floor: (DateTime<Utc>,) = sqlx::query_as(
+        "SELECT created_at FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
+    )
+    .bind(team_id)
+    .bind(2_i64)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        floor.0,
+        Utc.timestamp_millis_opt(PG_TIMESTAMPTZ_MIN_MS).unwrap()
+    );
+
     cleanup_team(&pool, team_id).await;
 }
 
