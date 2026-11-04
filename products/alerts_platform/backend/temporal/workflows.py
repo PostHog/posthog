@@ -56,6 +56,7 @@ with workflow.unsafe.imports_passed_through():
         SourceEvaluationInputs,
         TickPage,
     )
+    from products.alerts_platform.backend.facade.enums import PlatformAlertKind
     from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BYTES
     from products.alerts_platform.backend.logic import delivery_holds
     from products.alerts_platform.backend.logic.demand import discover_demand
@@ -67,7 +68,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from products.alerts_platform.backend.temporal.postgres import check_postgres_connection
     from products.alerts_platform.backend.temporal.schedule import SCHEDULE_ID
-    from products.alerts_platform.backend.temporal.sources import SOURCE_BINDINGS, discovery_limits
+    from products.alerts_platform.backend.temporal.sources import APPEARANCE_BINDING, SOURCE_BINDINGS, discovery_limits
 
 
 POSTGRES_PROBE_FAILURE = "AlertsPlatformPostgresProbeFailure"
@@ -514,6 +515,10 @@ class AlertsPlatformSourceDispatchWorkflow(PostHogWorkflow):
         """The started evaluation's id, or None when that key's evaluation still runs from an earlier tick."""
         evaluation_workflow_id = f"alerts-eval-{inputs.source.value}-{key.team_id}-{key.slot}"
         binding = SOURCE_BINDINGS.get(inputs.source)
+        if key.alert_kind == PlatformAlertKind.APPEARANCE:
+            # Its own id, because a source's threshold batch for the same minute runs beside it.
+            evaluation_workflow_id += f"-{PlatformAlertKind.APPEARANCE.value}"
+            binding = APPEARANCE_BINDING
         try:
             if binding is None:
                 # No adapter yet. The key is not passed to the noop, and the probe path stays as is.

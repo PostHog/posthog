@@ -143,7 +143,8 @@ class _WebhookTransports:
 
     def _legacy_body(self) -> Callable[[AlertMessage], dict[str, Any]] | None:
         body = legacy_webhook.body_for(self._request.source)
-        if body is None:
+        # A source's legacy body describes its threshold alerts, so an appearance always gets the platform's.
+        if body is None or any(t.kind == AlertEventKind.APPEARED for t in self._announced.transitions):
             return None
         try:
             keeps_legacy_body = legacy_webhook.keeps_legacy_webhook_body(self._team)
@@ -414,7 +415,9 @@ def _split_by_path(
     if not request.owned_by_platform or delivery_paths.emitter_for(request.source) is None:
         return announced, ()
     if platform_destinations is not None:
-        return announced, _emissions(request, announced.transitions)
+        # A source's legacy events describe its threshold alerts. An appearance has none to emit.
+        legacy = tuple(t for t in announced.transitions if t.kind != AlertEventKind.APPEARED)
+        return announced, _emissions(request, legacy)
 
     # Read once per delivery, because the chooser reads every destination of the alert.
     @cache

@@ -30,6 +30,7 @@ _HEADLINES: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.ERRORED: "{kind} alert '{name}' could not be checked",
     AlertEventKind.BROKEN: "{kind} alert '{name}' is turned off",
     AlertEventKind.VERDICT_CHANGED: "{kind} alert '{name}' has a new verdict",
+    AlertEventKind.APPEARED: "{kind} alert '{name}' found something new",
 }
 
 # The symbols the legacy messages use, so a pilot team sees the same state at a glance on both paths.
@@ -39,6 +40,7 @@ _SYMBOLS: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.ERRORED: "🟡",
     AlertEventKind.BROKEN: "⚠️",
     AlertEventKind.VERDICT_CHANGED: "🔄",
+    AlertEventKind.APPEARED: "🆕",
 }
 
 UNTRACKED_GROUPS_LABEL: Final = "Untracked groups"
@@ -209,7 +211,9 @@ def build_message(
             )
         )
     return AlertMessage(
-        headline=headline.format(kind=_SOURCE_LABELS[announcement.source], name=announcement.alert_name),
+        headline=description.headline
+        if description.headline and transition.kind not in failure_kinds
+        else headline.format(kind=_SOURCE_LABELS[announcement.source], name=announcement.alert_name),
         symbol=_SYMBOLS[kind],
         details=tuple(details),
         configuration_id=announcement.configuration_id,

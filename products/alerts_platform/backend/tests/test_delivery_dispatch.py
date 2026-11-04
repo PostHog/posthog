@@ -213,6 +213,23 @@ class TestDeliveryDispatch(SimpleTestCase):
         # The edit runs while the reply's claim is held, so a later send cannot overtake it.
         assert transport.delivered_at_edit == [["eval-1"]]
 
+    def test_a_reappearance_replies_under_its_announcement_and_leaves_the_opening_message_alone(self) -> None:
+        store = RecordingThreadStore()
+        transport = EditingTransport(handle=OPENING, store=store)
+
+        appearance = _announcement(AlertEventKind.APPEARED, FIRST_FIRING)
+        appearance = replace(appearance, transitions=(replace(appearance.transitions[0], value=None),))
+
+        with (
+            patch("products.alerts_platform.backend.delivery.dispatch.alert_snapshot", return_value=None),
+            patch("products.alerts_platform.backend.delivery.dispatch.state_line", return_value="Resolved"),
+        ):
+            self._deliver(transport, store, appearance, "eval-1")
+            self._deliver(transport, store, appearance, "eval-2")
+
+        assert [handle for _, handle in transport.sends] == [None, OPENING]
+        assert transport.edits == []
+
     def test_a_failed_edit_does_not_fail_the_reply_that_landed(self) -> None:
         store = RecordingThreadStore()
         transport = EditingTransport(handle=OPENING, edit_error=DeliveryError("message_not_found"))

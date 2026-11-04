@@ -51,6 +51,7 @@ from products.alerts_platform.backend.facade.enums import (
     PlatformAlertCheckStatus,
     PlatformAlertConfigurationRecurrenceUnit,
     PlatformAlertConfigurationSourceKind,
+    PlatformAlertKind,
     PlatformAlertOwner,
     PlatformAlertState,
 )
@@ -145,6 +146,12 @@ class PlatformAlertConfigurationSerializer(serializers.Serializer):
         choices=PlatformAlertConfigurationSourceKind.choices,
         read_only=True,
         help_text="Product whose data the alert evaluates.",
+    )
+    alert_kind = serializers.ChoiceField(
+        choices=PlatformAlertKind.choices,
+        read_only=True,
+        help_text="How the alert's checks decide. threshold compares a value with a bound. appearance announces "
+        "each new, or returning, identity once, such as a new log pattern.",
     )
     source_config = serializers.DictField(
         child=serializers.JSONField(),
@@ -514,6 +521,9 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         # never fixes a body for an alert it can never write.
         if current.owner != PlatformAlertOwner.PLATFORM:
             raise Conflict(f"This alert is managed by the {current.source_kind} product. Edit it there.")
+        # The edit schemas are a source's threshold settings, which an appearance alert does not have.
+        if current.alert_kind != PlatformAlertKind.THRESHOLD:
+            raise Conflict(f"{current.alert_kind} alerts cannot be edited through this API.")
         edit_serializer = edit_serializers().get(current.source_kind)
         if edit_serializer is None:
             raise Conflict(f"{current.source_kind} alerts cannot be edited through this API.")

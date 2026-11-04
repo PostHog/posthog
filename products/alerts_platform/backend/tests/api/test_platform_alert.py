@@ -329,6 +329,24 @@ class TestPlatformAlertAPI(APIBaseTest):
         configuration.refresh_from_db()
         assert configuration.name == "API errors"
 
+    def test_an_appearance_alert_reads_with_its_kind_and_is_not_edited_here(self) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(
+            self.team, "New log patterns", owner=PlatformAlertConfiguration.Owner.PLATFORM
+        )
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=configuration.id).update(
+                alert_kind=PlatformAlertConfiguration.Kind.APPEARANCE
+            )
+
+        read = self.client.get(self._edit_url(configuration))
+        edit = self.client.patch(self._edit_url(configuration), {"name": "Renamed"}, format="json")
+
+        assert read.json()["alert_kind"] == "appearance"
+        assert edit.status_code == status.HTTP_409_CONFLICT, edit.json()
+        configuration.refresh_from_db()
+        assert configuration.name == "New log patterns"
+
     @parameterized.expand(
         [
             (

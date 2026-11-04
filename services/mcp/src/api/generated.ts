@@ -71704,6 +71704,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `threshold` - Threshold
+     * * `appearance` - Appearance
+     */
+    export type PlatformAlertKindEnum = typeof PlatformAlertKindEnum[keyof typeof PlatformAlertKindEnum];
+
+
+    export const PlatformAlertKindEnum = {
+      Threshold: 'threshold',
+      Appearance: 'appearance',
+    } as const;
+
+    /**
      * * `ok` - OK
      * * `errored` - Errored
      * * `broken` - Broken
@@ -71796,6 +71808,11 @@ export namespace Schemas {
        * * `warehouse_destination` - Warehouse destination
        * * `metrics` - Metrics */
       readonly source_kind: PlatformAlertConfigurationSourceKindEnum;
+      /** How the alert's checks decide. threshold compares a value with a bound. appearance announces each new, or returning, identity once, such as a new log pattern.
+       *
+       * * `threshold` - Threshold
+       * * `appearance` - Appearance */
+      readonly alert_kind: PlatformAlertKindEnum;
       /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
       readonly source_config: PlatformAlertConfigurationSourceConfig;
       /** Minutes between scheduled checks. Applies when recurrence_unit is null. */

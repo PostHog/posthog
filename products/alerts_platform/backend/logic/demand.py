@@ -2,6 +2,7 @@ import datetime as dt
 from collections.abc import Mapping
 
 from products.alerts_platform.backend.facade.contracts import AlertBatchKey, AlertDemand, SourceKind
+from products.alerts_platform.backend.facade.enums import PlatformAlertKind
 from products.alerts_platform.backend.logic.platform_lifecycle import due_q, slot_of, suppressed
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 
@@ -30,15 +31,17 @@ def discover_demand(cutoff: str, limits_by_source: Mapping[SourceKind, int] | No
         # then drops.
         .exclude(suppressed())
         .order_by("next_check_at", "id")
-        .values_list("source_kind", "team_id", "next_check_at")
+        .values_list("source_kind", "team_id", "next_check_at", "alert_kind")
     )
 
     keys_by_source: dict[SourceKind, list[AlertBatchKey]] = {}
     seen: dict[SourceKind, set[AlertBatchKey]] = {}
     omitted_by_source: dict[SourceKind, int] = {}
-    for raw_source, team_id, next_check_at in due.iterator():
+    for raw_source, team_id, next_check_at, alert_kind in due.iterator():
         source = SourceKind(raw_source)
-        key = AlertBatchKey(team_id=team_id, slot=slot_of(next_check_at, cutoff_time))
+        key = AlertBatchKey(
+            team_id=team_id, slot=slot_of(next_check_at, cutoff_time), alert_kind=PlatformAlertKind(alert_kind)
+        )
         source_seen = seen.setdefault(source, set())
         if key in source_seen:
             continue

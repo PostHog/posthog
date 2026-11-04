@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final, NotRequired, Protocol, TypedDict
 from uuid import UUID
@@ -18,7 +18,12 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
-from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertCheckStatus, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import (
+    DeliveryPath,
+    PlatformAlertCheckStatus,
+    PlatformAlertKind,
+    PlatformAlertState,
+)
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -51,6 +56,8 @@ class AlertBatchKey:
 
     team_id: int
     slot: str
+    # A source's appearance alerts run in the platform's own evaluation, apart from its threshold alerts.
+    alert_kind: PlatformAlertKind = PlatformAlertKind.THRESHOLD
 
 
 @frozen
@@ -273,6 +280,8 @@ class PlatformAlertCheckInput:
     # The calendar half of the schedule, so a source can tell when its own cadence has moved.
     recurrence_unit: str | None = None
     anchor_time: str | None = None
+    created_at: datetime | None = None
+    evaluated_until: datetime | None = None
 
     @property
     def destination_alert_id(self) -> UUID:
@@ -549,12 +558,14 @@ class AlertEventKind(StrEnum):
     BROKEN = "broken"
     # A follow-up about a firing that already went out. History readers leave it out of the checks.
     VERDICT_CHANGED = "verdict_changed"
+    # Something new, or back, that an appearance alert announces once. It opens no firing.
+    APPEARED = "appeared"
 
     @property
     def delivered_as(self) -> AlertEventKind:
-        """The kind a destination hears this as. No destination can list a follow-up, so a follow-up
-        reaches the destinations of the firing it follows, the way that firing did."""
-        return AlertEventKind.FIRING if self is AlertEventKind.VERDICT_CHANGED else self
+        """The kind a destination hears this as. No destination can list a follow-up or an appearance,
+        so each reaches the destinations a firing would."""
+        return AlertEventKind.FIRING if self in (AlertEventKind.VERDICT_CHANGED, AlertEventKind.APPEARED) else self
 
 
 @frozen
@@ -691,6 +702,10 @@ class PlatformAlertOutcome:
     # The delivery this check decided on, held back until its source or the safety net releases it.
     # The source leaves it out of the deliveries it starts.
     held_delivery: HeldDelivery | None = None
+    # The end of the window a check read, for a source that reads closed windows. It is written with
+    # the check's groups, so a window is announced once: a check that records nothing leaves the next
+    # one to read it again.
+    evaluated_until: datetime | None = None
 
     @classmethod
     def ungrouped(
@@ -991,6 +1006,7 @@ class PlatformAlertConfigurationView:
     name: str
     enabled: bool
     source_kind: str
+    alert_kind: str
     source_config: dict[str, Any]
     check_interval_minutes: int
     recurrence_unit: str | None
@@ -1448,6 +1464,9 @@ class SourceDescription:
     # Slack elements that act on the alert from the message, such as a snooze menu, beside the
     # buttons. They are Slack's own Block Kit, so every other provider leaves them out.
     slack_elements: tuple[dict[str, Any], ...] = ()
+    # Replaces the platform's headline, such as "New log pattern in api", for a transition that is
+    # not a failure. A failure keeps the platform's headline for the same reason as its details.
+    headline: str | None = None
 
 
 class SourceDescriber(Protocol):
@@ -1755,3 +1774,83 @@ class DestinationSend:
     path: DeliveryPath
     succeeded: bool
     error: str | None
+
+
+class OccurrenceKind(StrEnum):
+    """Whether an identity is new to the project, or came back after a person resolved it."""
+
+    NEW = "new"
+    REAPPEARED = "reappeared"
+
+
+# An appearance alert groups by this one label, so each identity has its own instance and thread.
+APPEARANCE_IDENTITY_LABEL: Final = "identity"
+APPEARANCE_GROUPING: Final = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=(APPEARANCE_IDENTITY_LABEL,))
+APPEARANCE_DETAIL_KEY: Final = "appearance"
+
+
+@frozen
+class Occurrence:
+    """One identity that appeared, or reappeared, in a window an occurrence store was asked about.
+
+    `first_seen_at` is the source's own first sighting of the identity. Every message about it
+    threads on that time, so a reappearance replies under the message that announced it.
+    `occurred_at` is when this occurrence happened, which places it in a check's window.
+    """
+
+    identity_key: str
+    kind: OccurrenceKind
+    first_seen_at: datetime
+    occurred_at: datetime
+    labels: dict[str, str] = field(default_factory=dict)
+    detail: dict[str, Any] = field(default_factory=dict)
+
+
+@frozen
+class OccurrenceWindow:
+    """What a store found in a window, oldest first. `truncated` is set when the store stopped at its limit."""
+
+    occurrences: tuple[Occurrence, ...]
+    truncated: bool = False
+
+
+class OccurrenceStore(Protocol):
+    """Where a source's appearance alerts read which identities are new.
+
+    Every alert on a source reads the same store, so two alerts with different filters agree on what
+    is new, and creating or deleting an alert does not change it.
+    """
+
+    def ready_until(self, *, team_id: int, now: datetime) -> datetime:
+        """The end of the time the store has complete answers for. A check never reads past it."""
+        ...
+
+    def appeared(self, *, team_id: int, since: datetime, until: datetime, limit: int) -> OccurrenceWindow:
+        """The occurrences with `since <= occurred_at < until`, at most `limit` of them."""
+        ...
+
+
+@frozen
+class SeenIdentity:
+    """One identity a feed saw in a window, at its earliest sighting there."""
+
+    identity_key: str
+    seen_at: datetime
+    labels: dict[str, str] = field(default_factory=dict)
+    detail: dict[str, Any] = field(default_factory=dict)
+
+
+@frozen
+class OccurrenceFeed:
+    """What a source without detection of its own gives the platform's registry.
+
+    The registry asks the feed what it saw since the registry last asked, and records every
+    identity. It does not filter, because an alert's filters decide only what that alert announces.
+    """
+
+    ready_until: Callable[[int, datetime], datetime]
+    # Every identity seen with `since <= seen_at < until`, earliest first, at most `limit` of them.
+    seen: Callable[[int, datetime, datetime, int], Sequence[SeenIdentity]]
+    # How far back the first read of a project goes. Identities seen there are known before any
+    # alert can announce them, so an alert does not announce what the project already had.
+    seed_lookback: timedelta
