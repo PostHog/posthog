@@ -1331,10 +1331,6 @@ class Database(BaseModel):
     def read_flag_calls_with_union(self) -> bool:
         return self._read_flag_calls_with_union and self.read_flag_calls_from_flag_evaluations
 
-    @property
-    def read_flag_calls_with_union(self) -> bool:
-        return self._read_flag_calls_with_union and self.read_flag_calls_from_flag_evaluations
-
     @staticmethod
     def _is_helper_function_table(table: object) -> bool:
         return isinstance(table, FunctionCallTable) and not isinstance(table, (DirectSQLTable, PostgresTable, S3Table))
