@@ -234,6 +234,107 @@ const workflowsPatchEmailTemplate = (): ToolBase<
     },
 })
 
+const WorkflowsSendEmailSchema = () => {
+    const MessagingSendEmailCreateBody = orvalSchemas.MessagingSendEmailCreateBody()
+    return MessagingSendEmailCreateBody.extend({
+        template_key: MessagingSendEmailCreateBody.shape['template_key'].nonoptional(),
+        subject: MessagingSendEmailCreateBody.shape['subject'].nonoptional(),
+        html: MessagingSendEmailCreateBody.shape['html'].describe(
+            "HTML body of the email, exactly as the recipient should see it. Through this tool the whole request as JSON, html and text included, must stay under 1 MiB, and quotes and line breaks count twice. A larger email can't be sent here."
+        ),
+        text: MessagingSendEmailCreateBody.shape['text'].describe(
+            'Plain text body of the email. Without it, PostHog derives the text from html. Through this tool the whole request as JSON, html and text included, must stay under 1 MiB.'
+        ),
+        distinct_id: MessagingSendEmailCreateBody.shape['distinct_id'].describe(
+            "Distinct ID of the recipient's person. The send and its engagement events are recorded against that person. Defaults to the recipient's email address."
+        ),
+    })
+}
+
+const WorkflowsSendEmailSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const workflowsSendEmailPrepare = (): ToolBase<
+    ReturnType<typeof WorkflowsSendEmailSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'workflows-send-email-prepare',
+    schema: WorkflowsSendEmailSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsSendEmailSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'workflows-send-email',
+            actionLabel: 'send email',
+            messageTemplate: "About to send the email '{subject}' to {to}. Reply 'confirm' to send it.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const workflowsSendEmailExecute = (): ToolBase<typeof WorkflowsSendEmailSchemaExecute, unknown> => ({
+    name: 'workflows-send-email-execute',
+    schema: WorkflowsSendEmailSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof WorkflowsSendEmailSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof WorkflowsSendEmailSchema>>>(context, {
+            incomingArgs: confirmationParams,
+            purpose: 'workflows-send-email',
+            codec: __runtime.codec,
+            ledger: __runtime.ledger,
+            stash: __runtime.stash,
+            expectedScope: { projectId: String(__scopeProjectId) },
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const body: Record<string, unknown> = {}
+        if (params.to !== undefined) {
+            body['to'] = params.to
+        }
+        if (params.template_key !== undefined) {
+            body['template_key'] = params.template_key
+        }
+        if (params.distinct_id !== undefined) {
+            body['distinct_id'] = params.distinct_id
+        }
+        if (params.subject !== undefined) {
+            body['subject'] = params.subject
+        }
+        if (params.html !== undefined) {
+            body['html'] = params.html
+        }
+        if (params.text !== undefined) {
+            body['text'] = params.text
+        }
+        if (params.reply_to !== undefined) {
+            body['reply_to'] = params.reply_to
+        }
+        if (params.capture_engagement !== undefined) {
+            body['capture_engagement'] = params.capture_engagement
+        }
+        if (params.from !== undefined) {
+            body['from'] = params.from
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging/send/email/`,
+            body,
+        })
+        return result
+    },
+})
+
 const WorkflowsShowEmailTemplateSchema = () => {
     const MessagingTemplatesRetrieveParams = orvalSchemas.MessagingTemplatesRetrieveParams()
     return MessagingTemplatesRetrieveParams.omit({ project_id: true })
@@ -319,6 +420,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-make-email-template-transactional-prepare': workflowsMakeEmailTemplateTransactionalPrepare,
     'workflows-make-email-template-transactional-execute': workflowsMakeEmailTemplateTransactionalExecute,
     'workflows-patch-email-template': workflowsPatchEmailTemplate,
+    'workflows-send-email-prepare': workflowsSendEmailPrepare,
+    'workflows-send-email-execute': workflowsSendEmailExecute,
     'workflows-show-email-template': workflowsShowEmailTemplate,
     'workflows-update-email-template': workflowsUpdateEmailTemplate,
 }
