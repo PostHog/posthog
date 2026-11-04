@@ -131,7 +131,7 @@ The worker checks the pause again after the daily allowance claim and gives the 
 Own-sender sends do not read the pause state.
 The `workflows sandbox email blocked` event names the outcome: `paused` or `pause_check_failed`.
 A blocked organization's sandbox sends skip with the reason `organization_blocked`.
-The worker reads the block with the organization members, so a block and its removal reach the workers within one minute. Own-sender sends do not read it.
+The worker reads the block in the same transaction as the organization members. The check right before delivery reads both again, so a block stops sends at once. The check before the send is prepared uses a snapshot up to one minute old, so a removed block can still skip sends for up to a minute. Own-sender sends do not read the block.
 Each delivered send emits a `workflows sandbox email sent` event.
 Live workflow sends record `email_sent`, so workflow reports count them, and also `email_sandbox_sent`, which the sending tier and the sending allowance can read to leave them out; test sends record neither.
 The CDP API's SES webhook captures `workflows sandbox email delivered` for a delivery on `SES_SANDBOX_CONFIGURATION_SET`, test sends included. Without that setting on the CDP API, the event never fires.

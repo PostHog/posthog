@@ -20,7 +20,7 @@ import { logger } from '~/common/utils/logger'
 
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
-import { OrganizationMembersService } from '../managers/organization-members.service'
+import { OrganizationMembersService, RecipientCheck } from '../managers/organization-members.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
@@ -1296,39 +1296,37 @@ export class EmailService {
         { fresh = false }: { fresh?: boolean } = {}
     ): Promise<ReadonlyMap<string, string> | null> {
         const { teamId } = result.invocation
-        let blockedRecipients: string[]
-        let reason: SandboxRecipientBlockReason
-        let deliverTo: ReadonlyMap<string, string> = new Map()
-        let organizationBlocked = false
+        let check: RecipientCheck
         try {
             if (!this.organizationMembers) {
                 throw new Error('Organization member checks are not configured')
             }
-            const check = await this.organizationMembers.checkRecipients(teamId, recipients, { fresh })
-            organizationBlocked = check.organizationBlocked
-            const blocked = check.organizationBlocked ? [] : check.blocked
-            deliverTo = check.organizationBlocked ? new Map() : check.deliverTo
-            blockedRecipients = blocked.map(({ address }) => address)
-            reason = blocked.every(({ unverifiedMember }) => unverifiedMember)
-                ? 'recipient_unverified'
-                : 'recipient_not_member'
+            check = await this.organizationMembers.checkRecipients(teamId, recipients, { fresh })
         } catch (error) {
-            blockedRecipients = recipients
-            reason = 'check_failed'
             logger.warn('Could not check sandbox email recipients', {
                 teamId,
                 error: error instanceof Error ? error.message : 'Unknown error',
             })
+            await this.blockSandboxRecipients(result, recipients, 'check_failed', isTest)
+            return null
         }
-        if (organizationBlocked) {
+        if (check.organizationBlocked) {
             this.skipSandboxSend(result, isTest, SANDBOX_ORGANIZATION_BLOCKED_MESSAGE, 'sending_suspended')
             await this.sandboxSender?.captureBlocked(teamId, isTest, 'organization_blocked', 0)
             return null
         }
-        if (!blockedRecipients.length) {
-            return deliverTo
+        if (!check.blocked.length) {
+            return check.deliverTo
         }
-        await this.blockSandboxRecipients(result, blockedRecipients, reason, isTest)
+        const reason = check.blocked.every(({ unverifiedMember }) => unverifiedMember)
+            ? 'recipient_unverified'
+            : 'recipient_not_member'
+        await this.blockSandboxRecipients(
+            result,
+            check.blocked.map(({ address }) => address),
+            reason,
+            isTest
+        )
         return null
     }
 

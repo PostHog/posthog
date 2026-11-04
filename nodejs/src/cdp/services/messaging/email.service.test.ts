@@ -1332,45 +1332,66 @@ describe('EmailService', () => {
                     }
                 )
 
-                it('checks members after a slow cap claim and gives the claim back when one left', async () => {
-                    const now = Date.now()
-                    const clock = jest.spyOn(Date, 'now').mockReturnValue(now)
-                    const dailyCapLimiter = new RateLimiterService(sandboxRedis, { name: 'sandbox-email' })
-                    const claim = dailyCapLimiter.claimAllOrNothing.bind(dailyCapLimiter)
-                    jest.spyOn(dailyCapLimiter, 'claimAllOrNothing').mockImplementationOnce(async (buckets) => {
-                        const grant = await claim(buckets)
-                        await hub.postgres.query(
-                            PostgresUse.COMMON_WRITE,
-                            'UPDATE posthog_user SET is_email_verified = false WHERE id = $1',
-                            [memberId],
-                            'test:revoke-sandbox-verification-during-cap-claim'
-                        )
-                        clock.mockReturnValue(now + 61_000)
-                        return grant
-                    })
-                    try {
-                        service = createSandboxService(true, {
-                            dailyCapLimiter,
-                            senderSettings: { dailyTeamCap: '1', dailyRecipientCap: '1' },
+                it.each([
+                    [
+                        'a member lost verification',
+                        'UPDATE posthog_user SET is_email_verified = false WHERE id = $1',
+                        'UPDATE posthog_user SET is_email_verified = true WHERE id = $1',
+                        'recipient_unverified',
+                        1,
+                    ],
+                    [
+                        'staff blocked the organization',
+                        `INSERT INTO workflows_sandboxsenderorganizationblock (organization_id, reason, created_at)
+                         VALUES ($1, 'Abuse report', now())`,
+                        'DELETE FROM workflows_sandboxsenderorganizationblock WHERE organization_id = $1',
+                        'organization_blocked',
+                        0,
+                    ],
+                ] as const)(
+                    'checks again after a slow cap claim and gives the claim back when %s',
+                    async (_case, change, restore, reason, blockedCount) => {
+                        const subject = (): string | number =>
+                            reason === 'organization_blocked' ? team.organization_id : memberId
+                        const now = Date.now()
+                        const clock = jest.spyOn(Date, 'now').mockReturnValue(now)
+                        const dailyCapLimiter = new RateLimiterService(sandboxRedis, { name: 'sandbox-email' })
+                        const claim = dailyCapLimiter.claimAllOrNothing.bind(dailyCapLimiter)
+                        jest.spyOn(dailyCapLimiter, 'claimAllOrNothing').mockImplementationOnce(async (buckets) => {
+                            const grant = await claim(buckets)
+                            await hub.postgres.query(
+                                PostgresUse.COMMON_WRITE,
+                                change,
+                                [subject()],
+                                'test:change-during-cap-claim'
+                            )
+                            clock.mockReturnValue(now + 61_000)
+                            return grant
                         })
+                        try {
+                            service = createSandboxService(true, {
+                                dailyCapLimiter,
+                                senderSettings: { dailyTeamCap: '1', dailyRecipientCap: '1' },
+                            })
 
-                        const blocked = await send(false)
-                        expect(blocked).toMatchObject({ finished: true, skipped: true, metrics: [] })
-                        expect(sendEmailSpy).not.toHaveBeenCalled()
-                        expectBlockedEvent('recipient_unverified', false, 1)
+                            const blocked = await send(false)
+                            expect(blocked).toMatchObject({ finished: true, skipped: true, metrics: [] })
+                            expect(sendEmailSpy).not.toHaveBeenCalled()
+                            expectBlockedEvent(reason, false, blockedCount)
 
-                        await hub.postgres.query(
-                            PostgresUse.COMMON_WRITE,
-                            'UPDATE posthog_user SET is_email_verified = true WHERE id = $1',
-                            [memberId],
-                            'test:restore-sandbox-verification'
-                        )
-                        clock.mockReturnValue(now + 122_000)
-                        expectSent(await send(false))
-                    } finally {
-                        clock.mockRestore()
+                            await hub.postgres.query(
+                                PostgresUse.COMMON_WRITE,
+                                restore,
+                                [subject()],
+                                'test:restore-after-cap-claim'
+                            )
+                            clock.mockReturnValue(now + 122_000)
+                            expectSent(await send(false))
+                        } finally {
+                            clock.mockRestore()
+                        }
                     }
-                })
+                )
 
                 it.each([
                     [
