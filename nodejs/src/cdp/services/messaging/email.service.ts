@@ -498,7 +498,6 @@ export class EmailService {
         const integration = await this.integrationManager.get(integrationId)
 
         let success: boolean = false
-        let throttled: boolean = false
         let assetRow: MessageAssetRow | null = null
         let trackingEnabled = true
 
@@ -808,7 +807,6 @@ export class EmailService {
                 // the job. Our local bucket is the primary throttle; this path
                 // catches the cases where SES disagrees with our estimate.
                 // An unread suppression list holds the email the same way, so it never skips the check.
-                throttled = true
                 const retryAfterMs =
                     error instanceof SESThrottleError
                         ? error.retryAfterMs
@@ -823,6 +821,11 @@ export class EmailService {
                         ? `SES rate-limited (${error.errorCode}); rescheduling email in ${retryAfterMs}ms`
                         : `Could not check the suppression list, so this email is waiting. Retrying in ${Math.round(retryAfterMs / 1000)}s. No action is needed on your side.`
                 )
+                // Skip both the VM-state push and the business-metric emit. The
+                // eventual successful retry will produce `email_sent` and push the
+                // success bit to the VM stack — pushing them now would double-count
+                // and lie about the send outcome.
+                return result
             } else {
                 addLog('error', error.message)
                 result.error = error.message
@@ -836,14 +839,6 @@ export class EmailService {
                     })
                 }
             }
-        }
-
-        if (throttled) {
-            // On throttle, skip both the VM-state push and the business-metric
-            // emit. The eventual successful retry will produce `email_sent` and
-            // push the success bit to the VM stack — pushing them now would
-            // double-count and lie about the send outcome.
-            return result
         }
 
         // Push the response to the VM stack if running inline (not from the email queue)

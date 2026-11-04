@@ -1440,25 +1440,36 @@ describe('EmailService', () => {
                 )
             })
 
-            it('holds the email for a retry when the suppression list cannot be read', async () => {
-                const query = hub.postgres.query.bind(hub.postgres)
-                jest.spyOn(hub.postgres, 'query').mockImplementation((target, sql, values, tag) =>
-                    tag === 'loadSuppressed'
-                        ? Promise.reject(new Error('column "hard_bounced_at" does not exist'))
-                        : query(target, sql, values, tag)
-                )
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            it.each([
+                { isTest: false, held: true },
+                { isTest: true, held: false },
+            ])(
+                'holds or fails the email when the suppression list cannot be read (isTest: $isTest)',
+                async ({ isTest, held }) => {
+                    const query = hub.postgres.query.bind(hub.postgres)
+                    jest.spyOn(hub.postgres, 'query').mockImplementation((target, sql, values, tag) =>
+                        tag === 'loadSuppressed'
+                            ? Promise.reject(new Error('column "hard_bounced_at" does not exist'))
+                            : query(target, sql, values, tag)
+                    )
+                    sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
-                const before = Date.now()
-                const result = await service.executeSendEmail(invocation)
+                    const before = Date.now()
+                    const result = await service.executeSendEmail(invocation, isTest)
 
-                expect(sendEmailSpy).not.toHaveBeenCalled()
-                expect(result.error).toBeUndefined()
-                expect(result.finished).toBe(false)
-                expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(before)
-                expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
-                expect(result.metrics).toEqual([])
-            })
+                    expect(sendEmailSpy).not.toHaveBeenCalled()
+                    expect(result.metrics).toEqual([])
+                    if (held) {
+                        expect(result.error).toBeUndefined()
+                        expect(result.finished).toBe(false)
+                        expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThanOrEqual(before + 30_000)
+                        expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
+                    } else {
+                        expect(result.finished).toBe(true)
+                        expect(result.error).toBe('Could not check the suppression list')
+                    }
+                }
+            )
 
             it('calls SES when the recipient is not suppressed', async () => {
                 jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(false)

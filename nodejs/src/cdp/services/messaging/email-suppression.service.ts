@@ -7,7 +7,7 @@ import { isValidTeamId } from '~/common/utils/team-manager'
 
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',
-    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `lookup_failed` = the list could not be read, so the send was held; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint.',
+    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `lookup_failed` = a lookup could not read the list, once per address checked; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint.',
     labelNames: ['result'],
 })
 
