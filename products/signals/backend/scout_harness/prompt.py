@@ -196,6 +196,20 @@ def _governed_metrics_section(project_has_governed_metrics: bool) -> str:
     return _GOVERNED_METRICS_NUDGE if project_has_governed_metrics else ""
 
 
+_ACTIVITY_SUMMARY_SEARCH_NUDGE = """# Find people who read the work
+
+When you set `suggested_reviewers`, also call `activity-summary-search`. It finds project members by object, topic, or product, including people who open something without editing it. A hit is a lead, so check it against the report. Repeatedly opening the affected object can support a selection when the `reason` says so. This is not ownership evidence, and broad activity alone is still not enough."""
+
+
+def _activity_summary_search_section(activity_summary_search_available: bool) -> str:
+    """The reviewer-search nudge for a run that holds `activity-summary-search`, and nothing for any other run.
+
+    Rendered in the per-run block for the same reason as `_governed_metrics_section`: inside
+    *Suggested reviewers route the report* it would split the shared prefix between teams.
+    """
+    return _ACTIVITY_SUMMARY_SEARCH_NUDGE if activity_summary_search_available else ""
+
+
 # The close-out summary tool is a sandbox harness tool, not a PostHog MCP tool, so it is absent from
 # the `mcp__posthog__exec` catalog and has to be called under its qualified name.
 _TASK_SUMMARY_TOOL = "task_summary_update"
@@ -1586,6 +1600,7 @@ def build_run_prompt(
     write_scopes: Sequence[str] | None = None,
     tool_allowlist_narrowed: bool = False,
     project_has_governed_metrics: bool = False,
+    activity_summary_search_available: bool = False,
     mcp_server_names: Sequence[str] | None = None,
     business_knowledge_maintained: bool = False,
     run_note: str | None = None,
@@ -1661,6 +1676,10 @@ def build_run_prompt(
     approved, non-drifted metric the run's acting user may see. True renders a short nudge that the
     catalog exists; False renders nothing, so a project that does not use the data catalog pays no
     tokens for it. A failed check is False, because an outage must cost steering only.
+
+    `activity_summary_search_available` is the harness-side check that the team can search activity
+    summaries and the run holds `activity-summary-search`. True renders a reviewer-routing nudge on
+    the report channel; False renders nothing. A failed check is False.
 
     `business_knowledge_maintained` must mirror `business_knowledge.is_maintained_for_team`: it
     renders the business-knowledge section, which names tools that only exist in the run's toolset
@@ -1764,6 +1783,7 @@ def build_run_prompt(
         for section in (
             _governed_metrics_section(project_has_governed_metrics),
             _report_tags_in_use_section(report_tags_in_use or []) if report_channel else "",
+            _activity_summary_search_section(activity_summary_search_available) if report_channel else "",
             _external_mcp_servers_paragraph(mcp_server_names) if mcp_server_names else "",
             write_access_section,
             _NARROWED_TOOLS_SECTION if tool_allowlist_narrowed else "",
