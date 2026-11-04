@@ -194,10 +194,10 @@
       "on-activate": "source \"$FLOX_ENV_PROJECT/.flox/env/on-activate.sh\"\n"
     },
     "profile": {
-      "bash": "  if [ -f \"$HOME/.bash_profile\" ]; then\n    source \"$HOME/.bash_profile\"\n  fi\n  unset GOROOT\n  export GOTOOLCHAIN=local\n  export GOPATH=\"$FLOX_ENV_CACHE/go\"\n  export GOCACHE=\"$FLOX_ENV_CACHE/go-build\"\n  export GOMODCACHE=\"$GOPATH/pkg/mod\"\n  export GOFLAGS=-modcacherw\n  # Ensure flox binaries (especially Node.js) take precedence over system binaries\n  export PATH=\"$FLOX_ENV/bin:$PATH\"\n  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)\n  export UV_PROJECT_ENVIRONMENT=\"$FLOX_ENV_CACHE/venv\"\n  # Recreate venv if it was deleted (on-activate only runs on first activation)\n  if [ ! -f \"$UV_PROJECT_ENVIRONMENT/bin/activate\" ]; then\n    uv sync\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  elif [ ! -L \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ] || [ ! -e \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ]; then\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  fi\n  source $UV_PROJECT_ENVIRONMENT/bin/activate\n  # Source hogli bash completions\n  [ -f \"$FLOX_ENV_CACHE/completions/hogli.bash\" ] && source \"$FLOX_ENV_CACHE/completions/hogli.bash\"\n  # Load phw worktree helper\n  [ -f \"$FLOX_ENV_PROJECT/bin/phw\" ] && source \"$FLOX_ENV_PROJECT/bin/phw\" >/dev/null\n  # Route manually-run dependency installs (uv sync, pnpm install, ...) through the dev sandbox on macOS\n  [ -f \"$FLOX_ENV_PROJECT/bin/dev-sandbox-shims\" ] && source \"$FLOX_ENV_PROJECT/bin/dev-sandbox-shims\"\n",
-      "zsh": "  if [[ -f \"$HOME/.zshrc\" ]]; then\n    source \"$HOME/.zshrc\"\n  fi\n  unset GOROOT\n  export GOTOOLCHAIN=local\n  export GOPATH=\"$FLOX_ENV_CACHE/go\"\n  export GOCACHE=\"$FLOX_ENV_CACHE/go-build\"\n  export GOMODCACHE=\"$GOPATH/pkg/mod\"\n  export GOFLAGS=-modcacherw\n  # Ensure flox binaries (especially Node.js) take precedence over system binaries\n  export PATH=\"$FLOX_ENV/bin:$PATH\"\n  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)\n  export UV_PROJECT_ENVIRONMENT=\"$FLOX_ENV_CACHE/venv\"\n  # Recreate venv if it was deleted (on-activate only runs on first activation)\n  if [[ ! -f \"$UV_PROJECT_ENVIRONMENT/bin/activate\" ]]; then\n    uv sync\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  elif [[ ! -L \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ]] || [[ ! -e \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ]]; then\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  fi\n  source $UV_PROJECT_ENVIRONMENT/bin/activate\n  # Add hogli completions to zsh\n  [[ -f \"$FLOX_ENV_CACHE/completions/_hogli\" ]] && fpath=(\"$FLOX_ENV_CACHE/completions\" $fpath)\n  autoload -Uz compinit && compinit -i\n  # Load phw worktree helper\n  [[ -f \"$FLOX_ENV_PROJECT/bin/phw\" ]] && source \"$FLOX_ENV_PROJECT/bin/phw\" >/dev/null\n  # Route manually-run dependency installs (uv sync, pnpm install, ...) through the dev sandbox on macOS\n  [[ -f \"$FLOX_ENV_PROJECT/bin/dev-sandbox-shims\" ]] && source \"$FLOX_ENV_PROJECT/bin/dev-sandbox-shims\"\n",
-      "fish": "  set -e GOROOT\n  set -gx GOTOOLCHAIN local\n  set -gx GOPATH \"$FLOX_ENV_CACHE/go\"\n  set -gx GOCACHE \"$FLOX_ENV_CACHE/go-build\"\n  set -gx GOMODCACHE \"$GOPATH/pkg/mod\"\n  set -gx GOFLAGS -modcacherw\n  # Ensure flox binaries (especially Node.js) take precedence over system binaries\n  fish_add_path -g \"$FLOX_ENV/bin\"\n  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)\n  set -gx UV_PROJECT_ENVIRONMENT \"$FLOX_ENV_CACHE/venv\"\n  # Recreate venv if it was deleted (on-activate only runs on first activation)\n  if not test -f \"$UV_PROJECT_ENVIRONMENT/bin/activate.fish\"\n    uv sync\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  else if not test -L \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"; or not test -e \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  end\n  source $UV_PROJECT_ENVIRONMENT/bin/activate.fish\n",
-      "tcsh": "  unsetenv GOROOT\n  setenv GOTOOLCHAIN local\n  setenv GOPATH \"$FLOX_ENV_CACHE/go\"\n  setenv GOCACHE \"$FLOX_ENV_CACHE/go-build\"\n  setenv GOMODCACHE \"$GOPATH/pkg/mod\"\n  setenv GOFLAGS -modcacherw\n  # Ensure flox binaries (especially Node.js) take precedence over system binaries\n  setenv PATH \"$FLOX_ENV/bin:$PATH\"\n  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)\n  setenv UV_PROJECT_ENVIRONMENT \"$FLOX_ENV_CACHE/venv\"\n  # Recreate venv if it was deleted (on-activate only runs on first activation)\n  if ( ! -f \"$UV_PROJECT_ENVIRONMENT/bin/activate.csh\" ) then\n    uv sync\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  else if ( ! -l \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" || ! -e \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ) then\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  endif\n  source $UV_PROJECT_ENVIRONMENT/bin/activate.csh\n"
+      "bash": "  if [ -f \"$HOME/.bash_profile\" ]; then\n    source \"$HOME/.bash_profile\"\n  fi\n  unset GOROOT\n  export GOTOOLCHAIN=local\n  export GOPATH=\"$HOME/.cache/posthog/go\"\n  export GOCACHE=\"$HOME/.cache/posthog/go-build\"\n  export GOMODCACHE=\"$GOPATH/pkg/mod\"\n  export GOFLAGS=-modcacherw\n  # Ensure flox binaries (especially Node.js) take precedence over system binaries\n  export PATH=\"$FLOX_ENV/bin:$PATH\"\n  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)\n  export UV_PROJECT_ENVIRONMENT=\"$FLOX_ENV_CACHE/venv\"\n  # Recreate venv if it was deleted (on-activate only runs on first activation)\n  if [ ! -f \"$UV_PROJECT_ENVIRONMENT/bin/activate\" ]; then\n    uv sync\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  elif [ ! -L \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ] || [ ! -e \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ]; then\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  fi\n  source $UV_PROJECT_ENVIRONMENT/bin/activate\n  # Source hogli bash completions\n  [ -f \"$FLOX_ENV_CACHE/completions/hogli.bash\" ] && source \"$FLOX_ENV_CACHE/completions/hogli.bash\"\n  # Load phw worktree helper\n  [ -f \"$FLOX_ENV_PROJECT/bin/phw\" ] && source \"$FLOX_ENV_PROJECT/bin/phw\" >/dev/null\n  # Route manually-run dependency installs (uv sync, pnpm install, ...) through the dev sandbox on macOS\n  [ -f \"$FLOX_ENV_PROJECT/bin/dev-sandbox-shims\" ] && source \"$FLOX_ENV_PROJECT/bin/dev-sandbox-shims\"\n",
+      "zsh": "  if [[ -f \"$HOME/.zshrc\" ]]; then\n    source \"$HOME/.zshrc\"\n  fi\n  unset GOROOT\n  export GOTOOLCHAIN=local\n  export GOPATH=\"$HOME/.cache/posthog/go\"\n  export GOCACHE=\"$HOME/.cache/posthog/go-build\"\n  export GOMODCACHE=\"$GOPATH/pkg/mod\"\n  export GOFLAGS=-modcacherw\n  # Ensure flox binaries (especially Node.js) take precedence over system binaries\n  export PATH=\"$FLOX_ENV/bin:$PATH\"\n  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)\n  export UV_PROJECT_ENVIRONMENT=\"$FLOX_ENV_CACHE/venv\"\n  # Recreate venv if it was deleted (on-activate only runs on first activation)\n  if [[ ! -f \"$UV_PROJECT_ENVIRONMENT/bin/activate\" ]]; then\n    uv sync\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  elif [[ ! -L \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ]] || [[ ! -e \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ]]; then\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  fi\n  source $UV_PROJECT_ENVIRONMENT/bin/activate\n  # Add hogli completions to zsh\n  [[ -f \"$FLOX_ENV_CACHE/completions/_hogli\" ]] && fpath=(\"$FLOX_ENV_CACHE/completions\" $fpath)\n  autoload -Uz compinit && compinit -i\n  # Load phw worktree helper\n  [[ -f \"$FLOX_ENV_PROJECT/bin/phw\" ]] && source \"$FLOX_ENV_PROJECT/bin/phw\" >/dev/null\n  # Route manually-run dependency installs (uv sync, pnpm install, ...) through the dev sandbox on macOS\n  [[ -f \"$FLOX_ENV_PROJECT/bin/dev-sandbox-shims\" ]] && source \"$FLOX_ENV_PROJECT/bin/dev-sandbox-shims\"\n",
+      "fish": "  set -e GOROOT\n  set -gx GOTOOLCHAIN local\n  set -gx GOPATH \"$HOME/.cache/posthog/go\"\n  set -gx GOCACHE \"$HOME/.cache/posthog/go-build\"\n  set -gx GOMODCACHE \"$GOPATH/pkg/mod\"\n  set -gx GOFLAGS -modcacherw\n  # Ensure flox binaries (especially Node.js) take precedence over system binaries\n  fish_add_path -g \"$FLOX_ENV/bin\"\n  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)\n  set -gx UV_PROJECT_ENVIRONMENT \"$FLOX_ENV_CACHE/venv\"\n  # Recreate venv if it was deleted (on-activate only runs on first activation)\n  if not test -f \"$UV_PROJECT_ENVIRONMENT/bin/activate.fish\"\n    uv sync\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  else if not test -L \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"; or not test -e \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  end\n  source $UV_PROJECT_ENVIRONMENT/bin/activate.fish\n",
+      "tcsh": "  unsetenv GOROOT\n  setenv GOTOOLCHAIN local\n  setenv GOPATH \"$HOME/.cache/posthog/go\"\n  setenv GOCACHE \"$HOME/.cache/posthog/go-build\"\n  setenv GOMODCACHE \"$GOPATH/pkg/mod\"\n  setenv GOFLAGS -modcacherw\n  # Ensure flox binaries (especially Node.js) take precedence over system binaries\n  setenv PATH \"$FLOX_ENV/bin:$PATH\"\n  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)\n  setenv UV_PROJECT_ENVIRONMENT \"$FLOX_ENV_CACHE/venv\"\n  # Recreate venv if it was deleted (on-activate only runs on first activation)\n  if ( ! -f \"$UV_PROJECT_ENVIRONMENT/bin/activate.csh\" ) then\n    uv sync\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  else if ( ! -l \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" || ! -e \"$UV_PROJECT_ENVIRONMENT/bin/hogli\" ) then\n    ln -sf \"$FLOX_ENV_PROJECT/bin/hogli\" \"$UV_PROJECT_ENVIRONMENT/bin/hogli\"\n  endif\n  source $UV_PROJECT_ENVIRONMENT/bin/activate.csh\n"
     },
     "options": {
       "systems": [
@@ -857,6 +857,523 @@
       },
       "system": "x86_64-linux",
       "group": "go",
+      "priority": 5
+    },
+    {
+      "attr_path": "brotli",
+      "broken": false,
+      "derivation": "/nix/store/45cdghc6fx6gh12c9g7175xwhw1mzfg0-brotli-1.2.0.drv",
+      "description": "General-purpose lossless compression library with CLI",
+      "install_id": "brotli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
+      "name": "brotli-1.2.0",
+      "pname": "brotli",
+      "rev": "1c89083e451e891152365b799595cf7790a43325",
+      "rev_count": 1105037,
+      "rev_date": "2026-10-30T06:21:25Z",
+      "scrape_date": "2026-10-31T05:47:33.208931Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.2.0",
+      "outputs_to_install": [
+        "out",
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/fha00fbw89nafxs8b1ax4ih3vpzci01x-brotli-1.2.0-dev",
+        "lib": "/nix/store/cry7qbrbdqdd1qak8a0dcw70dcm4cshj-brotli-1.2.0-lib",
+        "out": "/nix/store/8s77cb5828j44r44g1r86zfbvazv3mrv-brotli-1.2.0"
+      },
+      "system": "aarch64-darwin",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "brotli",
+      "broken": false,
+      "derivation": "/nix/store/90h4qh9380kvd61zhqrllqahfj1yirpd-brotli-1.2.0.drv",
+      "description": "General-purpose lossless compression library with CLI",
+      "install_id": "brotli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
+      "name": "brotli-1.2.0",
+      "pname": "brotli",
+      "rev": "1c89083e451e891152365b799595cf7790a43325",
+      "rev_count": 1105037,
+      "rev_date": "2026-10-30T06:21:25Z",
+      "scrape_date": "2026-10-31T06:15:34.315669Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.2.0",
+      "outputs_to_install": [
+        "out",
+        "out",
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/ma3djpk61bqz03567w2pdv7j7lmjh8q6-brotli-1.2.0-dev",
+        "lib": "/nix/store/cz57r0bgh8az2215msz1yxkq3phqbjzh-brotli-1.2.0-lib",
+        "out": "/nix/store/4gz6irqyfbznz1ls445x37g11ngd3k6b-brotli-1.2.0"
+      },
+      "system": "aarch64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "brotli",
+      "broken": false,
+      "derivation": "/nix/store/imj8k40hz32xyii3l9db2h4nw33ynxf4-brotli-1.2.0.drv",
+      "description": "General-purpose lossless compression library with CLI",
+      "install_id": "brotli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
+      "name": "brotli-1.2.0",
+      "pname": "brotli",
+      "rev": "1c89083e451e891152365b799595cf7790a43325",
+      "rev_count": 1105037,
+      "rev_date": "2026-10-30T06:21:25Z",
+      "scrape_date": "2026-10-31T06:45:53.744738Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.2.0",
+      "outputs_to_install": [
+        "out",
+        "out",
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/vqqz42af3hm89plcfg6sxmic32v2praa-brotli-1.2.0-dev",
+        "lib": "/nix/store/b8g0didzv422qhw67dh67wldkc9wkpdf-brotli-1.2.0-lib",
+        "out": "/nix/store/aqg090a82fsn92fvq2pafs1kig928m6g-brotli-1.2.0"
+      },
+      "system": "x86_64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "corepack",
+      "broken": false,
+      "derivation": "/nix/store/g0wljgq023sllzx9dbn3lrznz03vzag6-corepack-0.36.0.drv",
+      "description": "Package manager version manager for Node.js projects",
+      "install_id": "corepack",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
+      "name": "corepack-0.36.0",
+      "pname": "corepack",
+      "rev": "1c89083e451e891152365b799595cf7790a43325",
+      "rev_count": 1105037,
+      "rev_date": "2026-10-30T06:21:25Z",
+      "scrape_date": "2026-10-31T05:47:33.231303Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.36.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/j284pbdjlm06qbwmwvpxb4ag7v456ibl-corepack-0.36.0"
+      },
+      "system": "aarch64-darwin",
+      "group": "nodejs",
+      "priority": 4
+    },
+    {
+      "attr_path": "corepack",
+      "broken": false,
+      "derivation": "/nix/store/d7d0z51gjb7849dy7dic2n74330ig69y-corepack-0.36.0.drv",
+      "description": "Package manager version manager for Node.js projects",
+      "install_id": "corepack",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
+      "name": "corepack-0.36.0",
+      "pname": "corepack",
+      "rev": "1c89083e451e891152365b799595cf7790a43325",
+      "rev_count": 1105037,
+      "rev_date": "2026-10-30T06:21:25Z",
+      "scrape_date": "2026-10-31T06:15:34.338385Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.36.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/1y25s88n0qibgj78waqymndkgs3qfsgz-corepack-0.36.0"
+      },
+      "system": "aarch64-linux",
+      "group": "nodejs",
+      "priority": 4
+    },
+    {
+      "attr_path": "corepack",
+      "broken": false,
+      "derivation": "/nix/store/fq9hq4smgc9scwbzimz2g369lhmn7js1-corepack-0.36.0.drv",
+      "description": "Package manager version manager for Node.js projects",
+      "install_id": "corepack",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
+      "name": "corepack-0.36.0",
+      "pname": "corepack",
+      "rev": "1c89083e451e891152365b799595cf7790a43325",
+      "rev_count": 1105037,
+      "rev_date": "2026-10-30T06:21:25Z",
+      "scrape_date": "2026-10-31T06:45:53.753948Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.36.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/0xqs57z50ys793m9fp7v6ri4ymd81kq8-corepack-0.36.0"
+      },
+      "system": "x86_64-linux",
+      "group": "nodejs",
+      "priority": 4
+    },
+    {
+      "attr_path": "cyrus_sasl",
+      "broken": false,
+      "derivation": "/nix/store/pv0p0v5y69k1pz1d1lqv0aq5668k6bbs-cyrus-sasl-2.1.28.drv",
+      "description": "Library for adding authentication support to connection-based protocols",
+      "install_id": "cyrus_sasl",
+      "license": "BSD-4-Clause",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
+      "name": "cyrus-sasl-2.1.28",
+      "pname": "cyrus_sasl",
+      "rev": "1c89083e451e891152365b799595cf7790a43325",
+      "rev_count": 1105037,
+      "rev_date": "2026-10-30T06:21:25Z",
+      "scrape_date": "2026-10-31T06:15:34.397433Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.1.28",
+      "outputs_to_install": [
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/absf42wrxykfsgjg6gs9h6i2n0gshnd3-cyrus-sasl-2.1.28-bin",
+        "dev": "/nix/store/wr8yz4d69czk9zycg9lzr7aczidsjm63-cyrus-sasl-2.1.28-dev",
+        "devdoc": "/nix/store/3spnw18scn19vsv36nyyzayb29jsqr00-cyrus-sasl-2.1.28-devdoc",
+        "man": "/nix/store/awbh1a4yahc4jflvaai1pj5cjz3j0nqh-cyrus-sasl-2.1.28-man",
+        "out": "/nix/store/kg47rzcmjs629i4gsxz0zgg04qw2vgs7-cyrus-sasl-2.1.28"
+      },
+      "system": "aarch64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "cyrus_sasl",
+      "broken": false,
+      "derivation": "/nix/store/pcc4pqw6yysn0wh9d0xc0g9qac02lzq9-cyrus-sasl-2.1.28.drv",
+      "description": "Library for adding authentication support to connection-based protocols",
+      "install_id": "cyrus_sasl",
+      "license": "BSD-4-Clause",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
+      "name": "cyrus-sasl-2.1.28",
+      "pname": "cyrus_sasl",
+      "rev": "1c89083e451e891152365b799595cf7790a43325",
+      "rev_count": 1105037,
+      "rev_date": "2026-10-30T06:21:25Z",
+      "scrape_date": "2026-10-31T06:45:53.755899Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.1.28",
+      "outputs_to_install": [
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/1797zfqbb8js5jwixdqf24q7x275z9d8-cyrus-sasl-2.1.28-bin",
+        "dev": "/nix/store/71gr2z36cwmky2c70dr7zsa6fq8a19rz-cyrus-sasl-2.1.28-dev",
+        "devdoc": "/nix/store/4mnwkfd0syfv26iga1x4s94wwxy23lnf-cyrus-sasl-2.1.28-devdoc",
+        "man": "/nix/store/vzw5bwbr9v4vh7spjap52s9jg0bidrmb-cyrus-sasl-2.1.28-man",
+        "out": "/nix/store/kggg99nn8zvnxdb47pg6ydpb8vnww44a-cyrus-sasl-2.1.28"
+      },
+      "system": "x86_64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "lz4",
+      "broken": false,
+      "derivation": "/nix/store/l7ywzs0iy73xq36rpv9fd7cgdkfi9g91-lz4-1.10.0.drv",
+      "description": "Extremely fast compression algorithm",
+      "install_id": "lz4",
+      "license": "[ BSD-2-Clause, GPL-2.0-or-later ]",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
+      "name": "lz4-1.10.0",
+      "pname": "lz4",
+      "rev": "1c89083e451e891152365b799595cf7790a43325",
+      "rev_count": 1105037,
+      "rev_date": "2026-10-30T06:21:25Z",
+      "scrape_date": "2026-10-31T06:15:34.570690Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.10.0",
+      "outputs_to_install": [
+        "man",
+        "out",
+        "out",
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/nxpxiqswysssxpzfziwvcz78c5i7daw2-lz4-1.10.0-dev",
+        "lib": "/nix/store/sylwbbl9zayc3603159mzjnj8fr4bcy5-lz4-1.10.0-lib",
+        "man": "/nix/store/9zagb9zs5dm5fj5wiwhpmyxdq1d4i6r7-lz4-1.10.0-man",
+        "out": "/nix/store/pgzm71x3r1sjbl1dic5ifnqc993y7cc2-lz4-1.10.0"
+      },
+      "system": "aarch64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "lz4",
+      "broken": false,
+      "derivation": "/nix/store/h0rc0zkaa6vn42hs0vxmp83fjyhj9p33-lz4-1.10.0.drv",
+      "description": "Extremely fast compression algorithm",
+      "install_id": "lz4",
+      "license": "[ BSD-2-Clause, GPL-2.0-or-later ]",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
+      "name": "lz4-1.10.0",
+      "pname": "lz4",
+      "rev": "1c89083e451e891152365b799595cf7790a43325",
+      "rev_count": 1105037,
+      "rev_date": "2026-10-30T06:21:25Z",
+      "scrape_date": "2026-10-31T06:45:53.893227Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.10.0",
+      "outputs_to_install": [
+        "man",
+        "out",
+        "out",
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/l3h34sipmkdqipjwn5x87izrr5v9bgq0-lz4-1.10.0-dev",
+        "lib": "/nix/store/7xkwycvjhvfyq2sjhq8yqf75y0afikaj-lz4-1.10.0-lib",
+        "man": "/nix/store/7fii733x3lzzp828n98k839x494950yz-lz4-1.10.0-man",
+        "out": "/nix/store/qldkqdihi29js0gkprz4bwvgapw5cxa8-lz4-1.10.0"
+      },
+      "system": "x86_64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "nodejs_26",
+      "broken": false,
+      "derivation": "/nix/store/wdl5f4ycxvljnvy3y12550avp89snwr4-nodejs-26.13.0.drv",
+      "description": "Event-driven I/O framework for the V8 JavaScript engine",
+      "install_id": "nodejs",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
+      "name": "nodejs-26.13.0",
+      "pname": "nodejs_26",
+      "rev": "1c89083e451e891152365b799595cf7790a43325",
+      "rev_count": 1105037,
+      "rev_date": "2026-10-30T06:21:25Z",
+      "scrape_date": "2026-10-31T05:47:33.370514Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "26.13.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/m75c3h6czizpnqi3lcng1vmx75iinz4y-nodejs-26.13.0"
+      },
+      "system": "aarch64-darwin",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "nodejs_26",
+      "broken": false,
+      "derivation": "/nix/store/b1jb04wkqd9dclga7x9xkd2d0gdjiqmx-nodejs-26.13.0.drv",
+      "description": "Event-driven I/O framework for the V8 JavaScript engine",
+      "install_id": "nodejs",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
+      "name": "nodejs-26.13.0",
+      "pname": "nodejs_26",
+      "rev": "1c89083e451e891152365b799595cf7790a43325",
+      "rev_count": 1105037,
+      "rev_date": "2026-10-30T06:21:25Z",
+      "scrape_date": "2026-10-31T06:15:34.581964Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "26.13.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/3ps5p9pfq2jardgsb1rv8axpvznlvxvx-nodejs-26.13.0"
+      },
+      "system": "aarch64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "nodejs_26",
+      "broken": false,
+      "derivation": "/nix/store/nn5k6nwxcqqjycrk5rkicg8sfczsh0l9-nodejs-26.13.0.drv",
+      "description": "Event-driven I/O framework for the V8 JavaScript engine",
+      "install_id": "nodejs",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
+      "name": "nodejs-26.13.0",
+      "pname": "nodejs_26",
+      "rev": "1c89083e451e891152365b799595cf7790a43325",
+      "rev_count": 1105037,
+      "rev_date": "2026-10-30T06:21:25Z",
+      "scrape_date": "2026-10-31T06:45:53.903411Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "26.13.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/ywwchijlngjj756gqp3izz8xw6q8cca2-nodejs-26.13.0"
+      },
+      "system": "x86_64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "zstd",
+      "broken": false,
+      "derivation": "/nix/store/66f17q6b8fcd2v5bp6gg8hxfnay61nhp-zstd-1.5.7.drv",
+      "description": "Zstandard real-time compression algorithm",
+      "install_id": "zstd",
+      "license": "BSD-3-Clause",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
+      "name": "zstd-1.5.7",
+      "pname": "zstd",
+      "rev": "1c89083e451e891152365b799595cf7790a43325",
+      "rev_count": 1105037,
+      "rev_date": "2026-10-30T06:21:25Z",
+      "scrape_date": "2026-10-31T05:47:33.688641Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.5.7",
+      "outputs_to_install": [
+        "bin",
+        "bin",
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/31dnpvd5v8dv69f06iymv9qjkwkgfdja-zstd-1.5.7-bin",
+        "dev": "/nix/store/qbnbh801sn66ydvrwmgln5gnwvq7lz94-zstd-1.5.7-dev",
+        "man": "/nix/store/nl5ab85w9a05nn3q2b7cmar487lkdcj9-zstd-1.5.7-man",
+        "out": "/nix/store/qa3j5zvp29rdwfs7ykb4cnx6wzacn1lr-zstd-1.5.7"
+      },
+      "system": "aarch64-darwin",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "zstd",
+      "broken": false,
+      "derivation": "/nix/store/84l19s72j03q61b9fp0wgrbyfnrdg0q3-zstd-1.5.7.drv",
+      "description": "Zstandard real-time compression algorithm",
+      "install_id": "zstd",
+      "license": "BSD-3-Clause",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
+      "name": "zstd-1.5.7",
+      "pname": "zstd",
+      "rev": "1c89083e451e891152365b799595cf7790a43325",
+      "rev_count": 1105037,
+      "rev_date": "2026-10-30T06:21:25Z",
+      "scrape_date": "2026-10-31T06:15:34.873434Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.5.7",
+      "outputs_to_install": [
+        "bin",
+        "bin",
+        "bin",
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/3advb2s77lmajxkks58va12s2bfafhwy-zstd-1.5.7-bin",
+        "dev": "/nix/store/ljhxv2mqvz347v4gdig2xnj8wmxpx3fb-zstd-1.5.7-dev",
+        "man": "/nix/store/64yd8hz4y469c9h7dh9blbrvmfpwaykb-zstd-1.5.7-man",
+        "out": "/nix/store/91qsbvx8w31rd255w8ikficjqg4v3fh4-zstd-1.5.7"
+      },
+      "system": "aarch64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "zstd",
+      "broken": false,
+      "derivation": "/nix/store/yi5kx3z9njylnfg9l0f3v276dyy4jgs0-zstd-1.5.7.drv",
+      "description": "Zstandard real-time compression algorithm",
+      "install_id": "zstd",
+      "license": "BSD-3-Clause",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
+      "name": "zstd-1.5.7",
+      "pname": "zstd",
+      "rev": "1c89083e451e891152365b799595cf7790a43325",
+      "rev_count": 1105037,
+      "rev_date": "2026-10-30T06:21:25Z",
+      "scrape_date": "2026-10-31T06:45:54.160355Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.5.7",
+      "outputs_to_install": [
+        "bin",
+        "bin",
+        "bin",
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/yqgkjczmmxsp6l26nwriry7h3kq981vi-zstd-1.5.7-bin",
+        "dev": "/nix/store/l9f17m3j280r2gmb7gksl4r1dycxylin-zstd-1.5.7-dev",
+        "man": "/nix/store/mi49iqdp5i46877a404f6a0iggyz10pm-zstd-1.5.7-man",
+        "out": "/nix/store/f5r77q40xh7rj30dfkajv8y6jwbf4xh2-zstd-1.5.7"
+      },
+      "system": "x86_64-linux",
+      "group": "nodejs",
       "priority": 5
     },
     {
@@ -2785,523 +3302,6 @@
       },
       "system": "x86_64-linux",
       "group": "uv",
-      "priority": 5
-    },
-    {
-      "attr_path": "brotli",
-      "broken": false,
-      "derivation": "/nix/store/45cdghc6fx6gh12c9g7175xwhw1mzfg0-brotli-1.2.0.drv",
-      "description": "General-purpose lossless compression library with CLI",
-      "install_id": "brotli",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
-      "name": "brotli-1.2.0",
-      "pname": "brotli",
-      "rev": "1c89083e451e891152365b799595cf7790a43325",
-      "rev_count": 1105037,
-      "rev_date": "2026-10-30T06:21:25Z",
-      "scrape_date": "2026-10-31T05:47:33.208931Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.2.0",
-      "outputs_to_install": [
-        "out",
-        "out"
-      ],
-      "outputs": {
-        "dev": "/nix/store/fha00fbw89nafxs8b1ax4ih3vpzci01x-brotli-1.2.0-dev",
-        "lib": "/nix/store/cry7qbrbdqdd1qak8a0dcw70dcm4cshj-brotli-1.2.0-lib",
-        "out": "/nix/store/8s77cb5828j44r44g1r86zfbvazv3mrv-brotli-1.2.0"
-      },
-      "system": "aarch64-darwin",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "brotli",
-      "broken": false,
-      "derivation": "/nix/store/90h4qh9380kvd61zhqrllqahfj1yirpd-brotli-1.2.0.drv",
-      "description": "General-purpose lossless compression library with CLI",
-      "install_id": "brotli",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
-      "name": "brotli-1.2.0",
-      "pname": "brotli",
-      "rev": "1c89083e451e891152365b799595cf7790a43325",
-      "rev_count": 1105037,
-      "rev_date": "2026-10-30T06:21:25Z",
-      "scrape_date": "2026-10-31T06:15:34.315669Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.2.0",
-      "outputs_to_install": [
-        "out",
-        "out",
-        "out"
-      ],
-      "outputs": {
-        "dev": "/nix/store/ma3djpk61bqz03567w2pdv7j7lmjh8q6-brotli-1.2.0-dev",
-        "lib": "/nix/store/cz57r0bgh8az2215msz1yxkq3phqbjzh-brotli-1.2.0-lib",
-        "out": "/nix/store/4gz6irqyfbznz1ls445x37g11ngd3k6b-brotli-1.2.0"
-      },
-      "system": "aarch64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "brotli",
-      "broken": false,
-      "derivation": "/nix/store/imj8k40hz32xyii3l9db2h4nw33ynxf4-brotli-1.2.0.drv",
-      "description": "General-purpose lossless compression library with CLI",
-      "install_id": "brotli",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
-      "name": "brotli-1.2.0",
-      "pname": "brotli",
-      "rev": "1c89083e451e891152365b799595cf7790a43325",
-      "rev_count": 1105037,
-      "rev_date": "2026-10-30T06:21:25Z",
-      "scrape_date": "2026-10-31T06:45:53.744738Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.2.0",
-      "outputs_to_install": [
-        "out",
-        "out",
-        "out"
-      ],
-      "outputs": {
-        "dev": "/nix/store/vqqz42af3hm89plcfg6sxmic32v2praa-brotli-1.2.0-dev",
-        "lib": "/nix/store/b8g0didzv422qhw67dh67wldkc9wkpdf-brotli-1.2.0-lib",
-        "out": "/nix/store/aqg090a82fsn92fvq2pafs1kig928m6g-brotli-1.2.0"
-      },
-      "system": "x86_64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "corepack",
-      "broken": false,
-      "derivation": "/nix/store/g0wljgq023sllzx9dbn3lrznz03vzag6-corepack-0.36.0.drv",
-      "description": "Package manager version manager for Node.js projects",
-      "install_id": "corepack",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
-      "name": "corepack-0.36.0",
-      "pname": "corepack",
-      "rev": "1c89083e451e891152365b799595cf7790a43325",
-      "rev_count": 1105037,
-      "rev_date": "2026-10-30T06:21:25Z",
-      "scrape_date": "2026-10-31T05:47:33.231303Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "0.36.0",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/j284pbdjlm06qbwmwvpxb4ag7v456ibl-corepack-0.36.0"
-      },
-      "system": "aarch64-darwin",
-      "group": "nodejs",
-      "priority": 4
-    },
-    {
-      "attr_path": "corepack",
-      "broken": false,
-      "derivation": "/nix/store/d7d0z51gjb7849dy7dic2n74330ig69y-corepack-0.36.0.drv",
-      "description": "Package manager version manager for Node.js projects",
-      "install_id": "corepack",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
-      "name": "corepack-0.36.0",
-      "pname": "corepack",
-      "rev": "1c89083e451e891152365b799595cf7790a43325",
-      "rev_count": 1105037,
-      "rev_date": "2026-10-30T06:21:25Z",
-      "scrape_date": "2026-10-31T06:15:34.338385Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "0.36.0",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/1y25s88n0qibgj78waqymndkgs3qfsgz-corepack-0.36.0"
-      },
-      "system": "aarch64-linux",
-      "group": "nodejs",
-      "priority": 4
-    },
-    {
-      "attr_path": "corepack",
-      "broken": false,
-      "derivation": "/nix/store/fq9hq4smgc9scwbzimz2g369lhmn7js1-corepack-0.36.0.drv",
-      "description": "Package manager version manager for Node.js projects",
-      "install_id": "corepack",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
-      "name": "corepack-0.36.0",
-      "pname": "corepack",
-      "rev": "1c89083e451e891152365b799595cf7790a43325",
-      "rev_count": 1105037,
-      "rev_date": "2026-10-30T06:21:25Z",
-      "scrape_date": "2026-10-31T06:45:53.753948Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "0.36.0",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/0xqs57z50ys793m9fp7v6ri4ymd81kq8-corepack-0.36.0"
-      },
-      "system": "x86_64-linux",
-      "group": "nodejs",
-      "priority": 4
-    },
-    {
-      "attr_path": "cyrus_sasl",
-      "broken": false,
-      "derivation": "/nix/store/pv0p0v5y69k1pz1d1lqv0aq5668k6bbs-cyrus-sasl-2.1.28.drv",
-      "description": "Library for adding authentication support to connection-based protocols",
-      "install_id": "cyrus_sasl",
-      "license": "BSD-4-Clause",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
-      "name": "cyrus-sasl-2.1.28",
-      "pname": "cyrus_sasl",
-      "rev": "1c89083e451e891152365b799595cf7790a43325",
-      "rev_count": 1105037,
-      "rev_date": "2026-10-30T06:21:25Z",
-      "scrape_date": "2026-10-31T06:15:34.397433Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "2.1.28",
-      "outputs_to_install": [
-        "bin",
-        "man"
-      ],
-      "outputs": {
-        "bin": "/nix/store/absf42wrxykfsgjg6gs9h6i2n0gshnd3-cyrus-sasl-2.1.28-bin",
-        "dev": "/nix/store/wr8yz4d69czk9zycg9lzr7aczidsjm63-cyrus-sasl-2.1.28-dev",
-        "devdoc": "/nix/store/3spnw18scn19vsv36nyyzayb29jsqr00-cyrus-sasl-2.1.28-devdoc",
-        "man": "/nix/store/awbh1a4yahc4jflvaai1pj5cjz3j0nqh-cyrus-sasl-2.1.28-man",
-        "out": "/nix/store/kg47rzcmjs629i4gsxz0zgg04qw2vgs7-cyrus-sasl-2.1.28"
-      },
-      "system": "aarch64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "cyrus_sasl",
-      "broken": false,
-      "derivation": "/nix/store/pcc4pqw6yysn0wh9d0xc0g9qac02lzq9-cyrus-sasl-2.1.28.drv",
-      "description": "Library for adding authentication support to connection-based protocols",
-      "install_id": "cyrus_sasl",
-      "license": "BSD-4-Clause",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
-      "name": "cyrus-sasl-2.1.28",
-      "pname": "cyrus_sasl",
-      "rev": "1c89083e451e891152365b799595cf7790a43325",
-      "rev_count": 1105037,
-      "rev_date": "2026-10-30T06:21:25Z",
-      "scrape_date": "2026-10-31T06:45:53.755899Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "2.1.28",
-      "outputs_to_install": [
-        "bin",
-        "man"
-      ],
-      "outputs": {
-        "bin": "/nix/store/1797zfqbb8js5jwixdqf24q7x275z9d8-cyrus-sasl-2.1.28-bin",
-        "dev": "/nix/store/71gr2z36cwmky2c70dr7zsa6fq8a19rz-cyrus-sasl-2.1.28-dev",
-        "devdoc": "/nix/store/4mnwkfd0syfv26iga1x4s94wwxy23lnf-cyrus-sasl-2.1.28-devdoc",
-        "man": "/nix/store/vzw5bwbr9v4vh7spjap52s9jg0bidrmb-cyrus-sasl-2.1.28-man",
-        "out": "/nix/store/kggg99nn8zvnxdb47pg6ydpb8vnww44a-cyrus-sasl-2.1.28"
-      },
-      "system": "x86_64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "lz4",
-      "broken": false,
-      "derivation": "/nix/store/l7ywzs0iy73xq36rpv9fd7cgdkfi9g91-lz4-1.10.0.drv",
-      "description": "Extremely fast compression algorithm",
-      "install_id": "lz4",
-      "license": "[ BSD-2-Clause, GPL-2.0-or-later ]",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
-      "name": "lz4-1.10.0",
-      "pname": "lz4",
-      "rev": "1c89083e451e891152365b799595cf7790a43325",
-      "rev_count": 1105037,
-      "rev_date": "2026-10-30T06:21:25Z",
-      "scrape_date": "2026-10-31T06:15:34.570690Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.10.0",
-      "outputs_to_install": [
-        "man",
-        "out",
-        "out",
-        "out"
-      ],
-      "outputs": {
-        "dev": "/nix/store/nxpxiqswysssxpzfziwvcz78c5i7daw2-lz4-1.10.0-dev",
-        "lib": "/nix/store/sylwbbl9zayc3603159mzjnj8fr4bcy5-lz4-1.10.0-lib",
-        "man": "/nix/store/9zagb9zs5dm5fj5wiwhpmyxdq1d4i6r7-lz4-1.10.0-man",
-        "out": "/nix/store/pgzm71x3r1sjbl1dic5ifnqc993y7cc2-lz4-1.10.0"
-      },
-      "system": "aarch64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "lz4",
-      "broken": false,
-      "derivation": "/nix/store/h0rc0zkaa6vn42hs0vxmp83fjyhj9p33-lz4-1.10.0.drv",
-      "description": "Extremely fast compression algorithm",
-      "install_id": "lz4",
-      "license": "[ BSD-2-Clause, GPL-2.0-or-later ]",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
-      "name": "lz4-1.10.0",
-      "pname": "lz4",
-      "rev": "1c89083e451e891152365b799595cf7790a43325",
-      "rev_count": 1105037,
-      "rev_date": "2026-10-30T06:21:25Z",
-      "scrape_date": "2026-10-31T06:45:53.893227Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.10.0",
-      "outputs_to_install": [
-        "man",
-        "out",
-        "out",
-        "out"
-      ],
-      "outputs": {
-        "dev": "/nix/store/l3h34sipmkdqipjwn5x87izrr5v9bgq0-lz4-1.10.0-dev",
-        "lib": "/nix/store/7xkwycvjhvfyq2sjhq8yqf75y0afikaj-lz4-1.10.0-lib",
-        "man": "/nix/store/7fii733x3lzzp828n98k839x494950yz-lz4-1.10.0-man",
-        "out": "/nix/store/qldkqdihi29js0gkprz4bwvgapw5cxa8-lz4-1.10.0"
-      },
-      "system": "x86_64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "nodejs_26",
-      "broken": false,
-      "derivation": "/nix/store/wdl5f4ycxvljnvy3y12550avp89snwr4-nodejs-26.13.0.drv",
-      "description": "Event-driven I/O framework for the V8 JavaScript engine",
-      "install_id": "nodejs",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
-      "name": "nodejs-26.13.0",
-      "pname": "nodejs_26",
-      "rev": "1c89083e451e891152365b799595cf7790a43325",
-      "rev_count": 1105037,
-      "rev_date": "2026-10-30T06:21:25Z",
-      "scrape_date": "2026-10-31T05:47:33.370514Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "26.13.0",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/m75c3h6czizpnqi3lcng1vmx75iinz4y-nodejs-26.13.0"
-      },
-      "system": "aarch64-darwin",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "nodejs_26",
-      "broken": false,
-      "derivation": "/nix/store/b1jb04wkqd9dclga7x9xkd2d0gdjiqmx-nodejs-26.13.0.drv",
-      "description": "Event-driven I/O framework for the V8 JavaScript engine",
-      "install_id": "nodejs",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
-      "name": "nodejs-26.13.0",
-      "pname": "nodejs_26",
-      "rev": "1c89083e451e891152365b799595cf7790a43325",
-      "rev_count": 1105037,
-      "rev_date": "2026-10-30T06:21:25Z",
-      "scrape_date": "2026-10-31T06:15:34.581964Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "26.13.0",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/3ps5p9pfq2jardgsb1rv8axpvznlvxvx-nodejs-26.13.0"
-      },
-      "system": "aarch64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "nodejs_26",
-      "broken": false,
-      "derivation": "/nix/store/nn5k6nwxcqqjycrk5rkicg8sfczsh0l9-nodejs-26.13.0.drv",
-      "description": "Event-driven I/O framework for the V8 JavaScript engine",
-      "install_id": "nodejs",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
-      "name": "nodejs-26.13.0",
-      "pname": "nodejs_26",
-      "rev": "1c89083e451e891152365b799595cf7790a43325",
-      "rev_count": 1105037,
-      "rev_date": "2026-10-30T06:21:25Z",
-      "scrape_date": "2026-10-31T06:45:53.903411Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "26.13.0",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/ywwchijlngjj756gqp3izz8xw6q8cca2-nodejs-26.13.0"
-      },
-      "system": "x86_64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "zstd",
-      "broken": false,
-      "derivation": "/nix/store/66f17q6b8fcd2v5bp6gg8hxfnay61nhp-zstd-1.5.7.drv",
-      "description": "Zstandard real-time compression algorithm",
-      "install_id": "zstd",
-      "license": "BSD-3-Clause",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
-      "name": "zstd-1.5.7",
-      "pname": "zstd",
-      "rev": "1c89083e451e891152365b799595cf7790a43325",
-      "rev_count": 1105037,
-      "rev_date": "2026-10-30T06:21:25Z",
-      "scrape_date": "2026-10-31T05:47:33.688641Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.5.7",
-      "outputs_to_install": [
-        "bin",
-        "bin",
-        "bin",
-        "man"
-      ],
-      "outputs": {
-        "bin": "/nix/store/31dnpvd5v8dv69f06iymv9qjkwkgfdja-zstd-1.5.7-bin",
-        "dev": "/nix/store/qbnbh801sn66ydvrwmgln5gnwvq7lz94-zstd-1.5.7-dev",
-        "man": "/nix/store/nl5ab85w9a05nn3q2b7cmar487lkdcj9-zstd-1.5.7-man",
-        "out": "/nix/store/qa3j5zvp29rdwfs7ykb4cnx6wzacn1lr-zstd-1.5.7"
-      },
-      "system": "aarch64-darwin",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "zstd",
-      "broken": false,
-      "derivation": "/nix/store/84l19s72j03q61b9fp0wgrbyfnrdg0q3-zstd-1.5.7.drv",
-      "description": "Zstandard real-time compression algorithm",
-      "install_id": "zstd",
-      "license": "BSD-3-Clause",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
-      "name": "zstd-1.5.7",
-      "pname": "zstd",
-      "rev": "1c89083e451e891152365b799595cf7790a43325",
-      "rev_count": 1105037,
-      "rev_date": "2026-10-30T06:21:25Z",
-      "scrape_date": "2026-10-31T06:15:34.873434Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.5.7",
-      "outputs_to_install": [
-        "bin",
-        "bin",
-        "bin",
-        "bin",
-        "man"
-      ],
-      "outputs": {
-        "bin": "/nix/store/3advb2s77lmajxkks58va12s2bfafhwy-zstd-1.5.7-bin",
-        "dev": "/nix/store/ljhxv2mqvz347v4gdig2xnj8wmxpx3fb-zstd-1.5.7-dev",
-        "man": "/nix/store/64yd8hz4y469c9h7dh9blbrvmfpwaykb-zstd-1.5.7-man",
-        "out": "/nix/store/91qsbvx8w31rd255w8ikficjqg4v3fh4-zstd-1.5.7"
-      },
-      "system": "aarch64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "zstd",
-      "broken": false,
-      "derivation": "/nix/store/yi5kx3z9njylnfg9l0f3v276dyy4jgs0-zstd-1.5.7.drv",
-      "description": "Zstandard real-time compression algorithm",
-      "install_id": "zstd",
-      "license": "BSD-3-Clause",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=1c89083e451e891152365b799595cf7790a43325",
-      "name": "zstd-1.5.7",
-      "pname": "zstd",
-      "rev": "1c89083e451e891152365b799595cf7790a43325",
-      "rev_count": 1105037,
-      "rev_date": "2026-10-30T06:21:25Z",
-      "scrape_date": "2026-10-31T06:45:54.160355Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.5.7",
-      "outputs_to_install": [
-        "bin",
-        "bin",
-        "bin",
-        "bin",
-        "man"
-      ],
-      "outputs": {
-        "bin": "/nix/store/yqgkjczmmxsp6l26nwriry7h3kq981vi-zstd-1.5.7-bin",
-        "dev": "/nix/store/l9f17m3j280r2gmb7gksl4r1dycxylin-zstd-1.5.7-dev",
-        "man": "/nix/store/mi49iqdp5i46877a404f6a0iggyz10pm-zstd-1.5.7-man",
-        "out": "/nix/store/f5r77q40xh7rj30dfkajv8y6jwbf4xh2-zstd-1.5.7"
-      },
-      "system": "x86_64-linux",
-      "group": "nodejs",
       "priority": 5
     }
   ]
