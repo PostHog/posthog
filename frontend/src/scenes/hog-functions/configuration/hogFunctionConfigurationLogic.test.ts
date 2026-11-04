@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -344,31 +345,39 @@ describe('hogFunctionConfigurationLogic', () => {
         const MASKED_HEADERS = { secret_headers: { secret: true, value: { Authorization: '********' } } }
         const NOTHING_KEPT = { api_key: undefined, secret_headers: undefined, headers: undefined }
 
-        it.each<[string, Record<string, CyclotronJobInputType>, CyclotronJobInputType | null, Record<string, unknown>]>(
+        it.each<
             [
-                ['drops a masked string secret', { api_key: { value: undefined, secret: true } }, null, NOTHING_KEPT],
-                ['drops a dictionary secret with masked entries', MASKED_HEADERS, null, NOTHING_KEPT],
-                [
-                    'drops the masked rows of a secret dictionary the user added a row to',
-                    MASKED_HEADERS,
-                    // The dictionary editor clears `secret` on any edit and keeps a mask for each untouched stored row.
-                    { secret: false, value: { Authorization: '********', 'x-new': 'typed' } },
-                    { ...NOTHING_KEPT, secret_headers: { 'x-new': 'typed' } },
-                ],
-                [
-                    'drops an edited secret dictionary that has only masked rows left',
-                    MASKED_HEADERS,
-                    { secret: false, value: { Authorization: '********' } },
-                    NOTHING_KEPT,
-                ],
-                [
-                    'keeps a plain header whose value looks like a mask',
-                    { headers: { value: { 'x-literal': '********' } } },
-                    null,
-                    { ...NOTHING_KEPT, headers: { 'x-literal': '********' } },
-                ],
+                string,
+                Record<string, CyclotronJobInputType>,
+                CyclotronJobInputType | null,
+                Record<string, unknown>,
+                boolean,
             ]
-        )('%s', async (_name, sourceInputs, editedSecretHeaders, expectedKept) => {
+        >([
+            ['drops a masked string secret', { api_key: { value: undefined, secret: true } }, null, NOTHING_KEPT, true],
+            ['drops a dictionary secret with masked entries', MASKED_HEADERS, null, NOTHING_KEPT, true],
+            [
+                'drops the masked rows of a secret dictionary the user added a row to',
+                MASKED_HEADERS,
+                { secret: false, value: { Authorization: '********', 'x-new': 'typed' } },
+                { ...NOTHING_KEPT, secret_headers: { 'x-new': 'typed' } },
+                true,
+            ],
+            [
+                'drops an edited secret dictionary that has only masked rows left',
+                MASKED_HEADERS,
+                { secret: false, value: { Authorization: '********' } },
+                NOTHING_KEPT,
+                true,
+            ],
+            [
+                'keeps a plain header whose value looks like a mask',
+                { headers: { value: { 'x-literal': '********' } } },
+                null,
+                { ...NOTHING_KEPT, headers: { 'x-literal': '********' } },
+                false,
+            ],
+        ])('%s', async (_name, sourceInputs, editedSecretHeaders, expectedKept, toastsAboutSecrets) => {
             mockApi.get.mockResolvedValue({
                 ...HOG_FUNCTION,
                 inputs_schema: TEMPLATE_WITH_SECRETS.inputs_schema,
@@ -380,10 +389,11 @@ describe('hogFunctionConfigurationLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadHogFunctionSuccess'])
             if (editedSecretHeaders) {
                 logic.actions.setConfigurationValue('inputs.secret_headers', editedSecretHeaders)
-                // Leaving an edited form asks to discard the changes; the user confirms.
                 jest.spyOn(window, 'confirm').mockReturnValue(true)
             }
+            const toast = jest.spyOn(lemonToast, 'info')
             logic.actions.duplicate()
+            expect(toast).toHaveBeenCalledTimes(toastsAboutSecrets ? 1 : 0)
 
             const copyLogic = hogFunctionConfigurationLogic({ templateId: TEMPLATE_WITH_SECRETS.id })
             copyLogic.mount()
@@ -400,6 +410,27 @@ describe('hogFunctionConfigurationLogic', () => {
                 headers: sentInputs.headers?.value,
             }).toEqual(expectedKept)
             expect(sentInputs.url).toMatchObject({ value: 'https://example.com' })
+        })
+
+        it('keeps the user on their edited function without a toast when they cancel leaving it', async () => {
+            mockApi.get.mockResolvedValue({
+                ...HOG_FUNCTION,
+                inputs_schema: TEMPLATE_WITH_SECRETS.inputs_schema,
+                inputs: { api_key: { value: undefined, secret: true } },
+                template: TEMPLATE_WITH_SECRETS,
+            })
+            logic = hogFunctionConfigurationLogic({ id: HOG_FUNCTION.id })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadHogFunctionSuccess'])
+            logic.actions.setConfigurationValue('name', 'Edited name')
+            jest.spyOn(window, 'confirm').mockReturnValue(false)
+            const toast = jest.spyOn(lemonToast, 'info')
+            const { pathname } = router.values.location
+
+            logic.actions.duplicate()
+
+            expect(router.values.location.pathname).toEqual(pathname)
+            expect(toast).not.toHaveBeenCalled()
         })
     })
 

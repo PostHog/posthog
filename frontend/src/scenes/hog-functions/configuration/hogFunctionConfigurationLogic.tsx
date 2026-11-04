@@ -201,10 +201,6 @@ export function sanitizeInputs(
     return sanitizedInputs
 }
 
-// The API returns each stored secret masked: an input flagged `secret`, or `********` for each stored row of a
-// secret dictionary that the user edited. A new function has no stored secret to keep, so the backend rejects a
-// mask on create. A copy keeps only the values the user typed, and drops an input with nothing typed left so a
-// required secret still asks for a value.
 function withoutStoredSecrets<T extends Pick<HogFunctionMappingType, 'inputs' | 'inputs_schema'>>(
     config: T
 ): { config: T; dropped: boolean } {
@@ -2145,21 +2141,21 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (values.hogFunction) {
                 const copied = withoutStoredSecrets(values.configuration)
                 const copiedMappings = values.configuration.mappings?.map(withoutStoredSecrets)
-                if (copied.dropped || copiedMappings?.some((mapping) => mapping.dropped)) {
-                    lemonToast.info('Secret values are not copied. Enter them again before you save.')
-                }
                 const newConfig = {
                     ...copied.config,
-                    mappings: copiedMappings
-                        ? copiedMappings.map((mapping) => mapping.config)
-                        : values.configuration.mappings,
+                    mappings: copiedMappings?.map((mapping) => mapping.config) ?? copied.config.mappings,
                     name: `${values.configuration.name} (copy)`,
                 }
                 // TODO: What to do if no template?
                 const originalTemplate = values.hogFunction.template!
+                const { pathname } = router.values.location
                 router.actions.push(urls.hogFunctionNew(originalTemplate.id), undefined, {
                     configuration: newConfig,
                 })
+                const openedCopy = router.values.location.pathname !== pathname
+                if (openedCopy && (copied.dropped || copiedMappings?.some((mapping) => mapping.dropped))) {
+                    lemonToast.info('Secret values are not copied. Enter them again before you save.')
+                }
             }
         },
         duplicateFromTemplate: async () => {
