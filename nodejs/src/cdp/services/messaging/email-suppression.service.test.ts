@@ -440,29 +440,33 @@ describe('EmailSuppressionService', () => {
         })
 
         // A load that throws holds every send in the batch, so a bad key must not break a valid team's lookup.
-        it.each(INVALID_TEAM_ID_KEYS)(
-            'keeps an address suppressed when invalid team id %p shares its load',
-            async (key) => {
-                const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
-                const email = 'listed@example.com'
-                await hub.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    `INSERT INTO posthog_messagesuppression
-                        (id, team_id, identifier, source, reason, transient_bounce_count,
-                         suppressed, suppressed_at, deleted, created_at, updated_at)
-                     VALUES (gen_random_uuid(), $1, $2, 'BOUNCE', 'test row', 5,
-                         true, NOW(), false, NOW(), NOW())`,
-                    [team.id, email],
-                    'test-insert-suppression'
-                )
+        it.each<[string, unknown, string]>([
+            ...INVALID_TEAM_ID_KEYS.map((key): [string, unknown, string] => [
+                `invalid team id ${String(key)}`,
+                key,
+                'listed@example.com',
+            ]),
+            ['an address with a NUL byte', null, 'a\u0000b@example.com'],
+        ])('keeps an address suppressed when %s shares its load', async (_case, badTeamId, badEmail) => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const email = 'listed@example.com'
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_messagesuppression
+                    (id, team_id, identifier, source, reason, transient_bounce_count,
+                     suppressed, suppressed_at, deleted, created_at, updated_at)
+                 VALUES (gen_random_uuid(), $1, $2, 'BOUNCE', 'test row', 5,
+                     true, NOW(), false, NOW(), NOW())`,
+                [team.id, email],
+                'test-insert-suppression'
+            )
 
-                const results = await Promise.all([
-                    svc.isSuppressed(team.id, email),
-                    svc.isSuppressed(key as unknown as number, email),
-                ])
+            const results = await Promise.all([
+                svc.isSuppressed(team.id, email),
+                svc.isSuppressed((badTeamId ?? team.id) as number, badEmail),
+            ])
 
-                expect(results).toEqual([true, false])
-            }
-        )
+            expect(results).toEqual([true, false])
+        })
     })
 })

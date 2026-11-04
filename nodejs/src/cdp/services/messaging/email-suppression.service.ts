@@ -412,7 +412,8 @@ export class EmailSuppressionService {
         // always a single query regardless of batch size.
         const byTeam = new Map<number, string[]>()
         for (const p of parsed) {
-            if (!isValidTeamId(p.teamId)) {
+            // Postgres text cannot hold a NUL byte, so no row matches it, and sending one would fail the whole load.
+            if (!isValidTeamId(p.teamId) || p.identifier.includes('\u0000')) {
                 continue
             }
             const list = byTeam.get(p.teamId) ?? []
