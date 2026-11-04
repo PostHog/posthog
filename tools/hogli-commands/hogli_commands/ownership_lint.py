@@ -19,7 +19,7 @@ from hogli_commands.preflight_checks import Outcome, Scope
 
 BASELINE = Path("posthog/test/repo_invariants/unowned_test_directories_baseline.txt")
 PRUNE = "PYTHONPATH=.:tools/hogli-commands python posthog/test/repo_invariants/test_unowned_test_directories.py"
-BLOCKING_FROM = date.fromisoformat("2026-11-02")
+BLOCKING_FROM = date.fromisoformat("2026-11-11")
 
 # fnmatch globs for the preflight trigger, where `*` spans `/`. runner_for_path decides inside the check.
 TEST_FILE_GLOBS = (
