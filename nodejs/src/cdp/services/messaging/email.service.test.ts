@@ -272,6 +272,7 @@ describe('EmailService', () => {
                 stack: [],
             } as any
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
+            invocation.queueMetadata = { originQueue: 'hogflow', originPriority: 2 }
 
             // Mock SES v2 send to avoid actual AWS calls
             sendEmailSpy = jest.spyOn(service.sesV2Client!, 'send') as any
@@ -546,6 +547,7 @@ describe('EmailService', () => {
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + 400)
                 expect(scheduledMs).toBeLessThan(before + 2000)
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
+                expect(result.invocation.queueMetadata).toEqual(invocation.queueMetadata)
                 // No business metric emitted on throttle — the eventual retry
                 // will produce email_sent.
                 expect(result.metrics ?? []).toEqual([])
@@ -740,6 +742,7 @@ describe('EmailService', () => {
                 // The reschedule must carry the email payload forward: without queueParameters the
                 // retry has nothing to send and the throttled email is dropped rather than delayed.
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
+                expect(result.invocation.queueMetadata).toEqual(invocation.queueMetadata)
                 // Bracketed against both ends of the call, so the bounds hold the delay itself
                 // and not the time the call took.
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
@@ -913,11 +916,13 @@ describe('EmailService', () => {
 
         describe('team sending cap (enforce mode)', () => {
             let claimAllOrNothingPair: jest.Mock
+            let claimUpTo: jest.Mock
             let cappedService: EmailService
             let cappedSendSpy: jest.SpyInstance
 
             beforeEach(() => {
                 claimAllOrNothingPair = jest.fn()
+                claimUpTo = jest.fn().mockResolvedValue(0)
                 const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
                 jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
                 cappedService = new EmailService(
@@ -943,7 +948,7 @@ describe('EmailService', () => {
                     { report: jest.fn() },
                     undefined,
                     null,
-                    { claimAllOrNothingPair } as unknown as RateLimiterService
+                    { claimAllOrNothingPair, claimUpTo } as unknown as RateLimiterService
                 )
                 cappedSendSpy = jest.spyOn(cappedService.sesV2Client!, 'send') as any
                 cappedSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
@@ -952,6 +957,54 @@ describe('EmailService', () => {
             afterEach(() => {
                 jest.restoreAllMocks()
             })
+
+            const buildEnforcedService = (
+                name: string,
+                hourlyCap: number,
+                dailyCap: number
+            ): { service: EmailService; sendSpy: jest.SpyInstance; limiter: RateLimiterService } => {
+                const redis = createRedisV2PoolFromConfig({
+                    connection: hub.CDP_REDIS_HOST
+                        ? {
+                              url: hub.CDP_REDIS_HOST,
+                              options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                          }
+                        : { url: hub.REDIS_URL },
+                    poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+                    poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+                })
+                const limiter = new RateLimiterService(redis, { name })
+                const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
+                jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
+                const service = new EmailService(
+                    {
+                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                        sesRegion: hub.SES_REGION,
+                        sesEndpoint: hub.SES_ENDPOINT,
+                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                        teamEmailCapMode: 'enforce',
+                        teamEmailTierHourlyCaps: [hourlyCap],
+                        teamEmailTierDailyCaps: [dailyCap],
+                    },
+                    hub.integrationManager,
+                    configService,
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL,
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                    new RecipientsManagerService(hub.postgres),
+                    null,
+                    { report: jest.fn() },
+                    undefined,
+                    null,
+                    limiter
+                )
+                const sendSpy = jest.spyOn(service.sesV2Client!, 'send') as any
+                sendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                return { service, sendSpy, limiter }
+            }
 
             it.each([
                 // A reserved slot is exclusive and is parked on exactly; spreading it would
@@ -978,7 +1031,7 @@ describe('EmailService', () => {
                 // The reschedule must carry the email payload forward, same as the workflow limit.
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
                 // The flag labels the eventual send's queue wait, so alerts can leave out the cap delay.
-                expect(result.invocation.queueMetadata).toMatchObject({ teamCapped: true })
+                expect(result.invocation.queueMetadata).toEqual({ ...invocation.queueMetadata, teamCapped: true })
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + minMs)
                 expect(scheduledMs).toBeLessThan(before + maxMs + 5000)
@@ -1012,6 +1065,26 @@ describe('EmailService', () => {
                 expect(messages).toContain("Could not check this project's email sending limit")
             })
 
+            it('sends a transactional email past the cap and charges the buckets anyway', async () => {
+                claimAllOrNothingPair.mockResolvedValue({
+                    granted: false,
+                    deniedIndex: 1,
+                    retryAfterMs: 30 * 60 * 1000,
+                    reserved: true,
+                })
+                invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+
+                const result = await cappedService.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(cappedSendSpy).toHaveBeenCalledTimes(1)
+                expect(result.invocation.queueScheduledAt).toBeUndefined()
+                expect(claimAllOrNothingPair).not.toHaveBeenCalled()
+                expect(claimUpTo).toHaveBeenCalledTimes(2)
+                // No cap was applied, so the customer must not be told one was.
+                expect(result.logs.map((log) => log.message).join(' ')).not.toContain('reached its email sending limit')
+            })
+
             it('sends when the claim is granted', async () => {
                 claimAllOrNothingPair.mockResolvedValue({
                     granted: true,
@@ -1039,46 +1112,11 @@ describe('EmailService', () => {
             it('spreads a capped team over distinct slots while another team keeps sending', async () => {
                 const hourlyCap = 360
                 const dailyCap = 8640
-                const redis = createRedisV2PoolFromConfig({
-                    connection: hub.CDP_REDIS_HOST
-                        ? {
-                              url: hub.CDP_REDIS_HOST,
-                              options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
-                          }
-                        : { url: hub.REDIS_URL },
-                    poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-                    poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-                })
-                const limiter = new RateLimiterService(redis, { name: 'team-email-cap-test' })
-                const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
-                jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
-                const enforcedService = new EmailService(
-                    {
-                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                        sesRegion: hub.SES_REGION,
-                        sesEndpoint: hub.SES_ENDPOINT,
-                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
-                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
-                        teamEmailCapMode: 'enforce',
-                        teamEmailTierHourlyCaps: [hourlyCap],
-                        teamEmailTierDailyCaps: [dailyCap],
-                    },
-                    hub.integrationManager,
-                    configService,
-                    hub.ENCRYPTION_SALT_KEYS,
-                    hub.SITE_URL,
-                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-                    new RecipientsManagerService(hub.postgres),
-                    null,
-                    { report: jest.fn() },
-                    undefined,
-                    null,
-                    limiter
-                )
-                const enforcedSendSpy = jest.spyOn(enforcedService.sesV2Client!, 'send') as any
-                enforcedSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                const {
+                    service: enforcedService,
+                    sendSpy: enforcedSendSpy,
+                    limiter,
+                } = buildEnforcedService('team-email-cap-test', hourlyCap, dailyCap)
 
                 // Drain the capped team's hourly bucket so every send below is a denial. The
                 // 0.1 tokens/s refill makes the slot spacing 10s, far above test wall-clock.
@@ -1126,6 +1164,72 @@ describe('EmailService', () => {
 
                 expect(otherResult.finished).toBe(true)
                 expect(enforcedSendSpy).toHaveBeenCalledTimes(1)
+            })
+
+            // Enforce mode has only ever issued claimAllOrNothingPair against real Valkey, so
+            // transactional through the single-key claimUpTo has never run there. Real limiter.
+            it('charges a transactional send against the real buckets without delaying it', async () => {
+                const hourlyCap = 60
+                const dailyCap = 50
+                const {
+                    service: enforcedService,
+                    sendSpy: enforcedSendSpy,
+                    limiter,
+                } = buildEnforcedService('team-email-cap-transactional-test', hourlyCap, dailyCap)
+
+                // A team of its own, so the buckets start cold whatever else touched Valkey.
+                const capTeam = (await createTestTeamFixture(hub.postgres)).team
+                await insertIntegration(hub.postgres, capTeam.id, {
+                    id: capTeam.id + 1,
+                    kind: 'email',
+                    config: {
+                        email: 'test@posthog.com',
+                        name: 'Test User',
+                        domain: 'posthog.com',
+                        verified: true,
+                        provider: 'ses',
+                    },
+                })
+                const sendFor = (id: string, transactional: boolean): CyclotronJobInvocationHogFunction => {
+                    const next = createExampleInvocation({ team_id: capTeam.id, id: `function-${id}` })
+                    next.id = `invocation-${id}`
+                    next.state.vmState = { stack: [] } as any
+                    next.queueParameters = createEmailParams()
+                    next.queueParameters.from = { integrationId: capTeam.id + 1 }
+                    if (transactional) {
+                        next.hogFunction.metadata = { message_category_type: 'transactional' }
+                    }
+                    return next
+                }
+
+                // Empty the hourly bucket only, so the daily one can show the charge.
+                const buckets = teamEmailCapBuckets(capTeam.id, hourlyCap, dailyCap)
+                await limiter.claimUpTo({
+                    key: buckets[0].key,
+                    requested: hourlyCap,
+                    capacity: buckets[0].capacity,
+                    refillPerSecond: buckets[0].refillPerSecond,
+                })
+
+                // Control: the cap really is reached, so a marketing send parks.
+                const marketing = await enforcedService.executeSendEmail(sendFor('marketing', false))
+                expect(marketing.finished).toBe(false)
+                expect(enforcedSendSpy).not.toHaveBeenCalled()
+
+                const transactional = await enforcedService.executeSendEmail(sendFor('transactional', true))
+                expect(transactional.finished).toBe(true)
+                expect(transactional.invocation.queueScheduledAt).toBeUndefined()
+                expect(enforcedSendSpy).toHaveBeenCalledTimes(1)
+
+                // A range, not an exact count, because the daily bucket refills as the test runs.
+                const dailyLeft = await limiter.claimUpTo({
+                    key: buckets[1].key,
+                    requested: dailyCap,
+                    capacity: buckets[1].capacity,
+                    refillPerSecond: buckets[1].refillPerSecond,
+                })
+                expect(dailyLeft).toBeLessThan(dailyCap)
+                expect(dailyLeft).toBeGreaterThanOrEqual(dailyCap - 2)
             })
         })
     })
@@ -1467,6 +1571,10 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_missing_recipient'])
             expect(result.skipped).toBe(true)
+            expect(result.emailSendResult).toEqual({
+                status: 'skipped',
+                reason: expect.stringContaining('the recipient has no email address'),
+            })
             expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
         })
 

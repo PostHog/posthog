@@ -19,6 +19,7 @@ import { ExecLearnCatalog } from '@/tools/exec-learn'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
+    RENDER_UI_TOOL_ANNOTATIONS,
     RENDER_UI_TOOL_NAME,
     RENDER_UI_TOOL_TITLE,
     renderUiDescription,
@@ -132,6 +133,7 @@ export class InstructionsBuilder {
             description: renderUiDescription(toolNames),
             // OpenAI caches this schema across accounts; authorization stays in the executor.
             inputSchema: toMcpInputSchema(makeRenderUiSchema(toolNames as [string, ...string[]])),
+            annotations: { ...RENDER_UI_TOOL_ANNOTATIONS },
             // Advertise the umbrella UI resource so MCP Apps hosts (e.g. Claude) discover
             // render-ui as renderable from `tools/list` and mount its iframe. Both the
             // modern and legacy keys are emitted since this entry isn't normalized downstream.

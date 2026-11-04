@@ -33,7 +33,7 @@ const emptyLocal = (): LocalLists => ({
     'data-management': [],
     people: [],
     health: [],
-    misc: [],
+    actions: [],
     shortcuts: [],
     settings: [],
     create: [],
@@ -119,25 +119,50 @@ describe('buildSections', () => {
         expect(rowKeys(loaded)).toEqual(onceLoaded)
     })
 
-    it('keeps the View all row on ranked results of one type', () => {
+    const alerts: SearchItem[] = [
+        { id: 'alert-2', name: 'Revenue drop', category: 'results', record: { type: 'alert', id: '2' } },
+        { id: 'alert-1', name: 'Weekly revenue', category: 'results', record: { type: 'alert', id: '1' } },
+    ]
+    const ticketMatchedInMessage: SearchItem = {
+        id: 'ticket-1',
+        name: 'Card declined',
+        category: 'results',
+        record: { type: 'ticket', id: '1' },
+    }
+    test.each<[string, string, SearchItem[], string[], boolean]>([
+        [
+            'file system results with a server rank',
+            'type:dashboard revenue',
+            [{ ...dashboard('a', '1'), rankKey: [-1, 0, 0, 0, -1, 0, 2, 0, 0] }],
+            ['results/a'],
+            false,
+        ],
+        [
+            'results from a type API that sends no rank, in the order it sent them',
+            'type:alert revenue',
+            alerts,
+            ['results/alert-2', 'results/alert-1'],
+            false,
+        ],
+        [
+            'a type API result that matched outside its name, with unified ranking',
+            'type:ticket revenue',
+            [ticketMatchedInMessage],
+            ['results/ticket-1'],
+            true,
+        ],
+    ])('keeps the View all row after ranked %s', (_, results, items, rowKeys, unifiedRanking) => {
         const viewAll: ViewAll = {
-            item: { id: 'view-all', name: 'View all dashboards', category: 'results', href: '/dashboard' },
+            item: { id: 'view-all', name: 'View all', category: 'results', href: '/list' },
             placement: 'trail',
         }
         const remote = emptyRemoteSlots()
-        remote.results = {
-            cache: { 'type:dashboard revenue': [{ ...dashboard('a', '1'), rankKey: [-1, 0, 0, 0, -1, 0, 2, 0, 0] }] },
-        }
+        remote.results = { cache: { [results]: items } }
         const sections = buildSections(
-            input('search', {
-                remote,
-                remoteQueries: { results: 'type:dashboard revenue' },
-                localQuery: 'revenue',
-                viewAll,
-            })
+            input('search', { remote, remoteQueries: { results }, localQuery: 'revenue', viewAll, unifiedRanking })
         )
         expect(sections.find((section) => section.key === 'results')?.rows.map((row) => row.key)).toEqual([
-            'results/a',
+            ...rowKeys,
             'results/view-all',
         ])
     })

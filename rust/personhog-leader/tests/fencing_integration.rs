@@ -59,11 +59,16 @@ async fn read_committed_count(topic: &str) -> usize {
     let mut seen = 0;
     // Anything committed is available immediately; the quiet period only
     // has to outlast delivery, not a transaction timeout.
-    while let Ok(Ok(message)) =
-        tokio::time::timeout(Duration::from_millis(750), consumer.recv()).await
-    {
-        if message.payload().is_some() {
-            seen += 1;
+    loop {
+        match tokio::time::timeout(Duration::from_millis(750), consumer.recv()).await {
+            Ok(Ok(message)) => {
+                if message.payload().is_some() {
+                    seen += 1;
+                }
+            }
+            Ok(Err(error)) if common::is_transient_broker_error(&error) => {}
+            Ok(Err(error)) => panic!("kafka error reading {topic}: {error}"),
+            Err(_quiet) => break,
         }
     }
     seen

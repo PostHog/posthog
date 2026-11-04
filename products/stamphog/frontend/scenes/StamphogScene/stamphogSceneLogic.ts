@@ -16,17 +16,19 @@ import {
     stamphogRepoConfigsAvailableRepositoriesRetrieve,
     stamphogRepoConfigsInstallInfoRetrieve,
     stamphogRepoConfigsList,
+    stamphogRepoConfigsOwnersFileRetrieve,
     stamphogRepoConfigsPartialUpdate,
     stamphogRepoConfigsSyncInstallationCreate,
 } from '../../generated/api'
-import type {
-    PatchedStamphogRepoConfigWriteApi,
-    StamphogAvailableRepositoriesApi,
-    StamphogDiscoveredInstallationApi,
-    StamphogInstallInfoApi,
-    StamphogRepoConfigApi,
-    StamphogSyncInstallationRequestApi,
-    StamphogSyncInstallationResponseApi,
+import {
+    OwnersFileStatusEnumApi,
+    type PatchedStamphogRepoConfigWriteApi,
+    type StamphogAvailableRepositoriesApi,
+    type StamphogDiscoveredInstallationApi,
+    type StamphogInstallInfoApi,
+    type StamphogRepoConfigApi,
+    type StamphogSyncInstallationRequestApi,
+    type StamphogSyncInstallationResponseApi,
 } from '../../generated/api.schemas'
 import { editorDisabledReason } from './repoAccess'
 
@@ -40,6 +42,9 @@ const REPO_CONFIGS_PAGE_SIZE = 1000
 
 const AVAILABLE_REPOSITORIES_LIMIT = 50
 const AVAILABLE_SEARCH_DEBOUNCE_MS = 300
+
+// 'checking' while the request is in flight. A repository nobody expanded yet has no entry at all.
+export type OwnersFileCheck = OwnersFileStatusEnumApi | 'checking'
 
 function sortByRepository(repos: StamphogRepoConfigApi[]): StamphogRepoConfigApi[] {
     return [...repos].sort((a, b) => a.repository.localeCompare(b.repository))
@@ -83,6 +88,7 @@ export interface stamphogSceneLogicValues {
     installInfoLoading: boolean
     installUrl: string
     openingInstallPage: boolean
+    ownersFileChecks: Record<string, OwnersFileCheck>
     refreshingFromGitHub: boolean
     repoConfigs: StamphogRepoConfigApi[]
     repoConfigsFailed: boolean
@@ -108,6 +114,9 @@ export interface stamphogSceneLogicActions {
     }
     addRepositorySuccess: (config: StamphogRepoConfigApi) => {
         config: StamphogRepoConfigApi
+    }
+    checkOwnersFile: (id: string) => {
+        id: string
     }
     connectInstallation: (installationId: string) => {
         installationId: string
@@ -174,6 +183,13 @@ export interface stamphogSceneLogicActions {
     }
     openInstallPageFailed: () => {
         value: true
+    }
+    ownersFileChecked: (
+        id: string,
+        status: OwnersFileStatusEnumApi
+    ) => {
+        id: string
+        status: OwnersFileStatusEnumApi
     }
     refreshFromGitHub: () => {
         value: true
@@ -318,6 +334,8 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         addRepository: true,
         addRepositorySuccess: (config: StamphogRepoConfigApi) => ({ config }),
         addRepositoryFailure: true,
+        checkOwnersFile: (id: string) => ({ id }),
+        ownersFileChecked: (id: string, status: OwnersFileStatusEnumApi) => ({ id, status }),
     }),
 
     loaders(({ values }) => ({
@@ -504,6 +522,14 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                 refreshFromGitHubFailed: () => false,
             },
         ],
+        // The check costs a GitHub call, so each repository asks once per page load, when it first expands.
+        ownersFileChecks: [
+            {} as Record<string, OwnersFileCheck>,
+            {
+                checkOwnersFile: (state, { id }) => ({ ...state, [id]: 'checking' }),
+                ownersFileChecked: (state, { id, status }) => ({ ...state, [id]: status }),
+            },
+        ],
     }),
 
     selectors({
@@ -599,6 +625,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                     review_mode: patch.review_mode,
                     enabled: patch.enabled,
                     digest_enabled: patch.digest_enabled,
+                    routing_mode: patch.routing_mode,
                 })
             } catch {
                 lemonToast.error('Failed to update repository')
@@ -610,6 +637,21 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                 if ('trigger_label' in patch) {
                     actions.triggerLabelSaveDone(id)
                 }
+            }
+        },
+        setRepoExpanded: ({ id, expanded }) => {
+            const check = values.ownersFileChecks[id]
+            // A failed check asks again on the next expand. Any other answer holds for the page load.
+            if (expanded && (check === undefined || check === OwnersFileStatusEnumApi.Unavailable)) {
+                actions.checkOwnersFile(id)
+            }
+        },
+        checkOwnersFile: async ({ id }) => {
+            try {
+                const response = await stamphogRepoConfigsOwnersFileRetrieve(String(values.currentProjectId), id)
+                actions.ownersFileChecked(id, response.owners_file)
+            } catch {
+                actions.ownersFileChecked(id, OwnersFileStatusEnumApi.Unavailable)
             }
         },
         triggerLabelEditStarted: ({ id }) => {
@@ -636,9 +678,11 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                 actions.addRepositoryFailure()
             }
         },
-        addRepositorySuccess: () => {
+        addRepositorySuccess: ({ config }) => {
             actions.loadRepoConfigs()
             actions.loadAvailableRepositories({ search: '' })
+            // An added repository opens by itself, without the expand that asks for the check.
+            actions.checkOwnersFile(config.id)
         },
         connectInstallation: async ({ installationId }) => {
             sessionStorage.setItem(PENDING_INSTALLATION_STORAGE_KEY, installationId)

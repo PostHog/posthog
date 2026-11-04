@@ -410,6 +410,38 @@ tools:
             id:
                 aliases:
                     - report_id
+    inbox-reports-create:
+        operation: signals_reports_create
+        enabled: true
+        scopes:
+            - inbox:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{report_id}'
+        title: File an inbox report
+        description: >
+            File a finding as an inbox report in this project, for example something your own agent found. Search
+            `inbox-reports-list` first and update an existing report rather than filing a near-duplicate. The report
+            passes the same safety judge a scout report passes, then surfaces at the status your `actionability` call
+            implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` →
+            suppressed); an unsafe report is suppressed regardless. `evidence` lists the observations behind the report,
+            at least one. Safe to retry: resending a call returns the first report (`idempotent_replay` true) instead of
+            a second one, keyed on `idempotency_key` or, without one, on the report's content. A filed report never
+            starts an implementation run or opens a pull request on its own, even when it names a `repository`,
+            `priority`, and `suggested_reviewers`: a person starts one from the report's actions. `suggested_reviewers`
+            routes the report to the people who should read it. A `priority` requires a `priority_explanation`. Each
+            person can file 20 reports per project per day; a 429 says when the limit resets, so do not retry before
+            then. A 403 means the organization has not approved AI data processing: tell the person that an organization
+            admin must turn it on, and do not retry before then.
+        exclude_params:
+            - metrics
+        required_when_set:
+            priority:
+                - priority_explanation
+        feature_flag: inbox-reports-create-mcp
+        feature_flag_behavior: enable
     inbox-reports-feedback-create:
         operation: signals_reports_feedback_create
         enabled: true
@@ -1161,7 +1193,11 @@ tools:
             3 rows, which is the cap `suggested_reviewers` enforces anyway. A `team` that resolves to nobody comes back
             as an error saying which case it hit, because team rosters sync one by one and a slug with no rows almost
             always means it isn't synced here rather than that the team doesn't exist. The roster is a periodic
-            snapshot, so it can lag the live team. Strictly team-scoped.
+            snapshot, so it can lag the live team. When `search` or `team` narrows the result to 10 members or fewer,
+            each row also carries `activity`: the member's recent headline, themes, and the objects they own or watch.
+            Use it as context to check a candidate against the report; general activity is not evidence of ownership.
+            `activity` is null when the member has no ready summary or summaries are not available for this project, and
+            a null value is not evidence against the member. Strictly team-scoped.
     scout-metadata-get:
         operation: signals_scout_metadata_get
         enabled: true

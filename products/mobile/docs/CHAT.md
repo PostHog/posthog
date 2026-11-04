@@ -4,12 +4,19 @@ The chat screen talks to PostHog AI on the task runtime, as the web app's side-p
 Every chat is a task with interactive runs in a sandbox.
 A new chat creates the task on its first message; the Chats list reopens one by its task id.
 New and existing chats open as full-screen stack pages. Back returns to the previous screen or the
-configured default page for a direct link. The title-free header uses the shared blur and fading edge;
-New chat and the ellipsis share the Inbox's pill control. The composer clears the keyboard and safe area.
+configured default page for a direct link. The title-free header uses the shared blur and fading edge.
+The labeled Back chip matches Settings in style and position.
+Saved chats show New chat and the ellipsis in a matching bordered pill; unsaved chats show only Back.
+The composer clears the keyboard and safe area and receives focus after the page finishes its opening transition.
+
+An active incident affecting PostHog AI in the selected cloud region appears below the header in new and existing chats.
+The notice shows the published incident title and phase. Tap it to read the update. For other services, open **PostHog status** below the project name in the
+main tabs’ ellipsis menu. An indicator on that menu signals a regional incident or in-progress maintenance. The menu shows the highest current impact and the number of concurrent incidents. The status row has a green dot for a healthy region, yellow for degraded performance or maintenance, and red for partial or major outages. Chat warnings use the impact on the regional AI component.
 
 The ellipsis menu offers **Copy link to chat** and **Archive chat**. Copy uses the current project's
 web URL. Archive returns to the previous page after success and keeps the chat open for retry on failure.
-The menu is disabled for an unsaved new chat. Model, Mode, and attachment options still open as overlays.
+Unsaved new chats hide both right-side controls until the first message creates a task.
+Model, Mode, and attachment options still open as overlays.
 The protocol below follows the web's `taskTrackerSceneLogic.ts`, `runInteractionLogic.ts` and `runStreamLogic.ts` in `products/posthog_ai/frontend`.
 
 ## Files
@@ -390,6 +397,8 @@ New chat drops it.
 - Assistant text renders as markdown with `react-native-markdown-display`, styled from `src/ui/tokens.ts`.
   `html: false`; images are dropped. Relative links open on the signed-in host; only http(s) links open.
 - The status line shows the current stage or tool, "Thinking…", or "Reconnecting…".
+- Compacting and clearing each show one active spinner, even when the stream repeats the start.
+  Completion removes that spinner, so a later compaction or clear can show a new one.
 - Thoughts and tool calls fold into activity rows. Every row starts closed, also while it runs. `mobile_chat_activity_expanded` is captured with `running` and `tool_count` when the person opens one.
 - Background-task notices (including checkmarked completion summaries) align left and show at most two lines by default.
   Notices that wrap beyond two lines offer Show more to read the full text and Show less to return to the preview.
@@ -403,7 +412,7 @@ New chat drops it.
 
 ## New chat
 
-The compose button stays available in the header.
+The compose button is available in a saved chat's header.
 It drops the open task (or the one the first send created), clears the text and attached reports, and resets the options to Default and Auto.
 The header has no chat title.
 The empty state with suggested prompts shows while there is no task and no message.
