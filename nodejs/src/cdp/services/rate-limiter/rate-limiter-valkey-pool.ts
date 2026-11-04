@@ -24,9 +24,12 @@ export type RateLimiterValkeyConfig = Pick<
  * callers treat that as "feature disabled in this environment" and proceed
  * without it.
  */
+const OPTIONAL_POOL_TIMEOUT_MS = 1000
+
 export function createSesRateLimiterValkeyPool(
     config: RateLimiterValkeyConfig,
-    name = 'ses-rate-limiter'
+    name = 'ses-rate-limiter',
+    { optional = false }: { optional?: boolean } = {}
 ): RedisV2 | null {
     if (!config.SES_RATE_LIMITER_VALKEY_HOST) {
         logger.info('🪙', `[${name}] no SES Valkey host configured — feature disabled`)
@@ -40,17 +43,41 @@ export function createSesRateLimiterValkeyPool(
 
     const tls = config.SES_RATE_LIMITER_VALKEY_TLS ? {} : undefined
 
-    return createRedisV2PoolFromConfig({
+    const pool = createRedisV2PoolFromConfig({
         connection: {
             url: config.SES_RATE_LIMITER_VALKEY_HOST,
             options: {
                 port: config.SES_RATE_LIMITER_VALKEY_PORT,
                 password: config.SES_RATE_LIMITER_VALKEY_PASSWORD,
                 tls,
+                ...(optional ? { commandTimeout: OPTIONAL_POOL_TIMEOUT_MS } : {}),
             },
             name,
+            exitOnRepeatedErrors: !optional,
         },
-        poolMinSize: config.REDIS_POOL_MIN_SIZE,
+        poolMinSize: optional ? 0 : config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+        ...(optional ? { acquireTimeoutMillis: OPTIONAL_POOL_TIMEOUT_MS } : {}),
     })
+    return optional ? withoutOfflineQueue(pool) : pool
+}
+
+// A client waits for its first connection in the offline queue, so the queue can only be switched off
+// once the pool hands the client out. After that a dropped connection fails commands at once instead of
+// queueing every caller's work for the whole outage and replaying it on recovery.
+function withoutOfflineQueue(pool: RedisV2): RedisV2 {
+    const useClient: RedisV2['useClient'] = (options, callback) =>
+        pool.useClient(options, (client) => {
+            client.options.enableOfflineQueue = false
+            return callback(client)
+        })
+    return {
+        useClient,
+        usePipeline: (options, callback) =>
+            useClient(options, async (client) => {
+                const pipeline = client.pipeline()
+                callback(pipeline)
+                return pipeline.exec()
+            }),
+    }
 }
