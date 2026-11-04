@@ -21,7 +21,7 @@ const counterEmailStatusWriteFailed = new Counter({
     labelNames: ['status'],
 })
 
-export type EmailStatus = 'queued' | 'failed' | 'sent' | 'delivered' | 'bounced' | 'complained'
+export type EmailStatus = 'scheduled' | 'queued' | 'failed' | 'sent' | 'delivered' | 'bounced' | 'complained'
 
 export type EmailStatusReason =
     // A bounce type, in the words the `$bounce_type` event property uses.
@@ -57,6 +57,8 @@ export type EmailSkipReason =
 // successful rerun of the same invocation replaces the failed attempt. The gaps let a failure take the
 // rank between two statuses. Never renumber a rank, because rows already written keep their versions.
 const STATUS_RANK: Record<EmailStatus, bigint> = {
+    // Shares the rank of `queued`, so a reschedule's later row replaces the earlier one.
+    scheduled: 0n,
     queued: 0n,
     failed: 2n,
     sent: 3n,
@@ -110,7 +112,7 @@ const isoMicroseconds = (date: Date): string => {
 }
 
 // A UUIDT starts with its creation time as 48 bits of Unix milliseconds.
-const uuidtCreatedAt = (messageId: string): Date => {
+export const uuidtCreatedAt = (messageId: string): Date => {
     if (!UUID_REGEX.test(messageId)) {
         throw new Error('message id is not a UUID')
     }
