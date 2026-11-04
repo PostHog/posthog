@@ -7,6 +7,7 @@ import { setAuthProvider } from '@/api/client'
 import { queryClient as appQueryClient } from '@/api/queryClient'
 import { useHandoffStore } from '@/features/handoff/handoffStore'
 import { useReportWithLiveRun } from '@/features/handoff/useReportWithLiveRun'
+import { useScopeErrorStore } from '@/features/views/useViewsAccess'
 import { reportFixture } from '@/model/adapters/testFixtures'
 import type { QueryState, ReportView } from '@/model/types'
 
@@ -34,6 +35,7 @@ const REPORT_ID = 'report-1'
 
 describe('useReport', () => {
     beforeEach(() => {
+        useScopeErrorStore.getState().clear()
         AppState.currentState = 'active'
         jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: () => undefined })
         useHandoffStore.setState({ reports: {} })
@@ -166,7 +168,7 @@ describe('useReport', () => {
         }
     })
 
-    test.each([200, 500])(
+    test.each([200, 500, 403])(
         'keeps the report visible while refreshing missing evidence (signals %s)',
         async (signalsStatus) => {
             jest.useFakeTimers()
@@ -180,12 +182,15 @@ describe('useReport', () => {
                 if (refreshing) {
                     await new Promise<void>((resolve) => pending.push({ evidence: page || signals, resolve }))
                 }
-                const status = page ? 404 : signals ? signalsStatus : failRefresh ? 503 : 200
-                const body = url.includes('/artefacts/')
-                    ? { count: 0, next: null, results: [] }
-                    : signals
-                      ? { signals: [] }
-                      : reportFixture({ id: REPORT_ID })
+                const status = page ? 404 : signals ? (failRefresh ? signalsStatus : 200) : failRefresh ? 503 : 200
+                const body =
+                    status === 403
+                        ? { detail: "API key missing required scope 'inbox:read'" }
+                        : url.includes('/artefacts/')
+                          ? { count: 0, next: null, results: [] }
+                          : signals
+                            ? { signals: [] }
+                            : reportFixture({ id: REPORT_ID })
                 return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
             }) as typeof fetch
             const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
@@ -233,6 +238,7 @@ describe('useReport', () => {
                     await jest.advanceTimersByTimeAsync(10)
                 })
                 expect(result.current.isRefetching).toBe(false)
+                expect(useScopeErrorStore.getState().reported.inbox).toBe(signalsStatus === 403 ? 'inbox:read' : null)
                 expect(renders.every((state) => state.data?.id === REPORT_ID && !state.isLoading)).toBe(true)
             } finally {
                 unmount()
