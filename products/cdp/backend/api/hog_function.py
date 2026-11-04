@@ -5,7 +5,6 @@ from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
 
-from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import transaction
@@ -43,7 +42,6 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.permissions import require_recent_authentication
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
 from posthog.scopes import APIScopeObject
 
@@ -88,6 +86,7 @@ from products.cdp.backend.validation import (
     generate_template_bytecode,
     masked_dictionary_secret,
     masked_secret_input_keys,
+    require_recent_login_to_move_credentials,
     require_viewer_access_to_added_actions,
     reserved_functions_used,
     secret_binding_enforced,
@@ -916,7 +915,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if credential_move_needs_reauth(
             stored, current, kept_secret_keys, self.context.get("staged_secret_bindings")
         ) and secret_binding_enforced(attrs["team"]):
-            require_recent_authentication(self.context.get("request"), max_age=settings.SESSION_INTEGRATION_LINK_AGE)
+            require_recent_login_to_move_credentials(self.context.get("request"), surface="destination")
 
     def to_representation(self, data):
         is_instance = isinstance(data, HogFunction)

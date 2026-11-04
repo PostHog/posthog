@@ -10,8 +10,9 @@ from django.db import models
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema_field
+from prometheus_client import Counter
 from rest_framework import serializers
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
@@ -25,6 +26,7 @@ from posthog.integrations import IntegrationManager
 from posthog.models.integration import POSTHOG_CONNECT_KIND, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.permissions import require_recent_authentication
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.filters import (
@@ -1155,6 +1157,23 @@ def secret_binding_enforced(team: Team) -> bool:
             send_feature_flag_events=False,
         )
     )
+
+
+CREDENTIAL_MOVE_REAUTH_REFUSED_COUNTER = Counter(
+    "posthog_cdp_credential_move_reauth_refused_total",
+    "Saves refused because they move a stored credential from a session older than the integration-link window",
+    labelnames=["surface"],
+)
+
+
+def require_recent_login_to_move_credentials(request: object, surface: str) -> None:
+    """Refuse a save that moves a stored credential unless the last login is recent enough."""
+    try:
+        require_recent_authentication(request, max_age=settings.SESSION_INTEGRATION_LINK_AGE)
+    except PermissionDenied:
+        # The refusal count per surface decides whether a team stays on the rollout flag.
+        CREDENTIAL_MOVE_REAUTH_REFUSED_COUNTER.labels(surface=surface).inc()
+        raise
 
 
 INTEGRATION_INPUT_TYPES = frozenset({"integration", "integration_multi"})

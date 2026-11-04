@@ -74,7 +74,6 @@ from posthog.permissions import (
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
     is_service_auth,
-    require_recent_authentication,
 )
 from posthog.ph_client import feature_enabled_or_false
 from posthog.plugins.plugin_server_api import (
@@ -283,6 +282,7 @@ from products.workflows.backend.facade.secrets import (
     plaintext_secret_map,
     recover_or_drop_masked_inputs,
     rehydrate_flow_secrets,
+    require_recent_login_to_move_credentials,
     secret_binding_enforced,
     secret_bindings_for_actions,
     secret_keys_for_action,
@@ -820,7 +820,7 @@ def _require_recent_authentication_for_variable_edits(
         )
     )
     if holds_credentials and secret_binding_enforced(context["get_team"]()):
-        require_recent_authentication(context.get("request"), max_age=settings.SESSION_INTEGRATION_LINK_AGE)
+        require_recent_login_to_move_credentials(context.get("request"), surface="workflow_variables")
 
 
 def _require_replay_vision_editor_access(request: Request | None, context: dict[str, Any], actions: Any) -> None:
@@ -2335,9 +2335,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                     )
                     and self._secret_binding_enforced()
                 ):
-                    require_recent_authentication(
-                        self.context.get("request"), max_age=settings.SESSION_INTEGRATION_LINK_AGE
-                    )
+                    require_recent_login_to_move_credentials(self.context.get("request"), surface="workflow_step")
                 if not is_draft:
                     _reject_empty_required_lists(input_schema, data["config"].get("inputs") or {})
                 if strict and template_id == _CREATE_TASK_TEMPLATE_ID:
@@ -6705,7 +6703,7 @@ class HogFlowViewSet(
             template_cache,
         ) or (variables_changed and flow_holds_credentials(hog_flow.actions, hog_flow.encrypted_inputs, template_cache))
         if moves:
-            require_recent_authentication(self.request, max_age=settings.SESSION_INTEGRATION_LINK_AGE)
+            require_recent_login_to_move_credentials(self.request, surface="workflow_draft_test")
 
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])

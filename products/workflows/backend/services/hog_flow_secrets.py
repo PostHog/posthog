@@ -9,6 +9,7 @@ from products.cdp.backend.validation import (
     exposes_secret_dictionary_keys,
     linked_integration_input_keys,
     masked_dictionary_secret,
+    require_recent_login_to_move_credentials,  # noqa: F401 - re-exported through the facade
     restore_masked_dictionary_entries,
     secret_binding_enforced,  # noqa: F401 - re-exported through the facade
 )
