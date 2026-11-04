@@ -168,6 +168,29 @@ export function shouldDefaultToEntireProject(input: {
     )
 }
 
+// First For-you count for the primary section: if the user has no reports suggested to
+// them, default to Entire project so they don't land on an empty inbox. Only when they haven't
+// picked a scope themselves, and only once the user's uuid has resolved (so the count is
+// genuinely theirs, not an unfiltered project-wide count). A refresh of a loaded section takes
+// its count from the first page, so this runs on both counts.
+function applyDefaultScopeIfEmpty(
+    props: reportListLogicType['props'],
+    values: reportListLogicType['values'],
+    actions: reportListLogicType['actions']
+): void {
+    if (
+        shouldDefaultToEntireProject({
+            sectionKey: props.sectionKey,
+            scope: values.scope,
+            hasUserChosenScope: values.hasUserChosenScope,
+            hasResolvedUser: !!values.user?.uuid,
+            count: values.count,
+        })
+    ) {
+        actions.applyDefaultScope(INBOX_SCOPE_ENTIRE_PROJECT)
+    }
+}
+
 /**
  * A write that timed out or lost its response can still have saved, so every surface that shows the report reloads
  * it. This list can be mounted without the inbox scene, for example in a row menu, and then only reloads itself.
@@ -199,6 +222,7 @@ export interface reportListLogicValues {
     claimSavingReportIds: string[]
     count: number | null
     countLoading: boolean
+    countSettled: boolean
     hasMore: boolean
     hasProjectClosedReports: boolean | null
     hasProjectClosedReportsLoading: boolean
@@ -305,10 +329,10 @@ export interface reportListLogicActions {
         errorObject?: any
     }
     loadCountSuccess: (
-        count: number,
+        count: number | null,
         payload?: void
     ) => {
-        count: number
+        count: number | null
         payload?: void
     }
     loadHasProjectClosedReports: (_: void) => void
@@ -455,6 +479,14 @@ export interface reportListLogicMeta {
         livePrReportIds: (reports: SignalReport[]) => string[]
         totalCount: (reportsResponse: ReportListResponse | null) => number | null
         loadedQueryKey: (reportsResponse: ReportListResponse | null) => string | null
+        countSettled: (
+            countLoading: boolean,
+            reportsResponseLoading: boolean,
+            reportsResponse: ReportListResponse | null,
+            reportsLoadFailed: boolean,
+            loadedQueryKey: string | null,
+            listApiParams: any
+        ) => boolean
         loadedContext: (reportsResponse: ReportListResponse | null) => ReportListRequestContext | null
         loadedRanker: (reportsResponse: ReportListResponse | null) => string | null
         loadedRankingPill: (reportsResponse: ReportListResponse | null) => boolean
@@ -584,14 +616,26 @@ export const reportListLogic = kea<reportListLogicType>([
             null as number | null,
             {
                 loadCount: async (_: void, breakpoint) => {
+                    const params = values.listApiParams
+                    const pageAtRequest = values.reportsResponse
                     // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
                     const response = await api.signalReports.list({
-                        ...listRequestParams(values.listApiParams),
+                        ...listRequestParams(params),
                         limit: 1,
                         count_only: 'true',
                     })
                     // A newer count request for a changed query supersedes this one.
                     breakpoint()
+                    // A loaded section takes its count from its first page and sends no new count
+                    // request, so nothing else retires this one. Drop it when the query moved on, and
+                    // when a page landed while it was in flight, because that page carries the total
+                    // for the rows now on screen.
+                    if (
+                        JSON.stringify(values.listApiParams) !== JSON.stringify(params) ||
+                        values.reportsResponse !== pageAtRequest
+                    ) {
+                        return values.count
+                    }
                     return response.count
                 },
             },
@@ -858,6 +902,31 @@ export const reportListLogic = kea<reportListLogicType>([
             (reportsResponse: ReportListResponse | null): string | null =>
                 reportsResponse?.requestParams ? JSON.stringify(reportsResponse.requestParams) : null,
         ],
+        // Nothing that can still change the count is in flight, and the count on screen belongs to
+        // the current query. A loaded section takes its count from the first page, so a scope or
+        // filter change holds the previous query's total until the refetched page lands. A failed
+        // page settles the section on what it had, rather than holding a consumer forever.
+        countSettled: [
+            (s) => [
+                s.countLoading,
+                s.reportsResponseLoading,
+                s.reportsResponse,
+                s.reportsLoadFailed,
+                s.loadedQueryKey,
+                s.listApiParams,
+            ],
+            (
+                countLoading: boolean,
+                reportsResponseLoading: boolean,
+                reportsResponse: ReportListResponse | null,
+                reportsLoadFailed: boolean,
+                loadedQueryKey: string | null,
+                listApiParams: any
+            ): boolean =>
+                !countLoading &&
+                !reportsResponseLoading &&
+                (reportsResponse === null || reportsLoadFailed || loadedQueryKey === JSON.stringify(listApiParams)),
+        ],
         // Display context (scope, active-filters flag) as it was when the loaded response was
         // requested — for telemetry, so an in-flight response can't be labeled with context the
         // user switched to after the request went out.
@@ -888,6 +957,7 @@ export const reportListLogic = kea<reportListLogicType>([
         // loaders report: the first page and each appended page bring rows that need painting. An
         // empty announcement matters too, because it retires the rows a narrowed filter dropped.
         loadReportsSuccess: () => {
+            applyDefaultScopeIfEmpty(props, values, actions)
             setInboxServedRanker(values.loadedRanker, values.loadedRankingPill)
             actions.trackReports(props.sectionKey, values.livePrReportIds)
             actions.refreshReportMetrics(values.staleMetricReportIds)
@@ -952,23 +1022,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 actions.applyReportMetricSnapshots([...response.reports])
             }
         },
-        // First For-you count for the primary section: if the user has no reports suggested to
-        // them, default to Entire project so they don't land on an empty inbox. Only when they haven't
-        // picked a scope themselves, and only once the user's uuid has resolved (so the count is
-        // genuinely theirs, not an unfiltered project-wide count).
-        loadCountSuccess: () => {
-            if (
-                shouldDefaultToEntireProject({
-                    sectionKey: props.sectionKey,
-                    scope: values.scope,
-                    hasUserChosenScope: values.hasUserChosenScope,
-                    hasResolvedUser: !!values.user?.uuid,
-                    count: values.count,
-                })
-            ) {
-                actions.applyDefaultScope(INBOX_SCOPE_ENTIRE_PROJECT)
-            }
-        },
+        loadCountSuccess: () => applyDefaultScopeIfEmpty(props, values, actions),
         ensureLoaded: () => {
             if (values.reportsResponse === null && !values.reportsResponseLoading) {
                 actions.loadReports()
@@ -986,13 +1040,21 @@ export const reportListLogic = kea<reportListLogicType>([
             }
         },
         refresh: () => {
-            actions.loadCount()
-            // An in-flight first page was requested with the old filters, so it reloads too.
+            // An in-flight first page was requested with the old filters, so it reloads too. The page
+            // response carries the total, so a separate count would run the same COUNT(*) twice.
             if (values.isLoaded || values.reportsResponseLoading) {
                 actions.loadReports()
+                // Whether the project holds any closed report is a project-wide question that this
+                // section's page does not answer, and the `loadCount` listener that asks it does not
+                // run on this path. The Closed tab stays hidden until this check runs again.
+                if (props.sectionKey === 'closed') {
+                    actions.loadHasProjectClosedReports()
+                }
+            } else {
+                actions.loadCount()
             }
         },
-        // User-driven filter/scope changes re-fetch the count always, and the rows if this section is loaded.
+        // User-driven filter/scope changes re-fetch the rows if this section is loaded, and only the count if not.
         setSearchQuery: async (_, breakpoint) => {
             await breakpoint(300)
             actions.refresh()
