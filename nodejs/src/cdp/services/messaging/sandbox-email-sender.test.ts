@@ -245,7 +245,7 @@ describe('sandbox email content', () => {
             null,
         ],
         [
-            '<body><!--[if mso]><table><tr><td><![endif]--><p>Hello</p><!--[if mso]></td></tr></table><![endif]--></body>',
+            '<body><!--[if (mso)|(IE)]><table><tr><td><![endif]--><p>Hello</p><!--[if (mso)|(IE)]></td></tr></table><![endif]--></body>',
             '<p>Hello</p>',
             null,
         ],
@@ -281,6 +281,18 @@ describe('sandbox email content', () => {
         ['<body><!--[if mso]><p>Outlook</p><![endif]--><p>Hello</p><!--[if gte mso 9]><p>Old Outlook</p>', null, null],
         ['<body><![if !mso]><p>Hello</p>', null, null],
         ['<body><p>Hello</p><!--[if mso]><div style="display:none"><![endif]-->', null, null],
+        [
+            '<body><p>Hello</p><!--[if mso]><div style="display:none"><![endif]--><!--[if lt mso 16]></div><![endif]-->',
+            null,
+            null,
+        ],
+        [
+            '<body><!--[if mso]><div style="display:none"><![endif]--><p>Hello</p><!--[if !mso]></div><![endif]-->',
+            null,
+            null,
+        ],
+        ['<body><div style="display:none"><!--[if !mso]><!--></div><!--<![endif]--><p>Hello</p>', null, null],
+        ['<body><p>Hello</p><!--[if gte foo 1]><p>Other</p><![endif]-->', null, null],
         ['<body><!--[if !mso]><!--><p title="<![endif]">Hello</p>', null, null],
         ['<body><!--[if !mso]><!--><p>Hello</p><!-- <![endif] note -->', null, null],
         ['<body><p>Hello</p><template><!--[if !mso]><p>Example</p>', null, null],
