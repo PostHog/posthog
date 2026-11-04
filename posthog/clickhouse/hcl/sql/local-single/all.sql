@@ -156,7 +156,7 @@ CREATE TABLE posthog.email_status_events_data (
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.email_status_events_data', '{replica}-{shard}') ORDER BY (team_id, message_id, status_at) PARTITION BY toYYYYMMDD(created_at) TTL toDate(created_at) + toIntervalDay(31) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.email_status_events_data', '{replica}-{shard}') ORDER BY (team_id, created_at, message_id, status_at) PARTITION BY toYYYYMMDD(created_at) TTL toDate(created_at) + toIntervalDay(31) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.error_tracking_issue_fingerprint_overrides (
   team_id Int64,
   fingerprint String,

@@ -1686,7 +1686,7 @@
   )
   ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.email_status_events_data', '{replica}-{shard}')
   PARTITION BY toYYYYMMDD(created_at)
-  ORDER BY (team_id, message_id, status_at)
+  ORDER BY (team_id, created_at, message_id, status_at)
   
   SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
   
@@ -12170,7 +12170,7 @@
   )
   ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.email_status_events_data', '{replica}-{shard}')
   PARTITION BY toYYYYMMDD(created_at)
-  ORDER BY (team_id, message_id, status_at)
+  ORDER BY (team_id, created_at, message_id, status_at)
   
   SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
   

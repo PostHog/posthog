@@ -148,8 +148,8 @@ AS {EMAIL_STATUS_MV_QUERY()}"""
 ALTER_EMAIL_STATUS_MV_QUERY_SQL = lambda: f"ALTER TABLE {EMAIL_STATUS_MV_TABLE} MODIFY QUERY {EMAIL_STATUS_MV_QUERY()}"
 
 
-# A plain MergeTree, so no row replaces another. Ordered by message, and a message id starts with its
-# creation time, so a team's rows are also in time order.
+# A plain MergeTree, so no row replaces another. `created_at` leads the key because ClickHouse doesn't sort a
+# UUID by time. All rows of a message share a `created_at`, so they stay together.
 EMAIL_STATUS_EVENTS_DATA_TABLE_SQL = lambda: (
     f"""
 CREATE TABLE IF NOT EXISTS {EMAIL_STATUS_EVENTS_DATA_TABLE}
@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS {EMAIL_STATUS_EVENTS_DATA_TABLE}
 )
 ENGINE = {MergeTreeEngine(EMAIL_STATUS_EVENTS_DATA_TABLE, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toYYYYMMDD(created_at)
-ORDER BY (team_id, message_id, status_at)
+ORDER BY (team_id, created_at, message_id, status_at)
 {ttl_period("created_at", EMAIL_STATUS_TTL_DAYS, unit="DAY")}
 SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
 """

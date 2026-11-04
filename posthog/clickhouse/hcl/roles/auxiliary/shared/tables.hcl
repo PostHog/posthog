@@ -1157,7 +1157,7 @@ database "posthog" {
     }
   }
   table "email_status_events_data" {
-    order_by     = ["team_id", "message_id", "status_at"]
+    order_by     = ["team_id", "created_at", "message_id", "status_at"]
     partition_by = "toYYYYMMDD(created_at)"
     ttl          = "toDate(created_at) + toIntervalDay(31)"
     settings = {
