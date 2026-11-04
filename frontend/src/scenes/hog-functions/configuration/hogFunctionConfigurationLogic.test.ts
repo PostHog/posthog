@@ -14,6 +14,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     CyclotronJobFilterEvents,
+    CyclotronJobInputType,
     CyclotronJobFiltersType,
     FilterLogicalOperator,
     HogFunctionTemplateType,
@@ -317,6 +318,88 @@ describe('hogFunctionConfigurationLogic', () => {
 
             expect(logic.values.configuration.filters).toEqual(expectedFilters)
             expect(logic.values.configuration.hog).toEqual(TEMPLATE_WITH_DEFAULT_FILTERS.code)
+        })
+    })
+
+    describe('duplicating a function', () => {
+        const TEMPLATE_WITH_SECRETS: HogFunctionTemplateType = {
+            ...HOG_TEMPLATE,
+            inputs_schema: [
+                ...(HOG_TEMPLATE.inputs_schema ?? []),
+                { key: 'api_key', type: 'string', label: 'API key', secret: true, required: false },
+                { key: 'secret_headers', type: 'dictionary', label: 'Secret headers', secret: true, required: false },
+            ],
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+            mockApi.getTemplate.mockResolvedValue(TEMPLATE_WITH_SECRETS)
+            mockApi.create.mockResolvedValue(HOG_FUNCTION)
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        const MASKED_HEADERS = { secret_headers: { secret: true, value: { Authorization: '********' } } }
+        const NOTHING_KEPT = { api_key: undefined, secret_headers: undefined, headers: undefined }
+
+        it.each<[string, Record<string, CyclotronJobInputType>, CyclotronJobInputType | null, Record<string, unknown>]>(
+            [
+                ['drops a masked string secret', { api_key: { value: undefined, secret: true } }, null, NOTHING_KEPT],
+                ['drops a dictionary secret with masked entries', MASKED_HEADERS, null, NOTHING_KEPT],
+                [
+                    'drops the masked rows of a secret dictionary the user added a row to',
+                    MASKED_HEADERS,
+                    // The dictionary editor clears `secret` on any edit and keeps a mask for each untouched stored row.
+                    { secret: false, value: { Authorization: '********', 'x-new': 'typed' } },
+                    { ...NOTHING_KEPT, secret_headers: { 'x-new': 'typed' } },
+                ],
+                [
+                    'drops an edited secret dictionary that has only masked rows left',
+                    MASKED_HEADERS,
+                    { secret: false, value: { Authorization: '********' } },
+                    NOTHING_KEPT,
+                ],
+                [
+                    'keeps a plain header whose value looks like a mask',
+                    { headers: { value: { 'x-literal': '********' } } },
+                    null,
+                    { ...NOTHING_KEPT, headers: { 'x-literal': '********' } },
+                ],
+            ]
+        )('%s', async (_name, sourceInputs, editedSecretHeaders, expectedKept) => {
+            mockApi.get.mockResolvedValue({
+                ...HOG_FUNCTION,
+                inputs_schema: TEMPLATE_WITH_SECRETS.inputs_schema,
+                inputs: { url: { value: 'https://example.com' }, ...sourceInputs },
+                template: TEMPLATE_WITH_SECRETS,
+            })
+            logic = hogFunctionConfigurationLogic({ id: HOG_FUNCTION.id })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadHogFunctionSuccess'])
+            if (editedSecretHeaders) {
+                logic.actions.setConfigurationValue('inputs.secret_headers', editedSecretHeaders)
+                // Leaving an edited form asks to discard the changes; the user confirms.
+                jest.spyOn(window, 'confirm').mockReturnValue(true)
+            }
+            logic.actions.duplicate()
+
+            const copyLogic = hogFunctionConfigurationLogic({ templateId: TEMPLATE_WITH_SECRETS.id })
+            copyLogic.mount()
+            await expectLogic(copyLogic).toDispatchActions(['loadTemplateSuccess'])
+            await expectLogic(copyLogic, () => {
+                copyLogic.actions.submitConfiguration()
+            }).toDispatchActions(['submitConfigurationSuccess'])
+
+            const sentInputs = mockApi.create.mock.calls[0][0].inputs ?? {}
+            expect(Object.entries(sentInputs).filter(([, input]) => input?.secret)).toEqual([])
+            expect({
+                api_key: sentInputs.api_key?.value,
+                secret_headers: sentInputs.secret_headers?.value,
+                headers: sentInputs.headers?.value,
+            }).toEqual(expectedKept)
+            expect(sentInputs.url).toMatchObject({ value: 'https://example.com' })
         })
     })
 
