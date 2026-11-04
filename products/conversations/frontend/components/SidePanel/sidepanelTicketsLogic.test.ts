@@ -652,6 +652,40 @@ describe('sidepanelTicketsLogic', () => {
             expect(getTickets).toHaveBeenCalledTimes(2)
         })
 
+        it.each([true, false])(
+            'waits for token restoration before fetching with widget available=%s',
+            async (available) => {
+                jest.useFakeTimers()
+                let finishRestore!: () => void
+                const restoreFromToken = jest.fn().mockReturnValue(
+                    new Promise<void>((resolve) => {
+                        finishRestore = resolve
+                    })
+                )
+                const getTickets = jest.fn().mockResolvedValue(oneTicket)
+                const isAvailable = jest.fn().mockReturnValue(available)
+                ;(posthog as any).conversations = { isAvailable, restoreFromToken, getTickets }
+                router.actions.push('/', { ph_conv_restore: 'token' })
+
+                mountLive()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(getTickets).not.toHaveBeenCalled()
+                isAvailable.mockReturnValue(true)
+                await jest.advanceTimersByTimeAsync(500)
+                expect(restoreFromToken).toHaveBeenCalledTimes(1)
+                logic.actions.loadTickets()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(getTickets).not.toHaveBeenCalled()
+
+                finishRestore()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(getTickets).toHaveBeenCalledTimes(1)
+                expect(logic.values.tickets).toHaveLength(1)
+                await jest.advanceTimersByTimeAsync(20_000)
+                expect(getTickets).toHaveBeenCalledTimes(2)
+            }
+        )
+
         it('consumes a restore link with no support surface open, then loads the restored tickets', async () => {
             const restoreFromToken = jest.fn().mockResolvedValue({ status: 'success', migrated_ticket_ids: ['t1'] })
             ;(posthog as any).conversations.restoreFromToken = restoreFromToken

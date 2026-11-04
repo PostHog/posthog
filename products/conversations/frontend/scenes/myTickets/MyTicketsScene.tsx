@@ -10,13 +10,14 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { NewTicket } from '../../components/SidePanel/NewTicket'
 import { RestoreTickets } from '../../components/SidePanel/RestoreTickets'
-import { liveTicketsLogic, sidepanelTicketsLogic } from '../../components/SidePanel/sidepanelTicketsLogic'
+import { sidepanelTicketsLogic } from '../../components/SidePanel/sidepanelTicketsLogic'
 import { Ticket } from '../../components/SidePanel/Ticket'
 import { TicketsList } from '../../components/SidePanel/TicketsList'
+import { myTicketsSceneLogic } from './myTicketsSceneLogic'
 
 export const scene: SceneExport = {
     component: MyTicketsScene,
-    logic: liveTicketsLogic,
+    logic: myTicketsSceneLogic,
 }
 
 export function MyTicketsScene(): JSX.Element {

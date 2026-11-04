@@ -551,6 +551,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             clearSharedTickets()
         },
         loadTickets: async ({ force }) => {
+            if (cache.restoringFromUrlToken) {
+                return
+            }
             // We don't support self-hosted, and the conversations extension is cloud-only — both the
             // panel and the tickets scene already render a community-forum message instead. This logic
             // still mounts there (the scene declares it in its SceneExport), so without this it would
@@ -918,6 +921,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
         restoreFromUrlToken: async ({ token }) => {
+            cache.restoringFromUrlToken = true
             const conversations = posthog.conversations as any
             // isAvailable rather than method presence: the facade and its methods exist from
             // posthog-js init, but resolve null until the manager loads — which would consume
@@ -928,6 +932,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     cache.restoreRetryTimer = window.setTimeout(() => actions.restoreFromUrlToken(token), 500)
                 } else {
                     removeRestoreTokenFromUrl()
+                    cache.restoringFromUrlToken = false
                     actions.loadTickets(true)
                 }
                 return
@@ -951,6 +956,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 console.error('Failed to restore from URL token:', e)
             } finally {
                 removeRestoreTokenFromUrl()
+                cache.restoringFromUrlToken = false
                 actions.loadTickets(true)
             }
         },
