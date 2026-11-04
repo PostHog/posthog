@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -5,6 +6,7 @@ import { LemonDialog } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
 import { projectLogic } from 'scenes/projectLogic'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
@@ -12,6 +14,7 @@ import { wizardRunsPartialUpdate, wizardRunsRetrieve } from '../generated/api'
 import type { WizardRunApi, WizardRunGitDiffArtifactApi } from '../generated/api.schemas'
 import { loadWizardRunArtifactContent, loadWizardRunArtifacts } from '../lib/wizardApi'
 import { wizardRunDetailsLogic } from './wizardRunDetailsLogic'
+import { wizardRunsLogic } from './wizardRunsLogic'
 
 jest.mock('../generated/api', () => ({
     wizardRunsList: jest.fn().mockResolvedValue({ count: 0, next: null, previous: null, results: [] }),
@@ -28,10 +31,12 @@ const mockLoadWizardRunArtifactContent = loadWizardRunArtifactContent as jest.Mo
 const mockLoadWizardRunArtifacts = loadWizardRunArtifacts as jest.Mock
 const mockWizardRunsRetrieve = wizardRunsRetrieve as jest.Mock
 
+const RUN_ID = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'
+
 const gitDiffArtifact: WizardRunGitDiffArtifactApi = {
     id: 'artifact-1',
     team_id: 1,
-    run_id: 'run-1',
+    run_id: RUN_ID,
     artifact_type: 'git_diff',
     size_bytes: 512,
     content_hash: 'diff-hash',
@@ -42,7 +47,7 @@ const gitDiffArtifact: WizardRunGitDiffArtifactApi = {
 
 function makeRun(): WizardRunApi {
     return {
-        id: 'run-1',
+        id: RUN_ID,
         team_id: 1,
         created_by_id: 1,
         created_by: { id: 1, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
@@ -92,36 +97,77 @@ describe('wizardRunDetailsLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('loads run details and artifacts through separate endpoints', async () => {
-        logic.actions.selectRun(makeRun(), 'wizard_datatable')
+    it.each(['wizard_datatable', 'wizard_sidebar'] as const)(
+        'loads details and artifacts from %s even outside the filtered table page',
+        async (source) => {
+            if (source === 'wizard_sidebar') {
+                wizardRunsLogic.actions.loadRunsSuccess(
+                    Array.from({ length: 30 }, (_, index) => ({ ...makeRun(), id: `other-${index}` }))
+                )
+                wizardRunsLogic.actions.setSearch('no matching runs')
+                router.actions.push(urls.wizardRuns(), { run: RUN_ID })
+            } else {
+                logic.actions.selectRun(makeRun(), source)
+            }
 
-        await expectLogic(logic)
-            .toFinishAllListeners()
-            .toMatchValues({
-                selectedRun: expect.objectContaining({ id: 'run-1' }),
-                selectedRunArtifacts: [],
-                selectedRunArtifactsInitialLoading: false,
-            })
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    selectedRun: expect.objectContaining({ id: RUN_ID }),
+                    selectedRunArtifacts: [],
+                    selectedRunArtifactsInitialLoading: false,
+                })
 
-        expect(mockWizardRunsRetrieve).toHaveBeenCalledWith(expect.any(String), 'run-1')
-        expect(mockLoadWizardRunArtifacts).toHaveBeenCalledWith(expect.any(String), 'run-1')
-        expect(mockLoadWizardRunArtifactContent).not.toHaveBeenCalled()
-        expect(posthog.capture).toHaveBeenCalledWith(
-            'wizard run detail dialog opened',
-            expect.objectContaining({
-                wizard_run_id: 'run-1',
-                task_run_id: 'run-1',
-                run_surface: 'cloud',
-                version: '2.6.0',
-                source: 'wizard_datatable',
-            })
-        )
+            expect(mockWizardRunsRetrieve).toHaveBeenCalledWith(expect.any(String), RUN_ID)
+            expect(mockWizardRunsRetrieve).toHaveBeenCalledTimes(1)
+            expect(mockLoadWizardRunArtifacts).toHaveBeenCalledWith(expect.any(String), RUN_ID)
+            expect(mockLoadWizardRunArtifactContent).not.toHaveBeenCalled()
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'wizard run detail dialog opened',
+                expect.objectContaining({
+                    wizard_run_id: RUN_ID,
+                    task_run_id: RUN_ID,
+                    run_surface: 'cloud',
+                    version: '2.6.0',
+                    source,
+                })
+            )
 
-        logic.actions.selectRun(null)
-        expect(posthog.capture).toHaveBeenCalledWith(
-            'wizard run detail dialog closed',
-            expect.objectContaining({ wizard_run_id: 'run-1' })
-        )
+            if (source === 'wizard_sidebar') {
+                router.actions.push(urls.wizardRuns())
+            } else {
+                logic.actions.selectRun(null)
+            }
+            expect(logic.values.selectedRun).toBeNull()
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'wizard run detail dialog closed',
+                expect.objectContaining({ wizard_run_id: RUN_ID })
+            )
+        }
+    )
+
+    it.each(['back', 'another selection'] as const)('does not reopen a delayed linked run after %s', async (change) => {
+        let resolveRun!: (run: WizardRunApi) => void
+        const otherRun = { ...makeRun(), id: 'other-run' }
+        mockWizardRunsRetrieve
+            .mockReturnValueOnce(new Promise<WizardRunApi>((resolve) => (resolveRun = resolve)))
+            .mockResolvedValue(otherRun)
+        router.actions.push(urls.wizardRuns(), { run: RUN_ID })
+        if (change === 'back') {
+            router.actions.push(urls.wizardRuns())
+        } else {
+            logic.actions.selectRun(otherRun, 'wizard_datatable')
+        }
+        resolveRun(makeRun())
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.selectedRunId).toBe(change === 'back' ? null : otherRun.id)
+    })
+
+    it('ignores a linked run value that is not a run id', async () => {
+        router.actions.push(urls.wizardRuns(), { run: `../../../2/wizard/runs/${RUN_ID}` })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsRetrieve).not.toHaveBeenCalled()
+        expect(logic.values.selectedRunId).toBeNull()
     })
 
     it('loads git diff content only after the artifact is opened', async () => {
@@ -138,11 +184,11 @@ describe('wizardRunDetailsLogic', () => {
             selectedRunDiffContent: 'diff content',
             runDiffLoading: false,
         })
-        expect(mockLoadWizardRunArtifactContent).toHaveBeenCalledWith(expect.any(String), 'run-1', 'artifact-1')
+        expect(mockLoadWizardRunArtifactContent).toHaveBeenCalledWith(expect.any(String), RUN_ID, 'artifact-1')
         expect(posthog.capture).toHaveBeenCalledWith(
             'artifact clicked',
             expect.objectContaining({
-                wizard_run_id: 'run-1',
+                wizard_run_id: RUN_ID,
                 type: 'diff',
                 source: 'artifacts_section',
             })
@@ -174,13 +220,13 @@ describe('wizardRunDetailsLogic', () => {
 
         mockWizardRunsRetrieve.mockResolvedValue({ ...makeRun(), status: 'completed', stage: null })
 
-        logic.actions.loadRunDetails({ runId: 'run-1' })
+        logic.actions.loadRunDetails({ runId: RUN_ID })
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockLoadWizardRunArtifacts).toHaveBeenCalledTimes(2)
 
         await expectLogic(logic).toFinishAllListeners()
-        logic.actions.loadRunDetails({ runId: 'run-1' })
+        logic.actions.loadRunDetails({ runId: RUN_ID })
         await expectLogic(logic).toFinishAllListeners()
         expect(mockLoadWizardRunArtifacts).toHaveBeenCalledTimes(2)
         expect(
@@ -220,7 +266,7 @@ describe('wizardRunDetailsLogic', () => {
             jest.mocked(wizardRunsPartialUpdate).mockRejectedValue(new ApiError('private response content', 503))
         }
 
-        logic.actions.cancelRunRequest({ runId: 'run-1' })
+        logic.actions.cancelRunRequest({ runId: RUN_ID })
         await expectLogic(logic).toFinishAllListeners()
 
         const events = jest
@@ -230,7 +276,7 @@ describe('wizardRunDetailsLogic', () => {
             'wizard run cancel requested',
             succeeded ? 'wizard run cancel succeeded' : 'wizard run cancel failed',
         ])
-        expect(events[1][1]).toEqual(expect.objectContaining({ wizard_run_id: 'run-1' }))
+        expect(events[1][1]).toEqual(expect.objectContaining({ wizard_run_id: RUN_ID }))
         if (!succeeded) {
             expect(events[1][1]).toEqual(expect.objectContaining({ http_status: 503 }))
         }

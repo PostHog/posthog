@@ -67,7 +67,7 @@ The optional `created_after` filter limits results and `count` to runs created a
 The browser loads project history once without a date or status cutoff.
 While the page is visible, it checks the newest page every five seconds and on tab return, merging discoveries without dropping older runs.
 Starting a cloud run from the Library adds the creation response to shared state immediately, without waiting for a poll.
-Onboarding shows only runs created by the signed-in user.
+Onboarding and the original sidebar show only runs created by the signed-in user.
 Only runs watched by a visible consumer can open event streams, with at most one run stream per tab.
 Every 30 seconds, a bounded fallback refreshes one watched active run and its tasks, rotating through the watched runs.
 Hidden tabs pause polling and streams; terminal runs do not open streams.
@@ -95,6 +95,19 @@ The columns stack when the installation container is narrow.
 Dedicated program steps, such as AI observability, do not use the base integration run to replace their instructions or enable Continue.
 Cloud success lists the artifacts and links to the first pull request for review.
 Onboarding does not link to the runs scene; pull-request links open in a new tab so onboarding stays open.
+
+### Sidebar state
+
+The original sidebar shows all programs and terminal states, with active runs first.
+Its compact summary has no elapsed timer and keeps its dismiss control inside the card.
+Multiple runs show the current program and live activity, with labeled status totals instead of a generic heading and bare count.
+The run panel supports individual dismissal, checkbox selection with batch dismissal, and dismissing all displayed runs.
+Dismissals persist per project and user.
+Dismissal hides only those IDs and does not cancel the runs or hide future runs.
+Dismissed runs release their streams when no other visible consumer watches them; discovery continues for future runs.
+Sidebar links open the run's details directly, even when table pagination or filters exclude its row.
+Removing the linked run from the URL closes its dialog, and pending links never replace a later selection.
+The widget is not mounted in the `today-rail-nav` sidebar.
 
 The PATCH request accepts a terminal `status`: `completed`, `failed`, or `cancelled`.
 Failed runs can also include an `error_code`.
@@ -184,6 +197,7 @@ Do not add the CLI and service completion events together when counting runs.
 
 The UI records library selections, create requests and failures, table searches, filters and pagination, detail dialog activity, run refreshes, copied run IDs, workspace opens, and artifact clicks.
 It also records confirmed cancellation requests and outcomes.
+The original sidebar records `wizard sidebar state clicked` with visible and active run counts, and `wizard sidebar state dismissed` with dismissed and remaining run counts.
 Onboarding records `wizard onboarding state artifact clicked` for artifact-list links and the review button, with `artifact_type`, `artifact_id`, `click_source`, and shared run properties.
 `click_source` is `artifact_list` or `review_button`; informational Git diffs are not clickable.
 Polling does not create more view events. Clipboard failures do not count as command copies.
