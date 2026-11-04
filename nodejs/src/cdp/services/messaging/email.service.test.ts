@@ -803,20 +803,15 @@ describe('EmailService', () => {
             })
 
             it('fails closed instead of waiting when the member lookup stalls', async () => {
-                service = createSandboxService(true)
+                const stalledPostgres = {
+                    transaction: jest.fn(() => new Promise(() => {})),
+                } as unknown as PostgresRouter
+                service = createSandboxService(true, stalledPostgres)
 
-                await hub.postgres.transaction(PostgresUse.COMMON_WRITE, 'test:stall-member-lookup', async (tx) => {
-                    await hub.postgres.query(
-                        tx,
-                        'LOCK TABLE posthog_organizationmembership IN ACCESS EXCLUSIVE MODE',
-                        undefined,
-                        'test:lock-memberships'
-                    )
-                    const result = await service.executeSendEmail(invocation)
+                const result = await service.executeSendEmail(invocation)
 
-                    expectSkipped(result)
-                    expectBlockedEvent('check_failed', false, 1)
-                })
+                expectSkipped(result)
+                expectBlockedEvent('check_failed', false, 1)
             }, 15_000)
 
             it('finishes a blocked send when the blocked-event store stalls', async () => {
