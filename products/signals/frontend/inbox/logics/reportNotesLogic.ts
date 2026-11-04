@@ -55,20 +55,14 @@ export interface reportNotesLogicActions {
         reportScoutName: string | null
     ) => {
         content: string
-        scoutTarget: string | null
         reportScoutName: string | null
+        scoutTarget: string | null
     }
     addNoteFailed: () => {
         value: true
     }
     addNoteFinished: () => {
         value: true
-    }
-    retireNote: (noteId: string) => {
-        noteId: string
-    }
-    retireNoteFailed: (noteId: string) => {
-        noteId: string
     }
     loadNotes: (_payload: void) => void
     loadNotesFailure: (
@@ -85,7 +79,7 @@ export interface reportNotesLogicActions {
         notes: ScoutNoteApi[]
         payload?: void
     }
-    loadScoutConfigs: (_payload: void) => void
+    loadScoutConfigs: () => any
     loadScoutConfigsFailure: (
         error: string,
         errorObject?: any
@@ -95,10 +89,16 @@ export interface reportNotesLogicActions {
     }
     loadScoutConfigsSuccess: (
         scoutConfigs: SignalScoutConfigApi[] | null,
-        payload?: void
+        payload?: any
     ) => {
         scoutConfigs: SignalScoutConfigApi[] | null
-        payload?: void
+        payload?: any
+    }
+    retireNote: (noteId: string) => {
+        noteId: string
+    }
+    retireNoteFailed: (noteId: string) => {
+        noteId: string
     }
 }
 
