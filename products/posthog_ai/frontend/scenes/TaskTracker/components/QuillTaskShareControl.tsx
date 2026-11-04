@@ -31,11 +31,10 @@ const ICONS: Record<TaskVisibility, JSX.Element> = {
 
 function ShareTaskDialog({ taskId }: { taskId: string }): JSX.Element {
     const logic = taskShareLogic({ taskId })
-    const { visibilityChanging, publicSpace } = useValues(logic)
+    const { visibilityChanging } = useValues(logic)
     const { closeShareDialog, setVisibility } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const project = currentTeam?.name ? `Everyone in ${currentTeam.name}` : 'Everyone in this project'
-    const spaceName = publicSpace?.name ? `the ${publicSpace.name} space` : 'the team space'
 
     return (
         <AlertDialog
@@ -48,9 +47,9 @@ function ShareTaskDialog({ taskId }: { taskId: string }): JSX.Element {
         >
             <AlertDialogContent>
                 <AlertDialogHeader>
-                    <AlertDialogTitle>Share this task?</AlertDialogTitle>
+                    <AlertDialogTitle>Make this task public?</AlertDialogTitle>
                     <AlertDialogDescription>
-                        {`${project} will be able to see this task and its chat. The task moves to ${spaceName}, and we copy its link for you.`}
+                        {`${project} can see this task and its chat. We copy the link for you.`}
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -69,7 +68,7 @@ function ShareTaskDialog({ taskId }: { taskId: string }): JSX.Element {
                         data-attr="task-share-confirm"
                     >
                         <IconGlobe />
-                        Share and copy link
+                        Make public
                     </Button>
                 </AlertDialogFooter>
             </AlertDialogContent>

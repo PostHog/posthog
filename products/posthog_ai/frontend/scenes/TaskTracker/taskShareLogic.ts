@@ -128,7 +128,7 @@ export const taskShareLogic = kea<any>([
             const role = visibility === 'private' ? 'personal' : 'general'
             const target = values.state.spaces.find((space: TaskSpace) => space.system_role === role)
             if (!target) {
-                toast.error({ title: 'This project has no team space yet.' })
+                toast.error({ title: `Could not make the task ${visibility}`, description: 'Try again.' })
                 actions.visibilityChanged()
                 return
             }
@@ -144,15 +144,15 @@ export const taskShareLogic = kea<any>([
                     visibility: visibility ?? 'undo',
                 })
                 if (visibility === 'public') {
-                    await copyToClipboard(taskLink(props.taskId), 'task link')
+                    await copyToClipboard(taskLink(props.taskId), 'task link', { silent: true })
                 }
                 toast.success(
                     visibility
                         ? {
                               title:
                                   visibility === 'public'
-                                      ? 'This task is now public. We copied the link.'
-                                      : 'This task is now private',
+                                      ? 'The task is public. Paste the link to share it.'
+                                      : 'The task is private',
                               action: previousSpaceId
                                   ? {
                                         label: 'Undo',
@@ -160,12 +160,17 @@ export const taskShareLogic = kea<any>([
                                     }
                                   : undefined,
                           }
-                        : { title: 'Change undone' }
+                        : { title: 'The change is undone' }
                 )
             } catch (error) {
                 toast.error({
-                    title: visibility === 'public' ? "Couldn't share the task" : "Couldn't change who can see the task",
-                    description: error instanceof Error ? error.message : 'Try again in a moment.',
+                    title:
+                        visibility === 'public'
+                            ? 'Could not make the task public'
+                            : visibility === 'private'
+                              ? 'Could not make the task private'
+                              : 'Could not undo the change',
+                    description: 'Try again.',
                 })
             } finally {
                 actions.visibilityChanged()
