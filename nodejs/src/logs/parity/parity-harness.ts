@@ -214,6 +214,10 @@ function compareCanonical(a: unknown, b: unknown): number {
 }
 
 /** These follow concurrent message completion, so they are sorted. A histogram's bucket arrays are positional and keep their order. */
+// Database 9, so a parity or benchmark run never flushes the keys a local stack keeps in database 0.
+// nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
+export const PARITY_REDIS_URL = 'redis://127.0.0.1:6379/9'
+
 const UNORDERED_METRIC_ARRAYS = new Set([
     'resourceMetrics',
     'scopeMetrics',
@@ -420,12 +424,12 @@ export function buildParityConsumer(
         delete deps[dep]
     }
 
-    const config = scenario.config as any
+    const config = { ...scenario.config, LOGS_REDIS_HOST: PARITY_REDIS_URL, TRACES_REDIS_HOST: PARITY_REDIS_URL } as any
     const consumer = scenario.consumer === 'traces' ? new classes.traces(config, deps) : new classes.logs(config, deps)
     return { consumer, outputs, teamsIngested, metricEmits, usageRecords, quotaChecks }
 }
 
-/** The caller empties Redis before the call. */
+/** The caller empties `PARITY_REDIS_URL` before the call. */
 export async function runParityScenario(
     scenario: ParityScenario,
     setClock: (nowMs: number) => void,

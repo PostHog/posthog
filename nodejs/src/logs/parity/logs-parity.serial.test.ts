@@ -4,7 +4,13 @@ import { join } from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { CURRENT_CLASSES, FRAMEWORK_CLASSES, type ParityConsumerClasses, runParityScenario } from './parity-harness'
+import {
+    CURRENT_CLASSES,
+    FRAMEWORK_CLASSES,
+    PARITY_REDIS_URL,
+    type ParityConsumerClasses,
+    runParityScenario,
+} from './parity-harness'
 import { buildParityScenarios } from './parity-scenarios'
 import type { ParityFixture } from './parity-types'
 
@@ -26,8 +32,7 @@ describe('logs ingestion parity corpus', () => {
     let redis: InstanceType<typeof Redis>
 
     beforeAll(() => {
-        // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
-        redis = new Redis('redis://127.0.0.1:6379')
+        redis = new Redis(PARITY_REDIS_URL)
     })
 
     afterAll(async () => {

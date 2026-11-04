@@ -7,6 +7,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import {
     FRAMEWORK_CLASSES,
+    PARITY_REDIS_URL,
     type ParityConsumerClasses,
     buildParityConsumer,
     toKafkaMessage,
@@ -42,13 +43,8 @@ type BaselineModule = {
     TracesIngestionConsumer: ParityConsumerClasses['traces']
 }
 
-/** A logical database of its own, so a run never resets limiter or sampling state that a local consumer or test suite keeps. */
-// nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
-const BENCH_REDIS_URL = 'redis://127.0.0.1:6379/9'
-
 async function clearBenchRedis(): Promise<void> {
-    // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
-    const redis = new Redis(BENCH_REDIS_URL)
+    const redis = new Redis(PARITY_REDIS_URL)
     try {
         await redis.flushdb()
     } finally {
@@ -73,7 +69,6 @@ async function loadClasses(implementation: string): Promise<ParityConsumerClasse
 
 async function run(implementation: string, workloadPath: string, passes: number, warmup: number): Promise<BenchResult> {
     const scenario = parseJSON(readFileSync(workloadPath, 'utf8')) as ParityScenario
-    scenario.config = { ...scenario.config, LOGS_REDIS_HOST: BENCH_REDIS_URL, TRACES_REDIS_HOST: BENCH_REDIS_URL }
     await clearBenchRedis()
 
     const { consumer, outputs } = buildParityConsumer(scenario, {
