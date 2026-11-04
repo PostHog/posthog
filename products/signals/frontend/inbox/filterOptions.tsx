@@ -30,16 +30,15 @@ import { SignalReportPriority } from './types'
 import { prettifyScoutSkillName } from './utils/scoutRunsWindow'
 
 /**
- * Single source of truth for per-priority color. P0–P4 each get a DISTINCT hue so
- * users can tell them apart at a glance (red → orange → amber → blue → gray).
- * Consumed by the priority badge, the priority monogram, and the filter dots.
+ * Per-priority LemonTag type, for surfaces that render a LemonTag. Keep in step with
+ * `PRIORITY_ACCENT`, which holds the same colors as raw CSS vars.
  */
 export const PRIORITY_TAG_TYPE: Record<SignalReportPriority, LemonTagType> = {
-    P0: 'danger', // red
-    P1: 'warning', // orange
-    P2: 'caution', // amber
-    P3: 'highlight', // blue
-    P4: 'muted', // gray
+    P0: 'danger',
+    P1: 'warning',
+    P2: 'caution',
+    P3: 'highlight',
+    P4: 'muted',
 }
 
 /**
@@ -58,13 +57,17 @@ export const PRIORITY_MEANING: Record<SignalReportPriority, { label: string; des
     P4: { label: 'Minimal', description: 'Cosmetic or negligible impact, or an optional investigation.' },
 }
 
-/** CSS accent per priority, shared by the priority badge and the filter dots so the two always match. */
+/**
+ * Single source of truth for per-priority color, as raw CSS vars mirroring `PRIORITY_TAG_TYPE`'s
+ * LemonTag colors. Theme-aware, so contrast holds in both modes. Shared by the priority badge and
+ * the filter dots so the two always match.
+ */
 export const PRIORITY_ACCENT: Record<SignalReportPriority, string> = {
-    P0: 'var(--red-9, #e5484d)',
-    P1: 'var(--orange-9, #f76b15)',
-    P2: 'var(--amber-9, #ffc53d)',
-    P3: 'var(--blue-9, #3b9eff)',
-    P4: 'var(--muted, #8f8f8f)',
+    P0: 'var(--danger)',
+    P1: 'var(--warning)',
+    P2: 'var(--danger-lighter)',
+    P3: 'var(--color-accent)',
+    P4: 'var(--color-text-secondary)',
 }
 
 // Port of desktop `@posthog/ui/features/inbox/filterOptions`. Drives the Source /
