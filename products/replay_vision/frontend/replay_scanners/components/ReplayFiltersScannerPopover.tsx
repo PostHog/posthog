@@ -151,7 +151,9 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
                             data-attr="replay-filters-scanner-budget"
                         />
                         {budget != null && budget > 0 ? (
-                            <span className="text-xs text-secondary">≈ {creditsToUsd(budget)} a month</span>
+                            <span className="text-xs text-secondary">
+                                ≈ <span translate="no">{creditsToUsd(budget)}</span> a month
+                            </span>
                         ) : null}
                     </div>
                 )}
