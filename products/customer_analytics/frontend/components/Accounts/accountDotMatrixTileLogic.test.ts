@@ -67,12 +67,15 @@ describe('accountDotMatrixTileLogic', () => {
             includeFirstUse: false,
         })
         logic.actions.setMode('count')
+        const savesBeforeSelection = save.mock.calls.length
         logic.actions.setSelectedSeries(['pa', 'replay'])
+        expect(save).toHaveBeenCalledTimes(savesBeforeSelection)
+        expect(logic.values.selectedSeries).toEqual(['pa', 'replay'])
         expect(mockPerformQuery).toHaveBeenCalledTimes(1)
         expect(save).toHaveBeenLastCalledWith({
             mode: 'count',
             weeks: 8,
-            selectedSeries: ['pa', 'replay'],
+            selectedSeries: [],
             source: { kind: 'product_usage' },
         })
         logic.unmount()
@@ -166,7 +169,8 @@ describe('accountDotMatrixTileLogic', () => {
         second.mount()
         first.actions.setSelectedSeries(['metric-replay'])
         second.actions.setMode('count')
-        expect(saveFirst).toHaveBeenLastCalledWith({ mode: 'dots', weeks: 8, selectedSeries: ['metric-replay'] })
+        expect(saveFirst).not.toHaveBeenCalled()
+        expect(first.values.selectedSeries).toEqual(['metric-replay'])
         expect(saveSecond).toHaveBeenLastCalledWith({ mode: 'count', weeks: 8, selectedSeries: [] })
         const saved = second.values.config
         second.unmount()

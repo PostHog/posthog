@@ -52,7 +52,7 @@ describe('AccountDotMatrixTile', () => {
             </>
         )
         fireEvent.click(screen.getAllByTestId('matrix-selection')[0])
-        expect(firstSave).toHaveBeenLastCalledWith({ mode: 'dots', weeks: 8, selectedSeries: ['replay'] })
+        expect(firstSave).not.toHaveBeenCalled()
         expect(secondSave).not.toHaveBeenCalled()
         expect(screen.getAllByTestId('matrix-selection').map((button) => button.textContent)).toEqual([
             'replay',

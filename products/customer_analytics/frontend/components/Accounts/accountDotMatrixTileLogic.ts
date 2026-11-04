@@ -78,6 +78,7 @@ export interface accountDotMatrixTileLogicValues {
     queryScopeWarning: string | null
     savedResultStale: boolean
     selectedSeries: string[]
+    seriesSelection: string[]
     sourceKind: DotMatrixTileSource['kind'] | null
     unconfirmedSource: DotMatrixTileSource | null
 }
@@ -171,7 +172,8 @@ export interface accountDotMatrixTileLogicMeta {
         presentation: (
             displayResult: DotMatrixTileResult | null,
             config: DotMatrixTileConfig,
-            activeMapping: DotMatrixSourceMapping
+            activeMapping: DotMatrixSourceMapping,
+            seriesSelection: any
         ) => {
             empty: string
             error: string | null
@@ -179,7 +181,7 @@ export interface accountDotMatrixTileLogicMeta {
             notices: string[]
         }
         selectedSeries: (
-            config: DotMatrixTileConfig,
+            seriesSelection: any,
             presentation: {
                 empty: string
                 error: string | null
@@ -304,7 +306,15 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
                     applyQuery: (config, { source }) => ({ ...config, selectedSeries: [], source }),
                     setMode: (config, { mode }) => ({ ...config, mode }),
                     setWeeks: (config, { weeks }) => ({ ...config, weeks }),
-                    setSelectedSeries: (config, { selectedSeries }) => ({ ...config, selectedSeries }),
+                },
+            ],
+            seriesSelection: [
+                getDotMatrixTileConfig(props.initialConfig).selectedSeries,
+                {
+                    setSelectedSeries: (_, { selectedSeries }) => selectedSeries,
+                    restoreConfig: (_, { config }) => config.selectedSeries,
+                    applyQuery: () => [],
+                    applySource: () => [],
                 },
             ],
             queryEditorOpen: [
@@ -394,21 +404,22 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
                 },
             ],
             presentation: [
-                (s) => [s.displayResult, s.config, s.activeMapping],
-                (result: DotMatrixTileResult | null, config: DotMatrixTileConfig, mapping: DotMatrixSourceMapping) =>
-                    getDotMatrixTilePresentation(result, config.selectedSeries, mapping, config.weeks),
+                (s) => [s.displayResult, s.config, s.activeMapping, s.seriesSelection],
+                (
+                    result: DotMatrixTileResult | null,
+                    config: DotMatrixTileConfig,
+                    mapping: DotMatrixSourceMapping,
+                    selected: string[]
+                ) => getDotMatrixTilePresentation(result, selected, mapping, config.weeks),
             ],
             selectedSeries: [
-                (s) => [s.config, s.presentation],
-                (
-                    config: DotMatrixTileConfig,
-                    presentation: ReturnType<typeof getDotMatrixTilePresentation>
-                ): string[] => {
+                (s) => [s.seriesSelection, s.presentation],
+                (selection: string[], presentation: ReturnType<typeof getDotMatrixTilePresentation>): string[] => {
                     const known = new Set(
                         presentation.matrix.series?.map(({ key }) => key) ??
                             presentation.matrix.data.map(({ series }) => series)
                     )
-                    return known.size ? config.selectedSeries.filter((key) => known.has(key)) : config.selectedSeries
+                    return known.size ? selection.filter((key) => known.has(key)) : selection
                 },
             ],
             queryScopeWarning: [
@@ -537,9 +548,6 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
                 }
             },
             setSelectedSeries: ({ selectedSeries }) => {
-                if (!values.queryEditorOpen) {
-                    props.onConfigChange?.({ ...values.config })
-                }
                 posthog.capture(AccountsEvents.DotMatrixSeriesSelected, { selected_count: selectedSeries.length })
             },
             retry: () => {
