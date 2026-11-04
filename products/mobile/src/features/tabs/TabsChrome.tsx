@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router'
 import { type ReactElement, useState } from 'react'
-import { Linking, Platform } from 'react-native'
+import { Linking } from 'react-native'
 import { useAuthStore } from '@/auth/authStore'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useViewer } from '@/auth/useViewer'
@@ -11,7 +11,6 @@ import { track } from '@/lib/analytics'
 import { useMobileProductFlags } from '@/lib/featureFlags'
 import { safeHttpsUrl } from '@/lib/urls'
 import { useExitDemo, useSignOutAction } from '../settings/useSignOut'
-import { NativeTabChrome } from './NativeTabChrome'
 import { NavMenu } from './NavMenu'
 import { changeNavPin } from './navPinActions'
 import { useNavPins } from './navPinStore'
@@ -70,11 +69,7 @@ export function TabsChrome(): ReactElement {
 
     return (
         <>
-            {Platform.OS === 'ios' ? (
-                <NativeTabChrome tab={tab} slot={slot} onMore={() => setMenuOpen(true)} />
-            ) : (
-                <TabsHeader tab={tab} slot={slot} status={status} onMore={() => setMenuOpen(true)} />
-            )}
+            <TabsHeader tab={tab} slot={slot} status={status} onMore={() => setMenuOpen(true)} />
             <NavMenu
                 visible={menuOpen}
                 projectName={viewer.projectName}

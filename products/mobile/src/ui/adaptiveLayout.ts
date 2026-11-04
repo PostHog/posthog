@@ -10,8 +10,7 @@ export function adaptiveLayout(
     height: number,
     left: number,
     right: number,
-    regions: readonly ReservedRegion[] = [],
-    nativeNavigation = false
+    regions: readonly ReservedRegion[] = []
 ): {
     rail: boolean
     railSide: 'left' | 'right'
@@ -25,14 +24,20 @@ export function adaptiveLayout(
     const safeWidth = Math.max(0, width - left - right)
     const enoughHeight = height >= 480
     const rail =
-        !nativeNavigation &&
-        enoughHeight &&
-        safeWidth >= 600 &&
-        (Math.max(left, right) >= 44 || (safeWidth >= 840 && safeWidth > height))
+        enoughHeight && safeWidth >= 600 && (Math.max(left, right) >= 44 || (safeWidth >= 840 && safeWidth > height))
     const contentWidth = Math.max(0, safeWidth - (rail ? NAV_RAIL_WIDTH : 0))
+    const railSide = left > right ? 'left' : 'right'
     const panes = displayPanes(
         { x: 0, y: 0, width: contentWidth, height },
-        regions.filter((region) => region.kind === 'division')
+        regions
+            .filter((region) => region.kind === 'division')
+            .map((region) => ({
+                ...region,
+                frame: {
+                    ...region.frame,
+                    x: region.frame.x - (rail && railSide === 'left' ? NAV_RAIL_WIDTH : 0),
+                },
+            }))
     )
     const primary = panes[0]
     const detail = panes[1]
@@ -45,10 +50,10 @@ export function adaptiveLayout(
             : contentWidth >= 320 && primary.height >= 240 && detail.height >= 300)
     return {
         rail,
-        railSide: left > right ? 'left' : 'right',
+        railSide,
         contentWidth,
         paired: detail ? foldPair : enoughHeight && contentWidth >= INBOX_PANE_WIDTH + REPORT_MIN_WIDTH,
-        reportNavigation: !nativeNavigation && enoughHeight && (rail || contentWidth >= 600),
+        reportNavigation: enoughHeight && (rail || contentWidth >= 600),
         inboxExtent: foldPair && primary ? (vertical ? primary.width : primary.height) : INBOX_PANE_WIDTH,
         paneGap: foldPair && primary && detail ? (vertical ? detail.x - primary.width : detail.y - primary.height) : 0,
         paneAxis: foldPair && !vertical ? 'column' : 'row',

@@ -1,6 +1,6 @@
 import { type ReactElement, type RefObject, useState } from 'react'
-import type { ViewInstance } from 'react-native'
-import { Platform, View } from 'react-native'
+import { View, type ViewInstance } from 'react-native'
+
 import { useToasts, ViewsToast } from '@/features/views/ViewsToast'
 import { useAsyncAction } from '@/lib/useAsyncAction'
 import { BackChip } from '@/ui/BackChip'
@@ -14,8 +14,8 @@ import { screenLayout } from '@/ui/screenLayout'
 import { createStyles, useTheme } from '@/ui/theme'
 import { iconSizes, layout, radii } from '@/ui/tokens'
 import { useScreenInsets } from '@/ui/useScreenInsets'
+
 import { ChatHeaderMenu } from './ChatHeaderMenu'
-import { NativeChatChrome } from './NativeChatChrome'
 import { useCopyChatLink } from './useCopyChatLink'
 
 const HEADER_TOP = screenLayout.top - layout.designStatusBar
@@ -66,60 +66,46 @@ export function ChatHeader({
         }
     }
     return (
-        <>
-            {Platform.OS === 'ios' ? (
-                <NativeChatChrome
-                    onBack={onBack}
-                    onNewChat={onNewChat}
-                    onMore={() => setMenuOpen(true)}
-                    hasActions={!!(webUrl || onArchive)}
-                    disabledReason={newChatDisabledReason}
-                />
-            ) : (
-                <View
-                    collapsable={false}
-                    style={[
-                        styles.header,
-                        {
-                            paddingTop: insets.top + HEADER_TOP,
-                            paddingBottom: compact ? 8 : HEADER_FADE,
-                            height: insets.top + (compact ? CHAT_COMPACT_HEADER_HEIGHT : CHAT_HEADER_HEIGHT),
-                        },
-                    ]}
-                    testID="chat-header"
-                >
-                    <BlurEdge solid={0.7} blurTarget={blurTarget} />
-                    <FadeEdge direction="down" solid={0.7} opacity={layout.chromeTint} />
-                    <BackChip onPress={onBack} testID="chat-back" />
-                    {webUrl || onArchive ? (
-                        <PillControl height={ROW_HEIGHT} style={[styles.actions, shadows.chip]}>
-                            <Pressable44
-                                onPress={() =>
-                                    newChatDisabledReason ? toasts.show(newChatDisabledReason) : onNewChat()
-                                }
-                                accessibilityLabel="New chat"
-                                accessibilityState={{ disabled: !!newChatDisabledReason }}
-                                accessibilityHint={newChatDisabledReason}
-                                pressedBackground={colors.background}
-                                style={styles.button}
-                                testID="chat-new"
-                            >
-                                <ComposeIcon size={iconSizes.control} />
-                            </Pressable44>
-                            <Pressable44
-                                onPress={() => setMenuOpen(true)}
-                                accessibilityLabel="Chat options"
-                                accessibilityState={{ expanded: menuOpen }}
-                                pressedBackground={colors.background}
-                                style={styles.button}
-                                testID="chat-more"
-                            >
-                                <MoreIcon size={iconSizes.control} />
-                            </Pressable44>
-                        </PillControl>
-                    ) : null}
-                </View>
-            )}
+        <View
+            collapsable={false}
+            style={[
+                styles.header,
+                {
+                    paddingTop: insets.top + HEADER_TOP,
+                    paddingBottom: compact ? 8 : HEADER_FADE,
+                    height: insets.top + (compact ? CHAT_COMPACT_HEADER_HEIGHT : CHAT_HEADER_HEIGHT),
+                },
+            ]}
+            testID="chat-header"
+        >
+            <BlurEdge solid={0.7} blurTarget={blurTarget} />
+            <FadeEdge direction="down" solid={0.7} opacity={layout.chromeTint} />
+            <BackChip onPress={onBack} testID="chat-back" />
+            {webUrl || onArchive ? (
+                <PillControl height={ROW_HEIGHT} style={[styles.actions, shadows.chip]}>
+                    <Pressable44
+                        onPress={() => (newChatDisabledReason ? toasts.show(newChatDisabledReason) : onNewChat())}
+                        accessibilityLabel="New chat"
+                        accessibilityState={{ disabled: !!newChatDisabledReason }}
+                        accessibilityHint={newChatDisabledReason}
+                        pressedBackground={colors.background}
+                        style={styles.button}
+                        testID="chat-new"
+                    >
+                        <ComposeIcon size={iconSizes.control} />
+                    </Pressable44>
+                    <Pressable44
+                        onPress={() => setMenuOpen(true)}
+                        accessibilityLabel="Chat options"
+                        accessibilityState={{ expanded: menuOpen }}
+                        pressedBackground={colors.background}
+                        style={styles.button}
+                        testID="chat-more"
+                    >
+                        <MoreIcon size={iconSizes.control} />
+                    </Pressable44>
+                </PillControl>
+            ) : null}
             <ChatHeaderMenu
                 visible={menuOpen}
                 top={insets.top + HEADER_TOP + ROW_HEIGHT + 8}
@@ -132,7 +118,7 @@ export function ChatHeader({
                 onClose={() => setMenuOpen(false)}
             />
             <ViewsToast toast={toasts.toast} onHide={toasts.hide} bottom={28} />
-        </>
+        </View>
     )
 }
 

@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router'
 import { type BottomTabBarProps, Tabs } from 'expo-router/js-tabs'
 import { type ReactElement, useEffect, useLayoutEffect, useMemo } from 'react'
-import { Platform, View } from 'react-native'
+import { View } from 'react-native'
 import type { ChatSheetEntry } from '@/features/chat/chatSheetEvents'
 import { useViewsOpenedEvent } from '@/features/views/list/useViewsOpenedEvent'
 import { track } from '@/lib/analytics'
@@ -13,7 +13,6 @@ import { SceneFrame } from '@/ui/SceneFrame'
 import { useColors } from '@/ui/theme'
 import { useAppLayout } from '@/ui/useAppLayout'
 import { BottomBar, type BottomBarSlot } from './BottomBar'
-import { NativeTabsLayout } from './NativeTabsLayout'
 import { MAX_NAV_PINS, type NavPin, useNavPins } from './navPinStore'
 import { TabsChrome } from './TabsChrome'
 import { type TabKey, useTabHeaderStore } from './tabHeaderStore'
@@ -126,9 +125,7 @@ function CustomTabsLayout(): ReactElement {
 }
 
 export function TabsLayout(): ReactElement {
-    return Platform.OS === 'ios' ? (
-        <NativeTabsLayout />
-    ) : (
+    return (
         <MobileScene>
             <CustomTabsLayout />
         </MobileScene>

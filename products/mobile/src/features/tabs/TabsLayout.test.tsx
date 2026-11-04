@@ -107,10 +107,10 @@ function InboxWithMenuStub(): ReactElement {
 
 const ORIGINAL_WINDOW = Dimensions.get('window')
 
-describe('TabsLayout (Android custom navigation)', () => {
+describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
     const originalPlatform = Platform.OS
     beforeAll(() => {
-        Platform.OS = 'android'
+        Platform.OS = platform
     })
     afterAll(() => {
         Platform.OS = originalPlatform
@@ -321,6 +321,25 @@ describe('TabsLayout (Android custom navigation)', () => {
             ['mobile_inbox_opened', undefined],
             ['mobile_nav_pin_changed', { pin: 'errors', pinned: false, source: 'list_menu', replaced: false }],
         ])
+    })
+
+    test('keeps the separate Chat button opening compose from the inbox', async () => {
+        const router = await renderRouter(
+            {
+                '(tabs)/_layout': TabsLayout,
+                '(tabs)/inbox': InboxStub,
+                '(tabs)/chats': ChatsStub,
+                '(tabs)/views': ViewsStub,
+                chat: ChatsStub,
+                ...LIST_TABS,
+            },
+            { initialUrl: '/inbox' }
+        )
+
+        fireEvent.press(screen.getByTestId('inbox-chat'))
+
+        expect(router.getPathname()).toBe('/chat')
+        expect(router.getSearchParams()).toMatchObject({ entry: 'compose' })
     })
 
     test('draws a screen overlay outside the tab scene, so it covers the bar', async () => {

@@ -33,5 +33,5 @@ export function bottomOffset(insets: Pick<ScreenInsets, 'bottom'>, designBottom:
 }
 
 export function tabBottomOffset(insets: Pick<ScreenInsets, 'bottom'>): number {
-    return Platform.OS === 'ios' ? insets.bottom + layout.minBottomPadding : bottomOffset(insets, 120)
+    return bottomOffset(insets, 120)
 }

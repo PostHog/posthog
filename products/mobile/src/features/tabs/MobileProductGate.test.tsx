@@ -2,14 +2,12 @@ import { renderRouter } from 'expo-router/testing-library'
 import type { ComponentType, ReactElement } from 'react'
 import { View } from 'react-native'
 import { FEATURE_FLAGS, type FeatureFlagKey, setFeatureFlags } from '@/lib/featureFlags'
-import ErrorsTab from '../../../app/(tabs)/errors/index'
-import ReplayTab from '../../../app/(tabs)/replay/index'
+import ErrorsTab from '../../../app/(tabs)/errors'
+import ReplayTab from '../../../app/(tabs)/replay'
 import IssueRoute from '../../../app/errors/[id]'
 import ErrorsRoute from '../../../app/errors/index'
 import SessionRoute from '../../../app/replay/[sessionId]'
 import ReplayRoute from '../../../app/replay/index'
-
-jest.mock('./TabScene', () => ({ TabScene: ({ children }: { children: React.ReactNode }) => children }))
 
 jest.mock('@/features/errors/ErrorsListScreen', () => ({ ErrorsListScreen: () => null }))
 jest.mock('@/features/errors/IssueScreen', () => ({ IssueScreen: () => null }))

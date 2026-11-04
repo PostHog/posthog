@@ -30,20 +30,22 @@ test.each([
     expect(adaptiveLayout(width, height, 0, 0).reportNavigation).toBe(navigation)
 })
 
-test.each([0, 84])('uses native navigation without a second rail when the leading inset is %s', (left) => {
-    expect(adaptiveLayout(951, 669, left, 84 - left, [], true)).toMatchObject({
-        rail: false,
-        contentWidth: 867,
-        paired: true,
-        reportNavigation: false,
-    })
-})
-
 test.each([
     { frame: { x: 440, y: 0, width: 20, height: 669 }, width: 951, height: 669, axis: 'row', extent: 440 },
     { frame: { x: 0, y: 440, width: 669, height: 20 }, width: 669, height: 951, axis: 'column', extent: 440 },
 ])('aligns both panes to an active fold ($axis)', ({ frame, width, height, axis, extent }) => {
+    expect(adaptiveLayout(width, height, 0, 0, [{ kind: 'division', occludesContent: false, frame }])).toMatchObject({
+        paired: true,
+        paneAxis: axis,
+        inboxExtent: extent,
+        paneGap: 20,
+    })
+})
+
+test('accounts for a leading navigation rail when positioning the fold', () => {
     expect(
-        adaptiveLayout(width, height, 0, 0, [{ kind: 'division', occludesContent: false, frame }], true)
-    ).toMatchObject({ paired: true, paneAxis: axis, inboxExtent: extent, paneGap: 20 })
+        adaptiveLayout(951, 669, 84, 0, [
+            { kind: 'division', occludesContent: false, frame: { x: 400, y: 0, width: 20, height: 669 } },
+        ])
+    ).toMatchObject({ rail: true, railSide: 'left', paired: true, inboxExtent: 320, paneGap: 20 })
 })

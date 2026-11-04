@@ -1,4 +1,4 @@
-import { Platform, useWindowDimensions } from 'react-native'
+import { useWindowDimensions } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useDisplayRegions } from '@/ui/displayRegionContext'
 
@@ -8,5 +8,5 @@ export function useAppLayout(): ReturnType<typeof adaptiveLayout> {
     const { width, height } = useWindowDimensions()
     const { left, right } = useSafeAreaInsets()
     const regions = useDisplayRegions()
-    return adaptiveLayout(width, height, left, right, regions, Platform.OS === 'ios')
+    return adaptiveLayout(width, height, left, right, regions)
 }

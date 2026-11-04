@@ -7,7 +7,6 @@ import {
     useContext,
     useId,
     useLayoutEffect,
-    useMemo,
     useRef,
     useState,
 } from 'react'
@@ -16,7 +15,6 @@ import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import type { DisplayRect } from './displayRegions'
-import { OverlayDismissContext } from './overlayDismiss'
 import { OverlayFrameContext } from './overlayFrame'
 
 type SetOverlay = (key: string, node: ReactNode | null) => void
@@ -45,20 +43,6 @@ export function OverlayHost({ children }: OverlayHostProps): ReactElement {
             )
         })
     }, [])
-    const [dismissals, setDismissals] = useState<ReadonlyMap<string, () => void>>(() => new Map())
-    const setDismissal = useCallback((key: string, close: (() => void) | null): void => {
-        setDismissals((previous) => {
-            if (close === null && !previous.has(key)) return previous
-            const next = new Map(previous)
-            if (close) next.set(key, close)
-            else next.delete(key)
-            return next
-        })
-    }, [])
-    const dismissalContext = useMemo(
-        () => ({ set: setDismissal, close: [...dismissals.values()].at(-1) ?? null }),
-        [setDismissal, dismissals]
-    )
     const [nodes, setNodes] = useState<ReadonlyMap<string, ReactNode>>(() => new Map())
     const setOverlay = useCallback<SetOverlay>((key, node) => {
         setNodes((previous) => {
@@ -81,18 +65,16 @@ export function OverlayHost({ children }: OverlayHostProps): ReactElement {
 
     return (
         <OverlayContext.Provider value={setOverlay}>
-            <OverlayDismissContext.Provider value={dismissalContext}>
-                <OverlayFrameContext.Provider value={frame}>
-                    <View ref={ref} onLayout={measure} collapsable={false} style={styles.root}>
-                        {children}
-                        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-                            {[...nodes].map(([key, node]) => (
-                                <Fragment key={key}>{node}</Fragment>
-                            ))}
-                        </View>
+            <OverlayFrameContext.Provider value={frame}>
+                <View ref={ref} onLayout={measure} collapsable={false} style={styles.root}>
+                    {children}
+                    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+                        {[...nodes].map(([key, node]) => (
+                            <Fragment key={key}>{node}</Fragment>
+                        ))}
                     </View>
-                </OverlayFrameContext.Provider>
-            </OverlayDismissContext.Provider>
+                </View>
+            </OverlayFrameContext.Provider>
         </OverlayContext.Provider>
     )
 }
