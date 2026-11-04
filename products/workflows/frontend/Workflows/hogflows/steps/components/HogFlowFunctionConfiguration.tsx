@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { CyclotronJobInputType, CyclotronJobInvocationGlobals, HogFunctionMappingType } from '~/types'
 
+import { allowsSandboxSender } from '../../../../Channels/defaultEmailSender'
 import { workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorTestLogic } from '../../panel/testing/hogFlowEditorTestLogic'
 import { isGithubEventTriggerConfig } from '../../registry/triggers/githubTriggerFilters'
@@ -190,13 +191,6 @@ export function filterInputsSchemaForTrigger<T extends { key: string }>(
         return inputsSchema.filter((schema) => schema.key !== 'reply_in_slack_thread')
     }
     return inputsSchema
-}
-
-export function allowsSandboxSender(
-    actionType: HogFlowAction['type'],
-    originProduct: string | null | undefined
-): boolean {
-    return actionType === 'function_email' && originProduct !== 'broadcasts'
 }
 
 export function HogFlowFunctionConfiguration({

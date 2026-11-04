@@ -1,7 +1,6 @@
 import { CyclotronJobInvocationGlobals } from '~/types'
 
-import type { HogFlowAction } from '../../types'
-import { allowsSandboxSender, buildSampleGlobals, filterInputsSchemaForTrigger } from './HogFlowFunctionConfiguration'
+import { buildSampleGlobals, filterInputsSchemaForTrigger } from './HogFlowFunctionConfiguration'
 
 // The stored shape a Slack message workflow carries. The trigger type alone no longer identifies
 // it, so every case below passes the whole config.
@@ -16,22 +15,6 @@ const githubTrigger = {
 }
 
 describe('HogFlowFunctionConfiguration', () => {
-    describe('allowsSandboxSender', () => {
-        it.each<{ step: string; actionType: HogFlowAction['type']; originProduct: string | null; expected: boolean }>([
-            { step: 'a workflow email step', actionType: 'function_email', originProduct: null, expected: true },
-            {
-                step: 'a broadcast email step',
-                actionType: 'function_email',
-                originProduct: 'broadcasts',
-                expected: false,
-            },
-            { step: 'a generic function step', actionType: 'function', originProduct: null, expected: false },
-            { step: 'a trigger', actionType: 'trigger', originProduct: null, expected: false },
-        ])('is $expected for $step', ({ actionType, originProduct, expected }) => {
-            expect(allowsSandboxSender(actionType, originProduct)).toBe(expected)
-        })
-    })
-
     describe('buildSampleGlobals', () => {
         const realSampleGlobals: CyclotronJobInvocationGlobals = {
             project: { id: 2, name: 'Real project', url: 'https://app.example.com/project/2' },

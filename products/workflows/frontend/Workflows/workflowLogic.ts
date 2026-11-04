@@ -56,6 +56,7 @@ import {
 import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
 import { loadEmailBrand } from '../MessageAudience/emailBrand'
 import { parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
+import { sandboxSenderEnabled, withFirstRunSender } from './firstRunSender'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
     DEFAULT_STATE,
@@ -163,6 +164,14 @@ export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-w
 
 async function withDefaultEmailSender(workflow: HogFlow): Promise<HogFlow> {
     try {
+        if (sandboxSenderEnabled()) {
+            const firstRun = await withFirstRunSender(workflow)
+            if (firstRun.sender) {
+                // pinned: analytics event name
+                posthog.capture('email sender preselected', { surface: 'workflow', reason: firstRun.sender.reason })
+            }
+            return firstRun.workflow
+        }
         const team = teamLogic.findMounted()?.values.currentTeam
         const sender = resolveDefaultEmailSender(
             (await api.integrations.list()).results,
