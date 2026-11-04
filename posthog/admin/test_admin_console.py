@@ -5,7 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.conf import settings
-from django.test import SimpleTestCase
+from django.test import Client, SimpleTestCase
 
 from parameterized import parameterized
 
@@ -96,6 +96,16 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 302
         assert response["Location"].startswith("/admin/login/")
+
+    def test_operations_need_a_csrf_token_even_with_an_api_key_parameter(self) -> None:
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/admin/console/teams/{self.team.pk}/remote-config/rebuild/?personal_api_key=phx_example", {}
+        )
+
+        assert response.status_code == 403
 
     def test_team_page_shows_core_and_product_panels(self) -> None:
         response = self.client.get(f"/admin/console/teams/{self.team.pk}/")
