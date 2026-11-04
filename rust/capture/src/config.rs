@@ -669,10 +669,11 @@ pub struct KafkaConfig {
 
 impl Config {
     pub fn ai_max_sum_of_parts_bytes(&self) -> usize {
-        match self.ai_max_event_bytes {
-            0 => AI_MAX_EVENT_BYTES_CEILING as usize,
-            cap => cap as usize,
-        }
+        let cap = match self.ai_max_event_bytes {
+            0 => AI_MAX_EVENT_BYTES_CEILING,
+            cap => cap.min(AI_MAX_EVENT_BYTES_CEILING),
+        };
+        cap as usize
     }
 }
 
@@ -715,6 +716,7 @@ mod tests {
     #[case::the_default_cap(None, AI_MAX_EVENT_BYTES_DEFAULT, AI_MAX_EVENT_BYTES_DEFAULT as usize)]
     #[case::a_deployment_cap(Some("900000"), 900_000, 900_000)]
     #[case::a_disabled_cap(Some("0"), 0, AI_MAX_EVENT_BYTES_CEILING as usize)]
+    #[case::a_cap_above_the_ceiling(Some("100000000"), 100_000_000, AI_MAX_EVENT_BYTES_CEILING as usize)]
     fn ai_limits_follow_the_shared_cap(
         #[case] env_value: Option<&str>,
         #[case] expected_cap: u64,

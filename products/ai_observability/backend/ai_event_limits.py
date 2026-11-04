@@ -9,7 +9,7 @@ _LIMITS_PATH = Path(__file__).parents[1] / "shared" / "crosslang" / "ai_event_li
 
 @frozen
 class AIEventLimits:
-    """The size limits for AI events, in decimal bytes. `shared/crosslang/README.md` describes each field."""
+    """The size limits for AI events, in bytes. `shared/crosslang/README.md` describes each field."""
 
     max_event_bytes_default: int
     max_event_bytes_overrides: tuple[int, ...]
@@ -32,6 +32,8 @@ class AIEventLimits:
             # bool is an int subclass, and a float such as 12e6 parses from JSON, so check the exact type.
             if type(size) is not int or size <= 0:
                 raise ValueError(f"{name} must be a positive integer of bytes, got {size!r}")
+        if type(self.text_offload_enabled) is not bool:
+            raise ValueError(f"text_offload_enabled must be a boolean, got {self.text_offload_enabled!r}")
         caps = (self.max_event_bytes_default, *self.max_event_bytes_overrides)
         if any(larger <= smaller for smaller, larger in zip(caps, caps[1:])):
             raise ValueError(f"each override must be larger than the default and the override before it, got {caps}")
@@ -49,4 +51,7 @@ def get_ai_event_limits() -> AIEventLimits:
     customer is billed and what capture accepts.
     """
     raw = json.loads(_LIMITS_PATH.read_text())
-    return AIEventLimits(**{**raw, "max_event_bytes_overrides": tuple(raw["max_event_bytes_overrides"])})
+    try:
+        return AIEventLimits(**{**raw, "max_event_bytes_overrides": tuple(raw["max_event_bytes_overrides"])})
+    except (KeyError, TypeError) as error:
+        raise ValueError(f"{_LIMITS_PATH.name} does not match AIEventLimits: {error!r}") from error

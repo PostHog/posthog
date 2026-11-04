@@ -1,4 +1,4 @@
-//! Mirror of `products/ai_observability/shared/crosslang/ai_event_limits.json`, in decimal bytes.
+//! Mirror of `products/ai_observability/shared/crosslang/ai_event_limits.json`, in bytes.
 //! Edit that file first, then these constants. The parity test in
 //! `tests/ai_event_limits_parity.rs` fails when they differ.
 

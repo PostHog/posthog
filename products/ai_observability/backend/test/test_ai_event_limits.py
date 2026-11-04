@@ -1,4 +1,6 @@
+import json
 import dataclasses
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -16,10 +18,14 @@ VALID = AIEventLimits(
 )
 
 
-def test_the_shipped_file_holds_its_invariants() -> None:
+def test_file_and_loader_agree() -> None:
+    raw = json.loads((Path(__file__).parents[2] / "shared" / "crosslang" / "ai_event_limits.json").read_text())
     get_ai_event_limits.cache_clear()
     try:
-        assert get_ai_event_limits().max_event_bytes_ceiling > 0
+        assert dataclasses.asdict(get_ai_event_limits()) == {
+            **raw,
+            "max_event_bytes_overrides": tuple(raw["max_event_bytes_overrides"]),
+        }
     finally:
         get_ai_event_limits.cache_clear()
 
@@ -34,6 +40,7 @@ def test_the_shipped_file_holds_its_invariants() -> None:
         {"max_event_bytes_overrides": (12_000_000, 48_000_000)},
         {"max_event_bytes_ceiling": 24_000_000},
         {"included_bytes_per_event": 12_000_000},
+        {"text_offload_enabled": "false"},
     ],
 )
 def test_rejects_limits_that_contradict_each_other(changes: dict[str, Any]) -> None:
