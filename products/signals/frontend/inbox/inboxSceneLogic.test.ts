@@ -184,6 +184,24 @@ describe('inboxSceneLogic routing', () => {
         expect(logic.values.activeTab).toBe('reports')
     })
 
+    it('uses the open report title in breadcrumbs and restores the inbox title on close', () => {
+        mountLogic()
+        const inboxBreadcrumbs = logic.values.breadcrumbs
+        expect(inboxBreadcrumbs).toHaveLength(1)
+
+        logic.actions.setSelectedReportId('report-1')
+        logic.actions.loadSelectedReportSuccess({ id: 'report-1', title: 'Example report' } as SignalReport)
+        expect(logic.values.breadcrumbs).toEqual([...inboxBreadcrumbs, { key: 'report-1', name: 'Example report' }])
+
+        logic.actions.setSelectedReportId('report-2')
+        expect(logic.values.breadcrumbs).toEqual(inboxBreadcrumbs)
+        logic.actions.loadSelectedReportSuccess({ id: 'report-2', title: 'Another report' } as SignalReport)
+        expect(logic.values.breadcrumbs.at(-1)?.name).toBe('Another report')
+
+        logic.actions.setSelectedReportId(null)
+        expect(logic.values.breadcrumbs).toEqual(inboxBreadcrumbs)
+    })
+
     it.each([null, 'report', 'scout'] as const)('opens sources from %s without selecting a report', (surface) => {
         mountLogic()
         if (surface === 'report') {
