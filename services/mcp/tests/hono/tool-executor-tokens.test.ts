@@ -194,6 +194,41 @@ describe('ToolExecutor token estimates', () => {
             expect(execCall[4].output_tokens).not.toBe(estimateTokens(response))
         })
 
+        it.each([
+            ['an exec inner call', true],
+            ['a direct tool call', false],
+        ])('bounds %s to the client limit and records the returned size', async (_, useSingleExec) => {
+            const tools = catalog
+                .getPreBuiltEntries()
+                .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
+            const target = tools.find((t) => t.name === 'docs-search')! as any
+            target.handler = vi.fn(async () => ({
+                results: Array.from({ length: 5_000 }, (_, i) => ({ id: i, body: 'x'.repeat(200) })),
+            }))
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue({ ...target, build: () => target } as any)
+            const state = makeToolExecutorState(tools as any, {
+                useSingleExec,
+                clientProfile: {
+                    ...makeToolExecutorState([]).clientProfile,
+                    capabilities: { supportsInstructions: false, toolResultTokenLimit: 10_000 },
+                } as any,
+            })
+
+            const response = (await executor.handleToolCall(
+                useSingleExec
+                    ? { name: 'exec', arguments: { command: 'call docs-search {"query":"hi"}' } }
+                    : { name: 'docs-search', arguments: { query: 'hi' } },
+                state
+            )) as any
+
+            const returned = joinedText(response)
+            expect(Buffer.byteLength(returned, 'utf8')).toBeLessThanOrEqual(40_000)
+            const declaredRows = Number(/results\[(\d+)\]\{id,body\}:/.exec(returned)?.[1])
+            expect(returned.split('\n').filter((line) => /^ {2}\d+,x+$/.test(line))).toHaveLength(declaredRows)
+            const event = mockTrackToolCall.mock.calls.find((call) => call[0] === 'docs-search')!
+            expect(event[4].output_tokens).toBe(estimateTokens(returned))
+        })
+
         it('attributes the canonical event to the inner tool via the standard $mcp_tool_name', async () => {
             // Full catalog tools (real names, so the instructions builder resolves them),
             // with the target handler stubbed to keep dispatch offline + deterministic.

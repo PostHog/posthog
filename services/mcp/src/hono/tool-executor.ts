@@ -4,6 +4,7 @@ import type { PreparedToolCall } from '@posthog/mcp-analytics'
 
 import {
     buildToolResultPayload,
+    capResponseToBudget,
     estimateResponseTokens,
     isToolCallPayload,
     toolResultAnalyticsProperties,
@@ -33,6 +34,7 @@ import { resolveMetricCatalogMode } from '@/lib/metric-catalog'
 import { challengeStepUpBeforeRun } from '@/lib/missing-scope'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
+import { responseTokenBudget } from '@/lib/response-budget'
 import { hasSqlFilters, isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { UiAppKey } from '@/resources/ui-apps.generated'
 import {
@@ -81,7 +83,7 @@ import {
 } from './guidance/engine'
 import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext, getEffectiveMCPClientIdentity, resolveSessionKey } from './mcp-context'
-import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
+import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal, toolResponsesShortenedTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
 import type { ToolCatalog } from './tool-catalog'
@@ -625,6 +627,7 @@ export class ToolExecutor {
                     appendTimeSeriesChartData: drawsTimeSeriesCharts(state),
                 })
             }
+            response = this.capResponse(response, tool.name, state, validation.data)
 
             const guided = attachGuidanceNotice(response, guidance)
             void trackToolCall(
@@ -744,6 +747,23 @@ export class ToolExecutor {
         }
     }
 
+    private capResponse(
+        response: ToolResultPayload,
+        toolName: string,
+        state: ResolvedState,
+        args: unknown
+    ): ToolResultPayload {
+        const clientLimit = state.clientProfile.capabilities.toolResultTokenLimit
+        const capped = capResponseToBudget(response, responseTokenBudget(clientLimit, args))
+        if (capped !== response) {
+            toolResponsesShortenedTotal.inc({
+                tool: toolName,
+                budget: clientLimit === undefined ? 'default' : 'client',
+            })
+        }
+        return capped
+    }
+
     private async callExecTool(
         params: Record<string, unknown> | undefined,
         state: ResolvedState,
@@ -834,7 +854,7 @@ export class ToolExecutor {
         try {
             const handlerResult = await resolved.handler(state.context, validation.data)
 
-            const response = isToolCallPayload(handlerResult)
+            const built = isToolCallPayload(handlerResult)
                 ? handlerResult
                 : buildToolResultPayload({
                       handlerResult,
@@ -844,6 +864,12 @@ export class ToolExecutor {
                       suppressStructuredContentForFormattedResults: state.clientProfile.prefersFormattedText(),
                       distinctId: undefined,
                   })
+            const response = this.capResponse(
+                built,
+                execToolName(),
+                state,
+                execMetrics.innerToolName ? parseExecCallInnerArgs(validation.data.command) : undefined
+            )
 
             // A handler can return normally for a call that failed: a skill lookup
             // miss is rewritten so the agent does not read it as an outage. The
@@ -1060,6 +1086,7 @@ export class ToolExecutor {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
                 appendTimeSeriesChartData: drawsTimeSeriesCharts(state),
                 mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
+                toolResultTokenLimit: state.clientProfile.capabilities.toolResultTokenLimit,
                 learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
                     state,
                     this.skillCatalogService?.getCatalog()
