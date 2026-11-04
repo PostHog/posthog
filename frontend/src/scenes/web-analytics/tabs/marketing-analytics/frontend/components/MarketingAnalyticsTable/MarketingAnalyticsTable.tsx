@@ -86,7 +86,8 @@ export const MarketingAnalyticsTable = ({
     const tableId = useId()
     const tableKey = `${currentTeamId}:${tableId}`
     const { showColumnConfigModal, setDrillDownLevel, reportDashboardControlUsed } = useActions(marketingAnalyticsLogic)
-    const { drillDownLevel, nativeSourcesHierarchyStatus, draftConversionGoal } = useValues(marketingAnalyticsLogic)
+    const { drillDownLevel, nativeSourcesHierarchyStatus, draftConversionGoal, setupEnabled } =
+        useValues(marketingAnalyticsLogic)
     const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
     const hasConversionRecordings = useFeatureFlag('MARKETING_ANALYTICS_CONVERSION_RECORDINGS')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
@@ -322,7 +323,7 @@ export const MarketingAnalyticsTable = ({
                     <ConversionRecordingsModal {...recordings} onClose={() => setConversionRecordings(null)} />
                 </Suspense>
             )}
-            {validationWarnings && validationWarnings.length > 0 && (
+            {!setupEnabled && validationWarnings && validationWarnings.length > 0 && (
                 <div className="pt-2">
                     <MarketingAnalyticsValidationWarningBanner warnings={validationWarnings} />
                 </div>

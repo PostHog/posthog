@@ -1,8 +1,8 @@
 import { BindLogic } from 'kea'
 import { useActions, useValues } from 'kea'
 
-import { IconGear, IconPencil } from '@posthog/icons'
-import { LemonButton, LemonDivider, Popover } from '@posthog/lemon-ui'
+import { IconComment, IconGear, IconPencil } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonSwitch, Popover } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -36,13 +36,22 @@ export const MarketingAnalyticsFilters = ({
     searchOnly?: boolean
 }): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { compareFilter, dateFilter, shouldFilterTestAccounts, optionsOpen, isAdPerformance, activeTab } =
-        useValues(marketingAnalyticsLogic)
+    const {
+        compareFilter,
+        dateFilter,
+        shouldFilterTestAccounts,
+        optionsOpen,
+        isPerformanceTab,
+        includeConversionGoals,
+        canToggleConversionGoals,
+        activeTab,
+    } = useValues(marketingAnalyticsLogic)
     const { openEditor } = useActions(overviewMetricsLogic({ viewKey: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }))
     const showMetricEditor = !searchOnly && activeTab !== MarketingAnalyticsTab.SEARCH_PERFORMANCE
-    const showSearch = isAdPerformance && !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
+    const showSearch = isPerformanceTab && !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
     const { currentTeamLoading } = useValues(teamLogic)
-    const { setCompareFilter, setDates, updateFilterTestAccounts, setOptionsOpen } = useActions(marketingAnalyticsLogic)
+    const { setCompareFilter, setDates, updateFilterTestAccounts, setOptionsOpen, setShowConversionGoals } =
+        useActions(marketingAnalyticsLogic)
     // The setting lives on the project, so flipping it changes what everyone sees.
     const editRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -56,12 +65,6 @@ export const MarketingAnalyticsFilters = ({
                 className="[&>div]:flex-wrap [&>div>div]:max-w-full [&>div>div>div]:min-w-0 [&>div>div>div>div]:max-w-full"
                 left={
                     <div className="flex flex-wrap items-center gap-2 min-w-0 max-w-full">
-                        <DateFilter
-                            allowTimePrecision
-                            dateFrom={dateFilter.dateFrom}
-                            dateTo={dateFilter.dateTo}
-                            onChange={setDates}
-                        />
                         <Shortcut
                             name="MarketingAnalyticsRefresh"
                             keybind={[keyBinds.refresh]}
@@ -69,14 +72,22 @@ export const MarketingAnalyticsFilters = ({
                             interaction="click"
                             scope={Scene.MarketingAnalytics}
                         >
-                            <ReloadAll />
+                            <ReloadAll iconOnly />
                         </Shortcut>
+                        <DateFilter
+                            allowTimePrecision
+                            dateFrom={dateFilter.dateFrom}
+                            dateTo={dateFilter.dateTo}
+                            onChange={setDates}
+                        />
+                        <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
                         {!searchOnly && <ConversionGoalFilterButton />}
                         {(showSearch || searchOnly) && <IntegrationFilter />}
                     </div>
                 }
                 right={
                     <>
+                        {/* The bar lays these out right to left, so source order runs from the far right. */}
                         <Shortcut
                             name="MarketingAnalyticsAddIntegration"
                             keybind={[keyBinds.new]}
@@ -86,6 +97,18 @@ export const MarketingAnalyticsFilters = ({
                         >
                             <AddIntegrationButton />
                         </Shortcut>
+                        {/* The id is how the in-app feedback survey finds this button. */}
+                        {!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconComment />}
+                                id="marketing-analytics-feedback-button"
+                                data-attr="marketing-analytics-feedback-button"
+                            >
+                                Share your feedback
+                            </LemonButton>
+                        )}
                         <Popover
                             visible={optionsOpen}
                             onClickOutside={() => setOptionsOpen(false)}
@@ -109,15 +132,22 @@ export const MarketingAnalyticsFilters = ({
                                             Edit top-line metrics
                                         </LemonButton>
                                     )}
-                                    <div>
-                                        <div className="text-muted mb-2 text-xs font-semibold uppercase">
-                                            Comparison
+                                    {canToggleConversionGoals && (
+                                        <div>
+                                            <div className="text-muted mb-2 text-xs font-semibold uppercase">
+                                                Conversions
+                                            </div>
+                                            <LemonSwitch
+                                                bordered
+                                                fullWidth
+                                                label="Include conversion goals"
+                                                checked={includeConversionGoals}
+                                                onChange={setShowConversionGoals}
+                                                // Kept from the old Ad performance tab, so existing click data still matches.
+                                                data-attr="marketing-ad-performance-conversion-goals"
+                                            />
                                         </div>
-                                        <CompareFilter
-                                            compareFilter={compareFilter}
-                                            updateCompareFilter={setCompareFilter}
-                                        />
-                                    </div>
+                                    )}
                                     {!showSearch && (
                                         <div>
                                             <div className="text-muted mb-2 text-xs font-semibold uppercase">

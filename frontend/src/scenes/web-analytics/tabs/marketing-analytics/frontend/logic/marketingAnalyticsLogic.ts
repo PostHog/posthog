@@ -54,6 +54,7 @@ import type { SourceValidationApi } from 'products/marketing_analytics/frontend/
 import type { PaginatedResponse } from '../../../../../../lib/api'
 import type { FeatureFlagsSet } from '../../../../../../lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../../../../../lib/utils/product-intents'
+import { validateConversionGoals } from '../components/MarketingAnalyticsValidationWarningBanner'
 import { defaultConversionGoalFilter } from '../components/settings/constants'
 import { SetupEntryPoint, marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { externalAdsCostTile } from './marketingCostTile'
@@ -64,6 +65,7 @@ import {
     findSchemaByFieldName,
     generateUniqueName,
     getEnabledNativeMarketingSources,
+    nativeSourceDisplayLabel,
     sanitizeIntegrationFilter,
     validColumnsForTiles,
 } from './utils'
@@ -85,7 +87,6 @@ export type NativeSourceHierarchyStatus = {
 
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
-    AD_PERFORMANCE = 'ad-performance',
     SEARCH_PERFORMANCE = 'search-performance',
     ATTRIBUTION = 'attribution',
     RETENTION = 'retention',
@@ -138,6 +139,16 @@ export enum MarketingSourceStatus {
 }
 
 export type SourceStatus = ExternalDataSchemaStatus | MarketingSourceStatus
+
+/** How the cost chart splits its lines. Campaign needs the precomputed cost table, which carries campaign names. */
+export type MarketingChartBreakdown = 'platform' | 'campaign'
+
+const SETUP_WARNING_STATUSES: SourceStatus[] = [
+    ExternalDataSchemaStatus.Failed,
+    ExternalDataSchemaStatus.Cancelled,
+    MarketingSourceStatus.Error,
+    MarketingSourceStatus.Warning,
+]
 
 function getSourceStatus(
     source: { id: string; name: string; type: string; prefix?: string },
@@ -296,7 +307,7 @@ export interface marketingAnalyticsLogicValues {
     _drillDownLevel: MarketingAnalyticsDrillDownLevel
     _integrationFilter: IntegrationFilter
     activeTab: MarketingAnalyticsTab
-    adPerformanceConversionGoals: boolean
+    showConversionGoals: boolean
     allAvailableSources: {
         id: string
         name: string
@@ -333,6 +344,9 @@ export interface marketingAnalyticsLogicValues {
         statusMessage: string
         url_pattern: string
     }[]
+    canToggleConversionGoals: boolean
+    setupWarningCount: number
+    chartBreakdown: MarketingChartBreakdown
     chartDisplayType: ChartDisplayType
     columnConfigModalVisible: boolean
     compareFilter: CompareFilter
@@ -353,7 +367,7 @@ export interface marketingAnalyticsLogicValues {
     includeConversionGoals: boolean
     initialized: boolean
     integrationFilter: IntegrationFilter
-    isAdPerformance: boolean
+    isPerformanceTab: boolean
     loading: boolean
     marketingChartSourceIds: string[]
     marketingDataWarehouseSeries: {
@@ -502,8 +516,11 @@ export interface marketingAnalyticsLogicActions {
     setActiveTab: (tab: MarketingAnalyticsTab) => {
         tab: MarketingAnalyticsTab
     }
-    setAdPerformanceConversionGoals: (include: boolean) => {
+    setShowConversionGoals: (include: boolean) => {
         include: boolean
+    }
+    setChartBreakdown: (chartBreakdown: MarketingChartBreakdown) => {
+        chartBreakdown: MarketingChartBreakdown
     }
     setChartDisplayType: (chartDisplayType: ChartDisplayType) => {
         chartDisplayType: ChartDisplayType
@@ -591,12 +608,19 @@ export interface marketingAnalyticsLogicActions {
 export interface marketingAnalyticsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         setupEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        isAdPerformance: (activeTab: MarketingAnalyticsTab, featureFlags: FeatureFlagsSet) => boolean
-        includeConversionGoals: (
-            isAdPerformance: boolean,
-            adPerformanceConversionGoals: boolean,
-            conversion_goals: ConversionGoalFilter[]
+        isPerformanceTab: (activeTab: MarketingAnalyticsTab, featureFlags: FeatureFlagsSet) => boolean
+        canToggleConversionGoals: (
+            activeTab: MarketingAnalyticsTab,
+            isPerformanceTab: boolean,
+            conversion_goals: ConversionGoalFilter[],
+            draftConversionGoal: ConversionGoalFilter | null
         ) => boolean
+        setupWarningCount: (
+            allAvailableSourcesWithStatus: { status: SourceStatus }[],
+            sourceValidationError: string | null,
+            conversion_goals: ConversionGoalFilter[]
+        ) => number
+        includeConversionGoals: (canToggleConversionGoals: boolean, showConversionGoals: boolean) => boolean
         integrationFilter: (_integrationFilter: IntegrationFilter) => IntegrationFilter
         drillDownLevel: (
             _drillDownLevel: MarketingAnalyticsDrillDownLevel,
@@ -795,7 +819,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         ],
     })),
     actions({
-        setAdPerformanceConversionGoals: (include: boolean) => ({ include }),
+        setShowConversionGoals: (include: boolean) => ({ include }),
         setActiveTab: (tab: MarketingAnalyticsTab) => ({ tab }),
         setSetupSection: (section: SetupSection) => ({ section }),
         openSetup: (section: SetupSection, entryPoint: SetupEntryPoint) => ({ section, entryPoint }),
@@ -847,6 +871,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         showConversionGoalModal: true,
         hideConversionGoalModal: true,
         setChartDisplayType: (chartDisplayType: ChartDisplayType) => ({ chartDisplayType }),
+        setChartBreakdown: (chartBreakdown: MarketingChartBreakdown) => ({ chartBreakdown }),
         setTileColumnSelection: (column: validColumnsForTiles) => ({ column }),
         setDrillDownLevel: (level: MarketingAnalyticsDrillDownLevel) => ({ level }),
         setInitialized: true,
@@ -862,7 +887,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     loadSourceValidationFailure: (_, { error }) => error,
                 },
             ],
-            adPerformanceConversionGoals: [true, { setAdPerformanceConversionGoals: (_, { include }) => include }],
+            showConversionGoals: [true, { setShowConversionGoals: (_, { include }) => include }],
             activeTab: [
                 MarketingAnalyticsTab.DASHBOARD as MarketingAnalyticsTab,
                 {
@@ -1009,8 +1034,15 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     hideConversionGoalModal: () => false,
                 },
             ],
+            chartBreakdown: [
+                'platform' as MarketingChartBreakdown,
+                persistConfig,
+                {
+                    setChartBreakdown: (_, { chartBreakdown }) => chartBreakdown,
+                },
+            ],
             chartDisplayType: [
-                ChartDisplayType.ActionsAreaGraph as ChartDisplayType,
+                ChartDisplayType.ActionsLineGraph as ChartDisplayType,
                 persistConfig,
                 {
                     setChartDisplayType: (_, { chartDisplayType }) => chartDisplayType,
@@ -1045,16 +1077,36 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP],
         ],
-        isAdPerformance: [
+        isPerformanceTab: [
             (s) => [s.activeTab, s.featureFlags],
             (activeTab: MarketingAnalyticsTab, featureFlags: FeatureFlagsSet): boolean =>
-                activeTab === MarketingAnalyticsTab.AD_PERFORMANCE &&
+                activeTab === MarketingAnalyticsTab.SEARCH_PERFORMANCE &&
                 !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
         ],
+        canToggleConversionGoals: [
+            (s) => [s.activeTab, s.isPerformanceTab, s.conversion_goals, s.draftConversionGoal],
+            (
+                activeTab: MarketingAnalyticsTab,
+                isPerformanceTab: boolean,
+                goals: ConversionGoalFilter[],
+                draft: ConversionGoalFilter | null
+            ): boolean =>
+                (isPerformanceTab || activeTab === MarketingAnalyticsTab.DASHBOARD) && (goals.length > 0 || !!draft),
+        ],
+        setupWarningCount: [
+            (s) => [s.allAvailableSourcesWithStatus, s.sourceValidationError, s.conversion_goals],
+            (
+                sources: { status: SourceStatus }[],
+                sourceValidationError: string | null,
+                goals: ConversionGoalFilter[]
+            ): number =>
+                sources.filter(({ status }) => SETUP_WARNING_STATUSES.includes(status)).length +
+                (sourceValidationError ? 1 : 0) +
+                validateConversionGoals(goals).length,
+        ],
         includeConversionGoals: [
-            (s) => [s.isAdPerformance, s.adPerformanceConversionGoals, s.conversion_goals],
-            (isAdPerformance: boolean, include: boolean, goals: ConversionGoalFilter[]): boolean =>
-                !isAdPerformance || (include && goals.length > 0),
+            (s) => [s.canToggleConversionGoals, s.showConversionGoals],
+            (canToggle: boolean, include: boolean): boolean => !canToggle || include,
         ],
         integrationFilter: [
             (s) => [s._integrationFilter],
@@ -1457,13 +1509,29 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     ? validNativeSources.filter((source) => selectedIds.includes(source.source.id))
                     : validNativeSources
 
+                // Chart tooltips read the series name, and the metric is already in the chart title,
+                // so name each line after its platform instead of its warehouse table.
+                const platformCounts = new Map<string, number>()
+                for (const source of filteredNativeSources) {
+                    platformCounts.set(
+                        source.source.source_type,
+                        (platformCounts.get(source.source.source_type) ?? 0) + 1
+                    )
+                }
                 const nonNativeNodeList = filteredExternalTables.flatMap((table) => {
                     const node = externalAdsCostTile(table, baseCurrency, tileColumnSelection)
-                    return node ? [{ sourceId: table.source_map_id, node }] : []
+                    return node
+                        ? [{ sourceId: table.source_map_id, node: { ...node, custom_name: table.schema_name } }]
+                        : []
                 })
                 const nativeNodeList = filteredNativeSources.flatMap((source) => {
                     const node = MarketingDashboardMapper(source, tileColumnSelection, baseCurrency)
-                    return node ? [{ sourceId: source.source.id, node }] : []
+                    const platform = nativeSourceDisplayLabel(source.source.source_type)
+                    const label =
+                        (platformCounts.get(source.source.source_type) ?? 0) > 1 && source.source.prefix
+                            ? `${platform} (${source.source.prefix})`
+                            : platform
+                    return node ? [{ sourceId: source.source.id, node: { ...node, custom_name: label } }] : []
                 })
                 return [...nativeNodeList, ...nonNativeNodeList]
             },
@@ -1633,6 +1701,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             setCompareFilter: trackDashboardInteraction,
             setIntegrationFilter: trackDashboardInteraction,
             setChartDisplayType: trackDashboardInteraction,
+            setChartBreakdown: trackDashboardInteraction,
             setTileColumnSelection: trackDashboardInteraction,
             setDrillDownLevel: trackDashboardInteraction,
             reloadAll: [trackDashboardInteraction, () => actions.loadSourceValidation()],
@@ -1751,7 +1820,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         const searchParams = new URLSearchParams(router.values.location.search)
         const params: Parameters<typeof actions.syncFromUrl>[0] = {}
 
-        const rawTab = searchParams.get('tab')
+        // Links and stored return URLs from before the Search tab still say "ad-performance".
+        const rawTab =
+            searchParams.get('tab') === 'ad-performance'
+                ? MarketingAnalyticsTab.SEARCH_PERFORMANCE
+                : searchParams.get('tab')
 
         const section = searchParams.get('section') as SetupSection | null
         if (section && Object.values(SetupSection).includes(section)) {
