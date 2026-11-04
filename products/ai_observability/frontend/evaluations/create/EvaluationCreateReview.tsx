@@ -4,11 +4,11 @@ import { IconCheckCircle, IconCircleDashed, IconClock, IconNotification, IconSpa
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import { PROVIDER_SETTINGS_URL } from '../../ModelPicker'
 import { buildDeliveryTargets, evaluationReportLogic } from '../evaluationReportLogic'
-import { runRate } from '../evaluationVolume'
+import { VOLUME_LOOKBACK_DAYS, runRate } from '../evaluationVolume'
 import { evaluationVolumeLogic } from '../evaluationVolumeLogic'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import type { ChecklistItem, ChecklistKey } from './creationChecklist'
@@ -27,9 +27,16 @@ export function EvaluationCreateReview({
     onFix: (key: ChecklistKey) => void
 }): JSX.Element | null {
     const { props } = useMountedLogic(llmEvaluationLogic)
-    const { evaluation, canEnable, canEnableReason, isReportableEvaluation, selectedModel, selectedModelName } =
-        useValues(llmEvaluationLogic)
-    const { setEvaluationEnabled } = useActions(llmEvaluationLogic)
+    const {
+        evaluation,
+        canEnable,
+        canEnableReason,
+        checkPastTraffic,
+        isReportableEvaluation,
+        selectedModel,
+        selectedModelName,
+    } = useValues(llmEvaluationLogic)
+    const { setEvaluationEnabled, setCheckPastTraffic } = useActions(llmEvaluationLogic)
     const { volume } = useValues(evaluationVolumeLogic)
     const { configDraft } = useValues(evaluationReportLogic({ evaluationId: props.evaluationId }))
 
@@ -37,6 +44,16 @@ export function EvaluationCreateReview({
         return null
     }
     const destinations = buildDeliveryTargets(configDraft).length
+    const pastTrafficDisabledReason = !evaluation.enabled
+        ? 'Turn on the switch above first. A paused evaluation cannot check past traffic.'
+        : volume?.runs === 0
+          ? `Nothing matched in the last ${VOLUME_LOOKBACK_DAYS} days.`
+          : undefined
+    const pastTrafficDetail = !volume
+        ? "Couldn't estimate how many runs it takes."
+        : `About ${humanFriendlyNumber(volume.runs)} runs with this sampling.${
+              evaluation.evaluation_type === 'llm_judge' ? ' Each run is one call to your judge model.' : ''
+          }`
     const reportsOn = configDraft.enabled && isReportableEvaluation
     const facts: { key: string; icon: JSX.Element; title: string; detail: string }[] = [
         ...(volume
@@ -95,18 +112,10 @@ export function EvaluationCreateReview({
                             )}
                             <span className="flex flex-col min-w-0">
                                 <span className={cn(item.done ? 'text-secondary' : 'font-semibold')}>{item.label}</span>
-                                {!item.done &&
-                                    (item.fixInSettings ? (
-                                        <Link
-                                            to={PROVIDER_SETTINGS_URL}
-                                            target="_blank"
-                                            data-attr="llma-evaluation-create-add-key"
-                                        >
-                                            {item.todo}
-                                        </Link>
-                                    ) : (
-                                        <Link onClick={() => onFix(item.key)}>{item.todo}</Link>
-                                    ))}
+                                {item.done && item.summary && (
+                                    <span className="text-xs text-secondary truncate">{item.summary}</span>
+                                )}
+                                {!item.done && <Link onClick={() => onFix(item.key)}>{item.todo}</Link>}
                             </span>
                         </li>
                     ))}
@@ -127,21 +136,31 @@ export function EvaluationCreateReview({
                         </li>
                     ))}
                 </ul>
-                <div className="mt-auto flex flex-col gap-1 pt-2">
+                <div className="mt-auto flex flex-col gap-2 pt-2">
                     <LemonSwitch
                         checked={evaluation.enabled}
                         onChange={setEvaluationEnabled}
                         disabledReason={!canEnable && !evaluation.enabled ? (canEnableReason ?? undefined) : undefined}
-                        label="Start running when created"
+                        label="Check new traffic right away"
                         bordered
                         fullWidth
                         data-attr="llma-evaluation-create-enabled"
                     />
-                    <span className="text-xs text-secondary">
-                        {evaluation.enabled
-                            ? 'It checks new matching traffic as soon as you create it.'
-                            : 'It stays paused. Turn it on from its page when you are ready.'}
-                    </span>
+                    {!evaluation.enabled && (
+                        <span className="text-xs text-secondary">
+                            It stays paused. Turn it on from its page when you are ready.
+                        </span>
+                    )}
+                    <LemonSwitch
+                        checked={evaluation.enabled && checkPastTraffic}
+                        onChange={setCheckPastTraffic}
+                        disabledReason={pastTrafficDisabledReason}
+                        label={`Also check the last ${VOLUME_LOOKBACK_DAYS} days`}
+                        bordered
+                        fullWidth
+                        data-attr="llma-evaluation-create-past-traffic"
+                    />
+                    <span className="text-xs text-secondary">{pastTrafficDisabledReason ?? pastTrafficDetail}</span>
                 </div>
             </div>
         </div>

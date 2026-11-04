@@ -624,7 +624,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                     // The units this run covers now have a result, so the count it started from is stale.
                     cache.lastEstimate = null
                     cache.recountWhenIdle = true
-                    lemonToast.success('Backfill started')
+                    lemonToast.success('Backfill started', { autoClose: 15000 })
                     actions.loadBackfills()
                 } catch (error) {
                     lemonToast.error(backfillErrorMessage(error, 'Couldn’t start the backfill. Try again.'))

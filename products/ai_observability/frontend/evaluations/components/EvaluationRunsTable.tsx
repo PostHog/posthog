@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh } from '@posthog/icons'
+import { IconRefresh, IconTrends } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSegmentedButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -64,6 +64,7 @@ export function EvaluationRunsTable(): JSX.Element {
         evaluationRunsHasMore,
         evaluationRunsFilter,
         runsSummary,
+        trendInsightUrl,
     } = useValues(llmEvaluationLogic)
     const { refreshEvaluationRuns, setRunsDates, loadOlderEvaluationRuns } = useActions(llmEvaluationLogic)
     const drawerTableProps = useTraceDrawerTable(TRACE_DRAWER_LIST_ID, TRACE_LINK, toTraceDrawerRow)
@@ -206,6 +207,18 @@ export function EvaluationRunsTable(): JSX.Element {
                                     </LemonButton>
                                 )}
                             </>
+                        )}
+                        {trendInsightUrl && (
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconTrends />}
+                                to={trendInsightUrl}
+                                targetBlank
+                                size="small"
+                                data-attr="llma-evaluation-trend-insight"
+                            >
+                                Trend insight
+                            </LemonButton>
                         )}
                         <LemonButton
                             type="secondary"

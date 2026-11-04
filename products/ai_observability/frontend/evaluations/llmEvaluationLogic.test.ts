@@ -2,6 +2,7 @@ import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 
@@ -15,6 +16,7 @@ import { modelPickerLogic } from '../modelPickerLogic'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { EVALUATION_RUNS_QUERY_LIMIT, numericScorePasses } from './constants'
 import { evaluationReportLogic } from './evaluationReportLogic'
+import { VOLUME_LOOKBACK_DAYS } from './evaluationVolume'
 import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationConfig, EvaluationReport, EvaluationRun } from './types'
@@ -2303,6 +2305,53 @@ return result`,
         })
     })
 
+    describe('saveEvaluation past traffic', () => {
+        it.each([
+            { enabled: true, expectedBackfills: 1, expectedTab: 'backfills' },
+            { enabled: false, expectedBackfills: 0, expectedTab: undefined },
+        ])(
+            'a new evaluation created enabled=$enabled starts $expectedBackfills backfills',
+            async ({ enabled, expectedBackfills, expectedTab }) => {
+                const pushSpy = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+                const backfillPayloads: { window_start: string; window_end: string }[] = []
+                useMocks({
+                    post: {
+                        '/api/projects/:teamId/evaluations/': () => ({ ...mockSentimentEvaluation, enabled }),
+                        '/api/projects/:teamId/evaluations/:id/backfills/': async ({ request }) => {
+                            backfillPayloads.push(
+                                (await request.json()) as { window_start: string; window_end: string }
+                            )
+                            return [201, {}]
+                        },
+                    },
+                })
+                logic = llmEvaluationLogic({ evaluationId: 'new', evaluationType: 'sentiment' })
+                logic.mount()
+
+                try {
+                    await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                    logic.actions.setEvaluationName('Sentiment evaluation')
+                    logic.actions.setCheckPastTraffic(true)
+                    logic.actions.saveEvaluation()
+                    await expectLogic(logic).toDispatchActions(['saveEvaluationSuccess'])
+                    await expectLogic(logic).toFinishAllListeners()
+
+                    expect(backfillPayloads).toHaveLength(expectedBackfills)
+                    if (expectedBackfills) {
+                        const [{ window_start, window_end }] = backfillPayloads
+                        expect(dayjs(window_end).diff(dayjs(window_start), 'day')).toBe(VOLUME_LOOKBACK_DAYS)
+                    }
+                    const pushedUrl = String(pushSpy.mock.calls.at(-1)?.[0])
+                    expect(new URL(pushedUrl, 'http://x').searchParams.get('evaluation_tab') ?? undefined).toBe(
+                        expectedTab
+                    )
+                } finally {
+                    pushSpy.mockRestore()
+                }
+            }
+        )
+    })
+
     describe('saveEvaluation updates', () => {
         it.each([
             { change: 'name', expected: { name: 'Renamed decision evaluation' }, rejected: false },
@@ -2400,6 +2449,38 @@ return result`,
                 }
             }
         )
+    })
+
+    describe('saveEnabled', () => {
+        it('saves only the run state and keeps unsaved configuration edits', async () => {
+            const evaluation: EvaluationConfig = { ...mockEvaluation, enabled: false }
+            let savedPayload: unknown
+            useMocks({
+                get: { '/api/projects/:teamId/evaluations/:id/': evaluation },
+                patch: {
+                    '/api/projects/:teamId/evaluations/:id/': async ({ request }) => {
+                        savedPayload = await request.json()
+                        return { ...evaluation, enabled: true }
+                    },
+                },
+            })
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationName('Renamed but not saved')
+            logic.actions.saveEnabled(true)
+
+            await expectLogic(logic)
+                .toDispatchActions(['saveEnabledSuccess'])
+                .toMatchValues({
+                    enabledSaving: false,
+                    evaluation: expect.objectContaining({ enabled: true, name: 'Renamed but not saved' }),
+                    originalEvaluation: expect.objectContaining({ enabled: true, name: evaluation.name }),
+                    hasUnsavedChanges: true,
+                })
+            expect(savedPayload).toEqual({ enabled: true })
+        })
     })
 
     describe('saveEvaluation report persistence', () => {

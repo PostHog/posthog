@@ -8,7 +8,7 @@ import * as officeWorkerPng from '@posthog/brand/hoggies/png/office-worker'
 import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 import * as stampApprovedPng from '@posthog/brand/hoggies/png/stamp-approved'
 import { IconCheck } from '@posthog/icons'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { cn } from 'lib/utils/css-classes'
@@ -96,33 +96,15 @@ const STEPS: Step[] = [
     },
 ]
 
-function StepContent({ step, isNew }: { step: Step['key']; isNew: boolean }): JSX.Element | null {
-    const { evaluation, canEnable, canEnableReason } = useValues(llmEvaluationLogic)
-    const { setEvaluationEnabled } = useActions(llmEvaluationLogic)
+function StepContent({ step }: { step: Step['key'] }): JSX.Element | null {
+    const { evaluation } = useValues(llmEvaluationLogic)
 
     if (!evaluation) {
         return null
     }
     switch (step) {
         case 'name':
-            return (
-                <>
-                    <EvaluationNameFields />
-                    {/* A new evaluation sets this on its create step. */}
-                    {!isNew && (
-                        <LemonSwitch
-                            checked={evaluation.enabled}
-                            onChange={setEvaluationEnabled}
-                            disabledReason={
-                                !canEnable && !evaluation.enabled ? (canEnableReason ?? undefined) : undefined
-                            }
-                            label={evaluation.enabled ? 'Running on new traffic' : 'Paused'}
-                            bordered
-                            data-attr="llma-evaluation-configuration-enabled"
-                        />
-                    )}
-                </>
-            )
+            return <EvaluationNameFields />
         case 'check':
             return (
                 <>
@@ -269,7 +251,7 @@ export function EvaluationFormSteps({
                 </div>
                 {!isCreateStep && (
                     <div className="flex flex-col gap-4 min-w-0">
-                        <StepContent step={step.key} isNew={!!onCreate} />
+                        <StepContent step={step.key} />
                     </div>
                 )}
                 {isCreateStep && (

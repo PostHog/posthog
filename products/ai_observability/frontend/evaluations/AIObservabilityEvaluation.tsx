@@ -1,18 +1,19 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconArrowLeft, IconPlay, IconTrends, IconWarning } from '@posthog/icons'
+import { IconPause, IconPlay, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
-import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -26,6 +27,7 @@ import { EvaluationLatestReport } from './components/EvaluationLatestReport'
 import { EvaluationReportsCallout } from './components/EvaluationReportsCallout'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
+import { EvaluationSceneMenuBar } from './components/EvaluationSceneMenuBar'
 import {
     formatNumericEvaluationScore,
     booleanOutputConfigError,
@@ -52,10 +54,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
         evaluation,
         originalEvaluation,
         isReportableEvaluation,
-        trendInsightUrl,
         evaluationBackTarget,
         evaluationLoading,
         evaluationFormSubmitting,
+        enabledSaving,
+        canEnable,
+        canEnableReason,
         hasUnsavedChanges,
         formValid,
         isNewEvaluation,
@@ -75,8 +79,10 @@ export function AIObservabilityEvaluation(): JSX.Element {
     )
     // The step layout edits reports with the rest of the configuration, so a report-only edit is unsaved too.
     const unsaved = hasUnsavedChanges || (!isNewEvaluation && reportConfigDirty)
-    const { saveEvaluation, resetEvaluation, setActiveTab, setFormStep } = useActions(llmEvaluationLogic)
+    const { saveEvaluation, saveEnabled, resetEvaluation, setActiveTab, setFormStep } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
     const settingsUrl = combineUrl(urls.aiObservabilityEvaluations(), {
         ...withoutTraceDrawerParams(searchParams),
         tab: 'settings',
@@ -173,6 +179,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
         saveEvaluation()
     }
 
+    // Pause and Turn on save at once, so they follow the saved state, not an unsaved edit from the configuration tab.
+    const savedEnabled = originalEvaluation?.enabled ?? evaluation.enabled
+
     const handleCancel = (): void => {
         if (unsaved) {
             resetEvaluation()
@@ -182,70 +191,83 @@ export function AIObservabilityEvaluation(): JSX.Element {
 
     return (
         <div className="@container/evaluation min-w-0 space-y-6 pb-8">
-            <SceneBreadcrumbBackButton />
-            {/* Header */}
-            <SceneStickyBar
-                hasSceneTitleSection={false}
-                className="flex flex-col justify-between items-start gap-4 space-y-0 @min-[64rem]/evaluation:flex-row"
-            >
-                <div className="space-y-2 min-w-0">
-                    <h1 className="text-2xl font-semibold break-words">{evaluation.name}</h1>
-                    <div className="flex flex-wrap items-center gap-2">
+            {sceneMenuBarEnabled && <EvaluationSceneMenuBar playgroundUrl={openInPlaygroundUrl} />}
+            <SceneTitleSection
+                name={evaluation.name}
+                description={evaluation.description || null}
+                resourceType={{ type: 'llm_evaluations' }}
+                hideProductSetupButton
+                nameSuffix={
+                    <>
                         {evaluation.status === 'error' ? (
                             <LemonTag type="danger" icon={<IconWarning />}>
                                 Error
                             </LemonTag>
                         ) : (
-                            <LemonTag type={evaluation.enabled ? 'success' : 'default'}>
-                                {evaluation.enabled ? 'Enabled' : 'Disabled'}
+                            <LemonTag type={savedEnabled ? 'success' : 'default'}>
+                                {savedEnabled ? 'Running' : 'Paused'}
                             </LemonTag>
                         )}
                         {unsaved && <LemonTag type="warning">Unsaved changes</LemonTag>}
-                    </div>
-                </div>
-                <div className="flex flex-wrap gap-2 max-w-full">
-                    {trendInsightUrl ? (
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconTrends />}
-                            to={trendInsightUrl}
-                            targetBlank
-                            data-attr="llma-evaluation-trend-insight"
-                        >
-                            Trend insight
-                        </LemonButton>
-                    ) : null}
-                    {openInPlaygroundUrl ? (
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconPlay />}
-                            to={openInPlaygroundUrl}
-                            data-attr="llma-playground-open-from-evaluation"
-                        >
-                            Open in Playground
-                        </LemonButton>
-                    ) : null}
-                    <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={handleCancel}>
-                        {unsaved ? 'Cancel' : 'Back'}
-                    </LemonButton>
-                    {showSaveAction && (
+                    </>
+                }
+                actions={
+                    <>
+                        {!sceneMenuBarEnabled && openInPlaygroundUrl && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconPlay />}
+                                to={openInPlaygroundUrl}
+                                data-attr="llma-playground-open-from-evaluation"
+                            >
+                                Open in Playground
+                            </LemonButton>
+                        )}
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Evaluation}
                             minAccessLevel={AccessControlLevel.Editor}
                             userAccessLevel={evaluation.user_access_level ?? undefined}
                         >
                             <LemonButton
-                                type="primary"
-                                onClick={handleSave}
-                                disabledReason={saveButtonDisabledReason}
-                                loading={evaluationFormSubmitting}
+                                type="secondary"
+                                size="small"
+                                icon={savedEnabled ? <IconPause /> : <IconPlay />}
+                                onClick={() => saveEnabled(!savedEnabled)}
+                                loading={enabledSaving}
+                                disabledReason={
+                                    !savedEnabled && !canEnable ? (canEnableReason ?? undefined) : undefined
+                                }
+                                data-attr="llma-evaluation-header-enabled"
                             >
-                                Save changes
+                                {savedEnabled ? 'Pause' : 'Turn on'}
                             </LemonButton>
                         </AccessControlAction>
-                    )}
-                </div>
-            </SceneStickyBar>
+                        {unsaved && (
+                            <LemonButton type="secondary" size="small" onClick={handleCancel}>
+                                Cancel
+                            </LemonButton>
+                        )}
+                        {showSaveAction && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Evaluation}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={evaluation.user_access_level ?? undefined}
+                            >
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    onClick={handleSave}
+                                    disabledReason={saveButtonDisabledReason}
+                                    loading={evaluationFormSubmitting}
+                                >
+                                    Save changes
+                                </LemonButton>
+                            </AccessControlAction>
+                        )}
+                    </>
+                }
+            />
 
             {evaluation.status === 'error' && (
                 <LemonBanner type="error">

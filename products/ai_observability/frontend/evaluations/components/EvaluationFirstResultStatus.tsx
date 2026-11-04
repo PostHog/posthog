@@ -47,19 +47,22 @@ export function EvaluationFirstResultStatus(): JSX.Element | null {
 }
 
 function PausedBanner({ evaluation }: { evaluation: EvaluationConfig }): JSX.Element {
-    const { setActiveTab } = useActions(llmEvaluationLogic)
+    const { enabledSaving, canEnable, canEnableReason } = useValues(llmEvaluationLogic)
+    const { saveEnabled } = useActions(llmEvaluationLogic)
     return (
         <LemonBanner
             type="info"
             className="mb-4"
             action={{
-                children: 'Open configuration',
-                onClick: () => setActiveTab('configuration'),
-                'data-attr': 'llma-evaluation-first-result-triggers',
+                children: 'Turn on',
+                onClick: () => saveEnabled(true),
+                loading: enabledSaving,
+                disabledReason: canEnable ? undefined : (canEnableReason ?? undefined),
+                'data-attr': 'llma-evaluation-first-result-turn-on',
             }}
         >
-            <span className="font-semibold">No results yet, because this evaluation is paused.</span> Turn it on in its
-            configuration to start checking new {UNIT_NOUNS[evaluationTarget(evaluation)]}.
+            <span className="font-semibold">No results yet, because this evaluation is paused.</span> Turn it on to
+            start checking new {UNIT_NOUNS[evaluationTarget(evaluation)]}.
         </LemonBanner>
     )
 }

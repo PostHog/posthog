@@ -5,6 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
@@ -16,6 +17,7 @@ import { MaxContextInput, createMaxContextHelpers } from '~/scenes/max/maxTypes'
 import { ActivityScope, Breadcrumb, ChartDisplayType, HogQLMathType } from '~/types'
 
 import {
+    evaluationsBackfillsCreate,
     evaluationsBackfillsRetrieve,
     evaluationsCreate,
     evaluationsPartialUpdate,
@@ -60,6 +62,8 @@ import {
 } from './evaluationCapabilities'
 import { EvaluationBackTarget, getEvaluationBackTarget } from './evaluationNavigation'
 import { evaluationReportLogic, persistReportDraft } from './evaluationReportLogic'
+import { patchEvaluation } from './evaluationsApi'
+import { VOLUME_LOOKBACK_DAYS } from './evaluationVolume'
 import { getHogEvalExample } from './hogEvalExamples'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { markEvaluationsOverviewStale } from './overview/evaluationsOverviewLogic'
@@ -330,7 +334,9 @@ export interface llmEvaluationLogicValues {
     breadcrumbs: Breadcrumb[]
     canEnable: boolean
     canEnableReason: string | null
+    checkPastTraffic: boolean
     enabledChosen: boolean
+    enabledSaving: boolean
     evaluation: EvaluationConfig | null
     evaluationBackTarget: EvaluationBackTarget
     evaluationFormSubmitting: boolean
@@ -478,6 +484,15 @@ export interface llmEvaluationLogicActions {
     resetEvaluation: () => {
         value: true
     }
+    saveEnabled: (enabled: boolean) => {
+        enabled: boolean
+    }
+    saveEnabledFailure: () => {
+        value: true
+    }
+    saveEnabledSuccess: (evaluation: EvaluationConfig) => {
+        evaluation: EvaluationConfig
+    }
     saveEvaluation: () => {
         value: true
     }
@@ -499,6 +514,9 @@ export interface llmEvaluationLogicActions {
     }
     setAllowsNA: (allowsNA: boolean) => {
         allowsNA: boolean
+    }
+    setCheckPastTraffic: (checkPastTraffic: boolean) => {
+        checkPastTraffic: boolean
     }
     setDefaultEnabled: (enabled: boolean) => {
         enabled: boolean
@@ -740,6 +758,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         // Evaluation management actions
         saveEvaluation: true,
         saveEvaluationSuccess: (evaluation: EvaluationConfig) => ({ evaluation }),
+        saveEnabled: (enabled: boolean) => ({ enabled }),
+        setCheckPastTraffic: (checkPastTraffic: boolean) => ({ checkPastTraffic }),
+        saveEnabledSuccess: (evaluation: EvaluationConfig) => ({ evaluation }),
+        saveEnabledFailure: true,
         saveEvaluationFailure: (error: string) => ({ error }),
         loadEvaluation: true,
         loadEvaluationSuccess: (evaluation: EvaluationConfig | null) => ({
@@ -958,6 +980,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             {
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation,
                 saveEvaluationSuccess: (_, { evaluation }) => evaluation,
+                saveEnabledSuccess: (_, { evaluation }) => evaluation,
             },
         ],
         evaluation: [
@@ -1145,6 +1168,17 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         : state,
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation,
                 saveEvaluationSuccess: (_, { evaluation }) => evaluation,
+                // Takes only the run state, so configuration edits that are not saved yet stay unsaved.
+                saveEnabledSuccess: (state, { evaluation }) =>
+                    state
+                        ? {
+                              ...state,
+                              enabled: evaluation.enabled,
+                              status: evaluation.status,
+                              status_reason: evaluation.status_reason,
+                              status_reason_detail: evaluation.status_reason_detail,
+                          }
+                        : state,
             },
         ],
         hogTestResults: {
@@ -1215,6 +1249,21 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 saveEvaluation: () => true,
                 saveEvaluationSuccess: () => false,
                 saveEvaluationFailure: () => false,
+            },
+        ],
+        checkPastTraffic: [
+            false,
+            {
+                setCheckPastTraffic: (_, { checkPastTraffic }) => checkPastTraffic,
+                loadEvaluationSuccess: () => false,
+            },
+        ],
+        enabledSaving: [
+            false,
+            {
+                saveEnabled: () => true,
+                saveEnabledSuccess: () => false,
+                saveEnabledFailure: () => false,
             },
         ],
         // Whether someone switched "enabled" by hand. Until then a new evaluation follows whether it can run.
@@ -1499,6 +1548,26 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             }
         },
 
+        saveEnabled: async ({ enabled }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.saveEnabledFailure()
+                return
+            }
+            try {
+                actions.saveEnabledSuccess(await patchEvaluation(teamId.toString(), props.evaluationId, { enabled }))
+                llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
+                markEvaluationsOverviewStale()
+            } catch (error) {
+                lemonToast.error(
+                    evaluationErrorMessage(
+                        error,
+                        enabled ? 'Couldn’t turn on this evaluation.' : 'Couldn’t pause this evaluation.'
+                    )
+                )
+                actions.saveEnabledFailure()
+            }
+        },
         saveEvaluation: async () => {
             try {
                 const teamId = teamLogic.values.currentTeamId
@@ -1550,14 +1619,32 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                           evaluationData as Parameters<typeof evaluationsPartialUpdate>[2]
                       )) as unknown as EvaluationConfig
                 actions.saveEvaluationSuccess(response)
+                let opensBackfills = false
                 // The list and the self-driving table read from llmEvaluationsLogic, which only
                 // fetches on mount. Refresh it here so they show the eval we just saved.
                 llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
                 markEvaluationsOverviewStale()
                 if (isNew) {
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpLlmEvaluation)
-                    // Saving navigates away, so the offer to cover past data travels with the user.
-                    if (response?.id) {
+                    // The backfill API refuses a paused evaluation, so past traffic is checked only when it runs.
+                    if (response?.id && response.enabled && values.checkPastTraffic) {
+                        opensBackfills = true
+                        try {
+                            await evaluationsBackfillsCreate(teamId.toString(), response.id, {
+                                window_start: dayjs().subtract(VOLUME_LOOKBACK_DAYS, 'day').toISOString(),
+                                window_end: dayjs().toISOString(),
+                            })
+                            lemonToast.success(
+                                `Checking the last ${VOLUME_LOOKBACK_DAYS} days of traffic. Follow it in the Backfills tab.`,
+                                { autoClose: 15000 }
+                            )
+                        } catch {
+                            lemonToast.error(
+                                'The evaluation was created, but checking past traffic didn’t start. Try again from the Backfills tab.'
+                            )
+                        }
+                    } else if (response?.id) {
+                        // Saving navigates away, so the offer to cover past data travels with the user.
                         lemonToast.info('This evaluation grades new data from now on.', {
                             button: {
                                 label: 'Evaluate past data',
@@ -1604,7 +1691,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 const opensEvaluation = isNew && !!response?.id
                 router.actions.push(
                     opensEvaluation
-                        ? urls.aiObservabilityEvaluation(response.id)
+                        ? combineUrl(
+                              urls.aiObservabilityEvaluation(response.id),
+                              opensBackfills ? { evaluation_tab: 'backfills' } : {}
+                          ).url
                         : getEvaluationBackTarget(false, router.values.searchParams).path
                 )
             } catch (error) {
