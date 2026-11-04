@@ -4,6 +4,7 @@ import { NotSignedInError } from '@/api/client'
 import { dismissReport, reportKeys, resolveReport } from '@/api/reports'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDemoMode } from '@/demo/demoMode'
+import { reportScopeError } from '@/features/views/useViewsAccess'
 import { type AnalyticsEvent, track } from '@/lib/analytics'
 import { type AsyncAction, useAsyncAction } from '@/lib/useAsyncAction'
 import type { DismissReason, ResolveReason } from '@/model/verdictReasons'
@@ -29,7 +30,12 @@ function useVerdictAction<Reason extends string>(
         if (!scope) {
             throw new NotSignedInError()
         }
-        await send(reportId, reason, note)
+        try {
+            await send(reportId, reason, note)
+        } catch (error) {
+            reportScopeError(error, 'inbox')
+            throw error
+        }
         void queryClient.invalidateQueries({ queryKey: reportKeys.report(scope, reportId) })
         void queryClient.invalidateQueries({ queryKey: reportKeys.inbox(scope) })
         // The note is free text the person typed, so only its presence is tracked.

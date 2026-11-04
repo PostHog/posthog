@@ -4,6 +4,7 @@ import { NotSignedInError } from '@/api/client'
 import { postPriorityJudgment, reportKeys } from '@/api/reports'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDemoMode } from '@/demo/demoMode'
+import { reportScopeError } from '@/features/views/useViewsAccess'
 import { track } from '@/lib/analytics'
 import { type AsyncAction, useAsyncAction } from '@/lib/useAsyncAction'
 import type { ReportPriority } from '@/model/types'
@@ -21,7 +22,12 @@ export function useSetPriorityAction(reportId: string): AsyncAction<[ReportPrior
         if (!scope) {
             throw new NotSignedInError()
         }
-        await postPriorityJudgment(reportId, priority)
+        try {
+            await postPriorityJudgment(reportId, priority)
+        } catch (error) {
+            reportScopeError(error, 'inbox')
+            throw error
+        }
         track('mobile_report_priority_changed', { report_id: reportId, priority })
         // The fallback inbox list sorts by priority.
         void queryClient.invalidateQueries({ queryKey: reportKeys.inbox(scope) })
