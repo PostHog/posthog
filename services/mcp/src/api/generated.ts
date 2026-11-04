@@ -836,6 +836,7 @@ export namespace Schemas {
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
      * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy
      */
     export type ScopeObjectEnum = typeof ScopeObjectEnum[keyof typeof ScopeObjectEnum];
 
@@ -961,6 +962,7 @@ export namespace Schemas {
       Webhook: 'webhook',
       WizardSession: 'wizard_session',
       WizardRun: 'wizard_run',
+      WorkloadTrustPolicy: 'workload_trust_policy',
     } as const;
 
     export interface AccessControlObjectRuleResource {
@@ -1085,7 +1087,8 @@ export namespace Schemas {
        * * `web_analytics` - web_analytics
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
-       * * `wizard_run` - wizard_run */
+       * * `wizard_run` - wizard_run
+       * * `workload_trust_policy` - workload_trust_policy */
       resource: ScopeObjectEnum;
       /** The levels an object rule on this resource type accepts, lowest first. */
       available_access_levels: string[];
@@ -1333,7 +1336,8 @@ export namespace Schemas {
        * * `web_analytics` - web_analytics
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
-       * * `wizard_run` - wizard_run */
+       * * `wizard_run` - wizard_run
+       * * `workload_trust_policy` - workload_trust_policy */
       source_resource: ScopeObjectEnum;
       /**
          * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -1747,7 +1751,8 @@ export namespace Schemas {
        * * `web_analytics` - web_analytics
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
-       * * `wizard_run` - wizard_run */
+       * * `wizard_run` - wizard_run
+       * * `workload_trust_policy` - workload_trust_policy */
       resource: ScopeObjectEnum;
       /** The object's primary key. */
       resource_id: string;
@@ -34930,6 +34935,73 @@ export namespace Schemas {
       tokens: DevToken[];
     }
 
+    export interface DeviceApproval {
+      /**
+         * The code the device shows, as the person typed it. Case and dashes don't matter.
+         * @maxLength 20
+         */
+      user_code: string;
+      /** The project the token is scoped to. */
+      project_id: number;
+    }
+
+    /**
+     * * `authorized` - Authorized
+     * * `denied` - Denied
+     */
+    export type DeviceDecisionEnum = typeof DeviceDecisionEnum[keyof typeof DeviceDecisionEnum];
+
+
+    export const DeviceDecisionEnum = {
+      Authorized: 'authorized',
+      Denied: 'denied',
+    } as const;
+
+    export interface DeviceDecision {
+      /** The device grant's status after the decision.
+       *
+       * * `authorized` - Authorized
+       * * `denied` - Denied */
+      status: DeviceDecisionEnum;
+    }
+
+    export interface GrantedScopes {
+      /**
+         * The project these scopes work in. Null when the connection is not limited to projects.
+         * @nullable
+         */
+      project_id: number | null;
+      /**
+         * The organization these scopes work in, for a connection limited to organizations. Null when the connection is not limited to organizations.
+         * @nullable
+         */
+      organization_id: string | null;
+      /** The scopes granted in the project. */
+      scopes: string[];
+    }
+
+    export interface DeviceGrantDetails {
+      /** The code, in the form the device shows it. */
+      user_code: string;
+      /** The client that started the device grant. */
+      client_id: string;
+      /** The client's display name. */
+      client_name: string;
+      /**
+         * The client's logo, if it declared one.
+         * @nullable
+         */
+      logo_uri: string | null;
+      /** Whether PostHog has verified the client. */
+      is_verified: boolean;
+      /** The scopes the token will carry if the person approves. */
+      scopes: string[];
+      /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones, and the page lists only the new ones. */
+      granted_scopes: GrantedScopes[];
+      /** When the code expires. */
+      expires_at: string;
+    }
+
     /**
      * * `Desktop` - Desktop
      * * `Mobile` - Mobile
@@ -34943,6 +35015,14 @@ export namespace Schemas {
       Mobile: 'Mobile',
       Tablet: 'Tablet',
     } as const;
+
+    export interface DeviceUserCode {
+      /**
+         * The code the device shows, as the person typed it. Case and dashes don't matter.
+         * @maxLength 20
+         */
+      user_code: string;
+    }
 
     /**
      * * `passed` - passed
@@ -65164,7 +65244,8 @@ export namespace Schemas {
        * * `web_analytics` - web_analytics
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
-       * * `wizard_run` - wizard_run */
+       * * `wizard_run` - wizard_run
+       * * `workload_trust_policy` - workload_trust_policy */
       source_resource: ScopeObjectEnum;
       /**
          * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -72147,6 +72228,12 @@ export namespace Schemas {
        * * `template` - Template
        * * `scratch` - From scratch */
       creation_method?: ScannerCreationMethodEnum | null;
+      /**
+         * The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Only the app's value is kept: any other caller is reported as its own source, such as `mcp`. Ignored on update.
+         * @nullable
+         * @pattern ^[a-z0-9_]{1,64}$
+         */
+      entry_point?: string | null;
       /** Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`. */
       take_over_as_creator?: boolean;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
@@ -78023,6 +78110,77 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: WorkflowProposal[];
+    }
+
+    /**
+     * The label of each condition claim the provider allows, keyed by claim name.
+     */
+    export type WorkloadClaimLabelsConditions = {[key: string]: string};
+
+    export interface WorkloadClaimLabels {
+      /** What the provider calls the subject, for example Repository ID. */
+      subject: string;
+      /** What the provider calls the subject name, for example Repository. */
+      subject_name: string;
+      /** The label of each condition claim the provider allows, keyed by claim name. */
+      conditions: WorkloadClaimLabelsConditions;
+    }
+
+    /**
+     * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+     */
+    export type WorkloadTrustPolicyConditions = {[key: string]: string};
+
+    export interface WorkloadTrustPolicy {
+      readonly id: string;
+      /**
+         * A name that says what the policy is for.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * The OIDC issuer of the workload provider, from the list of supported providers.
+         * @maxLength 255
+         */
+      issuer: string;
+      /**
+         * The key of the workload provider the issuer belongs to.
+         * @nullable
+         */
+      readonly provider: string | null;
+      /**
+         * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
+         * @maxLength 255
+         */
+      subject_name: string;
+      /**
+         * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
+         * @maxLength 255
+         */
+      subject: string;
+      /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+      conditions?: WorkloadTrustPolicyConditions;
+      /** How the provider names the subject, the subject name and each condition claim, for display. */
+      readonly claim_labels: WorkloadClaimLabels;
+      /**
+         * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
+         * @items.maxLength 100
+         */
+      scopes: string[];
+      /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
+      enabled?: boolean;
+      readonly created_by: UserBasic | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedWorkloadTrustPolicyList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WorkloadTrustPolicy[];
     }
 
     /**
@@ -85131,6 +85289,12 @@ export namespace Schemas {
        * * `template` - Template
        * * `scratch` - From scratch */
       creation_method?: ScannerCreationMethodEnum | null;
+      /**
+         * The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Only the app's value is kept: any other caller is reported as its own source, such as `mcp`. Ignored on update.
+         * @nullable
+         * @pattern ^[a-z0-9_]{1,64}$
+         */
+      entry_point?: string | null;
       /** Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`. */
       take_over_as_creator?: boolean;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
@@ -88452,6 +88616,54 @@ export namespace Schemas {
       email_tracking_consent_mode?: EmailTrackingConsentModeEnum;
       /** Capture email sends, opens, clicks and bounces as PostHog events, so they can be used in insights and funnels. These events count toward the project's event usage. */
       capture_workflows_engagement_events?: boolean;
+    }
+
+    /**
+     * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+     */
+    export type PatchedWorkloadTrustPolicyConditions = {[key: string]: string};
+
+    export interface PatchedWorkloadTrustPolicy {
+      readonly id?: string;
+      /**
+         * A name that says what the policy is for.
+         * @maxLength 200
+         */
+      name?: string;
+      /**
+         * The OIDC issuer of the workload provider, from the list of supported providers.
+         * @maxLength 255
+         */
+      issuer?: string;
+      /**
+         * The key of the workload provider the issuer belongs to.
+         * @nullable
+         */
+      readonly provider?: string | null;
+      /**
+         * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
+         * @maxLength 255
+         */
+      subject_name?: string;
+      /**
+         * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
+         * @maxLength 255
+         */
+      subject?: string;
+      /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+      conditions?: PatchedWorkloadTrustPolicyConditions;
+      /** How the provider names the subject, the subject name and each condition claim, for display. */
+      readonly claim_labels?: WorkloadClaimLabels;
+      /**
+         * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
+         * @items.maxLength 100
+         */
+      scopes?: string[];
+      /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
+      enabled?: boolean;
+      readonly created_by?: UserBasic | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export interface PathCleaningPreviewExample {
@@ -115311,6 +115523,46 @@ export namespace Schemas {
       failed: number;
     }
 
+    export interface WorkloadClaim {
+      /** The claim's name in the provider's OIDC token. */
+      name: string;
+      /** What to call the claim in the UI. */
+      label: string;
+      /** A hint that says where to find the claim's value. */
+      help_text: string;
+    }
+
+    export interface WorkloadProvider {
+      /** Stable identifier of the provider. */
+      key: string;
+      /** Display name of the provider. */
+      name: string;
+      /** OIDC issuer a policy for this provider uses. */
+      issuer: string;
+      /** Where to read how to set the provider up. */
+      docs_url: string;
+      /** The claim that carries the workload's immutable ID. */
+      subject_claim: WorkloadClaim;
+      /** The claim that carries the workload's readable name. */
+      subject_name_claim: WorkloadClaim;
+      /** The claims a policy can require an exact value for, in display order. */
+      condition_claims: WorkloadClaim[];
+    }
+
+    /**
+     * What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care.
+     */
+    export type WorkloadProvidersResponseRiskyScopes = {[key: string]: string};
+
+    export interface WorkloadProvidersResponse {
+      /** Providers a policy can trust. */
+      supported: WorkloadProvider[];
+      /** Every scope a policy's ceiling may hold. */
+      grantable_scopes: string[];
+      /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */
+      risky_scopes: WorkloadProvidersResponseRiskyScopes;
+    }
+
     export interface ZendeskImportError {
       /** Human-readable error message. */
       detail: string;
@@ -116794,7 +117046,7 @@ export namespace Schemas {
        * * `exponential_histogram` - exponential_histogram
        * * `summary` - summary */
       metricType?: OtelMetricTypeEnum | null;
-      /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
+      /** Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
        *
        * * `none` - none
        * * `sum` - sum
@@ -116844,6 +117096,12 @@ export namespace Schemas {
          * @nullable
          */
       formula?: string | null;
+      /**
+         * PromQL expression, run as a range query over the request's time grid, e.g. 'sum by (job) (rate(http_requests_total[5m]))'. Use it to run an alert or runbook expression as written. Mutually exclusive with 'metricName' and 'clauses'; put label selectors and grouping in the expression instead of 'filters' and 'groupBy'. In PromQL, service.name is service_name and other label names with dots need quotes. A bucket that a series did not report is null, not zero.
+         * @maxLength 8192
+         * @nullable
+         */
+      promql?: string | null;
       /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo. */
       dateFrom?: string;
       /** Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted. */
@@ -119632,6 +119890,7 @@ export namespace Schemas {
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
+     * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -119751,6 +120010,7 @@ export namespace Schemas {
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       OAuthApplication: 'OAuthApplication',
+      WorkloadTrustPolicy: 'WorkloadTrustPolicy',
       User: 'User',
       Action: 'Action',
       AccountView: 'AccountView',
@@ -119856,6 +120116,7 @@ export namespace Schemas {
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
+     * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -119963,6 +120224,7 @@ export namespace Schemas {
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       OAuthApplication: 'OAuthApplication',
+      WorkloadTrustPolicy: 'WorkloadTrustPolicy',
       User: 'User',
       Action: 'Action',
       AccountView: 'AccountView',
@@ -134832,6 +135094,17 @@ export namespace Schemas {
      * The workflow to read the import of.
      */
     hog_flow_id: string;
+    };
+
+    export type WorkloadTrustPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type PublicHogFunctionTemplatesListParams = {
