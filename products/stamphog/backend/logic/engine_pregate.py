@@ -97,6 +97,9 @@ class GateAttestation:
     # The manifests whose texts the engine needs for the scripts scan, when the reason is
     # ``dependency_manifest``.
     manifests: tuple[str, ...] = ()
+    # True when a CI attestation lifted a deny for this approval. Such an approval rests on a result
+    # for the approved head only, so it never survives a push through approval retention.
+    attestation_lifted: bool = False
 
 
 def pregate_skip_reason(pr: Mapping[str, object], files: list[dict], head_sha: str) -> str | None:
@@ -356,4 +359,5 @@ def run_engine_attest(context: Mapping[str, object], policy_files: Mapping[str, 
         reason=str(parsed.get("reason") or ""),
         gates=[gate for gate in gates if isinstance(gate, dict)] if isinstance(gates, list) else [],
         manifests=tuple(str(path) for path in manifests) if isinstance(manifests, list) else (),
+        attestation_lifted=parsed.get("attestation_lifted") is True,
     )

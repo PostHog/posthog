@@ -605,7 +605,8 @@ def attest(context: dict) -> dict:
 
     def outcome(reason: str) -> dict:
         gates = [{"gate": g.gate, "passed": g.passed, "message": g.message} for g in pipeline.gate_results]
-        return {"attested": not reason, "reason": reason, "gates": gates}
+        attestation_lifted = pipeline.classification.get("attestation_lifted") is True
+        return {"attested": not reason, "reason": reason, "gates": gates, "attestation_lifted": attestation_lifted}
 
     if pipeline.pr.author_is_bot and not pipeline.self_driving:
         return outcome("bot_author")

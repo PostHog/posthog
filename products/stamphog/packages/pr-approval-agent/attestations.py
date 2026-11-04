@@ -6,7 +6,9 @@ categories only for the files it lists itself, intersected with `paths` and the 
 The engine knows no ecosystem, tool or bot. The publisher decides what a passing result proves.
 
 A result lists its files in a `<!-- stamphog:v1 [...] -->` marker in the check's summary. It is
-read from the head commit's check runs, which GitHub binds to that commit.
+read from the head commit's check runs, which GitHub binds to that commit. A PR that edits one of
+the attestation's `publisher_paths` ran its own copy of the publisher, so its result lifts nothing
+and waits for nothing.
 """
 
 import re
@@ -39,13 +41,17 @@ def marker_files(text: str) -> frozenset[str]:
 Results = Mapping[str, frozenset[str] | None]
 
 
+def _edits_publisher(rule: Attestation, pr_files: Iterable[str]) -> bool:
+    return any(re.search(pattern, path) for path in pr_files for pattern in rule.publisher_paths)
+
+
 def _check_result(rule: Attestation, check_runs: Iterable[dict]) -> frozenset[str] | None:
     completed = [
         run
         for run in check_runs
         if run.get("name") == rule.check
         and run.get("status") == "completed"
-        and (rule.app is None or (run.get("app") or {}).get("slug") == rule.app)
+        and (run.get("app") or {}).get("slug") == rule.app
     ]
     if not completed:
         return None
@@ -55,10 +61,16 @@ def _check_result(rule: Attestation, check_runs: Iterable[dict]) -> frozenset[st
     return marker_files((latest.get("output") or {}).get("summary") or "")
 
 
-def resolve_results(rules: Iterable[Attestation], check_runs: Iterable[dict]) -> dict[str, frozenset[str] | None]:
+def resolve_results(
+    rules: Iterable[Attestation], check_runs: Iterable[dict], pr_files: Iterable[str]
+) -> dict[str, frozenset[str] | None]:
     """Each rule's result by name. None means it has not reported for this head yet."""
     check_runs = list(check_runs)
-    return {rule.name: _check_result(rule, check_runs) for rule in rules}
+    pr_files = list(pr_files)
+    return {
+        rule.name: frozenset() if _edits_publisher(rule, pr_files) else _check_result(rule, check_runs)
+        for rule in rules
+    }
 
 
 def _expected_files(rule: Attestation, pr_files: Iterable[str]) -> set[str]:

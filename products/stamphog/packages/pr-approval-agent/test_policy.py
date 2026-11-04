@@ -310,8 +310,10 @@ def _set_deny_exceptions(d: dict, *, raw: object) -> None:
 _VALID_ATTESTATION = {
     "name": "Migration risk",
     "check": "Migration risk",
+    "app": "tests-posthog",
     "lifts": ["migrations"],
     "paths": ["migrations/[^/]+\\.py$"],
+    "publisher_paths": ["migration_analysis/"],
 }
 
 
@@ -415,6 +417,9 @@ def _set_attestation(d: dict, **changes: object) -> None:
                 ("lifts-unknown-category", {"lifts": ["dependencies"]}),
                 ("no-paths", {"paths": []}),
                 ("no-check", {"check": None}),
+                ("no-app", {"app": None}),
+                ("no-publisher-paths", {"publisher_paths": None}),
+                ("invalid-publisher-path", {"publisher_paths": ["("]}),
                 ("unknown-key", {"lift": ["deps_toolchain"]}),
             ]
         ],

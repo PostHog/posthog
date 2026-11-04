@@ -1819,6 +1819,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
                 attested=stored.get("attested") is True,
                 reason=str(stored.get("reason") or ""),
                 gates=list(stored.get("gates") or []),
+                attestation_lifted=stored.get("attestation_lifted") is not False,
             )
         else:
             attestation = _attest_gates(run, client)
@@ -1829,6 +1830,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
                         "attested": attestation.attested,
                         "reason": attestation.reason,
                         "gates": attestation.gates,
+                        "attestation_lifted": attestation.attestation_lifted,
                     }
                 },
             )

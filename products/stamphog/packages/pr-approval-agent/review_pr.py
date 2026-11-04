@@ -416,9 +416,10 @@ class Pipeline:
         top_dirs = file_info["top_dirs"]
         breadth = scope_breadth(top_dirs)
         cc = parse_conventional_commit(pr.title)
-        results = resolve_results(POLICY.attestations, pr.check_runs)
+        results = resolve_results(POLICY.attestations, pr.check_runs, pr.deny_paths)
         attested = lifted_files(POLICY.attestations, results, pr.deny_paths)
         deny = detect_deny_categories(pr.deny_paths, attested)
+        attestation_lifted = bool(attested) and deny != detect_deny_categories(pr.deny_paths)
 
         pending_rules = pending(POLICY.attestations, results, pr.deny_paths)
 
@@ -443,18 +444,18 @@ class Pipeline:
         if risky_manifests and "deps_toolchain" not in deny:
             deny = sorted([*deny, "deps_toolchain"])
 
+        def author_exempt(category: str) -> bool:
+            return any(self._author_on_team(team) for team in DENY_EXEMPT_AUTHOR_TEAMS.get(category, ()))
+
         def clears_deny(assumed: Iterable[Attestation]) -> bool:
             if not deny or (risky_manifests and "deps_toolchain" in deny):
                 return False
             passing = assume_passing(assumed, results, pr.deny_paths)
-            return not detect_deny_categories(pr.deny_paths, lifted_files(POLICY.attestations, passing, pr.deny_paths))
+            lifted = lifted_files(POLICY.attestations, passing, pr.deny_paths)
+            return all(author_exempt(category) for category in detect_deny_categories(pr.deny_paths, lifted))
 
         denied_before_exemptions = len(deny)
-        deny = [
-            category
-            for category in deny
-            if not any(self._author_on_team(team) for team in DENY_EXEMPT_AUTHOR_TEAMS.get(category, ()))
-        ]
+        deny = [category for category in deny if not author_exempt(category)]
         owner_exempted = len(deny) < denied_before_exemptions
         title_flags = [
             c
@@ -513,6 +514,8 @@ class Pipeline:
             "deny_categories": deny,
             "title_scrutiny_flags": title_flags,
             "attested_files": {category: sorted(files) for category, files in sorted(attested.items())},
+            # The server keeps an approval that rests on a CI result out of approval retention.
+            "attestation_lifted": attestation_lifted,
             "pending_attestations": [
                 {"name": rule.name, "check": rule.check, "lifts": list(rule.lifts)} for rule in pending_rules
             ],

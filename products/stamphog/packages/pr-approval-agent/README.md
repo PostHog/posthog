@@ -35,7 +35,7 @@ It reports facts in a fixed schema: the risky territory the diff enters, the rev
 
 Asked for a verdict directly, the model sees the same facts but does not apply this rule reliably, so the rule lives in code.
 
-`WAIT` means either that an allowlisted reviewer bot still had a review in flight (👀 reaction) after the polling budget, or that an attestation such as the `Migration risk` check had not reported yet.
+`WAIT` means either that an allowlisted reviewer bot still had a review in flight (👀 reaction) after the polling budget, or that an attestation had not reported yet.
 Neither is a verdict on the PR, so the caller can retry unchanged.
 `ERROR` means the run failed before it could judge the PR: the LLM backend was unreachable through credentials, credit or an outage, the reviewer hit a non-retryable analysis failure such as its turn limit, or `review_pr.py` could not create the worktree for a stacked PR.
 It is never a judgment on the PR.
@@ -392,8 +392,9 @@ The `stamphog_policy` category cannot carry the key, because a team that may app
 Unlike CODEOWNERS, the category only stops stamphog: any human approval still counts on GitHub.
 
 An **attestation** (`attestations` in the policy) lifts named deny categories for the files a passing CI result lists.
-The shipped default has one: the `Migration risk` check lifts the **migrations** deny for the migrations it classified Safe.
-An entry is read from the head commit's check runs.
+The shipped default declares none, because each one names a repository's own CI job; this repository's `.stamphog/policy.yml` declares the `Migration risk` check.
+An entry is read from the head commit's check runs, and must name the App that publishes it (`app`) and the in-repo files that produce it (`publisher_paths`).
+A PR that edits a publisher file ran its own copy of it, so the result lifts nothing and waits for nothing.
 See `attestations.py` for the model.
 
 If an attestation hasn't reported yet and the PR changes a file it judges, `review_local.py` returns `WAIT` rather than a verdict, and the review runs again on the next push.

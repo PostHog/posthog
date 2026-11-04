@@ -148,14 +148,22 @@ def _api_file(filename: str, status: str = "added") -> dict:
     return {"filename": filename, "additions": 10, "deletions": 0, "status": status, "patch": "@@"}
 
 
-def test_pending_migration_check_waits_instead_of_refusing(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "files",
+    [
+        pytest.param(["posthog/migrations/0999_add_col.py"], id="migration-alone"),
+        # The author's team owns the steering file, so the check alone stands between the PR and a review.
+        pytest.param(["posthog/migrations/0999_add_col.py", ".agents/ci.md"], id="beside-an-owner-exempt-file"),
+    ],
+)
+def test_pending_migration_check_waits_instead_of_refusing(monkeypatch, files: list[str]) -> None:
     # A migration PR whose "Migration risk" check has not reported yet matches the deny-list only
     # because the engine cannot tell a safe migration from a risky one. A REFUSED verdict would
     # start the hosted runtime's refusal path, which is a ReviewHog handoff and a trigger-label
     # strip, for a race with CI. WAIT keeps the label and runs the review again on the next push.
     monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
     monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
-    context = _run_context([_api_file("posthog/migrations/0999_add_col.py")])
+    context = {**_run_context([_api_file(path) for path in files]), "author_team_slugs": ["team-devex"]}
 
     result = review_local.run(context)
 
@@ -836,6 +844,23 @@ def test_pregate_is_final_only_where_the_full_review_agrees(
             "gate_failed",
             id="manifest-script-edit",
         ),
+        pytest.param(
+            _pregate_context(
+                [_api_file("posthog/migrations/0001_x.py")],
+                check_runs=[
+                    {
+                        "name": "Migration risk",
+                        "app": {"slug": "tests-posthog"},
+                        "status": "completed",
+                        "conclusion": "success",
+                        "output": {"summary": '<!-- stamphog:v1 ["posthog/migrations/0001_x.py"] -->'},
+                    }
+                ],
+                folder_policies_known=True,
+            ),
+            "",
+            id="deny-lifted-by-attestation",
+        ),
     ],
 )
 def test_attest_confirms_only_what_the_full_review_would_approve(
@@ -847,6 +872,7 @@ def test_attest_confirms_only_what_the_full_review_would_approve(
     outcome = review_local.attest(context)
 
     assert (outcome["attested"], outcome["reason"]) == (not expected_reason, expected_reason)
+    assert outcome["attestation_lifted"] is bool(context.get("check_runs"))
     if expected_reason == "dependency_manifest":
         assert outcome["manifests"] == ["frontend/package.json"]
     # The full review reads manifests from a checkout, which this test does not have.

@@ -120,17 +120,21 @@ class DenyCategory:
 class Attestation:
     """A CI result trusted to lift deny categories for the files it lists (see attestations.py).
 
-    The source is a check run by name, optionally pinned to the App that publishes it. `paths` are
-    regexes for the files the result is expected to judge. A PR that changes one waits for the
-    result, and the result can lift nothing outside them. The publisher's own trigger must cover
-    them, or such a PR waits for a run that never comes.
+    The source is a check run by name, pinned to the App that publishes it, because a same-repo
+    PR's workflow can create a check run of any name. `paths` are regexes for the files the result
+    is expected to judge. A PR that changes one waits for the result, and the result can lift
+    nothing outside them. The publisher's own trigger must cover them, or such a PR waits for a run
+    that never comes. `publisher_paths` are regexes for the in-repo files that produce the result,
+    such as its workflow and the scripts that workflow runs. A PR that edits one ran its own copy
+    of them, so its result lifts nothing and waits for nothing.
     """
 
     name: str
     lifts: tuple[str, ...]
     paths: tuple[str, ...]
+    publisher_paths: tuple[str, ...]
     check: str
-    app: str | None = None
+    app: str
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -490,7 +494,7 @@ def _assert_self_governance(deny: dict[str, DenyCategory]) -> None:
         _require(token in paths, f"deny.stamphog_policy: self-governance must cover {token!r}")
 
 
-_ATTESTATION_KEYS = {"name", "lifts", "paths", "check", "app"}
+_ATTESTATION_KEYS = {"name", "lifts", "paths", "publisher_paths", "check", "app"}
 
 
 def _nonempty_strings(raw: object, context: str) -> tuple[str, ...]:
@@ -524,12 +528,16 @@ def _parse_attestations(raw: object, deny: dict[str, DenyCategory]) -> tuple[Att
             # The policy and the engine judge every attestation, so no attestation may judge them.
             _require(category != "stamphog_policy", f"{context}.lifts: stamphog_policy can never be lifted")
         paths = _nonempty_strings(spec.get("paths"), f"{context}.paths")
-        for pattern in paths:
-            _compile_or_raise(pattern, f"{context}.paths")
+        publisher_paths = _nonempty_strings(spec.get("publisher_paths"), f"{context}.publisher_paths")
+        for key, patterns in (("paths", paths), ("publisher_paths", publisher_paths)):
+            for pattern in patterns:
+                _compile_or_raise(pattern, f"{context}.{key}")
         check = _optional_string(spec, "check", context)
         _require(check is not None, f"{context}.check: required")
+        app = _optional_string(spec, "app", context)
+        _require(app is not None, f"{context}.app: required")
         parsed.append(
-            Attestation(name=name, lifts=lifts, paths=paths, check=check, app=_optional_string(spec, "app", context))
+            Attestation(name=name, lifts=lifts, paths=paths, publisher_paths=publisher_paths, check=check, app=app)
         )
     return tuple(parsed)
 

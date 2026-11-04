@@ -13,7 +13,9 @@ MIGRATION_RISK = Attestation(
     app="tests-posthog",
     lifts=("migrations",),
     paths=(r"(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$", r"(?:^|/)migrations/max_migration\.txt$"),
+    publisher_paths=(r"(?:^|/)migration_analysis/",),
 )
+_PUBLISHER = "posthog/management/migration_analysis/classifier.py"
 RULES = (MIGRATION_RISK,)
 
 
@@ -40,7 +42,7 @@ def _check(
 
 
 def _lifted(check_runs: list[dict], pr_files: list[str]) -> dict[str, frozenset[str]]:
-    return lifted_files(RULES, resolve_results(RULES, check_runs), pr_files)
+    return lifted_files(RULES, resolve_results(RULES, check_runs, pr_files), pr_files)
 
 
 @pytest.mark.parametrize(
@@ -81,6 +83,7 @@ def _lifted(check_runs: list[dict], pr_files: list[str]) -> dict[str, frozenset[
             {},
             id="injected-second-marker",
         ),
+        pytest.param([_check(files=[_MIGRATION])], [_MIGRATION, _PUBLISHER], {}, id="pr-edits-publisher"),
     ],
 )
 def test_check_attestation_lifts_listed_files(
@@ -96,11 +99,12 @@ def test_check_attestation_lifts_listed_files(
         pytest.param([_check(status="queued", conclusion=None)], [_MIGRATION], ["Migration risk"], id="queued"),
         pytest.param([_check(conclusion="failure")], [_MIGRATION], [], id="completed"),
         pytest.param([], ["posthog/migrations/__init__.py", "clickhouse/migrations/0001.sql"], [], id="no-judged-file"),
+        pytest.param([], [_MIGRATION, _PUBLISHER], [], id="pr-edits-publisher"),
     ],
 )
 def test_pending_only_for_files_the_attestation_judges(
     check_runs: list[dict], pr_files: list[str], expected: list[str]
 ) -> None:
-    results = resolve_results(RULES, check_runs)
+    results = resolve_results(RULES, check_runs, pr_files)
 
     assert [rule.name for rule in pending(RULES, results, pr_files)] == expected

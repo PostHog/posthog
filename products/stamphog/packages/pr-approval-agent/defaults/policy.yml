@@ -127,21 +127,9 @@ deny:
                 # runs the previous engine needs this exact literal.
                 - 'tools/pr-approval-agent/'
                 - 'CODEOWNERS'
-                # The analyzer and workflow behind the Migration risk attestation below.
-                - '(?:^|/)migration_analysis/'
-                - 'analyze_migration_risk\.py'
-                - '\.depot/workflows/ci-backend\.yml'
-# CI results that lift deny categories for the files they list. See attestations.py.
-attestations:
-    # The migration analyzer publishes this check for every PR, so a missing one means CI has not
-    # finished. It lists the Django migrations it classified Safe, and their max_migration.txt.
-    - name: 'Migration risk'
-      check: 'Migration risk'
-      app: 'tests-posthog'
-      lifts: ['migrations']
-      paths:
-          - '(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$'
-          - '(?:^|/)migrations/max_migration\.txt$'
+# CI results that lift deny categories for the files they list (see attestations.py). Every one
+# names a repository's own CI job, so a repository declares its own and none ships here.
+attestations: []
 allow:
     path_patterns:
         - 'docs/'

@@ -442,6 +442,16 @@ def _big_api_file(filename: str, additions: int) -> dict:
 
 _LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1500\n---\nTall PRs are normal here.\n"
 
+_MIGRATION_RISK_POLICY = """version: 1
+attestations:
+    - name: 'Migration risk'
+      check: 'Migration risk'
+      app: 'tests-posthog'
+      lifts: ['migrations']
+      paths: ['(?:^|/)migrations/[^/]+\\.py$']
+      publisher_paths: ['(?:^|/)migration_analysis/']
+"""
+
 
 @pytest.mark.parametrize(
     "files, summary, engine_breaks, folder_read_fails, expect_pregate_outcome, expect_in_body",
@@ -538,6 +548,7 @@ def test_a_final_gate_verdict_is_posted_without_a_sandbox_review(
         REPO, 101, pr_object, files, commit_messages=("feat: infra\n\nGenerated-By: PostHog Code\nTask-Id: t-1",)
     )
 
+    stamphog_chain.recorder.policy_files[".stamphog/policy.yml"] = _MIGRATION_RISK_POLICY
     stamphog_chain.recorder.repo_files[(REPO, "src/AGENT_APPROVALS.md")] = _LIFTING_FOLDER_FILE
     stamphog_chain.recorder.repo_symlinks[(REPO, "sym/AGENT_APPROVALS.md")] = "../../shared/policy.md"
 

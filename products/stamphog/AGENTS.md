@@ -75,6 +75,8 @@ Everything ambiguous falls through to the normal path, which dismisses first: no
 Retention also re-checks GitHub that the stored approval is still active, because a maintainer dismissing it by hand updates nothing in the product DB, and skipping the review over a dismissed approval would leave the PR with neither.
 A retained head is recorded on the approving run (`retained_head_shas`), because `_record_merged_pull_request` matches an approving run on `head_sha` alone and would otherwise treat every retained merge as unapproved and drop it from the digest for good.
 Self-driving inbox runs are excluded so the carve-out's head pinning stays untouched.
+So is an approval that a CI attestation lifted a deny for, because that result proves the approved head only.
+The worker's `--attest` check records the lift (`gate_attestation.attestation_lifted`), never the sandbox, and an approval without that record is not retained.
 
 ## Supersession and terminal states
 
@@ -293,10 +295,11 @@ A new path to an approval must go through this check too.
 An attestation is a policy entry (`attestations` in the default-branch `.stamphog/policy.yml`, merged onto the shipped default) naming a check run, the deny categories it may lift, and `paths`, the files it judges.
 A passing result lifts those categories only for the files it lists itself, matched by exact path and intersected with `paths`, and only those categories: the file still denies every other one.
 Stamphog knows no ecosystem, tool or bot. What a passing result proves is the publisher's concern, so a new kind of proof is a new CI check and a policy entry, never engine code.
-`Migration risk` is the shipped default entry, pinned to the App that publishes it: a same-repo PR's workflow can create a check run of any name.
+Every entry names a repository's own CI job, so the shipped default declares none. This repository declares `Migration risk` in its own `.stamphog/policy.yml`.
 
-- `stamphog_policy` is never liftable; the policy loader refuses such an entry. The files that prove an attestation (its workflow and the scripts it runs) belong in `stamphog_policy` too, because a `pull_request` run uses the PR's own copy of them.
-- Trust the run, not the name. An entry reads the head commit's check runs, which GitHub binds to that commit, and may pin the publishing App (`app`).
+- `stamphog_policy` is never liftable; the policy loader refuses such an entry.
+- Trust the run, not the name. An entry reads the head commit's check runs, which GitHub binds to that commit, and must pin the publishing App (`app`), because a same-repo PR's workflow can create a check run of any name.
+- Every entry lists `publisher_paths`, the in-repo files that produce its result (its workflow and the scripts it runs). A `pull_request` run uses the PR's own copy of them, so a PR that edits one gets a result that lifts nothing and waits for nothing. List them in `stamphog_policy` too, so such an edit always reaches a person.
 - A result with more than one marker lifts nothing, because a publisher's report can quote PR content.
 - A PR that changes a file in `paths` waits for a result that has not reported (a WAIT, not a refusal, because a refusal strips the trigger label over a race with CI). The publisher's trigger must cover `paths`, or such a PR waits forever. A result that reported and lifted nothing leaves the deny standing. A `deps_toolchain` deny from the manifest scripts scan never waits, because no attestation lifts it. The scan reads every changed manifest, also one next to its lockfile, because an attestation can lift the lockfile's own deny.
 - The WAIT records `pending_attestations` in the classification. Nothing re-runs it before the next push.
