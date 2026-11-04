@@ -4,6 +4,7 @@ from typing import Any
 
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.paging import PageRequest
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -35,15 +36,16 @@ def run_canvas_app_widget(
     )
     if canvas_id is None:
         # Same canvases the tile's picker offers, so the tile can offer "New canvas" when there are none.
-        visible_canvases = canvas_facade.count_canvases(
+        visible_canvases = canvas_facade.list_canvases(
             viewer,
             channel_id=None,
             kind="freeform",
             search=None,
             user_access_control=UserAccessControl(user=user, team=team) if user is not None else None,
             include_all_if_admin=False,
+            page=PageRequest(limit=1),
         )
-        return {"canvas": None, "needsConfiguration": True, "hasCanvases": visible_canvases > 0}
+        return {"canvas": None, "needsConfiguration": True, "hasCanvases": len(visible_canvases.results) > 0}
 
     try:
         canvas = canvas_facade.get_canvas(viewer, CanvasAccess.READ, canvas_id)
