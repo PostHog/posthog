@@ -55,7 +55,7 @@ export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): Step
 
                                             PostHog.setup(
                                                 config = PostHogConfig(
-                                                    apiKey = "<ph_project_token>",
+                                                    projectToken = "<ph_project_token>",
                                                     host = "<ph_client_api_host>",
                                                     errorTracking = ErrorTrackingConfig(
                                                         autoCapture = true,
@@ -87,7 +87,7 @@ export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): Step
 
                                             PostHog.setup(
                                                 config = PostHogConfig(
-                                                    apiKey = "<ph_project_token>",
+                                                    projectToken = "<ph_project_token>",
                                                     host = "<ph_client_api_host>",
                                                     errorTracking = ErrorTrackingConfig(
                                                         autoCapture = true,

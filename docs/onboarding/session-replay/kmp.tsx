@@ -78,7 +78,7 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                     import com.posthog.kmp.SessionRecordingConfig
 
                                     val config = PostHogConfig(
-                                        apiKey = "<ph_project_token>",
+                                        projectToken = "<ph_project_token>",
                                         host = "<ph_client_api_host>",
 
                                         // Enable session recording. Requires enabling in your project settings as well.
