@@ -16,12 +16,3 @@ Adding a separate object-ID filter to the junction can hide child rows that the 
 When adding a hidden system table, declare its direct or transitive cache scope and test the resulting cache key under different permissions.
 Also verify that its predicates deny unauthorized reads and preserve object grants and creator exemptions.
 Userless data-modeling queries must resolve the parent through `DATA_MODELING_ALLOWED_SYSTEM_TABLES`; a transitive cache entry does not grant access.
-
-## Endpoint versions
-
-`system.data_modeling_endpoints` exposes the current version through the `version` join.
-The join matches both `id = endpoint_id` and `current_version = version`.
-The `query`, `description`, `columns`, and `data_freshness_seconds` fields use this join.
-Both tables use the `endpoint` access scope, so the cache key must retain that scope.
-The join runs only when a query requests a version field.
-`system.data_modeling_endpoint_versions` remains available for queries that need version history.
