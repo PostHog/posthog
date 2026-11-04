@@ -173,6 +173,7 @@ class TestResolveAwsCredentials(BaseTest):
     @parameterized.expand(
         [
             ("throttled", chain(sts_error("Throttling"))),
+            ("external_id_probe_throttled", [session("OURS"), sts_error("Throttling"), session("CUSTOMER")]),
             ("posthog_credentials_rejected", [sts_error("InvalidClientTokenId", "The security token is invalid.")]),
             ("posthog_role_denied", [sts_error("AccessDenied", f"not authorized on resource: {OUR_ROLE_ARN}")]),
             ("unreachable", [EndpointConnectionError(endpoint_url="https://sts.amazonaws.com")]),
