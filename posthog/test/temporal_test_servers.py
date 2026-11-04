@@ -9,6 +9,8 @@ and other tests still run.
 
 import os
 import sys
+import time
+import random
 import signal
 import asyncio
 import logging
@@ -27,6 +29,7 @@ ATTEMPTS = 3
 # sdk-core waits up to 60s before it reclaims the partial download of a killed attempt, so the deadline leaves room
 # for that wait plus a slow download.
 ATTEMPT_TIMEOUT_SECONDS = 120
+RETRY_BASE_DELAY_SECONDS = 2
 # Each start method, the prefix of its download arguments, and sdk-core's file name for its default-version download.
 SERVERS = {
     "start_time_skipping": ("test_server", "temporal-test-server"),
@@ -60,6 +63,9 @@ def _prepare(method: str) -> bool:
             with suppress(ProcessLookupError):
                 os.killpg(process.pid, signal.SIGKILL)
             process.wait()
+        if attempt < ATTEMPTS:
+            delay = RETRY_BASE_DELAY_SECONDS * 2 ** (attempt - 1)
+            time.sleep(random.uniform(delay, 2 * delay))
     return False
 
 
