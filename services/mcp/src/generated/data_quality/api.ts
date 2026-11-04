@@ -273,12 +273,50 @@ export const DataQualityChecksSchedulePartialUpdateBody = () => zod
     .describe("Which subject's schedule to change, and what to change about it.")
 
 /**
- * Everything in this project you can author a check on, with each subject's columns.
+ * Everything in this project you can author a check on, with each subject's columns. Filter by subject_type or search, and page with limit and offset.
  */
 export const DataQualityChecksSubjectsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const dataQualityChecksSubjectsListQueryIncludeColumnsDefault = true
+export const dataQualityChecksSubjectsListQueryLimitMax = 1000
+
+export const dataQualityChecksSubjectsListQueryOffsetDefault = 0
+export const dataQualityChecksSubjectsListQueryOffsetMin = 0
+
+export const DataQualityChecksSubjectsListQueryParams = () => zod.object({
+    include_columns: zod
+        .boolean()
+        .default(dataQualityChecksSubjectsListQueryIncludeColumnsDefault)
+        .describe(
+            'Set to false to return an empty columns map for every subject. Use it to find a subject id without reading every column schema.'
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(dataQualityChecksSubjectsListQueryLimitMax)
+        .optional()
+        .describe('Maximum number of subjects to return. Omit to return every match.'),
+    offset: zod
+        .number()
+        .min(dataQualityChecksSubjectsListQueryOffsetMin)
+        .default(dataQualityChecksSubjectsListQueryOffsetDefault)
+        .describe(
+            'Number of matching subjects to skip. Subjects are sorted by subject_type, then name. When a response has limit rows, call again with offset increased by limit to read the next page.'
+        ),
+    search: zod
+        .string()
+        .optional()
+        .describe('Return only subjects whose name or display name contains this text, ignoring case.'),
+    subject_type: zod
+        .enum(['table', 'view', 'metric', 'posthog_table'])
+        .optional()
+        .describe(
+            "Return only subjects of this kind: 'table', 'view', 'metric', or 'posthog_table'.\n\n\* `table` - table\n\* `view` - view\n\* `metric` - metric\n\* `posthog_table` - posthog_table"
         ),
 })

@@ -24,6 +24,7 @@ const emptyUsage = {
     },
     models: [],
     count: 0,
+    status_breakdown: [],
     usage_updated_at: null,
     trends: [],
 }
@@ -73,25 +74,110 @@ describe('modelsUsageLogic', () => {
         expect(usageRequests[0].get('engine')).toBe('all')
         expect(jobRequests[0].get('all_engines')).toBe('true')
         expect(jobRequests[0].get('engine')).toBeNull()
-        expect(jobRequests[0].get('saved_query_id')).toBeNull()
+        expect(jobRequests[0].get('saved_query_ids')).toBeNull()
         expect(jobRequests[0].get('after')).not.toBeNull()
         expect(jobRequests[0].get('before')).toBeNull()
         expect(logic.values.materializedViewOptions.map((option) => option.name)).toEqual(['Alpha view', 'Beta view'])
 
-        await expectLogic(logic, () => logic.actions.setSelectedSavedQueryId('view-a')).toDispatchActions([
+        await expectLogic(logic, () => logic.actions.setSelectedSavedQueryIds(['view-a', 'view-b'])).toDispatchActions([
             'loadUsageSuccess',
             'loadMaterializationJobsSuccess',
         ])
-        expect(usageRequests.at(-1)?.get('saved_query_id')).toBe('view-a')
-        expect(jobRequests.at(-1)?.get('saved_query_id')).toBe('view-a')
+        expect(usageRequests.at(-1)?.get('saved_query_ids')).toBe('view-a,view-b')
+        expect(jobRequests.at(-1)?.get('saved_query_ids')).toBe('view-a,view-b')
         expect(jobRequests.at(-1)?.get('offset')).toBe('0')
 
         await expectLogic(logic, () => logic.actions.setJobsPage(2)).toDispatchActions([
             'loadMaterializationJobsSuccess',
         ])
-        expect(jobRequests.at(-1)?.get('saved_query_id')).toBe('view-a')
+        expect(jobRequests.at(-1)?.get('saved_query_ids')).toBe('view-a,view-b')
         expect(jobRequests.at(-1)?.get('offset')).toBe('20')
         expect(logic.values.page).toBe(1)
+    })
+
+    it('sorts all models, resets pagination, and keeps the sort on the next page', async () => {
+        await expectLogic(logic).toDispatchActions(['loadUsageSuccess', 'loadMaterializationJobsSuccess'])
+        await expectLogic(logic, () => logic.actions.setPage(3)).toDispatchActions(['loadUsageSuccess'])
+        const jobRequestCount = jobRequests.length
+
+        await expectLogic(logic, () => logic.actions.sortModels('runs')).toDispatchActions(['loadUsageSuccess'])
+        expect(usageRequests.at(-1)?.get('page')).toBe('1')
+        expect(usageRequests.at(-1)?.get('sort_by')).toBe('runs')
+        expect(usageRequests.at(-1)?.get('sort_direction')).toBe('desc')
+        await expectLogic(logic, () => logic.actions.sortModels('runs')).toDispatchActions(['loadUsageSuccess'])
+        expect(usageRequests.at(-1)?.get('sort_direction')).toBe('asc')
+        await expectLogic(logic, () => logic.actions.setPage(2)).toDispatchActions(['loadUsageSuccess'])
+        expect(usageRequests.at(-1)?.get('page')).toBe('2')
+        expect(usageRequests.at(-1)?.get('sort_by')).toBe('runs')
+        expect(usageRequests.at(-1)?.get('sort_direction')).toBe('asc')
+        await expectLogic(logic, () => logic.actions.sortModels('name')).toDispatchActions(['loadUsageSuccess'])
+        expect(usageRequests.at(-1)?.get('sort_direction')).toBe('asc')
+        expect(jobRequests).toHaveLength(jobRequestCount)
+
+        await expectLogic(logic, () => logic.actions.sortModels('managed_warehouse_read_bytes')).toDispatchActions([
+            'loadUsageSuccess',
+        ])
+        await expectLogic(logic, () =>
+            logic.actions.setSelectedEngine(DataModelingUsageListEngine.Clickhouse)
+        ).toDispatchActions(['loadUsageSuccess'])
+        expect(usageRequests.at(-1)?.get('sort_by')).toBe('read_bytes')
+        expect(usageRequests.at(-1)?.get('sort_direction')).toBe('desc')
+    })
+
+    it('builds a status breakdown by engine', async () => {
+        await expectLogic(logic).toDispatchActions(['loadUsageSuccess'])
+
+        logic.actions.loadUsageSuccess({
+            ...emptyUsage,
+            status_breakdown: [
+                { engine: 'clickhouse', status: 'Completed', count: 3, models: [] },
+                { engine: 'clickhouse', status: 'Failed', count: 1, models: [] },
+                { engine: 'managed_warehouse', status: 'Failed', count: 2, models: [] },
+            ],
+        })
+
+        expect(logic.values.statusChartLabels).toEqual(['Completed', 'Failed'])
+        expect(logic.values.statusChartSeries).toEqual([
+            { key: 'clickhouse', label: 'ClickHouse', data: [3, 1] },
+            { key: 'managed_warehouse', label: 'Managed warehouse', data: [0, 2] },
+        ])
+
+        expect(logic.values.selectedSavedQueryIds).toEqual([])
+    })
+
+    it('keeps selected status models that are absent from the materialized view options', async () => {
+        await expectLogic(logic).toDispatchActions(['loadUsageSuccess', 'loadMaterializationJobsSuccess'])
+        await expectLogic(logic, () => logic.actions.setSelectedSavedQueryIds(['deleted-view'])).toDispatchActions([
+            'loadUsageSuccess',
+            'loadMaterializationJobsSuccess',
+        ])
+
+        logic.actions.loadUsageSuccess({
+            ...emptyUsage,
+            status_breakdown: [
+                {
+                    engine: 'clickhouse',
+                    status: 'Failed',
+                    count: 1,
+                    models: [
+                        {
+                            saved_query_id: 'deleted-view',
+                            name: 'Deleted view',
+                            deleted: true,
+                        },
+                    ],
+                },
+            ],
+        })
+
+        expect(logic.values.viewFilterOptions).toContainEqual({ id: 'deleted-view', name: 'Deleted view' })
+        expect(logic.values.selectedMaterializedViewOptions).toEqual([{ id: 'deleted-view', name: 'Deleted view' }])
+
+        logic.actions.setSelectedSavedQueryIds(['deleted-view', 'view-a'])
+        expect(logic.values.selectedMaterializedViewOptions).toEqual([
+            { id: 'deleted-view', name: 'Deleted view' },
+            { id: 'view-a', name: 'Alpha view' },
+        ])
     })
 
     it('filters all tab requests by engine', async () => {

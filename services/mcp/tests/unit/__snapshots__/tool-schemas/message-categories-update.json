@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "category_type": {
+            "description": "`marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.\n\n* `marketing` - Marketing\n* `transactional` - Transactional",
+            "enum": ["marketing", "transactional"],
+            "type": "string"
+        },
+        "description": {
+            "description": "Internal notes about which messages belong to this category. Recipients don't see it.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this message category.",
+            "type": "string"
+        },
+        "name": {
+            "description": "Display name of the category, shown in the PostHog app.",
+            "maxLength": 128,
+            "type": "string"
+        },
+        "public_description": {
+            "description": "Description that recipients see next to the category on the preferences page.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

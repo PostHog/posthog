@@ -11,7 +11,7 @@ from products.error_tracking.backend.facade.contracts import IssueSummaryCategor
 from products.ml_inference.backend.facade.contracts import DecisionQuestion
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 
-ISSUE_SUMMARY_PROMPT_VERSION = "v4"
+ISSUE_SUMMARY_PROMPT_VERSION = "v5"
 
 ISSUE_SUMMARY_SYSTEM_PROMPT = """\
 You summarise one error tracking issue for an engineer who is deciding what to do about it.
@@ -42,8 +42,11 @@ Facts:
 - First seen: {first_seen}, first release: {first_release}
 - Latest release: {latest_release}
 - Trend: {trend_direction} ({previous_occurrences} -> {current_occurrences} occurrences)
-- Impact in range: {occurrences} occurrences, {users} users, {sessions} sessions
+- {impact}
 </issue>"""
+
+ISSUE_SUMMARY_IMPACT_LINE = "Impact in range: {occurrences} occurrences, {users} users, {sessions} sessions"
+ISSUE_SUMMARY_IMPACT_NOT_KNOWN_YET = "Impact: not known yet, because the issue was just created from its first event"
 
 
 class IssueSummaryResponse(BaseModel):

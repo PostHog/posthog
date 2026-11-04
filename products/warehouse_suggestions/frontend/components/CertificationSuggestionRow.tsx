@@ -11,7 +11,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
 import { daysReadLabel, isDeprecatePayload, noReadsLabel, readSummary, refreshCostLabel } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
-import { DismissSuggestionMenu } from './DismissSuggestionMenu'
+import { DismissSuggestionButtons } from './DismissSuggestionButtons'
 import { SuggestionRow } from './SuggestionRow'
 import { SuggestionSubjectLink } from './SuggestionSubjectLink'
 import { WhyThisSuggestion } from './WhyThisSuggestion'
@@ -38,11 +38,14 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
             ? undefined
             : CATALOG_EDIT_ACCESS_REASON)
     const deprecating = isDeprecatePayload(payload)
+    const refreshes = deprecating && payload.materialized !== false
     const confirmsFirst = deprecating && !isTable
 
     return (
         <SuggestionRow
             suggestionId={suggestion.id}
+            assignee={suggestion.assignee}
+            canAct={suggestion.can_act}
             leaving={leaving}
             icon={
                 <Tooltip title={isTable ? 'Table' : 'View'}>
@@ -61,8 +64,8 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
                               windowDays={windowDays}
                               label={noReadsLabel(windowDays)}
                           />,
-                          <span key="cost">{refreshCostLabel(payload)}</span>,
-                      ]
+                          refreshes && <span key="cost">{refreshCostLabel(payload)}</span>,
+                      ].filter(Boolean)
                     : [
                           <WhyThisSuggestion
                               key="reads"
@@ -88,7 +91,7 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
                     >
                         {deprecating ? 'Mark deprecated' : 'Certify'}
                     </LemonButton>
-                    <DismissSuggestionMenu
+                    <DismissSuggestionButtons
                         suggestionId={suggestion.id}
                         kind={suggestion.kind}
                         disabledReason={blockedReason ?? (inFlight ? 'Working' : undefined)}

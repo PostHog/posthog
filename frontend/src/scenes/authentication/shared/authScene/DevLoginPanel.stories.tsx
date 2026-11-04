@@ -3,13 +3,31 @@ import type { Meta, StoryFn } from '@storybook/react'
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
-import type { DevUser } from '../devLoginLogic'
+import type { DevOAuthConnector, DevUser } from '../devLoginLogic'
 import { DevLoginPanel } from './DevLoginPanel'
 
 type StoryArgs = {
     allowDevLogin: boolean
     devUsers: 'none' | 'default' | 'many'
 }
+
+const DEV_OAUTH_CONNECTORS: DevOAuthConnector[] = [
+    {
+        client_id: 'https://chatgpt.com/oauth/client.json',
+        client_name: 'ChatGPT',
+        // No external logo, so the story renders the same picture offline
+        logo_uri: null,
+        redirect_host: 'chatgpt.com',
+        authorize_path: '/oauth/authorize/?client_id=https%3A%2F%2Fchatgpt.com%2Foauth%2Fclient.json',
+    },
+    {
+        client_id: 'https://claude.ai/oauth/mcp-oauth-client-metadata',
+        client_name: 'Claude',
+        logo_uri: null,
+        redirect_host: 'claude.ai',
+        authorize_path: '/oauth/authorize/?client_id=https%3A%2F%2Fclaude.ai%2Foauth%2Fmcp-oauth-client-metadata',
+    },
+]
 
 const DEV_USERS_MOCKS: Record<StoryArgs['devUsers'], DevUser[]> = {
     none: [],
@@ -82,7 +100,10 @@ const Template: StoryFn<StoryArgs> = ({ allowDevLogin, devUsers }) => {
                 is_debug: true,
                 allow_dev_login: allowDevLogin,
             },
-            '/api/login/dev': { users: DEV_USERS_MOCKS[devUsers] },
+            '/api/login/dev': {
+                users: DEV_USERS_MOCKS[devUsers],
+                oauth_connectors: devUsers === 'none' ? [] : DEV_OAUTH_CONNECTORS,
+            },
         },
     })
 

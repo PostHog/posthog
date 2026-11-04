@@ -11,11 +11,7 @@ const meta: Meta<typeof MarketingAnalyticsFreshness> = {
 }
 export default meta
 
-// Within the ~2h refresh window: neutral clock badge.
-export const Fresh: Story = { args: { computedAt: '2025-02-15T11:40:00Z' } }
+export const Computed: Story = { args: { latestDayComputedAt: '2025-02-15T11:40:00Z' } }
 
-// Older than the refresh window (warmer behind): warning badge.
-export const Behind: Story = { args: { computedAt: '2025-02-15T07:00:00Z' } }
-
-// No precompute freshness known: renders nothing, so there is nothing to snapshot.
-export const Unknown: Story = { args: { computedAt: null }, tags: ['test-skip'] }
+// No latest-day stamp known: renders nothing, so there is nothing to snapshot.
+export const Unknown: Story = { args: { latestDayComputedAt: null }, tags: ['test-skip'] }

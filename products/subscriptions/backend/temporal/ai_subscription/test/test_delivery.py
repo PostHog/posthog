@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -49,6 +50,7 @@ _DELIVERY = "products.subscriptions.backend.temporal.ai_subscription.delivery"
 _ACTIVITIES = "products.subscriptions.backend.temporal.ai_subscription.activities"
 
 _PARA = "a" * (SLACK_MRKDWN_SECTION_LIMIT - 100)
+_LONG_PARA = "b" * (SLACK_MARKDOWN_MESSAGE_LIMIT - 100)
 _DELIVERY_ID = uuid.UUID("12345678-1234-5678-1234-567812345678")
 _SUBSCRIPTION_URL = "https://app.posthog.com/project/1/subscriptions/2"
 
@@ -292,6 +294,12 @@ def _mock_subscription() -> MagicMock:
     return sub
 
 
+def _charts_in_main_message_subscription() -> MagicMock:
+    sub = _mock_subscription()
+    sub.delivery_config = {"post_all_insights_in_main_message": True}
+    return sub
+
+
 def _build_message(markdown: str) -> SlackMessage:
     return _build_ai_slack_message(_mock_subscription(), markdown, delivery_id=_DELIVERY_ID)
 
@@ -421,38 +429,72 @@ class TestBuildChartImageUrls:
 class TestChartsOnSlackMessages:
     def test_charts_follow_the_report_text(self) -> None:
         message = _build_ai_slack_message(
-            _mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, charts=[_CHART]
+            _charts_in_main_message_subscription(), "A short report.", delivery_id=_DELIVERY_ID, charts=[_CHART]
         )
 
-        assert [block["type"] for block in message.blocks[:5]] == [
+        assert [block["type"] for block in message.blocks[:4]] == [
             "divider",
             "header",
-            "context",
             "markdown",
             "image",
         ]
-        assert message.blocks[3]["text"] == "A short report."
-        assert message.blocks[1]["text"]["text"] == "Your subscription to Weekly report is ready! 🎉"
-        assert message.blocks[2]["elements"][0]["text"] == "🤖 AI prompt: Weekly report"
-        assert message.blocks[4]["image_url"] == _CHART["image_url"]
-        assert message.blocks[4]["alt_text"] == "signups by day"
-        assert message.blocks[4]["title"] == {"type": "plain_text", "text": "signups by day"}
+        assert message.blocks[2]["text"] == "A short report."
+        assert message.blocks[1]["text"]["text"] == 'Your report "Weekly report" is ready! 🎉'
+        assert message.blocks[3]["image_url"] == _CHART["image_url"]
+        assert message.blocks[3]["alt_text"] == "signups by day"
+        assert message.blocks[3]["title"] == {"type": "plain_text", "text": "signups by day"}
 
     def test_an_untitled_chart_posts_no_title_block(self) -> None:
         message = _build_ai_slack_message(
-            _mock_subscription(),
+            _charts_in_main_message_subscription(),
             "A short report.",
             delivery_id=_DELIVERY_ID,
             charts=[{"title": "", "image_url": "https://ph.test/img.png"}],
         )
 
-        assert "title" not in message.blocks[4]
-        assert message.blocks[4]["alt_text"] == "Chart"
+        assert "title" not in message.blocks[3]
+        assert message.blocks[3]["alt_text"] == "Chart"
 
     def test_a_chartless_report_posts_no_image_blocks(self) -> None:
         message = _build_message("A short report.")
 
         assert all(block["type"] != "image" for block in message.blocks)
+
+    @parameterized.expand(
+        [
+            ("missing", {}, False),
+            ("off", {"post_all_insights_in_main_message": False}, False),
+            ("on", {"post_all_insights_in_main_message": True}, True),
+        ]
+    )
+    def test_the_gallery_option_decides_where_charts_go(self, _name, delivery_config, in_main_message) -> None:
+        subscription = _mock_subscription()
+        subscription.delivery_config = delivery_config
+
+        message = _build_ai_slack_message(
+            subscription, f"{_LONG_PARA}\n\n{_LONG_PARA}", delivery_id=_DELIVERY_ID, charts=[_CHART]
+        )
+
+        replies = [reply["blocks"] for reply in message.thread_messages]
+        assert any(block["type"] == "image" for block in message.blocks) is in_main_message
+        if in_main_message:
+            assert all(block["type"] != "image" for blocks in replies for block in blocks)
+        else:
+            # The charts open the thread, ahead of the rest of the report text.
+            assert [block["type"] for block in replies[0]] == ["image"]
+            assert len(replies) > 1
+            assert all(block["type"] != "image" for blocks in replies[1:] for block in blocks)
+
+    def test_a_short_report_with_threaded_charts_points_to_the_thread(self) -> None:
+        message = _build_ai_slack_message(
+            _mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, charts=[_CHART]
+        )
+
+        assert {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "_See thread for the rest of the report._"},
+        } in message.blocks
+        assert [reply["blocks"][0]["type"] for reply in message.thread_messages] == ["image"]
 
     async def test_a_chart_slack_rejects_costs_the_chart_not_the_report(self) -> None:
         sent: list[list[dict]] = []
@@ -465,7 +507,7 @@ class TestChartsOnSlackMessages:
 
         with patch(f"{_DELIVERY}.deliver_slack_message_data", side_effect=_deliver):
             await send_slack_ai_subscription_report(
-                subscription=_mock_subscription(),
+                subscription=_charts_in_main_message_subscription(),
                 markdown="A short report.",
                 integration=MagicMock(),
                 delivery_id=_DELIVERY_ID,
@@ -476,6 +518,25 @@ class TestChartsOnSlackMessages:
         assert any(block["type"] == "image" for block in sent[0])
         assert all(block["type"] != "image" for block in sent[1])
         assert {"type": "markdown", "text": "A short report."} in sent[1]
+
+    async def test_threaded_charts_do_not_trigger_the_resend(self) -> None:
+        sent: list[list[dict]] = []
+
+        async def _deliver(_integration, _subscription, message_data):
+            sent.append(message_data.blocks)
+            raise SlackApiError("bad blocks", response={"error": "invalid_blocks"})
+
+        with patch(f"{_DELIVERY}.deliver_slack_message_data", side_effect=_deliver):
+            with pytest.raises(SlackApiError):
+                await send_slack_ai_subscription_report(
+                    subscription=_mock_subscription(),
+                    markdown="A short report.",
+                    integration=MagicMock(),
+                    delivery_id=_DELIVERY_ID,
+                    charts=[_CHART],
+                )
+
+        assert len(sent) == 1
 
     async def test_a_hidden_chart_does_not_trigger_the_resend(self) -> None:
         # A report that hides its charts already sends a payload with no image block, so the
@@ -560,7 +621,7 @@ class TestBuildAISlackMessage:
     def test_complex_findings_keep_native_markdown(self, content: str) -> None:
         markdown = f"## Main result\n\n{content}"
         message = _build_message(markdown)
-        assert message.blocks[3] == {"type": "markdown", "text": markdown}
+        assert message.blocks[2] == {"type": "markdown", "text": markdown}
 
     def test_single_section_report_has_no_thread_messages(self) -> None:
         message = _build_message("A short report.")
@@ -570,18 +631,24 @@ class TestBuildAISlackMessage:
         assert all(text.strip() for text in section_texts), "no empty section text allowed"
 
     @pytest.mark.parametrize(
-        "markdown",
+        "markdown,expected",
         [
-            "## Weekly report\n\n| Day | Sessions |\n|---|---|\n| Monday | **42** |",
-            "**Bold** and *italic* with [dashboard](https://app.posthog.com/insights/abc)",
-            "```\n| Day | Sessions |\n| Monday | 42 |\n```",
-            "x" * SLACK_MARKDOWN_MESSAGE_LIMIT,
-            "",
+            ("## Weekly report\n\n| Day | Sessions |\n|---|---|\n| Monday | **42** |", None),
+            ("**Bold** and *italic* with [dashboard](https://app.posthog.com/insights/abc)", None),
+            ("```\n| Day | Sessions |\n| Monday | 42 |\n```", None),
+            ("x" * SLACK_MARKDOWN_MESSAGE_LIMIT, None),
+            ("", "_No report content was generated._"),
+            ("# Generated report title\n\n## Adoption\n\nReport content.", "## Adoption\n\nReport content."),
+            ("Generated report title\n=====\n\nReport content.", "Report content."),
+            ("# Generated report title", "_No report content was generated._"),
+            ("```\n# Keep this heading\n```", None),
+            ("# Generated report title\n\n    # Keep this code\n    value = 1", "    # Keep this code\n    value = 1"),
         ],
     )
-    def test_preserves_report_markdown(self, markdown: str) -> None:
+    def test_preserves_report_markdown(self, markdown: str, expected: str | None) -> None:
         message = _build_message(markdown)
-        assert message.blocks[3] == {"type": "markdown", "text": markdown or "_No report content was generated._"}
+        assert message.blocks[1]["text"]["text"] == 'Your report "Weekly report" is ready! 🎉'
+        assert message.blocks[2] == {"type": "markdown", "text": markdown if expected is None else expected}
         assert message.thread_messages == []
 
     def test_long_report_overflows_into_thread(self) -> None:
@@ -611,12 +678,13 @@ class TestBuildAISlackMessage:
             charts=[_CHART],
         )
 
-        assert [block["type"] for block in message.blocks] == ["divider", "header", "context", "markdown"]
-        assert message.blocks[3]["text"] == "A short report."
+        assert [block["type"] for block in message.blocks] == ["divider", "header", "markdown"]
+        assert message.blocks[2]["text"] == "A short report."
 
     def test_with_images_delivery_keeps_charts_without_posthog_controls(self) -> None:
         subscription = _mock_subscription()
         subscription.delivery_config = {
+            "post_all_insights_in_main_message": True,
             "include_images": True,
             "include_feedback": False,
             "include_manage_link": False,
@@ -634,11 +702,10 @@ class TestBuildAISlackMessage:
         assert [block["type"] for block in message.blocks] == [
             "divider",
             "header",
-            "context",
             "markdown",
             "image",
         ]
-        assert message.blocks[4]["image_url"] == _CHART["image_url"]
+        assert message.blocks[3]["image_url"] == _CHART["image_url"]
 
 
 class TestBuildAITeamsCard:
@@ -1049,6 +1116,12 @@ class TestFreezePlanPersistence:
         end = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
         window = ReportWindow(start=end - timedelta(days=1), end=end)
         return MagicMock(), MagicMock(), window, sub.ai_query_plan
+
+    @pytest.fixture(autouse=True)
+    def _owner_can_run(self) -> Iterator[None]:
+        # The team and user above are mocks, so the owner check would query the database with them.
+        with patch(f"{_DELIVERY}.assert_creator_can_run"):
+            yield
 
     @parameterized.expand(
         [

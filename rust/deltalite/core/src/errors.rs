@@ -39,6 +39,11 @@ pub enum Error {
     /// linearly with the *source*, and this is the guard on that term.
     #[error("{0}")]
     SourceTooLarge(String),
+
+    /// A wait on a process-wide budget passed its bound. A call that holds the budget
+    /// does not make progress, so the wait fails instead of blocking every other call.
+    #[error("{0}")]
+    Timeout(String),
 }
 
 impl From<deltalake::DeltaTableError> for Error {
@@ -100,6 +105,7 @@ impl Error {
             Error::Unsupported(_) => "unsupported",
             Error::Conflict(_) => "conflict",
             Error::SourceTooLarge(_) => "source_too_large",
+            Error::Timeout(_) => "timeout",
         }
     }
 }

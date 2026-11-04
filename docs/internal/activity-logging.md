@@ -195,6 +195,13 @@ A task link appears only when the token has a server-set task binding, so intent
 The `X-PostHog-Task-Id` header cannot supply that binding, and the authenticated user remains the actor on the audit row.
 This applies to new activity rows; it does not recover intent that was discarded before the change.
 
+An MCP read writes no activity row, so its intent never reaches the audit log.
+When `ACTIVITY_SUMMARY_MCP_BUFFER_ENABLED` is on, `ActivityLoggingMiddleware` also hands the intent of a successful MCP request to a best-effort Redis buffer for the activity summary (`products/signals/backend/activity_summary/mcp_buffer.py`).
+It does this only for a personal API key or an OAuth token without a sandbox task binding or impersonation, and only for a team that the `activity-summary` flag payload enrolls with `mcp_buffer_enabled`.
+The request thread only appends to an in-process queue; a background thread writes to Redis, so the buffer can drop records but cannot slow down or fail the request.
+When the payload also sets `mcp_render_enabled`, the activity summary build reads the buffer and renders one line per MCP session in the summary input.
+A failed read gives an empty section and sets `mcp_read_error` in the build's `inputs_used`; it never fails the build.
+
 ### Client IP
 
 `ActivityLoggingMiddleware` stores the request's client IP, and `log_activity` writes it to `ActivityLog.ip_address`.
@@ -254,7 +261,9 @@ Unlike `client`, they are evidence of which credential made a change.
 - A credential without a user clears any user the middleware took from a session cookie. The row has `user=None` and `is_system=True`, and it keeps the credential.
 - `impersonated_by_id` holds the staff user behind an impersonated session or an OAuth token minted during impersonation.
 - The fields are null outside a request. A row written inside a request that recorded no credential has `credential_type` `unattributed`: the request was anonymous, or its authentication class records nothing.
-- The fields are internal. The advanced activity log serializer and the notifications serializer list their fields explicitly and leave them out. The advanced serializer also builds `$activity_log_entry_created` for customer destinations.
+- Customers can read `credential_type` and some ids. `ActivityLogSerializer` in `posthog/api/advanced_activity_logs/viewset.py` serves the `activity_log` and `advanced_activity_logs` endpoints. It returns `credential_type`, and `credential_id` only for the types in `CUSTOMER_VISIBLE_CREDENTIAL_ID_TYPES` (`session`, `personal_api_key`, `project_secret_key`). It returns null for every other type and for impersonated rows, whose session belongs to the staff user. `ActivityLog.customer_visible_credential_id` applies that rule. The advanced serializer also builds `$activity_log_entry_created` for customer destinations. The CSV export serializer (`ActivityLogFlatExportSerializer`) carries the same two values in its last columns. The OCSF schema puts `credential_type` under `unmapped`, a session id in `actor.session.uid`, and a key id in `actor.session.credential_uid`.
+- `impersonated_by_id` is internal everywhere. The notifications serializer leaves out all three fields.
+- `system.activity_logs` has `credential_type` and no `credential_id`. A query can select a hidden column by name, so a hidden raw column cannot keep the other ids out.
 - Every authentication class inherits `ActivityCredentialMixin` and sets `activity_credential_type`. A class that defines its own `authenticate` sets it again, even when the parent's value is correct. `posthog/test/repo_invariants/test_authentication_credential_types.py` enforces both rules.
 - The class calls `self.record_activity_actor(user, credential_id)` after every check of the credential passed, and the type comes from the declaration. `SessionAuthentication` is the exception, because the middleware records the session. A class that declares a type but never calls the recorder writes `unattributed` rows.
 - A partner OAuth class declares `oauth` and passes the token's application id and `impersonated_by_id` to the recorder, as the main OAuth path does, so its rows read the same.
@@ -318,6 +327,7 @@ Test the behavior the receiver adds, through a public interface, at the cheapest
 
 - One test that a write through the API or the facade creates a row with the expected `activity` and `changes`.
 - One test per bulk-write site that its explicit logging produces the expected rows.
+- Batch object access-rule writes preserve the same changes and actor details as individual writes through `bulk_log_activity`.
 - A `changes_between` test only when the scope adds exclusions or masks.
 - For a separate-database product, one test that a rolled-back product write leaves no row (`override_settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True)` plus `captureOnCommitCallbacks(using=<writer alias>, execute=True)`).
 

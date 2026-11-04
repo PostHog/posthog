@@ -23,13 +23,20 @@
             "require": "./dist/index.cjs",
             "default": "./dist/index.js"
         },
+        "./testing": {
+            "types": "./dist/testing/index.d.ts",
+            "import": "./dist/testing.js",
+            "require": "./dist/testing.cjs",
+            "default": "./dist/testing.js"
+        },
         "./package.json": "./package.json"
     },
     "publishConfig": {
         "access": "public"
     },
     "scripts": {
-        "build": "vite build"
+        "build": "vite build && pnpm check:node-import",
+        "check:node-import": "node --input-type=module -e \"await import('./dist/index.js'); await import('./dist/testing.js')\" && node -e \"require('./dist/index.cjs'); require('./dist/testing.cjs')\""
     },
     "dependencies": {
         "@floating-ui/react": "^0.27.19",
@@ -59,7 +66,13 @@
         "vite-plugin-dts": "^4.5.4"
     },
     "peerDependencies": {
+        "@testing-library/react": ">=14.3.1",
         "react": "^18.3.1 || ^19.0.0",
         "react-dom": "^18.3.1 || ^19.0.0"
+    },
+    "peerDependenciesMeta": {
+        "@testing-library/react": {
+            "optional": true
+        }
     }
 }

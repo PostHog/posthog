@@ -81,6 +81,11 @@ def conversations_ticket_fetcher(
         )
         # Exclude private notes and AI drafts (mirrors widget.py / suggest.py semantics)
         .filter(~Q(item_context__is_private=True) | Q(item_context__is_private__isnull=True))
+        .exclude(
+            created_by__isnull=True,
+            item_context__author_type="AI",
+            item_context__automated_update_key__isnull=False,
+        )
         .order_by("created_at")
         .values_list("item_id", "content", "item_context", "rich_content")
     )

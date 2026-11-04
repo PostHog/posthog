@@ -36,6 +36,7 @@ FULL_ACCESS = ExperimentHealthReaderAccess(
 )
 TRAFFIC = ConditionSetTraffic(
     since=datetime(2026, 10, 1, tzinfo=UTC),
+    until=datetime(2026, 10, 8, tzinfo=UTC),
     team_timezone="UTC",
     people_by_set={1: 30, 2: 970},
     calls=2000,
@@ -44,6 +45,7 @@ TRAFFIC = ConditionSetTraffic(
 )
 TOO_FEW_PEOPLE = ConditionSetTraffic(
     since=datetime(2026, 10, 1, tzinfo=UTC),
+    until=datetime(2026, 10, 8, tzinfo=UTC),
     team_timezone="UTC",
     people_by_set={1: 3, 2: 50},
     calls=100,
@@ -234,7 +236,7 @@ class TestLoadConditionSetTraffic(BaseTest):
             )
             self.experiment = Experiment.objects.get(pk=self.experiment.pk)
             if saved_at is not None:
-                answer = replace(answer, since=saved_at)
+                answer = replace(answer, since=saved_at, until=timezone.now())
         first, _ = self._load(answer)
 
         with time_machine.travel(timezone.now() + next_load_after):

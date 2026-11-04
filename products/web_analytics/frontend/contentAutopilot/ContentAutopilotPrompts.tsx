@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import {
     LemonBanner,
+    LemonButton,
     LemonCard,
     LemonSelect,
     LemonSkeleton,
@@ -20,6 +21,7 @@ import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActi
 import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
+import { ContentAutopilotPromptsOverview } from './ContentAutopilotPromptsOverview'
 import { engineLabel } from './utils'
 
 const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
@@ -38,10 +40,12 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
         promptsPage,
         promptsTopic,
         promptTopics,
+        promptTopicsError,
+        promptTopicsLoading,
         promptEngines,
         showArchived,
     } = useValues(contentAutopilotPromptsLogic)
-    const { loadAeoPrompts, setPromptsPage, setPromptsTopic, setShowArchived } =
+    const { loadAeoPrompts, loadAeoPromptTopics, setPromptsPage, setPromptsTopic, setShowArchived } =
         useActions(contentAutopilotPromptsLogic)
     const { openPromptDetail } = useActions(contentAutopilotPromptDetailLogic)
 
@@ -70,6 +74,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 text, use the API (<code>POST /api/projects/:project_id/aeo_prompts/bulk_import/</code>) or the PostHog
                 MCP tools. A text change adds a new version of the prompt.
             </p>
+            <ContentAutopilotPromptsOverview />
             <div className="flex flex-wrap items-center gap-2">
                 <LemonSelect
                     size="small"
@@ -85,6 +90,20 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                     ]}
                     data-attr="content-autopilot-prompts-topic-filter"
                 />
+                {promptTopicsError ? (
+                    <span className="flex items-center gap-1 text-danger text-sm">
+                        Couldn't load topics.
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            onClick={loadAeoPromptTopics}
+                            loading={promptTopicsLoading}
+                            data-attr="content-autopilot-prompts-topics-retry"
+                        >
+                            Try again
+                        </LemonButton>
+                    </span>
+                ) : null}
                 <LemonSwitch
                     checked={showArchived}
                     onChange={setShowArchived}

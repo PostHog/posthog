@@ -27,6 +27,7 @@ from temporalio.worker import (
 )
 
 from posthog.temporal.ai_observability.metrics import ExecutionTimeRecorder, get_metric_meter
+from posthog.temporal.common.metrics import record_schedule_to_start_latency
 from posthog.temporal.mcp_analytics.intent_clustering.constants import COORDINATOR_WORKFLOW_NAME, WORKFLOW_NAME
 
 # Histograms registered into PrometheusConfig via common/worker.py.
@@ -117,15 +118,13 @@ class _MCPAClusteringActivityInterceptor(ActivityInboundInterceptor):
             return await super().execute_activity(input)
 
         # Schedule-to-start latency (queue depth indicator).
-        scheduled = activity_info.scheduled_time
-        started = activity_info.started_time
-        if scheduled and started:
-            meter = get_metric_meter({"activity_type": activity_type})
-            meter.create_histogram_timedelta(
-                name="mcpa_clustering_activity_schedule_to_start_latency",
-                description="Time between activity scheduling and start",
-                unit="ms",
-            ).record(started - scheduled)
+        record_schedule_to_start_latency(
+            "mcpa_clustering_activity_schedule_to_start_latency",
+            scheduled_time=activity_info.scheduled_time,
+            started_time=activity_info.started_time,
+            description="Time between activity scheduling and start",
+            attributes={"activity_type": activity_type},
+        )
 
         with ExecutionTimeRecorder(
             "mcpa_clustering_activity_execution_latency",

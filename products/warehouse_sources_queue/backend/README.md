@@ -136,8 +136,12 @@ Other sinks get that nine-metric engine set under their own `{prefix}_pg_consume
 Further counters exist only under the `warehouse_pg_consumer_*` prefix, incremented by the Delta consumer's reconcile sweep (`consumer.py`) rather than by the shared engine: `runs_reconciled_total`, `runs_terminalized_stale_total` and `runs_failed_aged_out_total`.
 `recovery_sweeps_total` has three outcomes. `clean` means the sweep found no orphaned batch. `orphans_found_after_shutdown` means every orphan carried the shutdown marker of a graceful stop, such as a deploy. `orphans_found` means at least one orphan had no marker, so a consumer died without notice (an OOM kill or a crash) or lost its lease. Alerts read `orphans_found`.
 
-The headline health signal is `warehouse_pg_queue_oldest_unclaimed_batch_seconds`: the age of the oldest batch no consumer has picked up yet.
+The headline health signal is `warehouse_pg_queue_oldest_unclaimed_batch_seconds`: the age of the oldest batch no consumer has picked up yet that a free loader slot could claim now.
 It is the loader's data-freshness signal and rises whenever loading stalls, regardless of cause, so its alert fires even when every other signal looks green.
+It excludes batches whose `(team_id, schema_id)` group already has a batch executing, because the loader claims one batch per group at a time.
+`warehouse_pg_queue_oldest_serialized_batch_seconds` reports the age of those batches.
+One slow batch or a long full refresh raises the serialized age for hours while slots stay idle, so it is a per-group signal, not a capacity signal.
+`warehouse_pg_queue_backlogged_groups` counts the groups with no batch executing whose oldest pending batch is past the backlog threshold, so it pairs with the slot-wait age.
 Its depth companion `warehouse_pg_queue_claimable_batches` says how much work sits behind that head; a stall and a burst look identical on age alone.
 Four concentration gauges ride the same depth probe and say where that depth sits.
 The loader drains each `(team_id, schema_id)` group one batch at a time by design.

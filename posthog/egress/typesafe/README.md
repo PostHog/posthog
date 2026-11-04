@@ -20,6 +20,14 @@ Every caller meets these rules before it merges, and a reviewer blocks a caller 
 
 An API key, feature flag, or customer opt-in cannot enable TypeSafe on PostHog Cloud. Changing the Cloud guard needs a separate privacy review and explicit approval before any customer data can be sent.
 
+### Customer System One connections
+
+AI observability evaluations let a team save its own System One connection: an endpoint URL and the team's own credential.
+That connection can point at TypeSafe's hosted API, and evaluation runs then send the team's evaluation data there from Cloud.
+These calls do not use this domain: no instance key, budget, or Cloud guard applies, and the team pays TypeSafe directly.
+The team chooses the endpoint and supplies the key, so PostHog sends data to TypeSafe only on that team's instruction.
+Every other provider key rejects `typesafe.ai` hosts on save, so no other path can reach TypeSafe this way.
+
 An instance without `TYPESAFE_API_KEY` sends nothing.
 
 ## Identity

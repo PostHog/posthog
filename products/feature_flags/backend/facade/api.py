@@ -38,7 +38,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.approvals.backend.policies import PolicyEngine
+from products.approvals.backend.coverage import write_needs_approval
 from products.feature_flags.backend.api.feature_flag import (
     FeatureFlagSerializer,
     validate_stored_cohort_references as _validate_stored_cohort_references,
@@ -47,6 +47,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYL
 from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.facade.filters import set_feature_enrollment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.ownership import MINTED_OWNER_CONTEXT_KEY, flag_owner_kind
 from products.feature_flags.backend.request_usage import (
     FeatureFlagRequestType as FeatureFlagRequestType,
     FeatureFlagRequestUsage as FeatureFlagRequestUsage,
@@ -96,6 +97,7 @@ def create_flag(
     user: Any,
     request: Any | None = None,
     serializer_context: dict | None = None,
+    owner: Literal["survey"] | None = None,
 ) -> FeatureFlag:
     """Gated create: routes through FeatureFlagSerializer so @approval_gate, validation,
     and activity logging apply. ``data`` is the flag's own write shape (key, name, filters,
@@ -104,8 +106,12 @@ def create_flag(
     ``created_by`` stays null, activity is logged as system, the approval gate is skipped.
     ``serializer_context`` is extra serializer context (an HTTP caller passes its viewset
     context); the facade's own ``request``, ``team_id``, ``project_id``, ``get_team`` and
-    ``get_organization`` entries win over the caller's."""
+    ``get_organization`` entries win over the caller's. ``owner`` names the product that will own
+    the new flag, so the approval gate applies that product's policies to the create instead of the
+    policies for flags no product owns. Pass it only when the caller links the flag to its own row
+    in the same transaction."""
     context = {**(serializer_context or {}), **_serializer_context(team, user, request)}
+    context[MINTED_OWNER_CONTEXT_KEY] = owner
     serializer = FeatureFlagSerializer(data=data, context=context)
     serializer.is_valid(raise_exception=True)
     return serializer.save()
@@ -388,10 +394,14 @@ def user_can_create_flags(*, team: Team, user: User) -> bool:
     return UserAccessControl(user=user, team=team).check_access_level_for_resource("feature_flag", "editor")
 
 
-def flag_disable_requires_approval(team: Team) -> bool:
-    """Whether an enabled approval policy gates disabling a flag for this team/org."""
-    policy = PolicyEngine().get_policy(action_key="feature_flag.disable", team=team, organization=team.organization)
-    return policy is not None
+def flag_disable_requires_approval(flag_id: int, *, team: Team) -> bool:
+    """Whether an enabled approval policy gates disabling this flag.
+
+    Reads the policy of the family that governs the flag, which follows its owner once the
+    organization scopes policies by flag owner.
+    """
+    flag = FeatureFlag.objects_including_soft_deleted.get(pk=flag_id, team=team)
+    return write_needs_approval(flag_owner_kind(flag), "disable", team, team.organization)
 
 
 def serialize_flags(flags: Any, *, context: dict) -> Any:

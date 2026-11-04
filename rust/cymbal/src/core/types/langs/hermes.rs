@@ -88,6 +88,7 @@ impl RawHermesFrame {
             return Ok(self.into());
         }
 
+        // Hermes prints the bytecode offset as the column, and it is 0-based, unlike JS columns
         let column = self.column.unwrap();
         let Some(token) = sourcemap.lookup_token(0, column) else {
             return Err(HermesError::NoTokenForColumn(column, r.to_string()).into());
@@ -115,6 +116,13 @@ impl RawHermesFrame {
 
     pub fn symbol_set_ref(&self) -> Option<String> {
         self.get_ref().ok().map(|r| r.to_string())
+    }
+
+    // No upload can resolve a frame without a chunk id, because the symbol set lookup
+    // keys on it. The chunk id is part of `frame_id`, so every frame with this raw id
+    // fails the same way.
+    pub fn can_never_resolve(&self) -> bool {
+        self.chunk_id.is_none()
     }
 
     fn get_ref(&self) -> Result<OrChunkId<HermesRef>, HermesError> {
@@ -184,8 +192,8 @@ impl From<(&RawHermesFrame, Token<'_>, Option<String>, usize)> for Frame {
         let mut res = Self {
             frame_id: FrameId::placeholder(),
             mangled_name: frame.fn_name.clone(),
-            line: Some(token.get_src_line()),
-            column: Some(token.get_src_col()),
+            line: Some(token.get_src_line().saturating_add(1)),
+            column: Some(token.get_src_col().saturating_add(1)),
             source,
             in_app,
             resolved_name,
@@ -318,8 +326,8 @@ mod test {
             resolved.source.as_deref(),
             Some("./build/android/index.android.bundle")
         );
-        assert_eq!(resolved.line, Some(49));
-        assert_eq!(resolved.column, Some(26));
+        assert_eq!(resolved.line, Some(50));
+        assert_eq!(resolved.column, Some(27));
         assert_eq!(resolved.resolved_name, None);
         assert_eq!(resolved.resolve_failure, None);
     }

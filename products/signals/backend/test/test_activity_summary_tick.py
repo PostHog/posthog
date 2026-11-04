@@ -12,6 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
+import redis
+import fakeredis
 from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import Client, ScheduleState
@@ -20,13 +22,17 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import ActivityLog, FileSystemViewLog, Organization, Team, User
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.file_system.file_system_view_log import log_file_system_view
 
 from products.signals.backend.activity_summary import (
+    mcp_buffer,
     schedule as tick_schedule,
     tick,
 )
 from products.signals.backend.activity_summary.computed import MAX_OWNED, MAX_WATCHED
-from products.signals.backend.activity_summary.config import ActivitySummaryConfig, parse_config
+from products.signals.backend.activity_summary.config import ActivitySummaryConfig, SourceWeights, parse_config
+from products.signals.backend.activity_summary.mcp_buffer import DIRTY_KEY, build_record, records_key
 from products.signals.backend.activity_summary.prompt import (
     MAX_HEADLINE_CHARS,
     MAX_LABEL_CHARS,
@@ -43,12 +49,15 @@ from products.signals.backend.activity_summary.queue import (
     daily_usage,
     enrolled_team_ids,
     enrollment,
+    feed_mcp_queue,
     feed_queue,
     is_team_enrolled_for_generation,
     is_team_enrolled_for_read,
     max_input_chars,
     max_update_cost_usd,
+    mcp_buffer_team_ids,
     organization_rollout_bucket,
+    read_enrolled_teams,
     seed_queue,
     select_pairs,
 )
@@ -94,6 +103,7 @@ ANSWER = json.dumps(
         "recent_shift": None,
     }
 )
+EMPTY_PROFILE_ANSWER = json.dumps({**json.loads(ANSWER), "profile": "", "themes": [], "modes": []})
 
 
 _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
@@ -116,14 +126,24 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "min_update_interval_hours": 0,
             "max_versions": -3,
             "emit_embeddings": "no",
+            "emit_profile_embeddings": 1,
             "rebuild_before": "not a time",
             "max_org_share": 2,
             "rebuild_budget_share": 2,
             "max_error_rate": 0,
             "self_driving_organization_percentage": 101,
             "deny_organization_ids": "org-b",
+            "source_weights": {"activity": -1, "tasks": 11, "new_views": True, "scene_views": "1"},
+            "min_score": 0,
+            "view_update_interval_hours": -5,
+            "cold_start_min_active_days": 2.5,
+            "mcp_buffer_enabled": "yes",
+            "mcp_render_enabled": 1,
+            "mcp_calls_per_day": 0,
+            "mcp_buffer_days": 10_000,
+            "mcp_buffer_percentage": 101,
         },
-        ActivitySummaryConfig(enabled=True, organization_ids=("org-a",), skip_team_ids=(3,)),
+        ActivitySummaryConfig(enabled=True, organization_ids=("org-a",), skip_team_ids=(3,), mcp_buffer_days=30),
     ),
     (
         "a boolean percentage falls back to the default",
@@ -139,6 +159,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "min_update_interval_hours": 12,
             "max_versions": 5,
             "capture_events": False,
+            "emit_profile_embeddings": True,
             "rebuild_before": "2026-10-01T00:00:00",
             "enroll_all_approved": True,
             "count_views": True,
@@ -146,6 +167,17 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "max_org_share": 0.3,
             "self_driving_organization_percentage": 12.5,
             "deny_organization_ids": ["org-b", 4],
+            "min_score": 4.5,
+            "view_update_interval_hours": 72,
+            "cold_start_min_active_days": 5,
+            "mcp_buffer_enabled": True,
+            "mcp_buffer_organization_ids": ["org-a"],
+            "mcp_buffer_percentage": 5,
+            "mcp_calls_per_day": 20,
+            "mcp_buffer_days": 14,
+            "mcp_render_enabled": True,
+            "mcp_queue_enabled": True,
+            "source_weights": {"new_views": 1, "repeat_view_days": 0.25, "mcp": 2},
         },
         ActivitySummaryConfig(
             enabled=True,
@@ -154,6 +186,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             min_update_interval_hours=12.0,
             max_versions=5,
             capture_events=False,
+            emit_profile_embeddings=True,
             rebuild_before=datetime.datetime(2026, 10, 1, tzinfo=datetime.UTC),
             enroll_all_approved=True,
             count_views=True,
@@ -161,6 +194,17 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             max_org_share=0.3,
             self_driving_organization_percentage=12.5,
             deny_organization_ids=("org-b",),
+            source_weights=SourceWeights(new_views=1.0, repeat_view_days=0.25, mcp=2.0),
+            min_score=4.5,
+            view_update_interval_hours=72.0,
+            cold_start_min_active_days=5,
+            mcp_buffer_enabled=True,
+            mcp_buffer_organization_ids=("org-a",),
+            mcp_buffer_percentage=5.0,
+            mcp_calls_per_day=20,
+            mcp_buffer_days=14,
+            mcp_render_enabled=True,
+            mcp_queue_enabled=True,
         ),
     ),
     (
@@ -230,13 +274,22 @@ class TestActivitySummaryQueue(BaseTest):
     def _user(self, email: str) -> User:
         return User.objects.create_and_join(self.organization, email, None)
 
-    def _changes(self, user: User, count: int, *, days_ago: float = 1, team: Team | None = None, **fields: Any):
+    def _changes(
+        self,
+        user: User,
+        count: int,
+        *,
+        days_ago: float = 1,
+        team: Team | None = None,
+        scope: str = "Insight",
+        **fields: Any,
+    ):
         for index in range(count):
             ActivityLog.objects.create(
                 team_id=(team or self.team).id,
                 organization_id=self.organization.id,
                 user=user,
-                scope="Insight",
+                scope=scope,
                 activity="created",
                 item_id=str(index),
                 detail={"name": f"Funnel {index}"},
@@ -281,7 +334,7 @@ class TestActivitySummaryQueue(BaseTest):
             self._changes(user, units, days_ago=0.5)
         self._changes(cold, 3, days_ago=0.5)
 
-        assert self._select(self._config(min_units=1, max_org_share=1.0)) == [
+        assert self._select(self._config(min_score=1, max_org_share=1.0)) == [
             (self.team.id, cold.id),
             (self.team.id, recent_busy.id),
             (self.team.id, old_quiet.id),
@@ -362,13 +415,14 @@ class TestActivitySummaryQueue(BaseTest):
         ]
 
     def test_leaves_out_pairs_that_are_not_due_or_not_enrolled(self) -> None:
-        waiting, scout_only, impersonated, skipped_team = (
-            self._user(f"{name}@example.com") for name in ("waiting", "scout", "impersonated", "skipped")
+        waiting, scout_only, setup_only, impersonated, skipped_team = (
+            self._user(f"{name}@example.com") for name in ("waiting", "scout", "setup", "impersonated", "skipped")
         )
         due = self._user("due@example.com")
         self._summary(waiting, next_eligible_at=NOW + datetime.timedelta(hours=1))
         self._changes(waiting, 3)
         self._changes(scout_only, 3, client="scout:product-analytics")
+        self._changes(setup_only, 3, scope="Integration")
         self._changes(impersonated, 3, was_impersonated=True)
         other_team = Team.objects.create(organization=self.organization, name="Skipped")
         self._changes(skipped_team, 3, team=other_team)
@@ -392,6 +446,105 @@ class TestActivitySummaryQueue(BaseTest):
 
         assert sorted(self._select(config)) == sorted([(self.team.id, user.id), (approved.id, user.id)])
 
+    @parameterized.expand(
+        [
+            ("nothing_at_zero_without_a_list", (), 0.0, {}, set()),
+            ("a_listed_organization_at_zero", ("own",), 0.0, {}, {"own"}),
+            ("an_invalid_listed_id", ("invalid",), 0.0, {}, set()),
+            ("every_enrolled_team_at_100", (), 100.0, {}, {"own", "other"}),
+            ("a_denied_organization_at_100", (), 100.0, {"deny": "other"}, {"own"}),
+            ("a_listed_organization_without_approval", ("own",), 100.0, {"unapproved": "own"}, {"other"}),
+        ]
+    )
+    def test_mcp_buffer_team_ids(
+        self, _name: str, listed: tuple[str, ...], percentage: float, overrides: dict[str, str], expected: set[str]
+    ) -> None:
+        other = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
+        teams = {"own": self.team, "other": other}
+        if "unapproved" in overrides:
+            organization = teams[overrides["unapproved"]].organization
+            organization.is_ai_data_processing_approved = False
+            organization.save()
+        organization_ids = {name: str(team.organization_id) for name, team in teams.items()} | {"invalid": "not-a-uuid"}
+        config = ActivitySummaryConfig(
+            enabled=True,
+            enroll_all_approved=True,
+            deny_organization_ids=tuple(organization_ids[name] for name in [overrides.get("deny")] if name),
+            mcp_buffer_enabled=True,
+            mcp_buffer_organization_ids=tuple(organization_ids[name] for name in listed),
+            mcp_buffer_percentage=percentage,
+        )
+        enrolled = enrollment(config)
+
+        assert mcp_buffer_team_ids(dataclasses.replace(config, mcp_buffer_enabled=False), enrolled) == []
+        assert set(mcp_buffer_team_ids(config, enrolled)) == {teams[name].id for name in expected}
+
+    def test_a_higher_mcp_buffer_percentage_keeps_the_teams_of_a_lower_one(self) -> None:
+        # These ids have rollout buckets on both sides of every percentage below.
+        teams = [
+            Team.objects.create(
+                organization=Organization.objects.create(id=uuid.UUID(int=index), name=f"Org {index}"),
+                name=f"Team {index}",
+            )
+            for index in range(1, 9)
+        ]
+        lowest = min(teams, key=lambda team: organization_rollout_bucket(team.organization_id))
+        config = ActivitySummaryConfig(enabled=True, enroll_all_approved=True, mcp_buffer_enabled=True)
+        enrolled = enrollment(config)
+        lowest_percentage = (organization_rollout_bucket(lowest.organization_id) + 1) / 100
+
+        selected = [
+            set(mcp_buffer_team_ids(dataclasses.replace(config, mcp_buffer_percentage=percentage), enrolled))
+            for percentage in (lowest_percentage, 25.0, 50.0, 75.0)
+        ]
+
+        assert lowest.id in selected[0]
+        assert all(lower <= higher for lower, higher in zip(selected, selected[1:]))
+        assert len(selected[-1]) < len(enrolled.team_ids)
+
+    @parameterized.expand(
+        [
+            ("published", {"mcp_buffer_enabled": True, "mcp_buffer_percentage": 100.0}, "own"),
+            ("deleted_when_the_buffer_is_off", {"mcp_buffer_percentage": 100.0}, None),
+            ("deleted_when_activity_summary_is_off", {"enabled": False, "mcp_buffer_enabled": True}, None),
+        ]
+    )
+    def test_plan_publishes_the_mcp_buffer_teams(
+        self, _name: str, overrides: dict[str, Any], published: str | None
+    ) -> None:
+        not_enrolled = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
+        client = mcp_buffer._teams_redis_client()
+        client.set(mcp_buffer.TEAMS_KEY, f"{not_enrolled.id}")
+
+        with (
+            patch.object(tick, "read_config", return_value=dataclasses.replace(self._config(), **overrides)),
+            patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]),
+        ):
+            plan = plan_tick(None, NOW)
+
+        stored = client.get(mcp_buffer.TEAMS_KEY)
+        if published:
+            assert mcp_buffer.parse_team_ids(stored) == {self.team.id}
+            assert 0 < client.ttl(mcp_buffer.TEAMS_KEY) <= mcp_buffer.TEAMS_TTL_SECONDS
+            assert plan.enrollment.mcp_buffer_teams == 1
+        else:
+            assert stored is None
+
+    def test_a_failed_publish_does_not_fail_the_plan(self) -> None:
+        self._changes(self._user("a@example.com"), 3)
+        self._seed()
+        broken = MagicMock(side_effect=redis.ConnectionError("unreachable"))
+
+        with (
+            patch.object(tick, "read_config", return_value=self._config(mcp_buffer_enabled=True)),
+            patch.object(mcp_buffer, "_teams_redis_client", broken),
+            patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]),
+        ):
+            plan = plan_tick(None, NOW)
+
+        broken.assert_called_once()
+        assert plan.candidates == 1
+
     def test_selects_nothing_without_ai_data_processing_approval(self) -> None:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
@@ -401,17 +554,16 @@ class TestActivitySummaryQueue(BaseTest):
 
     @parameterized.expand(
         [
-            ("listed", {}, True, False, True, True),
-            ("disabled", {"enabled": False}, True, False, False, False),
-            ("not_listed", {"organization_ids": ("00000000-0000-0000-0000-000000000001",)}, True, False, False, False),
-            ("invalid_listed_id", {"organization_ids": ("not-a-uuid",)}, True, False, False, False),
-            ("team_skipped", {"skip_team_ids": ("own",)}, True, False, False, False),
-            ("not_approved", {}, False, False, False, False),
-            ("all_approved", {"organization_ids": (), "enroll_all_approved": True}, True, False, True, True),
+            ("listed", {}, True, False, True),
+            ("disabled", {"enabled": False}, True, False, False),
+            ("not_listed", {"organization_ids": ("00000000-0000-0000-0000-000000000001",)}, True, False, False),
+            ("invalid_listed_id", {"organization_ids": ("not-a-uuid",)}, True, False, False),
+            ("team_skipped", {"skip_team_ids": ("own",)}, True, False, False),
+            ("not_approved", {}, False, False, False),
+            ("all_approved", {"organization_ids": (), "enroll_all_approved": True}, True, False, True),
             (
                 "all_approved_not_approved",
                 {"organization_ids": (), "enroll_all_approved": True},
-                False,
                 False,
                 False,
                 False,
@@ -422,13 +574,11 @@ class TestActivitySummaryQueue(BaseTest):
                 True,
                 False,
                 False,
-                False,
             ),
-            ("listed_and_denied", {"deny_organization_ids": ("own",)}, True, True, True, False),
+            ("listed_and_denied", {"deny_organization_ids": ("own",)}, True, True, False),
             (
                 "all_approved_and_denied",
                 {"enroll_all_approved": True, "deny_organization_ids": ("own",)},
-                True,
                 True,
                 True,
                 False,
@@ -438,14 +588,12 @@ class TestActivitySummaryQueue(BaseTest):
                 {"organization_ids": (), "self_driving_organization_percentage": 100.0},
                 True,
                 True,
-                False,
                 True,
             ),
             (
                 "rollout_without_source",
                 {"organization_ids": (), "self_driving_organization_percentage": 100.0},
                 True,
-                False,
                 False,
                 False,
             ),
@@ -455,14 +603,12 @@ class TestActivitySummaryQueue(BaseTest):
                 True,
                 True,
                 False,
-                False,
             ),
             (
                 "rollout_disabled",
                 {"enabled": False, "organization_ids": (), "self_driving_organization_percentage": 100.0},
                 True,
                 True,
-                False,
                 False,
             ),
             (
@@ -475,7 +621,6 @@ class TestActivitySummaryQueue(BaseTest):
                 True,
                 True,
                 False,
-                False,
             ),
             (
                 "rollout_team_skipped",
@@ -483,14 +628,12 @@ class TestActivitySummaryQueue(BaseTest):
                 True,
                 True,
                 False,
-                False,
             ),
             (
                 "rollout_not_approved",
                 {"organization_ids": (), "self_driving_organization_percentage": 100.0},
                 False,
                 True,
-                False,
                 False,
             ),
         ]
@@ -501,8 +644,7 @@ class TestActivitySummaryQueue(BaseTest):
         overrides: dict[str, Any],
         approved: bool,
         has_source: bool,
-        readable: bool,
-        generated: bool,
+        enrolled: bool,
     ) -> None:
         self.organization.is_ai_data_processing_approved = approved
         self.organization.save()
@@ -518,9 +660,10 @@ class TestActivitySummaryQueue(BaseTest):
         config = dataclasses.replace(self._config(), **overrides)
         team = Team.objects.get(id=self.team.id)
 
-        assert is_team_enrolled_for_read(config, team) is readable
-        assert is_team_enrolled_for_generation(config, team) is generated
-        assert (self.team.id in enrolled_team_ids(config)) is generated
+        assert is_team_enrolled_for_read(config, team) is enrolled
+        assert is_team_enrolled_for_generation(config, team) is enrolled
+        assert (self.team.id in enrolled_team_ids(config)) is enrolled
+        assert read_enrolled_teams(config, Team.objects.filter(id=self.team.id)).exists() is enrolled
         if config.self_driving_organization_percentage and not config.organization_ids:
             assert sourceless.id not in enrolled_team_ids(config)
 
@@ -630,6 +773,14 @@ class TestActivitySummaryQueue(BaseTest):
                 False,
             ),
             ("an exception after the model call", 3, {"return_value": FakeLLM([ANSWER])}, True, "failed", True),
+            (
+                "an empty first profile",
+                3,
+                {"return_value": FakeLLM([EMPTY_PROFILE_ANSWER])},
+                False,
+                "skipped_empty_profile",
+                True,
+            ),
         ]
     )
     def test_a_pair_that_raised_or_skipped_does_not_come_back_on_the_next_tick(
@@ -645,7 +796,7 @@ class TestActivitySummaryQueue(BaseTest):
             capture_events=True,
         )
         # The queue picks a pair with fewer rows than the update's `min_units`, so the update skips it.
-        config = self._config(min_units=1)
+        config = self._config(min_score=1)
         assert self._select(config) == [(self.team.id, self.user.id)]
 
         with (
@@ -692,18 +843,79 @@ class TestActivitySummaryQueue(BaseTest):
         assert self._select(seed=False) == []
         assert daily_usage(NOW) == DailyUsage(updates=1, cost_usd=0.25)
 
-    @parameterized.expand([("counted", True, 1), ("not counted", False, 0)])
-    def test_viewed_objects_make_a_pair_due_when_views_count(self, _name: str, count_views: bool, due: int) -> None:
-        for index in range(3):
-            FileSystemViewLog.objects.create(
-                team=self.team,
-                user=self.user,
-                type="insight",
-                ref=str(index),
-                viewed_at=NOW - datetime.timedelta(hours=index + 1),
-            )
+    def _view(self, ref: str, *days_ago: int, view_type: str = "insight") -> None:
+        days = sorted({(NOW - datetime.timedelta(days=ago)).date() for ago in days_ago})
+        FileSystemViewLog.objects.create(
+            team=self.team,
+            user=self.user,
+            type=view_type,
+            ref=ref,
+            viewed_at=NOW - datetime.timedelta(days=min(days_ago), hours=1),
+            view_days=days,
+        )
 
-        assert self._select(self._config(count_views=count_views)) == [(self.team.id, self.user.id)][:due]
+    @parameterized.expand(
+        [
+            ("known objects reopened every day", True, True, [("a", [5, 2, 1, 0]), ("b", [5, 2, 1, 0])], None),
+            ("known scenes reopened every day", True, True, [("scene:a", [5, 2, 1, 0])], None),
+            ("too few new objects", True, True, [(str(index), [1]) for index in range(5)], None),
+            ("enough new objects", True, True, [(str(index), [1]) for index in range(6)], "views"),
+            ("new objects when views do not count", False, True, [(str(index), [1]) for index in range(6)], None),
+            (
+                "no summary and views on three days",
+                True,
+                False,
+                [("a", [3]), ("b", [2]), ("c", [1])],
+                "cold_start_views",
+            ),
+            ("no summary and views on two days", True, False, [("a", [2]), ("b", [1, 2])], None),
+            ("no summary and views on three days when views do not count", False, False, [("a", [3, 2, 1])], None),
+        ]
+    )
+    def test_views_make_a_pair_due_by_weighted_score_or_on_active_days(
+        self,
+        _name: str,
+        count_views: bool,
+        summarized: bool,
+        views: list[tuple[str, list[int]]],
+        trigger: str | None,
+    ) -> None:
+        if summarized:
+            watermark = NOW - datetime.timedelta(days=4)
+            self._summary(self.user, generated_at=watermark, input_watermark=watermark)
+        for ref, days_ago in views:
+            name = ref.removeprefix("scene:")
+            self._view(name, *days_ago, view_type="scene" if ref.startswith("scene:") else "insight")
+        config = self._config(count_views=count_views)
+        self._seed(config)
+
+        selection = select_pairs(config, NOW, 10)
+
+        assert [(pair.user_id, pair.trigger) for pair in selection.pairs] == [(self.user.id, trigger)][: bool(trigger)]
+        assert selection.due_by_trigger == {
+            name: int(name == trigger) for name in ("activity", "views", "cold_start_views", "stale", "mcp")
+        }
+
+    def test_the_feed_counts_one_repeat_day_for_many_reopens_of_a_known_object_in_a_day(self) -> None:
+        watermark = NOW - datetime.timedelta(days=2)
+        self._summary(self.user, generated_at=watermark, input_watermark=watermark)
+        insight = FileSystemRepresentation(
+            base_folder="Unfiled/Insights", type="insight", ref="1", name="Funnel", href="/insights/1", meta={}
+        )
+        log_file_system_view(
+            user=self.user, obj=insight, team_id=self.team.id, viewed_at=NOW - datetime.timedelta(days=3)
+        )
+        config = self._config(count_views=True, source_weights=SourceWeights(repeat_view_days=1.0))
+        feed_queue(config, NOW - datetime.timedelta(hours=3))
+        for hours_ago in (2.5, 2, 1.5, 1):
+            log_file_system_view(
+                user=self.user, obj=insight, team_id=self.team.id, viewed_at=NOW - datetime.timedelta(hours=hours_ago)
+            )
+            with patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]):
+                feed_queue(config, NOW - datetime.timedelta(hours=hours_ago) + datetime.timedelta(minutes=10))
+
+        state = UserActivitySummaryQueueState.objects.for_team(self.team.id).get(user_id=self.user.id)
+        assert (state.pending_score, state.pending_view_score, state.view_active_days) == (1.0, 1.0, 2)
 
     def test_the_feed_reads_each_row_once_and_an_ok_update_clears_the_pending_units(self) -> None:
         config = self._config()
@@ -740,7 +952,105 @@ class TestActivitySummaryQueue(BaseTest):
             feed_queue(config, later)
         assert self._select(seed=False, now=later) == [(self.team.id, self.user.id)]
 
-    def test_an_ok_update_emits_the_embedding_and_an_event_without_the_summary(self) -> None:
+    def _mcp_calls(self, redis: fakeredis.FakeRedis, calls: list[tuple[str, str, float]], team: Team | None = None):
+        records = [
+            build_record(
+                team_id=(team or self.team).id,
+                user_id=self.user.id,
+                session_id=session_id,
+                route_name=route_name,
+                intent="Find why signups dropped",
+                at=NOW - datetime.timedelta(hours=hours_ago),
+            )
+            for session_id, route_name, hours_ago in calls
+        ]
+        for record in records:
+            redis.rpush(records_key(record.team_id, record.user_id, record.day), record.value)
+            redis.sadd(DIRTY_KEY, f"{record.team_id}:{record.user_id}")
+
+    @parameterized.expand(
+        [
+            ("three sessions", [("s1", "insights-list", 3), ("s2", "insights-list", 2), ("", "insights-list", 1)], 3),
+            (
+                "many calls in one session",
+                [("s1", "insights-list", 3), ("s1", "insights-detail", 2), ("s1", "query-create", 1)],
+                1,
+            ),
+            (
+                "plumbing routes and calls before the watermark",
+                [
+                    ("s1", "users-detail", 3),
+                    ("s2", "project_llm_skills-list", 2),
+                    ("s3", "insights-list", 30),
+                    ("s4", "insights-list", 1),
+                ],
+                1,
+            ),
+        ]
+    )
+    def test_the_mcp_feed_scores_sessions_and_counts_a_record_once(
+        self, _name: str, calls: list[tuple[str, str, float]], sessions: int
+    ) -> None:
+        watermark = NOW - datetime.timedelta(hours=24)
+        self._summary(self.user, generated_at=watermark, input_watermark=watermark)
+        redis = fakeredis.FakeRedis()
+        self._mcp_calls(redis, calls)
+        config = self._config()
+
+        feeds = [feed_mcp_queue(config, NOW, [self.team.id], redis_client=lambda: redis)]
+        redis.sadd(DIRTY_KEY, f"{self.team.id}:{self.user.id}")
+        feeds.append(feed_mcp_queue(config, NOW, [self.team.id], redis_client=lambda: redis))
+
+        assert [(feed.pairs, feed.sessions, feed.error) for feed in feeds] == [(1, sessions, False)] * 2
+        state = UserActivitySummaryQueueState.objects.for_team(self.team.id).get(user_id=self.user.id)
+        assert (state.pending_score, state.pending_mcp_score) == (float(sessions), float(sessions))
+        selection = select_pairs(config, NOW, 10)
+        assert [(pair.user_id, pair.trigger) for pair in selection.pairs] == [(self.user.id, "mcp")][: sessions >= 3]
+
+    def test_the_mcp_feed_ignores_teams_that_are_not_enrolled_and_survives_a_redis_error(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        redis = fakeredis.FakeRedis()
+        self._mcp_calls(redis, [("s1", "insights-list", 1)], team=other_team)
+
+        feed = feed_mcp_queue(self._config(), NOW, [self.team.id], redis_client=lambda: redis)
+        broken = feed_mcp_queue(
+            self._config(), NOW, [self.team.id], redis_client=MagicMock(side_effect=ConnectionError("unreachable"))
+        )
+
+        assert (feed.pairs, feed.ignored, feed.error) == (0, 1, False)
+        assert broken.error is True
+        assert not UserActivitySummaryQueueState.objects.for_team(other_team.id).exists()
+
+    @parameterized.expand([("queue off", False, True, 1), ("render off", True, False, 1), ("both on", True, True, 0)])
+    def test_the_tick_drains_the_mcp_dirty_set_only_when_both_switches_are_on(
+        self, _name: str, queue_enabled: bool, render_enabled: bool, members_left: int
+    ) -> None:
+        redis = fakeredis.FakeRedis()
+        self._mcp_calls(redis, [("s1", "insights-list", 1), ("s2", "insights-list", 1), ("s3", "insights-list", 1)])
+        config = self._config(mcp_queue_enabled=queue_enabled, mcp_render_enabled=render_enabled)
+
+        with (
+            override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test"),
+            patch.object(tick, "read_config", return_value=config),
+            patch.object(
+                tick,
+                "feed_mcp_queue",
+                side_effect=lambda config, now, team_ids: feed_mcp_queue(
+                    config, now, team_ids, redis_client=lambda: redis
+                ),
+            ),
+            patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]),
+        ):
+            plan = plan_tick(None, NOW)
+
+        assert redis.scard(DIRTY_KEY) == members_left
+        assert plan.mcp_feed.sessions == 3 * (1 - members_left)
+        assert [pair.trigger for pair in plan.pairs] == ["mcp"][: 1 - members_left]
+
+    @parameterized.expand([("activity", 24), ("views", 168), ("cold_start_views", 168), (None, 24)])
+    def test_an_ok_update_emits_the_embedding_and_an_event_without_the_summary(
+        self, trigger: str | None, wait_hours: int
+    ) -> None:
         self._changes(self.user, 3)
         capture = MagicMock()
         with (
@@ -756,15 +1066,70 @@ class TestActivitySummaryQueue(BaseTest):
                     min_update_interval_hours=24,
                     emit_embeddings=True,
                     capture_events=True,
+                    trigger=trigger,
+                    view_update_interval_hours=168,
                 )
             )
 
         assert (result.status, result.called_model, result.new_summary) == ("ok", True, True)
+        stored = UserActivitySummary.objects.for_team(self.team.id).get(user_id=self.user.id)
+        assert stored.next_eligible_at == NOW + datetime.timedelta(hours=wait_hours)
         assert emit.call_args.kwargs["document_id"] == f"{self.user.id}:2026-10-19"
         assert emit.call_args.kwargs["content"] == "Builds the signup funnel.\nThemes: Signup funnel"
         event = capture.call_args.kwargs
         assert event["event"] == "activity summary generated"
+        assert event["properties"]["trigger"] == trigger
         assert "signup funnel" not in json.dumps(event["properties"]).lower()
+
+    @parameterized.expand(
+        [
+            ("both switches on", True, True, False, ["summary_text", "summary_profile"]),
+            ("profile switch off", True, False, False, ["summary_text"]),
+            ("embeddings off stops both", False, True, False, []),
+            ("a failed profile vector keeps the summary vector", True, True, True, ["summary_text"]),
+        ]
+    )
+    def test_the_profile_vector_follows_its_switch_and_never_affects_the_summary_vector(
+        self, _name: str, emit_embeddings: bool, emit_profile: bool, profile_fails: bool, expected: list[str]
+    ) -> None:
+        self._changes(self.user, 3)
+        emitted: list[dict[str, Any]] = []
+
+        def emit(**kwargs: Any) -> None:
+            if profile_fails and kwargs["rendering"] == "summary_profile":
+                raise RuntimeError("embedding producer down")
+            emitted.append(kwargs)
+
+        with (
+            patch("products.signals.backend.activity_summary.logic.gateway_client", return_value=FakeLLM([ANSWER])),
+            patch("posthog.api.embedding_worker.emit_embedding_request", side_effect=emit),
+        ):
+            result = run_pair(
+                ActivitySummaryPairInput(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    min_units=3,
+                    min_update_interval_hours=24,
+                    emit_embeddings=emit_embeddings,
+                    emit_profile_embeddings=emit_profile,
+                    capture_events=False,
+                )
+            )
+
+        headline_and_themes = "Builds the signup funnel.\nThemes: Signup funnel"
+        contents = {
+            "summary_text": headline_and_themes,
+            "summary_profile": f"{headline_and_themes}\n\n## Funnels\n- Builds the signup funnel.",
+        }
+        assert result.status == "ok"
+        assert [(call["rendering"], call["content"]) for call in emitted] == [
+            (rendering, contents[rendering]) for rendering in expected
+        ]
+        shared = [
+            {key: value for key, value in call.items() if key not in ("rendering", "content")} for call in emitted
+        ]
+        assert all(fields == shared[0] for fields in shared)
+        assert all(fields["document_id"] == f"{self.user.id}:2026-10-19" for fields in shared)
 
 
 @pytest.mark.asyncio
@@ -790,7 +1155,7 @@ async def test_an_update_keeps_an_operator_pause() -> None:
 def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
     fields: dict[str, Any] = {
         "enabled": True,
-        "pairs": [ActivitySummaryPair(team_id=1, user_id=user_id) for user_id in range(pairs)],
+        "pairs": [ActivitySummaryPair(team_id=1, user_id=user_id, trigger="views") for user_id in range(pairs)],
         "candidates": pairs,
         "updates_left": 100,
         "cost_left_usd": 100.0,
@@ -804,16 +1169,19 @@ def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
         "max_error_rate": 0.5,
         "tiers": [ActivitySummaryTierStats(tier="paying", due_pairs=pairs)],
         "enrollment": EnrollmentCounts(qualifying_organizations=3, enrolled_organizations=2, enrolled_teams=4),
+        "due_by_trigger": {"activity": 1, "views": pairs - 1},
         "stop_reason": None,
+        "mcp_buffer_days": 10,
     }
     return ActivitySummaryTickPlan(**{**fields, **overrides})
 
 
 async def _run_tick(
     plan: ActivitySummaryTickPlan, pair_cost: float | None, pair_status: str = "ok"
-) -> tuple[ActivitySummaryTickResult, int, list[ActivitySummaryTickResult]]:
+) -> tuple[ActivitySummaryTickResult, int, list[ActivitySummaryTickResult], list[ActivitySummaryPairInput]]:
     running = peak = 0
     captured: list[ActivitySummaryTickResult] = []
+    pair_inputs: list[ActivitySummaryPairInput] = []
 
     @activity.defn(name="plan_activity_summary_tick_activity")
     async def fake_plan(input: ActivitySummaryTickInput) -> ActivitySummaryTickPlan:
@@ -822,6 +1190,7 @@ async def _run_tick(
     @activity.defn(name="update_activity_summary_pair_activity")
     async def fake_pair(input: ActivitySummaryPairInput) -> ActivitySummaryPairResult:
         nonlocal running, peak
+        pair_inputs.append(input)
         running += 1
         peak = max(peak, running)
         await asyncio.sleep(0.01)
@@ -848,7 +1217,7 @@ async def _run_tick(
                 id=f"activity-summary-tick-{uuid.uuid4()}",
                 task_queue="activity-summary-tick-test",
             )
-    return result, peak, captured
+    return result, peak, captured, pair_inputs
 
 
 @pytest.mark.asyncio
@@ -861,6 +1230,7 @@ async def _run_tick(
         (_plan(6, cost_left_usd=3.0), None, "ok", 4, STOP_MAX_COST_USD_PER_DAY, (2, 2)),
         # The breaker waits for a sample of 10 model calls, which is five waves.
         (_plan(20), 0.01, "failed", 10, STOP_ERROR_RATE, (0, 0)),
+        (_plan(20), 0.01, "skipped_empty_profile", 20, None, (0, 0)),
     ],
 )
 async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_error_rate(
@@ -871,9 +1241,13 @@ async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_e
     stop_reason: str | None,
     builds: tuple[int, int],
 ) -> None:
-    result, peak, captured = await _run_tick(plan, pair_cost, pair_status)
+    result, peak, captured, pair_inputs = await _run_tick(plan, pair_cost, pair_status)
 
     assert peak <= plan.max_concurrency
+    assert {(pair.trigger, pair.view_update_interval_hours, pair.mcp_buffer_days) for pair in pair_inputs} == {
+        ("views", 168.0, 10)
+    }
+    assert result.due_by_trigger == plan.due_by_trigger
     assert (result.picked, result.statuses, result.stop_reason) == (picked, {pair_status: picked}, stop_reason)
     assert result.tiers == plan.tiers
     assert (result.new_builds, result.refresh_builds) == builds
@@ -883,7 +1257,7 @@ async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_e
 
 @pytest.mark.asyncio
 async def test_a_disabled_tick_runs_no_pair() -> None:
-    result, peak, captured = await _run_tick(_plan(0, enabled=False), 0.01)
+    result, peak, captured, _ = await _run_tick(_plan(0, enabled=False), 0.01)
 
     assert (result, peak, captured) == (ActivitySummaryTickResult(), 0, [])
 

@@ -31,7 +31,10 @@ export interface SankeyNodeLabelsProps {
 
 /** Draws the labels `sankeyLabelBoxes` placed. The chart's hit test reads the same boxes, so the
  *  pointer passes through a label to the chart and hovering it shows its node's tooltip. */
-export function SankeyNodeLabels({ boxes, color }: SankeyNodeLabelsProps): React.ReactElement {
+export const SankeyNodeLabels = React.memo(function SankeyNodeLabels({
+    boxes,
+    color,
+}: SankeyNodeLabelsProps): React.ReactElement {
     return (
         <>
             {boxes.map((box) => (
@@ -50,4 +53,4 @@ export function SankeyNodeLabels({ boxes, color }: SankeyNodeLabelsProps): React
             ))}
         </>
     )
-}
+})

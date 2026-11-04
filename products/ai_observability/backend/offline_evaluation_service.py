@@ -13,12 +13,15 @@ from django.db.models import Q
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
+from posthog.exceptions import QuotaLimitExceeded
+from posthog.models.team import Team
 
 from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineEvaluationResultPayload,
+    OfflineEvaluationUsageLedger,
     OfflineExperiment,
     OfflineExperimentItem,
     OfflineExperimentItemPayload,
@@ -33,6 +36,8 @@ from products.ai_observability.backend.offline_evaluation_types import (
     UploadSubmission,
 )
 from products.ai_observability.backend.score_validation import validate_score_value
+
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -53,6 +58,7 @@ class ExperimentReceipt:
     experiment: OfflineExperiment
     counts: ExperimentCounts
     created: bool = False
+    status_changed: bool = False
 
 
 @frozen
@@ -259,7 +265,7 @@ class OfflineExperimentService(_OfflineEvaluationService):
             experiment.status = status
             experiment.finished_at = timezone.now()
             experiment.save(update_fields=["status", "finished_at"])
-            receipt = ExperimentReceipt(experiment=experiment, counts=counts)
+            receipt = ExperimentReceipt(experiment=experiment, counts=counts, status_changed=True)
         return receipt
 
 
@@ -441,6 +447,13 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
         new_item_submissions = [item for item in submission.items if item.id not in items]
         if (new_item_submissions or new_results) and experiment.status != OfflineExperiment.Status.UPLOADING:
             raise OfflineEvaluationConflict("experiment_closed", "This experiment is closed to new items and results.")
+        if new_results:
+            api_token = Team.objects.values_list("api_token", flat=True).get(id=self.team_id)
+            if is_team_limited(api_token, QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
+                raise QuotaLimitExceeded(
+                    "Your organization reached its AI observability usage limit. Increase the limit in Billing settings, "
+                    "or ask an org admin to do so."
+                )
         errors: dict[str, str] = {}
         try:
             dataset_versions = self._dataset_versions(experiment, new_item_submissions)
@@ -515,6 +528,15 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
                 if result.payload is not None
             ]
         )
+        if new_result_rows:
+            organization_id = Team.objects.values_list("organization_id", flat=True).get(id=experiment.team_id)
+            OfflineEvaluationUsageLedger.objects.for_team(experiment.team_id).create(
+                team_id=experiment.team_id,
+                organization_id=organization_id,
+                experiment_id=experiment.id,
+                accepted_at=accepted_at,
+                quantity=len(new_result_rows),
+            )
         return UploadReceipt(
             items=[
                 ItemReceipt(id=item.id, accepted_at=item.accepted_at, created=item.id in new_item_ids)

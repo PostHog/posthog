@@ -71,7 +71,7 @@ class TableCertification(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     class Meta:
         constraints = [
             models.CheckConstraint(
-                check=(
+                condition=(
                     models.Q(table__isnull=False, saved_query__isnull=True)
                     | models.Q(table__isnull=True, saved_query__isnull=False)
                 ),

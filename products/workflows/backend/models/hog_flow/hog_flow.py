@@ -1,5 +1,7 @@
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any, Final
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import TYPE_CHECKING, Any, Final, Optional
 
 from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
@@ -8,6 +10,7 @@ from django.utils.functional import Promise
 
 import structlog
 
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
@@ -77,7 +80,14 @@ COHORT_TRIGGER_TRANSITIONS: Final[tuple[str, ...]] = ("entered", "left")
 # allowlist keeps that gap closed by default, so adding a trigger means answering the
 # authorization question for that event. Pair a new entry with a tile in
 # products/workflows/frontend/Workflows/hogflows/registry/triggers/.
-WORKFLOW_SAFE_INTERNAL_EVENTS: Final[frozenset[str]] = frozenset({"$slack_message_received", "$github_event_received"})
+WORKFLOW_SAFE_INTERNAL_EVENTS: Final[frozenset[str]] = frozenset(
+    {
+        "$slack_message_received",
+        "$github_event_received",
+        # A public support reply. Its payload omits the reply body and matches the analytics event.
+        "$conversation_message_sent",
+    }
+)
 
 # Billable action types that are subject to rate limiting and quota tracking
 # These action types incur costs and are counted against customer quotas
@@ -209,6 +219,11 @@ class HogFlow(Taggable, UUIDTModel):
         indexes = [
             models.Index(fields=["status", "team"]),
             models.Index(fields=["version", "team"]),
+            models.Index(
+                fields=["team", "source_record"],
+                name="hogflow_team_source_record_idx",
+                condition=models.Q(source_record__isnull=False),
+            ),
         ]
 
         constraints = [
@@ -229,6 +244,9 @@ class HogFlow(Taggable, UUIDTModel):
     origin_product = models.CharField(
         max_length=40, choices=hog_flow_origin_product_choices, null=True, blank=True, db_index=False
     )
+    # The record another product's "message these people" entry point started this flow from, as
+    # "<kind>:<id>". A later broadcast from the same record warns that this one already went out.
+    source_record = models.CharField(max_length=255, null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
@@ -299,12 +317,85 @@ class HogFlow(Taggable, UUIDTModel):
         return f"HogFlow {self.id}/{self.version}: {self.name}"
 
 
+# Every reload makes each worker drop the team's whole workflow list, so a bulk write sends a few large ones.
+RELOAD_BATCH_SIZE = 500
+_deferred_reloads: ContextVar[Optional[dict[int, set[str]]]] = ContextVar("hog_flow_deferred_reloads", default=None)
+
+
+@contextmanager
+def defer_hog_flow_reloads() -> Iterator[None]:
+    """Collect the worker reloads of the saves inside the block and send them together when it ends."""
+    if _deferred_reloads.get() is not None:
+        yield
+        return
+    pending: dict[int, set[str]] = {}
+    token = _deferred_reloads.set(pending)
+    try:
+        yield
+    finally:
+        _deferred_reloads.reset(token)
+        transaction.on_commit(lambda: _reload_deferred_on_workers(pending))
+
+
+def _reload_deferred_on_workers(pending: dict[int, set[str]]) -> None:
+    for team_id, hog_flow_ids in pending.items():
+        ordered = sorted(hog_flow_ids)
+        for start in range(0, len(ordered), RELOAD_BATCH_SIZE):
+            _reload_batch_on_workers(team_id, ordered[start : start + RELOAD_BATCH_SIZE])
+
+
+def _reload_batch_on_workers(team_id: int, hog_flow_ids: list[str]) -> None:
+    # The saves have already committed, so a failed publish must not fail the request that made them.
+    # Workers also expire their cached workflows on a timer, so a lost reload only delays the change.
+    for attempt in range(2):
+        try:
+            reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=hog_flow_ids)
+            return
+        except Exception as e:
+            if attempt == 1:
+                logger.exception("hog_flow_deferred_reload_failed", team_id=team_id, hog_flow_count=len(hog_flow_ids))
+                capture_exception(e)
+
+
+def _enqueue_workflow_created_report(
+    team_id: int, workflow_id: str, created_at: str, origin_product: str | None, actions_count: int
+) -> None:
+    from products.workflows.backend.tasks.hog_flows import report_workflow_created  # noqa: PLC0415
+
+    try:
+        report_workflow_created.delay(
+            team_id=team_id,
+            hog_flow_id=workflow_id,
+            created_at=created_at,
+            origin_product=origin_product,
+            actions_count=actions_count,
+        )
+    except Exception:
+        logger.exception("Failed to report workflow creation", team_id=team_id, workflow_id=workflow_id)
+
+
 @receiver(post_save, sender=HogFlow)
-def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, **kwargs):
+def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, using="default", **kwargs):
+    if created:
+        team_id = instance.team_id
+        workflow_id = str(instance.id)
+        created_at = instance.created_at.isoformat()
+        origin_product = instance.origin_product
+        actions_count = len(instance.actions or [])
+        transaction.on_commit(
+            lambda: _enqueue_workflow_created_report(team_id, workflow_id, created_at, origin_product, actions_count),
+            using=using,
+        )
     # Draft columns don't affect live execution, so workers don't need a config reload for them.
     if update_fields and set(update_fields) <= {"draft", "draft_updated_at"}:
         return
-    reload_hog_flows_on_workers(team_id=instance.team_id, hog_flow_ids=[str(instance.id)])
+    pending = _deferred_reloads.get()
+    if pending is not None:
+        pending.setdefault(instance.team_id, set()).add(str(instance.id))
+        return
+    team_id = instance.team_id
+    hog_flow_id = str(instance.id)
+    transaction.on_commit(lambda: _reload_batch_on_workers(team_id, [hog_flow_id]))
 
 
 @receiver(post_delete, sender=HogFlow)
@@ -313,7 +404,7 @@ def hog_flow_deleted(sender, instance: HogFlow, **kwargs):
     hog_flow_id = str(instance.id)
     # post_delete fires inside the delete transaction, so publish only after commit; otherwise a
     # worker could re-read the still-live row and cache it as active for another TTL.
-    transaction.on_commit(lambda: reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[hog_flow_id]))
+    transaction.on_commit(lambda: _reload_batch_on_workers(team_id, [hog_flow_id]))
 
 
 @receiver(post_save, sender=Action)

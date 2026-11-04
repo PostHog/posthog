@@ -3,8 +3,8 @@ import { useEffect, useMemo, useRef } from 'react'
 
 import { uuid } from 'lib/utils/dom'
 
-import { attachedContextLogic } from '../logics/attachedContextLogic'
-import type { AttachedContextItem } from '../types/contextTypes'
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 
 export interface UseAttachedContextOptions {
     /** When false, the provider is deregistered (nothing attached). Defaults to true. */

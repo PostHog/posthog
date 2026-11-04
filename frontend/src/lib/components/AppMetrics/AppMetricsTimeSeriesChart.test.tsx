@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, waitFor } from '@testing-library/react'
 
-import { ensureJsdom, getHogChart, hoverAtIndex, hoverUntilTooltip } from '@posthog/quill-charts/testing'
+import { ensureJsdom, getChart, hoverAtIndex, hoverUntilTooltip } from '@posthog/quill-charts/testing'
 
 import { AppMetricsTimeSeriesChart } from './AppMetricsTimeSeriesChart'
 
@@ -25,7 +25,7 @@ describe('AppMetricsTimeSeriesChart', () => {
                 />
             </div>
         )
-        const chart = getHogChart(container)
+        const chart = getChart(container)
 
         const tooltip = await hoverUntilTooltip(chart.element, 0, labels.length)
         expect(tooltip).toHaveTextContent('Sun, Nov 1, 01:00 (-07:00)')

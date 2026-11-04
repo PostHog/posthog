@@ -7,7 +7,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
 
@@ -99,6 +99,43 @@ class TestDataWarehouseTableAccessControl(WarehouseAccessControlTestMixin):
         ids = [t["id"] for t in response.json()["results"]]
         self.assertIn(str(self.table.id), ids)
         self.assertNotIn(str(other_table.id), ids)
+
+    @parameterized.expand([("the source", True), ("every source", False)])
+    def test_list_omits_tables_of_a_denied_source(self, _name: str, deny_one_source: bool) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="src",
+            connection_id="conn",
+            destination_id="dest",
+            source_type="Stripe",
+            prefix="stripe_",
+        )
+        sourced_table = DataWarehouseTable.objects.create(
+            name="stripe_customers",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            url_pattern="s3://bucket/stripe_customers",
+            columns={"name": "String"},
+        )
+        membership = OrganizationMembership.objects.get(user=self.viewer_user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(source.id) if deny_one_source else None,
+            access_level="none",
+            organization_member=membership,
+        )
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(self._list_url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [t["id"] for t in response.json()["results"]]
+        self.assertIn(str(self.table.id), ids)
+        self.assertNotIn(str(sourced_table.id), ids)
+        detail = self.client.get(f"/api/environments/{self.team.pk}/warehouse_tables/{sourced_table.id}/")
+        self.assertEqual(detail.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_user_access_level_field_is_present(self):
         self._create_access_control(self.viewer_user, access_level="viewer")

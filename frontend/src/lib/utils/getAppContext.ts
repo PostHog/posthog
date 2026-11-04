@@ -1,4 +1,4 @@
-import { getOAuthContextIds, isOAuthMode } from 'lib/oauth/oauthClient'
+import { getOAuthContextIds, isOAuthMode } from 'lib/utils/oauthClient'
 
 import { AppContext, OrganizationType, PathType, TeamType, UserType } from '~/types'
 

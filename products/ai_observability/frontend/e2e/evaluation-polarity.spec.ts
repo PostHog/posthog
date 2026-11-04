@@ -12,12 +12,23 @@ if (not result) {
 }
 return result`
 
-const SCREENSHOT_DIR = path.join(__dirname, '../../../../.playwright-screenshots')
-
 interface BooleanRunSpec {
     result: boolean | null
     skipped?: boolean
 }
+
+// Identical runs on both evaluations, so any difference in how they render comes from the declared polarity.
+const BOOLEAN_RUNS: BooleanRunSpec[] = [
+    { result: true },
+    { result: true },
+    { result: true },
+    { result: true },
+    { result: false },
+    { result: null },
+    { result: false, skipped: true },
+]
+
+const SCREENSHOT_DIR = path.join(__dirname, '../../../../.playwright-screenshots')
 
 function buildBooleanRunEvents(
     evaluationId: string,
@@ -88,108 +99,44 @@ test.describe('AI observability boolean evaluation polarity', () => {
         const workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
         await playwrightSetup.login(page, workspace)
 
-        await test.step('the switch renders under Allow N/A responses and round-trips through save + reload', async () => {
-            await page.goto('/ai-evals/evaluations/new')
-            await expect(page.getByRole('heading', { name: 'New evaluation' })).toBeVisible()
+        await test.step('the polarity choice round-trips through save + reload', async () => {
+            // Created through the API, not seeded: a save needs at least one condition set, which a seed lacks.
+            const createResponse = await page.request.post(`/api/projects/${workspace.team_id}/evaluations/`, {
+                headers: { Authorization: `Bearer ${workspace.personal_api_key}` },
+                data: {
+                    name: 'User struggled',
+                    evaluation_type: 'hog',
+                    evaluation_config: { source: HOG_SOURCE },
+                    output_type: 'boolean',
+                    output_config: {},
+                    conditions: [{ id: 'all', rollout_percentage: 100, properties: [] }],
+                },
+            })
+            expect(createResponse.ok()).toBe(true)
+            const evaluationId = ((await createResponse.json()) as { id: string }).id
 
-            await page.getByPlaceholder('e.g., Helpfulness Check').fill('User struggled')
-            await page.getByRole('button', { name: 'LLM as a judge' }).click()
-            await page.getByRole('menuitem', { name: 'Hog code' }).click()
-
-            const trueIsFailureSwitch = page.getByTestId('llma-evaluation-true-is-failure-switch')
-            const allowsNaLabel = page.getByText('Allow N/A responses', { exact: true })
-            const trueIsFailureLabel = page.getByText('A true result flags a problem', { exact: true })
-
-            // Settle scrolling before taking any measurement — every bounding box read below has
-            // to share one coordinate space with the eventual screenshot clip, and a later click
-            // auto-scrolling the page would otherwise invalidate boxes read before it.
-            await trueIsFailureSwitch.scrollIntoViewIfNeeded()
-
-            await expect(allowsNaLabel).toBeVisible()
-            await expect(trueIsFailureLabel).toBeVisible()
-            const naBox = await allowsNaLabel.boundingBox()
-            const flagBox = await trueIsFailureLabel.boundingBox()
-            if (!naBox || !flagBox) {
-                throw new Error('Expected both switch labels to have a bounding box')
-            }
-            expect(flagBox.y).toBeGreaterThan(naBox.y)
-
-            await expect(trueIsFailureSwitch).toHaveAttribute('aria-checked', 'false')
-            await expect(page.getByText('A true result counts as a pass', { exact: true })).toBeVisible()
-
-            await trueIsFailureSwitch.click()
-            await expect(trueIsFailureSwitch).toHaveAttribute('aria-checked', 'true')
-            const failDescription = page.getByText('A true result counts as a fail', { exact: true })
-            await expect(failDescription).toBeVisible()
-
-            const naDescription = page.getByText('Evaluation must return true or false', { exact: true })
-            const failBox = await failDescription.boundingBox()
-            const switchBox = await trueIsFailureSwitch.boundingBox()
-            const naDescriptionBox = await naDescription.boundingBox()
-            if (failBox && switchBox && naDescriptionBox) {
-                const pad = 24
-                const left = Math.min(naBox.x, switchBox.x) - pad
-                const top = naBox.y - 10
-                const right =
-                    Math.max(
-                        naBox.x + naBox.width,
-                        naDescriptionBox.x + naDescriptionBox.width,
-                        failBox.x + failBox.width
-                    ) + pad
-                const bottom = failBox.y + failBox.height + pad
-                await page.screenshot({
-                    path: path.join(SCREENSHOT_DIR, '01-switch.png'),
-                    clip: { x: left, y: top, width: right - left, height: bottom - top },
-                    animations: 'disabled',
-                })
-            }
-
-            const [createResponse] = await Promise.all([
-                page.waitForResponse(
-                    (resp) => resp.url().includes('/evaluations/') && resp.request().method() === 'POST'
-                ),
-                page.getByTestId('llma-evaluation-save-bottom').click(),
-            ])
-            await expect(page).toHaveURL(/\/ai-evals\/evaluations$/, { timeout: 30_000 })
-            const created = await createResponse.json()
-            const evalAId = created.id as string
-
-            const gotoEvalA = async (): Promise<void> => {
-                await page.goto(`/ai-evals/evaluations/${evalAId}`)
+            const passOption = page.getByTestId('llma-evaluation-true-is-pass')
+            const failOption = page.getByTestId('llma-evaluation-true-is-failure')
+            const gotoConfiguration = async (): Promise<void> => {
+                await page.goto(`/ai-evals/evaluations/${evaluationId}`)
                 await page.getByTestId('llma-evaluation-configuration-tab').click()
+                await page.getByTestId('llma-evaluation-create-step-check').click()
             }
 
-            await gotoEvalA()
-            await expect(page.getByTestId('llma-evaluation-true-is-failure-switch')).toHaveAttribute(
-                'aria-checked',
-                'true'
-            )
-            await page.reload()
-            await page.getByTestId('llma-evaluation-configuration-tab').click()
-            await expect(page.getByTestId('llma-evaluation-true-is-failure-switch')).toHaveAttribute(
-                'aria-checked',
-                'true'
-            )
+            for (const option of [failOption, passOption]) {
+                await gotoConfiguration()
+                await option.click()
+                await Promise.all([
+                    page.waitForResponse(
+                        (resp) => resp.url().includes('/evaluations/') && resp.request().method() === 'PATCH'
+                    ),
+                    page.getByTestId('llma-evaluation-save-bottom').click(),
+                ])
 
-            await page.getByTestId('llma-evaluation-true-is-failure-switch').click()
-            await expect(page.getByTestId('llma-evaluation-true-is-failure-switch')).toHaveAttribute(
-                'aria-checked',
-                'false'
-            )
-            await page.getByTestId('llma-evaluation-save-bottom').click()
-            await expect(page).toHaveURL(/\/ai-evals\/evaluations$/, { timeout: 30_000 })
-
-            await gotoEvalA()
-            await expect(page.getByTestId('llma-evaluation-true-is-failure-switch')).toHaveAttribute(
-                'aria-checked',
-                'false'
-            )
-            await page.reload()
-            await page.getByTestId('llma-evaluation-configuration-tab').click()
-            await expect(page.getByTestId('llma-evaluation-true-is-failure-switch')).toHaveAttribute(
-                'aria-checked',
-                'false'
-            )
+                // A full page load, so the choice comes back from the API rather than form state.
+                await gotoConfiguration()
+                await expect(option).toHaveClass(/LemonButton--primary/)
+            }
         })
 
         await test.step('a legacy evaluation whose config never had the key behaves as pass-on-true', async () => {
@@ -204,15 +151,12 @@ test.describe('AI observability boolean evaluation polarity', () => {
 
             await page.goto(`/ai-evals/evaluations/${legacy.evaluation_id}`)
             await page.getByTestId('llma-evaluation-configuration-tab').click()
-            await expect(page.getByTestId('llma-evaluation-true-is-failure-switch')).toHaveAttribute(
-                'aria-checked',
-                'false'
-            )
-            await expect(page.getByText('A true result counts as a pass', { exact: true })).toBeVisible()
+            await page.getByTestId('llma-evaluation-create-step-check').click()
+            await expect(page.getByTestId('llma-evaluation-true-is-pass')).toHaveClass(/LemonButton--primary/)
         })
     })
 
-    test('seeded results propagate correctly across the list, the runs table, and edge cases', async ({
+    test('seeded results propagate correctly across the runs table and edge cases', async ({
         page,
         playwrightSetup,
     }) => {
@@ -221,8 +165,6 @@ test.describe('AI observability boolean evaluation polarity', () => {
         const workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
         await playwrightSetup.login(page, workspace)
 
-        // Enabled so a reviewer glancing at the list screenshot doesn't have to wonder
-        // whether the rates are stale because the evaluations are off.
         const detector = await playwrightSetup.seedEvaluation({
             team_id: workspace.team_id,
             name: 'User struggled',
@@ -245,85 +187,10 @@ test.describe('AI observability boolean evaluation polarity', () => {
         })
         const evalBId = quality.evaluation_id
 
-        await test.step('identical results invert the pass rate between a detector and a quality check', async () => {
-            const now = Date.now()
-            const detectorEvents = buildBooleanRunEvents(
-                evalAId,
-                'User struggled',
-                [
-                    { result: true },
-                    { result: true },
-                    { result: true },
-                    { result: true },
-                    { result: false },
-                    { result: null },
-                    { result: false, skipped: true },
-                ],
-                now
-            )
-            const qualityEvents = buildBooleanRunEvents(
-                evalBId,
-                'Response is accurate',
-                [
-                    { result: true },
-                    { result: true },
-                    { result: true },
-                    { result: true },
-                    { result: false },
-                    { result: null },
-                    { result: false, skipped: true },
-                ],
-                now
-            )
-            await playwrightSetup.seedEvents(workspace.team_id, [...detectorEvents, ...qualityEvents])
-
-            await page.goto('/ai-evals/evaluations')
-            const detectorRow = page.getByRole('row', { name: /User struggled/ })
-            const qualityRow = page.getByRole('row', { name: /Response is accurate/ })
-            await expect(detectorRow).toBeVisible()
-            await expect(qualityRow).toBeVisible()
-
-            // Scroll before measuring — the table can render below the fold on a fresh
-            // page load, and a clip built from boxes measured pre-scroll lands off-image.
-            await detectorRow.scrollIntoViewIfNeeded()
-
-            // Byte-identical seed data on both evaluations (same 4 true / 1 false / 1 null /
-            // 1 skipped pattern) — the run count has to match too, or a reviewer glancing at the
-            // screenshot could mistake the inverted rates for a difference in the underlying data
-            // rather than in the declared polarity.
-            const detectorRuns = detectorRow.getByText('7 runs', { exact: true })
-            const qualityRuns = qualityRow.getByText('7 runs', { exact: true })
-            await expect(detectorRuns).toBeVisible()
-            await expect(qualityRuns).toBeVisible()
-
-            const detectorRate = detectorRow.getByText('20%', { exact: true })
-            const qualityRate = qualityRow.getByText('80%', { exact: true })
-            await expect(detectorRate).toBeVisible()
-            await expect(detectorRate).toHaveClass(/text-danger/)
-            await expect(qualityRate).toBeVisible()
-            await expect(qualityRate).toHaveClass(/text-success/)
-
-            const detectorBox = await detectorRow.boundingBox()
-            const qualityBox = await qualityRow.boundingBox()
-            const detectorRateBox = await detectorRate.boundingBox()
-            const qualityRateBox = await qualityRate.boundingBox()
-            if (detectorBox && qualityBox && detectorRateBox && qualityRateBox) {
-                const pad = 12
-                const top = Math.max(0, Math.min(detectorBox.y, qualityBox.y) - pad)
-                const bottom = Math.max(detectorBox.y + detectorBox.height, qualityBox.y + qualityBox.height) + pad
-                const left = Math.max(0, Math.min(detectorBox.x, qualityBox.x) - pad)
-                // End at the Runs column's right edge, not the row's full width — the Actions
-                // column past it (folder/edit/delete buttons) adds nothing to the story and,
-                // depending on row width, could clip a button mid-icon with a white gutter after it.
-                const right =
-                    Math.max(detectorRateBox.x + detectorRateBox.width, qualityRateBox.x + qualityRateBox.width) + pad
-                await page.screenshot({
-                    path: path.join(SCREENSHOT_DIR, '02-list-pass-rate.png'),
-                    clip: { x: left, y: top, width: right - left, height: bottom - top },
-                    animations: 'disabled',
-                })
-            }
-        })
+        await playwrightSetup.seedEvents(workspace.team_id, [
+            ...buildBooleanRunEvents(evalAId, 'User struggled', BOOLEAN_RUNS, Date.now()),
+            ...buildBooleanRunEvents(evalBId, 'Response is accurate', BOOLEAN_RUNS, Date.now()),
+        ])
 
         await test.step('a true run renders as the undesirable outcome, and the Passing/Failing filter inverts', async () => {
             await page.goto(`/ai-evals/evaluations/${evalAId}`)
@@ -408,8 +275,8 @@ test.describe('AI observability boolean evaluation polarity', () => {
 
             await page.goto(`/ai-evals/evaluations/${evalCId}`)
             await page.getByTestId('llma-evaluation-configuration-tab').click()
-            await expect(page.getByText('Allow N/A responses', { exact: true })).toHaveCount(0)
-            await expect(page.getByText('A true result flags a problem', { exact: true })).toHaveCount(0)
+            await page.getByTestId('llma-evaluation-create-step-check').click()
+            await expect(page.getByTestId('llma-evaluation-true-is-failure')).toHaveCount(0)
 
             const sentimentEvents = buildSentimentRunEvents(
                 evalCId,

@@ -461,6 +461,9 @@ const errorTrackingSettingsUpdate = (): ToolBase<
         if (params.per_issue_rate_limit_bucket_size_minutes !== undefined) {
             body['per_issue_rate_limit_bucket_size_minutes'] = params.per_issue_rate_limit_bucket_size_minutes
         }
+        if (params.ingestion_enabled !== undefined) {
+            body['ingestion_enabled'] = params.ingestion_enabled
+        }
         const result = await context.api.request<Schemas.ErrorTrackingSettings>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/settings/update_settings/`,
@@ -852,6 +855,9 @@ const queryErrorTrackingIssuesList = (): ToolBase<
         handler: async (context: Context, params: z.infer<ReturnType<typeof QueryErrorTrackingIssuesListSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
+            if (params.firstSeenAfter !== undefined) {
+                body['firstSeenAfter'] = params.firstSeenAfter
+            }
             if (params.dateRange !== undefined) {
                 body['dateRange'] = params.dateRange
             }

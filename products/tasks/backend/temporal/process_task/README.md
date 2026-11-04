@@ -54,7 +54,7 @@ For combined task creation, run-start responses, and MCP tools, see [Create task
 
 ### PostHog API
 
-`backend/presentation/views/api.py` (thin viewsets) over `backend/facade/api.py` (behavior) — every user-triggered cloud launch path, including prewarming, checks server-side PostHog Desktop access before provisioning or activating a run. Composer prewarming carries the complete ordered repository selection, so single- and multi-repository submissions can reuse only a matching sandbox. A terminal task can also prewarm a successor through `POST .../tasks/{id}/warm/`; the source run must remain the task's latest terminal run, and the normal `run` request activates that successor with `resume_from_run_id`. Runtime, model, branch, permission mode, and sandbox configuration must match; reasoning effort may change and is applied before the warmed agent's first turn. Full-filesystem resume snapshots bundle their agent binary, so prewarming probes for the deferred-resume capability and falls back to a fresh sandbox when an old snapshot lacks it. `TaskViewSet.run` creates a `TaskRun` (status=QUEUED) and starts the Temporal workflow. `TaskRunViewSet.partial_update` handles status transitions and signals the Temporal workflow on terminal statuses via `signal_workflow_completion`. `TaskRunViewSet.cancel` (`POST .../runs/{id}/cancel/`) is the user-facing kill switch: `cancel_task_run` interrupts the in-flight agent turn, signals `complete_task("cancelled")` so the workflow snapshots the session and tears down the sandbox, and falls back to finalizing the run directly when no workflow is running.
+`backend/presentation/views/api.py` (thin viewsets) over `backend/facade/api.py` (behavior) — every user-triggered cloud launch path, including prewarming, checks server-side PostHog Desktop access before provisioning or activating a run. Composer prewarming carries the complete ordered repository selection, so single- and multi-repository submissions can reuse only a matching sandbox. A terminal task can also prewarm a successor through `POST .../tasks/{id}/warm/`; the source run must remain the task's latest terminal run, and the normal `run` request activates that successor with `resume_from_run_id`. Runtime, model, branch, permission mode, and sandbox configuration must match; reasoning effort may change and is applied before the warmed agent's first turn. Repository snapshots bundle their agent binary, so prewarming probes for the deferred-resume capability and falls back to a fresh sandbox when an old snapshot lacks it. `TaskViewSet.run` creates a `TaskRun` (status=QUEUED) and starts the Temporal workflow. `TaskRunViewSet.partial_update` handles status transitions and signals the Temporal workflow on terminal statuses via `signal_workflow_completion`. `TaskRunViewSet.cancel` (`POST .../runs/{id}/cancel/`) is the user-facing kill switch: `cancel_task_run` interrupts the in-flight agent turn, signals `complete_task("cancelled")` so the workflow snapshots the session and tears down the sandbox, and falls back to finalizing the run directly when no workflow is running.
 
 ### Temporal workflow
 
@@ -232,17 +232,17 @@ Desktop and backend use the same flag; a stale client cannot bypass the backend 
 
 ## Sandbox providers
 
-|                   | DockerSandbox                                                  | ModalSandbox                                                          |
-| ----------------- | -------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Use case          | Local development                                              | Production                                                            |
-| Internal port     | 47821                                                          | 8080                                                                  |
-| Host port         | Dynamically assigned                                           | N/A (cloud-routed)                                                    |
-| Isolation         | Standard Docker container                                      | gVisor kernel-level sandboxing                                        |
-| Auth              | No token needed                                                | Modal connect token                                                   |
-| Image source      | Local Dockerfile build                                         | `ghcr.io/posthog/posthog-sandbox-base`                                |
-| Snapshots         | Docker commit/tag                                              | Modal `snapshot_filesystem()`                                         |
-| URL rewriting     | Auto (`localhost` → `host.docker.internal`, `:8010` → `:8000`) | None (uses `SANDBOX_API_URL` or ngrok)                                |
-| `SANDBOX_API_URL` | Not needed (auto-transform handles it)                         | Only for local dev with Modal (ngrok URL); production uses `SITE_URL` |
+|                   | DockerSandbox                                                  | ModalSandbox                                                                                         |
+| ----------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Use case          | Local development                                              | Production                                                                                           |
+| Internal port     | 47821                                                          | 8080                                                                                                 |
+| Host port         | Dynamically assigned                                           | N/A (cloud-routed)                                                                                   |
+| Isolation         | Standard Docker container                                      | gVisor kernel-level sandboxing                                                                       |
+| Auth              | No token needed                                                | Modal connect token                                                                                  |
+| Image source      | Local Dockerfile build                                         | `ghcr.io/posthog/posthog-sandbox-base`                                                               |
+| Snapshots         | Docker commit/tag                                              | Modal `snapshot_directory()` for resume; `snapshot_filesystem()` for repository and published images |
+| URL rewriting     | Auto (`localhost` → `host.docker.internal`, `:8010` → `:8000`) | None (uses `SANDBOX_API_URL` or ngrok)                                                               |
+| `SANDBOX_API_URL` | Not needed (auto-transform handles it)                         | Only for local dev with Modal (ngrok URL); production uses `SITE_URL`                                |
 
 ### Local development with Docker
 

@@ -7,6 +7,11 @@ export class LoginPage {
         await this.page.locator('[data-attr=login-email]').fill(username)
     }
 
+    async continueWithEmail(): Promise<void> {
+        await this.page.locator('[data-attr=login-email-continue]').click()
+        await this.page.locator('[data-attr=password]').waitFor({ state: 'visible', timeout: 5000 })
+    }
+
     async enterPassword(password: string): Promise<void> {
         await this.page.locator('[data-attr=password]').fill(password)
     }
