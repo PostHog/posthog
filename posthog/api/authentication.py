@@ -1597,6 +1597,11 @@ def social_reauth_complete(strategy: DjangoStrategy, backend, user: User | None 
 def social_grant_staff_to_google_workspace_members(
     backend: BaseAuth, response: dict[str, Any], user: User | None = None, **kwargs: Any
 ) -> None:
+    """
+    Grant Django staff to employees on dev, so they can use staff-only tools there without a manual grant.
+    This runs only on dev because staff on US and EU can access every customer organization.
+    The `hd` claim proves Google Workspace membership. The email domain alone does not.
+    """
     if (
         settings.CLOUD_DEPLOYMENT == "DEV"
         and backend.name == "google-oauth2"
