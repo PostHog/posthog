@@ -14,11 +14,8 @@ _MAX_SKILL_DESCRIPTION_LENGTH = 1024
 # A skill name becomes a directory under dist/skills and .agents/skills, so it must stay one path segment.
 SKILL_NAME_PATTERN = r"^[a-z0-9][a-z0-9-]*$"
 
-# Name prefixes the signals scout harness and the PostHog Review pipeline seed into team skill rows
-# and read through `skill-get`. The published bundle still ships these skills, so every plugin user
-# would pay for their descriptions in the agent's skill listing unless they opt out of model
-# invocation. Mirrors the discovery prefixes in `products/signals/backend/scout_harness/skill_loader.py`
-# and `products/review_hog/backend/reviewer/skill_loader.py`; `review-hog-authoring` is user-facing.
+# Runtimes read these through `skill-get`, but the published bundle ships them to every agent's skill listing.
+# Mirrors the prefixes in `products/signals/backend/scout_harness/skill_loader.py` and `products/review_hog/backend/reviewer/skill_loader.py`.
 RUNTIME_SKILL_PREFIXES = (
     "signals-scout-",
     "review-hog-perspective-",
