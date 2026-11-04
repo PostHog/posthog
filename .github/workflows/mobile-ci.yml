@@ -6,7 +6,7 @@ name: Mobile CI
 #
 # "Mobile CI Pass" reports on every pull request so repository rules can require it.
 # PR housekeeping calls this workflow on each PR event. Change detection skips
-# validation when neither the app nor its imported API types changed. A trigger-level
+# validation when neither the app nor its imported sources changed. A trigger-level
 # paths filter would leave unrelated PRs waiting for a status that never arrives.
 
 on:
@@ -44,6 +44,7 @@ jobs:
             # trigger paths, and the release caller validates its exact commit.
             mobile: ${{ steps.filter.outputs.mobile || 'true' }}
             api_types: ${{ steps.filter.outputs.api_types || 'false' }}
+            replay_sources: ${{ steps.filter.outputs.replay_sources || 'false' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -70,20 +71,24 @@ jobs:
                       api_types:
                           - 'products/signals/frontend/generated/api.schemas.ts'
                           - 'products/error_tracking/frontend/generated/api.schemas.ts'
+                      replay_sources:
+                          - 'common/replay-headless/**'
+                          - 'common/replay-shared/**'
 
     check:
         name: Check mobile
         needs: changes
-        if: needs.changes.outputs.mobile == 'true' || needs.changes.outputs.api_types == 'true'
+        if: needs.changes.outputs.mobile == 'true' || needs.changes.outputs.api_types == 'true' || needs.changes.outputs.replay_sources == 'true'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
         env:
             # Reusable workflows keep the caller's name. Only the direct master
             # trigger warms the cache; release callers must validate their commit.
-            MOBILE_RUN_CHECKS: ${{ github.event_name != 'push' || github.workflow != 'Mobile CI' }}
+            MOBILE_RUN_CHECKS: ${{ (needs.changes.outputs.mobile == 'true' || needs.changes.outputs.api_types == 'true') && (github.event_name != 'push' || github.workflow != 'Mobile CI') }}
             # The generated API files are type-only imports, so their changes need
             # typechecking but cannot affect mobile lint, runtime or release policy.
             MOBILE_RUN_FULL_CHECKS: ${{ needs.changes.outputs.mobile == 'true' && (github.event_name != 'push' || github.workflow != 'Mobile CI') }}
+            MOBILE_RUN_REPLAY_CHECKS: ${{ (needs.changes.outputs.mobile == 'true' || needs.changes.outputs.replay_sources == 'true') && (github.event_name != 'push' || github.workflow != 'Mobile CI') }}
         defaults:
             run:
                 working-directory: products/mobile
@@ -94,6 +99,8 @@ jobs:
                   persist-credentials: false
                   sparse-checkout: |
                       products/mobile
+                      common/replay-headless
+                      common/replay-shared
                       products/signals/frontend/generated/api.schemas.ts
                       products/error_tracking/frontend/generated/api.schemas.ts
                   sparse-checkout-cone-mode: false
@@ -156,6 +163,15 @@ jobs:
               if: env.MOBILE_RUN_FULL_CHECKS == 'true'
               run: pnpm test --ci
 
+            # Older PR branches may not have the renderer build tooling yet.
+            - name: Verify replay player bundle matches source
+              if: env.MOBILE_RUN_REPLAY_CHECKS == 'true' && hashFiles('products/mobile/scripts/build-replay-player.mjs') != ''
+              run: node scripts/build-replay-player.mjs --check
+
+            - name: Test replay dependency resolution
+              if: env.MOBILE_RUN_REPLAY_CHECKS == 'true' && hashFiles('products/mobile/scripts/replay-player-dependencies.test.mjs') != ''
+              run: node --test scripts/replay-player-dependencies.test.mjs
+
             # Workflow changes also reach branches that have not rebased onto the
             # release tooling yet. Those branches still run the existing checks.
             - name: Fetch release validation base
@@ -189,13 +205,13 @@ jobs:
                     exit 1
                   fi
 
-                  if [[ "${{ needs.changes.outputs.mobile }}" != "true" && "${{ needs.changes.outputs.api_types }}" != "true" ]]; then
+                  if [[ "${{ needs.changes.outputs.mobile }}" != "true" && "${{ needs.changes.outputs.api_types }}" != "true" && "${{ needs.changes.outputs.replay_sources }}" != "true" ]]; then
                     echo "Mobile checks were skipped (no relevant changes)"
                     exit 0
                   fi
 
                   if [[ "${{ needs.check.result }}" != "success" && "${{ needs.check.result }}" != "skipped" ]]; then
-                    echo "Mobile typecheck, lint, test or release checks failed."
+                    echo "Mobile typecheck, lint, test, replay bundle or release checks failed."
                     exit 1
                   fi
 

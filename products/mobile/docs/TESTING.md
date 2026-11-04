@@ -468,3 +468,6 @@ standalone workspace without the rest of the monorepo. Its JavaScript dependenci
 
 The build resolves renderer dependencies from the mobile workspace even when the monorepo has dependencies installed.
 Run `node --test scripts/replay-player-dependencies.test.mjs` to check resolution against conflicting package installations.
+
+Mobile CI runs both checks when mobile code or either shared renderer tree changes. A shared renderer change that alters
+the generated JavaScript must include the regenerated mobile bundle in the same pull request.

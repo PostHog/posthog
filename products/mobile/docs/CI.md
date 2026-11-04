@@ -9,14 +9,15 @@ Direct pushes to `master` that match the workflow's paths only install dependenc
 
 A `changes` job reads the pull request diff and selects the mobile checks.
 
-| Changed files                                                         | Mobile checks                            |
-| --------------------------------------------------------------------- | ---------------------------------------- |
-| `products/mobile/**` (Markdown excluded) or `mobile-ci.yml`           | Typecheck, lint, Jest and release checks |
-| Generated Signals or Error Tracking API types, with no mobile changes | Typecheck                                |
-| Neither group                                                         | Status report only                       |
+| Changed files                                                                    | Mobile checks                                           |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `products/mobile/**` (Markdown excluded) or `mobile-ci.yml`                      | Typecheck, lint, Jest, replay bundle and release checks |
+| Generated Signals or Error Tracking API types, with no mobile changes            | Typecheck                                               |
+| `common/replay-headless/**` or `common/replay-shared/**`, with no mobile changes | Replay bundle and dependency resolution checks          |
+| None of these groups                                                             | Status report only                                      |
 
 The generated API files are type-only imports in the app, so typechecking checks compatibility without repeating runtime tests.
-Changes in both groups run the full suite. Release commits also run the full suite.
+Changes in multiple groups run the corresponding checks. Release commits run the full suite.
 The `Mobile CI Pass` job reports a verdict on every run, so it can be a required branch-protection check.
 A trigger-level `paths:` filter cannot do this: a required check that never dispatches leaves the pull request waiting for a status that never arrives. See `/authoring-ci-workflows`.
 
@@ -27,6 +28,8 @@ pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm lint
 pnpm test --ci
+node scripts/build-replay-player.mjs --check
+node --test scripts/replay-player-dependencies.test.mjs
 pnpm release:check
 pnpm release:test
 ```
@@ -43,7 +46,8 @@ Markdown, MDX, SCSS and YAML use the repository's Oxfmt configuration. The share
 
 Details:
 
-- The checkout includes the mobile app and its imported generated Signals and Error Tracking API types. Keep new runtime dependencies inside the mobile workspace.
+- The checkout includes the mobile app, its imported generated Signals and Error Tracking API types, and both shared replay renderer trees. Keep new runtime dependencies inside the mobile workspace.
+- Replay checks rebuild the committed player bundle and compare it with source. They also test that shared renderer dependencies resolve from the mobile toolchain. Branches without the corresponding build or test script skip that check until they rebase.
 - pnpm comes from `packageManager` in `products/mobile/package.json`, not from the repo root.
 - Node comes from `products/mobile/.node-version`. Keep it equal to the repo's `.nvmrc` and to `node` in `eas.json`.
 - The pnpm store cache is keyed on `products/mobile/pnpm-lock.yaml`. Pull requests only restore it. Pushes to `master` save it.
