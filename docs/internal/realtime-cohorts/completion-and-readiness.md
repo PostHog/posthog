@@ -230,7 +230,7 @@ Behind the same rollout flag, for teams at the `serving` level, the cohort API's
 The Rust flags service reads cohorts from the flags cache, or from Postgres through a short-lived cache when the flags cache has none.
 It routes a cohort to the membership table when all of these hold:
 
-- the team is in `REALTIME_COHORT_EVALUATION_TEAM_IDS`,
+- the team is in `REALTIME_COHORT_EVALUATION_TEAM_IDS`, or its team access row is at `serving`,
 - the cohort's type is `realtime`, or the legacy `behavioral` type,
 - its `condition_type` marks a behavioral or lifecycle condition,
 - its stamps satisfy the configured stamp policy.
