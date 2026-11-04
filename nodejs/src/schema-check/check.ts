@@ -1,4 +1,4 @@
-import { MigrationRequirement } from './manifest'
+import { DjangoRequirement, SqlxRequirement } from './manifest'
 
 export interface AppliedMigration {
     app: string
@@ -12,7 +12,7 @@ export interface MigrationStore {
 
 export type CheckOutcome =
     | { status: 'satisfied' }
-    | { status: 'missing'; missing: MigrationRequirement[]; latestApplied: Map<string, string> }
+    | { status: 'missing'; missing: DjangoRequirement[]; latestApplied: Map<string, string> }
     | { status: 'error'; error: Error }
 
 export interface WaitOptions {
@@ -27,7 +27,7 @@ function migrationKey(app: string, name: string): string {
     return `${app}.${name}`
 }
 
-export function requiredMigrationKeys(requirements: MigrationRequirement[]): AppliedMigration[] {
+export function requiredMigrationKeys(requirements: DjangoRequirement[]): AppliedMigration[] {
     return requirements.flatMap((requirement) => [
         { app: requirement.app, name: requirement.migration },
         ...(requirement.replaces ?? []).map((name) => ({ app: requirement.app, name })),
@@ -36,9 +36,9 @@ export function requiredMigrationKeys(requirements: MigrationRequirement[]): App
 
 // Django records a squash as applied once all migrations it replaces are applied, even without its own row.
 export function findMissingRequirements(
-    requirements: MigrationRequirement[],
+    requirements: DjangoRequirement[],
     applied: AppliedMigration[]
-): MigrationRequirement[] {
+): DjangoRequirement[] {
     const appliedKeys = new Set(applied.map((row) => migrationKey(row.app, row.name)))
     return requirements.filter((requirement) => {
         if (appliedKeys.has(migrationKey(requirement.app, requirement.migration))) {
@@ -51,7 +51,7 @@ export function findMissingRequirements(
     })
 }
 
-export function describeMissing(missing: MigrationRequirement[], latestApplied: Map<string, string>): string[] {
+export function describeMissing(missing: DjangoRequirement[], latestApplied: Map<string, string>): string[] {
     return missing.map((requirement) => {
         const latest = latestApplied.get(requirement.app)
         const has = latest ? `has up to ${latest}` : 'has no migrations for this app'
@@ -64,7 +64,7 @@ export function describeError(error: Error): string {
     return error.message || (error as NodeJS.ErrnoException).code || error.name
 }
 
-export async function checkOnce(requirements: MigrationRequirement[], store: MigrationStore): Promise<CheckOutcome> {
+export async function checkOnce(requirements: DjangoRequirement[], store: MigrationStore): Promise<CheckOutcome> {
     try {
         const applied = await store.fetchApplied(requiredMigrationKeys(requirements))
         const missing = findMissingRequirements(requirements, applied)
@@ -84,7 +84,7 @@ function defaultSleep(ms: number): Promise<void> {
 
 // Database errors count as "not yet" while time remains, because the hook can start before a failover settles.
 export async function waitForRequirements(
-    requirements: MigrationRequirement[],
+    requirements: DjangoRequirement[],
     store: MigrationStore,
     options: WaitOptions
 ): Promise<CheckOutcome> {
@@ -111,5 +111,54 @@ export async function waitForRequirements(
             log(`Waiting: could not read django_migrations: ${describeError(outcome.error)}`)
         }
         await sleep(Math.min(options.pollIntervalMs, remainingMs))
+    }
+}
+
+export interface SqlxMigrationRow {
+    version: number
+    success: boolean
+}
+
+export interface SqlxMigrationStore {
+    // Returns the rows for the given versions plus every row with success = false.
+    fetchRows(versions: number[]): Promise<SqlxMigrationRow[]>
+}
+
+export type SqlxShadowStatus = 'satisfied' | 'missing' | 'dirty' | 'skipped' | 'error'
+
+export interface SqlxShadowResult {
+    requirement: SqlxRequirement
+    status: SqlxShadowStatus
+    detail: string
+}
+
+// sqlx writes success = false when a migration without a transaction fails halfway. sqlx refuses to run on such a database.
+export function evaluateSqlxRows(requirement: SqlxRequirement, rows: SqlxMigrationRow[]): SqlxShadowResult {
+    const failed = rows.filter((row) => !row.success).map((row) => row.version)
+    if (failed.length > 0) {
+        return { requirement, status: 'dirty', detail: `failed migrations recorded: ${failed.join(', ')}` }
+    }
+    if (rows.some((row) => row.version === requirement.version)) {
+        return { requirement, status: 'satisfied', detail: `version ${requirement.version} is applied` }
+    }
+    return { requirement, status: 'missing', detail: `version ${requirement.version} is not applied` }
+}
+
+export async function checkSqlxShadow(
+    requirement: SqlxRequirement,
+    store: SqlxMigrationStore | null
+): Promise<SqlxShadowResult> {
+    // Node has no production default for these URLs, so an app without one does not use that database.
+    if (store === null) {
+        return { requirement, status: 'skipped', detail: 'no database URL in this environment' }
+    }
+    try {
+        return evaluateSqlxRows(requirement, await store.fetchRows([requirement.version]))
+    } catch (error) {
+        return {
+            requirement,
+            status: 'error',
+            detail: describeError(error instanceof Error ? error : new Error(String(error))),
+        }
     }
 }

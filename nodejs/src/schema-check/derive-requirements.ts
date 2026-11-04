@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'fs'
 import path from 'path'
 
-import { MigrationRequirement } from './manifest'
+import { DjangoRequirement, Requirement, SQLX_DATABASES, SqlxDatabase, SqlxRequirement } from './manifest'
 
 // Top-level trees that hold Django apps. Dockerfile.node bind-mounts the same trees into the generator step.
 export const DJANGO_SOURCE_ROOTS = ['posthog', 'ee', 'products']
@@ -10,11 +10,21 @@ export const DJANGO_SOURCE_ROOTS = ['posthog', 'ee', 'products']
 const EXCLUDED_MIGRATION_DIRS = ['posthog/clickhouse/migrations']
 
 const PRODUCT_DB_ROUTING_FILE = 'products/db_routing.yaml'
+
+// rust/Dockerfile.sqlx-migrate copies these directories, and the sqlx-migrate deploy applies them.
+export const SQLX_MIGRATION_DIRS: Record<SqlxDatabase, string> = {
+    persons: 'rust/persons_migrations',
+    'cyclotron-node': 'rust/cyclotron-node-migrations',
+    'behavioral-cohorts': 'rust/behavioral_cohorts_migrations',
+}
 const NODEJS_SOURCE_DIR = 'nodejs/src'
 
 const SKIPPED_DIR_NAMES = new Set(['node_modules', '__pycache__', 'dist', 'frontend'])
 
 const MIGRATION_FILE = /^\d{4}_\w+\.py$/
+// sqlx takes the version from the file name prefix. A .down.sql file reverts its .up.sql twin and adds no version.
+const SQLX_MIGRATION_FILE = /^(\d+)_[\w-]+(?:\.up)?\.sql$/
+const CREATE_TABLE = /\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?"?(\w+)"?/gi
 const CREATE_MODEL_NAME = /CreateModel\(\s*name\s*=\s*['"](\w+)['"]/g
 const DB_TABLE_OPTION = /['"]db_table['"]\s*:\s*['"](\w+)['"]/g
 const TABLE_ARGUMENT = /\b(?:db_)?table\s*=\s*['"](\w+)['"]/g
@@ -32,8 +42,15 @@ export interface DjangoApp {
 }
 
 export interface DerivedSchemaRequirements {
-    requirements: MigrationRequirement[]
-    tablesByApp: Map<string, string[]>
+    requirements: Requirement[]
+    // Keyed by Django app label, or by "sqlx:<database>" for sqlx requirements.
+    tablesByRequirement: Map<string, string[]>
+}
+
+export interface SqlxMigrationDir {
+    database: SqlxDatabase
+    latestVersion: number
+    tables: Set<string>
 }
 
 function listFilesRecursively(dir: string, keep: (fileName: string) => boolean): string[] {
@@ -167,27 +184,52 @@ export function readSquashReplaces(app: DjangoApp): string[] | undefined {
     return names
 }
 
+// A missing directory throws, because a wrong bind mount in Dockerfile.node must fail the build and not drop the requirement.
+export function readSqlxMigrationDir(repoRoot: string, database: SqlxDatabase): SqlxMigrationDir {
+    const dir = path.join(repoRoot, SQLX_MIGRATION_DIRS[database])
+    if (!existsSync(dir)) {
+        throw new Error(`${dir} does not exist`)
+    }
+    let latestVersion = 0
+    const tables = new Set<string>()
+    for (const fileName of readdirSync(dir)) {
+        const version = fileName.match(SQLX_MIGRATION_FILE)?.[1]
+        if (version === undefined) {
+            continue
+        }
+        latestVersion = Math.max(latestVersion, Number(version))
+        for (const table of matchAll(readFileSync(path.join(dir, fileName), 'utf8'), CREATE_TABLE)) {
+            tables.add(table.toLowerCase())
+        }
+    }
+    if (latestVersion === 0) {
+        throw new Error(`${dir} has no sqlx migrations`)
+    }
+    return { database, latestVersion, tables }
+}
+
 export function deriveSchemaRequirements(repoRoot: string): DerivedSchemaRequirements {
     const routedLabels = readProductRoutedLabels(repoRoot)
     const apps = findDjangoApps(repoRoot).filter((app) => !routedLabels.has(app.label))
     const tableOwners = collectTableOwners(apps)
     const nodeIdentifiers = collectNodeIdentifiers(path.join(repoRoot, NODEJS_SOURCE_DIR))
 
-    const tablesByApp = new Map<string, string[]>()
+    const tablesByRequirement = new Map<string, string[]>()
     for (const table of [...tableOwners.keys()].sort()) {
         if (!nodeIdentifiers.has(table)) {
             continue
         }
         for (const label of tableOwners.get(table)!) {
-            tablesByApp.set(label, [...(tablesByApp.get(label) ?? []), table])
+            tablesByRequirement.set(label, [...(tablesByRequirement.get(label) ?? []), table])
         }
     }
 
-    const requirements: MigrationRequirement[] = apps
-        .filter((app) => tablesByApp.has(app.label))
+    const djangoRequirements: DjangoRequirement[] = apps
+        .filter((app) => tablesByRequirement.has(app.label))
         .sort((a, b) => a.label.localeCompare(b.label))
         .map((app) => {
-            const requirement: MigrationRequirement = {
+            const requirement: DjangoRequirement = {
+                kind: 'django',
                 database: 'default',
                 app: app.label,
                 migration: app.leafMigration,
@@ -199,5 +241,16 @@ export function deriveSchemaRequirements(repoRoot: string): DerivedSchemaRequire
             return requirement
         })
 
-    return { requirements, tablesByApp }
+    const sqlxRequirements: SqlxRequirement[] = []
+    for (const database of SQLX_DATABASES) {
+        const migrationDir = readSqlxMigrationDir(repoRoot, database)
+        const tables = [...migrationDir.tables].filter((table) => nodeIdentifiers.has(table)).sort()
+        if (tables.length === 0) {
+            continue
+        }
+        tablesByRequirement.set(`sqlx:${database}`, tables)
+        sqlxRequirements.push({ kind: 'sqlx', database, version: migrationDir.latestVersion })
+    }
+
+    return { requirements: [...djangoRequirements, ...sqlxRequirements], tablesByRequirement }
 }

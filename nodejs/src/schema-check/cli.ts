@@ -1,11 +1,25 @@
 import { parseArgs } from 'util'
 
 import { getDefaultCommonConfig } from '~/common/config'
-import { buildPosthogDatabaseUrl } from '~/common/config/database-url'
+import { buildBehavioralCohortsDatabaseUrl, buildPosthogDatabaseUrl } from '~/common/config/database-url'
 
-import { MigrationStore, describeError, describeMissing, waitForRequirements } from './check'
-import { DEFAULT_MANIFEST_PATH, readManifest } from './manifest'
-import { PostgresMigrationStore } from './postgres-migration-store'
+import {
+    MigrationStore,
+    SqlxMigrationStore,
+    checkSqlxShadow,
+    describeError,
+    describeMissing,
+    waitForRequirements,
+} from './check'
+import {
+    DEFAULT_MANIFEST_PATH,
+    SqlxDatabase,
+    SqlxRequirement,
+    djangoRequirements,
+    readManifest,
+    sqlxRequirements,
+} from './manifest'
+import { PostgresMigrationStore, PostgresSqlxMigrationStore } from './postgres-migration-store'
 
 export const EXIT_SATISFIED = 0
 export const EXIT_MISSING = 1
@@ -15,6 +29,7 @@ const USAGE = `Usage: node nodejs/dist/schema-check/cli.js [--manifest PATH] [--
 
 Checks that the main Postgres database has every Django migration this Node build needs.
 Exit codes: 0 all applied, 1 migrations missing, 2 the check could not run.
+sqlx requirements run in shadow mode: the result is logged and never changes the exit code.
 
 Options:
   --manifest PATH                  Requirements file (default: ${DEFAULT_MANIFEST_PATH})
@@ -24,10 +39,13 @@ Options:
   --statement-timeout-seconds N    Postgres statement timeout (default: 10)
 
 Reads DATABASE_URL, or POSTHOG_DB_NAME, POSTHOG_DB_USER, POSTHOG_DB_PASSWORD,
-POSTHOG_POSTGRES_HOST and POSTHOG_POSTGRES_PORT, the same as the Node services.`
+POSTHOG_POSTGRES_HOST and POSTHOG_POSTGRES_PORT, the same as the Node services.
+sqlx databases use PERSONS_DATABASE_URL, CYCLOTRON_NODE_DATABASE_URL and
+BEHAVIORAL_COHORTS_DATABASE_URL (or POSTGRES_BEHAVIORAL_COHORTS_HOST, _USER and _PASSWORD).`
 
 export interface CliDependencies {
     createStore: (databaseUrl: string, connectTimeoutMs: number, statementTimeoutMs: number) => MigrationStore
+    createSqlxStore: (databaseUrl: string, connectTimeoutMs: number, statementTimeoutMs: number) => SqlxMigrationStore
     sleep?: (ms: number) => Promise<void>
     log: (message: string) => void
     logError: (message: string) => void
@@ -36,6 +54,8 @@ export interface CliDependencies {
 const defaultDependencies: CliDependencies = {
     createStore: (databaseUrl, connectTimeoutMs, statementTimeoutMs) =>
         new PostgresMigrationStore({ databaseUrl, connectTimeoutMs, statementTimeoutMs }),
+    createSqlxStore: (databaseUrl, connectTimeoutMs, statementTimeoutMs) =>
+        new PostgresSqlxMigrationStore({ databaseUrl, connectTimeoutMs, statementTimeoutMs }),
     log: (message) => console.log(message),
     logError: (message) => console.error(message),
 }
@@ -53,6 +73,44 @@ export function resolveDatabaseUrl(env: Record<string, string | undefined>): str
             ? parseInt(env.POSTHOG_POSTGRES_PORT, 10)
             : defaults.POSTHOG_POSTGRES_PORT,
     })
+}
+
+// Reads the same variables as the Node services, without the dev defaults, so an empty result means the app does not use the database.
+export function resolveSqlxDatabaseUrl(database: SqlxDatabase, env: Record<string, string | undefined>): string {
+    if (database === 'persons') {
+        return env.PERSONS_DATABASE_URL ?? ''
+    }
+    if (database === 'cyclotron-node') {
+        return env.CYCLOTRON_NODE_DATABASE_URL ?? ''
+    }
+    return buildBehavioralCohortsDatabaseUrl({
+        BEHAVIORAL_COHORTS_DATABASE_URL: env.BEHAVIORAL_COHORTS_DATABASE_URL ?? '',
+        POSTGRES_BEHAVIORAL_COHORTS_HOST: env.POSTGRES_BEHAVIORAL_COHORTS_HOST ?? '',
+        POSTGRES_BEHAVIORAL_COHORTS_USER: env.POSTGRES_BEHAVIORAL_COHORTS_USER ?? '',
+        POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: env.POSTGRES_BEHAVIORAL_COHORTS_PASSWORD ?? '',
+    })
+}
+
+async function logSqlxShadow(
+    requirements: SqlxRequirement[],
+    env: Record<string, string | undefined>,
+    options: { connectTimeoutMs: number; statementTimeoutMs: number },
+    deps: CliDependencies
+): Promise<void> {
+    const results = await Promise.all(
+        requirements.map((requirement) => {
+            const databaseUrl = resolveSqlxDatabaseUrl(requirement.database, env)
+            const store = databaseUrl
+                ? deps.createSqlxStore(databaseUrl, options.connectTimeoutMs, options.statementTimeoutMs)
+                : null
+            return checkSqlxShadow(requirement, store)
+        })
+    )
+    for (const result of results) {
+        deps.log(
+            `Shadow sqlx check (does not block): ${result.requirement.database} ${result.status}, ${result.detail}`
+        )
+    }
 }
 
 function parseSeconds(name: string, value: string | undefined, fallback: number): number {
@@ -120,15 +178,27 @@ export async function runCli(
         return EXIT_ERROR
     }
 
+    const django = djangoRequirements(manifest)
+    const sqlx = sqlxRequirements(manifest)
     deps.log(
-        `Checking ${manifest.requirements.length} Django apps (manifest ${manifest.digest}, commit ${manifest.source_commit ?? 'unknown'})`
+        `Checking ${django.length} Django apps and ${sqlx.length} sqlx databases in shadow mode (manifest ${manifest.digest}, commit ${manifest.source_commit ?? 'unknown'})`
     )
-    const outcome = await waitForRequirements(manifest.requirements, store, {
+    const outcome = await waitForRequirements(django, store, {
         waitSeconds: options.waitSeconds,
         pollIntervalMs: options.pollIntervalSeconds * 1000,
         sleep: deps.sleep,
         log: deps.log,
     })
+    // Runs after the Django wait so that the log shows the sqlx state at the moment the Deployment would roll.
+    await logSqlxShadow(
+        sqlx,
+        env,
+        {
+            connectTimeoutMs: options.connectTimeoutSeconds * 1000,
+            statementTimeoutMs: options.statementTimeoutSeconds * 1000,
+        },
+        deps
+    )
 
     if (outcome.status === 'satisfied') {
         deps.log('All required Django migrations are applied.')

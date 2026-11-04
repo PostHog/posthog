@@ -57,6 +57,14 @@ const FIXTURE_FILES: Record<string, string> = {
     'products/unused/backend/migrations/0001_initial.py': 'migrations.CreateModel(name="Thing", fields=[])\n',
     'products/unused/backend/migrations/max_migration.txt': '0001_initial\n',
 
+    'rust/persons_migrations/20250101000001_initial.sql':
+        'CREATE TABLE IF NOT EXISTS posthog_persons_row (id bigint);\n',
+    'rust/cyclotron-node-migrations/20260101000001_initial.sql':
+        'CREATE TABLE IF NOT EXISTS cyclotron_jobs (id uuid);\n',
+    // The latest version creates no table, but Node still needs the database at that version.
+    'rust/cyclotron-node-migrations/20260201000001_add_index.sql': 'CREATE INDEX idx_jobs ON cyclotron_jobs (id);\n',
+    'rust/behavioral_cohorts_migrations/20260301000001_initial.sql': 'CREATE TABLE cohort_membership (id bigint);\n',
+
     'nodejs/src/reader.ts': [
         "const a = 'SELECT * FROM posthog_team'",
         "const b = 'SELECT * FROM posthog_session_session'",
@@ -65,6 +73,7 @@ const FIXTURE_FILES: Record<string, string> = {
         "const e = 'SELECT * FROM tracing_span'",
         "const f = 'SELECT * FROM clickhouse_events'",
         "const g = 'SELECT * FROM stamphog_review'",
+        "const i = 'SELECT * FROM cyclotron_jobs'",
     ].join('\n'),
     'nodejs/src/reader.test.ts': "const h = 'SELECT * FROM unused_thing'\n",
 }
@@ -85,36 +94,40 @@ describe('deriveSchemaRequirements', () => {
         rmSync(repoRoot, { recursive: true, force: true })
     })
 
-    it('requires the leaf of every Postgres app whose tables nodejs/src reads', () => {
-        const { requirements, tablesByApp } = deriveSchemaRequirements(repoRoot)
+    it('requires the leaf of every Django app and sqlx database whose tables nodejs/src reads', () => {
+        const { requirements, tablesByRequirement } = deriveSchemaRequirements(repoRoot)
 
         expect(requirements).toEqual([
-            { database: 'default', app: 'legacy', migration: '0002_move_widget' },
-            { database: 'default', app: 'posthog', migration: '0002_team_flag' },
-            { database: 'default', app: 'posthog_session', migration: '0001_initial' },
-            { database: 'default', app: 'surveys', migration: '0001_initial' },
+            { kind: 'django', database: 'default', app: 'legacy', migration: '0002_move_widget' },
+            { kind: 'django', database: 'default', app: 'posthog', migration: '0002_team_flag' },
+            { kind: 'django', database: 'default', app: 'posthog_session', migration: '0001_initial' },
+            { kind: 'django', database: 'default', app: 'surveys', migration: '0001_initial' },
             {
+                kind: 'django',
                 database: 'default',
                 app: 'tracing',
                 migration: '0001_squash_initial',
                 replaces: ['0001_initial', '0002_span_kind'],
             },
-            { database: 'default', app: 'widgets', migration: '0002_widget_table' },
+            { kind: 'django', database: 'default', app: 'widgets', migration: '0002_widget_table' },
+            { kind: 'sqlx', database: 'cyclotron-node', version: 20260201000001 },
         ])
-        expect(Object.fromEntries(tablesByApp)).toEqual({
+        expect(Object.fromEntries(tablesByRequirement)).toEqual({
             legacy: ['legacy_widget'],
             posthog: ['posthog_team'],
             posthog_session: ['posthog_session_session'],
             surveys: ['posthog_survey'],
             tracing: ['tracing_span'],
             widgets: ['legacy_widget'],
+            'sqlx:cyclotron-node': ['cyclotron_jobs'],
         })
     })
 
-    it('finds the workflows config and team tables on the real repo', () => {
-        const { tablesByApp } = deriveSchemaRequirements(path.resolve(__dirname, '../../..'))
+    it('finds the workflows config, team and cyclotron job tables on the real repo', () => {
+        const { tablesByRequirement } = deriveSchemaRequirements(path.resolve(__dirname, '../../..'))
 
-        expect(tablesByApp.get('workflows')).toContain('workflows_teamworkflowsconfig')
-        expect(tablesByApp.get('posthog')).toContain('posthog_team')
+        expect(tablesByRequirement.get('workflows')).toContain('workflows_teamworkflowsconfig')
+        expect(tablesByRequirement.get('posthog')).toContain('posthog_team')
+        expect(tablesByRequirement.get('sqlx:cyclotron-node')).toContain('cyclotron_jobs')
     })
 })

@@ -10,7 +10,7 @@ import { getDefaultLogsIngestionConsumerConfig, getDefaultTracesIngestionConsume
 import { PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '~/types'
 
 import { stringToBoolean } from '../utils/env-utils'
-import { buildPosthogDatabaseUrl } from './database-url'
+import { buildBehavioralCohortsDatabaseUrl, buildPosthogDatabaseUrl } from './database-url'
 
 // Re-export for backwards compatibility
 export { DEFAULT_HTTP_SERVER_PORT } from '~/common/config'
@@ -59,16 +59,7 @@ export function overrideWithEnv(
 
     newConfig.DATABASE_URL = buildPosthogDatabaseUrl(newConfig)
 
-    if (
-        !newConfig.BEHAVIORAL_COHORTS_DATABASE_URL &&
-        newConfig.POSTGRES_BEHAVIORAL_COHORTS_HOST &&
-        newConfig.POSTGRES_BEHAVIORAL_COHORTS_USER &&
-        newConfig.POSTGRES_BEHAVIORAL_COHORTS_PASSWORD
-    ) {
-        const encodedUser = encodeURIComponent(newConfig.POSTGRES_BEHAVIORAL_COHORTS_USER)
-        const encodedPassword = encodeURIComponent(newConfig.POSTGRES_BEHAVIORAL_COHORTS_PASSWORD)
-        newConfig.BEHAVIORAL_COHORTS_DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTGRES_BEHAVIORAL_COHORTS_HOST}:5432/behavioral_cohorts`
-    }
+    newConfig.BEHAVIORAL_COHORTS_DATABASE_URL = buildBehavioralCohortsDatabaseUrl(newConfig)
 
     return newConfig
 }

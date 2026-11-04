@@ -2,20 +2,39 @@ import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import path from 'path'
 
-import { AppliedMigration, MigrationStore, findMissingRequirements } from './check'
+import {
+    AppliedMigration,
+    MigrationStore,
+    SqlxMigrationRow,
+    SqlxMigrationStore,
+    evaluateSqlxRows,
+    findMissingRequirements,
+} from './check'
 import { CliDependencies, EXIT_ERROR, EXIT_MISSING, EXIT_SATISFIED, runCli } from './cli'
-import { MigrationRequirement, buildManifest } from './manifest'
+import { DjangoRequirement, SqlxRequirement, buildManifest } from './manifest'
 
-const WORKFLOWS: MigrationRequirement = {
+const WORKFLOWS: DjangoRequirement = {
+    kind: 'django',
     database: 'default',
     app: 'workflows',
     migration: '0040_frequency_cap_hold',
 }
-const TRACING_SQUASH: MigrationRequirement = {
+const TRACING_SQUASH: DjangoRequirement = {
+    kind: 'django',
     database: 'default',
     app: 'tracing',
     migration: '0001_squash_initial',
     replaces: ['0001_initial', '0002_span_kind'],
+}
+
+const CYCLOTRON: SqlxRequirement = { kind: 'sqlx', database: 'cyclotron-node', version: 20260201000001 }
+
+class FakeSqlxMigrationStore implements SqlxMigrationStore {
+    constructor(private readonly rows: SqlxMigrationRow[]) {}
+
+    fetchRows(): Promise<SqlxMigrationRow[]> {
+        return Promise.resolve(this.rows)
+    }
 }
 
 class FakeMigrationStore implements MigrationStore {
@@ -36,7 +55,7 @@ class FakeMigrationStore implements MigrationStore {
 
 describe('schema check', () => {
     describe('findMissingRequirements', () => {
-        it.each<[string, MigrationRequirement, AppliedMigration[], boolean]>([
+        it.each<[string, DjangoRequirement, AppliedMigration[], boolean]>([
             ['leaf applied', WORKFLOWS, [{ app: 'workflows', name: '0040_frequency_cap_hold' }], false],
             ['leaf not applied', WORKFLOWS, [{ app: 'workflows', name: '0039_previous' }], true],
             ['same name in another app', WORKFLOWS, [{ app: 'posthog', name: '0040_frequency_cap_hold' }], true],
@@ -56,6 +75,23 @@ describe('schema check', () => {
         })
     })
 
+    describe('evaluateSqlxRows', () => {
+        it.each<[string, SqlxMigrationRow[], string]>([
+            ['version applied', [{ version: 20260201000001, success: true }], 'satisfied'],
+            ['version not applied', [], 'missing'],
+            [
+                'a failed migration on the database',
+                [
+                    { version: 20260201000001, success: true },
+                    { version: 20260301000001, success: false },
+                ],
+                'dirty',
+            ],
+        ])('%s', (_case, rows, expectedStatus) => {
+            expect(evaluateSqlxRows(CYCLOTRON, rows).status).toBe(expectedStatus)
+        })
+    })
+
     describe('runCli', () => {
         let dir: string
         let output: string[]
@@ -66,8 +102,13 @@ describe('schema check', () => {
             return manifestPath
         }
 
-        const makeDeps = (store: MigrationStore, clock?: { now: number }): CliDependencies => ({
+        const makeDeps = (
+            store: MigrationStore,
+            clock?: { now: number },
+            sqlxStore: SqlxMigrationStore = new FakeSqlxMigrationStore([])
+        ): CliDependencies => ({
             createStore: () => store,
+            createSqlxStore: () => sqlxStore,
             sleep: (ms) => {
                 if (clock) {
                     clock.now += ms
@@ -92,6 +133,10 @@ describe('schema check', () => {
             ['missing', null],
             ['unparseable', '{not json'],
             ['empty', JSON.stringify({ schema_version: 1, digest: 'x', requirements: [] })],
+            [
+                'of an unknown kind',
+                JSON.stringify({ schema_version: 1, digest: 'x', requirements: [{ ...WORKFLOWS, kind: 'flyway' }] }),
+            ],
         ])('exits with an error when the manifest is %s', async (_case, content) => {
             const manifestPath = content === null ? path.join(dir, 'absent.json') : writeManifest(content)
             const store = new FakeMigrationStore([[]])
@@ -110,6 +155,29 @@ describe('schema check', () => {
 
             expect(code).toBe(EXIT_MISSING)
             expect(output).toContain('  needs workflows.0040_frequency_cap_hold, has up to 0039_previous')
+        })
+
+        it.each<[string, Record<string, string>, SqlxMigrationRow[], string]>([
+            ['missing', { CYCLOTRON_NODE_DATABASE_URL: 'postgres://c' }, [], 'cyclotron-node missing'],
+            [
+                'dirty',
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://c' },
+                [{ version: 1, success: false }],
+                'cyclotron-node dirty',
+            ],
+            ['not configured for this app', {}, [], 'cyclotron-node skipped'],
+        ])('logs a %s sqlx database and still exits 0', async (_case, extraEnv, sqlxRows, expectedLog) => {
+            const manifestPath = writeManifest(JSON.stringify(buildManifest([WORKFLOWS, CYCLOTRON], null)))
+            const store = new FakeMigrationStore([[{ app: 'workflows', name: '0040_frequency_cap_hold' }]])
+
+            const code = await runCli(
+                ['--manifest', manifestPath],
+                { DATABASE_URL: 'postgres://x', ...extraEnv },
+                makeDeps(store, undefined, new FakeSqlxMigrationStore(sqlxRows))
+            )
+
+            expect(code).toBe(EXIT_SATISFIED)
+            expect(output.some((line) => line.includes(expectedLog))).toBe(true)
         })
 
         it('keeps polling until the migration lands within --wait-seconds', async () => {

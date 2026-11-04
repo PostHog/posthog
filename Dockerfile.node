@@ -85,14 +85,17 @@ RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/replay
 # Then build the nodejs services
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/nodejs build
 
-# Record the Django migrations this build reads, so the deploy-time schema check can wait for them
+# Record the Django and sqlx migrations this build reads, so the deploy-time schema check can wait for them
 # (nodejs/src/schema-check). Bind mounts give the generator the migration files without adding the
-# Python trees to any layer, and BuildKit reruns this step when any mounted file changes.
+# Python and Rust trees to any layer, and BuildKit reruns this step when any mounted file changes.
 ARG COMMIT_HASH
 RUN --mount=type=bind,source=posthog,target=/schema-src/posthog \
     --mount=type=bind,source=ee,target=/schema-src/ee \
     --mount=type=bind,source=products,target=/schema-src/products \
     --mount=type=bind,source=nodejs/src,target=/schema-src/nodejs/src \
+    --mount=type=bind,source=rust/persons_migrations,target=/schema-src/rust/persons_migrations \
+    --mount=type=bind,source=rust/cyclotron-node-migrations,target=/schema-src/rust/cyclotron-node-migrations \
+    --mount=type=bind,source=rust/behavioral_cohorts_migrations,target=/schema-src/rust/behavioral_cohorts_migrations \
     node nodejs/dist/schema-check/generate.js \
     --repo-root /schema-src \
     --output nodejs/schema-requirements.json \

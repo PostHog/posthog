@@ -23,8 +23,8 @@ function main(): number {
         return values.help ? 0 : 2
     }
 
-    const { requirements, tablesByApp } = deriveSchemaRequirements(path.resolve(values['repo-root']))
-    if (requirements.length === 0) {
+    const { requirements, tablesByRequirement } = deriveSchemaRequirements(path.resolve(values['repo-root']))
+    if (!requirements.some((requirement) => requirement.kind === 'django')) {
         console.error('Found no Django tables in nodejs/src. The source mounts are probably wrong.')
         return 1
     }
@@ -34,10 +34,14 @@ function main(): number {
     const manifest = buildManifest(requirements, sourceCommit)
     writeFileSync(values.output, JSON.stringify(manifest, null, 4) + '\n')
 
-    console.log(`Wrote ${values.output} (digest ${manifest.digest}, ${requirements.length} apps)`)
+    console.log(`Wrote ${values.output} (digest ${manifest.digest}, ${requirements.length} requirements)`)
     for (const requirement of requirements) {
-        const tables = tablesByApp.get(requirement.app) ?? []
-        console.log(`  ${requirement.app}.${requirement.migration}: ${tables.join(', ')}`)
+        const key = requirement.kind === 'django' ? requirement.app : `sqlx:${requirement.database}`
+        const target =
+            requirement.kind === 'django'
+                ? `${requirement.app}.${requirement.migration}`
+                : `sqlx ${requirement.database}@${requirement.version}`
+        console.log(`  ${target}: ${(tablesByRequirement.get(key) ?? []).join(', ')}`)
     }
     return 0
 }
