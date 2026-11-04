@@ -436,7 +436,7 @@ function outlookViews(html: string): DefaultTreeAdapterMap['document'][] {
 }
 
 function appendHtmlFooter(html: string, footer: string, preheader?: string): string {
-    if (Buffer.byteLength(html) > MAX_TEMPLATE_HTML_BYTES) {
+    if (Buffer.byteLength(html) + Buffer.byteLength(preheader ?? '') > MAX_TEMPLATE_HTML_BYTES) {
         throw new TooLargeForSandbox()
     }
     const preheaderText = parseFragment(preheader ?? '', { scriptingEnabled: false })
