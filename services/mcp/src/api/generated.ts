@@ -37247,7 +37247,8 @@ export namespace Schemas {
       footers?: EmailTemplateDesignBodyFootersItem[];
       /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
       values?: EmailTemplateDesignBodyValues;
-    };
+      [key: string]: unknown;
+     };
 
     /**
      * Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.
@@ -37258,7 +37259,8 @@ export namespace Schemas {
       /** Design schema version, e.g. 16. */
       schemaVersion: number;
       body: EmailTemplateDesignBody;
-    };
+      [key: string]: unknown;
+     };
 
     export interface EmailTemplateSender {
       /**
@@ -47242,11 +47244,18 @@ export namespace Schemas {
        * * `missing_primary_key` - Missing primary key
        * * `duplicate_primary_key` - Duplicate primary key */
       readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnum | null;
+      /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
+      readonly webhook_not_registered: boolean;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again.
+         * @nullable
+         */
+      masked_columns?: string[] | null;
       /**
          * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
          * @nullable
@@ -47368,6 +47377,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Columns whose values are replaced with a one-way digest at sync time. Null means mask nothing. Any change starts a full resync of the table.
+         * @nullable
+         */
+      masked_columns?: string[] | null;
       /**
          * Row-filter predicates ANDed onto the source query. Null/empty means sync all rows.
          * @nullable
@@ -47593,6 +47607,8 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
       readonly supports_webhooks: boolean;
+      /** Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables. */
+      readonly webhook_not_registered: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection: boolean;
       /**
@@ -61175,6 +61191,11 @@ export namespace Schemas {
       readonly user_tag: string | null;
       /** @nullable */
       readonly sync_interval: string | null;
+      /**
+         * How often this node actually refreshes. A downstream view can make an unpinned view refresh more often than `sync_interval`, and a slow source can make it refresh less often. Null when the node is not scheduled.
+         * @nullable
+         */
+      readonly effective_sync_interval: string | null;
       /** How often this view refreshes. 'never' clears the cadence, and with it the pin. Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.
        *
        * * `never` - never
@@ -81811,11 +81832,18 @@ export namespace Schemas {
        * * `missing_primary_key` - Missing primary key
        * * `duplicate_primary_key` - Duplicate primary key */
       readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnum | null;
+      /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
+      readonly webhook_not_registered?: boolean;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again.
+         * @nullable
+         */
+      masked_columns?: string[] | null;
       /**
          * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
          * @nullable
@@ -81924,6 +81952,8 @@ export namespace Schemas {
          */
       readonly user_access_level?: string | null;
       readonly supports_webhooks?: boolean;
+      /** Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables. */
+      readonly webhook_not_registered?: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection?: boolean;
       /**
@@ -83799,6 +83829,11 @@ export namespace Schemas {
       readonly user_tag?: string | null;
       /** @nullable */
       readonly sync_interval?: string | null;
+      /**
+         * How often this node actually refreshes. A downstream view can make an unpinned view refresh more often than `sync_interval`, and a slow source can make it refresh less often. Null when the node is not scheduled.
+         * @nullable
+         */
+      readonly effective_sync_interval?: string | null;
       /** How often this view refreshes. 'never' clears the cadence, and with it the pin. Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.
        *
        * * `never` - never
@@ -84634,6 +84669,11 @@ export namespace Schemas {
     export interface PatchedProjectBackwardCompat {
       readonly id?: number;
       readonly organization?: string;
+      /**
+         * Whether the project's organization approved AI data processing. AI features need this approval.
+         * @nullable
+         */
+      readonly is_ai_data_processing_approved?: boolean | null;
       /**
          * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
          * @minLength 1
@@ -90704,6 +90744,11 @@ export namespace Schemas {
       readonly id: number;
       readonly organization: string;
       /**
+         * Whether the project's organization approved AI data processing. AI features need this approval.
+         * @nullable
+         */
+      readonly is_ai_data_processing_approved: boolean | null;
+      /**
          * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
          * @minLength 1
          * @maxLength 200
@@ -93787,6 +93832,109 @@ export namespace Schemas {
     }
 
     /**
+     * * `running` - Import running
+     * * `completed` - Import completed
+     * * `cancelled` - Import cancelled
+     * * `failed` - Import failed
+     */
+    export type PushTokenImportStatusEnum = typeof PushTokenImportStatusEnum[keyof typeof PushTokenImportStatusEnum];
+
+
+    export const PushTokenImportStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Cancelled: 'cancelled',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `invalid_row` - The line is missing a value or a value is too long
+     * * `unknown_person` - No person has this distinct ID
+     * * `token_mismatch` - The token does not fit this channel
+     * * `not_stored` - The device was not stored
+     * * `person_processing_disabled` - Person processing is off for this person
+     */
+    export type PushTokenImportRowFailureReasonEnum = typeof PushTokenImportRowFailureReasonEnum[keyof typeof PushTokenImportRowFailureReasonEnum];
+
+
+    export const PushTokenImportRowFailureReasonEnum = {
+      InvalidRow: 'invalid_row',
+      UnknownPerson: 'unknown_person',
+      TokenMismatch: 'token_mismatch',
+      NotStored: 'not_stored',
+      PersonProcessingDisabled: 'person_processing_disabled',
+    } as const;
+
+    export interface PushTokenImportRowFailure {
+      /** Line of the file, counting the column names as line 1. */
+      line: number;
+      /** The distinct ID on the line. */
+      distinct_id: string;
+      /** The last characters of the line's device token. */
+      device_token_suffix: string;
+      /** Why the device on this line was not imported.
+       *
+       * * `invalid_row` - The line is missing a value or a value is too long
+       * * `unknown_person` - No person has this distinct ID
+       * * `token_mismatch` - The token does not fit this channel
+       * * `not_stored` - The device was not stored
+       * * `person_processing_disabled` - Person processing is off for this person */
+      reason: PushTokenImportRowFailureReasonEnum;
+      /** A sentence a person can act on. */
+      detail: string;
+    }
+
+    export interface PushTokenImport {
+      /** The import's ID. */
+      id: string;
+      /** The push channel the devices are added to. */
+      integration_id: number;
+      /** `running` while devices are sent. `completed`, `cancelled` and `failed` are final.
+       *
+       * * `running` - Import running
+       * * `completed` - Import completed
+       * * `cancelled` - Import cancelled
+       * * `failed` - Import failed */
+      status: PushTokenImportStatusEnum;
+      /** Whether the import creates missing persons. */
+      create_missing_persons: boolean;
+      /** Devices in the file that the import sends. */
+      total_devices: number;
+      /** Devices sent so far. */
+      processed_devices: number;
+      /** Devices stored on their person. */
+      imported_devices: number;
+      /** Lines that were not imported, for any reason. */
+      failed_devices: number;
+      /** Devices whose distinct ID had no person. */
+      unknown_person_devices: number;
+      /** Repeated lines that were left out. */
+      duplicate_lines: number;
+      /** The first 1,000 lines that were not imported, with the reason for each. */
+      failures: PushTokenImportRowFailure[];
+      /** True when the devices of unknown people can still be imported with new persons. */
+      can_import_unknown_persons: boolean;
+      /** Why a failed import stopped. Empty otherwise. */
+      error: string;
+      /** When the file was uploaded. */
+      created_at: string;
+      /**
+         * When the import ended. Empty while it runs, and while a stopped import finishes its last batch.
+         * @nullable
+         */
+      finished_at: string | null;
+    }
+
+    export interface PushTokenImportCreate {
+      /** The APNs or Firebase push channel to add the devices to. */
+      integration_id: number;
+      /** A UTF-8 CSV file of up to 20 MB. The first line names the columns: `distinct_id` (the ID your app passes to identify) and `device_token` (the APNs device token or FCM registration token). Other columns are ignored. */
+      device_token_file: Blob;
+      /** Create a person for a distinct ID that has none. Off by default, so devices of unknown people are listed as failed and can be imported later with new persons. */
+      create_missing_persons?: boolean;
+    }
+
+    /**
      * * `unknown_person` - No person has this distinct ID
      * * `token_mismatch` - The token does not fit this channel
      * * `not_stored` - The device was not stored
@@ -93818,6 +93966,11 @@ export namespace Schemas {
       reason: PushTokenImportFailureReasonEnum;
       /** A sentence a person can act on. */
       detail: string;
+    }
+
+    export interface PushTokenImportLatest {
+      /** The newest import into the channel, if any. */
+      latest: PushTokenImport | null;
     }
 
     export interface PushTokenSubscription {
@@ -102945,7 +103098,7 @@ export namespace Schemas {
          * @nullable
          */
       created_by_name: string | null;
-      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects, rather than a directive. */
+      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report, or for a report a person or their agent claimed: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects or supports, rather than a directive. */
       origin: string;
     }
 
@@ -131321,6 +131474,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type PushTokenImportsLatestRetrieveParams = {
+    /**
+     * The push channel whose newest import to return.
+     */
+    integration_id: number;
     };
 
     export type QueryLogRetrieve200 = { [key: string]: unknown };

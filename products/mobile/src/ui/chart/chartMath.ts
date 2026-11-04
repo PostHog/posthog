@@ -179,6 +179,12 @@ export function formatAxisDate(at: number, interval: ChartInterval): string {
     }
 }
 
+export function formatPagerDate(at: number, interval: ChartInterval): string {
+    return interval === 'hour'
+        ? `${formatMonthDay(new Date(at))}, ${formatAxisDate(at, interval)}`
+        : formatAxisDate(at, interval)
+}
+
 const MINUS = '−'
 
 function weekEnd(start: Date): Date {
