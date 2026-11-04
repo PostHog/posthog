@@ -234,9 +234,9 @@ export class InstructionsBuilder {
 
     private hogqlReferencePointer(state: ExecToolState): string | undefined {
         const { mcpConsumer } = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
-        // PostHog Code is left out: a run launched with skills disabled has neither bundled
-        // skills nor `learn`, and the server cannot tell those runs apart.
-        if (mcpConsumer === 'plugin') {
+        // PostHog Code qualifies only through the bundled-skills header, because a run launched
+        // with skills disabled also sends `posthog-code` and has neither bundled skills nor `learn`.
+        if (mcpConsumer === 'plugin' || state.requestContext.bundledSkills) {
             return 'The full HogQL reference is in your bundled `querying-posthog-data` skill: read its `references/guidelines.md`, and its `models-*.md` references for `posthog.ai_events`, `logs`, `posthog.trace_spans`, and `posthog.metrics`.'
         }
         const { guidesEnabled, skillsEnabled } = this.getExecLearnCapabilities(state)

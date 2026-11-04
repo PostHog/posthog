@@ -3,10 +3,12 @@ import { describe, expect, it } from 'vitest'
 
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
+import { buildMCPRequestContext } from '@/hono/mcp-context'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { HOGQL_GUIDE_ID } from '@/lib/instructions-formatter'
+import { parseRequestProperties } from '@/lib/request-properties'
 import EXECUTE_SQL_REFERENCE from '@/templates/execute-sql-reference.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
@@ -15,11 +17,17 @@ import { makeToolExecutorState } from '../shared/test-utils'
 
 const GUIDELINES = '#### HogQL guidelines\n\nFull guideline text.'
 
-function execState(opts: { consumer?: string; vendorClient?: string; skills?: boolean } = {}): ResolvedState {
+function execState(
+    opts: { consumer?: string; vendorClient?: string; skills?: boolean; headers?: Record<string, string> } = {}
+): ResolvedState {
     return makeToolExecutorState([{ name: 'execute-sql' }], {
         useSingleExec: true,
         clientProfile: new MCPClientProfile({ vendorClient: opts.vendorClient }),
-        requestContext: { mcpConsumer: opts.consumer } as any,
+        requestContext: opts.headers
+            ? buildMCPRequestContext(
+                  parseRequestProperties(new Request('https://mcp.example.com/mcp', { headers: opts.headers }), {})
+              )
+            : ({ mcpConsumer: opts.consumer } as any),
         toolFeatureFlags: opts.skills ? { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true } : {},
     })
 }
@@ -63,6 +71,13 @@ describe('formatExecuteSqlDescription', () => {
         { label: 'tools mode', state: undefined, pointer: undefined },
         { label: 'cli without learn', state: execState(), pointer: undefined },
         { label: 'posthog-code', state: execState({ consumer: 'posthog-code', skills: true }), pointer: undefined },
+        {
+            label: 'posthog-code with bundled skills',
+            state: execState({
+                headers: { 'x-posthog-mcp-consumer': 'posthog-code', 'x-posthog-mcp-bundled-skills': 'true' },
+            }),
+            pointer: 'bundled `querying-posthog-data` skill',
+        },
         {
             label: 'plugin',
             state: execState({ consumer: 'plugin', skills: true }),

@@ -29,6 +29,7 @@ export interface MCPRequestContext
             | 'mcpSessionId'
             | 'mcpConversationId'
             | 'region'
+            | 'bundledSkills'
         > {
     mode?: McpMode | undefined
     authMethod: McpAuthMethod
@@ -58,6 +59,7 @@ export function buildMCPRequestContext(props: RequestProperties): MCPRequestCont
         mcpConsumer: props.mcpConsumer,
         mode: props.mode,
         region: props.region,
+        bundledSkills: props.bundledSkills,
         mcpVendorClient: props.mcpVendorClient,
         authMethod: classifyAuthMethod(props.apiToken),
     }
