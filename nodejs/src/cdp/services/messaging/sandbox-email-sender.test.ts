@@ -252,6 +252,7 @@ describe('sandbox email content', () => {
             null,
         ],
         ['<body><style>div{mso-hide:all}</style><p>Hello</p></body>', '<p>Hello</p>', null],
+        [`<body>${'<div>'.repeat(200)}<p>Hello</p>`, '<p>Hello</p>', null],
         ['<body><p title="&lt;!--[if mso]&gt;">Hello</p></body>', '<p title="<!--[if mso]>">Hello</p>', null],
         [
             '<body><style>/* <![if !mso]> */ p {color:blue}</style><p>Hello</p></body>',
@@ -311,6 +312,8 @@ describe('sandbox email content', () => {
         ['<body><!--[if !mso]><!--><p title="<![endif]">Hello</p>', null, null],
         ['<body><!--[if !mso]><!--><p>Hello</p><!-- <![endif] note -->', null, null],
         ['<body><p>Hello</p><template><!--[if !mso]><p>Example</p>', null, null],
+        [`<body>${'<div>'.repeat(14_000)}<p>Hello</p>`, null, null],
+        [`<body>${'<template>'.repeat(5_000)}<p>Hello</p>`, null, null],
         [
             '<body><!--[if mso]><div style="display:none"><![if !mso]></div><![endif]><![endif]--><p>Hello</p>',
             null,
