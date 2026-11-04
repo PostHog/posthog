@@ -5,7 +5,12 @@ from typing import TYPE_CHECKING, Optional
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.lazy_join_tags import DEFINITION_TAGS, TICKET_ASSIGNMENT, TICKET_TAGS
+from posthog.hogql.database.lazy_join_tags import (
+    DEFINITION_TAGS,
+    ENDPOINT_CURRENT_VERSION,
+    TICKET_ASSIGNMENT,
+    TICKET_TAGS,
+)
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
@@ -14,6 +19,7 @@ from posthog.hogql.database.models import (
     DecimalDatabaseField,
     ExpressionField,
     FieldOrTable,
+    FieldTraverser,
     FloatDatabaseField,
     IntegerDatabaseField,
     LazyJoin,
@@ -941,7 +947,22 @@ source_sync_jobs: PostgresTable = PostgresTable(
     },
 )
 
-endpoint_versions: PostgresTable = PostgresTable(
+
+class _EndpointVersionsTable(PostgresTable):
+    def creator_owned_object_ids(
+        self, user_access_control: "UserAccessControl", team_id: Optional[int], candidate_ids: Optional[frozenset[str]]
+    ) -> frozenset[str]:
+        from products.endpoints.backend.facade.models import Endpoint  # noqa: PLC0415
+
+        if team_id is None:
+            raise ValueError("system.data_modeling_endpoint_versions needs a team to resolve endpoint access")
+        endpoints = Endpoint.objects.filter(team_id=team_id, created_by_id=user_access_control.user.pk)
+        if candidate_ids is not None:
+            endpoints = endpoints.filter(id__in=candidate_ids)
+        return frozenset(str(endpoint_id) for endpoint_id in endpoints.values_list("id", flat=True))
+
+
+endpoint_versions: _EndpointVersionsTable = _EndpointVersionsTable(
     name="data_modeling_endpoint_versions",
     postgres_table_name="endpoints_endpointversion",
     access_scope="endpoint",
@@ -971,6 +992,38 @@ endpoint_versions: PostgresTable = PostgresTable(
     },
 )
 
+
+def endpoint_current_version_join(
+    join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
+) -> ast.JoinExpr:
+    fields: dict[str, list[str | int]] = {
+        **join_to_add.fields_accessed,
+        "endpoint_id": ["endpoint_id"],
+        "version": ["version"],
+    }
+    return ast.JoinExpr(
+        table=ast.SelectQuery(
+            select=[ast.Alias(alias=alias, expr=ast.Field(chain=chain)) for alias, chain in fields.items()],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["system", "data_modeling_endpoint_versions"])),
+        ),
+        alias=join_to_add.to_table,
+        join_type="LEFT JOIN",
+        constraint=ast.JoinConstraint(
+            constraint_type="ON",
+            expr=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=[join_to_add.from_table, source]),
+                        right=ast.Field(chain=[join_to_add.to_table, target]),
+                    )
+                    for source, target in [("id", "endpoint_id"), ("current_version", "version")]
+                ]
+            ),
+        ),
+    )
+
+
 endpoints: PostgresTable = PostgresTable(
     name="data_modeling_endpoints",
     postgres_table_name="endpoints_endpoint",
@@ -991,6 +1044,27 @@ endpoints: PostgresTable = PostgresTable(
         "current_version": IntegerDatabaseField(
             name="current_version",
             description="Version number currently served; joins to data_modeling_endpoint_versions.version.",
+        ),
+        "version": LazyJoin(
+            from_field=["id"],
+            to_field=["endpoint_id"],
+            extra_from_fields=[["current_version"]],
+            join_table="system.data_modeling_endpoint_versions",
+            resolver=ENDPOINT_CURRENT_VERSION,
+            description="Current version of this endpoint. Matches the endpoint ID and current_version number.",
+        ),
+        "description": FieldTraverser(
+            chain=["version", "description"], description="Description of the current endpoint version."
+        ),
+        "query": FieldTraverser(
+            chain=["version", "query"], description="JSON HogQL query of the current endpoint version."
+        ),
+        "data_freshness_seconds": FieldTraverser(
+            chain=["version", "data_freshness_seconds"],
+            description="Maximum cache age for the current version, in seconds.",
+        ),
+        "columns": FieldTraverser(
+            chain=["version", "columns"], description="JSON schema of the current version's output columns."
         ),
         "derived_from_insight": StringDatabaseField(
             name="derived_from_insight", description="Short id of the insight this endpoint was created from, if any."
