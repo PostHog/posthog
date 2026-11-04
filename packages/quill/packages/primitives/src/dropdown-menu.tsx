@@ -34,8 +34,6 @@ function withItemTooltip(
     return withTooltip(item, content, { target: 'block', side: 'inline-end' })
 }
 
-
-
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props): React.ReactElement {
     return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
 }
@@ -53,9 +51,12 @@ const DropdownMenuTrigger = React.forwardRef<HTMLButtonElement, MenuPrimitive.Tr
 const DropdownMenuContent = React.forwardRef<
     React.ComponentRef<typeof MenuPrimitive.Popup>,
     MenuPrimitive.Popup.Props &
-        Pick<MenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'>
+        Pick<MenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'> & {
+            /** Drops the padding and scrolling, for content that lays out and scrolls on its own. */
+            flush?: boolean
+        }
 >(function DropdownMenuContent(
-    { align = 'start', alignOffset = 0, side = 'bottom', sideOffset = 4, className, anchor, children, ...props },
+    { align = 'start', alignOffset = 0, side = 'bottom', sideOffset = 4, className, anchor, flush, children, ...props },
     ref
 ) {
     return (
@@ -73,7 +74,11 @@ const DropdownMenuContent = React.forwardRef<
                 <MenuPrimitive.Popup
                     ref={ref}
                     data-slot="dropdown-menu-content"
-                    className={cn('quill-menu__content w-max min-w-(--anchor-width) max-w-(--available-width)', className)}
+                    data-flush={flush ? '' : undefined}
+                    className={cn(
+                        'quill-menu__content w-max min-w-(--anchor-width) max-w-(--available-width)',
+                        className
+                    )}
                     {...props}
                 >
                     <div className="quill-menu__scroller scroll-mask-y-4 scroll-py-4">{children}</div>
