@@ -6,6 +6,7 @@ so a later ingestion-time rollup can serve the same names without changes for us
 """
 
 import datetime as dt
+from collections.abc import Iterable, Sequence
 from enum import StrEnum
 
 from django.core.cache import cache
@@ -26,10 +27,16 @@ from posthog.permissions import posthog_feature_flag_enabled
 from products.metrics.backend.facade.contracts import (
     DERIVED_METRIC_PREFIX,
     METRICS_DERIVED_SERIES_FEATURE_FLAG,
+    MetricFilter,
     MetricQueryClause,
     MetricQueryTooManyRowsError,
 )
-from products.metrics.backend.facade.enums import MetricAggregation, MetricRangeFunction, MetricType
+from products.metrics.backend.facade.enums import (
+    AttributeScope as LabelScope,
+    MetricAggregation,
+    MetricRangeFunction,
+    MetricType,
+)
 from products.metrics.backend.metric_query_runner import (
     AttributeScope,
     _align_to_interval,
@@ -116,6 +123,12 @@ DERIVED_METRICS: tuple[DerivedMetric, ...] = (
 
 _DERIVED_METRICS_BY_NAME: dict[str, DerivedMetric] = {metric.name: metric for metric in DERIVED_METRICS}
 
+# The access-control resource and API scope object that guard each source.
+SOURCE_RESOURCES: dict[DerivedSource, str] = {
+    DerivedSource.SPANS: "tracing",
+    DerivedSource.LOGS: "logs",
+}
+
 _TABLES: dict[DerivedSource, list[str | int]] = {
     DerivedSource.SPANS: ["posthog", "trace_spans"],
     DerivedSource.LOGS: ["logs"],
@@ -127,7 +140,11 @@ _COLUMN_KEYS: dict[DerivedSource, dict[str, str]] = {
     DerivedSource.LOGS: {"severity_text": "severity_text"},
 }
 
-_COUNTER_AGGREGATIONS = frozenset({MetricAggregation.SUM, MetricAggregation.INCREASE, MetricAggregation.RATE})
+# The viewer sends NONE for a counter that the user has not aggregated yet. A derived counter has one
+# value per bucket, so NONE gives the same count as SUM.
+_COUNTER_AGGREGATIONS = frozenset(
+    {MetricAggregation.NONE, MetricAggregation.SUM, MetricAggregation.INCREASE, MetricAggregation.RATE}
+)
 _HISTOGRAM_AGGREGATIONS = frozenset(
     {
         MetricAggregation.QUANTILE,
@@ -140,15 +157,28 @@ _HISTOGRAM_AGGREGATIONS = frozenset(
 
 # A request is a server span. A service that has no server spans in the window counts its root
 # spans, so a consumer's client spans count once each. This matches the APM service health.
+# `service_filters` keeps the fallback in the selected environment, as APM service health does.
 _REQUEST_PREDICATE = """
     (kind = 2 OR (is_root_span AND service_name NOT IN (
-        SELECT service_name FROM posthog.trace_spans WHERE {window} AND kind = 2
+        SELECT DISTINCT service_name FROM posthog.trace_spans WHERE {window} AND kind = 2 AND {service_filters}
     )))
 """
+
+# Filters on these keys select services or environments, not single spans.
+_SERVICE_SCOPE_KEYS = frozenset(
+    {"service.name", "service_name", "deployment.environment", "deployment.environment.name", "env"}
+)
 
 
 def is_derived_metric_name(name: str) -> bool:
     return name.startswith(DERIVED_METRIC_PREFIX)
+
+
+def derived_metric_resources(names: Iterable[str]) -> list[str]:
+    """The access-control resources whose data the derived metrics among `names` read."""
+    return sorted(
+        {SOURCE_RESOURCES[_DERIVED_METRICS_BY_NAME[name].source] for name in names if name in _DERIVED_METRICS_BY_NAME}
+    )
 
 
 def get_derived_metric(name: str) -> DerivedMetric:
@@ -194,6 +224,7 @@ def _sources_with_data(team: Team) -> set[DerivedSource]:
     now = timezone.now()
     window = _window_expr(now - _DATA_PRESENCE_WINDOW, now)
     sources: set[DerivedSource] = set()
+    failed = False
     for source, table in _TABLES.items():
         query = ast.SelectQuery(
             select=[ast.Constant(value=1)],
@@ -201,16 +232,24 @@ def _sources_with_data(team: Team) -> set[DerivedSource]:
             where=window,
             limit=ast.Constant(value=1),
         )
-        response = execute_hogql_query(
-            query_type="DerivedMetricsPresenceQuery",
-            query=query,
-            team=team,
-            workload=Workload.LOGS,
-            settings=_QUERY_SETTINGS,
-        )
+        # A failed check hides that source's names, but the picker still lists the other names.
+        try:
+            response = execute_hogql_query(
+                query_type="DerivedMetricsPresenceQuery",
+                query=query,
+                team=team,
+                workload=Workload.LOGS,
+                settings=_QUERY_SETTINGS,
+            )
+        except Exception:
+            logger.warning("metrics_derived_presence_check_failed", team_id=team.id, source=source.value, exc_info=True)
+            failed = True
+            continue
         if response.results:
             sources.add(source)
-    cache.set(cache_key, sorted(sources), _DATA_PRESENCE_CACHE_TTL_SECONDS)
+    # Cache only a complete answer, so the next request checks a failed source again.
+    if not failed:
+        cache.set(cache_key, sorted(sources), _DATA_PRESENCE_CACHE_TTL_SECONDS)
     return sources
 
 
@@ -299,24 +338,40 @@ class DerivedMetricQueryRunner:
 
     def _value_expr(self) -> ast.Expr:
         if self.metric.value is DerivedValue.DURATION_MS:
-            duration = "duration_nano / 1e6"
+            duration = parse_expr("duration_nano / 1e6")
             aggregation = self.clause.aggregation
             if aggregation.needs_quantile:
                 assert self.clause.quantile is not None
-                return parse_expr(f"quantile({float(self.clause.quantile)!r})({duration})")
-            return parse_expr(f"{aggregation.value}({duration})")
+                return ast.Call(
+                    name="quantile", params=[ast.Constant(value=float(self.clause.quantile))], args=[duration]
+                )
+            return ast.Call(name=aggregation.value, args=[duration])
+        # Errors count over the request rows, so a service without errors keeps a zero bucket.
+        count = (
+            parse_expr("countIf(status_code = 2)")
+            if self.metric.value is DerivedValue.ERROR_COUNT
+            else parse_expr("count()")
+        )
         if self.clause.aggregation is MetricAggregation.RATE or self.clause.range_function is MetricRangeFunction.RATE:
             seconds = _interval_step(self.interval).total_seconds()
-            return parse_expr("count() / {seconds}", placeholders={"seconds": ast.Constant(value=seconds)})
-        return parse_expr("count()")
+            return parse_expr(
+                "{count} / {seconds}", placeholders={"count": count, "seconds": ast.Constant(value=seconds)}
+            )
+        return count
 
     def _predicate(self, window: ast.Expr) -> ast.Expr:
         if self.metric.source is DerivedSource.LOGS:
             return ast.Constant(value=True)
-        requests = parse_expr(_REQUEST_PREDICATE, placeholders={"window": window})
-        if self.metric.value is DerivedValue.ERROR_COUNT:
-            return ast.And(exprs=[requests, parse_expr("status_code = 2")])
-        return requests
+        service_filters = [
+            f for f in self.clause.filters if f.scope is LabelScope.RESOURCE or f.key in _SERVICE_SCOPE_KEYS
+        ]
+        return parse_expr(
+            _REQUEST_PREDICATE,
+            placeholders={"window": window, "service_filters": self._filters(service_filters)},
+        )
+
+    def _filters(self, filters: Sequence[MetricFilter]) -> ast.Expr:
+        return filters_expr(filters, field_for=self._field)
 
     def _query(self) -> ast.SelectQuery:
         window = _window_expr(self.date_from, self.date_to)
@@ -326,7 +381,7 @@ class DerivedMetricQueryRunner:
             "value": self._value_expr(),
             "window": window,
             "predicate": self._predicate(window),
-            "filters": filters_expr(self.clause.filters, field_for=self._field),
+            "filters": self._filters(self.clause.filters),
             "limit": ast.Constant(value=_ROW_LIMIT),
         }
         for alias, group in zip(group_aliases, self.clause.group_by):

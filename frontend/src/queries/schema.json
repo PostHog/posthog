@@ -42169,6 +42169,7 @@
                 "metrics_docs_viewed",
                 "metrics_viewer_query_run",
                 "metrics_sql_query_run",
+                "metrics_derived_query_run",
                 "metrics_query_saved",
                 "metrics_first_ingested",
                 "metrics_scrape_agent_snippet_copied",

@@ -7,7 +7,7 @@ so import-linter's strict-mode contract holds.
 
 import math
 import datetime as dt
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 from functools import partial
@@ -34,8 +34,11 @@ from products.error_tracking.backend.facade.api import list_latest_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
 from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.derived import (
+    DerivedMetric,
     DerivedMetricQueryRunner,
+    derived_metric_resources as _derived_metric_resources,
     derived_metrics_enabled,
+    get_derived_metric,
     is_derived_metric_name as _is_derived_metric_name,
     list_derived_metric_names,
 )
@@ -519,24 +522,35 @@ def list_metric_names(
 
     The unsearched list is cached per team and service scope for a minute;
     searches are not. Behind the derived series flag, the derived metrics the
-    team can query follow the ingested names.
+    team can query follow the ingested names, within `limit`.
     """
     if names:
-        return MetricNamesQueryRunner(team=team, services=services, names=names, limit=len(names)).run()
+        derived_names = [name for name in names if _is_derived_metric_name(name)]
+        ingested_names = [name for name in names if not _is_derived_metric_name(name)]
+        ingested = (
+            MetricNamesQueryRunner(team=team, services=services, names=ingested_names, limit=len(ingested_names)).run()
+            if ingested_names
+            else []
+        )
+        if not derived_names or not derived_metrics_enabled(team):
+            return ingested
+        available = {metric.name for metric in list_derived_metric_names(team)}
+        return [*ingested, *(_derived_name_row(get_derived_metric(n)) for n in derived_names if n in available)]
     ingested = cached_metric_names(team=team, search=search, limit=limit, services=services)
     if not derived_metrics_enabled(team):
         return ingested
-    derived: list[dict[str, Any]] = [
-        {
-            "name": metric.name,
-            "metric_type": metric.metric_type.value,
-            "unit": metric.unit,
-            "last_seen": None,
-            "sparkline": [],
-        }
-        for metric in list_derived_metric_names(team, search=search)
-    ]
-    return [*ingested, *derived]
+    derived = [_derived_name_row(metric) for metric in list_derived_metric_names(team, search=search)]
+    return [*ingested, *derived][:limit]
+
+
+def _derived_name_row(metric: DerivedMetric) -> dict[str, Any]:
+    return {
+        "name": metric.name,
+        "metric_type": metric.metric_type.value,
+        "unit": metric.unit,
+        "last_seen": None,
+        "sparkline": [],
+    }
 
 
 def list_metric_picker_names(
@@ -554,12 +568,20 @@ def list_metric_picker_names(
         {"name": metric.name, "metric_type": metric.metric_type.value}
         for metric in list_derived_metric_names(team, search=search)
     ]
-    return [*ingested, *derived]
+    return [*ingested, *derived][:limit]
 
 
 def is_derived_metric_name(name: str) -> bool:
     """True for a name that the query computes from spans and logs instead of reading ingested samples."""
     return _is_derived_metric_name(name)
+
+
+def derived_metric_resources(names: Iterable[str]) -> list[str]:
+    """The access-control resources (`logs`, `tracing`) that the derived metrics among `names` read.
+
+    A caller that queries these names must also hold read access to each resource.
+    """
+    return _derived_metric_resources(names)
 
 
 def get_metrics_overview(*, team: Team, lookback: dt.timedelta | None = None) -> MetricsOverview:

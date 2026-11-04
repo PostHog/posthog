@@ -36,7 +36,7 @@ from posthog.shared_link_user import SharedLinkUser
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.metrics.backend.dashboard_import.promql_text import drop_match_all_matchers
 from products.metrics.backend.date_range import metrics_query_date_range
-from products.metrics.backend.facade.api import run_metric_query
+from products.metrics.backend.facade.api import derived_metric_resources, run_metric_query
 from products.metrics.backend.facade.contracts import (
     METRICS_FEATURE_FLAG,
     MetricFilter,
@@ -85,6 +85,9 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
     def validate_query_runner_access(self, user: "User") -> bool:
         user_access_control = UserAccessControl(user=user, team=self.team)
         user_access_control.assert_access_level_for_resource("metrics", "viewer")
+        # A derived metric reads spans or logs, so the user needs access to that source too.
+        for resource in derived_metric_resources(clause.metricName for clause in self.query.clauses):
+            user_access_control.assert_access_level_for_resource(resource, "viewer")
         # Private alpha: RBAC alone isn't enough — mirror MetricsViewSet's flag gate here,
         # or POST /query with a MetricsQuery bypasses it.
         if not posthog_feature_flag_enabled(

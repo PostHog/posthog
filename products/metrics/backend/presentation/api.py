@@ -6,6 +6,7 @@ recognizable.
 
 import re
 import datetime as dt
+from collections.abc import Sequence
 from dataclasses import asdict
 from typing import cast
 from zoneinfo import ZoneInfo
@@ -30,15 +31,17 @@ from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.exceptions import InsufficientScope
 from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_enabled, get_api_queries_budget_status
 from posthog.models import User
-from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled
+from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled, scopes_caller_lacks
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.utils import relative_date_parse
 
 from products.metrics.backend.facade.api import (
     characterize_metric_anomaly,
     check_metric_variable_regex,
+    derived_metric_resources,
     get_metrics_overview,
     is_derived_metric_name,
     list_metric_attribute_keys,
@@ -1266,6 +1269,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 interval=query_data.get("interval"),
                 formula=query_data.get("formula"),
             )
+            self._enforce_derived_source_access(request, clauses)
             series = run_metric_query(team=self.team, request=metric_request)
         except ValueError as exc:
             raise ParseError(str(exc))
@@ -1287,6 +1291,18 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         return _series_response(series)
+
+    def _enforce_derived_source_access(self, request: Request, clauses: Sequence[MetricQueryClause]) -> None:
+        # A derived metric reads spans or logs, so metrics access alone must not expose their attributes.
+        resources = derived_metric_resources(clause.metric_name for clause in clauses)
+        missing = scopes_caller_lacks(request, [f"{resource}:read" for resource in resources])
+        if missing:
+            raise InsufficientScope(
+                missing, detail=f"Derived metrics read spans or logs, so they also need: {', '.join(missing)}."
+            )
+        for resource in resources:
+            if not self.user_access_control.check_access_level_for_resource(resource, "viewer"):
+                raise PermissionDenied(f"You do not have access to {resource}.")
 
     def _run_promql_query(self, request: Request, query_data: dict, date_to: dt.datetime) -> Response:
         if not posthog_feature_flag_enabled(
