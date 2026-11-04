@@ -1,1 +1,2 @@
-from products.ai_observability.backend.admin import dataset_retention_view as dataset_retention_view
+from products.ai_observability.backend.admin import set_dataset_retention_enabled as set_dataset_retention_enabled
+from products.ai_observability.backend.dataset_retention import dataset_retention_enabled as dataset_retention_enabled

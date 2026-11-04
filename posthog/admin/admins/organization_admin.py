@@ -1,6 +1,5 @@
 import re
 from datetime import UTC, timedelta
-from functools import partial
 from typing import Any
 from uuid import UUID
 
@@ -13,12 +12,16 @@ from django.core.exceptions import PermissionDenied
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import transaction
+from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
+from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils import timezone
+from django.utils.decorators import method_decorator
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
+from django.views.decorators.http import require_http_methods
 
 from posthog.admin.ai_training_opt_in_history import get_ai_training_opt_in_history
 from posthog.admin.authorization import can_trigger_admin_deletion
@@ -36,7 +39,7 @@ from posthog.person_db_router import PERSONS_DB_MODELS
 from posthog.tasks.ai_observability_usage_report import internal_reporting_team_id
 from posthog.utils import pluralize
 
-from products.ai_observability.backend.facade.admin import dataset_retention_view
+from products.ai_observability.backend.facade.admin import dataset_retention_enabled, set_dataset_retention_enabled
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import BATCH_EXPORT_MODEL_LABEL
 
@@ -133,6 +136,15 @@ class UsageReportForm(forms.Form):
         if report_date > (timezone.now().date() + timedelta(days=1)):
             raise forms.ValidationError("The date cannot be more than one day in the future.")
         return report_date
+
+
+class DatasetRetentionForm(forms.Form):
+    enabled = forms.TypedChoiceField(
+        label="Dataset cleanup",
+        choices=[("enabled", "Enabled"), ("disabled", "Disabled")],
+        coerce=lambda value: value == "enabled",
+        widget=forms.RadioSelect,
+    )
 
 
 class BulkDeactivateOrganizationsForm(forms.Form):
@@ -628,7 +640,7 @@ class OrganizationAdmin(admin.ModelAdmin):
             ),
             path(
                 "ai-observability-dataset-retention/",
-                self.admin_site.admin_view(partial(dataset_retention_view, admin_site=self.admin_site)),
+                self.admin_site.admin_view(self.dataset_retention_view),
                 name="ai-observability-dataset-retention",
             ),
             path(
@@ -827,6 +839,33 @@ class OrganizationAdmin(admin.ModelAdmin):
             request,
             "admin/posthog/organization/send_ai_observability_usage_report.html",
             {"form": form, "can_skip_existing_reports": internal_reporting_team_id() is not None},
+        )
+
+    @method_decorator(require_http_methods(["GET", "POST"]))
+    def dataset_retention_view(self, request: HttpRequest) -> HttpResponse:
+        if not request.user.has_perm("posthog.change_instancesetting"):
+            raise PermissionDenied
+        enabled = dataset_retention_enabled()
+        form = DatasetRetentionForm(
+            request.POST if request.method == "POST" else None,
+            initial={"enabled": "enabled" if enabled else "disabled"},
+        )
+        if request.method == "POST" and form.is_valid():
+            new_enabled = form.cleaned_data["enabled"]
+            set_dataset_retention_enabled(enabled=new_enabled, user_id=request.user.pk)
+            messages.success(
+                request, f"Dataset cleanup is now {'enabled' if new_enabled else 'disabled'} in this region."
+            )
+            return redirect(reverse("admin:ai-observability-dataset-retention"))
+        return TemplateResponse(
+            request,
+            "admin/posthog/organization/ai_observability_dataset_retention.html",
+            {
+                **self.admin_site.each_context(request),
+                "title": "AI observability dataset retention",
+                "form": form,
+                "enabled": enabled,
+            },
         )
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
