@@ -269,7 +269,7 @@
     }
 
     /* =========================================================================
-       Variant: link / link-muted
+       Variant: link / link-foreground / link-muted
        ========================================================================= */
     .quill-button--variant-link {
         color: var(--primary);
@@ -279,6 +279,15 @@
     .quill-button--variant-link:not(:disabled, [aria-disabled='true']):hover,
     .quill-button--variant-link[data-popup-open] {
         text-decoration: underline;
+    }
+
+    .quill-button--variant-link-foreground {
+        color: var(--foreground);
+    }
+
+    .quill-button--variant-link-foreground:not(:disabled, [aria-disabled='true']):hover,
+    .quill-button--variant-link-foreground[data-popup-open] {
+        background-color: var(--fill-hover);
     }
 
     .quill-button--variant-link-muted {
@@ -622,6 +631,10 @@
 
     .quill-button--variant-link[data-loading] > .quill-spinner {
         color: var(--primary);
+    }
+
+    .quill-button--variant-link-foreground[data-loading] > .quill-spinner {
+        color: var(--foreground);
     }
 
     .quill-button--variant-link-muted[data-loading] > .quill-spinner {
