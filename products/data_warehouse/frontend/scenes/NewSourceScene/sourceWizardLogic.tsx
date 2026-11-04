@@ -282,6 +282,11 @@ export function buildCreateSourcePayload(
     }
 }
 
+function withoutColumns(columns: string[] | null | undefined, removed: (string | null)[]): string[] | null | undefined {
+    const names = new Set(removed.filter((name): name is string => !!name).map((name) => name.toLowerCase()))
+    return columns?.filter((column) => !names.has(column.toLowerCase())) ?? columns
+}
+
 function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | null | undefined): boolean {
     return !!webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0
 }
@@ -776,6 +781,13 @@ export interface sourceWizardLogicActions {
         returnLabel: string
         returnUrl: string
     }
+    setSchemaMaskedColumns: (
+        schema: ExternalDataSourceSyncSchema,
+        maskedColumns: string[]
+    ) => {
+        maskedColumns: string[]
+        schema: ExternalDataSourceSyncSchema
+    }
     setSchemaNameFilter: (schemaNameFilter: string) => {
         schemaNameFilter: string
     }
@@ -1153,6 +1165,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             schema,
             rowFilters,
         }),
+        setSchemaMaskedColumns: (schema: ExternalDataSourceSyncSchema, maskedColumns: string[]) => ({
+            schema,
+            maskedColumns,
+        }),
         updateSchemaSyncType: (
             schema: ExternalDataSourceSyncSchema,
             syncType: ExternalDataSourceSyncSchema['sync_type'],
@@ -1329,6 +1345,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         row_filters: s.table === schema.table ? rowFilters : s.row_filters,
                     }))
                 },
+                setSchemaMaskedColumns: (state, { schema, maskedColumns }) => {
+                    return state.map((s) => ({
+                        ...s,
+                        masked_columns: s.table === schema.table ? maskedColumns : s.masked_columns,
+                    }))
+                },
                 updateSchemaSyncType: (
                     state,
                     {
@@ -1352,6 +1374,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                 ? (incrementalFieldLookbackSeconds ?? null)
                                 : s.incremental_field_lookback_seconds,
                         primary_key_columns: s.table === schema.table ? primaryKeyColumns : s.primary_key_columns,
+                        // The server refuses to mask a cursor or key column, which would fail the whole source creation.
+                        masked_columns:
+                            s.table === schema.table
+                                ? withoutColumns(s.masked_columns, [incrementalField, ...(primaryKeyColumns ?? [])])
+                                : s.masked_columns,
                         ...(s.table === schema.table && syncType === 'cdc' && cdcTableMode
                             ? { cdc_table_mode: cdcTableMode }
                             : {}),
@@ -2285,6 +2312,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         sync_time_of_day: schema.sync_time_of_day,
                                         primary_key_columns: schema.primary_key_columns,
                                         enabled_columns: schema.enabled_columns ?? null,
+                                        masked_columns: schema.masked_columns ?? null,
                                         row_filters: schema.row_filters ?? null,
                                         ...(schema.sync_type === 'cdc' && schema.cdc_table_mode
                                             ? { cdc_table_mode: schema.cdc_table_mode }
