@@ -16,10 +16,12 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.exceptions import ActivityError, ApplicationError
 
+from posthog.cloud_utils import is_cloud
 from posthog.dns_utils import dnssec_resolver
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
 from posthog.models.proxy_record import is_valid_proxy_domain
+from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL, matched_oob_domain
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_request, select_pinned_ip
 from posthog.security.url_validation import validate_url_and_pin_ips
 from posthog.temporal.common.base import PostHogWorkflow
@@ -133,6 +135,9 @@ async def check_dns(inputs: CheckActivityInput) -> CheckActivityOutput:
 
 
 def _resolve_dns(proxy_record: ProxyRecord) -> CheckActivityOutput:
+    if is_cloud() and (oob_domain := matched_oob_domain(proxy_record.domain)) is not None:
+        LOGGER.info("security.oob_domain_seen", host=proxy_record.domain, domain=oob_domain, guard="proxy_dns")
+        return CheckActivityOutput(errors=[OOB_DOMAIN_REFUSAL], warnings=[])
     resolver = dnssec_resolver()
     try:
         cnames = resolver.resolve(proxy_record.domain, "CNAME", lifetime=DNS_LOOKUP_LIFETIME_S)
@@ -338,14 +343,10 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
     # send dummy event to check the proxy is working
     try:
         # An org admin sets the domain and controls its DNS, so the request goes through
-        # pinned_request: it refuses a host that resolves to a non-public address, then connects to
-        # the address it validated instead of resolving the name again. The second resolution is
-        # what makes a low-TTL record exploitable, because the name can answer with a public
-        # address when it is checked and an internal one a moment later when it is fetched.
-        # pinned_request also never follows redirects, which would otherwise let the customer's
-        # server point us at an internal target once the connection succeeded. Same protection as
-        # the on-demand diagnostics probe in posthog/api/proxy_record_diagnostics.py
-        # (_check_live_event).
+        # pinned_request: it connects to the address it validated rather than resolving the name a
+        # second time, and it never follows a redirect. Resolving twice is what makes a low-TTL
+        # record exploitable. Same protection as the diagnostics probe in
+        # posthog/api/proxy_record_diagnostics.py (_check_live_event).
         response = pinned_request(
             "POST",
             f"{probe_base}/i/v0/e/",
@@ -401,8 +402,8 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
                 warnings=[],
             )
     except SSRFBlockedError:
-        # The probe refused the host, so nothing was sent. Not a RequestException, so it needs its
-        # own handler: without one the activity raises and the schedule retries a permanent refusal.
+        # Not a RequestException, so without this handler the activity raises and the schedule
+        # retries a refusal that can never change.
         return CheckActivityOutput(
             errors=["Proxy domain does not resolve to a public address"],
             warnings=[],
