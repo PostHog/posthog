@@ -34,6 +34,11 @@ MAX_PARENT_PAGE_SIZE = 5000
 # version can only be tombstoned after that version, so any pin inside the window is safe.
 MAX_SNAPSHOT_ROLLBACK = VACUUM_RETENTION - dt.timedelta(hours=4)
 
+# How long a resumed fan-out may still read the snapshot it re-pins. The rest of its sweep runs
+# after the re-pin, so the snapshot needs this much retention left on top of the margin above.
+# The longest clean fan-out sweep in production takes about 6 hours.
+RESUMED_SWEEP_BUDGET = dt.timedelta(hours=8)
+
 logger = structlog.get_logger(__name__)
 
 
@@ -326,6 +331,61 @@ def try_resolve_parent_table(
             reason="table_unreadable",
             exc_info=True,
         )
+        return None
+
+
+def pin_parent_table_version(table: ParentTableRef, version: int) -> ParentTableRef | None:
+    """`table` pinned back to an earlier `version`, or None when that version may no longer be readable.
+
+    A resumable fan-out checkpoints positions against the version its first attempt pinned, and a
+    parent that commits often (a webhook-synced one commits every drain) has moved on by the time a
+    later attempt resolves it. Reading that attempt from the checkpointed version keeps the position
+    meaningful instead of forcing the sweep back to its first row.
+
+    The caller has to check `parent_table_id` first: a rebuilt table reuses version numbers. A file
+    live at `version` can only be tombstoned by a later commit, and vacuum deletes it only once the
+    tombstone ages past its retention. So the version stays readable while the first commit
+    after it is inside `MAX_SNAPSHOT_ROLLBACK`, the bound `_snapshot_pin_as_of` puts on a rollback.
+    The rest of the sweep reads it after this check, so the version also needs
+    `RESUMED_SWEEP_BUDGET` of that window left, or vacuum can delete its files mid-sweep.
+
+    Returns None rather than raising on any failure, so the caller's start-over branch covers an
+    unreadable log too.
+    """
+    if version == table.version:
+        return table
+    if version > table.version:
+        # Versions restart at 0 when a table is rebuilt, so a newer number than the current pin
+        # names a version of a table that no longer exists.
+        return None
+    try:
+        delta_table = deltalake.DeltaTable(table.uri, storage_options=delta_storage_options())
+        newer_commits = delta_table.history(limit=delta_table.version() - version)
+        first_after = next((entry for entry in newer_commits if entry.get("version") == version + 1), None)
+        if first_after is None:
+            return None
+        tombstoned_from = dt.datetime.fromtimestamp(first_after["timestamp"] / 1000, tz=dt.UTC)
+    except Exception:
+        logger.warning("data_imports.fanout_parent_repin_failed", uri=table.uri, version=version, exc_info=True)
+        return None
+    if dt.datetime.now(dt.UTC) - tombstoned_from > MAX_SNAPSHOT_ROLLBACK - RESUMED_SWEEP_BUDGET:
+        return None
+    return ParentTableRef(uri=table.uri, version=version)
+
+
+def parent_table_id(table: ParentTableRef) -> str | None:
+    """The Delta table id of `table`, or None when it cannot be read.
+
+    Writes, schema changes and compaction keep the id, while a reset purges the table and rebuilds
+    it at the same URI under a new one. A caller that stores a version for a later attempt compares
+    this id too, because a rebuilt table reuses version numbers from 0.
+    """
+    try:
+        delta_table = deltalake.DeltaTable(table.uri, version=table.version, storage_options=delta_storage_options())
+        # deltalake annotates the id as int, but the Delta log stores it as a uuid string.
+        return str(delta_table.metadata().id)
+    except Exception:
+        logger.warning("data_imports.fanout_parent_table_id_failed", uri=table.uri, exc_info=True)
         return None
 
 

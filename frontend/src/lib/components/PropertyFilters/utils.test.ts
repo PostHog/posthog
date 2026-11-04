@@ -439,8 +439,8 @@ describe('type mapping round-trip', () => {
     })
 
     it('MCPProperties maps one-way to the Event property filter type', () => {
-        // The rebuild menu commits with the tab's own group type, so without this
-        // mapping an MCP-tab selection would produce a filter with no type.
+        // A selection committed with the MCP tab's own group type would otherwise
+        // produce a filter with no type.
         expect(taxonomicFilterTypeToPropertyFilterType(TaxonomicFilterGroupType.MCPProperties)).toEqual(
             PropertyFilterType.Event
         )

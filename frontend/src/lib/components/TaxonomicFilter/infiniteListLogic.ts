@@ -1873,11 +1873,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 promoteSelectedItemToFirstPosition: boolean | undefined
             ) => {
                 const { group, groupType, value } = selectionPromotionContext
-                // Collapse URL groups to a single "URL contains <query>" shortcut row
-                // (mirrors the rebuild menu's `COLLAPSED_TO_CONTAINS_ROW`). Only once
-                // the remote fetch for the *current* query has returned at least one
-                // match — otherwise the list is empty and the standard empty/loading
-                // states apply.
+                // Collapse URL groups to a single "URL contains <query>" shortcut row.
+                // Only once the remote fetch for the *current* query has returned at
+                // least one match — otherwise the list is empty and the standard
+                // empty/loading states apply.
                 if (collapseUrlsToContainsRow && COLLAPSED_TO_CONTAINS_ROW.has(listGroupType)) {
                     const trimmed = (searchQuery ?? '').trim()
                     // The remote fetch is debounced and lags the typed query, so guard against a
@@ -1897,7 +1896,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
                 const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
                 // An item that is both recent and pinned shows once, under the section that
-                // renders first — recents (mirrors the rebuild Combobox's prefix dedupe).
+                // renders first — recents.
                 const pinnedPrefix =
                     isSuggested && !searchQuery
                         ? withoutPinnedDuplicatesOfRecents(contextFilteredPinnedItems || [], recentPrefix).slice(0, 3)
@@ -1954,8 +1953,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 } else {
                     orderedBase = combinedResults
                 }
-                // Mirrors the rebuild menu's Combobox idle promotion: with no search query,
-                // the committed selection leads the list so the user can see at a glance
+                // With no search query, the committed selection leads the list so the user can see at a glance
                 // what is currently picked — floated in place when the real row is loaded,
                 // otherwise statically inserted as a synthetic row (the selection is known
                 // at open; there's no need to wait for the loader). A leading null-valued

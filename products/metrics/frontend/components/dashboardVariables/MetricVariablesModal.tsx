@@ -22,7 +22,6 @@ export function MetricVariablesModal({
     options,
     dateFrom,
     dateTo,
-    addVariableOnOpen = false,
     onClose,
     onSave,
 }: {
@@ -31,20 +30,15 @@ export function MetricVariablesModal({
     options: Record<string, string[]>
     dateFrom?: string | null
     dateTo?: string | null
-    /** Opens on a new, empty variable instead of the first saved one. */
-    addVariableOnOpen?: boolean
     onClose: () => void
     onSave: (variables: MetricsDashboardVariable[]) => void
 }): JSX.Element {
-    const logic = metricVariableEditorLogic({ dashboardId, variables, options, dateFrom, dateTo, addVariableOnOpen })
+    const logic = metricVariableEditorLogic({ dashboardId, variables, options, dateFrom, dateTo })
     const { applying, draft, selectedIndex, selectedVariable, shownErrors } = useValues(logic)
     const { addVariable, selectVariable, apply } = useActions(logic)
 
     return (
-        <BindLogic
-            logic={metricVariableEditorLogic}
-            props={{ dashboardId, variables, options, dateFrom, dateTo, addVariableOnOpen }}
-        >
+        <BindLogic logic={metricVariableEditorLogic} props={{ dashboardId, variables, options, dateFrom, dateTo }}>
             <LemonModal
                 isOpen
                 onClose={onClose}

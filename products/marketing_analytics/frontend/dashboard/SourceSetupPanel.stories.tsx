@@ -173,7 +173,7 @@ export const GroupedConnectionErrors: Story = {
                 id: 'example-google-two',
                 name: 'Example search',
                 sourceType: 'GoogleAds',
-                status: 'Needs attention',
+                status: 'Sync failed',
                 detail: 'campaign_overview_stats: sync failed. Review the error in the source’s Schemas tab.',
             },
             {

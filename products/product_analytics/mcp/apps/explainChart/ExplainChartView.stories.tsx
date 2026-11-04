@@ -101,9 +101,9 @@ function StoryChart({ series, overlay }: { series: Series[]; overlay?: ReactNode
 }
 
 const evidenceCharts: StoryEvidenceCharts = {
-    canShow: () => true,
+    canShow: (item) => !!item.query,
     prefetch: () => {},
-    render: (_, text) => (
+    render: ({ text }) => (
         <StoryChart
             series={BY_REFERRER.map((item, index) =>
                 isSeriesNamedIn([item.label, REFERRERS[index]!], text) ? item : { ...item, color: `${item.color}40` }
@@ -112,9 +112,15 @@ const evidenceCharts: StoryEvidenceCharts = {
     ),
 }
 
-const renderStory = (): ReactElement => (
+const singleChapterStory: ExplainChartData = {
+    ...story,
+    headline: 'One article on **news.example.com** caused the spike.',
+    chapters: story.chapters.slice(0, 1),
+}
+
+const renderStory = (data: ExplainChartData = story): ReactElement => (
     <ExplainChartView
-        data={story}
+        data={data}
         renderChart={(overlay) => <StoryChart series={SIGN_UPS} overlay={overlay} />}
         openLink={() => {}}
         evidenceCharts={evidenceCharts}
@@ -130,7 +136,7 @@ const width =
         </div>
     )
 
-// Opts the subtree into Quill's tokens, which the walkthrough reads directly as `var(--card)` and the like.
+// Opts the subtree into Quill's tokens, which the explanation reads directly as `var(--card)` and the like.
 const quillTokens = (Story: StoryFn): ReactElement => (
     <div data-quill data-mcp-storybook>
         <Story />
@@ -154,12 +160,12 @@ type Story = StoryObj<{}>
 
 export const Summary: Story = {
     decorators: [width('w-[680px]')],
-    render: renderStory,
+    render: () => renderStory(),
 }
 
 export const ChapterBesideTheChart: Story = {
     decorators: [width('w-[1100px]')],
-    render: renderStory,
+    render: () => renderStory(),
     play: async ({ canvasElement }) => {
         // The step and the marker on the chart share this name, and either one opens the chapter.
         const [button] = await within(canvasElement).findAllByRole('button', {
@@ -171,11 +177,16 @@ export const ChapterBesideTheChart: Story = {
 
 export const EvidenceChart: Story = {
     decorators: [width('w-[1100px]')],
-    render: renderStory,
+    render: () => renderStory(),
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         const [chapter] = await canvas.findAllByRole('button', { name: 'Chapter 1: A spike on October 2' })
         await userEvent.click(chapter!)
         await userEvent.click(await canvas.findByRole('button', { name: 'Show chart' }))
     },
+}
+
+export const SingleChapter: Story = {
+    decorators: [width('w-[680px]')],
+    render: () => renderStory(singleChapterStory),
 }

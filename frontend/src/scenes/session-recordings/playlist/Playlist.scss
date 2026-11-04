@@ -14,6 +14,10 @@
     }
 }
 
+.Playlist__main--stacked .SessionRecordingPlayerWrapper--watch .SessionRecordingPlayerWrapper__player {
+    height: clamp(14rem, 34vh, 32rem);
+}
+
 .NotebookNode__box .Playlist__list {
     border-right: 1px solid var(--color-border-primary);
 }
@@ -32,6 +36,10 @@
 
     &--active {
         border-left-color: var(--color-accent);
+    }
+
+    &--compact.SessionRecordingPreview--active {
+        background-color: var(--color-accent-highlight-secondary);
     }
 
     &:hover {

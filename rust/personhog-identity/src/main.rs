@@ -4,6 +4,7 @@ use std::time::Duration;
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
 use common_database::get_pool_with_config;
+use common_metrics::{ETCD_OP_LATENCY_BUCKETS_MS, ETCD_PAYLOAD_SIZE_BUCKETS_BYTES};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
@@ -231,6 +232,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .unwrap()
         .set_buckets_for_metric(Matcher::Suffix("_per_call".into()), PER_CALL_BUCKETS)
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("assignment_coordination_etcd_op_ms".into()),
+            ETCD_OP_LATENCY_BUCKETS_MS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("assignment_coordination_etcd_payload_bytes".into()),
+            ETCD_PAYLOAD_SIZE_BUCKETS_BYTES,
+        )
         .unwrap()
         .install_recorder()
         .expect("Failed to install metrics recorder");
@@ -461,9 +472,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
     let max_concurrent_requests = config.max_concurrent_requests;
+    let load_shed_wait = config.load_shed_wait();
+    let load_shed_max_waiters = if config.load_shed_max_waiters == 0 {
+        max_concurrent_requests
+    } else {
+        config.load_shed_max_waiters
+    };
     if max_concurrent_requests > 0 {
         tracing::info!(
             limit = max_concurrent_requests,
+            wait_ms = load_shed_wait.as_millis() as u64,
+            max_waiters = load_shed_max_waiters,
             "gRPC load shedding enabled"
         );
     }
@@ -501,7 +520,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // retrying the shed on another saturated pod.
             .layer(
                 GrpcLoadShedLayer::new(max_concurrent_requests)
-                    .with_code(tonic::Code::ResourceExhausted),
+                    .with_code(tonic::Code::ResourceExhausted)
+                    .with_wait(load_shed_wait, load_shed_max_waiters),
             )
             .add_service(
                 PersonHogIdentityServer::new(service)

@@ -9,7 +9,6 @@ from products.alerts.backend.logic.alert_email import (
     insight_alert,
     insight_email_groups,
     recipients_with_access,
-    registered_email_groups,
 )
 from products.alerts.backend.logic.alert_in_app import insight_in_app_groups
 from products.alerts.backend.logic.destinations import list_alert_destination_groups
@@ -20,14 +19,13 @@ def list_delivery_destination_groups(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> list[AlertDestinationGroup]:
     """An alert's HogFunction destinations, plus its subscribers' email and in-app notifications
-    for an insight alert, plus the email recipients another source registered for its events.
+    for an insight alert.
 
     Separate from `list_alert_destination_groups`, which the alert APIs list and delete through. A
     subscriber group there would show up as a destination a person could delete.
     """
     groups = [
         *list_alert_destination_groups(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids),
-        *registered_email_groups(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids),
     ]
     event_ids = SUBSCRIBER_EVENT_IDS.intersection(allowed_event_ids)
     if not event_ids:

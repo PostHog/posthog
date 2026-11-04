@@ -1,7 +1,8 @@
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from posthog.hogql import ast
-from posthog.hogql.database.lazy_join_tags import GROUP_N, PERSON_DISTINCT_ID_OVERRIDES, PERSONS
+from posthog.hogql.database.lazy_join_tags import GROUP_N, PERSON_DISTINCT_ID_OVERRIDES, PERSON_DISTINCT_IDS, PERSONS
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     ExpressionField,
@@ -16,11 +17,13 @@ from posthog.hogql.database.models import (
     VirtualTable,
 )
 from posthog.hogql.database.schema.person_distinct_id_overrides import PersonDistinctIdOverridesTable
+from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable
 from posthog.hogql.database.schema.util.null_sentinels import null_if_sentinels
 from posthog.hogql.database.schema.util.uuid import uuid_string_expr_to_uint128_expr
 from posthog.hogql.parser import parse_expr
 
 from posthog.constants import GROUP_TYPES_LIMIT
+from posthog.date_util import start_of_day
 
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
@@ -30,6 +33,21 @@ if TYPE_CHECKING:
 # posthog/hogql/test/test_no_django_imports.py imports this package with no django.setup(), so the
 # name is spelled out here rather than imported.
 FLAG_EVALUATIONS_CLICKHOUSE_TABLE = "flag_evaluations"
+
+# At most FLAG_EVALUATIONS_TTL_DAYS - 1, because the TTL can already have dropped the day FLAG_EVALUATIONS_TTL_DAYS
+# back. It stays lower while the table still lacks the oldest days that a shorter TTL dropped. The TTL constant
+# lives in posthog/models/flag_evaluations/sql.py.
+FLAG_EVALUATIONS_COMPLETE_DAYS = 89
+
+
+def utc_midnight(now: datetime) -> datetime:
+    return start_of_day(now.astimezone(UTC))
+
+
+def flag_evaluations_coverage_start(now: datetime) -> datetime:
+    """The start of the oldest UTC day whose flag calls are all in flag_evaluations at `now`."""
+    return utc_midnight(now) - timedelta(days=FLAG_EVALUATIONS_COMPLETE_DAYS)
+
 
 # Keep it equal to FLAG_EVALUATIONS_TABLE in frontend/src/scenes/feature-flags/flagEvaluationsTable.ts.
 FLAG_EVALUATIONS_HOGQL_TABLE = "posthog.flag_evaluations"
@@ -75,6 +93,32 @@ class FlagEvaluationsPersonSubTable(VirtualTable):
 
     def to_printed_hogql(self):
         return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
+
+
+class FlagEvaluationsGroupKeySubTable(VirtualTable):
+    """`goe_N` on events, limited to the group key. The row stores no group properties or creation time at
+    evaluation time, so `goe_N.properties` and `goe_N.created_at` do not resolve here."""
+
+    def __init__(self, group_index: int):
+        super().__init__(
+            fields={
+                "key": ExpressionField(
+                    name="key", expr=ast.Field(chain=[f"_$group_{group_index}_raw"]), isolate_scope=True
+                )
+            }
+        )
+
+    def to_printed_clickhouse(self, context):
+        return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
+
+    def to_printed_hogql(self):
+        return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
+
+
+# The events element columns that this table defines as constants, grouped by the type of the constant.
+_ELEMENT_STRING_STAND_INS = ("elements_chain", "elements_chain_href")
+_ELEMENT_ARRAY_STAND_INS = ("elements_chain_texts", "elements_chain_ids", "elements_chain_elements")
+ELEMENT_STAND_INS = frozenset(_ELEMENT_STRING_STAND_INS + _ELEMENT_ARRAY_STAND_INS)
 
 
 class FlagEvaluationsTable(Table):
@@ -198,6 +242,12 @@ class FlagEvaluationsTable(Table):
         "$group_2": StringDatabaseField(name="$group_2", nullable=False, description="Key of the type-2 group."),
         "$group_3": StringDatabaseField(name="$group_3", nullable=False, description="Key of the type-3 group."),
         "$group_4": StringDatabaseField(name="$group_4", nullable=False, description="Key of the type-4 group."),
+        # The stored keys, which goe_N.key reads, as events reads goe_N.key from its stored column. A team's group
+        # type mappings can replace $group_N with a key that is empty for calls from before the mapping existed.
+        **{
+            f"_$group_{index}_raw": StringDatabaseField(name=f"$group_{index}", nullable=False, hidden=True)
+            for index in range(GROUP_TYPES_LIMIT)
+        },
         # A group property filter, such as a team's test account filter, compiles to `group_N.properties`.
         # These joins let it resolve here as it does on events.
         **{
@@ -210,11 +260,26 @@ class FlagEvaluationsTable(Table):
             )
             for index in range(GROUP_TYPES_LIMIT)
         },
+        # The events names below let a query on events that reads flag calls resolve here when HogQL swaps the table.
+        "$window_id": ExpressionField(
+            name="$window_id",
+            expr=ast.Call(name="ifNull", args=[ast.Field(chain=["properties", "$window_id"]), ast.Constant(value="")]),
+            isolate_scope=True,
+            hidden=True,
+        ),
+        "event_person_id": UUIDDatabaseField(name="person_id", hidden=True),
+        "pdi": LazyJoin(
+            from_field=["distinct_id"],
+            join_table=PersonDistinctIdsTable(),
+            resolver=PERSON_DISTINCT_IDS,
+            hidden=True,
+        ),
+        **{f"goe_{index}": FlagEvaluationsGroupKeySubTable(group_index=index) for index in range(GROUP_TYPES_LIMIT)},
         # The table stores no elements, and a flag call on events has none either. An element filter therefore
         # resolves here and matches nothing, as it does on events. The empty array keeps its String element type.
         **{
             name: ExpressionField(name=name, expr=ast.Constant(value=""), hidden=True)
-            for name in ("elements_chain", "elements_chain_href")
+            for name in _ELEMENT_STRING_STAND_INS
         },
         **{
             name: ExpressionField(
@@ -224,7 +289,7 @@ class FlagEvaluationsTable(Table):
                 ),
                 hidden=True,
             )
-            for name in ("elements_chain_texts", "elements_chain_ids", "elements_chain_elements")
+            for name in _ELEMENT_ARRAY_STAND_INS
         },
     }
 

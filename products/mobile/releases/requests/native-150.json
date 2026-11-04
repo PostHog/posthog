@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "native-150",
+    "kind": "native",
+    "runtimeVersion": "1.5.0",
+    "previousRelease": null,
+    "notes": "First hosted release of PostHog Mobile. Verify sign-in, project switching, report triage, chats, saved views, push notifications, and the hedgehog widget on iOS and Android."
+}

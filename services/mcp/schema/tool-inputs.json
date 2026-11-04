@@ -290,7 +290,8 @@
                                         "description": "Partial content-block fields, deep-merged into the existing block; a null leaf deletes that key. e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
                                     }
                                 },
-                                "required": ["op", "id", "patch"]
+                                "required": ["op", "id", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -312,7 +313,8 @@
                                         "description": "Partial column fields, deep-merged; a null leaf deletes that key."
                                     }
                                 },
-                                "required": ["op", "id", "patch"]
+                                "required": ["op", "id", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -334,7 +336,8 @@
                                         "description": "Partial row fields, deep-merged; a null leaf deletes that key."
                                     }
                                 },
-                                "required": ["op", "id", "patch"]
+                                "required": ["op", "id", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -352,7 +355,8 @@
                                         "description": "Partial body fields, deep-merged. e.g. {values: {backgroundColor: '#ffffff'}}."
                                     }
                                 },
-                                "required": ["op", "patch"]
+                                "required": ["op", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -380,7 +384,8 @@
                                         "maximum": 9007199254740991
                                     }
                                 },
-                                "required": ["op", "column_id", "content"]
+                                "required": ["op", "column_id", "content"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -394,7 +399,8 @@
                                         "description": "Id of the content block to remove."
                                     }
                                 },
-                                "required": ["op", "id"]
+                                "required": ["op", "id"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -418,7 +424,8 @@
                                         "maximum": 9007199254740991
                                     }
                                 },
-                                "required": ["op", "id", "column_id"]
+                                "required": ["op", "id", "column_id"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -442,7 +449,8 @@
                                         "maximum": 9007199254740991
                                     }
                                 },
-                                "required": ["op", "row"]
+                                "required": ["op", "row"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -456,14 +464,16 @@
                                         "description": "Id of the row to remove."
                                     }
                                 },
-                                "required": ["op", "id"]
+                                "required": ["op", "id"],
+                                "additionalProperties": false
                             }
                         ]
                     },
                     "description": "Ordered edits applied atomically to the template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and saved only if valid — otherwise the template is left unchanged. Reference blocks by id so you never resend the whole design."
                 }
             },
-            "required": ["id", "operations"]
+            "required": ["id", "operations"],
+            "additionalProperties": false
         },
         "EventDefinitionCreateSchema": {
             "type": "object",
@@ -481,6 +491,19 @@
                         "description": {
                             "description": "Description explaining when the event is triggered",
                             "type": "string"
+                        },
+                        "owner": {
+                            "description": "Numeric user ID of the person responsible for the event. Must be a member of the organization. To find the ID from an email, call `org-members-list` and use `user.id`. Pass null to remove the owner.",
+                            "anyOf": [
+                                {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
                         },
                         "tags": {
                             "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
@@ -503,12 +526,36 @@
             },
             "required": ["eventName"]
         },
+        "EventDefinitionGetSchema": {
+            "type": "object",
+            "properties": {
+                "eventName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The exact name of the event (e.g. \"$pageview\", \"user_signed_up\")"
+                }
+            },
+            "required": ["eventName"]
+        },
         "EventDefinitionUpdateInputSchema": {
             "type": "object",
             "properties": {
                 "description": {
                     "description": "Description explaining when the event is triggered",
                     "type": "string"
+                },
+                "owner": {
+                    "description": "Numeric user ID of the person responsible for the event. Must be a member of the organization. To find the ID from an email, call `org-members-list` and use `user.id`. Pass null to remove the owner.",
+                    "anyOf": [
+                        {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "tags": {
                     "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
@@ -541,6 +588,19 @@
                         "description": {
                             "description": "Description explaining when the event is triggered",
                             "type": "string"
+                        },
+                        "owner": {
+                            "description": "Numeric user ID of the person responsible for the event. Must be a member of the organization. To find the ID from an email, call `org-members-list` and use `user.id`. Pass null to remove the owner.",
+                            "anyOf": [
+                                {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
                         },
                         "tags": {
                             "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
@@ -722,7 +782,7 @@
                                             "description": "One finding in one sentence, with the numbers from the query that found it. Mark the name that matters with **double asterisks**."
                                         },
                                         "query": {
-                                            "description": "The query that found this, as you ran it (for example a TrendsQuery with a breakdown). It becomes a link to that chart, and a TrendsQuery also draws as a chart in the walkthrough.",
+                                            "description": "The query that found this, as you ran it. The explanation runs it again and draws the result beside the finding. An insight query (`TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `StickinessQuery`, `PathsQuery` or `LifecycleQuery`) draws with its insight chart. A `HogQLQuery` draws from its rows: select the x-axis column first (a time bucket or a label), then either the numbers to draw, or one text column to break down by followed by one number. Order by the x-axis column. SQL returns 100 rows unless it sets a `LIMIT`.",
                                             "type": "object",
                                             "propertyNames": {
                                                 "type": "string"
@@ -1786,6 +1846,381 @@
             },
             "description": "The complete desired set of shared (saved) metrics for the experiment — this REPLACES all existing saved-metric links, it does not append. To add or remove one, first read the experiment's current saved_metrics via experiment-get and resend the full set. Pass an empty array to detach all shared metrics."
         },
+        "ScannerEstimateRecordingsFilterSchema": {
+            "description": "Which recordings to count, as a `RecordingsQuery`. Omit every filter to count every recording. The date range is ignored, because the estimate counts a recent window (`window_days` in the response) and scales it to 30 days.",
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "default": "RecordingsQuery",
+                    "type": "string",
+                    "const": "RecordingsQuery"
+                },
+                "events": {
+                    "description": "Events a recording must contain, such as `{\"id\": \"$pageview\", \"type\": \"events\", \"order\": 0}`. Each can carry `properties` that filter that event.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "actions": {
+                    "description": "Saved actions a recording must contain, such as `{\"id\": 12, \"type\": \"actions\", \"order\": 0}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "properties": {
+                    "description": "Recording, session, person and cohort filters, such as `{\"type\": \"recording\", \"key\": \"visited_page\", \"value\": \"/checkout\", \"operator\": \"icontains\"}` or `{\"type\": \"cohort\", \"key\": \"id\", \"value\": 7, \"operator\": \"in\"}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "having_predicates": {
+                    "description": "Duration filters, such as `{\"type\": \"recording\", \"key\": \"active_seconds\", \"value\": 60, \"operator\": \"gt\"}`. These always apply with AND, whatever `operand` says.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "console_log_filters": {
+                    "description": "Console log filters, such as `{\"type\": \"log_entry\", \"key\": \"level\", \"value\": [\"error\"], \"operator\": \"exact\"}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "operand": {
+                    "description": "How `events`, `actions`, `properties` and `console_log_filters` combine. `AND`, the default when omitted, keeps recordings that match every condition. `OR` keeps recordings that match any one. An explicit `null` is read as `OR`. `having_predicates` and `filter_test_accounts` always apply with AND.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "enum": ["AND", "OR"]
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "filter_test_accounts": {
+                    "description": "Leave out recordings from internal and test accounts.",
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "additionalProperties": {}
+        },
+        "ScannerRecordingsFilterSchema": {
+            "description": "Which recordings the scanner watches, as a `RecordingsQuery`. Omit every filter to watch every new recording. The date range is ignored, because the schedule controls time.",
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "default": "RecordingsQuery",
+                    "type": "string",
+                    "const": "RecordingsQuery"
+                },
+                "events": {
+                    "description": "Events a recording must contain, such as `{\"id\": \"$pageview\", \"type\": \"events\", \"order\": 0}`. Each can carry `properties` that filter that event.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "actions": {
+                    "description": "Saved actions a recording must contain, such as `{\"id\": 12, \"type\": \"actions\", \"order\": 0}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "properties": {
+                    "description": "Recording, session, person and cohort filters, such as `{\"type\": \"recording\", \"key\": \"visited_page\", \"value\": \"/checkout\", \"operator\": \"icontains\"}` or `{\"type\": \"cohort\", \"key\": \"id\", \"value\": 7, \"operator\": \"in\"}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "having_predicates": {
+                    "description": "Duration filters, such as `{\"type\": \"recording\", \"key\": \"active_seconds\", \"value\": 60, \"operator\": \"gt\"}`. These always apply with AND, whatever `operand` says.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "console_log_filters": {
+                    "description": "Console log filters, such as `{\"type\": \"log_entry\", \"key\": \"level\", \"value\": [\"error\"], \"operator\": \"exact\"}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "operand": {
+                    "description": "How `events`, `actions`, `properties` and `console_log_filters` combine. `AND`, the default when omitted, keeps recordings that match every condition. `OR` keeps recordings that match any one. An explicit `null` is read as `OR`. `having_predicates` and `filter_test_accounts` always apply with AND.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "enum": ["AND", "OR"]
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "filter_test_accounts": {
+                    "description": "Leave out recordings from internal and test accounts.",
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "additionalProperties": {}
+        },
+        "ScannerUpdateRecordingsFilterSchema": {
+            "description": "The filter that replaces the scanner's current one, as a `RecordingsQuery`. It is not merged: any field you leave out is cleared, and `{}` watches every new recording. To change part of the filter, read the current one with `vision-scanners-get`, change it, and send it back in full. The date range is ignored, because the schedule controls time.",
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "default": "RecordingsQuery",
+                    "type": "string",
+                    "const": "RecordingsQuery"
+                },
+                "events": {
+                    "description": "Events a recording must contain, such as `{\"id\": \"$pageview\", \"type\": \"events\", \"order\": 0}`. Each can carry `properties` that filter that event.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "actions": {
+                    "description": "Saved actions a recording must contain, such as `{\"id\": 12, \"type\": \"actions\", \"order\": 0}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "properties": {
+                    "description": "Recording, session, person and cohort filters, such as `{\"type\": \"recording\", \"key\": \"visited_page\", \"value\": \"/checkout\", \"operator\": \"icontains\"}` or `{\"type\": \"cohort\", \"key\": \"id\", \"value\": 7, \"operator\": \"in\"}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "having_predicates": {
+                    "description": "Duration filters, such as `{\"type\": \"recording\", \"key\": \"active_seconds\", \"value\": 60, \"operator\": \"gt\"}`. These always apply with AND, whatever `operand` says.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "console_log_filters": {
+                    "description": "Console log filters, such as `{\"type\": \"log_entry\", \"key\": \"level\", \"value\": [\"error\"], \"operator\": \"exact\"}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "operand": {
+                    "description": "How `events`, `actions`, `properties` and `console_log_filters` combine. `AND`, the default when omitted, keeps recordings that match every condition. `OR` keeps recordings that match any one. An explicit `null` is read as `OR`. `having_predicates` and `filter_test_accounts` always apply with AND.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "enum": ["AND", "OR"]
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "filter_test_accounts": {
+                    "description": "Leave out recordings from internal and test accounts.",
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "additionalProperties": {}
+        },
         "ScoreDefinitionConfigSchema": {
             "anyOf": [
                 {
@@ -2661,7 +3096,8 @@
                                         "description": "Partial content-block fields, deep-merged into the existing block; a null leaf deletes that key. e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
                                     }
                                 },
-                                "required": ["op", "id", "patch"]
+                                "required": ["op", "id", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2683,7 +3119,8 @@
                                         "description": "Partial column fields, deep-merged; a null leaf deletes that key."
                                     }
                                 },
-                                "required": ["op", "id", "patch"]
+                                "required": ["op", "id", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2705,7 +3142,8 @@
                                         "description": "Partial row fields, deep-merged; a null leaf deletes that key."
                                     }
                                 },
-                                "required": ["op", "id", "patch"]
+                                "required": ["op", "id", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2723,7 +3161,8 @@
                                         "description": "Partial body fields, deep-merged. e.g. {values: {backgroundColor: '#ffffff'}}."
                                     }
                                 },
-                                "required": ["op", "patch"]
+                                "required": ["op", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2751,7 +3190,8 @@
                                         "maximum": 9007199254740991
                                     }
                                 },
-                                "required": ["op", "column_id", "content"]
+                                "required": ["op", "column_id", "content"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2765,7 +3205,8 @@
                                         "description": "Id of the content block to remove."
                                     }
                                 },
-                                "required": ["op", "id"]
+                                "required": ["op", "id"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2789,7 +3230,8 @@
                                         "maximum": 9007199254740991
                                     }
                                 },
-                                "required": ["op", "id", "column_id"]
+                                "required": ["op", "id", "column_id"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2813,7 +3255,8 @@
                                         "maximum": 9007199254740991
                                     }
                                 },
-                                "required": ["op", "row"]
+                                "required": ["op", "row"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2827,7 +3270,8 @@
                                         "description": "Id of the row to remove."
                                     }
                                 },
-                                "required": ["op", "id"]
+                                "required": ["op", "id"],
+                                "additionalProperties": false
                             }
                         ]
                     }

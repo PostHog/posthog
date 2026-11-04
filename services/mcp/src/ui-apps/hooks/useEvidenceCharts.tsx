@@ -3,12 +3,16 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { Button, Text } from '@posthog/quill'
 
+import type { StoryEvidence } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
 import type { StoryEvidenceCharts } from 'products/product_analytics/mcp/apps/explainChart/ExplainChartView'
+import { StoryEvidenceChart } from 'products/product_analytics/mcp/apps/explainChart/StoryEvidenceChart'
 import { isSeriesNamedIn } from 'products/product_analytics/mcp/apps/explainChart/storyNamedSeries'
 
 import { capture } from '../analytics/posthog'
 import { loadRenderUiData } from '../apps/render-ui-data'
 import { AppLoadingState } from '../components/AppLoadingState'
+import { useMcpChartTheme } from '../components/charts/theme'
+import { QueryVisualization } from '../components/QueryVisualization'
 import { TrendsVisualizer } from '../components/TrendsVisualizer'
 import type { TrendsQuery, TrendsResult, TrendsResultItem } from '../components/types'
 import { getSeriesLabel } from '../components/utils'
@@ -16,22 +20,28 @@ import { getSeriesLabel } from '../components/utils'
 type EvidenceChart =
     | { status: 'loading' }
     | { status: 'error' }
-    | { status: 'ready'; query: TrendsQuery; results: TrendsResult }
+    | { status: 'ready'; payload: { query?: Record<string, unknown>; results: unknown[] } }
+
+interface Redraw {
+    tool: string
+    query: Record<string, unknown>
+}
 
 function seriesNames(item: TrendsResultItem, index: number): string[] {
     return [getSeriesLabel(item, index), ...[item.breakdown_value ?? []].flat().map(String)]
 }
 
-function isTrendsQuery(query: Record<string, unknown>): boolean {
-    return query.kind === 'TrendsQuery' || (query.kind === undefined && Array.isArray(query.series))
+function redrawOf(item: StoryEvidence): Redraw | null {
+    return !item.chart && item.query && item.queryTool ? { tool: item.queryTool, query: item.query } : null
 }
 
 export function useEvidenceCharts(app: App | null, chartClassName: string): StoryEvidenceCharts | undefined {
+    const theme = useMcpChartTheme()
     const [charts, setCharts] = useState<Record<string, EvidenceChart>>({})
     const requested = useRef(new Set<string>())
 
     const load = useCallback(
-        (query: Record<string, unknown>): void => {
+        ({ tool, query }: Redraw): void => {
             const key = JSON.stringify(query)
             if (!app || requested.current.has(key)) {
                 return
@@ -45,17 +55,16 @@ export function useEvidenceCharts(app: App | null, chartClassName: string): Stor
                 }
                 setCharts((current) => ({ ...current, [key]: chart }))
             }
-            loadRenderUiData(app, 'query-trends', query, 'query-results').then(
+            loadRenderUiData(app, tool, query, 'query-results').then(
                 (result) => {
                     const payload = result.structuredContent as
-                        | { query?: TrendsQuery; results?: TrendsResult }
+                        | { query?: Record<string, unknown>; results?: unknown[] }
                         | undefined
                     settle(
                         !result.isError && payload?.results?.length
                             ? {
                                   status: 'ready',
-                                  query: payload.query ?? (query as unknown as TrendsQuery),
-                                  results: payload.results,
+                                  payload: { ...payload, query: payload.query ?? query, results: payload.results },
                               }
                             : { status: 'error' }
                     )
@@ -67,7 +76,13 @@ export function useEvidenceCharts(app: App | null, chartClassName: string): Stor
     )
 
     const prefetch = useCallback(
-        (queries: Record<string, unknown>[]): void => queries.filter(isTrendsQuery).forEach(load),
+        (items: StoryEvidence[]): void =>
+            items.forEach((item) => {
+                const redraw = redrawOf(item)
+                if (redraw) {
+                    load(redraw)
+                }
+            }),
         [load]
     )
 
@@ -76,28 +91,50 @@ export function useEvidenceCharts(app: App | null, chartClassName: string): Stor
             return undefined
         }
         return {
-            canShow: isTrendsQuery,
+            canShow: (item) => !!item.chart || !!redrawOf(item),
             prefetch,
-            onShow: (query) => {
+            onShow: (item) => {
+                const redraw = redrawOf(item)
                 capture('mcp_ui_app_explain_chart_evidence_chart_shown', {
-                    was_loaded: charts[JSON.stringify(query)]?.status === 'ready',
+                    was_loaded: !redraw || charts[JSON.stringify(redraw.query)]?.status === 'ready',
+                    inline: !!item.chart,
                 })
-                load(query)
+                if (redraw) {
+                    load(redraw)
+                }
             },
-            render: (query, text) => {
-                const chart = charts[JSON.stringify(query)]
+            render: (item) => {
+                if (item.chart) {
+                    return (
+                        <StoryEvidenceChart
+                            key={JSON.stringify(item.chart)}
+                            chart={item.chart}
+                            theme={theme}
+                            className={chartClassName}
+                        />
+                    )
+                }
+                const redraw = redrawOf(item)
+                if (!redraw) {
+                    return null
+                }
+                const chart = charts[JSON.stringify(redraw.query)]
                 if (chart?.status === 'ready') {
+                    if (redraw.tool !== 'query-trends') {
+                        return <QueryVisualization key={JSON.stringify(redraw.query)} data={chart.payload} />
+                    }
+                    const results = chart.payload.results as TrendsResult
                     return (
                         <TrendsVisualizer
-                            key={JSON.stringify(query)}
-                            query={chart.query}
-                            results={chart.results}
-                            highlightedSeries={chart.results.flatMap((item, index) =>
-                                isSeriesNamedIn(seriesNames(item, index), text) ? [index] : []
+                            key={JSON.stringify(redraw.query)}
+                            query={chart.payload.query as unknown as TrendsQuery}
+                            results={results}
+                            highlightedSeries={results.flatMap((result, index) =>
+                                isSeriesNamedIn(seriesNames(result, index), item.text) ? [index] : []
                             )}
                             showControls={false}
                             showTitle={false}
-                            showLegend={chart.results.length > 1}
+                            showLegend={results.length > 1}
                             chartClassName={chartClassName}
                         />
                     )
@@ -112,7 +149,7 @@ export function useEvidenceCharts(app: App | null, chartClassName: string): Stor
                                 <Button
                                     variant="outline"
                                     size="xs"
-                                    onClick={() => load(query)}
+                                    onClick={() => load(redraw)}
                                     data-attr="explain-chart-evidence-retry"
                                 >
                                     Try again
@@ -125,5 +162,5 @@ export function useEvidenceCharts(app: App | null, chartClassName: string): Stor
                 )
             },
         }
-    }, [app, chartClassName, charts, load, prefetch])
+    }, [app, chartClassName, charts, load, prefetch, theme])
 }

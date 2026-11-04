@@ -18,7 +18,7 @@ const ITERATIONS = 5_000
 const TIMEOUT_MS = 10
 
 async function main(): Promise<void> {
-    console.info(`Compiling ${BENCH_PROGRAMS.length} Hog programs via bin/hog...`)
+    console.info(`Compiling ${BENCH_PROGRAMS.length} Hog programs via bin/hoglang...`)
     const compiled = await Promise.all(
         BENCH_PROGRAMS.map(async (program) => ({ program, bytecode: await compileHog(program.hog) }))
     )

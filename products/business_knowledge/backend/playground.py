@@ -11,9 +11,9 @@ from posthog.models.user import User
 
 from products.tasks.backend.facade.contracts import CreatedTaskDTO, TaskRunDTO
 
+from .constants import MAX_OPEN_RUNS_PER_OWNER
 from .models import PlaygroundChat, PlaygroundTurn
 from .sandbox import (
-    MAX_OPEN_RUNS_PER_OWNER,
     SandboxPollStatus,
     SandboxRunInProgress,
     SandboxRunLimitReached,

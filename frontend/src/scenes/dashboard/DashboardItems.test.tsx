@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, within } from '@testing-library/react'
+import { fireEvent, render, waitFor, within } from '@testing-library/react'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import type { PositionStrategy } from 'react-grid-layout/core'
@@ -10,6 +10,8 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardPlacement } from '~/types'
+
+import { UNGROUPED_TILES_TAB_KEY } from 'products/dashboards/frontend/dashboardTileSections'
 
 import { DashboardItems } from './DashboardItems'
 
@@ -221,6 +223,8 @@ const mockTriggerDashboardRefresh = jest.fn()
 const mockInsightCard = jest.fn()
 const mockUpdateContainerWidth = jest.fn()
 const mockMoveTileToSection = jest.fn()
+const mockChangeTileGroupDisplay = jest.fn()
+const mockRenameTileGroup = jest.fn()
 const mockPositionStrategies = new Map<Element, unknown>()
 let mockGridWidth = 1200
 let mockGridMounts = 0
@@ -289,9 +293,12 @@ describe('DashboardItems', () => {
                     refreshDashboardWidgets: jest.fn(),
                     moveToDashboard: jest.fn(),
                     copyToDashboard: jest.fn(),
+                    copyGroupToDashboard: jest.fn(),
                     setTileOverride: jest.fn(),
                     setDashboardMode: jest.fn(),
                     moveTileToSection: mockMoveTileToSection,
+                    changeTileGroupDisplay: mockChangeTileGroupDisplay,
+                    renameTileGroup: mockRenameTileGroup,
                 }
             }
 
@@ -693,7 +700,10 @@ describe('DashboardItems', () => {
         const showBands = (overrides: Record<string, unknown> = {}, streamedTileIds: number[] = []): void => {
             const defaultValues = mockedUseValues.getMockImplementation()!
             mockedUseValues.mockImplementation((logic) => {
-                const values = { ...defaultValues(logic), ...(logic === dashboardLogic ? overrides : {}) }
+                if (logic !== dashboardLogic) {
+                    return defaultValues(logic)
+                }
+                const values = { ...defaultValues(logic), ...overrides }
                 const tiles = [
                     ...values.tiles,
                     ...streamedTileIds.map((id) => ({ id, insight: { id: 100 + id, short_id: `tile${id}` } })),
@@ -704,26 +714,24 @@ describe('DashboardItems', () => {
                         ...streamedTileIds.map((id) => ({ i: String(id), x: 6, y: 0, w: 6, h: 5 })),
                     ],
                 }
-                return logic === dashboardLogic
-                    ? {
-                          ...values,
-                          tiles,
-                          layouts,
-                          tileGroupSections: [
-                              {
-                                  kind: 'group',
-                                  key: 'group-plans',
-                                  groupKey: 'plans',
-                                  group: { title: 'Plans' },
-                                  tiles,
-                              },
-                          ],
-                          tileGroupSectionLayouts: [layouts],
-                          collapsedTileGroupKeys: [],
-                          tileGroupMoveOptions: {},
-                          ...overrides,
-                      }
-                    : values
+                return {
+                    ...values,
+                    tiles,
+                    layouts,
+                    tileGroupSections: [
+                        {
+                            kind: 'group',
+                            key: 'group-plans',
+                            groupKey: 'plans',
+                            group: { title: 'Plans' },
+                            tiles,
+                        },
+                    ],
+                    tileGroupSectionLayouts: [layouts],
+                    collapsedTileGroupKeys: [],
+                    tileGroupMoveOptions: {},
+                    ...overrides,
+                }
             })
         }
 
@@ -748,6 +756,92 @@ describe('DashboardItems', () => {
 
             expect(getByText('Plans')).toBeInTheDocument()
             expect(mockUpdateContainerWidth).toHaveBeenCalledWith(1200, 12)
+        })
+
+        it.each([
+            { layout: 'bands', overrides: {} },
+            { layout: 'tabs', overrides: { activeTileGroupTab: 'plans' } },
+        ])('shows group copy only to dashboard editors in $layout', ({ overrides }) => {
+            showBands(overrides)
+            const { container, rerender } = render(<DashboardItems />)
+            expect(container.querySelector('[data-attr="dashboard-tile-group-menu"]')).toBeInTheDocument()
+
+            canEditDashboard = false
+            rerender(<DashboardItems />)
+            expect(container.querySelector('[data-attr="dashboard-tile-group-menu"]')).not.toBeInTheDocument()
+        })
+
+        it.each([
+            { layout: 'bands', overrides: {}, item: 'Show all groups as tabs', display: 'tabs', copyItemHidden: false },
+            {
+                layout: 'tabs',
+                overrides: { activeTileGroupTab: 'plans' },
+                item: 'Show groups as sections',
+                display: 'sections',
+                copyItemHidden: false,
+            },
+            {
+                layout: 'tabs (overview tab)',
+                overrides: {
+                    activeTileGroupTab: UNGROUPED_TILES_TAB_KEY,
+                    tileGroupSections: [{ kind: 'tiles', key: UNGROUPED_TILES_TAB_KEY, tiles: [] }],
+                },
+                item: 'Show groups as sections',
+                display: 'sections',
+                copyItemHidden: true,
+            },
+        ])(
+            'switches how groups show from the group menu in $layout',
+            async ({ overrides, item, display, copyItemHidden }) => {
+                showBands(overrides)
+                const bandValues = mockedUseValues.getMockImplementation()!
+                mockedUseValues.mockImplementation((logic) =>
+                    logic === dashboardsModel ? { dashboardsLoading: false } : bandValues(logic)
+                )
+                const defaultActions = mockedUseActions.getMockImplementation()!
+                mockedUseActions.mockImplementation((logic) =>
+                    logic === dashboardsModel ? { loadDashboardsIfNeeded: jest.fn() } : defaultActions(logic)
+                )
+
+                const { container, findByText, queryByText, unmount } = render(<DashboardItems />)
+                fireEvent.click(container.querySelector('[data-attr="dashboard-tile-group-menu"]')!)
+                await findByText(item)
+
+                expect(Boolean(queryByText(/Copy .* to dashboard/))).toBe(!copyItemHidden)
+
+                fireEvent.click(await findByText(item))
+
+                expect(mockChangeTileGroupDisplay).toHaveBeenCalledWith(display)
+
+                // The menu's dropdown portals to document.body and stays open after a mocked
+                // selection, so unmount before the next case to stop its content leaking into it.
+                unmount()
+            }
+        )
+
+        it.each([
+            { layout: 'bands', overrides: {}, item: 'Rename group' },
+            { layout: 'tabs', overrides: { activeTileGroupTab: 'plans' }, item: 'Rename tab' },
+        ])('renames a group from the group menu in $layout', async ({ overrides, item }) => {
+            showBands(overrides)
+            const bandValues = mockedUseValues.getMockImplementation()!
+            mockedUseValues.mockImplementation((logic) =>
+                logic === dashboardsModel ? { dashboardsLoading: false } : bandValues(logic)
+            )
+            const defaultActions = mockedUseActions.getMockImplementation()!
+            mockedUseActions.mockImplementation((logic) =>
+                logic === dashboardsModel ? { loadDashboardsIfNeeded: jest.fn() } : defaultActions(logic)
+            )
+
+            const { container, findByText, findByDisplayValue, unmount } = render(<DashboardItems />)
+            fireEvent.click(container.querySelector('[data-attr="dashboard-tile-group-menu"]')!)
+            fireEvent.click(await findByText(item))
+
+            fireEvent.change(await findByDisplayValue('Plans'), { target: { value: 'Pricing plans' } })
+            fireEvent.click(await findByText('Submit'))
+
+            await waitFor(() => expect(mockRenameTileGroup).toHaveBeenCalledWith('plans', 'Pricing plans'))
+            unmount()
         })
 
         it('keeps a band grid mounted when a tile streams into the band', () => {

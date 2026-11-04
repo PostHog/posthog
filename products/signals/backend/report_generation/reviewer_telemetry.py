@@ -73,6 +73,9 @@ def capture_suggested_reviewers_resolved(
     correction_note_targets: int | None = None,
     resolution_outcome: str | None = None,
     after_inbox_notification: bool | None = None,
+    removal_reason: str | None = None,
+    has_removal_note: bool | None = None,
+    self_removal: bool | None = None,
 ) -> None:
     """Emit `signals_suggested_reviewers_resolved` when a report's suggested reviewers are persisted.
 
@@ -92,6 +95,7 @@ def capture_suggested_reviewers_resolved(
     `correction_note_targets` report what that forwarding did — notes written, and scouts the
     correction was addressed to, which is the larger number when the suppression window swallowed a
     target's logins. Both are absent on every other path, so absence reads as "no correction".
+    `self_removal` marks the "Remove yourself" path, the negative counterpart of `signals_report_claimed`.
 
     Best-effort: never raises, so analytics can't break report generation.
     """
@@ -129,6 +133,9 @@ def capture_suggested_reviewers_resolved(
                 "user_uuid_only_count": len(linkability.linkable_user_uuids),
                 "unlinkable_user_uuid_count": len(linkability.unlinkable_user_uuids),
                 "all_unlinkable": bool(linkability.unlinkable_count) and not linkability.linkable_count,
+                **({"removal_reason": removal_reason} if removal_reason else {}),
+                **({"has_removal_note": has_removal_note} if has_removal_note is not None else {}),
+                **({"self_removal": True} if self_removal else {}),
                 **(
                     {}
                     if correction_notes_written is None

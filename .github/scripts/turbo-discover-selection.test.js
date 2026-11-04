@@ -6,7 +6,14 @@
 
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { decideJsonTargets, decideSelection, narrowedProducts, selectedShards } = require('./turbo-discover')
+const {
+    decideJsonTargets,
+    decideSelection,
+    isDagsterOnlyLegacyEdit,
+    narrowedProducts,
+    productsWithUndeclaredInputChanges,
+    selectedShards,
+} = require('./turbo-discover')
 
 const segments = (extra) => ({ core: [], poe: [], temporal: [], compat: [], ...extra })
 
@@ -63,6 +70,16 @@ test('each distrusted input has its own reason, so telemetry can tell them apart
         [{ selection: null }, 'selector_error'],
         [{ selection: selectionFixture({ ast: { full_run_reasons: ['posthog/settings/base.py'] } }) }, 'full_run_requested'],
         [{ selection: selectionFixture({ combined: { count: 0, products: [], segments: segments() } }) }, 'empty_selection'],
+        [
+            {
+                dagsterOnlyLegacyEdit: true,
+                selection: selectionFixture({
+                    snob: { status: 'error' },
+                    combined: { count: 0, products: [], segments: segments() },
+                }),
+            },
+            'empty_selection',
+        ],
         [{ selection: selectionFixture({ durations: { total_seconds: 0, selected_seconds: 0, skipped_seconds: 0 } }) }, 'no_durations'],
         [{ selection: selectionFixture({ durations: undefined }) }, 'no_durations'],
     ]
@@ -126,6 +143,57 @@ test('a selection with no temporal file does not start the temporal leg', () => 
     assert.equal(decision.run_poe, false)
     assert.equal(decision.run_temporal, false)
     assert.equal(decision.temporal_files, '')
+})
+
+test('a Dagster-only legacy edit that selects no Django test runs no Django leg', () => {
+    const decision = decide({
+        dagsterOnlyLegacyEdit: true,
+        selection: selectionFixture({
+            snob: { status: 'ok' },
+            combined: { count: 0, products: [], segments: segments() },
+        }),
+    })
+    assert.equal(decision.mode, 'selected')
+    assert.equal(decision.narrowed, true)
+    assert.equal(decision.skip_reason, '')
+    assert.equal(decision.core_files, '')
+    assert.equal(decision.run_poe, false)
+    assert.equal(decision.run_temporal, false)
+})
+
+test('only Dagster Python that still exists counts as a Dagster-only legacy edit', () => {
+    const exists = (file) => !file.includes('deleted')
+    const cases = [
+        [['posthog/dags/backfill.py'], true],
+        [['posthog/dags/backfill.py', 'posthog/dags/README.md', 'products/foo/backend/bar.py'], true],
+        [['posthog/dags/backfill.py', 'posthog/models/team.py'], false],
+        [['posthog/dags/schedule.yaml'], false],
+        [['posthog/dags/deleted_job.py'], false],
+        [undefined, false],
+    ]
+    for (const [changedFiles, expected] of cases) {
+        assert.equal(isDagsterOnlyLegacyEdit(changedFiles, exists), expected, JSON.stringify(changedFiles))
+    }
+})
+
+test('a changed non-Python test input selects its own product', () => {
+    const allProducts = new Set(['access-control', 'signals'])
+    const cases = [
+        [['products/access_control/backend/tests/__snapshots__/test_access_control.ambr'], ['access-control']],
+        [['products/signals/skills/authoring-scouts/SKILL.md'], ['signals']],
+        [['products/signals/backend/AGENTS.md'], []],
+        [['products/signals/frontend/Scouts.tsx'], []],
+        [['products/signals/backend/__pycache__/models.cpython-312.pyc'], []],
+        [['products/unregistered/backend/fixtures/rows.json'], []],
+        [['posthog/test/__snapshots__/test_team.ambr'], []],
+    ]
+    for (const [changedFiles, expected] of cases) {
+        assert.deepEqual(
+            productsWithUndeclaredInputChanges(changedFiles, allProducts),
+            expected,
+            JSON.stringify(changedFiles)
+        )
+    }
 })
 
 test('applies the full-matrix budget to the selected seconds of each segment', () => {

@@ -108,8 +108,20 @@ describe('SessionTracker', () => {
         it('sets each session key with a 48h TTL in one pipeline', async () => {
             await sessionTracker.markSeen(sessionSet([1, 'a'], [2, 'b']))
 
-            expect(mockPipeline.set).toHaveBeenCalledWith('@posthog/replay/session-seen:1:a', '1', 'EX', TTL_SECONDS)
-            expect(mockPipeline.set).toHaveBeenCalledWith('@posthog/replay/session-seen:2:b', '1', 'EX', TTL_SECONDS)
+            expect(mockPipeline.set).toHaveBeenCalledWith(
+                '@posthog/replay/session-seen:1:a',
+                'seen',
+                'EX',
+                TTL_SECONDS,
+                'NX'
+            )
+            expect(mockPipeline.set).toHaveBeenCalledWith(
+                '@posthog/replay/session-seen:2:b',
+                'seen',
+                'EX',
+                TTL_SECONDS,
+                'NX'
+            )
             expect(mockPipeline.exec).toHaveBeenCalledTimes(1)
             expect(SessionBatchMetrics.incrementNewSessionsDetected).toHaveBeenCalledTimes(2)
         })
@@ -128,9 +140,10 @@ describe('SessionTracker', () => {
 
             expect(mockPipeline.set).toHaveBeenCalledWith(
                 '@posthog/replay/ml-mirror/session-seen:1:a',
-                '1',
+                'seen',
                 'EX',
-                TTL_SECONDS
+                TTL_SECONDS,
+                'NX'
             )
         })
 
@@ -153,6 +166,18 @@ describe('SessionTracker', () => {
             const result = await sessionTracker.hasSeen(sessionSet([1, 'a']))
             expect(result.get(1, 'a')).toBe(true)
             expect(mockRedisClient.mget).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('markBilled', () => {
+        it('counts a Redis error that the pipeline returns as a command result', async () => {
+            mockPipeline.exec = jest.fn().mockResolvedValue([[new Error('OOM command not allowed'), null]])
+
+            await sessionTracker.markBilled([
+                { teamId: 1, sessionId: 'a', timestampMs: 1_700_000_000_000, ttlSeconds: 60 },
+            ])
+
+            expect(SessionBatchMetrics.incrementSessionTrackerRedisErrors).toHaveBeenCalledTimes(1)
         })
     })
 })
