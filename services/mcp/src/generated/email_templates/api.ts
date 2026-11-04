@@ -36,6 +36,8 @@ export const messagingSendEmailCreateBodyDistinctIdMax = 400
 
 export const messagingSendEmailCreateBodyReplyToMax = 10
 
+export const messagingSendEmailCreateBodyFromMax = 1024
+
 export const MessagingSendEmailCreateBody = () => zod.object({
     to: zod.email().describe('Email address of the recipient.'),
     template_key: zod
@@ -74,6 +76,7 @@ export const MessagingSendEmailCreateBody = () => zod.object({
         ),
     from: zod
         .string()
+        .max(messagingSendEmailCreateBodyFromMax)
         .optional()
         .describe(
             "Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default."
