@@ -75,6 +75,8 @@ describe('sandboxBlockedEventRedisConfig', () => {
                     tenantName: 'sandbox',
                     configurationSetName: 'sandbox',
                     fromAddress: 'sender@example.com',
+                    dailyTeamCap: '1',
+                    dailyRecipientCap: '1',
                 },
                 { getTeam: () => Promise.resolve(null) } as unknown as TeamManager,
                 createRedisV2PoolFromConfig(
@@ -83,7 +85,8 @@ describe('sandboxBlockedEventRedisConfig', () => {
                         options: { port: store.port },
                         name: 'sandbox-blocked-event-stalled-test',
                     })
-                )
+                ),
+                null
             )
             const blockEveryProject = (): Promise<void[]> =>
                 Promise.all(
