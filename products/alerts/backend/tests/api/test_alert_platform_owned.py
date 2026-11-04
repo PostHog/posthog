@@ -22,8 +22,15 @@ from products.alerts.backend.judge import (
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     EarlierFlag,
 )
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.models.alert import (
+    AlertCheck,
+    AlertConfiguration,
+    InvestigationStatus,
+    InvestigationVerdict,
+)
+from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_cutover import cut_over_team
+from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import get_configuration, record_verdict_change, update_configuration
@@ -33,6 +40,8 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
     VerdictChange,
 )
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.notebooks.backend.facade.api import create_notebook
 
 
 def _iso(moment: datetime) -> str:
@@ -178,6 +187,56 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             "code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
             "message": LLM_DETECTOR_UNAVAILABLE_MESSAGE,
         }
+
+    def test_a_moved_alert_shows_each_checks_investigation_and_what_the_agent_suppressed(self) -> None:
+        notebook = create_notebook(self.team.id, title="Signups investigation", content=None)
+        for minutes_ago in (40, 30, 20, 10):
+            self._record(
+                minutes_ago,
+                "firing",
+                value=150.0,
+                detail={SUPPRESSED_BY_AGENT_KEY: True} if minutes_ago == 10 else None,
+            )
+        InsightAlertInvestigation.objects.for_team(self.team.id).create(
+            team=self.team,
+            alert_configuration=self.alert,
+            configuration_id=self.copy_id,
+            evaluation_key=f"slot:{self._at(40).isoformat()}",
+            kind=InsightAlertInvestigation.Kind.AGENT,
+            status=InvestigationStatus.DONE,
+            verdict=InvestigationVerdict.FALSE_POSITIVE,
+            summary="A release changed the event name.",
+            notebook_id=notebook.id,
+        )
+        released = [
+            (40, HoldReleasedBy.VERDICT),
+            (30, HoldReleasedBy.SAFETY_NET),
+            (20, HoldReleasedBy.CLAIM_REFUSED),
+        ]
+        for minutes_ago, released_by in released:
+            platform_testing.released_hold(
+                self.copy_id,
+                team_id=self.team.id,
+                at=self._at(minutes_ago),
+                action=HoldRelease.SUPPRESS,
+                released_by=released_by,
+            )
+
+        checks = self._row("retrieve")["checks"]
+
+        fields = (
+            "investigation_status",
+            "investigation_verdict",
+            "investigation_summary",
+            "investigation_notebook_short_id",
+            "notification_suppressed_by_agent",
+        )
+        assert [tuple(check[field] for field in fields) for check in checks] == [
+            (None, None, None, None, True),
+            (None, None, None, None, True),
+            (None, None, None, None, False),
+            ("done", "false_positive", "A release changed the event name.", notebook.short_id, True),
+        ]
 
     def test_a_moved_detector_alert_marks_the_points_both_stacks_fired_on(self) -> None:
         self._own_check(60 * 24, "2026-10-18", "Before the move.")

@@ -11,6 +11,12 @@ export const AUTH_NOTES = {
         createAccount: ['create an account', '1M events free, every month'],
         signupProfile: ['almost there', 'last step'],
     },
+    oauthDevice: {
+        enterCode: ['one code away', 'it is in your terminal'],
+        review: ['check the code', 'then approve'],
+        approved: ['approved', 'back to your terminal'],
+        denied: ['denied', 'nothing was shared'],
+    },
     login2fa: {
         default: ['one more step', "checking it's really you"],
     },

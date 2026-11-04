@@ -1,4 +1,4 @@
-import type { WizardBadgeItem } from 'scenes/onboarding/shared/wizard-sync/WizardModeShell'
+import type { WizardBadgeItem } from 'scenes/onboarding/shared/wizard-command/WizardModeShell'
 
 import { type SDK, SDKInstructionsMap, SDKTag } from '~/types'
 
@@ -41,6 +41,5 @@ export interface VariantProps {
     wizardOverrides?: WizardOverrides
     /** Step heading, e.g. "Install AI observability"; a lone install step stays a generic "Install". */
     installTitle: string
-    installSubtitle?: string
     compact?: boolean
 }

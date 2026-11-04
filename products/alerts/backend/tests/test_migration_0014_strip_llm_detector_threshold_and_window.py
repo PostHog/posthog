@@ -1,11 +1,11 @@
 from typing import Any
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 ZSCORE = {"type": "zscore", "threshold": 0.95, "window": 30}
 
 
-class TestStripLLMDetectorThresholdAndWindow(TestMigrations):
+class TestStripLLMDetectorThresholdAndWindow(NonAtomicTestMigrations):
     app = "alerts"
     migrate_from = "0013_alertconfiguration_owner"
     migrate_to = "0014_strip_llm_detector_threshold_and_window"

@@ -479,8 +479,13 @@ tools:
             anything. Always call this before llma-evaluation-backfill-create and confirm the count with the user.
             total_units is what the backfill would evaluate. already_evaluated_units already have a result and are left
             out unless rerun_existing is true. The window is clamped to the last 30 days and held back by the
-            evaluation's settle time, so report the returned window_start and window_end, not the requested ones.
-            Conditions default to the evaluation's own.
+            evaluation's settle time, so report the returned window_start and window_end, not the requested ones. A
+            trace or session evaluation only backfills units older than its settle time: the settle window under
+            fixed_window, or the max age under inactivity (up to 2 hours for traces, 7 days for sessions). A window that
+            lies entirely inside the settle time, entirely before the last 30 days, or beyond the project's
+            drop-events-older-than setting is rejected rather than clamped; the error says which limit applied.
+            Conditions default to the evaluation's own. A backfill needs at least one condition set, and every property
+            filter needs a value, so pass conditions when the evaluation has none or is still a draft.
         param_overrides:
             evaluation_id:
                 aliases:
