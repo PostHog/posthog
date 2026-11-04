@@ -8,6 +8,8 @@ import { type SamplingRuleRow, compileRuleSet } from './compile-rules'
 import type { CompiledRuleSet } from './evaluate'
 
 const REFRESH_MS = 30_000
+// After a failed fetch, wait this long before the next try, so an outage does not get one query per message.
+const FAILED_FETCH_RETRY_MS = 5_000
 
 /** Record source a drop rule filters. Mirrors `LogsExclusionRule.RecordSource` in models.py. */
 export type SamplingRuleSource = 'logs' | 'spans'
@@ -52,7 +54,6 @@ export class SamplingRulesCache {
                 } catch (error) {
                     // Fail open: a rules-fetch failure in the hot path must not DLQ valid records.
                     // Serve the last-known rules, or no rules, so nothing is dropped by mistake.
-                    // The stale `fetchedAtMs` means the next message retries the fetch.
                     logger.warn('[logs-sampling] rules fetch failed — falling back', {
                         teamId,
                         source,
@@ -62,7 +63,13 @@ export class SamplingRulesCache {
                         'logs.sampling.fetch_failed': true,
                         'logs.sampling.served_stale': Boolean(existing),
                     })
-                    return existing?.compiled ?? compileRuleSet([])
+                    const fallback = existing?.compiled ?? compileRuleSet([])
+                    this.cache.set(cacheKey, {
+                        compiled: fallback,
+                        versionWatermark: existing?.versionWatermark ?? 0,
+                        fetchedAtMs: now - REFRESH_MS + FAILED_FETCH_RETRY_MS,
+                    })
+                    return fallback
                 }
                 // The API rejects severity rules for spans. A span has no severity, so a row written
                 // past the API would rank every span as info and apply one action to all of them.
