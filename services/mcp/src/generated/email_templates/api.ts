@@ -36,6 +36,18 @@ export const messagingSendEmailCreateBodyDistinctIdMax = 400
 
 export const messagingSendEmailCreateBodyReplyToMax = 10
 
+export const messagingSendEmailCreateBodyCcTwoMax = 10
+
+export const messagingSendEmailCreateBodyBccTwoMax = 10
+
+export const messagingSendEmailCreateBodyAttachmentsItemFilenameMax = 255
+
+export const messagingSendEmailCreateBodyAttachmentsItemContentTypeMax = 255
+
+export const messagingSendEmailCreateBodyAttachmentsItemContentIdMax = 255
+
+export const messagingSendEmailCreateBodyAttachmentsMax = 10
+
 export const messagingSendEmailCreateBodyFromMax = 1024
 
 export const MessagingSendEmailCreateBody = () => zod.strictObject({
@@ -68,6 +80,49 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .max(messagingSendEmailCreateBodyReplyToMax)
         .optional()
         .describe('Addresses replies to the email your code rendered go to.'),
+    cc: zod
+        .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyCcTwoMax), zod.null()])
+        .optional()
+        .describe(
+            "Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here."
+        ),
+    bcc: zod
+        .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyBccTwoMax), zod.null()])
+        .optional()
+        .describe(
+            "Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here."
+        ),
+    attachments: zod
+        .array(
+            zod.strictObject({
+                filename: zod
+                    .string()
+                    .max(messagingSendEmailCreateBodyAttachmentsItemFilenameMax)
+                    .describe(
+                        'File name the recipient sees, such as `invoice.pdf`. No path and no line breaks. A file type mailbox providers block, such as `.exe`, is refused.'
+                    ),
+                content: zod.string().describe("The file's bytes as standard base64, without line breaks."),
+                content_type: zod
+                    .string()
+                    .max(messagingSendEmailCreateBodyAttachmentsItemContentTypeMax)
+                    .optional()
+                    .describe(
+                        'MIME type of the file, such as `application\/pdf`. Without it, the type follows from the file name.'
+                    ),
+                content_id: zod
+                    .string()
+                    .max(messagingSendEmailCreateBodyAttachmentsItemContentIdMax)
+                    .optional()
+                    .describe(
+                        'Content ID that the HTML body references as `cid:<content_id>` to show the file inline, such as `logo`. Without `<` or `>`.'
+                    ),
+            })
+        )
+        .max(messagingSendEmailCreateBodyAttachmentsMax)
+        .nullish()
+        .describe(
+            "Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here."
+        ),
     capture_engagement: zod
         .boolean()
         .optional()
