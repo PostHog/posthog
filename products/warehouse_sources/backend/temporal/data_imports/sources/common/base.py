@@ -441,6 +441,19 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """
         raise NotImplementedError()
 
+    def describe_pinned_schema(
+        self, config: ConfigType, team_id: int, name: str, schema_metadata: Mapping[str, Any]
+    ) -> SourceSchema | None:
+        """Describe a pinned schema from the definition stored on it, without discovery.
+
+        Discovery can't report a pinned schema (see `SCHEMA_PINNED_METADATA_KEY`), so callers ask
+        this first. A source that can rebuild the schema from `schema_metadata` checks that the
+        credentials can read the schema's own data, raises the errors a sync raises when they
+        can't, and returns the schema. `None` means the caller uses `validate_credentials` and
+        `get_schemas`, as for any other schema.
+        """
+        return None
+
     def _placeholder_config(self) -> ConfigType:
         """Build a credential-free config instance for static, no-network schema listing.
 
