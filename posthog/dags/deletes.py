@@ -1625,17 +1625,29 @@ def teams_losing_events_at_first_pass(
         teams_by_cutoff[whole_month_cutoff(first_pass, months)].append(team_id)
     losing: set[int] = set()
     for placement in resolve_placements(cluster, EVENTS_TARGETS):
-        query = f"""
-            SELECT DISTINCT team_id
-            FROM {placement.target.data_table}
-            WHERE team_id IN %(team_ids)s
-            AND timestamp < %(cutoff)s
-        """
         for cutoff, team_ids in teams_by_cutoff.items():
-            parameters = {"team_ids": team_ids, "cutoff": cutoff}
-            results = placement.cluster.map_one_host_per_shard(Query(query, parameters=parameters)).result()
-            losing.update(team_id for rows in results.values() for (team_id,) in rows)
+            for since in (cutoff - relativedelta(months=1), None):
+                unresolved = [team_id for team_id in team_ids if team_id not in losing]
+                losing |= _teams_with_events(placement, unresolved, since=since, before=cutoff)
     return losing
+
+
+def _teams_with_events(
+    placement: TargetPlacement, team_ids: list[int], *, since: datetime | None, before: datetime
+) -> set[int]:
+    if not team_ids:
+        return set()
+    since_clause = "AND timestamp >= %(since)s" if since is not None else ""
+    query = f"""
+        SELECT DISTINCT team_id
+        FROM {placement.target.data_table}
+        WHERE team_id IN %(team_ids)s
+        AND timestamp < %(before)s
+        {since_clause}
+    """
+    parameters = {"team_ids": team_ids, "since": since, "before": before}
+    results = placement.cluster.map_one_host_per_shard(Query(query, parameters=parameters)).result()
+    return {team_id for rows in results.values() for (team_id,) in rows}
 
 
 def _enforced_plans(teams: QuerySet[Team]) -> list[TeamPlan]:
