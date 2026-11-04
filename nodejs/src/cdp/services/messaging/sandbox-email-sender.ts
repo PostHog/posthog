@@ -232,10 +232,22 @@ function neutralizeRawTextElements(roots: DefaultTreeAdapterMap['childNode'][]):
     }
 }
 
-function leavesOutlookConditionalOpen(html: string): boolean {
+function leavesOutlookConditionalOpen(roots: DefaultTreeAdapterMap['childNode'][]): boolean {
     let depth = 0
-    for (const match of html.matchAll(/<!(?:--)?\[(if\b|endif\])/gi)) {
-        depth = match[1].toLowerCase() === 'if' ? depth + 1 : Math.max(depth - 1, 0)
+    const pending = [...roots].reverse()
+    while (pending.length) {
+        const node = pending.pop()!
+        if (defaultTreeAdapter.isCommentNode(node)) {
+            for (const match of `<!--${node.data}-->`.matchAll(/<!(?:--)?\[(if\b|endif\])/gi)) {
+                depth = match[1].toLowerCase() === 'if' ? depth + 1 : Math.max(depth - 1, 0)
+            }
+        } else if (defaultTreeAdapter.isElementNode(node)) {
+            const children =
+                node.tagName === 'template' && node.namespaceURI === htmlSpec.NS.HTML
+                    ? defaultTreeAdapter.getTemplateContent(node as DefaultTreeAdapterMap['template']).childNodes
+                    : node.childNodes
+            pending.push(...[...children].reverse())
+        }
     }
     return depth > 0
 }
@@ -261,7 +273,7 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
     defaultTreeAdapter.insertText(paragraph, footer)
     defaultTreeAdapter.appendChild(body, paragraph)
     const serialized = serialize(document, { scriptingEnabled: false })
-    if (leavesOutlookConditionalOpen(serialized)) {
+    if (leavesOutlookConditionalOpen(document.childNodes)) {
         throw new Error(
             'The sandbox email template could not retain its identification footer. Update the template and try again.'
         )
