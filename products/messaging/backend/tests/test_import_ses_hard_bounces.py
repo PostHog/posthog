@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -10,7 +12,7 @@ from products.messaging.backend.models.email_hard_bounce import EmailHardBounce
 class TestImportSesHardBounces(BaseTest):
     @patch("products.workflows.backend.providers.ses.boto3.client")
     def test_imports_every_page_and_keeps_existing_entries(self, client_factory: MagicMock) -> None:
-        bounced_at = timezone.now() - timezone.timedelta(days=3)
+        bounced_at = timezone.now() - timedelta(days=3)
         EmailHardBounce.objects.create(
             email="known@example.com", first_bounced_at=bounced_at, last_bounced_at=bounced_at
         )
