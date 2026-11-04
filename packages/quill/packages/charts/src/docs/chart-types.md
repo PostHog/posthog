@@ -201,37 +201,27 @@ There is no `series` or `labels`.
   Set `id` when names repeat and the host needs a stable key, for `defaultFocusedId` or its own state.
   The focus is kept by id, so it survives a data update that still has the node.
   A node object reached twice is skipped, which also guards against cyclic input.
-- `config.colorBy` defaults to `auto`: `diff` when any node has a `baselineValue`, else `group` when any node has a `group`, else `name`.
-  `group` and `name` give each distinct key a palette color in first-seen order, blended toward the background so labels stay readable in both themes.
-  The `group` legend shows each group's share of total self value, largest first.
-  `config.legend` is a `ChartLegendConfig`: unlike other charts it shows by default, below the graph and aligned to the start, and it honors `show`, `position`, `align` and `gap`.
-  Its rows list colors, not series, so they are not clickable.
+- Colors follow the data: `diff` colors when any node has a `baselineValue`, else one color per `group` when any node has a `group`, else one color per name.
+  Groups and names get palette colors in first-seen order, blended toward the background so labels stay readable in both themes.
+  A legend below the graph shows each group's share of total self value, largest first. Its rows list colors, not series, so they are not clickable.
   `diff` colors by `value / baselineValue` on a red (slower) to blue (faster) scale whose strength grows with the change, full at 2× or ½×.
   A change within `diff.threshold` (default 0.1) is neutral, and so is a node with fewer than `diff.minCount` samples in `count` or `baselineCount`.
   A node with no baseline, or a baseline of 0, is new and gets a dashed outline; a node with a baseline but no value is gone and draws faded.
-  `diff.slowerColor` / `diff.fasterColor` override the palette's red (`theme.colors[4]`) and blue (`theme.colors[0]`).
-- `config.preset` picks defaults for the kind of data.
-  `profile` (default) suits call trees of durations: monospace labels and children in input order.
-  `breakdown` suits counts nested by property, such as a trend broken down by country and then browser, drawn as an icicle with the total on top: proportional labels and siblings sorted widest first.
-  `labelFont` (`monospace` | `sans`) and `sort` (`input` | `value`) override the preset one at a time.
-  Format values, such as `12.3K pageviews`, with `valueFormatter`.
-- Labels truncate with an ellipsis; a node scrolled off the left edge keeps its label at the edge.
+  Slower uses the palette's red (`theme.colors[4]`) and faster its blue (`theme.colors[0]`).
+- Labels use a monospace font and truncate with an ellipsis; a node scrolled off the left edge keeps its label at the edge.
   Nodes narrower than 3px merge with their narrow siblings into one "+N more" cell, and the children of a narrow node are not drawn.
   Two or more children under 1% of their parent move to the end of the row, so they sit together and merge into one cell.
 - Hover shows the shared `DefaultTooltip`: the name, one row with the value (labeled with the group when there is one), and a baseline row when comparing.
   A `tooltip` render prop replaces the content and receives `FlameTooltipContext`: `hit` is either `{ kind: 'node', node }` or `{ kind: 'bundle', bundle }`, plus `valueFormatter`, `comparing` and `canFocus`.
-- Click zooms into a node over 280ms (instant under reduced motion): it spans the full width, its ancestors stay above it at full width and fade, and its siblings leave the view.
+- Click zooms into a node: it spans the full width, its ancestors stay above it at full width and fade, and its siblings leave the view.
   A "+N more" cell zooms to just the bundled nodes.
   The breadcrumb row above the graph shows the path with a reset button, and Escape zooms out one level while the graph has keyboard focus.
-  `onNodeClick` fires after the zoom with the resolved `FlameNodeDatum`; set `clickToFocus: false` to only report clicks.
-  `onFocusChange` reports every zoom change, with `null` for the whole graph.
   `defaultFocusedId` zooms into a node on mount only; to open on another node, give the chart a new `key`.
 - `search` is a case-insensitive substring matched against names.
   Matches keep their color, everything else turns a neutral gray, and the breadcrumb row shows the match count and the share of the graph's width they cover, counting a match nested in another match once.
   The host renders the search input.
-- `height: 'auto'` (default) grows with the deepest row in view up to `maxHeight` (480px), then scrolls vertically; `fill` takes the parent's height; a number fixes it.
+- The graph grows with the deepest row in view up to `config.maxHeight` (480px), then scrolls vertically.
   Only the rows in the scroll viewport are drawn, and only the nodes inside the zoom window, so a 50,000-node tree stays smooth.
-  `direction: 'bottom-up'` draws the roots at the bottom, as a classic flame graph.
 - Memoize `data`: a new reference rebuilds the flattened tree, which takes tens of milliseconds at 50,000 nodes.
 
 ## Sparkline
