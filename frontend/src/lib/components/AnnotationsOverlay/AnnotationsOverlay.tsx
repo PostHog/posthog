@@ -75,6 +75,7 @@ export interface AnnotationsOverlayProps {
     /** Forwarded to the kea logic key so multiple overlays on the same insight don't
      *  collide. Used by compare-against-previous bar charts to show one overlay per period. */
     kind?: string
+    annotationsScope?: AnnotationsOverlayLogicProps['annotationsScope']
 }
 
 interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
@@ -89,6 +90,7 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
     dates,
     insightNumericId,
     kind,
+    annotationsScope,
 }: AnnotationsOverlayProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { tickIntervalPx, firstTickLeftPx, getDataPointX } = useAnnotationsPositioning(geometry)
@@ -114,6 +116,7 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
         dates,
         ticks: prevTicksRef.current,
         kind,
+        annotationsScope,
     }
     const logic = annotationsOverlayLogic(annotationsOverlayLogicProps)
     const { activeDate, tickDates, annotationBadgeDataIndices, groupedAnnotations, readOnly } = useValues(logic)
