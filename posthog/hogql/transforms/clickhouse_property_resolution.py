@@ -1309,6 +1309,15 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
     def visit_field(self, node: ast.Field) -> ast.Expr:
         if (
             self.context.restricted_properties
+            and isinstance(node.type, ast.AsteriskType)
+            and restricted_embedding_documents(node.type.table_type, "content", self.context)
+        ):
+            # A wildcard left unexpanded, such as `tuple(*)`, prints as `*` and would skip the per-column mask.
+            raise QueryError(
+                "A wildcard can't read this embedding table because some of its rows are hidden from you. List the columns instead."
+            )
+        if (
+            self.context.restricted_properties
             and isinstance(node.type, ast.FieldType)
             and (masked := self._masked_mirrored_column(node.type)) is not None
         ):

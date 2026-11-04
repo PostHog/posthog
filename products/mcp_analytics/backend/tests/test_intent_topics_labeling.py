@@ -33,7 +33,13 @@ class TestPrompt:
         assert "- line one line two" in prompt
 
     def test_fallback_label_never_echoes_intent_text(self) -> None:
-        assert fallback_label("0193e5c2-1234-7abc-8def-000000000000") == "Topic 0193e5c2"
+        assert fallback_label("0193e5c2-1234-7abc-8def-000000000000") == "Topic 00000000"
+
+    def test_topics_created_together_get_different_fallback_labels(self) -> None:
+        # UUIDv7 ids made in the same second share their leading timestamp bits.
+        assert fallback_label("0193e5c2-1234-7abc-8def-0000000000aa") != fallback_label(
+            "0193e5c2-1234-7abc-8def-0000000000bb"
+        )
 
 
 class TestLabelTopics(APIBaseTest):
@@ -73,12 +79,29 @@ class TestLabelTopics(APIBaseTest):
         mock_genai.Client.return_value = self._mock_client({"topics": [{"number": 1, "label": "  ", "summary": ""}]})
 
         labels = label_topics(
-            self.team, [_candidate("0193e5c2-aaaa", samples=["secret customer text"]), _candidate("0193e5c2-bbbb")]
+            self.team,
+            [
+                _candidate("0193e5c2-1234-7abc-8def-0000000000aa", samples=["secret customer text"]),
+                _candidate("0193e5c2-1234-7abc-8def-0000000000bb"),
+            ],
         )
 
-        assert labels["0193e5c2-aaaa"].label == "Topic 0193e5c2"
-        assert labels["0193e5c2-bbbb"].label == "Topic 0193e5c2"
+        assert labels["0193e5c2-1234-7abc-8def-0000000000aa"].label == "Topic 000000aa"
+        assert labels["0193e5c2-1234-7abc-8def-0000000000bb"].label == "Topic 000000bb"
         assert "secret" not in json.dumps({k: v.label + v.summary for k, v in labels.items()})
+
+    @patch("products.mcp_analytics.backend.intent_topics.labeling.settings")
+    @patch("products.mcp_analytics.backend.intent_topics.labeling.genai")
+    def test_sample_intents_stay_out_of_ai_telemetry(self, mock_genai, mock_settings) -> None:
+        mock_settings.GEMINI_API_KEY = "key"
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        client = self._mock_client({"topics": [{"number": 1, "label": "Create insights", "summary": "Charts."}]})
+        mock_genai.Client.return_value = client
+
+        label_topics(self.team, [_candidate("t1")])
+
+        assert client.models.generate_content.call_args.kwargs["posthog_privacy_mode"] is True
 
     @patch("products.mcp_analytics.backend.intent_topics.labeling.settings")
     def test_requires_consent_and_a_key(self, mock_settings) -> None:

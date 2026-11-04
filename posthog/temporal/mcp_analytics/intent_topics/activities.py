@@ -19,7 +19,11 @@ logger = structlog.get_logger(__name__)
 
 
 def _now(inputs: IntentTopicsWorkflowInputs) -> datetime:
-    return datetime.fromisoformat(inputs.now) if inputs.now else datetime.now(tz=UTC)
+    if not inputs.now:
+        return datetime.now(tz=UTC)
+    parsed = datetime.fromisoformat(inputs.now)
+    # Sync windows are compared with the aware window ends of earlier runs, so a time without an offset is UTC.
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
 
 
 def _result(team_id: int, outcome: IntentTopicsRunOutcome) -> IntentTopicsRunResult:
