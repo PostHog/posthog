@@ -31,11 +31,18 @@ def warehouse_native_exposure_config(exposure_criteria: dict[str, Any] | None) -
 
 
 def validate_experiment_warehouse_native_sources(
-    *, exposure_criteria: dict[str, Any] | None, metrics: list[dict[str, Any]], team: Team, user: Any
-) -> None:
+    *,
+    exposure_criteria: dict[str, Any] | None,
+    metrics: list[dict[str, Any]],
+    team: Team,
+    user: Any,
+    resolve_connection: bool = True,
+) -> str | None:
     """An experiment reads one kind of data: PostHog events, or the customer's warehouse through one
     connection. A warehouse-native exposure needs warehouse-native metrics, because nothing can join
-    warehouse ids to PostHog persons."""
+    warehouse ids to PostHog persons. Returns the connection id of the warehouse-native sources, if any.
+    A caller that checks several experiments on one connection resolves it once, with `resolve_connection`
+    off."""
     exposure_config = warehouse_native_exposure_config(exposure_criteria)
     nodes = _metric_source_nodes(metrics)
     native_nodes = [node for node in nodes if node.get("kind") == WAREHOUSE_NATIVE_NODE_KIND]
@@ -50,7 +57,10 @@ def validate_experiment_warehouse_native_sources(
             "Remove the metrics that read PostHog events or synced warehouse tables."
         )
     sources = [exposure_config, *native_nodes] if exposure_config is not None else native_nodes
-    validate_warehouse_native_sources(sources, team=team, user=user)
+    connection_id = warehouse_native_sources_agree(sources)
+    if connection_id is not None and resolve_connection:
+        validate_warehouse_native_connection(connection_id, team=team, user=user)
+    return connection_id
 
 
 def validate_metric_warehouse_native_sources(metrics: list[dict[str, Any]], *, team: Team, user: Any) -> None:
@@ -61,18 +71,16 @@ def validate_metric_warehouse_native_sources(metrics: list[dict[str, Any]], *, t
         raise ValidationError(
             "A metric cannot mix a warehouse-native source with PostHog events or synced warehouse tables."
         )
-    validate_warehouse_native_sources(native_nodes, team=team, user=user)
+    connection_id = warehouse_native_sources_agree(native_nodes)
+    if connection_id is not None:
+        validate_warehouse_native_connection(connection_id, team=team, user=user)
 
 
-def validate_warehouse_native_sources(sources: list[dict[str, Any]], *, team: Team, user: Any) -> None:
-    """Every source must name the same direct BigQuery connection, readable by the saving user, and the
-    same unit binding. `sources` holds exposure configs and metric nodes; both carry `connection_id` and
-    `unit`."""
+def warehouse_native_sources_agree(sources: list[dict[str, Any]]) -> str | None:
+    """Every source must name the same connection and the same unit binding. `sources` holds exposure
+    configs and metric nodes; both carry `connection_id` and `unit`. Returns the shared connection id."""
     if not sources:
-        return
-    if not bigquery_direct_query_enabled(team):
-        raise ValidationError("Warehouse-native sources are not available in this project.")
-
+        return None
     connection_ids = {str(source.get("connection_id") or "") for source in sources}
     if len(connection_ids) > 1:
         raise ValidationError("All warehouse-native sources on an experiment must use the same connection.")
@@ -81,11 +89,18 @@ def validate_warehouse_native_sources(sources: list[dict[str, Any]], *, team: Te
         raise ValidationError(
             "All warehouse-native sources on an experiment must use the same unit binding (unit_type and id_namespace)."
         )
+    return connection_ids.pop()
+
+
+def validate_warehouse_native_connection(connection_id: str, *, team: Team, user: Any) -> None:
+    """The connection must be a direct BigQuery source that the saving user can read in full."""
+    if not bigquery_direct_query_enabled(team):
+        raise ValidationError("Warehouse-native sources are not available in this project.")
 
     # A synthetic principal or a userless caller has no access control to check, as in validate_warehouse_metrics.
     connection = get_direct_connection_source_none_or_raise(
         team,
-        connection_ids.pop(),
+        connection_id,
         user=user if isinstance(user, User) else None,
         error_factory=ValidationError,
         require_pure_direct=True,
@@ -109,28 +124,36 @@ def validate_saved_metric_query_against_linked_experiments(
         saved_metric.query or {}
     ):
         return
-    links = ExperimentToSavedMetric.objects.filter(
-        saved_metric=saved_metric, experiment__team_id=team.id
-    ).select_related("experiment")
+    links = (
+        ExperimentToSavedMetric.objects.filter(saved_metric=saved_metric, experiment__team_id=team.id)
+        .exclude(experiment__deleted=True)
+        .select_related("experiment")
+        .prefetch_related("experiment__experimenttosavedmetric_set__saved_metric")
+    )
+    connection_ids: set[str] = set()
     for link in links:
         experiment = link.experiment
         other_queries = [
             other.saved_metric.query
-            for other in experiment.experimenttosavedmetric_set.exclude(saved_metric=saved_metric).select_related(
-                "saved_metric"
-            )
-            if other.saved_metric.query
+            for other in experiment.experimenttosavedmetric_set.all()
+            if other.saved_metric_id != saved_metric.id and other.saved_metric.query
         ]
         try:
-            validate_experiment_warehouse_native_sources(
+            connection_id = validate_experiment_warehouse_native_sources(
                 exposure_criteria=experiment.exposure_criteria,
                 metrics=[*(experiment.metrics or []), *(experiment.metrics_secondary or []), *other_queries, query],
                 team=team,
                 user=user,
+                resolve_connection=False,
             )
         except ValidationError as error:
+            # The user may not be allowed to see the experiment, so the error does not name it.
             detail = error.detail[0] if isinstance(error.detail, list) else error.detail
-            raise ValidationError(f'The experiment "{experiment.name}" uses this metric. {detail}')
+            raise ValidationError(f"A linked experiment uses this metric. {detail}")
+        if connection_id is not None:
+            connection_ids.add(connection_id)
+    for connection_id in sorted(connection_ids):
+        validate_warehouse_native_connection(connection_id, team=team, user=user)
 
 
 def _metric_source_nodes(metrics: list[dict[str, Any]]) -> list[dict[str, Any]]:

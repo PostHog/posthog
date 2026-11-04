@@ -9,6 +9,7 @@ from posthog.models import Team
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 _THRESHOLD_MEAN: dict[str, object] = {
     "kind": "ExperimentMetric",
@@ -379,18 +380,42 @@ class TestExperimentSavedMetricService(APIBaseTest):
         assert not ExperimentSavedMetric.objects.filter(id=saved_metric.id).exists()
         assert ExperimentToSavedMetric.objects.filter(experiment_id=experiment.id).count() == 0
 
-    def test_update_saved_metric_refuses_a_warehouse_native_query_that_a_linked_experiment_cannot_use(self) -> None:
+    @parameterized.expand([("linked_experiment", False), ("only_a_deleted_experiment", True)])
+    def test_update_saved_metric_checks_a_warehouse_native_query_against_the_linked_experiments(
+        self, _name: str, experiment_deleted: bool
+    ) -> None:
         saved_metric = self._service().create_saved_metric(name="Pageviews", query=self._valid_experiment_metric())
-        ExperimentService(team=self.team, user=self.user).create_experiment(
+        experiment = ExperimentService(team=self.team, user=self.user).create_experiment(
             name="Events experiment",
             feature_flag_key="events-experiment-shared-metric",
             saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
         )
+        experiment.deleted = experiment_deleted
+        experiment.save(update_fields=["deleted"])
+        bigquery = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="bigquery",
+            source_type="BigQuery",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        source = dict(_WAREHOUSE_NATIVE_MEAN["source"])  # type: ignore[call-overload]
+        source["connection_id"] = str(bigquery.id)
+        query = {**_WAREHOUSE_NATIVE_MEAN, "source": source}
 
-        with self.assertRaises(ValidationError) as ctx:
-            self._service().update_saved_metric(saved_metric, {"query": _WAREHOUSE_NATIVE_MEAN})
+        with patch(
+            "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled", return_value=True
+        ):
+            if experiment_deleted:
+                self._service().update_saved_metric(saved_metric, {"query": query})
+                saved_metric.refresh_from_db()
+                assert saved_metric.query["source"]["kind"] == "ExperimentWarehouseNativeNode"
+                return
+            with self.assertRaises(ValidationError) as ctx:
+                self._service().update_saved_metric(saved_metric, {"query": query})
 
-        assert 'The experiment "Events experiment" uses this metric' in str(ctx.exception)
+        assert "A linked experiment uses this metric" in str(ctx.exception)
+        assert "Events experiment" not in str(ctx.exception)
         assert "needs a warehouse-native exposure" in str(ctx.exception)
         saved_metric.refresh_from_db()
         assert saved_metric.query["source"]["kind"] == "EventsNode"
