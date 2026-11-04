@@ -225,6 +225,7 @@ const mockUpdateContainerWidth = jest.fn()
 const mockMoveTileToSection = jest.fn()
 const mockChangeTileGroupDisplay = jest.fn()
 const mockRenameTileGroup = jest.fn()
+const mockSetRenamingTileGroupKey = jest.fn()
 const mockPositionStrategies = new Map<Element, unknown>()
 let mockGridWidth = 1200
 let mockGridMounts = 0
@@ -299,6 +300,7 @@ describe('DashboardItems', () => {
                     moveTileToSection: mockMoveTileToSection,
                     changeTileGroupDisplay: mockChangeTileGroupDisplay,
                     renameTileGroup: mockRenameTileGroup,
+                    setRenamingTileGroupKey: mockSetRenamingTileGroupKey,
                 }
             }
 
@@ -833,14 +835,26 @@ describe('DashboardItems', () => {
                 logic === dashboardsModel ? { loadDashboardsIfNeeded: jest.fn() } : defaultActions(logic)
             )
 
-            const { container, findByText, findByDisplayValue, unmount } = render(<DashboardItems />)
+            const { container, findByText, findByDisplayValue, rerender, unmount } = render(<DashboardItems />)
             fireEvent.click(container.querySelector('[data-attr="dashboard-tile-group-menu"]')!)
             fireEvent.click(await findByText(item))
+            expect(mockSetRenamingTileGroupKey).toHaveBeenCalledWith('plans')
 
-            fireEvent.change(await findByDisplayValue('Plans'), { target: { value: 'Pricing plans' } })
-            fireEvent.click(await findByText('Submit'))
+            mockedUseValues.mockImplementation((logic) =>
+                logic === dashboardsModel
+                    ? { dashboardsLoading: false }
+                    : logic === dashboardLogic
+                      ? { ...bandValues(logic), renamingTileGroupKey: 'plans' }
+                      : bandValues(logic)
+            )
+            rerender(<DashboardItems />)
+
+            const titleInput = await findByDisplayValue('Plans')
+            fireEvent.change(titleInput, { target: { value: 'Pricing plans' } })
+            fireEvent.blur(titleInput)
 
             await waitFor(() => expect(mockRenameTileGroup).toHaveBeenCalledWith('plans', 'Pricing plans'))
+            expect(mockSetRenamingTileGroupKey).toHaveBeenLastCalledWith(null)
             unmount()
         })
 
