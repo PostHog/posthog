@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
 import { IconEllipsis } from '@posthog/icons'
 import {
@@ -14,6 +13,7 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { navigateToHref } from 'lib/utils/navigateToHref'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -41,10 +41,7 @@ function NextStepItem({ row }: { row: CatalogTableRow }): JSX.Element | null {
     }
     if (nextStep.kind === 'link') {
         return (
-            <DropdownMenuItem
-                onClick={() => router.actions.push(nextStep.href)}
-                data-attr="data-catalog-tables-next-step"
-            >
+            <DropdownMenuItem onClick={() => navigateToHref(nextStep.href)} data-attr="data-catalog-tables-next-step">
                 {nextStep.label}
             </DropdownMenuItem>
         )
@@ -101,11 +98,13 @@ function ChecksItem({ row }: { row: CatalogTableRow }): JSX.Element | null {
 }
 
 function SyncNowItem({ row }: { row: CatalogTableRow }): JSX.Element | null {
+    const { startedRefreshSavedQueryIds } = useValues(modelsOverviewLogic)
     const { runMaterialization } = useActions(viewsTabLogic)
     const savedQuery = row.savedQuery
     if (!savedQuery?.is_materialized || row.problems.length > 0) {
         return null
     }
+    const running = savedQuery.status === 'Running' || startedRefreshSavedQueryIds.includes(savedQuery.id)
     return (
         <AccessControlAction
             resourceType={AccessControlResourceType.WarehouseObjects}
@@ -113,7 +112,7 @@ function SyncNowItem({ row }: { row: CatalogTableRow }): JSX.Element | null {
         >
             <DropdownMenuItem
                 onClick={() => runMaterialization(savedQuery.id)}
-                disabledReason={savedQuery.status === 'Running' ? SYNC_RUNNING_REASON : undefined}
+                disabledReason={running ? SYNC_RUNNING_REASON : undefined}
                 data-attr="data-catalog-tables-sync-now"
             >
                 Sync now

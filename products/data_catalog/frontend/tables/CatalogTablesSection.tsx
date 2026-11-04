@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { Skeleton } from '@posthog/quill'
+import { Skeleton, Text } from '@posthog/quill'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
@@ -12,7 +12,10 @@ import { modelsOverviewLogic } from 'products/data_modeling/frontend/modelsOverv
 import { viewsTabLogic } from 'products/data_modeling/frontend/viewsTabLogic'
 import { CheckEditorModal } from 'products/data_quality/frontend/CheckEditorModal'
 import { dataQualityCheckEditorLogic } from 'products/data_quality/frontend/dataQualityCheckEditorLogic'
-import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
+import {
+    CHECKS_LIMIT,
+    dataQualityOverviewLogic,
+} from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 import { overviewCheckEditorProps } from 'products/data_quality/frontend/overview/overviewCheckEditorProps'
 import { RunAllBanners } from 'products/data_quality/frontend/overview/RunAllBanners'
 
@@ -53,7 +56,7 @@ function ViewsAccessControlModal(): JSX.Element | null {
 
 function LoadErrors(): JSX.Element {
     const { modelsFailed } = useValues(modelsOverviewLogic)
-    const { overviewError, snapshotLoaded } = useValues(dataQualityOverviewLogic)
+    const { overviewError, snapshotLoaded, checksTruncated } = useValues(dataQualityOverviewLogic)
     const { loadNodes, loadDataWarehouseSavedQueries, loadOverview } = useActions(modelsOverviewLogic)
     return (
         <>
@@ -73,6 +76,12 @@ function LoadErrors(): JSX.Element {
                     onRetry={() => loadOverview()}
                     dataAttr="data-catalog-tables-checks-error"
                 />
+            )}
+            {checksTruncated && (
+                <Text size="xs" variant="muted" data-attr="data-catalog-tables-checks-truncated">
+                    Only the first {CHECKS_LIMIT} checks are loaded. Check counts cover every check, but failing checks
+                    past that limit don't show as problems.
+                </Text>
             )}
         </>
     )

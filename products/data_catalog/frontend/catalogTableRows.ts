@@ -5,6 +5,7 @@ import { urls } from 'scenes/urls'
 import {
     DataWarehouseSavedQueryOrigin,
     type DatabaseSchemaDataWarehouseTable,
+    type DatabaseSchemaManagedViewTable,
     type DatabaseSchemaTable,
     type DatabaseSchemaViewTable,
 } from '~/queries/schema/schema-general'
@@ -19,8 +20,11 @@ import {
 } from 'products/data_modeling/frontend/modelsOverviewLogic'
 import { ISSUE_KIND_ORDER, type IssueKind } from 'products/data_modeling/frontend/overviewIssueCopy'
 import type { DataQualitySubjectRef } from 'products/data_quality/frontend/checksApi'
-import { SubjectTypeEnumApi } from 'products/data_quality/frontend/generated/api.schemas'
-import type { SubjectGroup } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
+import {
+    type DataQualitySubjectHealthApi,
+    SubjectTypeEnumApi,
+} from 'products/data_quality/frontend/generated/api.schemas'
+import { type SubjectGroup, subjectKeyOf } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
 import type { CertificationTargetType } from './certificationsLogic'
 import type { DataCatalogCertificationApi } from './generated/api.schemas'
@@ -51,6 +55,8 @@ export const KIND_LABELS: Record<TableKind, string> = {
     materialized_view: 'Materialized view',
 }
 
+const MANAGED_VIEW_ORIGIN = 'Managed view'
+
 const UNLISTED_KINDS: Partial<Record<string, TableKind>> = {
     [SubjectTypeEnumApi.PosthogTable]: 'posthog',
     [SubjectTypeEnumApi.Table]: 'source',
@@ -62,6 +68,11 @@ export interface CertificationTarget {
     targetId: string
 }
 
+export interface CheckCounts {
+    total: number
+    failing: number
+}
+
 export interface CatalogTableRow {
     key: string
     name: string
@@ -69,6 +80,7 @@ export interface CatalogTableRow {
     subtitle: string
     subject: DataQualitySubjectRef | null
     checkGroup: SubjectGroup | null
+    checkCounts: CheckCounts
     health: AttentionSubject
     problems: IssueKind[]
     savedQuery: DataWarehouseSavedQuerySummary | null
@@ -82,15 +94,17 @@ export interface CatalogTableSources {
     posthogTables: DatabaseSchemaTable[]
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
     views: DatabaseSchemaViewTable[]
+    managedViews: DatabaseSchemaManagedViewTable[]
     savedQueries: DataWarehouseSavedQuerySummary[]
     checkGroups: SubjectGroup[]
+    healthBySubjectKey: Record<string, DataQualitySubjectHealthApi>
     certifications: DataCatalogCertificationApi[]
     nodes: DataModelingNode[]
     materializationProblems: MaterializationProblem[]
     posthogTableSubjectIds: Record<string, string>
 }
 
-type RowBase = Omit<CatalogTableRow, 'health' | 'problems' | 'certification' | 'subtitle'> & {
+type RowBase = Omit<CatalogTableRow, 'health' | 'problems' | 'certification' | 'subtitle' | 'checkCounts'> & {
     origin: string
     node: DataModelingNode | null
 }
@@ -150,23 +164,38 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
         return group
     }
     const rowFor = ({ origin, node, ...row }: RowBase, certificationLookupKey: string | null): CatalogTableRow => {
+        const failingChecks = row.checkGroup?.checks.filter(isFailingCheck) ?? []
         const health: AttentionSubject = {
             key: row.key,
             node,
             materialization: node ? (problemsByNodeId.get(node.id) ?? null) : null,
-            failingChecks: row.checkGroup?.checks.filter(isFailingCheck) ?? [],
+            failingChecks,
         }
+        const subjectHealth = row.subject
+            ? sources.healthBySubjectKey[subjectKeyOf(row.subject.subjectType, row.subject.subjectId)]
+            : undefined
         return {
             ...row,
             subtitle: subtitleFor(origin, node),
+            checkCounts: {
+                total: Math.max(subjectHealth?.checks_total ?? 0, row.checkGroup?.checks.length ?? 0),
+                failing: Math.max(subjectHealth?.checks_failing ?? 0, failingChecks.length),
+            },
             health,
             problems: subjectIssueKinds(health),
             certification: certificationLookupKey ? (certificationsByKey.get(certificationLookupKey) ?? null) : null,
         }
     }
 
+    const posthogGroupsByName = new Map(
+        sources.checkGroups
+            .filter((group) => group.subjectType === SubjectTypeEnumApi.PosthogTable)
+            .map((group) => [group.subjectName, group])
+    )
+
     const posthogRows = sources.posthogTables.map((table) => {
-        const subjectId = sources.posthogTableSubjectIds[table.name]
+        const groupByName = posthogGroupsByName.get(table.name)
+        const subjectId = sources.posthogTableSubjectIds[table.name] ?? groupByName?.subjectUuid
         const checkGroup = subjectId ? takeGroup(`${SubjectTypeEnumApi.PosthogTable}:${subjectId}`) : null
         const node = posthogNodesByName.get(table.name) ?? null
         return rowFor(
@@ -234,9 +263,32 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
             )
         })
 
+    const managedViewRows = sources.managedViews.map((view) =>
+        rowFor(
+            {
+                key: `managed_view:${view.id}`,
+                name: view.name,
+                kind: 'view',
+                origin: MANAGED_VIEW_ORIGIN,
+                node: null,
+                subject: null,
+                checkGroup: null,
+                savedQuery: null,
+                certificationTarget: null,
+                refreshedAt: null,
+                detailUrl: null,
+            },
+            null
+        )
+    )
+
+    const isEndpointGroup = (group: SubjectGroup): boolean =>
+        group.subjectType === SubjectTypeEnumApi.View &&
+        savedQueriesById.get(group.subjectUuid)?.origin === DataWarehouseSavedQueryOrigin.ENDPOINT
+
     const unlistedRows = sources.checkGroups.flatMap((group) => {
         const kind = UNLISTED_KINDS[group.subjectType]
-        if (!kind || claimedGroupKeys.has(group.subjectKey)) {
+        if (!kind || claimedGroupKeys.has(group.subjectKey) || isEndpointGroup(group)) {
             return []
         }
         return [
@@ -261,7 +313,7 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
         ]
     })
 
-    return [...posthogRows, ...sourceRows, ...viewRows, ...unlistedRows].sort(
+    return [...posthogRows, ...sourceRows, ...viewRows, ...managedViewRows, ...unlistedRows].sort(
         (left, right) => attentionRank(left) - attentionRank(right) || left.name.localeCompare(right.name)
     )
 }
@@ -284,7 +336,7 @@ function matchesChecks(row: CatalogTableRow, checks: ChecksFilter): boolean {
     if (checks === 'any') {
         return true
     }
-    return (checks === 'with') === !!row.checkGroup
+    return (checks === 'with') === row.checkCounts.total > 0
 }
 
 export function rowMatchesFilters(row: CatalogTableRow, filters: TablesFilters): boolean {
@@ -311,12 +363,17 @@ export interface TablesSort {
 
 const TRUST_RANK: Record<string, number> = { certified: 0, proposed: 1, deprecated: 2 }
 
-function passingShare(row: CatalogTableRow): number | null {
-    const checks = row.checkGroup?.checks
-    if (!checks?.length) {
-        return null
+export function passingChecks(row: CatalogTableRow): CheckCounts | null {
+    const checks = row.checkGroup?.checks ?? []
+    if (checks.length > 0) {
+        return { total: checks.length, failing: checks.filter((check) => check.last_status !== 'passed').length }
     }
-    return checks.filter((check) => check.last_status === 'passed').length / checks.length
+    return row.checkCounts.total > 0 ? row.checkCounts : null
+}
+
+function passingShare(row: CatalogTableRow): number | null {
+    const counts = passingChecks(row)
+    return counts ? (counts.total - counts.failing) / counts.total : null
 }
 
 const SORT_VALUES: Record<TablesSortColumn, (row: CatalogTableRow) => string | number | null> = {

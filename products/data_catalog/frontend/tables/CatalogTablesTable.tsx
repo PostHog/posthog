@@ -28,7 +28,7 @@ import { ModelsOverviewProblemBadges } from 'products/data_modeling/frontend/Mod
 import { useHoldTallestHeight } from 'products/data_modeling/frontend/useHoldTallestHeight'
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
-import { CatalogTableRow } from '../catalogTableRows'
+import { CatalogTableRow, passingChecks } from '../catalogTableRows'
 import { TABLES_PAGE_SIZE, catalogTablesLogic } from '../catalogTablesLogic'
 import { CertificationStatusTag, certificationStatusTag } from '../certificationStatusTag'
 import { CatalogTableRefresh } from './CatalogTableRefresh'
@@ -49,13 +49,10 @@ const TRUST_BADGE_VARIANTS: Record<CertificationStatusTag['type'], 'success' | '
     muted: 'default',
 }
 
-function ChecksSummary({ row }: { row: CatalogTableRow }): JSX.Element | null {
+function ChecksSummary({ row }: { row: CatalogTableRow }): JSX.Element {
     const { runningSubjectKey } = useValues(dataQualityOverviewLogic)
-    const group = row.checkGroup
-    if (!group) {
-        return null
-    }
-    if (runningSubjectKey === group.subjectKey) {
+    const counts = passingChecks(row)
+    if (row.checkGroup && runningSubjectKey === row.checkGroup.subjectKey) {
         return (
             <Text size="xs" variant="muted" className="flex items-center gap-1 whitespace-nowrap">
                 <Spinner />
@@ -63,8 +60,12 @@ function ChecksSummary({ row }: { row: CatalogTableRow }): JSX.Element | null {
             </Text>
         )
     }
-    const passing = group.checks.filter((check) => check.last_status === 'passed').length
-    return <span className="whitespace-nowrap tabular-nums">{`${passing}/${group.checks.length} passing`}</span>
+    if (!counts) {
+        return <MutedCellText>No checks</MutedCellText>
+    }
+    return (
+        <span className="whitespace-nowrap tabular-nums">{`${counts.total - counts.failing}/${counts.total} passing`}</span>
+    )
 }
 
 function TrustBadge({ row }: { row: CatalogTableRow }): JSX.Element | null {
@@ -111,7 +112,7 @@ function NameCell({ row }: { row: CatalogTableRow }): JSX.Element {
             <div className={cn(NARROW_ONLY, 'flex flex-col items-start gap-1 empty:hidden')}>
                 <StatusBadges row={row} />
                 <div className="flex flex-wrap items-center gap-2 empty:hidden">
-                    <ChecksSummary row={row} />
+                    {passingChecks(row) && <ChecksSummary row={row} />}
                     <TrustBadge row={row} />
                 </div>
                 <CatalogTableRefresh row={row} />
@@ -164,7 +165,7 @@ function TableRows({ row, expanded }: { row: CatalogTableRow; expanded: boolean 
                     <StatusBadges row={row} />
                 </TableCell>
                 <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                    {row.checkGroup ? <ChecksSummary row={row} /> : <MutedCellText>No checks</MutedCellText>}
+                    <ChecksSummary row={row} />
                 </TableCell>
                 <TableCell valign="top" className={WIDE_ONLY_CELL}>
                     {row.certification ? <TrustBadge row={row} /> : <MutedCellText>Not certified</MutedCellText>}

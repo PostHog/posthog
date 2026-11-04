@@ -2,6 +2,7 @@ import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved
 
 import {
     type DatabaseSchemaDataWarehouseTable,
+    type DatabaseSchemaManagedViewTable,
     type DatabaseSchemaTable,
     type DatabaseSchemaViewTable,
     DataWarehouseSavedQueryOrigin,
@@ -15,6 +16,7 @@ import { groupChecksBySubject } from 'products/data_quality/frontend/overview/da
 
 import {
     CatalogTableRow,
+    CatalogTableSources,
     DEFAULT_TABLES_FILTERS,
     TablesFilters,
     TablesSort,
@@ -85,11 +87,12 @@ const revenueSuspended: MaterializationProblem = {
     attention: { node: revenueNode, problem: 'Suspended' } as AttentionModel,
 }
 
-function buildRows(): CatalogTableRow[] {
+function buildRows(overrides: Partial<CatalogTableSources> = {}): CatalogTableRow[] {
     const checks = [
         check('posthog_table', 'events-uuid', 'events', 'failed'),
         check('table', 'table-charges', 'stripe.charges', 'passed'),
         check('view', 'query-gone', 'deleted_view', 'passed'),
+        check('view', 'query-api', 'api_v1', 'passed'),
         check('metric', 'metric-1', 'mrr', 'failed'),
     ]
     return buildCatalogTableRows({
@@ -109,6 +112,9 @@ function buildRows(): CatalogTableRow[] {
         nodes: [revenueNode],
         materializationProblems: [revenueSuspended],
         posthogTableSubjectIds: { events: 'events-uuid' },
+        managedViews: [],
+        healthBySubjectKey: {},
+        ...overrides,
     })
 }
 
@@ -202,5 +208,39 @@ describe('catalogTableRows', () => {
         ],
     ])('sorting by %j orders rows %j, empty values last', (sort, expectedNames) => {
         expect(sortCatalogTableRows(buildRows(), sort).map((row) => row.name)).toEqual(expectedNames)
+    })
+
+    it('matches a PostHog table to its checks by name while its subject id is unknown', () => {
+        const events = buildRows({ posthogTableSubjectIds: {} }).filter((row) => row.name === 'events')
+
+        expect(events.map((row) => ({ key: row.key, checks: row.checkCounts.total }))).toEqual([
+            { key: 'posthog:events', checks: 1 },
+        ])
+    })
+
+    it('lists managed views and counts checks from the health rollup when check rows are missing', () => {
+        const rows = buildRows({
+            managedViews: [
+                { type: 'managed_view', id: 'managed-mrr', name: 'revenue_analytics.mrr', fields: {} },
+            ] as unknown as DatabaseSchemaManagedViewTable[],
+            healthBySubjectKey: {
+                'view:query-orders': {
+                    subject_type: 'view',
+                    subject_uuid: 'query-orders',
+                    health: 'failing',
+                    checks_total: 4,
+                    checks_failing: 1,
+                },
+            },
+        })
+
+        expect(
+            rows
+                .filter((row) => ['revenue_analytics.mrr', 'orders_daily'].includes(row.name))
+                .map((row) => ({ name: row.name, subtitle: row.subtitle, checks: row.checkCounts }))
+        ).toEqual([
+            { name: 'orders_daily', subtitle: 'View', checks: { total: 4, failing: 1 } },
+            { name: 'revenue_analytics.mrr', subtitle: 'Managed view', checks: { total: 0, failing: 0 } },
+        ])
     })
 })
