@@ -210,6 +210,23 @@ export function captureExperimentHealthChecksOpened(
     })
 }
 
+export function captureExperimentHealthCheckExpanded(
+    experiment: Experiment,
+    check: HealthPanelCheck,
+    healthUi: ExperimentHealthUi
+): void {
+    // pinned: analytics event name, so renaming it breaks insights
+    posthog.capture('experiment health check expanded', {
+        experiment_id: experiment.id,
+        experiment_status: getExperimentStatus(experiment),
+        health_ui: healthUi,
+        check_key: check.key,
+        check_status: check.status,
+        check_has_measurement: Boolean(check.measurement),
+        surface: 'experiment_page',
+    })
+}
+
 /**
  * Compares the page's own rules with the server's checks for one experiment load. A `_browser` value is the
  * result of the page's rule, and a `_server` value is the result of the server's check.

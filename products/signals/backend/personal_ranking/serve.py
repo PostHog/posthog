@@ -38,6 +38,7 @@ from products.signals.backend.personal_ranking.candidates import Candidate, gath
 from products.signals.backend.personal_ranking.config import PersonalRankingConfig, read_config
 from products.signals.backend.personal_ranking.logic import (
     input_hash,
+    latest_row,
     may_call_model,
     model_order_reason,
     normalize_focus,
@@ -214,10 +215,6 @@ def _start_build(
             with suppress(Exception):
                 cache.delete(lock_key)
         return "failed"
-
-
-def latest_row(team: Team, user: User) -> PersonalInboxRanking | None:
-    return PersonalInboxRanking.objects.for_team(team.id).filter(user_id=user.id).order_by("-created_at", "-id").first()
 
 
 def _row_stored_since(

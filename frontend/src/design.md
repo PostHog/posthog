@@ -150,6 +150,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 - `success` vs `completed`: success = positive outcome ("saved", "passed"); completed = final state ("merged", "done")
 - Other surfaces:
   - `chrome`: toolbars, menubars, nav
+  - Inverted surface: a floating bar that must stand out from the page, such as a bulk selection bar, takes `data-quill-inverted` with `bg-background text-foreground`. Quill components inside it switch to the opposite theme, so do not recolor them by hand.
 - Text:
   - `subtle-foreground`: tertiary meta text, one step quieter than `muted-foreground`
   - `primary-on-foreground`: brand text, such as a link, on an inverted surface that uses `foreground` as its background (tooltips). It swaps to the other mode's brand: yellow on a dark tooltip in light mode, orange on a light tooltip in dark mode. Plain `primary` fades on those surfaces.
