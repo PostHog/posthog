@@ -12,8 +12,8 @@ export type PreferencesTokenSource = {
     appSourceId: string
     /** The email action id. */
     instanceId?: string
-    workflowId: string
-    invocationId: string
+    workflowId?: string
+    invocationId?: string
     workflowVersion?: number
 }
 
@@ -99,7 +99,9 @@ export class RecipientTokensService {
                 identifier: recipient.identifier,
                 ...(source ? { app_source_id: source.appSourceId } : {}),
                 ...(source?.instanceId ? { instance_id: source.instanceId } : {}),
-                ...(source ? { workflow_id: source.workflowId, invocation_id: source.invocationId } : {}),
+                ...(source?.workflowId && source.invocationId
+                    ? { workflow_id: source.workflowId, invocation_id: source.invocationId }
+                    : {}),
                 ...(source?.workflowVersion !== undefined ? { workflow_version: source.workflowVersion } : {}),
             },
             PosthogJwtAudience.SUBSCRIPTION_PREFERENCES,

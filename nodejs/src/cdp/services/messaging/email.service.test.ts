@@ -2037,6 +2037,43 @@ describe('EmailService', () => {
             }
         )
 
+        it('drops the run claims when they would push List-Unsubscribe past the SES header limit', async () => {
+            const flowId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'
+            const actionId = 'action_email_0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c'
+            const longAddress = `${'a'.repeat(64)}@${'b'.repeat(63)}.${'c'.repeat(63)}.example.com`
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.hogFunction.metadata = { message_category_type: 'marketing' }
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                to: { email: longAddress, name: 'Test User' },
+            })
+            Object.assign(invocation, {
+                id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5d',
+                functionId: flowId,
+                hogFlow: { id: flowId, version: 1 },
+                parentRunId: null,
+            })
+            invocation.state.actionId = actionId
+            invocation.state.renderedWorkflowVersion = 17
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const headers = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Headers
+            const unsubscribeValue = headers.find((h: { Name: string }) => h.Name === 'List-Unsubscribe').Value
+            expect(unsubscribeValue.length).toBeLessThanOrEqual(870)
+            const token = unsubscribeValue.match(/messaging-preferences\/([^/]+)\//)[1]
+            expect(
+                new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL).validatePreferencesToken(token)
+            ).toEqual({
+                valid: true,
+                team_id: team.id,
+                identifier: longAddress,
+                app_source_id: flowId,
+                instance_id: actionId,
+            })
+        })
+
         it('should not include unsubscribe headers for transactional emails (but tracking-code header is still set)', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }

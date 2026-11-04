@@ -65,6 +65,7 @@ const sesThrottleResponsesTotal = new Counter({
 const AUTO_SUBMITTED_HEADER_NAME = 'Auto-Submitted'
 const AUTO_SUBMITTED_HEADER_VALUE = 'auto-generated'
 const AUTO_SUBMITTED_HEADER: MessageHeader = { Name: AUTO_SUBMITTED_HEADER_NAME, Value: AUTO_SUBMITTED_HEADER_VALUE }
+const SES_HEADER_VALUE_MAX_LENGTH = 870
 
 /**
  * SES error codes that signal a transient rate-limit shape — safe to retry
@@ -1401,10 +1402,16 @@ export class EmailService {
         recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>,
         source: PreferencesTokenSource | undefined
     ): MessageHeader[] {
+        const listUnsubscribe = (tokenSource: PreferencesTokenSource | undefined): string =>
+            `<${this.recipientTokensService.generateOneClickUnsubscribeUrl(recipient, tokenSource)}>`
+        let listUnsubscribeValue = listUnsubscribe(source)
+        if (source && listUnsubscribeValue.length > SES_HEADER_VALUE_MAX_LENGTH) {
+            listUnsubscribeValue = listUnsubscribe({ appSourceId: source.appSourceId, instanceId: source.instanceId })
+        }
         return [
             {
                 Name: 'List-Unsubscribe',
-                Value: `<${this.recipientTokensService.generateOneClickUnsubscribeUrl(recipient, source)}>`,
+                Value: listUnsubscribeValue,
             },
             {
                 Name: 'List-Unsubscribe-Post',
