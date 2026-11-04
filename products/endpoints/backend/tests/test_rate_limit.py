@@ -617,6 +617,28 @@ class TestMaterializationStateCacheTimeout(APIBaseTest):
         timeout = cache_set.call_args.kwargs["timeout"]
         self.assertAlmostEqual(timeout, expected_timeout, delta=5)
 
+    def test_snapshot_serving_on_the_plan_floor_rechecks_soon(self):
+        _create_ready_materialized_endpoint(
+            self.team, self.user, "clamped_timed_endpoint", timezone.now() - timedelta(hours=2)
+        )
+
+        with (
+            patch(
+                "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result",
+                return_value=FeatureFlagResult(
+                    key="data-modeling-refresh-floor",
+                    enabled=True,
+                    variant=None,
+                    payload={"min_interval": "6hour", "clamp_existing": True},
+                    reason=None,
+                ),
+            ),
+            patch("products.endpoints.backend.rate_limit.cache.set", wraps=cache.set) as cache_set,
+        ):
+            self.assertTrue(check_materialized_request(self.team.id, "clamped_timed_endpoint", None, {}))
+
+        self.assertEqual(cache_set.call_args.kwargs["timeout"], STALE_STATE_RECHECK_TTL)
+
     @parameterized.expand(
         [
             ("pending_first_run_rechecks_soon", True, STALE_STATE_RECHECK_TTL),

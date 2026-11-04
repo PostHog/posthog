@@ -24,6 +24,7 @@ class CachedServingSnapshot(TypedDict):
     materialized_at: str | None
     freshness_seconds: int | None
     servable_variables: list[str]
+    window_from_plan_floor: bool
 
 
 @frozen
@@ -38,6 +39,7 @@ class MaterializedServingState:
     materialized_at: datetime | None
     freshness_seconds: int | None
     servable_variables: frozenset[str]
+    window_from_plan_floor: bool = False
 
     def serves(self, data: EndpointRunRequest) -> bool:
         if not self.ready or self.materialized_at is None:
@@ -62,6 +64,7 @@ class MaterializedServingState:
             "materialized_at": self.materialized_at.isoformat() if self.materialized_at else None,
             "freshness_seconds": self.freshness_seconds,
             "servable_variables": sorted(self.servable_variables),
+            "window_from_plan_floor": self.window_from_plan_floor,
         }
 
     @classmethod
@@ -75,6 +78,7 @@ class MaterializedServingState:
         materialized_at = payload.get("materialized_at")
         freshness_seconds = payload.get("freshness_seconds")
         servable_variables = payload.get("servable_variables")
+        window_from_plan_floor = payload.get("window_from_plan_floor", False)
         if (
             not isinstance(ready, bool)
             or not isinstance(materialized_at, str | None)
@@ -83,6 +87,7 @@ class MaterializedServingState:
             or isinstance(freshness_seconds, bool)
             or not isinstance(servable_variables, list)
             or not all(isinstance(name, str) for name in servable_variables)
+            or not isinstance(window_from_plan_floor, bool)
         ):
             return None
         try:
@@ -94,6 +99,7 @@ class MaterializedServingState:
             materialized_at=parsed_at,
             freshness_seconds=freshness_seconds,
             servable_variables=frozenset(servable_variables),
+            window_from_plan_floor=window_from_plan_floor,
         )
 
     @classmethod
@@ -111,9 +117,11 @@ def serving_state_for_version(
     # A version materialized before an eligibility rule tightened keeps its table, but the table
     # can no longer answer the query correctly, so it serves inline until the query changes.
     ready = ready and version.can_materialize()[0]
+    freshness_seconds = version.serving_freshness_seconds
     return MaterializedServingState(
         ready=ready,
         materialized_at=materialized_at,
-        freshness_seconds=version.serving_freshness_seconds,
+        freshness_seconds=freshness_seconds,
         servable_variables=frozenset(strategy.materialized_variable_names()) if ready else frozenset(),
+        window_from_plan_floor=freshness_seconds != version.data_freshness_seconds,
     )
