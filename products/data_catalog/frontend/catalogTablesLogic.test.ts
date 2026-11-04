@@ -177,11 +177,15 @@ describe('catalogTablesLogic', () => {
 
         beforeEach(async () => {
             reviewRequests = []
+            const proposals = [
+                proposal('cert-charges', 'table-charges', 'certified'),
+                proposal('cert-refunds', 'table-refunds', 'deprecated'),
+            ]
             const record =
-                (verb: string) =>
+                (verb: string, status: string) =>
                 ({ params }: { params: Record<string, unknown> }): [number, Record<string, unknown>] => {
                     reviewRequests.push(`${verb}:${params.id as string}`)
-                    return [200, {}]
+                    return [200, { ...proposals.find((entry) => entry.id === params.id), status }]
                 }
             useMocks(
                 catalogMocks({
@@ -194,17 +198,20 @@ describe('catalogTablesLogic', () => {
                         results: [check('charges-check', 'table-charges', 'stripe.charges', 'passed')],
                         count: 1,
                     },
-                    certifications: [
-                        proposal('cert-charges', 'table-charges', 'certified'),
-                        proposal('cert-refunds', 'table-refunds', 'deprecated'),
-                    ],
+                    certifications: proposals,
                     extra: {
                         post: {
-                            '/api/projects/:team_id/data_catalog/certifications/:id/certify/': record('certify'),
-                            '/api/projects/:team_id/data_catalog/certifications/:id/deprecate/': record('deprecate'),
+                            '/api/projects/:team_id/data_catalog/certifications/:id/certify/': record(
+                                'certify',
+                                'certified'
+                            ),
+                            '/api/projects/:team_id/data_catalog/certifications/:id/deprecate/': record(
+                                'deprecate',
+                                'deprecated'
+                            ),
                         },
                         delete: {
-                            '/api/projects/:team_id/data_catalog/certifications/:id/': record('reject'),
+                            '/api/projects/:team_id/data_catalog/certifications/:id/': record('reject', 'deleted'),
                         },
                     },
                 })
@@ -229,6 +236,17 @@ describe('catalogTablesLogic', () => {
 
             await waitFor(() => expect(toastSpy).toHaveBeenCalledWith(expectedToast))
             expect(reviewRequests).toEqual([expectedRequest])
+        })
+
+        it('applies a review to the row without waiting for the certifications to reload', async () => {
+            const certificationOf = (key: string): string | null =>
+                logic.values.rows.find((row) => row.key === key)?.certification?.status ?? null
+
+            logic.actions.reviewProposals(['table:table-refunds'], 'accept', 'inline')
+            await waitFor(() => expect(certificationOf('table:table-refunds')).toEqual('deprecated'))
+
+            logic.actions.reviewProposals(['table:table-charges'], 'reject', 'inline')
+            await waitFor(() => expect(certificationOf('table:table-charges')).toBeNull())
         })
 
         it('bulk accept reviews only the selected rows that have a pending proposal', async () => {
