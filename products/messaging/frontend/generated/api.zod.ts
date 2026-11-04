@@ -104,16 +104,16 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Addresses replies to the email your code rendered go to.'),
     cc: zod
-        .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyCcTwoMax)])
+        .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyCcTwoMax), zod.null()])
         .optional()
         .describe(
-            'Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name.'
+            "Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here."
         ),
     bcc: zod
-        .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyBccTwoMax)])
+        .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyBccTwoMax), zod.null()])
         .optional()
         .describe(
-            'Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name.'
+            "Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here."
         ),
     attachments: zod
         .array(
@@ -142,9 +142,9 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
             })
         )
         .max(messagingSendEmailCreateBodyAttachmentsMax)
-        .optional()
+        .nullish()
         .describe(
-            'Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused.'
+            "Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here."
         ),
     capture_engagement: zod
         .boolean()

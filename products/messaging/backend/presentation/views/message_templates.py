@@ -511,18 +511,24 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     )
     cc = AddressListField(
         required=False,
+        allow_null=True,
         help_text="Addresses that get a visible copy of the email your code rendered: one address, or a list of up "
-        "to 10. Each is a bare address such as `jane@example.com`, with no name.",
+        "to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with "
+        "`template_id`, which refuses any address here.",
     )
     bcc = AddressListField(
         required=False,
+        allow_null=True,
         help_text="Addresses that get a hidden copy of the email your code rendered: one address, or a list of up "
-        "to 10. Each is a bare address such as `jane@example.com`, with no name.",
+        "to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with "
+        "`template_id`, which refuses any address here.",
     )
     attachments = AttachmentListField(
         required=False,
+        allow_null=True,
         help_text="Files attached to the email your code rendered: up to 10, and at most 512 KB in total after "
-        "decoding. File types mailbox providers block, such as `.exe`, are refused.",
+        "decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with "
+        "`template_id`, which refuses any file here.",
     )
     capture_engagement = serializers.BooleanField(
         required=False,
@@ -567,9 +573,13 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         if ("template_id" in data) == ("template_key" in data):
             raise serializers.ValidationError({"template_id": "Send either `template_id` or `template_key`."})
         if "template_id" in data:
-            if code_field := next((field for field in CODE_SEND_FIELDS if field in sent), None):
-                if code_field in CODE_SEND_EXTRA_FIELDS:
-                    raise template_send_refusal(code_field)
+            if extra_field := next((field for field in CODE_SEND_EXTRA_FIELDS if data.get(field)), None):
+                raise template_send_refusal(extra_field)
+            for field in CODE_SEND_EXTRA_FIELDS:
+                data.pop(field, None)
+            if code_field := next(
+                (field for field in CODE_SEND_FIELDS if field in sent and field not in CODE_SEND_EXTRA_FIELDS), None
+            ):
                 raise serializers.ValidationError({code_field: "Only a send with `template_key` takes this field."})
             return data
         unknown = next((field for field in sorted(sent) if field not in self.fields), None)
@@ -1261,9 +1271,9 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             sender=data.get("from"),
             reply_to=tuple(data.get("reply_to", ())),
             capture_engagement=data.get("capture_engagement", True),
-            cc=tuple(data.get("cc", ())),
-            bcc=tuple(data.get("bcc", ())),
-            attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments", ())),
+            cc=tuple(data.get("cc") or ()),
+            bcc=tuple(data.get("bcc") or ()),
+            attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
         )
         return self._queue_send(
             request,

@@ -612,6 +612,14 @@ class TestTransactionalEmail(APIBaseTest):
                 {"content": {"subject": "Welcome, Jane", "text": "Hi"}, "tracking": {"captureEngagement": True}},
             ),
             (
+                "null_copies_and_attachments",
+                {"cc": None, "bcc": None, "attachments": None},
+                {
+                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
+                    "tracking": {"captureEngagement": True},
+                },
+            ),
+            (
                 "cc_bcc_and_attachments",
                 {
                     "cc": "copy@example.com",
@@ -723,6 +731,20 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert (response.json()["attr"], response.json()["type"]) == (field, error_type)
         mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("empty_lists", {"cc": [], "bcc": [], "attachments": []}),
+            ("nulls", {"cc": None, "bcc": None, "attachments": None}),
+        ]
+    )
+    def test_takes_empty_copies_and_attachments_on_a_template_send(self, mock_post, _flag, _capture, _name, fields):
+        self._cdp_accepts(mock_post)
+
+        response = self._send(self._psak_client(["hog_flow:write"]), "send_email", {**self.body, **fields})
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        mock_post.assert_called_once()
 
     def test_a_refused_attachment_explains_itself_without_repeating_its_content(self, mock_post, _flag, _capture):
         content = "c2VjcmV0LWludm9pY2UtYnl0ZXM=" + "!"
