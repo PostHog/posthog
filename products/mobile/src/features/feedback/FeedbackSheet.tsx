@@ -1,6 +1,9 @@
-import { type ReactElement, useEffect, useRef, useState } from 'react'
-import { Text, TextInput, View } from 'react-native'
+import { randomUUID } from 'expo-crypto'
+import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
+import { ActivityIndicator, Text, TextInput } from 'react-native'
+import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
+import Animated from 'react-native-reanimated'
 import { BottomSheet } from '@/ui/BottomSheet'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useTheme } from '@/ui/theme'
@@ -23,34 +26,54 @@ export function FeedbackSheet({ visible, email, onClose, onSent }: FeedbackSheet
     const { height } = useSceneDimensions()
     const compact = height < 480
     const keyboard = useReanimatedKeyboardAnimation()
+    const scrollGesture = useMemo(() => Gesture.Native(), [])
     const [message, setMessage] = useState('')
+    const [sending, setSending] = useState(false)
+    const [error, setError] = useState(false)
+    const inFlight = useRef(false)
+    const submissionId = useRef<string | null>(null)
     // The sheet stays pressable while it animates out, so a second tap must not send again or count as a dismissal.
     const sent = useRef(false)
 
     useEffect(() => {
         if (visible) {
-            setMessage('')
             sent.current = false
             feedbackShown()
         }
     }, [visible])
 
     const trimmed = message.trim()
-    const canSend = trimmed.length > 0
+    const canSend = trimmed.length > 0 && !sending
 
     const dismiss = (): void => {
+        if (inFlight.current) {
+            return
+        }
         if (!sent.current) {
             feedbackDismissed()
         }
         onClose()
     }
-    const send = (): void => {
-        if (!canSend || sent.current) {
+    const send = async (): Promise<void> => {
+        if (!canSend || sent.current || inFlight.current) {
             return
         }
-        sent.current = true
-        sendFeedback(trimmed, email)
-        onSent()
+        inFlight.current = true
+        setSending(true)
+        setError(false)
+        try {
+            submissionId.current ??= randomUUID()
+            await sendFeedback(trimmed, email, submissionId.current)
+            sent.current = true
+            setMessage('')
+            submissionId.current = null
+            onSent()
+        } catch {
+            setError(true)
+        } finally {
+            inFlight.current = false
+            setSending(false)
+        }
     }
 
     return (
@@ -59,49 +82,62 @@ export function FeedbackSheet({ visible, email, onClose, onSent }: FeedbackSheet
             onClose={dismiss}
             paddingHorizontal={20}
             keyboardHeight={keyboard.height}
+            scrollGesture={scrollGesture}
             accessibilityLabel="Send feedback"
             testID="feedback-sheet"
         >
-            <View style={styles.content}>
-                <Text style={styles.title} accessibilityRole="header">
-                    Send feedback
-                </Text>
-                {compact ? null : (
-                    <Text style={styles.description} testID="feedback-description">
-                        Share ideas, bugs, or anything else on your mind. Your message goes straight to the PostHog
-                        team, and we'll follow up by email at <Text style={styles.email}>{email}</Text>.
+            <GestureDetector gesture={scrollGesture}>
+                <Animated.ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
+                    <Text style={styles.title} accessibilityRole="header">
+                        Send feedback
                     </Text>
-                )}
-                <TextInput
-                    value={message}
-                    onChangeText={setMessage}
-                    autoFocus
-                    multiline
-                    disableFullscreenUI
-                    maxLength={FEEDBACK_MAX_LENGTH}
-                    placeholder="What's on your mind?"
-                    placeholderTextColor={colors.tertiary}
-                    keyboardAppearance={scheme}
-                    textAlignVertical="top"
-                    style={[styles.input, compact && styles.inputCompact]}
-                    accessibilityLabel="Feedback"
-                    testID="feedback-message"
-                />
-                <Pressable44
-                    onPress={send}
-                    disabled={!canSend}
-                    accessibilityState={{ disabled: !canSend }}
-                    pressedBackground={colors.inkHover}
-                    style={[
-                        styles.send,
-                        compact && styles.sendCompact,
-                        { backgroundColor: canSend ? colors.ink : colors.disabledFill },
-                    ]}
-                    testID="feedback-send"
-                >
-                    <Text style={[styles.sendText, !canSend && styles.sendTextDisabled]}>Send</Text>
-                </Pressable44>
-            </View>
+                    <Text style={styles.description} testID="feedback-description">
+                        {compact
+                            ? 'Your message and email go to the PostHog team: '
+                            : "Share ideas, bugs, or anything else on your mind. Your message goes straight to the PostHog team, and we'll follow up by email at "}
+                        <Text style={styles.email}>{email}</Text>.
+                    </Text>
+                    {error ? (
+                        <Text style={styles.error} accessibilityRole="alert" testID="feedback-error">
+                            Couldn't send your feedback. Your message is still here. Try again.
+                        </Text>
+                    ) : null}
+                    <TextInput
+                        value={message}
+                        onChangeText={setMessage}
+                        editable={!sending}
+                        autoFocus
+                        multiline
+                        disableFullscreenUI
+                        maxLength={FEEDBACK_MAX_LENGTH}
+                        placeholder="What's on your mind?"
+                        placeholderTextColor={colors.tertiary}
+                        keyboardAppearance={scheme}
+                        textAlignVertical="top"
+                        style={[styles.input, compact && styles.inputCompact]}
+                        accessibilityLabel="Feedback"
+                        testID="feedback-message"
+                    />
+                    <Pressable44
+                        onPress={() => void send()}
+                        disabled={!canSend}
+                        accessibilityState={{ disabled: !canSend, busy: sending }}
+                        pressedBackground={colors.inkHover}
+                        style={[
+                            styles.send,
+                            compact && styles.sendCompact,
+                            { backgroundColor: canSend ? colors.ink : colors.disabledFill },
+                        ]}
+                        testID="feedback-send"
+                    >
+                        {sending ? (
+                            <ActivityIndicator color={colors.onDisabled} accessibilityLabel="Sending feedback" />
+                        ) : (
+                            <Text style={[styles.sendText, !canSend && styles.sendTextDisabled]}>Send</Text>
+                        )}
+                    </Pressable44>
+                </Animated.ScrollView>
+            </GestureDetector>
         </BottomSheet>
     )
 }
@@ -110,6 +146,12 @@ const useStyles = createStyles(({ colors }) => ({
     content: {
         flexShrink: 1,
         minHeight: 0,
+    },
+    error: {
+        ...type.metaSmall,
+        color: colors.orange,
+        marginTop: 8,
+        paddingHorizontal: 4,
     },
     title: {
         ...type.sheetTitle,

@@ -11,21 +11,21 @@ const QUESTION_ID = '3f98fbdb-9c7e-450c-b354-aa1bf09c9988'
 export const FEEDBACK_MAX_LENGTH = 2000
 
 export function feedbackShown(): void {
-    captureSurveyEvent('survey shown', { $survey_id: SURVEY_ID })
+    void captureSurveyEvent('survey shown', { $survey_id: SURVEY_ID }).catch(() => undefined)
 }
 
 export function feedbackDismissed(): void {
-    captureSurveyEvent('survey dismissed', { $survey_id: SURVEY_ID })
+    void captureSurveyEvent('survey dismissed', { $survey_id: SURVEY_ID }).catch(() => undefined)
 }
 
 /** The email lets the team reply. The sheet shows it, so the person knows it goes with the message. */
-export function sendFeedback(message: string, email: string): void {
-    captureSurveyEvent('survey sent', {
+export function sendFeedback(message: string, email: string, submissionId = randomUUID()): Promise<void> {
+    return captureSurveyEvent('survey sent', {
         $survey_id: SURVEY_ID,
         $survey_response: message,
         [`$survey_response_${QUESTION_ID}`]: message,
         $survey_completed: true,
-        $survey_submission_id: randomUUID(),
+        $survey_submission_id: submissionId,
         email,
     })
 }

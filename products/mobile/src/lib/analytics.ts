@@ -232,16 +232,12 @@ export function analyticsEnabled(): boolean {
     return client !== null
 }
 
-/**
- * Sends the event and uploads the queue at once. When the upload fails because the device has no network, the SDK
- * keeps the event in its persisted queue and sends it with a later upload.
- */
-export function captureSurveyEvent(event: SurveyEvent, properties: AnalyticsProperties): void {
-    if (!client) {
-        return
+export async function captureSurveyEvent(event: SurveyEvent, properties: AnalyticsProperties): Promise<void> {
+    if (!client?.flush) {
+        throw new Error('Survey delivery is unavailable')
     }
     client.capture(event, properties)
-    client.flush?.().catch(() => undefined)
+    await client.flush()
 }
 
 export function trackScreen(name: string, properties?: AnalyticsProperties): void {
