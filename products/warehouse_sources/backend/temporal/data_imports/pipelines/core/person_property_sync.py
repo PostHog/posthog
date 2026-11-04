@@ -130,8 +130,17 @@ class PerSourceResult:
     error: str | None = None
 
 
-# Receives one chunk's existing, produced and skipped_missing_person counts as a PerSourceResult.
-ProgressCallback = Callable[[PerSourceResult], Awaitable[None]]
+@frozen
+class PerSourceProgress:
+    source_id: str
+    produced_increment: int
+    rows_read_total: int
+    changed_total: int
+    # Missing people have no snapshot, so retries need a total to avoid counting them twice.
+    skipped_missing_person_total: int
+
+
+ProgressCallback = Callable[[PerSourceProgress], Awaitable[None]]
 
 
 class PropertyUpdatesNotDeliveredError(Exception):
@@ -635,15 +644,6 @@ async def _process_source_bundles(
         )
         to_send = [(key, bundle) for key, bundle in chunk if key in existing]
         existing_count = len(to_send)
-        # rows_read, changed and skipped_missing_person are this attempt's running totals, not per-chunk
-        # amounts. rows_read and changed give the run row its denominator. A missing person is never
-        # snapshotted, so a retry skips it again and only a total can avoid counting it twice.
-        increment = PerSourceResult(
-            source_id=ps.source_id,
-            rows_read=ps.rows_read,
-            changed=ps.changed,
-            skipped_missing_person=len(chunk) - len(to_send),
-        )
         delivered: set[str] = set()
         if to_send:
             delivered = await asyncio.to_thread(
@@ -655,17 +655,10 @@ async def _process_source_bundles(
                 team_uuid=team_uuid,
                 group_type_name=group_type_name,
             )
-        increment.produced = len(delivered)
-        increment.existing = increment.produced
         ps.existing += existing_count
-        ps.skipped_missing_person += increment.skipped_missing_person
-        ps.produced += increment.produced
+        ps.skipped_missing_person += len(chunk) - len(to_send)
+        ps.produced += len(delivered)
         ps.undelivered += len(to_send) - len(delivered)
-        increment.skipped_missing_person = ps.skipped_missing_person
-        if on_progress is not None:
-            # Reported before the snapshot write. A run stopped between the two sends this chunk
-            # again on the next attempt, so the run row counts it twice.
-            await on_progress(increment)
 
         # Write only after Kafka confirms delivery. A hash in the snapshot means "already sent", so a
         # hash written before delivery would make a lost intent look sent and the next run skip it.
@@ -677,6 +670,18 @@ async def _process_source_bundles(
             )
             confirmed_hashes.update(delivered_hashes)
             chunks_written += 1
+
+        if on_progress is not None:
+            # Snapshot first so a retry cannot report these deliveries twice.
+            await on_progress(
+                PerSourceProgress(
+                    source_id=ps.source_id,
+                    produced_increment=len(delivered),
+                    rows_read_total=ps.rows_read,
+                    changed_total=ps.changed,
+                    skipped_missing_person_total=ps.skipped_missing_person,
+                )
+            )
 
     if chunks_written:
         # Fold this run's chunk files, and any left by an earlier run that was stopped part way, into
@@ -1007,7 +1012,7 @@ def progress_recorder(*, team_id: int, binding: WarehouseBinding, job_id: str | 
     run retried over several attempts, shows everything it delivered. Never raises, because
     bookkeeping must not fail the sync it describes."""
 
-    async def _record_progress(increment: PerSourceResult) -> None:
+    async def _record_progress(increment: PerSourceProgress) -> None:
         try:
             await database_sync_to_async(record_person_property_sync_progress, thread_sensitive=False)(
                 PersonPropertySyncProgress(
@@ -1017,11 +1022,11 @@ def progress_recorder(*, team_id: int, binding: WarehouseBinding, job_id: str | 
                     source_id=increment.source_id,
                     job_id=job_id,
                     trigger=trigger,
-                    rows_read=increment.rows_read,
-                    changed=increment.changed,
-                    existing=increment.existing,
-                    produced=increment.produced,
-                    skipped_missing_person=increment.skipped_missing_person,
+                    rows_read=increment.rows_read_total,
+                    changed=increment.changed_total,
+                    existing=increment.produced_increment,
+                    produced=increment.produced_increment,
+                    skipped_missing_person=increment.skipped_missing_person_total,
                 )
             )
         except Exception as e:
