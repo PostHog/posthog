@@ -359,6 +359,7 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
                     "data": data,
                     "days": val[1],
                     "order": series_with_extra.series_order,
+                    "custom_name": series_with_extra.series.custom_name,
                     "label": "All events" if series_label is None else series_label,
                     "labels": [
                         f"{day} {self.query_date_range.interval_name}{'' if day == 1 else 's'} or more"
@@ -369,15 +370,6 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
                         else f"{day} {self.query_date_range.interval_name}{'' if day == 1 else 's'}"
                         for day in val[1]
                     ],
-                }
-
-                # Add minimal action data for color consistency with trends
-                series_object["action"] = {
-                    "order": series_with_extra.series_order,
-                    "type": "events",
-                    "name": series_label or "All events",
-                    "id": series_label,
-                    "custom_name": series_with_extra.series.custom_name,
                 }
 
                 # Modifications for when comparing to previous period

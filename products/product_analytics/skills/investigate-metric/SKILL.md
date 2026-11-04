@@ -59,7 +59,12 @@ Read `query.kind` from the source the user pointed at:
 - Saved insight (URL, `short_id`): `posthog:insight-get` → `query.kind`. Use
   `posthog:insight-query` if you also need the numbers.
 - A query you already ran or the user pasted: read `kind` directly.
-- Nothing pointed at: ask for the URL or short_id. Don't guess.
+- A metric the user only names, such as "signups", or shows in a screenshot: find its event
+  with `posthog:read-data-schema` and run it as one series over time with
+  `posthog:query-trends`. That query is your `TrendsQuery`.
+  When `query-trends` cannot express the metric, such as a warehouse-only metric or a custom
+  SQL join, run it with `posthog:execute-sql` and treat it as a `HogQLQuery`.
+- Nothing pointed at, or several events could be the metric: ask which one. Don't guess.
 
 | kind              | Playbook                                                      |
 | ----------------- | ------------------------------------------------------------- |
@@ -86,12 +91,12 @@ If the user's question spans multiple kinds, run the playbooks in sequence.
 
 Decide this now, before the investigation, because it changes which queries you keep.
 
-When the user gave you a saved insight or a query that is a `TrendsQuery` over time (not a box plot, 2D heatmap or scatter plot), the investigation ends with a chart explanation from `posthog:explain-chart`.
+When the user gave you a saved insight or a query that is a `TrendsQuery` over time (not a box plot, 2D heatmap or scatter plot), or named a metric you ran as one, the investigation ends with a chart explanation from `posthog:explain-chart`.
 `posthog:explain-chart` exists only where chart explanations are enabled, so check for it now and read its schema.
 Where PostHog tools run through `exec`, it is not in your own tool list: run `info explain-chart` before you decide it is missing.
 When it does not exist, the findings go in a written report.
 The chart explanation is the answer, in place of a notebook or a long reply. Write a notebook as well only when the user asks for one.
-For anything else, such as a metric you queried on your own, the findings go in a written report.
+For anything else, such as a metric that only SQL can express, the findings go in a written report.
 
 When it is a chart explanation:
 
@@ -145,7 +150,7 @@ in the control = strong hypothesis; moved too = expand the investigation. Skip w
 
 ## Step 5 — Write findings
 
-**Before you write your answer, call `posthog:explain-chart` when the user gave you a trends insight over time.**
+**Before you write your answer, call `posthog:explain-chart` when the investigation has a `TrendsQuery` over time.**
 Do this after a long investigation too, and when most of your evidence is SQL.
 For anything else, use the written report.
 

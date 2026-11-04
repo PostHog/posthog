@@ -89,7 +89,7 @@ export function SavedInsights(): JSX.Element {
     const { notificationCount } = useValues(productAnalyticsNotificationsLogic)
     const { currentTeam } = useValues(teamLogic)
     const summarizeInsight = useSummarizeInsight()
-    const { openHomeDashboardStarter, restorePostHogHome } = useActions(homeDashboardChoiceLogic)
+    const { openHomeDashboardStarter, editHomeDashboard, restorePostHogHome } = useActions(homeDashboardChoiceLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const { tab } = filters
@@ -304,23 +304,24 @@ export function SavedInsights(): JSX.Element {
         },
     ]
 
+    const homeDashboardId = currentTeam?.home_tab_dashboard
     const homeDashboardActions =
         tab === SavedInsightsTabs.Home && showHomeTab ? (
-            currentTeam?.home_tab_dashboard ? (
+            homeDashboardId ? (
                 <LemonMenu
                     items={[
                         {
-                            label: 'Open dashboard',
-                            to: urls.dashboard(currentTeam.home_tab_dashboard),
+                            label: 'Edit dashboard',
+                            onClick: () => editHomeDashboard(homeDashboardId),
                             'data-attr': 'home-tab-open-dashboard',
                         },
                         {
-                            label: 'Change Home dashboard',
+                            label: 'Show a different dashboard',
                             onClick: openHomeDashboardStarter,
                             'data-attr': 'home-tab-choose-dashboard',
                         },
                         {
-                            label: 'Use default dashboard',
+                            label: 'Reset to PostHog default',
                             onClick: restorePostHogHome,
                             'data-attr': 'home-tab-restore-posthog-home',
                         },
@@ -342,7 +343,7 @@ export function SavedInsights(): JSX.Element {
                     data-attr="home-tab-choose-dashboard"
                     onClick={openHomeDashboardStarter}
                 >
-                    Make my own dashboard
+                    Customize
                 </LemonButton>
             )
         ) : null

@@ -169,6 +169,63 @@ export const FIXTURE_GENERATION_OUTPUT: ThreadMessage[] = [
 
 export const FIXTURE_GENERATION_MESSAGES: ThreadMessage[] = [...FIXTURE_GENERATION_INPUT, ...FIXTURE_GENERATION_OUTPUT]
 
+const AGENT_TURNS: { ask: string; tool: string; args: Record<string, unknown>; result: string; answer: string }[] = [
+    {
+        ask: 'Which plan are we on?',
+        tool: 'get_subscription',
+        args: { team: 'hedgebox' },
+        result: '{"plan": "Team", "seats": 6, "renews": "2026-09-30"}',
+        answer: 'You are on the **Team** plan with 6 seats, renewing on September 30.',
+    },
+    {
+        ask: 'How many seats did we use last month?',
+        tool: 'seat_usage',
+        args: { month: '2026-08' },
+        result: '{"peak": 6, "average": 5.2}',
+        answer: 'Usage peaked at 6 seats in August, with an average of 5.2.',
+    },
+    {
+        ask: 'Can we drop back to 4 seats?',
+        tool: 'seat_change_preview',
+        args: { seats: 4 },
+        result: '{"allowed": true, "effective": "2026-09-30", "saving_usd": 60}',
+        answer: 'Yes. The change takes effect on September 30 and saves $60 a month.',
+    },
+    {
+        ask: 'Do it, and email me the new invoice.',
+        tool: 'change_seats',
+        args: { seats: 4, notify: 'ana@example.com' },
+        result: '{"status": "scheduled", "effective": "2026-09-30"}',
+        answer: '',
+    },
+]
+
+function agentMessage(id: string, role: ThreadMessage['role'], parts: ThreadMessage['parts']): ThreadMessage {
+    return { id, role, parts, isInternal: role !== 'user', sourceNodeId: 'gen-answer' }
+}
+
+/** An agent step whose input holds four user turns, each with a tool call, so the earlier turns can collapse. */
+export const FIXTURE_LONG_AGENT_INPUT: ThreadMessage[] = [
+    FIXTURE_GENERATION_INPUT[0],
+    ...AGENT_TURNS.flatMap((turn, index) => [
+        agentMessage(`agent-${index}-user`, 'user', [{ kind: 'text', text: turn.ask }]),
+        agentMessage(`agent-${index}-call`, 'assistant', [{ kind: 'toolCall', name: turn.tool, args: turn.args }]),
+        agentMessage(`agent-${index}-result`, 'tool', [{ kind: 'text', text: turn.result }]),
+        ...(turn.answer
+            ? [agentMessage(`agent-${index}-answer`, 'assistant', [{ kind: 'text', text: turn.answer }])]
+            : []),
+    ]),
+]
+
+export const FIXTURE_LONG_AGENT_OUTPUT: ThreadMessage[] = [
+    agentMessage('agent-final', 'assistant', [
+        {
+            kind: 'text',
+            text: 'Done. Your team drops to **4 seats** on September 30, and the new invoice is on its way to ana@example.com.',
+        },
+    ]),
+]
+
 export const FIXTURE_TURN: ConversationTurn = {
     id: 'trace-1',
     timestamp: '2026-09-01T10:15:00Z',
@@ -380,9 +437,9 @@ export const FIXTURE_TRACE: SampleTraceFixture = {
     header: {
         name: 'answer-billing-question',
         hasError: false,
-        olderHref: '/older',
-        newerHref: '/newer',
         backLink: { label: 'Back to traces', href: '/traces' },
+        copyAction: { loading: false, onCopy: () => {} },
+        exportAction: { loading: false, onExport: () => {} },
     },
     summary: {
         traceId: '3f9c2a71-5b8e-4d0f-a1c2-7e6d5b4a3c21',
@@ -425,7 +482,7 @@ export const FIXTURE_STEP_FEEDBACK: StepFeedback = {
         feedbackScore('score-latency', 'latency_ok', 'true', 19),
         feedbackScore('score-unnamed', null, '{"stars":3}', 20),
     ],
-    textCount: 1,
+    responseCount: 1,
 }
 
 const answerStep = { id: 'gen-answer', name: 'draft-answer' }
@@ -458,6 +515,86 @@ export const FIXTURE_FEEDBACK_MODE: Extract<FeedbackModeState, { status: 'ready'
             focused: true,
         },
     ],
+    unanswered: [],
+    surveysFailed: false,
+}
+
+const answerQuality = { id: '0192f2a4-5c1e-7000-8000-00000000a001', name: 'Answer quality' }
+
+export const FIXTURE_FEEDBACK_MODE_WITH_SURVEYS: Extract<FeedbackModeState, { status: 'ready' }> = {
+    status: 'ready',
+    scores: FIXTURE_FEEDBACK_MODE.scores.map((row) => ({ ...row, focused: false })),
+    responses: [
+        { ...FIXTURE_FEEDBACK_MODE.responses[0], focused: false },
+        {
+            kind: 'survey',
+            id: 'submission-full',
+            nodeId: 'trace-1',
+            timestamp: '2026-09-01T10:25:00Z',
+            survey: answerQuality,
+            answers: [
+                { kind: 'thumbs', question: 'Was this answer useful?', up: true },
+                {
+                    kind: 'rating',
+                    question: 'How good was it?',
+                    value: '4',
+                    scale: 5,
+                    lowerLabel: 'Bad',
+                    upperLabel: 'Great',
+                },
+                { kind: 'choice', question: 'What could be better?', choices: ['Accuracy', 'Tone'] },
+                { kind: 'text', question: 'Anything else?', text: 'Shorter answers, please.' },
+            ],
+            complete: true,
+            unavailable: null,
+            step: null,
+            focused: false,
+        },
+        {
+            kind: 'survey',
+            id: 'submission-partial',
+            nodeId: 'trace-1',
+            timestamp: '2026-09-01T10:26:00Z',
+            survey: answerQuality,
+            answers: [{ kind: 'thumbs', question: 'Was this answer useful?', up: false }],
+            complete: false,
+            unavailable: null,
+            step: null,
+            focused: false,
+        },
+        {
+            kind: 'survey',
+            id: 'submission-deleted',
+            nodeId: 'trace-1',
+            timestamp: '2026-09-01T10:27:00Z',
+            survey: { id: '0192f2a4-5c1e-7000-8000-00000000a002', name: null },
+            answers: [],
+            complete: true,
+            unavailable: 'survey_not_found',
+            step: null,
+            focused: false,
+        },
+        {
+            kind: 'survey',
+            id: 'submission-empty',
+            nodeId: 'trace-1',
+            timestamp: '2026-09-01T10:28:00Z',
+            survey: { id: '0192f2a4-5c1e-7000-8000-00000000a003', name: 'Draft survey' },
+            answers: [],
+            complete: true,
+            unavailable: 'no_questions',
+            step: null,
+            focused: false,
+        },
+    ],
+    unanswered: [
+        {
+            survey: { id: '0192f2a4-5c1e-7000-8000-00000000a004', name: 'Follow-up' },
+            timestamp: '2026-09-01T10:29:00Z',
+        },
+        { survey: { id: '0192f2a4-5c1e-7000-8000-00000000a005', name: null }, timestamp: '2026-09-01T10:30:00Z' },
+    ],
+    surveysFailed: false,
 }
 
 export const FIXTURE_SUMMARY: TraceSummaryContentApi = {
@@ -478,6 +615,12 @@ export const FIXTURE_SUMMARY: TraceSummaryContentApi = {
     model: 'gpt-4.1-mini',
     generatedAt: '2026-09-01T10:20:00Z',
 }
+
+export const withStepScroller: Decorator = (Story) => (
+    <div className="h-120 w-160 overflow-y-auto border border-dashed border-primary">
+        <Story />
+    </div>
+)
 
 export function withWidth(px: number): Decorator {
     return (Story) => (

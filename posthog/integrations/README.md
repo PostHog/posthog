@@ -22,6 +22,7 @@ The rules for callers are in `AGENTS.md`.
 | `source_kinds.py`    | The registry of warehouse source kinds                                     |
 | `usages.py`          | The registry of usage providers                                            |
 | `fields.py`          | `IntegrationReferenceField` for DRF serializers                            |
+| `references.py`      | `IntegrationReference`, the stored string form of a row reference          |
 
 The model module imports `catalogue.py`, `contracts.py` and `enums.py`. These modules must not import the model.
 `__init__.py` loads `IntegrationManager` on first use for the same reason.
@@ -103,7 +104,7 @@ An OAuth accessor (`IntegrationManager.<kind>.oauth`) also refreshes access toke
 ## Rows are read-only
 
 The SDK returns rows typed as `IntegrationRecord`, a read-only `Protocol`:
-`id`, `team_id`, `kind`, `integration_id`, `config`, `sensitive_config`, `errors`, `created_at`, `created_by_id`, `auth_type`, `access_token`, `refresh_token` and `can_be_managed_by_creator(user_id)`.
+`id`, `team_id`, `kind`, `integration_id`, `config`, `sensitive_config`, `errors`, `created_at`, `created_by_id`, `auth_type`, `display_name`, `access_token`, `refresh_token` and `can_be_managed_by_creator(user_id)`.
 `config` and `sensitive_config` are `Mapping`s, so mypy rejects `row.config["x"] = 1`.
 Mypy also rejects `.save()`, `.delete()`, `.refresh_from_db()`, managers and related rows such as `row.team`.
 Use `row.team_id` and `row.created_by_id`, and load the team or the user from their own models.
@@ -142,6 +143,28 @@ The default of a kind is stored data. Do not change the default of a kind that h
 Warehouse source kinds are not in the catalogue. The warehouse product registers them at startup with `register_source_kinds`, and callers reach their rows through `IntegrationManager.source(kind)`.
 A warehouse source row has `config["warehouse_source_type"]`. Every other accessor skips these rows unless you call `with_source_rows()`, and `IntegrationManager.source(kind)` reads only these rows.
 
+## Metrics
+
+`observability.py` records Prometheus metrics for every operation.
+The `instrumented` decorator on each accessor method does this, so a new operation needs only the decorator.
+An async form counts as the operation it calls.
+No label holds a team id, an integration id, an external id or a config value.
+A failure in the metric code is logged and never reaches the caller.
+
+| Metric                                                                             | Answers                                                                 |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `integrations_sdk_operations_total{operation, accessor, kind, auth_type, outcome}` | Which operations, accessors, kinds and auth types callers use           |
+| `integrations_sdk_operation_duration_seconds{operation, accessor, outcome}`        | How long each operation takes                                           |
+| `integrations_sdk_rows_returned{operation, accessor}`                              | How many rows `list`, `get_many` and `list_by_external_id` return       |
+| `integrations_sdk_rows_written_total{operation, kind}`                             | How many rows `update_by_external_id` and `delete_by_external_id` touch |
+| `integrations_sdk_token_refresh_total{kind, result}`                               | How often a refresh is needed, and how often it fails                   |
+
+- `accessor` is `named` (one kind), `any` (`IntegrationManager.any`), `kinds` (`IntegrationManager.kinds(...)`) or `source` (`IntegrationManager.source(kind)`).
+- `kind` is `multi` for `any` and `kinds`.
+- `auth_type` is `oauth`, `token`, `credentials` or `any`.
+- `outcome` is `ok`, `not_found`, `conflict`, `in_use`, `unsupported_filter`, `unsupported_auth_type` or `error`. `error` is any other exception, which the SDK raises again unchanged.
+- `result` is `fresh` (no refresh needed), `refreshed`, `stale_token` (refreshed because the caller passed the stored token) or `error` (the refresh failed).
+
 ## Report usages
 
 A product that uses integration rows reports them from `products/<product>/backend/integration_usages.py`:
@@ -151,6 +174,7 @@ def integration_usages(team_id: int, integration_id: int) -> list[IntegrationUsa
 ```
 
 The SDK finds the module on the first call to `usages` or `delete`. Code outside a product calls `register_usage_provider` instead.
+The product sets `IntegrationUsage.type` (for example `warehouse_source`, `workflow`, `hog_function`, `batch_export`). The integrations API names these types in its error when a delete finds usages.
 
 ## Reference a row from a serializer
 
@@ -160,6 +184,14 @@ Pass `kinds=[...]` to accept only rows of these kinds.
 With `kinds`, the field accepts only the default auth type of each kind, because code that reads a kind expects its usual config shape.
 Pass `auth_types=[AuthType.TOKEN]` to accept other auth types, or `auth_types="any"` to accept every auth type.
 The field never accepts a warehouse source row.
+
+## Store a reference outside a serializer
+
+A model that points at a row without a foreign key stores the reference as a string, for example `ExternalDataSource.credentials_integration_id`.
+Rows in the credentials service get a UUID id, and keep the int id of a row made before as `legacy_id`.
+So the string is a decimal legacy id (`"123"`) or a lowercase hyphenated UUID.
+Write it with `str(IntegrationReference.from_legacy_id(row.id))`, and read it with `IntegrationReference.parse(value)`, which raises `ValueError` for any other form.
+The accessors take int ids, so pass `reference.legacy_id`. A UUID reference cannot resolve yet: treat it as "not found".
 
 ## Why direct model use fails CI
 

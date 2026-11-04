@@ -1,5 +1,5 @@
 jest.mock('scenes/userLogic', () => require('~/toolbar/shared/shims/userLogic'))
-jest.mock('scenes/organization/membersLogic', () => require('~/toolbar/shared/shims/membersLogic'))
+jest.mock('~/models/membersLogic', () => require('~/toolbar/shared/shims/membersLogic'))
 jest.mock('scenes/sceneLogic', () => require('~/toolbar/shared/shims/sceneLogic'))
 jest.mock('scenes/teamLogic', () => require('~/toolbar/shared/shims/teamLogic'))
 jest.mock('lib/logic/featureFlagLogic', () => require('~/toolbar/shared/shims/featureFlagLogic'))

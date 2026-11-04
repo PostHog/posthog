@@ -467,7 +467,7 @@ FROM events
 
 
 @pytest.mark.parametrize(
-    "grandfathered_batch_export", [True, False], indirect=True, ids=["grandfathered", "other-team"]
+    "grandfathered_batch_export", ["same-team", "same-organization", "other-organization"], indirect=True
 )
 def test_create_batch_export_with_custom_schema(
     client: HttpClient,
@@ -497,7 +497,7 @@ def test_create_batch_export_with_custom_schema(
         batch_export_data,
     )
 
-    if grandfathered_batch_export.team_id != team.pk:
+    if grandfathered_batch_export.team.organization_id != team.organization_id:
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "hogql_query"
         assert not BatchExport.objects.filter(team=team).exists()

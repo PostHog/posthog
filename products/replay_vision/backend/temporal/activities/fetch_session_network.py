@@ -9,7 +9,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.session_recordings.recordings.errors import RecordingApiConfigurationError
+from posthog.session_recordings.recordings.errors import RecordingApiConfigurationError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import recording_api_client
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock, list_blocks_async
 
@@ -95,7 +95,11 @@ async def fetch_session_network_activity(inputs: FetchSessionNetworkInputs) -> N
 
 async def _load_payload(team_id: int, session_id: str) -> SessionNetworkPayload:
     recording = await sync_to_async(_build_recording)(team_id, session_id)
-    blocks = await list_blocks_async(recording)
+    try:
+        blocks = await list_blocks_async(recording)
+    except RecordingDeletedError:
+        # A deleted recording has no network data to read, and retrying cannot bring it back.
+        return SessionNetworkPayload()
     if not blocks:
         return SessionNetworkPayload()
 

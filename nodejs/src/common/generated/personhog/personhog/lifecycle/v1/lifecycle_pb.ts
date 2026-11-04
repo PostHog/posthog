@@ -10,7 +10,7 @@ import { enumDesc, fileDesc, messageDesc, serviceDesc } from '@bufbuild/protobuf
 export const file_personhog_lifecycle_v1_lifecycle: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'CiZwZXJzb25ob2cvbGlmZWN5Y2xlL3YxL2xpZmVjeWNsZS5wcm90bxIWcGVyc29uaG9nLmxpZmVjeWNsZS52MSJKChREZWxldGVQZXJzb25zUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEhIKCnBlcnNvbl9pZHMYAiADKAMSDQoFb3BfaWQYAyABKAkiZQoSRGVsZXRlUGVyc29uUmVzdWx0EhEKCXBlcnNvbl9pZBgBIAEoAxI8CgdvdXRjb21lGAIgASgOMisucGVyc29uaG9nLmxpZmVjeWNsZS52MS5EZWxldGVQZXJzb25PdXRjb21lImMKFURlbGV0ZVBlcnNvbnNSZXNwb25zZRINCgVvcF9pZBgBIAEoCRI7CgdyZXN1bHRzGAIgAygLMioucGVyc29uaG9nLmxpZmVjeWNsZS52MS5EZWxldGVQZXJzb25SZXN1bHQqsAEKE0RlbGV0ZVBlcnNvbk91dGNvbWUSJQohREVMRVRFX1BFUlNPTl9PVVRDT01FX1VOU1BFQ0lGSUVEEAASIQodREVMRVRFX1BFUlNPTl9PVVRDT01FX0RFTEVURUQQARIqCiZERUxFVEVfUEVSU09OX09VVENPTUVfU0tJUFBFRF9DT05GTElDVBACEiMKH0RFTEVURV9QRVJTT05fT1VUQ09NRV9OT1RfRk9VTkQQAzKCAQoSUGVyc29uSG9nTGlmZWN5Y2xlEmwKDURlbGV0ZVBlcnNvbnMSLC5wZXJzb25ob2cubGlmZWN5Y2xlLnYxLkRlbGV0ZVBlcnNvbnNSZXF1ZXN0Gi0ucGVyc29uaG9nLmxpZmVjeWNsZS52MS5EZWxldGVQZXJzb25zUmVzcG9uc2ViBnByb3RvMw'
+        'CiZwZXJzb25ob2cvbGlmZWN5Y2xlL3YxL2xpZmVjeWNsZS5wcm90bxIWcGVyc29uaG9nLmxpZmVjeWNsZS52MSJKChREZWxldGVQZXJzb25zUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEhIKCnBlcnNvbl9pZHMYAiADKAMSDQoFb3BfaWQYAyABKAkilQEKEkRlbGV0ZVBlcnNvblJlc3VsdBIRCglwZXJzb25faWQYASABKAMSPAoHb3V0Y29tZRgCIAEoDjIrLnBlcnNvbmhvZy5saWZlY3ljbGUudjEuRGVsZXRlUGVyc29uT3V0Y29tZRIbCg5wZXJzb25fdmVyc2lvbhgDIAEoA0gAiAEBQhEKD19wZXJzb25fdmVyc2lvbiJjChVEZWxldGVQZXJzb25zUmVzcG9uc2USDQoFb3BfaWQYASABKAkSOwoHcmVzdWx0cxgCIAMoCzIqLnBlcnNvbmhvZy5saWZlY3ljbGUudjEuRGVsZXRlUGVyc29uUmVzdWx0KrABChNEZWxldGVQZXJzb25PdXRjb21lEiUKIURFTEVURV9QRVJTT05fT1VUQ09NRV9VTlNQRUNJRklFRBAAEiEKHURFTEVURV9QRVJTT05fT1VUQ09NRV9ERUxFVEVEEAESKgomREVMRVRFX1BFUlNPTl9PVVRDT01FX1NLSVBQRURfQ09ORkxJQ1QQAhIjCh9ERUxFVEVfUEVSU09OX09VVENPTUVfTk9UX0ZPVU5EEAMyggEKElBlcnNvbkhvZ0xpZmVjeWNsZRJsCg1EZWxldGVQZXJzb25zEiwucGVyc29uaG9nLmxpZmVjeWNsZS52MS5EZWxldGVQZXJzb25zUmVxdWVzdBotLnBlcnNvbmhvZy5saWZlY3ljbGUudjEuRGVsZXRlUGVyc29uc1Jlc3BvbnNlYgZwcm90bzM'
     )
 
 /**
@@ -65,6 +65,20 @@ export type DeletePersonResult = Message<'personhog.lifecycle.v1.DeletePersonRes
      * @generated from field: personhog.lifecycle.v1.DeletePersonOutcome outcome = 2;
      */
     outcome: DeletePersonOutcome
+
+    /**
+     * The version the person's Postgres tombstone committed at, set when
+     * outcome = DELETED. A lower bound on the row's final version, not the
+     * final version: the leader may produce the death document higher, and
+     * the writer moves the row there. A caller that publishes its own
+     * ClickHouse person tombstone uses this version; never use it as a
+     * revival or version floor. The distinct-id tombstones are published
+     * from the outbox. Absent for an operation recorded before this field
+     * existed.
+     *
+     * @generated from field: optional int64 person_version = 3;
+     */
+    personVersion?: bigint
 }
 
 /**

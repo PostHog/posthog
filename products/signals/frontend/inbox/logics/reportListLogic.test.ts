@@ -20,6 +20,7 @@ import {
     SignalReportStatus,
 } from '../types'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
+import { inboxFiltersLogic } from './inboxFiltersLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic, shouldDefaultToEntireProject } from './reportListLogic'
 
 const REPORTS_URL = '/api/projects/:team_id/signals/reports/'
@@ -125,6 +126,20 @@ describe('reportListLogic', () => {
 
         afterEach(() => logic.unmount())
 
+        // A bulk claim returns no rows, so the lists show its claims only after they reload. A failed request
+        // can still have saved some claims on the server.
+        it.each(['bulkClaimSuccess', 'bulkClaimFailure'] as const)('reloads the first page after %s', async (end) => {
+            const bulkLogic = inboxBulkActionsLogic()
+            bulkLogic.mount()
+            requestedOffsets = []
+
+            bulkLogic.actions[end]()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requestedOffsets).toEqual(['0'])
+            bulkLogic.unmount()
+        })
+
         it('appends the next server page from the loaded offset, then stops', async () => {
             logic.actions.loadMore()
             await expectLogic(logic).toFinishAllListeners()
@@ -227,6 +242,29 @@ describe('reportListLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.pageLoadFailed).toBe(false)
             expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
+        })
+
+        it('keeps a claim made while the first page reloads, which the reload read before the claim saved', async () => {
+            let releasePage: () => void = () => {}
+            const heldPage = new Promise<void>((resolve) => {
+                releasePage = resolve
+            })
+            useMocks({
+                get: {
+                    [REPORTS_URL]: async () => {
+                        await heldPage
+                        return [200, { count: FIRST_PAGE.length, next: null, previous: null, results: FIRST_PAGE }]
+                    },
+                },
+            })
+
+            logic.actions.loadReports()
+            logic.actions.setReportAssignee(FIRST_PAGE[0].id, myClaim)
+            releasePage()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.reports.find((r) => r.id === FIRST_PAGE[0].id)?.assignee).toEqual(myClaim)
+            expect(logic.values.reports.find((r) => r.id === FIRST_PAGE[1].id)?.assignee).toBeUndefined()
         })
 
         it('keeps a row removed while the next page is in flight out of the appended list', async () => {
@@ -360,7 +398,7 @@ describe('reportListLogic', () => {
                     '/api/projects/:team_id/signals/reports/available_reviewers': {},
                     [REPORTS_URL]: async ({ request }) => {
                         const params = new URL(request.url).searchParams
-                        if (params.get('assignee') === 'mine') {
+                        if (params.get('assignee') === 'mine' || params.get('scout') === 'my-custom-scout') {
                             return [200, { count: MINE.length, next: null, previous: null, results: MINE }]
                         }
                         if (params.get('offset') === heldOffset) {
@@ -390,17 +428,26 @@ describe('reportListLogic', () => {
         afterEach(() => logic.unmount())
 
         it.each([
-            { request: 'first page', offset: '0' },
-            { request: 'next page', offset: String(ALL.length) },
-        ])('drops the late $request of the old query', async ({ offset }) => {
+            { request: 'first page', offset: '0', change: 'scope' },
+            { request: 'next page', offset: String(ALL.length), change: 'scope' },
+            { request: 'first page', offset: '0', change: 'source' },
+            { request: 'next page', offset: String(ALL.length), change: 'source' },
+        ])('drops the late $request of the old query after a $change change', async ({ offset, change }) => {
             heldOffset = offset
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_SOURCE_FILTER], {
+                [FEATURE_FLAGS.INBOX_SOURCE_FILTER]: true,
+            })
             logic.actions.ensureLoaded()
             if (offset !== '0') {
                 await expectLogic(logic).toDispatchActions(['loadReportsSuccess'])
                 logic.actions.loadMore()
             }
 
-            logic.actions.setScope(INBOX_SCOPE_CLAIMED_BY_YOU)
+            if (change === 'scope') {
+                logic.actions.setScope(INBOX_SCOPE_CLAIMED_BY_YOU)
+            } else {
+                inboxFiltersLogic.actions.setSourceFilter({ kind: 'scout', value: 'my-custom-scout' })
+            }
             await expectLogic(logic).toDispatchActions(['loadReportsSuccess'])
             releaseOldQuery()
             await expectLogic(logic).toFinishAllListeners()

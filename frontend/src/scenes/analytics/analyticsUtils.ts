@@ -14,7 +14,6 @@ import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
 // pinned: these values are the `type` property of the `views new picked` and `views list filtered` events.
 export type AnalyticsType = 'canvas' | 'notebook' | 'dashboard' | 'insight'
-export type AnalyticsTypeFilter = AnalyticsType | 'all'
 
 export interface AnalyticsTypeInfo {
     type: AnalyticsType
@@ -119,6 +118,12 @@ export const UNFILED_FOLDER = 'Unfiled'
 
 /** The folder that holds every person's own home folder. Its contents are personal, not a team space. */
 export const USERS_FOLDER = 'Users'
+
+/** A space is a top-level folder that is not the unfiled area or someone's home folder. */
+export function isSpacePath(path: string): boolean {
+    const segments = splitPath(path)
+    return segments.length === 1 && !([UNFILED_FOLDER, USERS_FOLDER] as string[]).includes(segments[0])
+}
 
 /** The space an entry sits in: its top-level folder, or null when it is still unfiled (personal). */
 export function analyticsSpaceOfPath(path: string): string | null {

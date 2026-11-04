@@ -3,8 +3,8 @@ import { Form } from 'kea-forms'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { LemonRichContentEditor } from 'lib/components/RichContentEditor/LemonRichContentEditor'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonRichContentEditor } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { playerCommentOverlayLogic } from './playerFrameCommentOverlayLogic'
@@ -57,7 +57,10 @@ export const PlayerCommentModal = (): JSX.Element => {
                                 data-attr="create-recording-comment-input"
                                 onPressCmdEnter={submitRecordingComment}
                                 initialContent={recordingComment.richContent}
-                                onCreate={setRichContentEditor}
+                                onCreate={(editor) => {
+                                    setRichContentEditor(editor)
+                                    editor.focus('end')
+                                }}
                                 onUpdate={() => {
                                     // it can't be null by now, but TS doesn't know that
                                     if (richContentEditor) {

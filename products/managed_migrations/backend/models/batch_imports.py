@@ -17,9 +17,6 @@ if TYPE_CHECKING:
 
 DEFAULT_SEND_RATE = 5_000
 
-# The worker before pending_commit wrote this status message while it sent a chunk.
-LEGACY_COMMIT_IN_FLIGHT_MESSAGE_PREFIX = "Starting commit of part "
-
 
 class CommitInFlightError(ValueError):
     """A worker is sending a chunk of this import, so a resume now could skip that chunk."""
@@ -124,9 +121,10 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
 
         Flips the job to running and clears the worker lease and backoff - pausing
         keeps the worker's lease, so without clearing it no worker can re-claim the
-        row for up to 30 minutes. Part offsets are untouched: use this when the
-        source bytes behind the saved offset are unchanged (transient pauses, or a
-        data fix that preserved byte offsets). When the bytes changed underneath the
+        row for up to 30 minutes. Part offsets stay as saved, except that a chunk a
+        worker left mid-commit is sent again: use this when the source bytes behind
+        the saved offset are unchanged (transient pauses, or a data fix that preserved
+        byte offsets). When the bytes changed underneath the
         offset, use `resume_with_inflight_part_reset` instead. Raises ValueError if
         the job is not paused.
         """
@@ -140,7 +138,7 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
             if row.status != BatchImport.Status.PAUSED:
                 raise ValueError(f"Only paused imports can be resumed (status: {row.status})")
             row.raise_if_commit_in_flight()
-            row.save(update_fields=row.reset_for_resume(status_message))
+            row.save(update_fields=row.rewind_and_reset_for_resume(status_message))
         self.refresh_from_db()
 
     def resume_with_inflight_part_reset(self) -> str:
@@ -151,18 +149,21 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         temp-bucket staging, or a source file replaced after a data-error pause), the
         saved offset can land mid-record in the new stream and the job pauses with a
         parse error at the resume point. The fix is to re-import that part from
-        offset 0 - safe for sources with deterministic event UUIDs (Mixpanel
-        $insert_id, Amplitude uuid), which dedupe the overlap.
+        offset 0. The re-imported overlap dedupes only for events with a source ID
+        (Mixpanel $insert_id, an Amplitude or captured uuid). Other events, including
+        the identify events the worker generates for Amplitude, get a new UUID.
 
-        Resets the first unfinished part to offset 0, then resumes as
-        `resume_after_pause` does. Returns the key of the reset part. Raises
-        ValueError if the job is not paused or has no unfinished part.
+        Rewinds a chunk a worker left mid-commit, so its part counts as unfinished even
+        when that chunk was the part's last, then resets the first unfinished part to
+        offset 0 and resumes. Returns the key of the reset part. Raises ValueError if
+        the job is not paused or has no unfinished part.
         """
         with transaction.atomic():
             row = BatchImport.objects.select_for_update().get(pk=self.pk)
             if row.status != BatchImport.Status.PAUSED:
                 raise ValueError(f"Only paused imports can be reset and resumed (status: {row.status})")
             row.raise_if_commit_in_flight()
+            rewind_note = row.rewind_interrupted_commit()
 
             _done, _total, inflight = row.parts_progress()
             if inflight is None:
@@ -176,12 +177,10 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
             # Redacted: url_list part keys are full source URLs whose query string /
             # userinfo can carry credentials, and status_message is broadly visible.
             redacted_key = str(redact_part_key(inflight.get("key")))
-            row.save(
-                update_fields=[
-                    *row.reset_for_resume(f"Resumed by admin with part {redacted_key} reset to offset 0"),
-                    "state",
-                ]
-            )
+            status_message = f"Resumed by admin with part {redacted_key} reset to offset 0"
+            if rewind_note is not None:
+                status_message = f"{status_message}; {rewind_note}"
+            row.save(update_fields=[*row.reset_for_resume(status_message), "state"])
         self.refresh_from_db()
         return redacted_key
 
@@ -190,19 +189,54 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         sink accepting it, the window in which clearing its lease can lose that chunk."""
         if self.leased_until is None or self.leased_until <= timezone.now():
             return False
-        return self.pending_commit is not None or (self.status_message or "").startswith(
-            LEGACY_COMMIT_IN_FLIGHT_MESSAGE_PREFIX
-        )
+        return self.pending_commit is not None
 
     def raise_if_commit_in_flight(self) -> None:
         if self.commit_in_flight():
             raise CommitInFlightError()
 
+    def rewind_interrupted_commit(self) -> str | None:
+        """Move the part that `pending_commit` names back to the start of its chunk, so the resumed
+        worker sends the chunk again instead of skipping a chunk that may not have reached the sink.
+
+        Returns a note for the status message, or None when there is no marker. The part moves only
+        from either end of the chunk, because any other offset means the marker does not describe
+        the saved progress. A part that moves back gives up the chunk's events in `events_emitted`,
+        because the worker counts them again when it re-sends the chunk."""
+        if self.pending_commit is None:
+            return None
+        key = self.pending_commit.get("key")
+        from_offset = self.pending_commit.get("from_offset")
+        redacted_key = redact_part_key(key)
+        state = self.state or {}
+        parts = state.get("parts") or []
+        part = next((p for p in parts if p.get("key") == key), None)
+        if (
+            part is None
+            or not isinstance(from_offset, int)
+            or part.get("current_offset") not in (from_offset, self.pending_commit.get("to_offset"))
+        ):
+            return f"kept the saved offset of part {redacted_key}, which does not match the interrupted chunk"
+        events = self.pending_commit.get("events")
+        emitted = state.get("events_emitted")
+        if part["current_offset"] != from_offset and isinstance(events, int) and isinstance(emitted, int):
+            state["events_emitted"] = max(0, emitted - events)
+        part["current_offset"] = from_offset
+        return f"re-sending the interrupted chunk of part {redacted_key} from offset {from_offset}"
+
+    def rewind_and_reset_for_resume(self, status_message: str) -> list[str]:
+        """Rewind an interrupted chunk, then reset the row for a resume. Call it on a row locked with
+        `select_for_update`, because it saves `state` as read from that row."""
+        note = self.rewind_interrupted_commit()
+        if note is None:
+            return self.reset_for_resume(status_message)
+        return [*self.reset_for_resume(f"{status_message}; {note}"), "state"]
+
     def reset_for_resume(self, status_message: str) -> list[str]:
         """Set the fields every resume path resets, and return their names for `save(update_fields=...)`.
 
         Clears the lease so a worker can claim the row at once, and `pending_commit` because a resume
-        accepts the saved offsets."""
+        starts from the saved offsets; `rewind_and_reset_for_resume` moves them back first."""
         self.status = BatchImport.Status.RUNNING
         self.status_message = status_message
         self.display_status_message = None

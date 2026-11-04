@@ -12,7 +12,7 @@ const SPACE_COMPOSER_OVERRIDE = {
 }
 
 export interface SpaceTaskComposerProps {
-    space: ChannelDTOApi
+    space: ChannelDTOApi | null
     panelId: string
     repositoryConfig: SpaceComposerRepositoryConfig
     onTaskCreated: (sessionId: string) => void
@@ -31,9 +31,9 @@ export function SpaceTaskComposer({
 }: SpaceTaskComposerProps): JSX.Element {
     return (
         <EmbeddedTaskComposer
-            key={space.id}
+            key={space?.id}
             panelId={panelId}
-            channelId={space.id}
+            channelId={space?.id}
             initialRepositoryConfig={repositoryConfig}
             composerOverride={SPACE_COMPOSER_OVERRIDE}
             onTaskCreated={onTaskCreated}
