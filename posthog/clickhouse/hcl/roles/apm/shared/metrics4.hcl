@@ -70,6 +70,8 @@ database "posthog" {
     column "_partition" { type = "UInt32" }
     column "_topic" { type = "String" }
     column "_offset" { type = "UInt64" }
+    column "_source_topic" { type = "String" }
+    column "_source_partition" { type = "UInt32" }
     engine "null" {}
   }
 
@@ -225,6 +227,8 @@ database "posthog" {
     column "_partition" { type = "UInt64" }
     column "_topic" { type = "LowCardinality(String)" }
     column "_offset" { type = "UInt64" }
+    column "_source_topic" { type = "String" }
+    column "_source_partition" { type = "UInt32" }
   }
 
   materialized_view "metrics4_input_to_metrics4_samples" {

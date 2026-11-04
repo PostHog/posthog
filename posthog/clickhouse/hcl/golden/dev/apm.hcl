@@ -317,6 +317,12 @@ database "posthog" {
     column "_offset" {
       type = "UInt64"
     }
+    column "_source_topic" {
+      type = "String"
+    }
+    column "_source_partition" {
+      type = "UInt32"
+    }
     engine "null" {
     }
   }
@@ -1499,7 +1505,9 @@ SELECT
   ) AS attributes,
   _partition,
   _topic,
-  _offset
+  _offset,
+  _headers.value[indexOf(_headers.name, 'source_topic')] AS _source_topic,
+  toUInt32OrZero(_headers.value[indexOf(_headers.name, 'source_partition')]) AS _source_partition
 FROM posthog.kafka_metrics_avro4
 WHERE kafka_metrics_avro4.series_fingerprint IS NOT NULL
 SETTINGS
@@ -1587,6 +1595,12 @@ SQL
     }
     column "_offset" {
       type = "UInt64"
+    }
+    column "_source_topic" {
+      type = "String"
+    }
+    column "_source_partition" {
+      type = "UInt32"
     }
   }
 
@@ -2053,14 +2067,24 @@ SQL
     to_table = "posthog.writable_metrics_kafka_metrics"
     query    = <<SQL
 SELECT
-  _partition,
-  _topic,
-  maxSimpleState(_offset) AS max_offset,
+  kafka_partition AS _partition,
+  kafka_topic AS _topic,
+  maxSimpleState(kafka_offset) AS max_offset,
   maxSimpleState(observed_timestamp) AS max_observed_timestamp,
   maxSimpleState(now()) AS max_created_at
-FROM posthog.metrics4_input
+FROM
+  (
+    SELECT
+      kafka_source.1 AS kafka_topic,
+      kafka_source.2 AS kafka_partition,
+      kafka_source.3 AS kafka_offset,
+      observed_timestamp
+    FROM
+      posthog.metrics4_input ARRAY JOIN [(_topic, _partition, _offset), (_source_topic, _source_partition, 0)] AS kafka_source
+    WHERE kafka_topic != ''
+  )
 GROUP BY
-  _partition, _topic
+  kafka_partition, kafka_topic
 SQL
 
     column "_partition" {

@@ -83,7 +83,11 @@ def KAFKA_METRICS_AVRO2_TABLE_SQL() -> str:
     return kafka_metrics_avro_table_sql(KAFKA_TABLE_NAME, KAFKA_GROUP)
 
 
-def metrics_input_table_sql(table_name: str) -> str:
+def metrics_input_table_sql(table_name: str, *, source_partition: bool = False) -> str:
+    # Only the metrics4 chain records where the Node consumer read each row.
+    source_partition_columns = (
+        ",\n    `_source_topic` String,\n    `_source_partition` UInt32" if source_partition else ""
+    )
     return f"""
 CREATE TABLE IF NOT EXISTS {_db()}.{table_name}
 (
@@ -113,7 +117,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{table_name}
     `attributes` Map(LowCardinality(String), String),
     `_partition` UInt32,
     `_topic` String,
-    `_offset` UInt64
+    `_offset` UInt64{source_partition_columns}
 )
 ENGINE = Null
 """
@@ -271,8 +275,14 @@ def METRIC_ATTRIBUTES2_DISTRIBUTED_TABLE_SQL() -> str:
     return _distributed_sql(METRIC_ATTRIBUTES_DISTRIBUTED_TABLE_NAME, METRIC_ATTRIBUTES2_TABLE_NAME)
 
 
-def kafka_metrics_avro_mv_select(table_name: str) -> str:
+def kafka_metrics_avro_mv_select(table_name: str, *, source_partition: bool = False) -> str:
     db = _db()
+    source_partition_columns = (
+        ",\n    _headers.value[indexOf(_headers.name, 'source_topic')] AS _source_topic,"
+        "\n    toUInt32OrZero(_headers.value[indexOf(_headers.name, 'source_partition')]) AS _source_partition"
+        if source_partition
+        else ""
+    )
     sorted_resource_attributes = "mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))"
     sorted_attributes = "mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes))"
     labelled = "toBool(ifNull(has_labels, 1))"
@@ -306,7 +316,7 @@ def kafka_metrics_avro_mv_select(table_name: str) -> str:
     if({labelled}, {sorted_attributes}, CAST(map(), 'Map(String, String)')) AS attributes,
     _partition,
     _topic,
-    _offset
+    _offset{source_partition_columns}
 FROM {db}.{table_name}
 WHERE {table_name}.series_fingerprint IS NOT NULL
 SETTINGS

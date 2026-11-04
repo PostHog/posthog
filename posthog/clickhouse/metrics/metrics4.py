@@ -96,14 +96,14 @@ def KAFKA_METRICS_AVRO4_TABLE_SQL() -> str:
 
 
 def METRICS4_INPUT_TABLE_SQL() -> str:
-    return metrics_input_table_sql(METRICS4_INPUT_TABLE_NAME)
+    return metrics_input_table_sql(METRICS4_INPUT_TABLE_NAME, source_partition=True)
 
 
 def KAFKA_METRICS_AVRO4_MV() -> str:
     db = _db()
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{KAFKA_METRICS4_TABLE_NAME}_mv TO {db}.{METRICS4_INPUT_TABLE_NAME}
-AS {kafka_metrics_avro_mv_select(KAFKA_METRICS4_TABLE_NAME)}
+AS {kafka_metrics_avro_mv_select(KAFKA_METRICS4_TABLE_NAME, source_partition=True)}
 """
 
 
@@ -396,6 +396,31 @@ GROUP BY
 """
 
 
+def METRICS4_INPUT_TO_METRICS_KAFKA_METRICS_MV_SELECT() -> str:
+    # Each row counts toward its clickhouse_metrics partition and the ingestion-metrics partition
+    # the Node consumer read it from. Both topics partition at random, so lag on either hop would
+    # hide behind the other. A row without the source header has an empty source topic, and the
+    # WHERE skips it, so it cannot add a partition that never moves. The source offset is unknown.
+    return f"""SELECT
+    kafka_partition AS _partition,
+    kafka_topic AS _topic,
+    maxSimpleState(kafka_offset) AS max_offset,
+    maxSimpleState(observed_timestamp) AS max_observed_timestamp,
+    maxSimpleState(now()) AS max_created_at
+FROM
+(
+    SELECT
+        kafka_source.1 AS kafka_topic,
+        kafka_source.2 AS kafka_partition,
+        kafka_source.3 AS kafka_offset,
+        observed_timestamp
+    FROM {_db()}.{METRICS4_INPUT_TABLE_NAME}
+    ARRAY JOIN [(_topic, _partition, _offset), (_source_topic, _source_partition, 0)] AS kafka_source
+    WHERE kafka_topic != ''
+)
+GROUP BY kafka_partition, kafka_topic"""
+
+
 def METRICS4_INPUT_TO_METRICS_KAFKA_METRICS_MV() -> str:
     """The newest capture time and offset each Kafka partition has delivered, one row per insert block.
 
@@ -406,14 +431,7 @@ def METRICS4_INPUT_TO_METRICS_KAFKA_METRICS_MV() -> str:
     db = _db()
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{KAFKA_METRICS_TABLE_NAME} TO {db}.{WRITABLE_METRICS_KAFKA_METRICS_TABLE_NAME}
-AS SELECT
-    _partition,
-    _topic,
-    maxSimpleState(_offset) AS max_offset,
-    maxSimpleState(observed_timestamp) AS max_observed_timestamp,
-    maxSimpleState(now()) AS max_created_at
-FROM {db}.{METRICS4_INPUT_TABLE_NAME}
-GROUP BY _partition, _topic
+AS {METRICS4_INPUT_TO_METRICS_KAFKA_METRICS_MV_SELECT()}
 """
 
 
