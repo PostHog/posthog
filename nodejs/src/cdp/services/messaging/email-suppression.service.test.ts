@@ -4,7 +4,11 @@ import { createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
 import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub, Team } from '~/types'
 
-import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
+import {
+    EmailSuppressionService,
+    SuppressionLookupError,
+    emailSuppressionConfigFromEnv,
+} from './email-suppression.service'
 
 interface SuppressionRow {
     identifier: string
@@ -416,6 +420,26 @@ describe('EmailSuppressionService', () => {
             }
 
             expect(await newService(true).isSuppressed(team.id, email)).toBe(false)
+        })
+
+        it.each([
+            ['shadow', false],
+            ['enforce', true],
+        ] as const)('in %s mode, a failed global read holds the send: %s', async (mode, enforce) => {
+            const email = `unread-${mode}-${team.id}@example.com`
+            await bounceForAnotherTeam(email)
+            const realQuery = hub.postgres.query.bind(hub.postgres)
+            jest.spyOn(hub.postgres, 'query').mockImplementation(((...args: Parameters<typeof realQuery>) =>
+                args[3] === 'loadGlobalHardBounces'
+                    ? Promise.reject(new Error('relation does not exist'))
+                    : realQuery(...args)) as typeof realQuery)
+
+            const lookup = newService(enforce).isSuppressed(team.id, email, { transactional: true })
+            if (enforce) {
+                await expect(lookup).rejects.toBeInstanceOf(SuppressionLookupError)
+            } else {
+                await expect(lookup).resolves.toBe(false)
+            }
         })
 
         it("blocks transactional email when the team's own entry only blocks other email", async () => {

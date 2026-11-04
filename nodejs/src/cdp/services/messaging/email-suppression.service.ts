@@ -581,8 +581,12 @@ export class EmailSuppressionService {
             )
             bounced = new Set(result.rows.map((row) => row.email))
         } catch (error) {
-            // Fail open here: the team's own list above still applies, and this read must not hold every send.
             logger.error('[EmailSuppression] Failed to check global hard bounces', { error })
+            if (this.globalHardBounceEnforce) {
+                // An enforced list blocks sends, so a failed read holds them like a failed team-list read.
+                throw error
+            }
+            // A shadow list never blocks a send, so a failed read changes nothing.
             return
         }
 
