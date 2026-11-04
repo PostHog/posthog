@@ -92,6 +92,7 @@ from posthog.models.oauth import (
     OAuthGrant,
     OAuthRefreshToken,
     lock_oauth_connection,
+    revoke_oauth_refresh_family,
     revoke_oauth_session,
     revoke_oauth_token_family,
 )
@@ -515,6 +516,10 @@ class OAuthValidator(OAuth2Validator):
             return getattr(request.client, "is_dcr_client", False) or getattr(request.client, "is_cimd_client", False)
         return False
 
+    def _is_device_client(self, request) -> bool:
+        client = getattr(request, "client", None)
+        return getattr(client, "authorization_grant_type", None) == DEVICE_CODE_GRANT_TYPE
+
     def _is_first_party_client(self, request) -> bool:
         """Check if the client is a first-party PostHog application."""
         if hasattr(request, "client") and request.client:
@@ -919,9 +924,12 @@ class OAuthValidator(OAuth2Validator):
         behavior of Google, Apple, Okta (for native apps), and AWS Cognito which
         all issue non-rotating refresh tokens.
 
-        Non-dynamic OAuth clients still get rotation per the default setting.
+        Non-dynamic OAuth clients still get rotation per the default setting, and so do
+        device-grant clients: they are command-line tools built to store each rotated token.
+        Rotation links every access token to its refresh token's family, which lets an RFC 7009
+        revoke end one login of a device client instead of all of them.
         """
-        if self._is_dynamic_client(request):
+        if self._is_dynamic_client(request) and not self._is_device_client(request):
             return False
         return oauth2_settings.ROTATE_REFRESH_TOKEN
 
@@ -931,13 +939,17 @@ class OAuthValidator(OAuth2Validator):
 
         Dynamically registered (DCR/CIMD) clients get an extended TTL since they
         don't reliably refresh; first-party PostHog apps get the same extended TTL.
+        Device grant clients keep the default TTL: they often run on shared or headless
+        machines, and they refresh like any other client.
         Impersonation-minted tokens are capped to the impersonation idle timeout so
         they can't outlive the admin's session. That check comes first so an
         impersonated first-party app can't inherit the longer window.
         """
         if self._get_impersonator_id(request) is not None:
             return settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS
-        if self._is_dynamic_client(request) or self._is_first_party_client(request):
+        if self._is_first_party_client(request) or (
+            self._is_dynamic_client(request) and not self._is_device_client(request)
+        ):
             return EXTENDED_ACCESS_TOKEN_EXPIRE_SECONDS
         return oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS
 
@@ -1132,6 +1144,13 @@ class OAuthValidator(OAuth2Validator):
                 token_type="refresh_token" if rt else "access_token",
             )
             return
+        # A rotating family holds every access token of one login, so revoking it ends only that
+        # login. A token already rotated away still ends its family: during the grace period it can
+        # still refresh.
+        if rt and self._is_dynamic_client(request) and self.rotate_refresh_token(request):
+            revoke_oauth_refresh_family(rt)
+            return
+        # A non-rotating token can't be traced to its access tokens, so the whole connection goes.
         if rt and rt.revoked is None and self._is_dynamic_client(request):
             revoke_oauth_session(refresh_token=rt)
             return

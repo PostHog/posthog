@@ -52,7 +52,7 @@ from posthog.auth import SessionAuthentication
 from posthog.helpers.two_factor_session import missing_two_factor_step
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR
 from posthog.models import Team, User
-from posthog.models.oauth import OAuthApplication, OAuthDeviceGrant
+from posthog.models.oauth import OAuthApplication, OAuthDeviceGrant, live_oauth_access_tokens, live_oauth_refresh_tokens
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.rate_limit import IPThrottle
 from posthog.scopes import clamp_scopes_to_ceiling, resolve_requested_scopes
@@ -356,6 +356,19 @@ class DeviceApprovalSerializer(DeviceUserCodeSerializer):
     project_id = serializers.IntegerField(help_text="The project the token is scoped to.")
 
 
+class GrantedScopesSerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="The project these scopes work in. Null when the connection is not limited to projects.",
+    )
+    organization_id = serializers.CharField(
+        allow_null=True,
+        help_text="The organization these scopes work in, for a connection limited to organizations. Null when "
+        "the connection is not limited to organizations.",
+    )
+    scopes = serializers.ListField(child=serializers.CharField(), help_text="The scopes granted in the project.")
+
+
 class DeviceGrantDetailsSerializer(serializers.Serializer):
     user_code = serializers.CharField(help_text="The code, in the form the device shows it.")
     client_id = serializers.CharField(help_text="The client that started the device grant.")
@@ -364,6 +377,11 @@ class DeviceGrantDetailsSerializer(serializers.Serializer):
     is_verified = serializers.BooleanField(help_text="Whether PostHog has verified the client.")
     scopes = serializers.ListField(
         child=serializers.CharField(), help_text="The scopes the token will carry if the person approves."
+    )
+    granted_scopes = GrantedScopesSerializer(
+        many=True,
+        help_text="The scopes the person already gave this client, per project. A step-up in a project asks for "
+        "these plus new ones, and the page lists only the new ones.",
     )
     expires_at = serializers.DateTimeField(help_text="When the code expires.")
 
@@ -381,7 +399,10 @@ class DeviceDecisionSerializer(serializers.Serializer):
 
 def _invalid_code() -> Response:
     return Response(
-        {"error": "invalid_code", "error_description": "This code is wrong, expired or already used."},
+        {
+            "error": "invalid_code",
+            "error_description": "This code is wrong, expired or already used. Check the code your terminal shows, or start the login again.",
+        },
         status=status.HTTP_400_BAD_REQUEST,
     )
 
@@ -391,6 +412,38 @@ def _unverified_client() -> Response:
         {"error": "unverified_client", "error_description": UNVERIFIED_CLIENT_DESCRIPTION},
         status=status.HTTP_400_BAD_REQUEST,
     )
+
+
+def _granted_scopes(user: User, application: OAuthApplication) -> list[dict[str, object]]:
+    """The scopes the user's standing connections to this client carry, per project, counted the way
+    the Connected applications page counts them. A scope granted in one project grants nothing in
+    another, so a step-up only hides scopes the chosen project already has."""
+    rows = [
+        *live_oauth_access_tokens(user)
+        .filter(application=application)
+        .values_list("scope", "scoped_teams", "scoped_organizations"),
+        *live_oauth_refresh_tokens(user)
+        .filter(application=application)
+        .values_list("access_token__scope", "access_token__scoped_teams", "access_token__scoped_organizations"),
+    ]
+    # Keyed by (project, organization). A connection limited to organizations counts only in them, and
+    # only a connection limited to neither counts everywhere.
+    granted: dict[tuple[int | None, str | None], set[str]] = {}
+    for scope, scoped_teams, scoped_organizations in rows:
+        if scoped_teams:
+            places: list[tuple[int | None, str | None]] = [(project_id, None) for project_id in scoped_teams]
+        elif scoped_organizations:
+            places = [(None, organization_id) for organization_id in scoped_organizations]
+        else:
+            places = [(None, None)]
+        for place in places:
+            granted.setdefault(place, set()).update((scope or "").split())
+    return [
+        {"project_id": project_id, "organization_id": organization_id, "scopes": sorted(scopes)}
+        for (project_id, organization_id), scopes in sorted(
+            granted.items(), key=lambda item: (item[0][0] or 0, item[0][1] or "")
+        )
+    ]
 
 
 def _capture(request: Request, event: str, grant: OAuthDeviceGrant, **properties: object) -> None:
@@ -453,6 +506,7 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
                     "logo_uri": application.logo_uri or None,
                     "is_verified": application.is_verified,
                     "scopes": (grant.scope or "").split(),
+                    "granted_scopes": _granted_scopes(cast(User, request.user), application),
                     "expires_at": grant.expires,
                 }
             ).data

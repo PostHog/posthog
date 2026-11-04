@@ -19,7 +19,13 @@ from rest_framework import status
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
 from posthog.api.oauth.device import DEVICE_CODE_GRANT_TYPE
 from posthog.models import Organization, Team
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthDeviceGrant, revoke_oauth_session
+from posthog.models.oauth import (
+    OAuthAccessToken,
+    OAuthApplication,
+    OAuthDeviceGrant,
+    OAuthRefreshToken,
+    revoke_oauth_session,
+)
 
 FORM = "application/x-www-form-urlencoded"
 START = "2026-03-02 10:00:00"
@@ -88,6 +94,43 @@ class TestOAuthDeviceGrant(APIBaseTest):
 
             clock.shift(timedelta(seconds=6))
             self.assertEqual(self._poll(started["device_code"]).json()["error"], "invalid_grant")
+
+    @parameterized.expand(
+        [
+            ("a live token", 1, None, ["insight:read", "openid"]),
+            ("an expired token with a live refresh token", -1, False, ["insight:read", "openid"]),
+            ("an expired token whose refresh token was revoked", -1, True, []),
+        ]
+    )
+    @time_machine.travel(START, tick=False)
+    def test_lookup_lists_the_scopes_the_person_already_granted(
+        self, _name: str, expires_in_hours: int, refresh_revoked: bool | None, expected: list[str]
+    ) -> None:
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=self.device_app,
+            token="existing-token",
+            scope="openid insight:read",
+            expires=timezone.now() + timedelta(hours=expires_in_hours),
+            scoped_teams=[self.team.id],
+        )
+        if refresh_revoked is not None:
+            OAuthRefreshToken.objects.create(
+                user=self.user,
+                application=self.device_app,
+                token="existing-refresh",
+                access_token=access_token,
+                revoked=timezone.now() if refresh_revoked else None,
+            )
+        started = self._start()
+
+        lookup = self.client.post("/api/oauth_device/lookup/", {"user_code": started["user_code"]})
+
+        # Scopes are listed per project, because a grant in one project grants nothing in another.
+        self.assertEqual(
+            lookup.json()["granted_scopes"],
+            [{"project_id": self.team.id, "organization_id": None, "scopes": expected}] if expected else [],
+        )
 
     @parameterized.expand(
         [

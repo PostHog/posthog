@@ -924,6 +924,33 @@ def revoke_oauth_session(
             OAuthAccessToken.objects.filter(user=user, application=application).delete()
 
 
+def revoke_oauth_refresh_family(refresh_token: OAuthRefreshToken) -> None:
+    """End one login: delete every refresh token in the token's rotation family, and the access
+    tokens they issued.
+
+    Use this for an RFC 7009 revoke from a client that rotates refresh tokens. Rotation links each
+    access token to a refresh token of its family, so the user's other logins with the same client
+    keep working. Rows are deleted, not marked revoked, for the reason `revoke_oauth_session`
+    gives. A token without a family or a user falls back to `revoke_oauth_session`."""
+    if refresh_token.token_family is None or refresh_token.user_id is None:
+        revoke_oauth_session(refresh_token=refresh_token)
+        return
+    with transaction.atomic():
+        lock_oauth_connection(user_id=refresh_token.user_id, application_id=refresh_token.application_id)
+        family = OAuthRefreshToken.objects.filter(token_family=refresh_token.token_family)
+        family_rows = list(family.values_list("pk", "access_token_id"))
+        # Two indexed lookups rather than one OR across a join, which can't use either index.
+        access_token_ids = {access_token_id for _, access_token_id in family_rows if access_token_id}
+        access_token_ids.update(
+            OAuthAccessToken.objects.filter(source_refresh_token_id__in=[pk for pk, _ in family_rows]).values_list(
+                "pk", flat=True
+            )
+        )
+        # Refresh tokens go first, so a failure part way can't leave one able to mint a new access token.
+        family.delete()
+        OAuthAccessToken.objects.filter(pk__in=access_token_ids).delete()
+
+
 def revoke_oauth_token_family(refresh_token: OAuthRefreshToken) -> None:
     """Revoke every live member of a refresh token's family in a constant number of
     queries, and delete the access tokens still linked to them.
