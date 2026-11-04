@@ -16,7 +16,7 @@ import { isDefinitionsTabHref } from '~/layout/panel-layout/navbar/tabs/navProdu
 import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
-import type { SettingSection, SettingSectionId } from '~/scenes/settings/types'
+import type { SettingId, SettingLevelId, SettingSection, SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab } from '~/types'
 
 import { SearchItem, fileSystemEntryToSearchItem } from './searchItems'
@@ -424,4 +424,150 @@ export const settingsSearchItems = (sections: SettingsSectionSummary[], gates: S
         }
     }
     return [...items.values()]
+}
+
+export interface CommandKSettingsSection {
+    id: SettingSectionId
+    level: Exclude<SettingLevelId, 'environment'>
+    titleString: string | null
+    to?: string
+    keywords?: string[]
+    settings: {
+        id: SettingId
+        titleString: string | null
+        descriptionString: string | null
+        keywords?: string[]
+    }[]
+}
+
+const LEVEL_SEARCH_KEYWORDS: Partial<Record<CommandKSettingsSection['level'], string[]>> = {
+    user: ['account settings', 'personal settings', 'my settings'],
+}
+
+const settingsItem = (
+    id: string,
+    name: string,
+    href: string,
+    record: Record<string, unknown>,
+    fields: Partial<SearchItem> = {}
+): SearchItem => ({
+    id,
+    name,
+    displayName: name,
+    category: 'settings',
+    href,
+    itemType: 'settings',
+    hideMatchedKeyword: true,
+    record: { type: 'settings', ...record },
+    ...fields,
+})
+
+const settingsLevelName = (level: SettingLevelId): string =>
+    `${toSentenceCase(level === 'environment' ? 'project' : level)} settings`
+
+const settingsContextText = (level: SettingLevelId, sectionTitle: string): string =>
+    `${settingsLevelName(level)} ${sectionTitle}`
+
+interface SettingSearchTextSetting {
+    id: string
+    title: string | null
+    keywords?: string[]
+    description?: string | null
+}
+
+const settingsSearchText = (
+    level: SettingLevelId,
+    sectionTitle: string,
+    sectionKeywords: string[] | undefined,
+    settings: SettingSearchTextSetting[]
+): string =>
+    [
+        settingsContextText(level, sectionTitle),
+        ...(sectionKeywords ?? []),
+        ...settings.flatMap((setting) => [
+            setting.title ?? sentenceCaseId(setting.id),
+            sentenceCaseId(setting.id),
+            ...(setting.keywords ?? []),
+            setting.description ?? '',
+        ]),
+    ]
+        .filter(Boolean)
+        .join(' ')
+
+type SettingSummary = CommandKSettingsSection['settings'][number]
+
+const textSetting = (setting: SettingSummary): SettingSearchTextSetting => ({
+    id: setting.id,
+    title: setting.titleString,
+    keywords: setting.keywords,
+    description: setting.descriptionString,
+})
+
+const commandKSectionSearchItems = (section: CommandKSettingsSection, billingEntryUrl: string | null): SearchItem[] => {
+    const levelName = settingsLevelName(section.level)
+    const title = section.titleString ?? sentenceCaseId(section.id)
+    const context = settingsContextText(section.level, title)
+    const ownsSettings = !section.to
+    const settingTitle = (setting: SettingSummary): string => setting.titleString ?? sentenceCaseId(setting.id)
+    const isOwnItem = (setting: SettingSummary): boolean =>
+        ownsSettings && settingTitle(setting).toLowerCase() !== title.toLowerCase()
+    const folded = section.settings.filter((setting) => !isOwnItem(setting))
+    const sectionItem = settingsItem(
+        `settings-${section.id}`,
+        title,
+        (section.id === 'organization-billing' && billingEntryUrl) || section.to || urls.settings(section.id),
+        { level: section.level, sectionId: section.id },
+        {
+            parentName: levelName,
+            searchKeywords: [
+                context,
+                ...(section.keywords ?? []),
+                ...folded.flatMap((setting) => [sentenceCaseId(setting.id), ...(setting.keywords ?? [])]),
+            ],
+            hiddenSearchText: settingsSearchText(section.level, title, section.keywords, folded.map(textSetting)),
+        }
+    )
+    return [
+        sectionItem,
+        ...section.settings.filter(isOwnItem).map((setting) =>
+            settingsItem(
+                `settings-${section.id}-${setting.id}`,
+                settingTitle(setting),
+                urls.settings(section.id, setting.id),
+                { level: section.level, sectionId: section.id, settingId: setting.id },
+                {
+                    parentName: `${levelName} › ${title}`,
+                    contextKeywords: section.keywords,
+                    searchKeywords: [sentenceCaseId(setting.id), ...(setting.keywords ?? [])],
+                    hiddenSearchText: settingsSearchText(section.level, title, section.keywords, [
+                        textSetting(setting),
+                    ]),
+                }
+            )
+        ),
+    ]
+}
+
+export const commandKSettingsSearchItems = (
+    sections: CommandKSettingsSection[],
+    billingEntryUrl: string | null
+): SearchItem[] => {
+    if (!sections.length) {
+        return []
+    }
+    const levels = [...new Set(sections.map((section) => section.level))]
+    const items = [
+        settingsItem('settings', 'Settings', urls.settings(), {}, { searchKeywords: ['preferences', 'configuration'] }),
+        ...levels.map((level) =>
+            settingsItem(
+                `settings-level-${level}`,
+                settingsLevelName(level),
+                urls.settings(level),
+                { level },
+                { searchKeywords: LEVEL_SEARCH_KEYWORDS[level] }
+            )
+        ),
+        ...sections.flatMap((section) => commandKSectionSearchItems(section, billingEntryUrl)),
+    ]
+    return [...new Map(items.map((item) => [item.id, item])).values()]
 }
