@@ -70,19 +70,16 @@ const LOGIN_READ_SCOPES = [
     'warehouse_table',
     'web_analytics',
 ]
+const LOGIN_IDENTITY_SCOPES = ['openid', 'profile', 'email']
 export const LOGIN_SCOPES: readonly string[] = [
-    'openid',
-    'profile',
-    'email',
+    ...LOGIN_IDENTITY_SCOPES,
     ...LOGIN_WRITE_SCOPES.map((object) => `${object}:write`),
     ...LOGIN_READ_SCOPES.map((object) => `${object}:read`),
 ]
 
 // What `hog auth login --read-only` asks for: the same objects, read access only.
 export const READ_ONLY_LOGIN_SCOPES: readonly string[] = [
-    'openid',
-    'profile',
-    'email',
+    ...LOGIN_IDENTITY_SCOPES,
     ...[...LOGIN_WRITE_SCOPES, ...LOGIN_READ_SCOPES].map((object) => `${object}:read`),
 ]
 
