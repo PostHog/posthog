@@ -318,15 +318,9 @@ pub fn tracked_tcp_incoming(
     tracked_tcp_incoming_until(listener, CancellationToken::new())
 }
 
-/// [`tracked_tcp_incoming`] that ends when `shutdown` is cancelled.
-///
-/// Ending the stream drops the listener, so the kernel refuses a new
-/// connection while the server drains the accepted ones. A listener that
-/// stays bound during the drain completes the handshake of a late
-/// connection into its backlog and never serves it. The client then waits
-/// out its deadline on every attempt instead of connecting to another pod.
-///
-/// Serve this stream with [`until_incoming_ends`] as the shutdown signal.
+/// [`tracked_tcp_incoming`] that drops the listener when `shutdown` is cancelled.
+/// A bound listener queues a late connection that nothing serves, so the client
+/// waits out its deadline. Serve this stream with [`until_incoming_ends`].
 pub fn tracked_tcp_incoming_until(
     listener: TcpListener,
     shutdown: CancellationToken,
@@ -346,13 +340,9 @@ pub fn tracked_tcp_incoming_until(
     })
 }
 
-/// Shutdown signal for a server that reads [`tracked_tcp_incoming_until`].
-///
-/// This signal never fires, so the end of the stream is what stops the
-/// accept loop, and tonic then drains the accepted connections as usual.
-/// Do not pass the token's own signal here. Tonic selects at random between
-/// its signal and the stream. When the signal wins, tonic holds the unpolled
-/// stream, and so the bound listener, until the drain finishes.
+/// A shutdown signal that never fires, so the end of the stream stops tonic's
+/// accept loop. Tonic selects at random between its signal and the stream, and
+/// a signal win keeps the listener bound for the whole drain.
 pub fn until_incoming_ends() -> impl Future<Output = ()> + Send + 'static {
     std::future::pending()
 }
@@ -948,7 +938,6 @@ mod tests {
         assert!(resp.headers().get("grpc-status").is_none());
     }
 
-    /// Holds every RPC open until `release` fires, which keeps a drain running.
     #[derive(Clone)]
     struct HeldRpcService {
         entered: Arc<tokio::sync::Notify>,
