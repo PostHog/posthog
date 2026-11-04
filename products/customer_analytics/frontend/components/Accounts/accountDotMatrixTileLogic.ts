@@ -177,7 +177,7 @@ export interface accountDotMatrixTileLogicMeta {
                 empty: string
                 error: string | null
                 matrix: AccountActivityMatrixProps
-                truncated: boolean
+                notices: string[]
             }
         ) => string[]
         querySaveError: (
