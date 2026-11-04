@@ -24,10 +24,10 @@ def reset_unverified_review_policy(config: StamphogRepoConfig) -> list[str]:
     picked there would request reviewers as soon as the row binds.
     """
     # Read the defaults off the model so the reset cannot drift from what a fresh row gets.
-    fields = ["review_mode", "trigger_label", "routing_mode"]
-    for name in fields:
-        setattr(config, name, StamphogRepoConfig._meta.get_field(name).get_default())
-    return fields
+    config.review_mode = StamphogRepoConfig._meta.get_field("review_mode").get_default()
+    config.trigger_label = StamphogRepoConfig._meta.get_field("trigger_label").get_default()
+    config.routing_mode = StamphogRepoConfig._meta.get_field("routing_mode").get_default()
+    return ["review_mode", "trigger_label", "routing_mode"]
 
 
 def _write_db() -> str:
