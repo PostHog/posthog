@@ -89,6 +89,8 @@ jobs:
                         - .github/actions/setup-uv/**
 
     hoglang-tests:
+        permissions:
+            contents: read
         needs: changes
         timeout-minutes: 30
         name: HogLang tests

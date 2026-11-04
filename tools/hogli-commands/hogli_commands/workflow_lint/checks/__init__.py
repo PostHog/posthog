@@ -15,6 +15,7 @@ from ..check import WorkflowCheck
 from .cache_writes import CacheWriteGateCheck
 from .checkout_full_depth import CheckoutFullDepthCheck
 from .dorny_negation import DornyNegationCheck
+from .explicit_permissions import ExplicitPermissionsCheck
 from .job_timeouts import JobTimeoutsCheck
 from .mcp_filter_coverage import McpFilterCoverageCheck
 from .paused_public_image_pulls import PausedPublicImagePullsCheck
@@ -22,10 +23,12 @@ from .pinned_runner_images import PinnedRunnerImagesCheck
 from .pr_concurrency import PrConcurrencyCheck
 from .pr_event_fanout import PrEventFanoutCheck
 from .required_gates import RequiredGateCheck
+from .required_status_checks import RequiredStatusChecksCheck
 from .reusable_secret_passthrough import ReusableSecretPassthroughCheck
 from .semgrep_services_coverage import SemgrepServicesCoverageCheck
 from .shell_split_action_args import ShellSplitActionArgsCheck
 from .storybook_static_dirs_coverage import StorybookStaticDirsCoverageCheck
+from .untrusted_trigger_checkout import UntrustedTriggerCheckoutCheck
 
 CHECKS: list[WorkflowCheck] = [
     JobTimeoutsCheck(),
@@ -42,6 +45,9 @@ CHECKS: list[WorkflowCheck] = [
     ShellSplitActionArgsCheck(),
     StorybookStaticDirsCoverageCheck(),
     PausedPublicImagePullsCheck(),
+    ExplicitPermissionsCheck(),
+    UntrustedTriggerCheckoutCheck(),
+    RequiredStatusChecksCheck(),
 ]
 
 

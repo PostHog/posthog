@@ -1,0 +1,21 @@
+# Status checks the `master` ruleset requires before a pull request can merge.
+# Mirrored from the ruleset by `bin/refresh-required-status-checks`, because the
+# live list lives in GitHub and cannot be read from a checkout. Keeping it here
+# makes a change to the required set show up as a diff, and lets
+# `hogli lint:workflows` (WF017-required-status-checks) fail when a job listed
+# below is renamed or made unable to fail.
+Python code quality checks
+Build Docker image
+Node.js Tests Pass
+Frontend Tests Pass
+Visual regression tests pass
+shellcheck
+Semgrep Checks Pass
+Dagster Tests Pass
+Playwright tests pass
+Rust Tests Pass
+MCP Tests Pass
+LLM Services Tests Pass
+Desktop Tests Pass
+Backend CI on Depot / Django Tests Pass on Depot
+Backend CI on Depot / Test results

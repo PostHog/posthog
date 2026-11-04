@@ -31,6 +31,7 @@ from hogli_commands.workflow_lint.checks.cache_writes import (
 )
 from hogli_commands.workflow_lint.checks.checkout_full_depth import CheckoutFullDepthCheck
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
+from hogli_commands.workflow_lint.checks.explicit_permissions import ExplicitPermissionsCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.mcp_filter_coverage import McpFilterCoverageCheck, _resolve
 from hogli_commands.workflow_lint.checks.paused_public_image_pulls import PausedPublicImagePullsCheck
@@ -38,6 +39,7 @@ from hogli_commands.workflow_lint.checks.pinned_runner_images import PinnedRunne
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
 from hogli_commands.workflow_lint.checks.pr_event_fanout import PrEventFanoutCheck
 from hogli_commands.workflow_lint.checks.required_gates import RequiredGateCheck
+from hogli_commands.workflow_lint.checks.required_status_checks import RequiredStatusChecksCheck
 from hogli_commands.workflow_lint.checks.reusable_secret_passthrough import ReusableSecretPassthroughCheck
 from hogli_commands.workflow_lint.checks.semgrep_services_coverage import SemgrepServicesCoverageCheck
 from hogli_commands.workflow_lint.checks.shell_split_action_args import (
@@ -47,6 +49,7 @@ from hogli_commands.workflow_lint.checks.shell_split_action_args import (
     unparseable_actions,
 )
 from hogli_commands.workflow_lint.checks.storybook_static_dirs_coverage import StorybookStaticDirsCoverageCheck
+from hogli_commands.workflow_lint.checks.untrusted_trigger_checkout import UntrustedTriggerCheckoutCheck
 from hogli_commands.workflow_lint.cli import cmd_lint_workflows
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
 
@@ -2876,3 +2879,505 @@ class TestPausedPublicImagePullsCheck:
     def test_passes(self, tmp_path: Path, push_to_ghcr: str, verify_step: str) -> None:
         _write(tmp_path, "wf.yml", _image_job(push_to_ghcr, verify_step))
         assert PausedPublicImagePullsCheck().run(_read_all(tmp_path)).issues == []
+
+
+# ---------------------------------------------------------------------------
+# WF015 explicit permissions
+# ---------------------------------------------------------------------------
+
+_PERM_JOB = """
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+{perms}    steps:
+      - run: echo hi
+"""
+
+
+def _perm_workflow(on: str, job_perms: str, top_level: str = "") -> str:
+    return f"""
+name: T
+on: {on}
+{top_level}{_PERM_JOB.format(perms=job_perms)}"""
+
+
+class TestExplicitPermissionsCheck:
+    @pytest.mark.parametrize("trigger", ["pull_request", "pull_request_target", "issue_comment", "workflow_run"])
+    def test_fails_without_any_permissions(self, tmp_path: Path, trigger: str) -> None:
+        _write(tmp_path, "wf.yml", _perm_workflow(trigger, ""))
+        assert len(ExplicitPermissionsCheck().run(_read_all(tmp_path)).issues) == 1
+
+    def test_passes_with_top_level_block(self, tmp_path: Path) -> None:
+        _write(tmp_path, "wf.yml", _perm_workflow("pull_request", "", "permissions:\n  contents: read\n"))
+        assert ExplicitPermissionsCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_passes_with_per_job_block(self, tmp_path: Path) -> None:
+        _write(tmp_path, "wf.yml", _perm_workflow("pull_request", "    permissions:\n      contents: read\n"))
+        assert ExplicitPermissionsCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_skips_trusted_trigger(self, tmp_path: Path) -> None:
+        _write(tmp_path, "wf.yml", _perm_workflow("push", ""))
+        assert ExplicitPermissionsCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_passes_when_the_caller_job_declares_permissions(self, tmp_path: Path) -> None:
+        # GitHub applies the calling job's permissions to the callee, so a caller that
+        # declares them is safe and must not be failed for the callee's silence.
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    permissions:\n      contents: read\n"
+            "    uses: ./.github/workflows/callee.yml\n",
+        )
+        _write(wf_dir, "callee.yml", "name: C\non: workflow_call\njobs:\n  run:\n    runs-on: ubuntu-24.04\n")
+        assert ExplicitPermissionsCheck().run(_read_all(wf_dir)).issues == []
+
+    def test_fails_when_only_one_callee_job_declares_permissions(self, tmp_path: Path) -> None:
+        # `any(...)` let a partially-declared callee through, so its bare job inherited
+        # the repository default. Every reachable job has to declare.
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/callee.yml\n",
+        )
+        _write(
+            wf_dir,
+            "callee.yml",
+            "name: C\non: workflow_call\njobs:\n  a:\n    permissions:\n      contents: read\n"
+            "    runs-on: ubuntu-24.04\n  b:\n    runs-on: ubuntu-24.04\n",
+        )
+        issues = ExplicitPermissionsCheck().run(_read_all(wf_dir)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+
+    def test_fails_when_the_called_workflow_declares_no_permissions(self, tmp_path: Path) -> None:
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/callee.yml\n",
+        )
+        _write(wf_dir, "callee.yml", "name: C\non: workflow_call\njobs:\n  run:\n    runs-on: ubuntu-24.04\n")
+        issues = ExplicitPermissionsCheck().run(_read_all(wf_dir)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert "declares no permissions" in issues[0].message
+
+    def test_passes_when_the_called_workflow_declares_permissions(self, tmp_path: Path) -> None:
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/callee.yml\n",
+        )
+        _write(
+            wf_dir,
+            "callee.yml",
+            "name: C\non: workflow_call\npermissions:\n  contents: read\njobs:\n  run:\n    runs-on: ubuntu-24.04\n",
+        )
+        assert ExplicitPermissionsCheck().run(_read_all(wf_dir)).issues == []
+
+    def test_fails_on_a_two_deep_chain_ending_in_a_bare_job(self, tmp_path: Path) -> None:
+        # Skipping the relay job in `relay.yml` without following it passed this chain,
+        # and the bare job in `leaf.yml` inherited the repository default.
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/relay.yml\n",
+        )
+        _write(
+            wf_dir, "relay.yml", "name: R\non: workflow_call\njobs:\n  hop:\n    uses: ./.github/workflows/leaf.yml\n"
+        )
+        _write(wf_dir, "leaf.yml", "name: L\non: workflow_call\njobs:\n  run:\n    runs-on: ubuntu-24.04\n")
+        issues = ExplicitPermissionsCheck().run(_read_all(wf_dir)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert issues[0].workflow == "caller.yml"
+
+    def test_passes_on_a_two_deep_chain_that_declares_permissions(self, tmp_path: Path) -> None:
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/relay.yml\n",
+        )
+        _write(
+            wf_dir, "relay.yml", "name: R\non: workflow_call\njobs:\n  hop:\n    uses: ./.github/workflows/leaf.yml\n"
+        )
+        _write(
+            wf_dir,
+            "leaf.yml",
+            "name: L\non: workflow_call\njobs:\n  run:\n    permissions:\n      contents: read\n"
+            "    runs-on: ubuntu-24.04\n",
+        )
+        assert ExplicitPermissionsCheck().run(_read_all(wf_dir)).issues == []
+
+    def test_passes_when_the_relay_job_declares_permissions(self, tmp_path: Path) -> None:
+        # The relay job's own `permissions:` caps everything below it.
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/relay.yml\n",
+        )
+        _write(
+            wf_dir,
+            "relay.yml",
+            "name: R\non: workflow_call\njobs:\n  hop:\n    permissions:\n      contents: read\n"
+            "    uses: ./.github/workflows/leaf.yml\n",
+        )
+        _write(wf_dir, "leaf.yml", "name: L\non: workflow_call\njobs:\n  run:\n    runs-on: ubuntu-24.04\n")
+        assert ExplicitPermissionsCheck().run(_read_all(wf_dir)).issues == []
+
+    def test_a_reusable_call_cycle_terminates(self, tmp_path: Path) -> None:
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/a.yml\n",
+        )
+        _write(wf_dir, "a.yml", "name: A\non: workflow_call\njobs:\n  hop:\n    uses: ./.github/workflows/b.yml\n")
+        _write(wf_dir, "b.yml", "name: B\non: workflow_call\njobs:\n  hop:\n    uses: ./.github/workflows/a.yml\n")
+        assert ExplicitPermissionsCheck().run(_read_all(wf_dir)).issues == []
+
+
+# ---------------------------------------------------------------------------
+# WF016 untrusted trigger checkout
+# ---------------------------------------------------------------------------
+
+
+def _checkout_workflow(on: str, ref: str) -> str:
+    return f"""
+name: T
+on: {on}
+permissions:
+  contents: read
+jobs:
+  act:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: {ref}
+"""
+
+
+class TestUntrustedTriggerCheckoutCheck:
+    @pytest.mark.parametrize(
+        "ref",
+        [
+            "${{ github.event.pull_request.head.sha }}",
+            "${{ github.head_ref }}",
+            "refs/pull/${{ github.event.number }}/head",
+            "${{ github.event.workflow_run.head_sha }}",
+            "${{ github.event.workflow_run.head_branch }}",
+            "${{ github.event.pull_request.merge_commit_sha }}",
+            "refs/pull/12/merge",
+        ],
+    )
+    def test_fails_on_head_ref_under_pull_request_target(self, tmp_path: Path, ref: str) -> None:
+        _write(tmp_path, "wf.yml", _checkout_workflow("pull_request_target", f"'{ref}'"))
+        issues = UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+
+    def test_passes_on_base_ref(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path, "wf.yml", _checkout_workflow("pull_request_target", "${{ github.event.pull_request.base.sha }}")
+        )
+        assert UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues == []
+
+    @pytest.mark.parametrize("trigger", ["pull_request_review", "pull_request_review_comment"])
+    def test_fails_on_head_ref_under_review_events(self, tmp_path: Path, trigger: str) -> None:
+        # Review events carry base-repo context and expose pull_request.head.*, the same
+        # escape as pull_request_target. WF015 already lists both as untrusted.
+        _write(tmp_path, "wf.yml", _checkout_workflow(trigger, "${{ github.event.pull_request.head.sha }}"))
+        issues = UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+
+    def test_follows_a_local_reusable_workflow(self, tmp_path: Path) -> None:
+        # The callee has no trigger of its own, so filtering workflows by trigger alone
+        # exempted it entirely while the caller reached it.
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/callee.yml\n",
+        )
+        _write(wf_dir, "callee.yml", _checkout_workflow("workflow_call", "${{ github.event.pull_request.head.sha }}"))
+        issues = UntrustedTriggerCheckoutCheck().run(_read_all(wf_dir)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert "reusable workflow" in issues[0].message
+
+    def test_ignores_head_ref_on_plain_pull_request(self, tmp_path: Path) -> None:
+        _write(tmp_path, "wf.yml", _checkout_workflow("pull_request", "${{ github.event.pull_request.head.sha }}"))
+        assert UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_fails_on_a_fork_repository_with_a_base_ref(self, tmp_path: Path) -> None:
+        workflow = _checkout_workflow("workflow_run", "${{ github.event.repository.default_branch }}").replace(
+            "          ref:",
+            "          repository: ${{ github.event.workflow_run.head_repository.full_name }}\n          ref:",
+        )
+        _write(tmp_path, "wf.yml", workflow)
+        issues = UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert "fork" in issues[0].message
+
+    def test_passes_on_the_base_branch_under_workflow_run(self, tmp_path: Path) -> None:
+        _write(tmp_path, "wf.yml", _checkout_workflow("workflow_run", "${{ github.event.repository.default_branch }}"))
+        assert UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues == []
+
+    @pytest.mark.parametrize(
+        "ref",
+        [
+            "${{ github.event.pull_request['head'].sha }}",
+            "${{ github['head_ref'] }}",
+        ],
+    )
+    def test_fails_on_bracket_notation(self, tmp_path: Path, ref: str) -> None:
+        # Bracketed property access evaluates to the same contributor-controlled ref.
+        _write(tmp_path, "wf.yml", _checkout_workflow("pull_request_target", f'"{ref}"'))
+        issues = UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+
+    def test_follows_nested_reusable_workflows(self, tmp_path: Path) -> None:
+        # One level of following missed a head checkout one call deeper.
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/relay.yml\n",
+        )
+        _write(
+            wf_dir, "relay.yml", "name: R\non: workflow_call\njobs:\n  hop:\n    uses: ./.github/workflows/leaf.yml\n"
+        )
+        _write(wf_dir, "leaf.yml", _checkout_workflow("workflow_call", "${{ github.event.pull_request.head.sha }}"))
+        issues = UntrustedTriggerCheckoutCheck().run(_read_all(wf_dir)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert "relay.yml -> leaf.yml" in issues[0].message
+
+    @pytest.mark.parametrize("nested", [False, True])
+    def test_follows_a_head_ref_passed_as_an_input(self, tmp_path: Path, nested: bool) -> None:
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        first = "relay.yml" if nested else "leaf.yml"
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n"
+            f"    uses: ./.github/workflows/{first}\n"
+            "    with:\n      sha: ${{ github.event.pull_request.head.sha }}\n",
+        )
+        if nested:
+            _write(
+                wf_dir,
+                "relay.yml",
+                "name: R\non: workflow_call\njobs:\n  hop:\n    uses: ./.github/workflows/leaf.yml\n"
+                "    with:\n      commit: ${{ inputs.sha }}\n",
+            )
+        leaf_input = "commit" if nested else "sha"
+        _write(wf_dir, "leaf.yml", _checkout_workflow("workflow_call", f"${{{{ inputs.{leaf_input} }}}}"))
+        issues = UntrustedTriggerCheckoutCheck().run(_read_all(wf_dir)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+
+    def test_ignores_an_input_that_carries_the_base_ref(self, tmp_path: Path) -> None:
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/leaf.yml\n"
+            "    with:\n      sha: ${{ github.event.pull_request.base.sha }}\n",
+        )
+        _write(wf_dir, "leaf.yml", _checkout_workflow("workflow_call", "${{ inputs.sha }}"))
+        assert UntrustedTriggerCheckoutCheck().run(_read_all(wf_dir)).issues == []
+
+    def test_a_reusable_call_cycle_terminates(self, tmp_path: Path) -> None:
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/a.yml\n",
+        )
+        _write(wf_dir, "a.yml", "name: A\non: workflow_call\njobs:\n  hop:\n    uses: ./.github/workflows/b.yml\n")
+        _write(wf_dir, "b.yml", "name: B\non: workflow_call\njobs:\n  hop:\n    uses: ./.github/workflows/a.yml\n")
+        assert UntrustedTriggerCheckoutCheck().run(_read_all(wf_dir)).issues == []
+
+    @pytest.mark.parametrize(
+        "ref",
+        [
+            "${{ env.PR_HEAD }}",
+            "${{ matrix.sha }}",
+            "${{ needs.preflight.outputs.sha }}",
+            "${{ steps.pr.outputs.sha }}",
+            "${{ github.event.comment.body }}",
+        ],
+    )
+    def test_fails_closed_on_a_ref_it_cannot_prove_is_the_base(self, tmp_path: Path, ref: str) -> None:
+        # `env:` aliases, `$GITHUB_ENV`, matrix entries and job outputs are each one
+        # assignment away from the head SHA, so the rule does not try to trace them.
+        _write(tmp_path, "wf.yml", _checkout_workflow("pull_request_target", ref))
+        issues = UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert "cannot prove" in issues[0].message
+
+    @pytest.mark.parametrize(
+        "ref",
+        [
+            "master",
+            "${{ github.sha }}",
+            "${{ github.event.pull_request.base.ref || 'master' }}",
+            "${{ vars.RELEASE_BRANCH }}",
+            "${{ format('refs/heads/{0}', github.event.repository.default_branch) }}",
+        ],
+    )
+    def test_passes_on_a_ref_built_from_base_contexts(self, tmp_path: Path, ref: str) -> None:
+        _write(tmp_path, "wf.yml", _checkout_workflow("pull_request_target", f'"{ref}"'))
+        assert UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_the_allow_marker_exempts_a_deliberate_head_build(self, tmp_path: Path) -> None:
+        workflow = _checkout_workflow("issue_comment", "${{ needs.preflight.outputs.pr_head_sha }}").replace(
+            "  act:\n", "  # hogli-lint: allow-trusted-checkout -- approval-gated canary build\n  act:\n"
+        )
+        _write(tmp_path, "wf.yml", workflow)
+        assert UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_the_allow_marker_needs_a_reason(self, tmp_path: Path) -> None:
+        workflow = _checkout_workflow("issue_comment", "${{ needs.preflight.outputs.pr_head_sha }}").replace(
+            "  act:\n", "  # hogli-lint: allow-trusted-checkout\n  act:\n"
+        )
+        _write(tmp_path, "wf.yml", workflow)
+        assert len(UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues) == 1
+
+    def test_judges_an_omitted_input_by_its_default(self, tmp_path: Path) -> None:
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/leaf.yml\n",
+        )
+        leaf = _checkout_workflow("workflow_call", "${{ inputs.sha }}").replace(
+            "on: workflow_call\n",
+            "on:\n  workflow_call:\n    inputs:\n      sha:\n        type: string\n"
+            "        default: ${{ github.event.pull_request.head.sha }}\n",
+        )
+        _write(wf_dir, "leaf.yml", leaf)
+        issues = UntrustedTriggerCheckoutCheck().run(_read_all(wf_dir)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert "defaults to" in issues[0].message
+
+    def test_passes_a_dispatch_input_at_the_top_level(self, tmp_path: Path) -> None:
+        # Top-level `inputs.*` only come from workflow_dispatch, which a maintainer runs.
+        _write(tmp_path, "wf.yml", _checkout_workflow("[workflow_run, workflow_dispatch]", "${{ inputs.ref }}"))
+        assert UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues == []
+
+
+# ---------------------------------------------------------------------------
+# WF017 required status checks
+# ---------------------------------------------------------------------------
+
+
+def _repo_with_snapshot(tmp_path: Path, snapshot: str, workflow: str) -> list[Workflow]:
+    wf_dir = tmp_path / ".github" / "workflows"
+    wf_dir.mkdir(parents=True, exist_ok=True)
+    (wf_dir / "wf.yml").write_text(textwrap.dedent(workflow).lstrip())
+    (tmp_path / ".github" / "required-status-checks.txt").write_text(snapshot)
+    return _read_all(wf_dir)
+
+
+_REQUIRED_WF = """
+name: T
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  gate:
+    name: Gate Checks Pass
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: echo hi
+"""
+
+
+class TestRequiredStatusChecksCheck:
+    def test_passes_when_the_named_job_exists(self, tmp_path: Path) -> None:
+        wfs = _repo_with_snapshot(tmp_path, "Gate Checks Pass\n", _REQUIRED_WF)
+        assert RequiredStatusChecksCheck().run(wfs).issues == []
+
+    def test_fails_when_the_required_job_is_renamed(self, tmp_path: Path) -> None:
+        wfs = _repo_with_snapshot(tmp_path, "Gate Checks Pass\nOld Name\n", _REQUIRED_WF)
+        issues = [i for i in RequiredStatusChecksCheck().run(wfs).issues if "Old Name" in i.message]
+        assert len(issues) == 1, [i.render() for i in issues]
+
+    def test_fails_when_the_required_job_cannot_fail(self, tmp_path: Path) -> None:
+        workflow = _REQUIRED_WF.replace(
+            "    timeout-minutes: 5\n", "    timeout-minutes: 5\n    continue-on-error: true\n"
+        )
+        wfs = _repo_with_snapshot(tmp_path, "Gate Checks Pass\n", workflow)
+        issues = RequiredStatusChecksCheck().run(wfs).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert "cannot fail" in issues[0].message
+
+    def test_accepts_a_check_posted_through_the_checks_api(self, tmp_path: Path) -> None:
+        # `.depot/workflows/ci-backend.yml` posts its `Test results` check from a step.
+        posting = (
+            "      - name: Post\n"
+            "        env:\n"
+            "          GATE_CHECK: Some Posted Check\n"
+            '        run: gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK"'
+        )
+        workflow = _REQUIRED_WF.replace("      - run: echo hi", posting)
+        wfs = _repo_with_snapshot(tmp_path, "Some Posted Check\n", workflow)
+        assert RequiredStatusChecksCheck().run(wfs).issues == []
+
+    def test_does_not_accept_a_name_that_only_appears_in_a_script(self, tmp_path: Path) -> None:
+        workflow = _REQUIRED_WF.replace("      - run: echo hi", "      - run: echo Posting Some Posted Check")
+        wfs = _repo_with_snapshot(tmp_path, "Some Posted Check\n", workflow)
+        issues = [i for i in RequiredStatusChecksCheck().run(wfs).issues if "Some Posted Check" in i.message]
+        assert len(issues) == 1, [i.render() for i in issues]
+
+    def test_does_not_accept_a_renamed_check_sharing_a_prefix(self, tmp_path: Path) -> None:
+        # `name in blob` accepted `Test results v2` as a producer of `Test results`.
+        posting = (
+            "      - name: Post\n"
+            "        env:\n"
+            "          GATE_CHECK: Some Posted Check v2\n"
+            '        run: gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK"'
+        )
+        workflow = _REQUIRED_WF.replace("      - run: echo hi", posting)
+        wfs = _repo_with_snapshot(tmp_path, "Some Posted Check\n", workflow)
+        issues = [i for i in RequiredStatusChecksCheck().run(wfs).issues if "Some Posted Check" in i.message]
+        assert len(issues) == 1, [i.render() for i in issues]
+
+    def test_does_not_accept_a_telemetry_input_of_a_posting_step(self, tmp_path: Path) -> None:
+        # A posting step's action input can mention another check for telemetry; that is
+        # not a producer. Only the name the call actually posts counts.
+        posting = (
+            "      - name: Post\n"
+            "        with:\n"
+            "          status-job: Some Posted Check\n"
+            '        run: gh api "repos/$REPO/check-runs" --method POST -f name="Other Check"'
+        )
+        workflow = _REQUIRED_WF.replace("      - run: echo hi", posting)
+        wfs = _repo_with_snapshot(tmp_path, "Some Posted Check\n", workflow)
+        issues = [i for i in RequiredStatusChecksCheck().run(wfs).issues if "Some Posted Check" in i.message]
+        assert len(issues) == 1, [i.render() for i in issues]
+
+    def test_skips_when_no_snapshot_exists(self, tmp_path: Path) -> None:
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        (wf_dir / "wf.yml").write_text(textwrap.dedent(_REQUIRED_WF).lstrip())
+        assert RequiredStatusChecksCheck().run(_read_all(wf_dir)).issues == []
