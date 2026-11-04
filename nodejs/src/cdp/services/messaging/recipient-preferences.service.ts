@@ -170,8 +170,7 @@ export class RecipientPreferencesService {
             )
             return result.skip
         } catch (error) {
-            // Let the step run: the send-time check in EmailService reads the list again and holds the email
-            // until the lookup works, so a lookup error here never sends to a suppressed address.
+            // EmailService checks the list again at send time and holds the email, so this never mails a suppressed address.
             logger.error(`Failed to check suppression list for team ${invocation.teamId}:`, error)
             return false
         }

@@ -32,7 +32,6 @@ export function emailSuppressionConfigFromEnv(): EmailSuppressionConfig {
     }
 }
 
-/** The suppression list could not be read, so nobody knows whether the recipient may receive email. */
 export class SuppressionLookupError extends Error {
     constructor() {
         super('Could not check the suppression list')

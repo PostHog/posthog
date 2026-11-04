@@ -801,12 +801,11 @@ export class EmailService {
             success = true
             result.emailSendResult = { status: 'accepted' }
         } catch (error) {
-            // A test send runs in process and cannot wait for a retry, so an unread suppression list fails it.
+            // An unread suppression list reschedules like a throttle, except a test send, which cannot wait and fails.
             if (error instanceof SESThrottleError || (error instanceof SuppressionLookupError && !isTest)) {
                 // Treat as a transient delivery delay — reschedule rather than fail
                 // the job. Our local bucket is the primary throttle; this path
                 // catches the cases where SES disagrees with our estimate.
-                // An unread suppression list holds the email the same way, so it never skips the check.
                 const retryAfterMs =
                     error instanceof SESThrottleError
                         ? error.retryAfterMs
@@ -821,10 +820,7 @@ export class EmailService {
                         ? `SES rate-limited (${error.errorCode}); rescheduling email in ${retryAfterMs}ms`
                         : `Could not check the suppression list, so this email is waiting. Retrying in ${Math.round(retryAfterMs / 1000)}s. No action is needed on your side.`
                 )
-                // Skip both the VM-state push and the business-metric emit. The
-                // eventual successful retry will produce `email_sent` and push the
-                // success bit to the VM stack — pushing them now would double-count
-                // and lie about the send outcome.
+                // Skip the VM-state push and the metrics, because the retry that succeeds records both.
                 return result
             } else {
                 addLog('error', error.message)
