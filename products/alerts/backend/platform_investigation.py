@@ -44,6 +44,7 @@ from products.alerts.backend.models.investigation import InsightAlertInvestigati
 from products.alerts.backend.platform_investigation_detail import (
     INVESTIGATION_REQUESTED_KEY,
     METRICS_INVESTIGATION_REQUESTED_KEY,
+    SUPPRESSED_BY_AGENT_KEY,
     InvestigationClaims,
     InvestigationStart,
     MetricsInvestigationRun,
@@ -220,7 +221,12 @@ def with_investigation(check: PlatformAlertCheckInput, evaluation: SourceBatchEv
         )
     if group.kind == AlertEventKind.FIRING and carried_verdict_suppresses(alert, decision):
         # As the insight stack: the firing still moves the alert's state and `last_notified_at`.
-        group = replace(group, kind=AlertEventKind.CHECK, muted_notification=NotificationAction.FIRE.value)
+        group = replace(
+            group,
+            kind=AlertEventKind.CHECK,
+            muted_notification=NotificationAction.FIRE.value,
+            source_detail={**group.source_detail, SUPPRESSED_BY_AGENT_KEY: True},
+        )
         return replace(evaluation, outcomes=(replace(outcome, groups=(group,)),), deliveries=())
     return evaluation
 

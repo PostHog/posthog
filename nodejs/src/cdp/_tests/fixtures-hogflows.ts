@@ -1,5 +1,5 @@
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { PostgresRouter } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
 import { insertRow } from '~/tests/helpers/sql'
 
@@ -18,6 +18,20 @@ export const insertHogFlow = async (postgres: PostgresRouter, hogFlow: HogFlow):
         created_by_id: null,
     })
     return res
+}
+
+export const hideHogFlowsFromReplica = (
+    postgres: PostgresRouter,
+    ids: HogFlow['id'][]
+): jest.SpyInstance<ReturnType<PostgresRouter['query']>, Parameters<PostgresRouter['query']>> => {
+    const query = postgres.query.bind(postgres)
+    return jest.spyOn(postgres, 'query').mockImplementation(async (target, queryString, values, tag, logLevel) => {
+        const result = await query(target, queryString, values, tag, logLevel)
+        if (target === PostgresUse.COMMON_READ && tag === 'fetchHogFlows') {
+            return { ...result, rows: result.rows.filter((row) => !ids.includes(row.id)) }
+        }
+        return result
+    })
 }
 
 export const createHogFlowInvocationContext = (

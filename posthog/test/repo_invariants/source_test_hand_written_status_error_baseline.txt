@@ -1,6 +1,5 @@
 products/warehouse_sources/sources/instantly/tests/test_instantly_source.py
 products/warehouse_sources/backend/temporal/data_imports/sources/stripe/tests/test_stripe_source.py
-products/warehouse_sources/backend/temporal/data_imports/sources/tiktok_ads/test/test_tiktok_ads_source.py
 products/warehouse_sources/sources/whop/tests/test_whop_source.py
 products/warehouse_sources/sources/adobe_analytics/tests/test_adobe_analytics_source.py
 products/warehouse_sources/sources/alguna/tests/test_alguna_source.py
@@ -66,6 +65,7 @@ products/warehouse_sources/sources/shopify/tests/test_access_token.py
 products/warehouse_sources/sources/sigma_computing/tests/test_sigma_computing_source.py
 products/warehouse_sources/sources/snowplow/tests/test_snowplow_source.py
 products/warehouse_sources/sources/solarwinds_service_desk/tests/test_solarwinds_service_desk_source.py
+products/warehouse_sources/sources/tiktok_ads/test/test_tiktok_ads_source.py
 products/warehouse_sources/sources/tremendous/tests/test_tremendous_source.py
 products/warehouse_sources/sources/trustpilot/tests/test_trustpilot_source.py
 products/warehouse_sources/sources/ubidots/tests/test_ubidots_source.py

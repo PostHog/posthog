@@ -9,6 +9,11 @@ CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 # To edit, visit: ${SITE_URL}/admin/posthog/instancesetting/
 
 CONSTANCE_CONFIG = {
+    "AI_OBSERVABILITY_DATASET_RETENTION_ENABLED": (
+        True,
+        "Enable expiry and deletion of unused AI observability datasets and historical versions in this region.",
+        bool,
+    ),
     "WAREHOUSE_PERSON_PROPERTY_SET_RATE_PER_SEC": (
         5000,
         "Global max rate (events/sec) at which the warehouse person-property consumer sends $set "
@@ -24,6 +29,13 @@ CONSTANCE_CONFIG = {
         get_from_env("HOGQL_PROJECTION_OPTIMIZATION_ENABLED", True, type_cast=str_to_bool),
         "Whether HogQL prunes unused subquery columns and narrows exported event properties. "
         "Disable to skip both optimizations for every project, even when optimizeProjections is true. "
+        "Changes reach workers within about a minute and affect newly compiled queries only.",
+        bool,
+    ),
+    "HOGQL_PROPERTIES_NARROWING_ENABLED": (
+        get_from_env("HOGQL_PROPERTIES_NARROWING_ENABLED", True, type_cast=str_to_bool),
+        "Whether a HogQL subquery exports only the keys read of the events properties blob. "
+        "Disable to export the whole blob again while unused subquery columns are still pruned. "
         "Changes reach workers within about a minute and affect newly compiled queries only.",
         bool,
     ),
@@ -430,6 +442,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "GROWTH_RESCORE_WEBHOOK_SECRET",
     "HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED",
     "HOGQL_PROJECTION_OPTIMIZATION_ENABLED",
+    "HOGQL_PROPERTIES_NARROWING_ENABLED",
     "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED",
     "HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS",
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",

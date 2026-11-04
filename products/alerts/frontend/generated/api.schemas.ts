@@ -284,10 +284,23 @@ export const MetricsAlertConfigApiType = {
     MetricsAlertConfig: 'MetricsAlertConfig',
 } as const
 
+export interface MetricsDashboardVariableSelectionApi {
+    all?: boolean | null
+    /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
+    values: string[]
+}
+
+/**
+ * Values for the `$name` variables in the insight's query.
+ */
+export type MetricsAlertConfigApiVariables = { [key: string]: MetricsDashboardVariableSelectionApi } | null
+
 export interface MetricsAlertConfigApi {
     /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
     check_ongoing_interval?: boolean | null
     type: MetricsAlertConfigApiType
+    /** Values for the `$name` variables in the insight's query. */
+    variables?: MetricsAlertConfigApiVariables
 }
 
 /**
