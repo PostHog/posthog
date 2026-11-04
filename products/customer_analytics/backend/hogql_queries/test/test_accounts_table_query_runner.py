@@ -1326,6 +1326,25 @@ class TestAccountsTableQueryRunner(BaseTest):
                 )
                 assert [row.name for row in response.results] == expected_names
 
+        custom_property_column = AccountsTableCustomPropertyColumn(definitionId=str(custom_property_definition.id))
+        for direction, expected_names in [
+            (AccountsTableSortDirection.ASC, ["Beta", "Alpha", "Gamma"]),
+            (AccountsTableSortDirection.DESC, ["Alpha", "Beta", "Gamma"]),
+        ]:
+            pages = [
+                self._run(
+                    AccountsTableQuery(
+                        columns=[],
+                        filters=[],
+                        sort=AccountsTableSort(column=custom_property_column, direction=direction),
+                        limit=1,
+                        offset=offset,
+                    )
+                ).results
+                for offset in range(4)
+            ]
+            assert [row.name for page in pages for row in page] == expected_names, direction
+
     def test_rejects_regex_custom_property_filters(self) -> None:
         definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
 
