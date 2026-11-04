@@ -5709,6 +5709,7 @@ export const IntegrationKindApi = {
     AppleAds: 'apple-ads',
     Postgresql: 'postgresql',
     AwsS3: 'aws-s3',
+    AwsWarehouseSources: 'aws-warehouse-sources',
     AwsRedshift: 'aws-redshift',
     S3Compatible: 's3-compatible',
     Snowflake: 'snowflake',

@@ -7269,6 +7269,7 @@ export namespace Schemas {
         | "apple-ads"
         | "postgresql"
         | "aws-s3"
+        | "aws-warehouse-sources"
         | "aws-redshift"
         | "s3-compatible"
         | "snowflake"
