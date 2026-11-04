@@ -51,7 +51,7 @@ Propose concrete values and ask for changes. Do not start until a person has agr
 - **Steps.** For example 5, 25, 50, 100. Smaller first steps suit riskier changes and larger units.
 - **Soak.** The time at each step, long enough to include the traffic pattern that matters. A step that soaks only on a weekday has not seen the weekend batch jobs.
 - **Gates.** See below.
-- **Rollback.** Which call, who may make it, and whether anything the feature wrote needs cleanup. Lowering the percentage keeps the first units in and removes the last ones. `posthog:feature-flag-disable` turns off every condition, returns 400 when active flags depend on this one, and sends every caller to its own default.
+- **Rollback.** Which call, who may make it, and whether anything the feature wrote needs cleanup. Lowering the percentage keeps the first units in and removes the last ones. `posthog:feature-flag-disable` sets the flag inactive and leaves its conditions and percentages unchanged, so enabling it again restores the same rollout. It returns 400 when active flags depend on this one, and it sends every caller to its own default.
 - **Who approves each step.** See step 5.
 
 A percentage of groups is not a percentage of load, because a few large groups can carry most of the traffic.
