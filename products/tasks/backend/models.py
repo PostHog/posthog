@@ -463,6 +463,45 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         KNOWLEDGE_WRITER = "knowledge_writer", "Knowledge Writer"
         CONTEXT_LAYER = "context_layer", "Context Layer"
 
+    # Origins set only by server-side flows. The task write serializer rejects them from API callers.
+    SERVER_ONLY_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
+        {
+            OriginProduct.SPACE_SETUP,
+            OriginProduct.IMAGE_BUILDER,
+            OriginProduct.EXPERIMENTS,
+            OriginProduct.SIGNALS_SCOUT,
+            OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+            OriginProduct.SUPPORT_REPLY,
+            # Only the autoresearch training loop creates these, in-process. Nothing legitimately
+            # sets the origin from outside, so reserve it before anything starts depending on it.
+            OriginProduct.AUTORESEARCH,
+            # Routes the run's LLM traffic to the unbilled `onboarding` gateway product, so a
+            # forged origin would be free model access. Only create_wizard_cloud_run sets it,
+            # behind its own rate limits and daily cap.
+            OriginProduct.ONBOARDING,
+            OriginProduct.ACCOUNT_AUDIT,
+            # Exempt from the Desktop code-access gate on run endpoints, so a forged origin
+            # would bypass the waitlist. Only the signals scout-chat endpoint sets it.
+            OriginProduct.SIGNALS_CHAT,
+            # Attributes the task to a workflow, which the workflow_tasks endpoint proves
+            # via its service JWT. A forged origin would fake that provenance.
+            OriginProduct.WORKFLOW,
+            # Maps to the mintable `review_hog` gateway product, so a forged origin would
+            # mint an internally funded scoped token. Only ReviewHog's executor sets it.
+            OriginProduct.REVIEW_HOG,
+            OriginProduct.TASK_ANALYSIS,
+            # Maps to the mintable `slack_app` gateway product. Only the Slack app's server flows set it.
+            OriginProduct.SLACK,
+            # Internal business-knowledge sandbox runs. Only that product's sandbox endpoint sets it.
+            OriginProduct.BUSINESS_KNOWLEDGE,
+            # Maps to the billed `posthog_ai` gateway product. Only the metrics dashboard import sets it.
+            OriginProduct.METRICS_IMPORT,
+            # Owns the docs repository branch it pushes to. Only the knowledge writer intake sets it.
+            OriginProduct.KNOWLEDGE_WRITER,
+            OriginProduct.CONTEXT_LAYER,
+        }
+    )
+
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
