@@ -156,9 +156,12 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
     # Get the unique persons enrolled in the feature along with their distinct ID.
     # Property access (rather than JSONExtractString) lets the HogQL printer use
     # materialized person-property columns when available.
-    # Distinct IDs come from raw_person_distinct_ids filtered to the enrolled persons before
-    # aggregating: the persons.pdi join aggregates every distinct ID of the team first, which
-    # runs out of memory on large teams.
+    # Distinct IDs come from raw_person_distinct_ids restricted to distinct IDs that ever
+    # mapped to an enrolled person: the persons.pdi join aggregates every distinct ID of the
+    # team first, which runs out of memory on large teams. Ownership is then resolved per
+    # distinct_id the way the person_distinct_ids view does (argMax(person_id, version),
+    # latest version not deleted), so a distinct ID that moved to another person or was
+    # deleted is not picked for the enrolled person.
     try:
         response = execute_hogql_query(
             """
@@ -171,14 +174,25 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
                 GROUP BY properties.email
             ) AS p
             INNER JOIN (
-                SELECT person_id, argMax(distinct_id, version) AS distinct_id
-                FROM raw_person_distinct_ids
-                WHERE is_deleted = 0
-                AND person_id IN (
-                    SELECT id
-                    FROM persons
-                    WHERE properties[{enrollment_key}] = 'true'
-                    AND notEmpty(properties.email)
+                SELECT person_id, argMax(distinct_id, max_version) AS distinct_id
+                FROM (
+                    SELECT
+                        distinct_id,
+                        argMax(raw_person_distinct_ids.person_id, version) AS person_id,
+                        max(version) AS max_version
+                    FROM raw_person_distinct_ids
+                    WHERE distinct_id IN (
+                        SELECT distinct_id
+                        FROM raw_person_distinct_ids
+                        WHERE person_id IN (
+                            SELECT id
+                            FROM persons
+                            WHERE properties[{enrollment_key}] = 'true'
+                            AND notEmpty(properties.email)
+                        )
+                    )
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0
                 )
                 GROUP BY person_id
             ) AS d ON p.id = d.person_id
