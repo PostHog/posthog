@@ -391,9 +391,9 @@ describe('ToolExecutor', () => {
             ])
         })
 
-        // The flag decides skill exposure per client; guides stay a Claude chat-host
-        // feature; plugin and sandbox consumers get neither because they carry their
-        // own skills. A regression in any row silently changes what an agent is told.
+        // The flag decides skill exposure per client; guides reach every client; plugin
+        // and sandbox consumers get neither because they carry their own skills.
+        // A regression in any row silently changes what an agent is told.
         it.each([
             {
                 label: 'Claude web/desktop with flag off',
@@ -416,7 +416,7 @@ describe('ToolExecutor', () => {
                 isClaudeChatHost: false,
                 skillsEnabled: false,
                 consumer: undefined,
-                expectGuides: false,
+                expectGuides: true,
                 expectSkills: false,
             },
             {
@@ -424,7 +424,7 @@ describe('ToolExecutor', () => {
                 isClaudeChatHost: false,
                 skillsEnabled: true,
                 consumer: undefined,
-                expectGuides: false,
+                expectGuides: true,
                 expectSkills: true,
             },
             {
@@ -560,7 +560,7 @@ describe('ToolExecutor', () => {
         )
 
         it.each([{ skillsEnabled: false }, { skillsEnabled: true }])(
-            'keeps guides off a directly connected Claude Code CLI (skills flag: $skillsEnabled)',
+            'serves guides to a directly connected Claude Code CLI (skills flag: $skillsEnabled)',
             async ({ skillsEnabled }) => {
                 const state = makeToolExecutorState(
                     catalog
@@ -578,10 +578,8 @@ describe('ToolExecutor', () => {
                     { name: 'exec', arguments: { command: 'learn analytics' } },
                     state
                 )) as { content: { text: string }[]; isError?: boolean }
-                expect(result.isError).toBe(true)
-                expect(result.content[0]!.text).toContain(
-                    skillsEnabled ? 'Unknown learning topic' : 'learn command is not available'
-                )
+                expect(result.isError).toBeFalsy()
+                expect(result.content[0]!.text).toContain('### Retrieving data')
             }
         )
 
@@ -683,7 +681,8 @@ describe('ToolExecutor', () => {
         )
 
         // Hosts cache one tool roster and serve it to other accounts, so nothing
-        // account-specific may reach the advertised exec entry. The domain index stays
+        // account-specific may reach the advertised exec entry. Every client gets the
+        // learn guides instead of the inline analytics guidance. The domain index stays
         // out of the command description except for Claude web/desktop, which ignores
         // `instructions` and has nowhere else to receive it.
         it.each([
@@ -735,9 +734,9 @@ describe('ToolExecutor', () => {
 
                 expect(JSON.stringify(other.tools)).toBe(JSON.stringify(result.tools))
                 expect(commandDesc).toContain('PostHog tools have lowercase kebab-case naming')
-                expect(commandDesc.includes('**LEARN FIRST: HARD REQUIREMENT**')).toBe(isClaudeChatHost)
-                expect(commandDesc.includes('- analytics:')).toBe(isClaudeChatHost)
-                expect(commandDesc.includes('### Retrieving data')).toBe(!isClaudeChatHost)
+                expect(commandDesc).toContain('**LEARN FIRST: HARD REQUIREMENT**')
+                expect(commandDesc).toContain('- analytics:')
+                expect(commandDesc).not.toContain('### Retrieving data')
                 expect(commandDesc.includes(compactDomains)).toBe(isClaudeChatHost)
                 expect(commandDesc).toContain('Call `project-get` without an ID to read the active project')
             }
