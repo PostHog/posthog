@@ -1,7 +1,7 @@
 import { fireEvent } from '@testing-library/react'
 
 import type { ChartTheme } from '../../core/types'
-import { mockRect, renderChart, waitForChartTooltip } from '../../testing'
+import { getChartTooltip, mockRect, renderChart, waitForChartTooltip } from '../../testing'
 import { FlameGraph } from './FlameGraph'
 import type { FlameGraphProps, FlameNode } from './types'
 
@@ -48,11 +48,10 @@ describe('FlameGraph', () => {
         absent: string[]
     }>([
         {
-            label: 'the formatted value',
+            label: 'the value',
             data: TREE,
             point: [200, rowY(1)],
-            config: { valueFormatter: (v) => `${v} ms` },
-            expected: ['a', 'Value60 ms', 'Click to zoom in'],
+            expected: ['a', 'Value60', 'Click to zoom in'],
             absent: ['Baseline'],
         },
         {
@@ -61,6 +60,21 @@ describe('FlameGraph', () => {
             point: [400, rowY(0)],
             expected: ['root', 'Value130', 'Baseline100'],
             absent: [],
+        },
+        {
+            label: 'the formatted value, siblings widest first, under the breakdown preset',
+            data: {
+                name: 'all',
+                value: 100,
+                children: [
+                    { name: 'small', value: 30 },
+                    { name: 'wide', value: 60 },
+                ],
+            },
+            point: [200, rowY(1)],
+            config: { preset: 'breakdown', valueFormatter: (v) => `${v} views` },
+            expected: ['wide', 'Value60 views'],
+            absent: ['small'],
         },
     ])('shows $label in the tooltip of the hovered node', async ({ data, point, expected, config, absent }) => {
         const { chart } = renderFlame({ data, config })
@@ -74,15 +88,29 @@ describe('FlameGraph', () => {
         }
     })
 
-    it('zooms into a clicked node and zooms back out with Escape and reset', () => {
-        const { chart, container } = renderFlame()
+    it('zooms into a clicked node, drops the stale hover, reports it, and zooms back out with Escape and reset', async () => {
+        const onNodeClick = jest.fn()
+        const onFocusChange = jest.fn()
+        const { chart, container } = renderFlame({ onNodeClick, onFocusChange })
         expect(chart.flame.breadcrumb()).toEqual(['All'])
 
+        fireEvent.mouseMove(chart.element, { clientX: 200, clientY: rowY(1) })
+        await waitForChartTooltip()
         fireEvent.click(chart.element, { clientX: 200, clientY: rowY(1) })
+        expect(getChartTooltip()).toBeNull()
         expect(chart.flame.breadcrumb()).toEqual(['All', 'root', 'a'])
+        expect(onNodeClick).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'root/a', value: 60, self: 30, fractionOfRoot: 0.6 })
+        )
+        expect(onFocusChange).toHaveBeenLastCalledWith({
+            kind: 'node',
+            node: expect.objectContaining({ id: 'root/a' }),
+        })
 
         // Zoomed to `a`, its child `a1` now spans half the width instead of 30%.
+        onNodeClick.mockClear()
         fireEvent.click(chart.element, { clientX: 390, clientY: rowY(2) })
+        expect(onNodeClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'root/a/a1' }))
         expect(chart.flame.breadcrumb()).toEqual(['All', 'root', 'a', 'a1'])
 
         fireEvent.keyDown(container.querySelector('[data-attr="hog-chart-flame-viewport"]')!, { key: 'Escape' })
@@ -90,10 +118,15 @@ describe('FlameGraph', () => {
 
         fireEvent.click(container.querySelector('[data-attr="hog-chart-flame-reset"]')!)
         expect(chart.flame.breadcrumb()).toEqual(['All'])
+        expect(onFocusChange).toHaveBeenLastCalledWith(null)
     })
 
-    it('zooms into a "+N more" bundle of small siblings', () => {
+    it('zooms into a "+N more" bundle of small siblings and reports the bundle, not a node click', () => {
+        const onNodeClick = jest.fn()
+        const onFocusChange = jest.fn()
         const { chart } = renderFlame({
+            onNodeClick,
+            onFocusChange,
             data: {
                 name: 'p',
                 value: 1000,
@@ -107,6 +140,11 @@ describe('FlameGraph', () => {
         })
         fireEvent.click(chart.element, { clientX: 722, clientY: rowY(1) })
         expect(chart.flame.breadcrumb()).toEqual(['All', 'p', '+3 more'])
+        expect(onNodeClick).not.toHaveBeenCalled()
+        expect(onFocusChange).toHaveBeenLastCalledWith({
+            kind: 'bundle',
+            bundle: expect.objectContaining({ count: 3 }),
+        })
     })
 
     it('drops a hover from before a data update instead of reading the new tree with old indices', () => {
@@ -148,6 +186,16 @@ describe('FlameGraph', () => {
         }
     })
 
+    it('reports a click without zooming or showing a tooltip when both are off', () => {
+        const onNodeClick = jest.fn()
+        const { chart } = renderFlame({ onNodeClick, config: { clickToFocus: false, tooltip: { enabled: false } } })
+        fireEvent.mouseMove(chart.element, { clientX: 200, clientY: rowY(1) })
+        expect(getChartTooltip()).toBeNull()
+        fireEvent.click(chart.element, { clientX: 200, clientY: rowY(1) })
+        expect(onNodeClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'root/a' }))
+        expect(chart.flame.breadcrumb()).toEqual(['All'])
+    })
+
     it('lists group colors through the shared legend accessor, largest self share first', () => {
         const data: FlameNode = {
             name: 'main',
@@ -158,11 +206,14 @@ describe('FlameGraph', () => {
                 { name: 'render', value: 10, group: 'app' },
             ],
         }
-        const { chart } = renderFlame({ data })
+        const { chart, rerender } = renderFlame({ data })
         expect(chart.legendItems()).toEqual([
             { label: 'db', secondaryLabel: '70%' },
             { label: 'app', secondaryLabel: '30%' },
         ])
+
+        rerender(<FlameGraph data={data} theme={THEME} config={{ legend: { show: false } }} />)
+        expect(chart.legendItems()).toEqual([])
     })
 
     it('opens on defaultFocusedId only on mount and summarizes search matches', () => {
