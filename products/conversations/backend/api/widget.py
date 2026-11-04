@@ -321,6 +321,14 @@ def _session_has_tickets(team: Team, widget_session_id: str) -> bool:
     return has_tickets
 
 
+@frozen
+class _CounterWindow:
+    key: str
+    limit: int
+    duration: int
+    seconds_left: float
+
+
 class WidgetTicketsTeamThrottle(WidgetTeamPollThrottle):
     """Moves ticket list requests from anonymous sessions that have no tickets to their own bucket.
 
@@ -364,34 +372,38 @@ class WidgetTicketsTeamThrottle(WidgetTeamPollThrottle):
     # The new-session counter must stay cheap when it is full, because a flood of first page views
     # sends every request through it. A fixed-window counter costs one GET or INCR at any rate, while
     # SimpleRateThrottle reads and rewrites a list with one timestamp for each request in the window.
-    def _counter_window(self, request: Request, view: APIView, scope: str, rate: str) -> tuple[str, int, int, float]:
+    def _counter_window(self, request: Request, view: APIView, scope: str, rate: str) -> _CounterWindow:
         num_requests, duration = self.parse_rate(rate)
         assert num_requests is not None and duration is not None
         window_start = int(self.timer() // duration * duration)
         poll_key = self.get_cache_key(request, view)
         ident = poll_key.removeprefix(self.cache_format % {"scope": self.scope, "ident": ""})
-        key = f"{self.cache_format % {'scope': scope, 'ident': ident}}:{window_start}"
-        return key, num_requests, duration, window_start + duration - self.timer()
+        return _CounterWindow(
+            key=f"{self.cache_format % {'scope': scope, 'ident': ident}}:{window_start}",
+            limit=num_requests,
+            duration=duration,
+            seconds_left=window_start + duration - self.timer(),
+        )
 
     def _counter_has_room(self, request: Request, view: APIView, scope: str, rate: str) -> bool:
-        key, num_requests, _, remaining = self._counter_window(request, view, scope, rate)
-        if (self.cache.get(key) or 0) < num_requests:
+        window = self._counter_window(request, view, scope, rate)
+        if (self.cache.get(window.key) or 0) < window.limit:
             return True
-        self._counter_wait = remaining
+        self._counter_wait = window.seconds_left
         return False
 
     def _counter_take(self, request: Request, view: APIView, scope: str, rate: str) -> bool:
-        key, num_requests, duration, remaining = self._counter_window(request, view, scope, rate)
-        self.cache.add(key, 0, duration)
+        window = self._counter_window(request, view, scope, rate)
+        self.cache.add(window.key, 0, window.duration)
         try:
-            count = self.cache.incr(key)
+            count = self.cache.incr(window.key)
         except ValueError:
             # The window expired between the add and the incr, so this request starts the next one.
-            self.cache.set(key, 1, duration)
+            self.cache.set(window.key, 1, window.duration)
             count = 1
-        if count <= num_requests:
+        if count <= window.limit:
             return True
-        self._counter_wait = remaining
+        self._counter_wait = window.seconds_left
         return False
 
 
