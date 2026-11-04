@@ -9043,7 +9043,7 @@
         }
     },
     "llma-evaluation-backfill-list": {
-        "description": "List the backfills of one evaluation, newest first, with status, window, and counts. At most one is running at a time. See llma-evaluation-backfill-get for what each count means.",
+        "description": "List the backfills of one evaluation, newest first, with status, window, and counts. evaluation_id is required: there is no project-wide list, so to check every evaluation, get their UUIDs from llma-evaluation-list and call this once per evaluation. At most one is running at a time. See llma-evaluation-backfill-get for what each count means.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List evaluation backfills",
