@@ -911,8 +911,9 @@ class TestWorktreeLabel:
             ("feat/session-replay", "feat-session-replay"),
             ("Fix_Cohort__Query", "fix-cohort-query"),
             ("worktree-agent-abc", "agent-abc"),
+            ("worktree/brave-river-1a2b", "brave-river-1a2b"),
         ],
-        ids=["slash", "case-and-underscores", "claude-worktree-prefix"],
+        ids=["slash", "case-and-underscores", "claude-worktree-prefix", "herdr-worktree-prefix"],
     )
     def test_short_branch_becomes_readable_label(self, branch: str, expected: str) -> None:
         assert devbox_worktree.derive_label(branch, 20) == expected
@@ -1064,6 +1065,48 @@ class TestDevboxWorktreeCommand:
         expected_calls = [expected_box] if expected_exit == 0 else []
         assert (started, synced) == (expected_calls, expected_calls)
         assert devbox_config.load_worktree_boxes()[str(worktree_root)].workspace == expected_box
+
+    @pytest.mark.parametrize(
+        "live_id, expected_exit",
+        [
+            pytest.param("id-of-the-old-box", 0, id="adopts-the-box-it-replaces-and-resets-its-mirror"),
+            pytest.param("id-of-a-recreated-box", 1, id="refuses-a-same-name-box-it-did-not-set-up"),
+        ],
+    )
+    def test_worktree_recreated_at_the_same_path(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_root: Path, live_id: str, expected_exit: int
+    ) -> None:
+        name = "devbox-test-user-wt"
+        workspaces = [{"name": name, "id": live_id, "latest_build": {"status": "stopped"}}]
+        monkeypatch.setattr(devbox_worktree, "fetch_user_workspaces", lambda: workspaces)
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: workspaces)
+        devbox_config.record_worktree_box(
+            worktree_root,
+            devbox_config.WorktreeBoxRecord(
+                workspace=name,
+                git_dir="admin",
+                workspace_id="id-of-the-old-box",
+                worktree_id="id-of-the-removed-worktree",
+            ),
+        )
+        started: list[str] = []
+        terminated: list[str] = []
+        monkeypatch.setattr(
+            devbox_worktree,
+            "devbox_start",
+            lambda workspace, region, verbose, start_app=None: started.append(workspace),
+        )
+        monkeypatch.setattr(devbox_worktree, "ensure_sync_session", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_worktree.mutagen, "sync_terminate", terminated.append)
+
+        result = runner.invoke(cli, ["devbox:worktree"])
+
+        assert result.exit_code == expected_exit, result.output
+        adopted = expected_exit == 0
+        assert started == (["wt"] if adopted else [])
+        assert terminated == ([devbox_worktree.mutagen.workspace_label_selector(name)] if adopted else [])
+        record = devbox_config.load_worktree_boxes()[str(worktree_root)]
+        assert (record.worktree_id != "id-of-the-removed-worktree") is adopted
 
     @pytest.mark.parametrize("box_exists", [False, True], ids=["before-the-box-exists", "while-the-box-is-set-up"])
     def test_label_claimed_by_another_worktree_is_refused(

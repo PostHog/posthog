@@ -1,0 +1,10 @@
+id = "posthog.devbox"
+name = "PostHog devbox"
+version = "0.1.0"
+min_herdr_version = "0.7.1"
+description = "Stop or delete the devbox of a PostHog worktree when herdr removes the worktree"
+platforms = ["linux", "macos"]
+
+[[events]]
+on = "worktree.removed"
+command = ["python3", "-I", "on_worktree_removed.py"]

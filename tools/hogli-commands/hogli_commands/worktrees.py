@@ -72,13 +72,24 @@ def _worktree_roots(repo_root: Path) -> list[tuple[str, Path]]:
     ]
 
 
+# Roots of tools that remove and recreate their own worktrees. They name the
+# source for automatic devboxes, but `worktrees:clean` never scans them, because
+# deleting a worktree under such a tool breaks the thread that tracks it.
+def _self_managed_worktree_roots() -> list[tuple[str, Path]]:
+    t3code_home = os.environ.get("T3CODE_HOME") or str(Path.home() / ".t3")
+    return [
+        ("t3code", Path(t3code_home).expanduser() / "worktrees"),
+        ("herdr", Path.home() / ".herdr" / "worktrees"),
+    ]
+
+
 def worktree_source(path: Path) -> str:
     """Name the tool whose worktree root holds *path*, or ``other`` for a worktree made elsewhere."""
     return _source_under(_resolve(path), _resolve_repo(str(path)))
 
 
 def _source_under(resolved_path: Path, repo_root: Path) -> str:
-    for source, root in _worktree_roots(repo_root):
+    for source, root in [*_worktree_roots(repo_root), *_self_managed_worktree_roots()]:
         if _is_under(resolved_path, root):
             return source
     return "other"
@@ -450,6 +461,29 @@ def _boxes_of_removed_worktrees(
         if selected_sources is not None and _source_under(_resolve(Path(path)), repo_root) not in selected_sources:
             continue
         boxes.append(WorktreeBox(worktree_path=Path(path), record=record))
+    return boxes
+
+
+def prune_boxes_of_removed_worktrees(
+    repo_root: Path, box_action: str, worktree_path: Path | None, dry_run: bool
+) -> list[WorktreeBox]:
+    """Act on the boxes of this repo's worktrees that another tool already removed, or only the one at *worktree_path*.
+
+    `worktrees:clean` covers worktrees it removes itself. t3code and herdr remove
+    their own, so their boxes are found here by the same rule.
+    """
+    boxes = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, _git_common_dir(repo_root), None)
+    if worktree_path is not None:
+        boxes = [box for box in boxes if _resolve(box.worktree_path) == _resolve(worktree_path)]
+    if not boxes:
+        return []
+    click.echo(f"{len(boxes)} devbox(es) belong to worktrees that were already removed:")
+    for box in boxes:
+        click.echo(f"  {box.workspace}  {_display_path(box.worktree_path)}")
+    if dry_run:
+        click.echo(f"[DRY-RUN] Would {box_action} them.")
+    else:
+        _clean_worktree_boxes(boxes, box_action)
     return boxes
 
 

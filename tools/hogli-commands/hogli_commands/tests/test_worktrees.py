@@ -168,6 +168,33 @@ class TestWorktreeRoots:
 
         assert [p.resolve() for p in _discover_root_worktrees(roots["phw"], registry)] == [wt.resolve()]
 
+    @pytest.mark.parametrize(
+        "t3code_home, relative_path, expected",
+        [
+            (None, ".t3/worktrees/posthog/t3-1a2b3c4d", "t3code"),
+            ("custom-t3", "custom-t3/worktrees/posthog/feat-x", "t3code"),
+            (None, ".herdr/worktrees/posthog/brave-river-1a2b", "herdr"),
+            (None, "elsewhere/posthog-feat", "other"),
+        ],
+        ids=["t3code-default-home", "t3code-home-override", "herdr", "unknown-tool"],
+    )
+    def test_self_managed_worktrees_name_their_tool_but_are_never_cleaned(
+        self, tmp_path, monkeypatch, t3code_home: str | None, relative_path: str, expected: str
+    ) -> None:
+        home = tmp_path / "home"
+        monkeypatch.setattr(Path, "home", lambda: home)
+        monkeypatch.delenv("POSTHOG_WORKTREE_BASE", raising=False)
+        if t3code_home is None:
+            monkeypatch.delenv("T3CODE_HOME", raising=False)
+        else:
+            monkeypatch.setenv("T3CODE_HOME", str(home / t3code_home))
+        worktree = home / relative_path
+        worktree.mkdir(parents=True)
+        repo = tmp_path / "repo"
+
+        assert worktrees._source_under(worktree.resolve(), repo) == expected
+        assert not any(_is_under(worktree.resolve(), root) for _, root in _worktree_roots(repo))
+
 
 class TestCollectDepsItems:
     def test_never_escapes_worktree_via_symlinked_parent(self, tmp_path) -> None:
@@ -421,6 +448,41 @@ class TestWorktreeBoxes:
 
         expected = [WorktreeBox(worktree_path=repo / ".claude" / "worktrees" / "feature", record=record)]
         assert boxes == (expected if pending else [])
+
+    @pytest.mark.parametrize(
+        ("path_arg", "expected_workspaces"),
+        [
+            (None, ["devbox-test-user-feature", "devbox-test-user-other"]),
+            ("link/.herdr-wt/feature", ["devbox-test-user-feature"]),
+        ],
+        ids=["every-removed-worktree", "only-the-path-herdr-reports-through-a-symlink"],
+    )
+    def test_prune_acts_on_removed_worktrees_or_only_the_given_path(
+        self, tmp_path, monkeypatch, path_arg: str | None, expected_workspaces: list[str]
+    ) -> None:
+        repo = tmp_path / "repo"
+        common = repo / ".git"
+        (common / "worktrees").mkdir(parents=True)
+        (tmp_path / "link").symlink_to(repo, target_is_directory=True)
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        monkeypatch.setattr(worktrees, "_git_common_dir", lambda start: common)
+        for name in ("feature", "other"):
+            devbox_config.record_worktree_box(
+                repo / ".herdr-wt" / name,
+                _box(f"devbox-test-user-{name}", git_dir=common / "worktrees" / name, worktree_id=f"id-{name}"),
+            )
+        cleaned: list[tuple[list[str], str]] = []
+        monkeypatch.setattr(
+            worktrees,
+            "_clean_worktree_boxes",
+            lambda boxes, action: cleaned.append(([b.workspace for b in boxes], action)),
+        )
+
+        worktrees.prune_boxes_of_removed_worktrees(
+            repo, "stop", None if path_arg is None else tmp_path / path_arg, dry_run=False
+        )
+
+        assert cleaned == [(expected_workspaces, "stop")]
 
     @pytest.mark.parametrize(
         ("action", "status", "live_id", "last_used_at", "expected_calls"),

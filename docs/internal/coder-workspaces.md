@@ -68,8 +68,9 @@ Run `hogli devbox:worktree` from a linked worktree to give it its own labeled bo
 
 `hogli worktrees:clean --mode full --stop-boxes` (or `--delete-boxes`) also stops (or deletes) the box of each worktree it removes. Save a default with `hogli devbox:worktree --on-clean stop|delete|keep`, and override it with `--keep-boxes`. Only boxes that `devbox:worktree` set up are touched.
 It also handles boxes whose worktree was already removed some other way, but only once the box itself has not been used since the `--before` cutoff.
+`hogli devbox:worktree:prune` handles only those boxes, with no cutoff, after t3code, herdr or `git worktree remove` deleted the worktree. herdr users can link `tools/herdr-devbox-plugin` with `herdr plugin link` to run it on every herdr worktree removal.
 
-To give every new worktree a box, run `hogli devbox:worktree --auto claude,phw` once with the worktree sources you want (`claude`, `codex`, `posthog-code`, `phw`, `other`). The husky `post-checkout` hook then runs `devbox:worktree` in the background after `git worktree add`, including for `claude -w`. Claude subagent worktrees are skipped. Turn it off with `--auto off`.
+To give every new worktree a box, run `hogli devbox:worktree --auto claude,phw` once with the worktree sources you want (`claude`, `codex`, `posthog-code`, `phw`, `t3code`, `herdr`, `other`). The husky `post-checkout` hook then runs `devbox:worktree` in the background after `git worktree add`, including for `claude -w`. Claude subagent worktrees are skipped. Turn it off with `--auto off`.
 
 **Worktree boxes on Hogland** —
 `hogli devbox:worktree --provider hogland` gives the worktree a Hogland devbox instead of a Coder workspace.

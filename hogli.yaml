@@ -210,6 +210,9 @@ devbox:
     devbox:worktree:
         click: hogli_commands.devbox.worktree:devbox_worktree
         description: Give this worktree its own devbox and sync mirror
+    devbox:worktree:prune:
+        click: hogli_commands.devbox.worktree:devbox_worktree_prune
+        description: Stop or delete the devboxes of worktrees that t3code, herdr or git already removed
     devbox:worktree:auto:
         click: hogli_commands.devbox.worktree:devbox_worktree_auto
         description: Start devbox:worktree in the background for a new worktree, if auto-provisioning is on

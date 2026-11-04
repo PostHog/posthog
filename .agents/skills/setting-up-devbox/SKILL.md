@@ -176,12 +176,14 @@ hogli devbox:worktree --clone-from default -y   # create the box as a clone of a
 hogli devbox:worktree --on-clean stop           # save what worktrees:clean does with the box
 ```
 
-- The label comes from the branch name, lowercased, with `/` and `_` turned into `-` and a leading `worktree-` dropped. Coder caps workspace names at 32 characters, so a long branch gets a shortened label with a 4-character hash. Pass `--label` to choose one.
+- The label comes from the branch name, lowercased, with `/` and `_` turned into `-` and a leading `worktree-` or `worktree/` dropped. Coder caps workspace names at 32 characters, so a long branch gets a shortened label with a 4-character hash. Pass `--label` to choose one.
 - hogli records the worktree path and box name in `~/.config/posthog/hogli_devbox_worktrees.json`. A re-run reuses that box, even after a branch rename, and keeps an existing mirror.
+- A worktree recreated at the same path, as t3code does when it resumes a thread it cleaned up, takes over the box of the worktree it replaced while that box still exists, and gets a new mirror.
 - It refuses a derived label whose box already exists and is not recorded for this worktree, so it never takes over a box the user made by hand. Pass `--label <label>` to use that box on purpose. It always refuses a box recorded for another worktree.
 - `--clone-from` uses `devbox:clone`, so the source must be running and the clone asks for confirmation unless `-y` is passed. Pass `-y` only after the user agrees.
 - `hogli worktrees:clean --mode full --stop-boxes` stops the recorded box of each worktree it removes, and `--delete-boxes` deletes it with its disk. With neither flag, it uses the action saved by `--on-clean`, and `--keep-boxes` overrides that. It acts only on boxes in the record file, and skips a box that was recreated under the same name. A box it leaves alone is dropped from the record file, so a later run never touches it. `--dry-run` lists the boxes, and the confirmation prompt counts them.
 - A box whose worktree was already removed gets the same action on the next `worktrees:clean` run, within that run's `--repo` and `--source` selection. A moved or unmounted worktree does not count as removed.
+- `hogli devbox:worktree:prune` acts only on those boxes of removed worktrees, without removing any worktree. It uses the saved action, or stops the boxes when none is saved. Pass `--stop` or `--delete` to choose, `--path <worktree>` to limit it to one worktree, and `--dry-run` to list them. Use it after t3code, herdr or a plain `git worktree remove` deleted a worktree.
 - Clear the saved action with `hogli devbox:config:rm worktree-boxes`.
 
 ### Run worktree boxes on Hogland
@@ -199,16 +201,19 @@ hogli devbox:worktree --on-clean stop           # save what worktrees:clean does
 ### Provision a box for every new worktree
 
 `hogli devbox:worktree --auto claude,phw` saves the worktree sources that get a box automatically.
-The sources are `claude`, `codex`, `posthog-code`, `phw`, and `other` for a worktree outside those folders.
+The sources are `claude`, `codex`, `posthog-code`, `phw`, `t3code` (`$T3CODE_HOME/worktrees`, by default `~/.t3/worktrees`), `herdr` (`~/.herdr/worktrees`), and `other` for a worktree outside those folders.
+A t3code or herdr worktree in a custom folder set in that tool's settings counts as `other`.
 It only saves the setting, so run it from any checkout.
 After that, the husky `post-checkout` hook runs `hogli devbox:worktree -y` in the background each time `git worktree add` creates a worktree from one of those sources.
-That covers `claude -w`, Codex, PostHog Desktop, `phw`, and a plain `git worktree add`.
+That covers `claude -w`, Codex, PostHog Desktop, `phw`, t3code worktree threads, herdr worktrees, and a plain `git worktree add`.
+`worktrees:clean` never removes t3code or herdr worktrees, because those tools track and remove their own.
 
 - Claude subagent worktrees (`.claude/worktrees/agent-*`) never get a box, so a fan-out of agents doesn't create one box per agent.
 - The hook returns at once. Output goes to `hogli-devbox-worktree.log` in the worktree's git directory. Read it with `cat "$(git rev-parse --git-dir)/hogli-devbox-worktree.log"`.
 - The hook skips the box when the main checkout has no Python environment to borrow, or when this worktree's `uv.lock` differs from the main checkout's.
 - Turn it off with `hogli devbox:worktree --auto off` or `hogli devbox:config:rm worktree-auto`.
 - Boxes keep running until `hogli worktrees:clean` removes their worktree, so pair this with `--on-clean stop`.
+- A worktree that another tool removes keeps its box running until `hogli devbox:worktree:prune` runs. herdr users can run it automatically: `herdr plugin link <main checkout>/tools/herdr-devbox-plugin` installs a plugin that runs `devbox:worktree:prune --path <worktree>` on each `worktree.removed` event. t3code has no removal hook, so run `devbox:worktree:prune` by hand.
 
 ## Other tasks
 

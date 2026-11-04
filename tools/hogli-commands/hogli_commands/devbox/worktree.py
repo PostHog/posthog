@@ -14,7 +14,7 @@ from typing import Any
 
 import click
 
-from ..worktrees import worktree_source
+from ..worktrees import prune_boxes_of_removed_worktrees, worktree_source
 from . import hogland, mutagen
 from .cli import _preferred_region, devbox_clone, devbox_start, resolve_workspace_name
 from .coder import (
@@ -45,6 +45,7 @@ from .config import (
     save_worktree_box_cleanup,
     save_worktree_provider,
     saved_worktree_auto_sources,
+    saved_worktree_box_cleanup,
     saved_worktree_provider,
     worktree_box_claimant,
 )
@@ -52,7 +53,7 @@ from .sync import _REMOTE_REPO_PATH, _detect_local_posthog_checkout, ensure_hogl
 
 CODER_NAME_MAX_LENGTH = 32
 _HASH_LENGTH = 4
-_BRANCH_PREFIXES_TO_DROP = ("worktree-",)
+_BRANCH_PREFIXES_TO_DROP = ("worktree-", "worktree/")
 _RESERVED_SUFFIXES = tuple(suffix for suffix in REGION_NAME_SUFFIXES.values() if suffix)
 _AUTO_OFF = "off"
 _AUTO_LOG_NAME = "hogli-devbox-worktree.log"
@@ -154,6 +155,7 @@ class _WorktreeTarget:
     workspace_name: str
     label: str
     abandoned_mirror: str | None = None
+    reset_mirror: bool = False
 
 
 @dataclass(frozen=True)
@@ -204,6 +206,15 @@ def _fail_if_other_provider_box_exists(record: WorktreeBoxRecord) -> None:
         )
 
 
+def _predecessor_box_survives(
+    record: WorktreeBoxRecord | None, workspaces: list[dict[str, Any]], provider: str
+) -> bool:
+    if record is None or record.provider != provider:
+        return False
+    live = get_workspace(record.workspace, workspaces)
+    return live is not None and record.owns(live)
+
+
 def _resolve_target(
     root: Path,
     label: str | None,
@@ -215,12 +226,17 @@ def _resolve_target(
     """Return the devbox this worktree uses.
 
     A worktree that already has a registered box keeps it, even after a branch
-    rename, so a re-run never creates a second box. A record saved for an
-    earlier worktree at the same path does not count.
+    rename, so a re-run never creates a second box. A worktree recreated at the
+    same path, as t3code does when it resumes a thread it cleaned up, takes over
+    the box of the worktree it replaces while that box still exists. Its mirror
+    is recreated, because the old one saw its local root disappear.
     """
     boxes = load_worktree_boxes()
     registered = boxes.get(str(root))
-    if registered is not None and registered.worktree_id is not None and not registered.tracks_worktree(_git_dir(root)):
+    recreated = (
+        registered is not None and registered.worktree_id is not None and not registered.tracks_worktree(_git_dir(root))
+    )
+    if recreated and not _predecessor_box_survives(registered, workspaces, provider):
         registered = None
     abandoned_mirror = None
     if registered is not None and registered.provider != provider:
@@ -232,7 +248,7 @@ def _resolve_target(
         registered = registered_box = None
     registered_label = label_of(registered.workspace) if registered is not None else None
     if registered is not None and registered_label is not None and label in (None, registered_label):
-        return _WorktreeTarget(workspace_name=registered.workspace, label=registered_label)
+        return _WorktreeTarget(workspace_name=registered.workspace, label=registered_label, reset_mirror=recreated)
 
     box_naming = naming()
     resolved_label = label or derive_label(_current_branch(root), box_naming.label_budget)
@@ -359,7 +375,7 @@ def devbox_worktree(
         lambda: _coder_naming(cloning, clone_source),
     )
     existing = get_workspace(target.workspace_name, workspaces)
-    has_sync = bool(mutagen.sync_list(label_selector=mutagen.workspace_label_selector(target.workspace_name)))
+    has_sync = _has_reusable_mirror(target)
 
     if existing is None:
         box_step = (
@@ -378,7 +394,7 @@ def devbox_worktree(
     if not _print_plan(root, box_step, sync_step, on_clean, dry_run):
         return
     git_dir, worktree_id = _claim_box(root, target, existing, on_clean, "coder")
-    _drop_abandoned_mirror(target)
+    _drop_stale_mirrors(target)
 
     region = region_from_workspace_name(target.workspace_name)
     if existing is None and cloning:
@@ -442,9 +458,17 @@ def _claim_box(
     return git_dir, worktree_id
 
 
-def _drop_abandoned_mirror(target: _WorktreeTarget) -> None:
+def _has_reusable_mirror(target: _WorktreeTarget) -> bool:
+    if target.reset_mirror:
+        return False
+    return bool(mutagen.sync_list(label_selector=mutagen.workspace_label_selector(target.workspace_name)))
+
+
+def _drop_stale_mirrors(target: _WorktreeTarget) -> None:
     if target.abandoned_mirror is not None:
         mutagen.sync_terminate(mutagen.workspace_label_selector(target.abandoned_mirror))
+    if target.reset_mirror:
+        mutagen.sync_terminate(mutagen.workspace_label_selector(target.workspace_name))
 
 
 def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_run: bool, verbose: bool) -> None:
@@ -453,7 +477,7 @@ def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_r
     target = _resolve_target(root, label, devboxes, "hogland", hogland.label_of, _hogland_naming)
     name = target.workspace_name
     existing = get_workspace(name, devboxes)
-    has_sync = bool(mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name)))
+    has_sync = _has_reusable_mirror(target)
 
     if existing is None:
         box_step = f"Create Hogland devbox '{name}'"
@@ -469,7 +493,7 @@ def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_r
     if not _print_plan(root, box_step, sync_step, on_clean, dry_run):
         return
     git_dir, worktree_id = _claim_box(root, target, existing, on_clean, "hogland")
-    _drop_abandoned_mirror(target)
+    _drop_stale_mirrors(target)
 
     click.echo(f"Bringing up Hogland devbox '{name}'...")
     endpoint = hogland.up(name, _checked_out_branch(root))
@@ -492,6 +516,27 @@ def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_r
     click.echo(f"  SSH    hogland devbox ssh {name}")
     click.echo("  Start  cd ~/posthog && hogli start -d")
     click.echo(f"  Stop   hogland devbox hibernate {name}")
+
+
+@click.command(
+    name="devbox:worktree:prune",
+    help="Stop or delete the devboxes of worktrees that another tool, such as t3code or herdr, already removed",
+)
+@click.option("--stop", "action", flag_value="stop", default=None, help="Stop the boxes")
+@click.option("--delete", "action", flag_value="delete", help="Delete the boxes, including their disks")
+@click.option(
+    "--path",
+    "worktree_path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Only the box of the worktree that was at this path",
+)
+@click.option("--dry-run", is_flag=True, help="Print the boxes without changing anything")
+def devbox_worktree_prune(action: str | None, worktree_path: Path | None, dry_run: bool) -> None:
+    box_action = action or saved_worktree_box_cleanup() or "stop"
+    pruned = prune_boxes_of_removed_worktrees(_detect_local_posthog_checkout(), box_action, worktree_path, dry_run)
+    if not pruned:
+        click.echo("No devboxes belong to removed worktrees.")
 
 
 @click.command(

@@ -34,7 +34,7 @@ _PERSISTED_FIELDS = (
 )
 
 WORKTREE_BOX_CLEANUP_ACTIONS = ("stop", "delete")
-WORKTREE_AUTO_SOURCES = ("claude", "codex", "posthog-code", "phw", "other")
+WORKTREE_AUTO_SOURCES = ("claude", "codex", "posthog-code", "phw", "t3code", "herdr", "other")
 WORKTREE_PROVIDERS = ("coder", "hogland")
 DEFAULT_WORKTREE_PROVIDER = "coder"
 _WORKTREE_ID_FILE = "hogli-devbox-worktree-id"
