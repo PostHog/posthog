@@ -329,7 +329,7 @@ class SlackThreadHandler:
         except Exception:
             logger.warning("slack_app_turn_cost_gate_failed", run_id=str(run_id), exc_info=True)
             return
-        turn_cost = load_turn_cost(run_id, run.team_id, run.state)
+        turn_cost = load_turn_cost(run)
         if turn_cost is not None:
             self.run_footer = replace(self.run_footer, turn_cost=turn_cost)
 

@@ -23,7 +23,7 @@ import re
 import json
 from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.conf import settings
@@ -44,6 +44,9 @@ from posthog.utils import absolute_uri
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id, get_slack_user_info
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
+
+if TYPE_CHECKING:
+    from products.tasks.backend.facade.contracts import TaskRunDTO
 
 logger = structlog.get_logger(__name__)
 
@@ -701,8 +704,6 @@ class TurnCost:
     microusd: int
     # The run's whole token cost so far, which the next reply measures its own cost against.
     run_total_microusd: int
-    # False while some model requests are not priced yet, so the amount can still grow.
-    complete: bool
 
 
 @dataclass(frozen=True)
@@ -862,42 +863,45 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
         return RunFooter()
 
 
-def load_turn_cost(run_id: str | UUID, team_id: int, state: dict[str, Any] | None) -> TurnCost | None:
-    """What the run's latest turn cost on PostHog credits, or `None` when that is unknown.
+def load_turn_cost(run: "TaskRunDTO") -> TurnCost | None:
+    """What the run's latest turn cost, or `None` when that is unknown.
 
-    Model usage is priced after each request, so the requests still waiting are priced
-    first. The wait is short and bounded, because the answer waits for it. Never raises,
-    for the same reason as `load_run_footer`.
+    The cost comes from the run's `$ai_generation` events, the same source AI credit billing
+    reads. Those events reach ClickHouse with a short delay, so the newest requests of a turn
+    can be missing here. They then count toward the next reply, because the baseline is the
+    total this reply measured. Never raises, for the same reason as `load_run_footer`.
     """
-    from products.tasks.backend.facade.billing import (  # noqa: PLC0415
-        get_task_run_token_usage,
-        process_pending_gateway_usage,
-    )
+    from posthog.clickhouse.query_tagging import Product  # noqa: PLC0415
 
+    from products.tasks.backend.facade.billing import get_local_task_run_token_costs  # noqa: PLC0415
+
+    if run.task_origin_product is None or run.created_at is None:
+        return None
     try:
-        process_pending_gateway_usage(run_id=UUID(str(run_id)), team_id=team_id, limit=5)
-        usage = get_task_run_token_usage(run_id=UUID(str(run_id)), team_id=team_id)
-        if usage.cost_microusd is None:
-            return None
-        baseline = (state or {}).get(FOOTER_COST_BASELINE_STATE_KEY)
-        baseline = baseline if isinstance(baseline, int) else 0
-        return TurnCost(
-            microusd=max(0, usage.cost_microusd - baseline),
-            run_total_microusd=usage.cost_microusd,
-            complete=usage.complete,
+        costs = get_local_task_run_token_costs(
+            team_id=run.team_id,
+            origin_product=run.task_origin_product,
+            generated_after=run.created_at,
+            product=Product.POSTHOG_CODE,
+            task_run_ids=[run.id],
         )
+        total_usd = costs.get(str(run.id))
+        if total_usd is None:
+            return None
+        total = int(total_usd * 1_000_000)
+        baseline = (run.state or {}).get(FOOTER_COST_BASELINE_STATE_KEY)
+        baseline = baseline if isinstance(baseline, int) else 0
+        return TurnCost(microusd=max(0, total - baseline), run_total_microusd=total)
     except Exception:
-        logger.warning("slack_app_turn_cost_load_failed", run_id=str(run_id), exc_info=True)
+        logger.warning("slack_app_turn_cost_load_failed", run_id=str(run.id), exc_info=True)
         return None
 
 
 def describe_turn_cost(cost: TurnCost) -> str:
-    """The cost in dollars to the cent. A tilde marks an amount that can still grow."""
+    """The cost in dollars to the cent."""
     if cost.microusd < 10_000:
-        amount = "<$0.01"
-    else:
-        amount = f"${Decimal(cost.microusd) / 1_000_000:.2f}"
-    return f"Cost: {'' if cost.complete else '~'}{amount}"
+        return "Cost: <$0.01"
+    return f"Cost: ${Decimal(cost.microusd) / 1_000_000:.2f}"
 
 
 def _run_context_segments(footer: RunFooter) -> list[str]:

@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import cast
 from uuid import uuid4
@@ -22,7 +24,7 @@ from products.slack_app.backend.services.slack_messages import (
     reply_footer_block,
     viewer_has_code_access,
 )
-from products.tasks.backend.facade.contracts import TaskRunTokenUsage
+from products.tasks.backend.facade.contracts import TaskRunDTO
 
 TASK_URL = "https://us.posthog.com/project/1/tasks/2?runId=3&unfurl=false"
 
@@ -73,20 +75,14 @@ class TestRunFooter(SimpleTestCase):
                     TASK_URL,
                     "claude-opus-5",
                     project="Fernwood staging",
-                    turn_cost=TurnCost(microusd=123_456, run_total_microusd=500_000, complete=True),
+                    turn_cost=TurnCost(microusd=123_456, run_total_microusd=500_000),
                 ),
                 None,
                 f"<{TASK_URL}|View session> · *Claude Opus 5* · Cost: $0.12 · Project: *Fernwood staging*",
             ),
             (
-                "unpriced_requests_mark_the_cost_as_partial",
-                RunFooter(turn_cost=TurnCost(microusd=2_500_000, run_total_microusd=2_500_000, complete=False)),
-                None,
-                "Cost: ~$2.50",
-            ),
-            (
                 "a_cost_under_a_cent_does_not_read_as_free",
-                RunFooter(turn_cost=TurnCost(microusd=4_000, run_total_microusd=4_000, complete=True)),
+                RunFooter(turn_cost=TurnCost(microusd=4_000, run_total_microusd=4_000)),
                 None,
                 "Cost: <$0.01",
             ),
@@ -172,24 +168,22 @@ class TestLoadRunFooter(SimpleTestCase):
 class TestLoadTurnCost(SimpleTestCase):
     @parameterized.expand(
         [
-            ("first_reply_pays_for_the_whole_run", {}, TaskRunTokenUsage(300_000, True), 300_000),
-            (
-                "later_reply_pays_only_for_its_turn",
-                {"slack_footer_cost_microusd": 300_000},
-                TaskRunTokenUsage(450_000, True),
-                150_000,
-            ),
-            ("run_without_token_accounting", {}, TaskRunTokenUsage(None, False), None),
+            ("first_reply_pays_for_the_whole_run", {}, Decimal("0.3"), 300_000),
+            ("later_reply_pays_only_for_its_turn", {"slack_footer_cost_microusd": 300_000}, Decimal("0.45"), 150_000),
+            ("run_without_priced_generations", {}, None, None),
         ]
     )
-    @patch("products.tasks.backend.facade.billing.process_pending_gateway_usage")
-    @patch("products.tasks.backend.facade.billing.get_task_run_token_usage")
+    @patch("products.tasks.backend.facade.billing.get_local_task_run_token_costs")
     def test_measures_the_turn_from_the_last_shown_cost(
-        self, _name: str, state: dict, usage: TaskRunTokenUsage, expected: int | None, mock_usage, _mock_process
+        self, _name: str, state: dict, run_total_usd: Decimal | None, expected: int | None, mock_costs
     ) -> None:
-        mock_usage.return_value = usage
+        run_id = uuid4()
+        mock_costs.return_value = {} if run_total_usd is None else {str(run_id): run_total_usd}
+        run = SimpleNamespace(
+            id=run_id, team_id=1, task_origin_product="slack", created_at=datetime(2026, 1, 1, tzinfo=UTC), state=state
+        )
 
-        cost = load_turn_cost(uuid4(), 1, state)
+        cost = load_turn_cost(cast(TaskRunDTO, run))
 
         assert (cost.microusd if cost else None) == expected
 
