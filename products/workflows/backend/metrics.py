@@ -5,6 +5,8 @@ Kept in one place because the two sides of a suggestion have to agree: whatever 
 different metrics, a proposal's "before" and "after" stop being comparable.
 """
 
+from datetime import UTC, datetime
+
 # Every hog flow metric is mirrored under this app source with the version appended to the flow id,
 # which is what makes a per-version read possible at all. See "Metrics and version attribution" in
 # products/workflows/CONTRIBUTING.md.
@@ -24,14 +26,23 @@ TARGET_UNTRACKED_METRIC = "email_untracked"
 GUARDRAIL_METRICS = ("email_blocked", "email_bounced")
 GUARDRAIL_LABELS = {"email_blocked": "complaint rate", "email_bounced": "bounce rate"}
 
-# What a suggestion can aim at, and how each one is read: the metric counted, whether it divides by
-# tracked sends (an untracked send can record neither an open nor a click) or by every send, and the
-# name a person reads. A suggestion that names anything else is measured on opens, the default.
-TARGET_METRICS: dict[str, tuple[str, bool, str]] = {
-    TARGET_OPEN_METRIC: (TARGET_OPEN_METRIC, True, "email open rate"),
-    TARGET_CLICK_METRIC: (TARGET_CLICK_METRIC, True, "click rate"),
-    "email_bounced": ("email_bounced", False, "bounce rate"),
-    "email_blocked": ("email_blocked", False, "complaint rate"),
+# Filed under the hour a run started, so dividing by `triggered` compares the same runs.
+TARGET_CONVERSION_METRIC = "conversion_by_start"
+RUN_STARTED_METRIC = "triggered"
+# Runs older than this have no `conversion_by_start` row even when they converted, so counting them
+# would dilute the rate of any version that was live on both sides of this date.
+CONVERSION_BY_START_RECORDED_SINCE = datetime(2026, 11, 4, tzinfo=UTC)
+
+# What a suggestion can aim at, and how each one is read: the metric counted, what it divides by
+# (an untracked send can record neither an open nor a click, and a conversion belongs to a run rather
+# than a send), and the name a person reads. A suggestion that names anything else is measured on
+# opens, the default.
+TARGET_METRICS: dict[str, tuple[str, str, str]] = {
+    TARGET_OPEN_METRIC: (TARGET_OPEN_METRIC, "tracked_sends", "email open rate"),
+    TARGET_CLICK_METRIC: (TARGET_CLICK_METRIC, "tracked_sends", "click rate"),
+    "email_bounced": ("email_bounced", "sends", "bounce rate"),
+    "email_blocked": ("email_blocked", "sends", "complaint rate"),
+    TARGET_CONVERSION_METRIC: (TARGET_CONVERSION_METRIC, "runs", "conversion rate"),
 }
 
 # `email_unsubscribed` exists only as a name in the worker's metric union with no producer. Named so

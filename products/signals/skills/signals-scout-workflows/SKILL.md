@@ -4,7 +4,8 @@ scout-display-name: Workflows
 description: >
   Signals scout for PostHog workflows.
   Looks at the workflows whose owner asked for
-  suggestions, reads each email step's per-version delivery metrics, and proposes one
+  suggestions, reads each email step's per-version delivery metrics and the workflow's
+  conversion rate, and proposes one
   concrete change a person can approve, filed through the workflows suggestions API. It
   files no report and emits no signal: the suggestion on the workflow page is the output.
 compatibility: >
@@ -97,6 +98,15 @@ So end the read before now, and check the version's age before you trust it:
 
 Per-version reads are what make this checkable: `workflows-version-stats` with `version=<n>` returns only what that version sent, so a version published two weeks ago is a settled cohort even though the workflow as a whole is still sending.
 
+**Conversion is a slower read, of the whole workflow.** It only applies to a workflow with a conversion goal, and a suggestion aimed at it without one is refused.
+Read `workflows-version-stats` with `version=<n>`, `breakdown_by=name` and no `instance_id`, because a conversion belongs to the run rather than to a step.
+Divide `conversion_by_start` by `triggered`, and never use `conversion`: that one is filed when the conversion happens, while `conversion_by_start` is filed under the hour the run started, so only it compares the same runs as `triggered`.
+
+- A run can still convert until the workflow's `conversion.window` closes, so `before` must be at least that long ago, on a UTC hour. PostHog only counts runs past their window and tells the person when your numbers differ.
+- Skip conversion when that window is longer than 30 days. Metrics expire after 90, so there is too little settled data to compare versions.
+- A version with a large `triggered` and zero `conversion_by_start` may predate this metric, so treat it as unreadable, as with opens below.
+- A run that was in flight when a new version went live counts its start under the old version and its conversion under the version that sent its email. Do not read a small move right after a publish as a result.
+
 **Zero opens on healthy sends is a measurement gap, not a bad subject line.** Engagement splits by version only for sends made after the versioned tracking code shipped, and you cannot check that date from here.
 So treat it as unreadable rather than bad: write `noise:<workflow>:<step>` to the scratchpad with the counts you saw and move on.
 If a later run sees opens on that step, the gap has closed and the numbers are usable.
@@ -111,6 +121,8 @@ If a later run sees opens on that step, the gap has closed and the numbers are u
 | Zero opens, zero clicks, healthy sends, version older than the tracking rollout | Blind spot, not a finding                                                                |
 | Fewer than 20 tracked sends                                                     | No sample. Remember it, do not file it                                                   |
 | Open rate healthy, click rate near zero                                         | The body or the call to action, not the subject. Only suggest if you can name the change |
+| Opens and clicks healthy, conversion rate low on ≥ 20 settled runs              | The email does not lead to the goal. Aim at conversion only if you can name the change   |
+| Fewer than 20 settled runs                                                      | No conversion sample. Read the email metrics instead                                     |
 
 ### Decide
 
@@ -142,6 +154,8 @@ Keep it to four short sentences: what the step's numbers show, what you change, 
 The evidence panel already shows the rate, `n`, the window and the counter-metrics, so do not repeat timestamps or restate every number.
 Never name your own mechanics: not the scout, not your review target or sample floor, not the scratchpad, not tool names.
 "Opens are 8% on 210 sends. The subject does not say what the email offers. Naming the offer lets people see why to open it." is the whole rationale.
+
+A suggestion aimed at conversion sends `"metric": "conversion_by_start"`, with `n` as the settled runs behind the rate and `window` ending at or before the settle point. Still name the email step in `step_id`, so the guardrails read that step.
 
 The panel reads your evidence back by name, and the API refuses anything it cannot read, so send these keys:
 
@@ -185,7 +199,7 @@ Write scratchpad entries for what should change your next run:
 - `noise:<workflow>:<step>` — a step you looked at and ruled out, with why (sample, untracked share, deliverability).
 - `rejected:<workflow>:<step>` — a human rejected a suggestion for this step, with their reason when they gave one.
   Include what you suggested, and whether it was behind the live version when they rejected it, so a later run can tell a no from a clear-out.
-- `baseline:<workflow>:<step>` — the open rate you saw, so a later run can tell a real move from noise.
+- `baseline:<workflow>:<step>` — the open rate you saw, and the conversion rate when you read it, so a later run can tell a real move from noise.
 
 ## Why this scout files no reports
 

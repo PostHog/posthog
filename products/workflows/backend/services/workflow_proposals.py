@@ -2,7 +2,7 @@ import copy
 import json
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 from uuid import UUID
 
@@ -18,11 +18,14 @@ from posthog.queryset_paging import select_page
 from products.workflows.backend.facade.contracts import CreatedWorkflowProposal, ProposalChanges, WorkflowProposalRecord
 from products.workflows.backend.facade.enums import WorkflowProposalStatus
 from products.workflows.backend.metrics import (
+    CONVERSION_BY_START_RECORDED_SINCE,
     GUARDRAIL_LABELS,
     GUARDRAIL_METRICS,
     HOG_FLOW_VERSION_APP_SOURCE,
     MIN_EVIDENCE_SAMPLE,
+    RUN_STARTED_METRIC,
     TARGET_CLICK_METRIC,
+    TARGET_CONVERSION_METRIC,
     TARGET_METRICS,
     TARGET_OPEN_METRIC,
     TARGET_SEND_METRIC,
@@ -34,6 +37,7 @@ from products.workflows.backend.models.hog_flow_optimization import HogFlowOptim
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.services.hog_flow_content import deep_merge, snapshot_flow_content
+from products.workflows.backend.utils.durations import duration_minutes
 
 # Fields a proposal replaces wholesale. `actions` merges per step instead, since steps carry stable
 # ids; edges have no id, and a variable list is short enough to carry whole.
@@ -151,6 +155,9 @@ def resolve_proposal(
     proposal.save(update_fields=["status", "resolved_at", "resolved_by", "rejection_reason"])
     return _to_record(proposal)
 
+
+# Matches DEFAULT_CONVERSION_WINDOW_MINUTES in the worker.
+DEFAULT_CONVERSION_WINDOW = timedelta(days=90)
 
 # How far past the applied version the after side will look for versions that kept the change.
 OUTCOME_VERSION_LIMIT = 20
@@ -402,9 +409,15 @@ def outcome_from_totals(totals: Mapping[str, float], version: int, target: str =
             "below_minimum_sample": denominator < MIN_EVIDENCE_SAMPLE,
         }
 
+    denominators = {
+        "tracked_sends": tracked_sends,
+        "sends": sends,
+        "runs": int(totals.get(RUN_STARTED_METRIC, 0)),
+    }
+
     def reading(metric: str) -> dict:
-        name, over_tracked, label = TARGET_METRICS[metric]
-        return rate(int(totals.get(name, 0)), label, tracked_sends if over_tracked else sends)
+        name, denominator, label = TARGET_METRICS[metric]
+        return rate(int(totals.get(name, 0)), label, denominators[denominator])
 
     # The rate to read beside the target: opens, unless opens are the target.
     secondary = TARGET_CLICK_METRIC if target == TARGET_OPEN_METRIC else TARGET_OPEN_METRIC
@@ -417,6 +430,56 @@ def outcome_from_totals(totals: Mapping[str, float], version: int, target: str =
         "click_through": reading(TARGET_CLICK_METRIC),
         "guardrails": [rate(int(totals.get(name, 0)), GUARDRAIL_LABELS[name], sends) for name in GUARDRAIL_METRICS],
     }
+
+
+def aims_at_conversion_without_goal(evidence: Any, conversion: Optional[Mapping]) -> bool:
+    if target_metric_in(evidence) != TARGET_CONVERSION_METRIC:
+        return False
+    return not (conversion and (conversion.get("filters") or conversion.get("events")))
+
+
+def _start_of_hour(moment: datetime) -> datetime:
+    return moment.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+
+
+def runs_settled_before(conversion: Optional[Mapping], now: datetime) -> datetime:
+    """Runs that started before this have had their whole conversion window, so their rate stops moving.
+
+    `conversion_by_start` sits at the top of the UTC hour and `triggered` keeps its own time inside
+    that hour, so only an hour boundary cuts both at the same runs.
+    """
+    window = (conversion or {}).get("window")
+    minutes = duration_minutes(window) if isinstance(window, str) else None
+    return _start_of_hour(now - (timedelta(minutes=minutes) if minutes else DEFAULT_CONVERSION_WINDOW))
+
+
+def _settled_run_totals(
+    *,
+    team_id: int,
+    hog_flow_id: UUID,
+    version: int,
+    conversion: Optional[Mapping],
+    after: Optional[datetime] = None,
+    before: Optional[datetime] = None,
+) -> dict[str, int]:
+    """Conversions and run starts for the whole workflow. A conversion belongs to the run, so no step scopes it."""
+    start = (
+        max(_start_of_hour(after), CONVERSION_BY_START_RECORDED_SINCE) if after else CONVERSION_BY_START_RECORDED_SINCE
+    )
+    settled = runs_settled_before(conversion, timezone.now())
+    end = min(_start_of_hour(before), settled) if before else settled
+    if start >= end:
+        return {}
+    return fetch_app_metric_totals(
+        team_id=team_id,
+        app_source=HOG_FLOW_VERSION_APP_SOURCE,
+        app_source_id=f"{hog_flow_id}/{version}",
+        breakdown_by="name",
+        after=start,
+        before=end,
+        before_exclusive=True,
+        name=[TARGET_CONVERSION_METRIC, RUN_STARTED_METRIC],
+    ).totals
 
 
 def carries_proposal_change(content: dict, changes: dict) -> bool:
@@ -598,27 +661,43 @@ def version_history(hog_flow: HogFlow, proposal: WorkflowProposal, versions: lis
     return history
 
 
-def version_totals(hog_flow: HogFlow, versions: list[int], step_id: Optional[str]) -> dict[int, dict]:
+def version_totals(
+    hog_flow: HogFlow, versions: list[int], step_id: Optional[str], target: str = TARGET_OPEN_METRIC
+) -> dict[int, dict]:
     """Raw metric counts per version. Each version's series only ever collects while that
     version is live, so there is no window to choose."""
+    conversion = snapshot_flow_content(hog_flow).get("conversion")
     return {
-        version: fetch_app_metric_totals(
-            team_id=hog_flow.team_id,
-            app_source=HOG_FLOW_VERSION_APP_SOURCE,
-            app_source_id=f"{hog_flow.id}/{version}",
-            breakdown_by="name",
-            # Scoped to the step the suggestion names; several email steps would otherwise share one denominator.
-            instance_id=step_id or None,
-            name=[
-                TARGET_SEND_METRIC,
-                TARGET_OPEN_METRIC,
-                TARGET_CLICK_METRIC,
-                TARGET_UNTRACKED_METRIC,
-                *GUARDRAIL_METRICS,
-            ],
-        ).totals
+        version: {
+            **_step_totals(hog_flow, version, step_id),
+            **(
+                _settled_run_totals(
+                    team_id=hog_flow.team_id, hog_flow_id=hog_flow.id, version=version, conversion=conversion
+                )
+                if target == TARGET_CONVERSION_METRIC
+                else {}
+            ),
+        }
         for version in versions
     }
+
+
+def _step_totals(hog_flow: HogFlow, version: int, step_id: Optional[str]) -> dict[str, int]:
+    return fetch_app_metric_totals(
+        team_id=hog_flow.team_id,
+        app_source=HOG_FLOW_VERSION_APP_SOURCE,
+        app_source_id=f"{hog_flow.id}/{version}",
+        breakdown_by="name",
+        # Scoped to the step the suggestion names; several email steps would otherwise share one denominator.
+        instance_id=step_id or None,
+        name=[
+            TARGET_SEND_METRIC,
+            TARGET_OPEN_METRIC,
+            TARGET_CLICK_METRIC,
+            TARGET_UNTRACKED_METRIC,
+            *GUARDRAIL_METRICS,
+        ],
+    ).totals
 
 
 def versions_carrying_change(hog_flow: HogFlow, proposal: WorkflowProposal) -> tuple[list[int], Optional[int]]:
@@ -688,6 +767,7 @@ def version_outcome(
     before: Optional[datetime] = None,
     step_id: Optional[str] = None,
     target: str = TARGET_OPEN_METRIC,
+    conversion: Optional[Mapping] = None,
 ) -> Optional[dict]:
     read = [version for version in versions if version is not None]
     if not read:
@@ -713,6 +793,18 @@ def version_outcome(
                 *GUARDRAIL_METRICS,
             ],
         ).totals
+        if target == TARGET_CONVERSION_METRIC:
+            per_version = {
+                **per_version,
+                **_settled_run_totals(
+                    team_id=team_id,
+                    hog_flow_id=hog_flow_id,
+                    version=version,
+                    conversion=conversion,
+                    after=after,
+                    before=before,
+                ),
+            }
         for name, count in per_version.items():
             totals[name] = totals.get(name, 0) + count
     return {**outcome_from_totals(totals, read[0], target), "versions": read}
@@ -722,9 +814,9 @@ def _proposal_outcome(hog_flow: HogFlow, proposal: WorkflowProposal) -> dict:
     """What an applied suggestion did: per-version readings, and the before and after sides."""
     carrying, ended_at = versions_carrying_change(hog_flow, proposal)
     charted = outcome_versions(hog_flow, proposal, carrying)
-    totals = version_totals(hog_flow, charted, proposal.step_id)
-    history = version_history(hog_flow, proposal, charted)
     target = target_metric_of(proposal)
+    totals = version_totals(hog_flow, charted, proposal.step_id, target)
+    history = version_history(hog_flow, proposal, charted)
     versions = [
         {
             **outcome_from_totals(counts, version, target),
