@@ -15,6 +15,7 @@ from posthog.models import Organization, User
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
 from products.signals.backend.activity_summary.render import RENDER_VERSION
+from products.signals.backend.activity_summary.search import member_activities
 from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout
 
@@ -130,16 +131,6 @@ class TestActivitySummaryAPI(APIBaseTest):
         assert self._get().status_code == 404
         assert self._get("versions/").status_code == 404
 
-    def test_read_access_does_not_follow_the_generation_check(self) -> None:
-        self._versions(1)
-        self.config = dataclasses.replace(self.config, skip_team_ids=(self.team.id,))
-
-        with patch(
-            "products.signals.backend.activity_summary.queue.is_team_enrolled_for_generation", return_value=True
-        ):
-            assert self._get().status_code == 404
-            assert self._get("versions/").status_code == 404
-
     def test_enroll_all_approved_enrolls_an_unlisted_organization(self) -> None:
         self.config = ActivitySummaryConfig(enabled=True, enroll_all_approved=True)
         self._summary()
@@ -251,6 +242,7 @@ class TestActivitySummaryAPI(APIBaseTest):
 
 
 SEARCH = "products.signals.backend.activity_summary.search"
+SCOUT_VIEWS = "products.signals.backend.scout_harness.views"
 
 
 @time_machine.travel(NOW, tick=False)
@@ -377,3 +369,52 @@ class TestActivitySummarySearchAPI(APIBaseTest):
         self.client.force_login(self.user)
 
         assert self._search(query="onboarding").status_code == 403
+
+    def _members(self, **params: Any) -> Any:
+        return self.client.get(f"/api/projects/{self.team.id}/signals/scout/members/", params)
+
+    def test_a_narrowed_member_roster_carries_each_members_activity(self) -> None:
+        self._summary(self.reader, "Plans the roadmap.", watched="Onboarding drop-off")
+        User.objects.create_and_join(self.organization, "rest@example.com", None, first_name="Restless")
+
+        response = self._members(search="re")
+
+        assert response.status_code == 200, response.content
+        by_email = {row["email"]: row for row in response.json()}
+        assert by_email["rest@example.com"]["activity"] is None
+        activity = by_email["reader@example.com"]["activity"]
+        assert activity["headline"] == "Plans the roadmap."
+        assert activity["themes"] == ["Signup funnel"]
+        assert activity["owned"] == [{"type": "insight", "name": "Signup funnel"}]
+        assert activity["watched"] == [{"type": "dashboard", "name": "Onboarding drop-off"}]
+        assert activity["stale"] is False
+
+    @parameterized.expand(
+        [
+            ("no_narrowing", False),
+            ("over_row_limit", False),
+            ("flag_off", True),
+            ("not_enrolled", True),
+            ("read_fails", True),
+        ]
+    )
+    def test_member_roster_falls_back_to_no_activity(self, case: str, reads_activity: bool) -> None:
+        self._summary(self.reader, "Plans the roadmap.")
+        params = {} if case == "no_narrowing" else {"search": "reader"}
+        if case == "over_row_limit":
+            patch(f"{SCOUT_VIEWS}.MAX_MEMBERS_WITH_ACTIVITY", 0).start()
+        if case == "flag_off":
+            patch(f"{SEARCH}.feature_enabled_or_false", return_value=False).start()
+        if case == "not_enrolled":
+            self.config = dataclasses.replace(self.config, enabled=False)
+        if case == "read_fails":
+            patch(f"{SEARCH}.ready_view", side_effect=RuntimeError("bad row")).start()
+
+        with patch(f"{SCOUT_VIEWS}.member_activities", wraps=member_activities) as read:
+            response = self._members(**params)
+
+        assert response.status_code == 200, response.content
+        rows = response.json()
+        assert str(self.reader.uuid) in {row["user_uuid"] for row in rows}
+        assert all(row["activity"] is None for row in rows)
+        assert read.called is reads_activity

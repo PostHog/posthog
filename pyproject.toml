@@ -39,7 +39,7 @@ dependencies = [
     "dagster-webserver==1.12.11",
     "deltalake[pyarrow]==1.6.1",
     "dj-database-url~=3.1.2",
-    "django~=6.1.0",
+    "django~=6.1.3",
     "django-axes[ipware]==8.3.1",
     "django-cors-headers~=4.9.0",
     "django-extensions~=4.1.0",
@@ -519,6 +519,10 @@ python_version = "3.14"
 
 [tool.mypy]
 python_version = "3.14"
+# CI runs in parallel mode, which forces the native parser. Setting it here keeps sequential
+# runs (local mypy, dmypy, reports) on the same parser as CI. Do not set num_workers here:
+# parallel mode breaks dmypy and report flags, so CI sets MYPY_NUM_WORKERS instead.
+native_parser = true
 plugins = [
     "mypy_django_plugin.main",
     "mypy_drf_plugin.main",

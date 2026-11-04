@@ -13,7 +13,7 @@ from asgiref.sync import async_to_sync, sync_to_async
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, Team, User
+from posthog.models import Integration, Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.temporal.oauth import grants_scratchpad_write
@@ -55,6 +55,7 @@ from products.signals.backend.issue_dependencies import IssueRef
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     ArtefactAttribution,
+    SignalEmissionRecord,
     SignalReport,
     SignalReportArtefact,
     SignalReportPullRequest,
@@ -1719,8 +1720,9 @@ async def test_background_scout_reports_never_reach_autostart(run_origin, config
         (False, True, True),
     ],
 )
+@pytest.mark.parametrize("monitoring,private_destination", [(False, False), (True, False), (True, True)])
 async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
-    repository_autostart_eligible, user_triggered, expect_task
+    repository_autostart_eligible, user_triggered, expect_task, monitoring: bool, private_destination: bool
 ):
     # A repo read out of the report's own text is a target for whoever clicks Create PR, so it must not
     # reach the reviewer-less fallback — the one path where nobody named the destination or the runner.
@@ -1743,6 +1745,27 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
         return team, report, enabler
 
     team, report, enabler = await sync_to_async(_setup)()
+    origin = await SignalReport.objects.acreate(team=team, status="closed")
+    await Integration.objects.acreate(
+        team=team,
+        kind="github",
+        integration_id="privacy-test",
+        config={"installation_id": "privacy-test"},
+        repository_cache=[
+            {"id": 1, "name": "repo", "full_name": "owner/repo", "private": private_destination},
+            {"id": 2, "name": "source", "full_name": "example/source", "private": True},
+        ],
+        repository_cache_updated_at=timezone.now(),
+    )
+    if monitoring:
+        await SignalEmissionRecord.objects.acreate(
+            team=team,
+            source_product="signals_check",
+            source_type="monitoring_unresolved",
+            source_id=str(report.id),
+            report_id=str(report.id),
+            emitted_at=timezone.now(),
+        )
 
     def _fake_create_and_run_task(**kwargs):
         task = Task.objects.create(
@@ -1757,6 +1780,17 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
     with (
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
         patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
+        patch(
+            "products.signals.backend.report_monitoring_provenance.execute_hogql_query",
+            return_value=SimpleNamespace(
+                results=[
+                    (str(report.id), "signals_check", "monitoring_unresolved", "", str(origin.id)),
+                    (str(origin.id), "github", "issue", "https://github.com/example/source/issues/1", ""),
+                ]
+                if monitoring
+                else []
+            ),
+        ),
     ):
         await maybe_autostart_implementation_task(
             team_id=team.id,
@@ -1775,7 +1809,7 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
             repository_autostart_eligible=repository_autostart_eligible,
         )
 
-    assert (mock_create.call_count == 1) is expect_task
+    assert (mock_create.call_count == 1) is (expect_task and (not monitoring or private_destination))
 
 
 _EXISTING_PR_URL = "https://github.com/PostHog/posthog/pull/1"

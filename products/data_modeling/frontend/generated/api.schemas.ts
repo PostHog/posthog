@@ -102,6 +102,32 @@ export const NodeOriginEnumApi = {
     Warehouse: 'warehouse',
 } as const
 
+/**
+ * * `never` - never
+ * * `15min` - 15min
+ * * `30min` - 30min
+ * * `1hour` - 1hour
+ * * `6hour` - 6hour
+ * * `12hour` - 12hour
+ * * `24hour` - 24hour
+ * * `7day` - 7day
+ * * `30day` - 30day
+ */
+export type SavedQuerySyncFrequencyEnumApi =
+    (typeof SavedQuerySyncFrequencyEnumApi)[keyof typeof SavedQuerySyncFrequencyEnumApi]
+
+export const SavedQuerySyncFrequencyEnumApi = {
+    Never: 'never',
+    '15min': '15min',
+    '30min': '30min',
+    '1hour': '1hour',
+    '6hour': '6hour',
+    '12hour': '12hour',
+    '24hour': '24hour',
+    '7day': '7day',
+    '30day': '30day',
+} as const
+
 export interface NodeSuspensionApi {
     /** When the node was suspended. */
     at: string
@@ -167,6 +193,25 @@ export interface NodeApi {
     readonly user_tag: string | null
     /** @nullable */
     readonly sync_interval: string | null
+    /**
+     * How often this node actually refreshes. A downstream view can make an unpinned view refresh more often than `sync_interval`, and a slow source can make it refresh less often. Null when the node is not scheduled.
+     * @nullable
+     */
+    readonly effective_sync_interval: string | null
+    /** How often this view refreshes. 'never' clears the cadence, and with it the pin. Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.
+     *
+     * * `never` - never
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    sync_frequency?: SavedQuerySyncFrequencyEnumApi
+    /** Pin this view to its own cadence. A pinned view does not refresh more often when downstream views or endpoints need fresher data, so they read data up to one pinned interval old. Requires a cadence. Set false to refresh as often as downstream views need again. */
+    pinned?: boolean
     /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
     readonly suspended: NodeApiSuspended
     /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
@@ -231,10 +276,109 @@ export interface PatchedNodeApi {
     readonly user_tag?: string | null
     /** @nullable */
     readonly sync_interval?: string | null
+    /**
+     * How often this node actually refreshes. A downstream view can make an unpinned view refresh more often than `sync_interval`, and a slow source can make it refresh less often. Null when the node is not scheduled.
+     * @nullable
+     */
+    readonly effective_sync_interval?: string | null
+    /** How often this view refreshes. 'never' clears the cadence, and with it the pin. Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.
+     *
+     * * `never` - never
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    sync_frequency?: SavedQuerySyncFrequencyEnumApi
+    /** Pin this view to its own cadence. A pinned view does not refresh more often when downstream views or endpoints need fresher data, so they read data up to one pinned interval old. Requires a cadence. Set false to refresh as often as downstream views need again. */
+    pinned?: boolean
     /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
     readonly suspended?: PatchedNodeApiSuspended
     /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
     readonly endpoint?: NodeEndpointApi | null
+}
+
+/**
+ * * `15min` - 15min
+ * * `30min` - 30min
+ * * `1hour` - 1hour
+ * * `6hour` - 6hour
+ * * `12hour` - 12hour
+ * * `24hour` - 24hour
+ * * `7day` - 7day
+ * * `30day` - 30day
+ */
+export type MaterializeSyncFrequencyEnumApi =
+    (typeof MaterializeSyncFrequencyEnumApi)[keyof typeof MaterializeSyncFrequencyEnumApi]
+
+export const MaterializeSyncFrequencyEnumApi = {
+    '15min': '15min',
+    '30min': '30min',
+    '1hour': '1hour',
+    '6hour': '6hour',
+    '12hour': '12hour',
+    '24hour': '24hour',
+    '7day': '7day',
+    '30day': '30day',
+} as const
+
+export interface NodePinDelayApi {
+    /** Node id of the downstream view or endpoint. */
+    id: string
+    /** Name of the downstream view or endpoint. */
+    name: string
+}
+
+export interface NodePinBlockerApi {
+    /**
+     * Node id of the downstream view that stops the pin, or null when the caller may not read it.
+     * @nullable
+     */
+    id: string | null
+    /**
+     * Name of the downstream view that stops the pin, or null when the caller may not read it.
+     * @nullable
+     */
+    name: string | null
+}
+
+export interface NodeFrequencyOptionApi {
+    /** A cadence the view could refresh at.
+     *
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    cadence: MaterializeSyncFrequencyEnumApi
+    /** Downstream views and endpoints that refresh more often than this cadence. If this view were pinned to it, they would read data older than their own cadence. */
+    delays_if_pinned: NodePinDelayApi[]
+    /** The downstream view that stops a pin at this cadence. It reads fresh data only through this view, so a pin this slow would leave it unable to refresh as often as its own cadence. Null when this cadence can be pinned. */
+    pin_blocked_by: NodePinBlockerApi | null
+    /** The cadence the view would run at if it held this cadence without a pin. Finer than this cadence when a downstream view needs fresher data than the pin allows.
+     *
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    unpinned_cadence: MaterializeSyncFrequencyEnumApi
+}
+
+export interface NodeFrequencyBoundsApi {
+    /** True when the view refreshes at its own cadence instead of as often as its downstream views and endpoints need. */
+    pinned: boolean
+    /** Every cadence a picker may show, finest first. Empty when the node has no view. */
+    options: NodeFrequencyOptionApi[]
 }
 
 export interface NodeResumeApi {

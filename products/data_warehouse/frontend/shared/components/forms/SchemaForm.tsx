@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 
 import { IconInfo, IconLock, IconWarning } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonCheckbox,
     LemonCollapse,
@@ -44,6 +45,23 @@ export function getSyncFieldPlaceholder(syncType: ExternalDataSourceSyncSchema['
         return 'Not needed for this sync method'
     }
     return 'No sync field selected'
+}
+
+// Tables the credentials can't read are left off. Without this note, users restart the whole
+// wizard hoping the "Permission missing" tags clear, when they can import the rest and enable
+// those tables later from the Schemas tab, which does not re-check permissions.
+export function getUnreadableTablesNotice(schemas: ExternalDataSourceSyncSchema[]): string | null {
+    const unreadableCount = schemas.filter((schema) => !!schema.permission_error).length
+
+    if (unreadableCount === 0) {
+        return null
+    }
+
+    if (unreadableCount === schemas.length) {
+        return "Your credentials can't read any of these tables. Grant read access in your source provider, then go back a step and try again."
+    }
+
+    return `Your credentials can't read ${pluralize(unreadableCount, 'table', 'tables')}. Import the other tables now, then turn these on from the source's Schemas tab after you grant access.`
 }
 
 function getSchemaSelectionState(tables: ExternalDataSourceSyncSchema[]): boolean | 'indeterminate' {
@@ -107,6 +125,7 @@ export default function SchemaForm(): JSX.Element {
     }, [containerRef])
 
     const showRows = databaseSchema.some((schema) => schema.rows != null)
+    const unreadableTablesNotice = getUnreadableTablesNotice(databaseSchema)
     const hasManySchemas = databaseSchema.length > 10
 
     // Shown when the schema fetch returned zero tables. That can be transient — some sources
@@ -397,6 +416,7 @@ export default function SchemaForm(): JSX.Element {
                         You can enable more tables or change sync settings later on the source's Schemas tab.
                     </p>
                 )}
+                {unreadableTablesNotice && <LemonBanner type="warning">{unreadableTablesNotice}</LemonBanner>}
                 {hasManySchemas && (
                     <div className="flex items-center gap-2">
                         <LemonInput

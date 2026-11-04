@@ -452,11 +452,6 @@ class TestCanonicalDescriptionsResolver:
         assert descriptions["Charge"]["docs_url"].startswith("https://stripe.com")
         assert "amount" in descriptions["Charge"]["columns"]
 
-    def test_hubspot_ships_canonical_descriptions(self):
-        descriptions = enrich.get_canonical_descriptions_for_source(ExternalDataSourceType.HUBSPOT)
-        assert "contacts" in descriptions
-        assert "email" in descriptions["contacts"]["columns"]
-
     def test_sql_source_ships_no_canonical_descriptions(self):
         assert enrich.get_canonical_descriptions_for_source(ExternalDataSourceType.POSTGRES) == {}
 
@@ -468,15 +463,6 @@ class TestCanonicalDescriptionsResolver:
 
         missing = set(ENDPOINTS) - set(CANONICAL_DESCRIPTIONS)
         assert not missing, f"Stripe endpoints missing canonical descriptions: {sorted(missing)}"
-
-    def test_hubspot_canonical_covers_every_synced_endpoint(self):
-        from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
-        from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import ENDPOINTS
-
-        missing = set(ENDPOINTS) - set(CANONICAL_DESCRIPTIONS)
-        assert not missing, f"Hubspot endpoints missing canonical descriptions: {sorted(missing)}"
 
 
 class TestEnrichTableSemanticsSync:

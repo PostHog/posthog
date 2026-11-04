@@ -22,6 +22,7 @@ import structlog
 from ..logic.installations import reset_unverified_review_policy
 from ..logic.review_trigger import derive_review_trigger
 from ..logic.reviewer import parse_reviewer_output
+from ..logic.routing.owners_file import owners_file_status
 from ..logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from ..models import DigestRun, PullRequest, ReviewRun, StamphogInstallation, StamphogRepoConfig
 from . import contracts
@@ -29,6 +30,7 @@ from .enums import (
     TERMINAL_STATUSES,
     ChannelResolutionSource,
     DigestRunStatus,
+    OwnersFileStatus,
     ReviewMode,
     ReviewRunStatus,
     ReviewTrigger,
@@ -83,6 +85,7 @@ def _repo_config_to_dto(obj: StamphogRepoConfig) -> contracts.RepoConfigDTO:
         digest_enabled=obj.digest_enabled,
         review_mode=obj.review_mode,
         trigger_label=obj.trigger_label,
+        routing_mode=obj.routing_mode,
         created_at=obj.created_at,
         updated_at=obj.updated_at,
     )
@@ -254,6 +257,14 @@ def get_repo_config_by_id(team_id: int, config_id: str) -> contracts.RepoConfigD
     return _repo_config_to_dto(obj) if obj is not None else None
 
 
+def check_owners_file(config: contracts.RepoConfigDTO) -> OwnersFileStatus:
+    """Whether the repo's default branch has the root owners.yaml that reviewer requests need.
+
+    Makes one GitHub call with the repo's installation token, so callers ask only on demand.
+    """
+    return owners_file_status(config.id, config.repository, config.installation_id)
+
+
 def has_reviewable_repo_config(team_id: int) -> bool:
     """Whether the team has at least one enabled repo config that hosted reviews can run on.
 
@@ -353,6 +364,7 @@ def create_repo_config(
     digest_enabled: bool = False,
     review_mode: str | None = None,
     trigger_label: str | None = None,
+    routing_mode: str | None = None,
 ) -> contracts.RepoConfigDTO:
     """Create a repo config, refusing a repository another team already owns.
 
@@ -367,6 +379,8 @@ def create_repo_config(
         fields["review_mode"] = review_mode
     if trigger_label is not None:
         fields["trigger_label"] = trigger_label
+    if routing_mode is not None:
+        fields["routing_mode"] = routing_mode
     # unique_stamphog_installation_repo backs this at the DB level, so a race that slips past the
     # read still fails closed on the create below and surfaces as the same domain error.
     try:

@@ -12,7 +12,7 @@ import type { TicketMacroApi } from 'products/conversations/frontend/generated/a
 import type { TicketChannel, TicketStatus } from '../../types'
 import { channelIcon, getReplyPlaceholder, hasReplyChannelBranding } from '../Channels/ChannelsTag'
 import { ComposerHeader, SimplifiedRepliesProps } from '../ComposerHeader/ComposerHeader'
-import { SupportEditor, serializeToMarkdown } from '../Editor'
+import { SupportEditor, type SupportEditorProps, serializeToMarkdown } from '../Editor'
 import { SendMenu } from '../SendMenu/SendMenu'
 
 export interface MessageInputProps {
@@ -39,6 +39,8 @@ export interface MessageInputProps {
     isPrivate?: boolean
     /** Called when private checkbox changes */
     onPrivateChange?: (isPrivate: boolean) => void
+    /** Stores a file of any type for the reply. Leave unset to hide the attach button. */
+    onAttachFile?: SupportEditorProps['onAttachFile']
     /** Extra actions rendered next to the send button */
     extraActions?: React.ReactNode
     /** Blocks sending customer-facing messages (private notes stay available). Shown as the button's disabled tooltip. */
@@ -105,6 +107,7 @@ export function MessageInput({
     composerInsertContent = null,
     macroPicker,
     enableMacros = false,
+    onAttachFile,
     onInsertMacro,
     simplifiedReplies,
 }: MessageInputProps): JSX.Element {
@@ -315,7 +318,7 @@ export function MessageInput({
           : isEmpty
             ? 'No message'
             : isUploading
-              ? 'Uploading image...'
+              ? 'Uploading file...'
               : undefined
     const sendControlDisabledReason =
         typeof sendDisabledReason === 'string'
@@ -386,6 +389,7 @@ export function MessageInput({
                     }
                 }}
                 onUploadingChange={setIsUploading}
+                onAttachFile={onAttachFile}
                 disabled={messageSending || !!sendDisabledReason}
                 minRows={minRows}
                 enableMacros={enableMacros}
