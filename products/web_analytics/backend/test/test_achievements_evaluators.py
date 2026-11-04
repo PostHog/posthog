@@ -577,7 +577,7 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
         assert prior_checkpoint is not None
         actions = prior_checkpoint["actions"]
         if change == "edited_steps":
-            update_action(action.id, steps_json=[{"event": "$autocapture", "text": "Pay $10"}])
+            update_action(action, steps_json=[{"event": "$autocapture", "text": "Pay $10"}])
         elif change == "other_actions":
             actions = [[action.id + 1, "0"]]
         now = timezone.now()

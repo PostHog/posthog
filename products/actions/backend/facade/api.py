@@ -232,12 +232,7 @@ def list_action_catalog(
     *, team_id: int, access_control: UserAccessControl, limit: int, using: str | None = None
 ) -> list[contracts.ActionCatalogEntry]:
     """The team's live actions the user may list, most recently updated first."""
-    return [
-        contracts.ActionCatalogEntry(id=pk, name=name, short_description=short_description)
-        for pk, name, short_description in logic.catalog_rows(
-            team_id=team_id, access_control=access_control, limit=limit, using=using
-        )
-    ]
+    return logic.catalog_entries(team_id=team_id, access_control=access_control, limit=limit, using=using)
 
 
 def search_actions(

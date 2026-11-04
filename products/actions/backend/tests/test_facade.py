@@ -197,14 +197,14 @@ class TestActionWrites(APIBaseTest):
         action = api.create_action(team=child, name="Viewed", steps_json=[{"event": "$pageview"}])
 
         assert action.team_id == self.team.id
-        assert testing.get_action_bytecode(action.id).bytecode is not None
+        assert testing.get_action_bytecode(action).bytecode is not None
 
     def test_save_handlers_hear_every_save(self):
         handler = MagicMock()
         api.on_action_saved(handler, dispatch_uid="test_save_handlers_hear_every_save")
         try:
             action = testing.create_action(team=self.team, name="Viewed", steps_json=[{"event": "$pageview"}])
-            testing.update_action(action.id, name="Renamed")
+            testing.update_action(action, name="Renamed")
         finally:
             saved_handlers._handlers.pop("test_save_handlers_hear_every_save")
 
@@ -215,14 +215,14 @@ class TestActionWrites(APIBaseTest):
 
     def test_update_action_recompiles_and_can_backdate(self):
         action = testing.create_action(team=self.team, name="Viewed", steps_json=[{"event": "$pageview"}])
-        before = testing.get_action_bytecode(action.id).bytecode
+        before = testing.get_action_bytecode(action).bytecode
         backdated = datetime(2020, 1, 1, tzinfo=UTC)
 
-        updated = testing.update_action(action.id, steps_json=[{"event": "$autocapture"}], updated_at=backdated)
+        updated = testing.update_action(action, steps_json=[{"event": "$autocapture"}], updated_at=backdated)
 
         assert updated.get_step_events() == ["$autocapture"]
         assert updated.updated_at == backdated
-        assert testing.get_action_bytecode(action.id).bytecode != before
+        assert testing.get_action_bytecode(action).bytecode != before
 
 
 class TestActionSummariesAndEmbeddings(APIBaseTest):

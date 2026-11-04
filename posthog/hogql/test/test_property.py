@@ -2488,7 +2488,7 @@ class TestProperty(BaseTest):
         # Compiling one would re-enter action_to_expr until Python's recursion limit
         action = create_action(team=self.team, steps_json=[{"event": "$pageview"}])
         action = update_action(
-            action.id,
+            action,
             steps_json=[
                 {
                     "event": "$pageview",

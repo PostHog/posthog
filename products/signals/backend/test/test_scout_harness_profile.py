@@ -829,7 +829,7 @@ class TestRecentCohorts(BaseTest):
 class TestRecentActions(BaseTest):
     def test_orders_by_updated_at_desc(self) -> None:
         a = create_action(team=self.team, name="a", created_by=self.user)
-        update_action(a.id, updated_at=timezone.now() - timedelta(days=1))
+        update_action(a, updated_at=timezone.now() - timedelta(days=1))
         create_action(team=self.team, name="b", created_by=self.user)
         result = _recent_actions(self.team)
         assert [r["name"] for r in result["recent"]] == ["b", "a"]

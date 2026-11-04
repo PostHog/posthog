@@ -11,6 +11,7 @@ from django.db.models.functions import Substr
 
 from posthog.helpers.full_text_search import build_rank
 
+from products.actions.backend.facade.contracts import ActionCatalogEntry
 from products.actions.backend.models.action import Action
 
 if TYPE_CHECKING:
@@ -76,11 +77,11 @@ def accessible_ids(*, team_id: int, action_ids: Collection[int], access_control:
     )
 
 
-def catalog_rows(
+def catalog_entries(
     *, team_id: int, access_control: UserAccessControl, limit: int, using: str | None
-) -> list[tuple[int, str | None, str | None]]:
+) -> list[ActionCatalogEntry]:
     manager = Action.objects.using(using) if using else Action.objects
-    return list(
+    rows = (
         access_control.filter_queryset_by_access_level(
             manager.filter(team_id=team_id, deleted=False), resource="action"
         )
@@ -88,6 +89,10 @@ def catalog_rows(
         .order_by("-updated_at", "-pk")
         .values_list("pk", "name", "short_description")[:limit]
     )
+    return [
+        ActionCatalogEntry(id=pk, name=name, short_description=short_description)
+        for pk, name, short_description in rows
+    ]
 
 
 def search(

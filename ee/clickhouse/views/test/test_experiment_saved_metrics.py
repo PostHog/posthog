@@ -950,7 +950,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         saved_metric_id = response.json()["id"]
 
         # Rename the action
-        update_action(action.id, name="Renamed Action")
+        update_action(action, name="Renamed Action")
 
         # Fetch the saved metric
         response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}/")
@@ -987,7 +987,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         saved_metric_id = response.json()["id"]
 
         # Delete the action
-        update_action(action.id, deleted=True)
+        update_action(action, deleted=True)
 
         # Fetch the saved metric
         response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}/")

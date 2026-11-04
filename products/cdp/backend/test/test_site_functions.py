@@ -232,7 +232,7 @@ class TestSiteFunctions(TestCase):
     @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_complex_filters(self, mock_transpile_fn):
         action = create_action(team=self.team, name="Test Action")
-        update_action(action.id, steps_json=[{"event": "$pageview", "url": "https://example.com"}])
+        update_action(action, steps_json=[{"event": "$pageview", "url": "https://example.com"}])
 
         self.team.test_account_filters = [
             {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},

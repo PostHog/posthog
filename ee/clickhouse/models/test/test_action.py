@@ -25,7 +25,7 @@ class TestActionBytecode(BaseTest):
             ],
         )
 
-        bytecode = get_action_bytecode(action1.id).bytecode
+        bytecode = get_action_bytecode(action1).bytecode
         self.assertEqual(bytecode, create_bytecode(action_to_expr(action1)).bytecode)
         self.assertEqual(
             bytecode,

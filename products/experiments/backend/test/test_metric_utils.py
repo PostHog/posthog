@@ -38,7 +38,7 @@ class TestRefreshActionNamesInMetric(BaseTest):
         }
 
         # Rename the action
-        update_action(self.action1.id, name="Renamed Action 1")
+        update_action(self.action1, name="Renamed Action 1")
 
         # Refresh action names
         updated_query = refresh_action_names_in_metric(query, self.team)
@@ -74,8 +74,8 @@ class TestRefreshActionNamesInMetric(BaseTest):
         }
 
         # Rename both actions
-        update_action(self.action1.id, name="Renamed Action 1")
-        update_action(self.action2.id, name="Renamed Action 2")
+        update_action(self.action1, name="Renamed Action 1")
+        update_action(self.action2, name="Renamed Action 2")
 
         # Refresh action names
         updated_query = refresh_action_names_in_metric(query, self.team)
@@ -110,8 +110,8 @@ class TestRefreshActionNamesInMetric(BaseTest):
         }
 
         # Rename the actions
-        update_action(self.action1.id, name="Renamed Action 1")
-        update_action(self.action2.id, name="Renamed Action 2")
+        update_action(self.action1, name="Renamed Action 1")
+        update_action(self.action2, name="Renamed Action 2")
 
         # Refresh action names
         updated_query = refresh_action_names_in_metric(query, self.team)
@@ -150,7 +150,7 @@ class TestRefreshActionNamesInMetric(BaseTest):
         """Test that missing or deleted actions don't cause errors."""
         if action_exists:
             action_id = self.action1.id
-            update_action(self.action1.id, deleted=True)
+            update_action(self.action1, deleted=True)
         else:
             action_id = 99999
 
@@ -207,7 +207,7 @@ class TestRefreshActionNamesInMetric(BaseTest):
         }
 
         # Rename the action
-        update_action(self.action1.id, name="Renamed Action 1")
+        update_action(self.action1, name="Renamed Action 1")
 
         # Store original name
         original_name = original_query["source"]["name"]
@@ -245,7 +245,7 @@ class TestRefreshActionNamesInMetric(BaseTest):
         }
 
         # Rename the action
-        update_action(self.action1.id, name="Renamed Action 1")
+        update_action(self.action1, name="Renamed Action 1")
 
         # Refresh action names
         updated_query = refresh_action_names_in_metric(query, self.team)
@@ -271,9 +271,9 @@ class TestRefreshActionNamesInMetric(BaseTest):
         }
 
         # Rename all actions
-        update_action(self.action1.id, name="Renamed Action 1")
-        update_action(self.action2.id, name="Renamed Action 2")
-        update_action(self.action3.id, name="Renamed Action 3")
+        update_action(self.action1, name="Renamed Action 1")
+        update_action(self.action2, name="Renamed Action 2")
+        update_action(self.action3, name="Renamed Action 3")
 
         # Count queries executed
         with self.assertNumQueries(1):  # Should be a single query to fetch all actions

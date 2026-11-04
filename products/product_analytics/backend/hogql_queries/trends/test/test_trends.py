@@ -6500,7 +6500,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         step = dataclasses.replace(
             sign_up_action.steps[0], properties=[{"key": "id", "value": cohort.pk, "type": "cohort"}]
         )
-        sign_up_action = update_action(sign_up_action.id, steps_json=[dataclasses.asdict(step)])
+        sign_up_action = update_action(sign_up_action, steps_json=[dataclasses.asdict(step)])
 
         cohort.calculate_people_ch(pending_version=0)
 

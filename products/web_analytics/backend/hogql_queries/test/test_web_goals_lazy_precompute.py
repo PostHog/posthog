@@ -33,7 +33,7 @@ class TestWebGoalsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         super().setUp()
         PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
         for action in list_actions(project_id=self.team.project_id, include_deleted=True):
-            delete_action(action.id)
+            delete_action(action)
 
     def _enable_lazy(self):
         # Same flag the paths/frustration tests patch — the gate evaluates the

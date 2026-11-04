@@ -80,7 +80,7 @@ async def _plant_actions(team, fields: list[dict[str, Any]]) -> list[Action]:
 
 async def _remove_actions(actions: list[Action]) -> None:
     for action in actions:
-        await sync_to_async(delete_action)(action.id)
+        await sync_to_async(delete_action)(action)
 
 
 @pytest_asyncio.fixture
@@ -169,13 +169,13 @@ async def test_basic_batch_summarization(azure_mock, actions):
         )
         assert summarize_mock.call_count == 1
 
-        updated_state = await aget_action_ai_state(actions[0].id)
+        updated_state = await aget_action_ai_state(actions[0])
         assert updated_state.summary == "Test1"
         assert updated_state.last_summarized_at == start_dt
         assert updated_state.embedding_last_synced_at is None
 
         for action in actions[1:]:
-            state = await aget_action_ai_state(action.id)
+            state = await aget_action_ai_state(action)
             assert state.summary is None
             assert state.last_summarized_at is None
             assert state.embedding_last_synced_at is None
@@ -189,7 +189,7 @@ async def test_basic_batch_summarization(azure_mock, actions):
         expected_texts = ["Test1", "Test2", "Test3"]
 
         for action, expected_text in zip(actions, expected_texts):
-            state = await aget_action_ai_state(action.id)
+            state = await aget_action_ai_state(action)
             assert state.summary == expected_text
             assert state.last_summarized_at == start_dt
             assert state.embedding_last_synced_at is None
@@ -207,7 +207,7 @@ async def test_batch_summarize_with_errors(azure_mock, actions: list[Action], at
         await batch_summarize_actions(
             BatchSummarizeActionsInputs(offset=0, batch_size=96, start_dt=start_dt.isoformat())
         )
-        updated_actions = [await aget_action_ai_state(action.id) for action in actions]
+        updated_actions = [await aget_action_ai_state(action) for action in actions]
         assert len(updated_actions) == 3
         assert updated_actions[0].summary == "Test1"
         assert updated_actions[1].summary == "Test2"
@@ -232,7 +232,7 @@ async def test_batch_summarize_with_errors(azure_mock, actions: list[Action], at
         assert summarize_mock.call_count == 1
         assert len(summarize_mock.call_args[0][0]) == 1
 
-        updated_actions = [await aget_action_ai_state(action.id) for action in actions]
+        updated_actions = [await aget_action_ai_state(action) for action in actions]
         assert len(updated_actions) == 3
         assert ("Test1", "Test2", "Test3") == tuple(action.summary for action in updated_actions)
         assert [start_dt, start_dt, new_start_dt] == [action.last_summarized_at for action in updated_actions]
@@ -356,7 +356,7 @@ async def test_clickhouse_sync_single_batch(summarized_actions, summarized_actio
         assert expected_result == parse_records(embeddings)
 
         for action in summarized_actions:
-            assert (await aget_action_ai_state(action.id)).embedding_last_synced_at == start_dt
+            assert (await aget_action_ai_state(action)).embedding_last_synced_at == start_dt
 
         with patch("posthog.temporal.common.clickhouse.ClickHouseClient.execute_query") as mock:
             await sync_action_vectors(client, summarized_actions_with_embeddings, 10, start_dt)
@@ -388,7 +388,7 @@ async def test_clickhouse_sync_multiple_batches(summarized_actions, summarized_a
         assert expected_result == parse_records(embeddings)
 
         for action in summarized_actions:
-            assert (await aget_action_ai_state(action.id)).embedding_last_synced_at == start_dt
+            assert (await aget_action_ai_state(action)).embedding_last_synced_at == start_dt
 
         with patch("posthog.temporal.common.clickhouse.ClickHouseClient.execute_query") as mock:
             await sync_action_vectors(client, summarized_actions_with_embeddings, 1, start_dt)
@@ -656,7 +656,7 @@ async def test_batch_embed_and_sync_actions_embedding_version(azure_mock, ateam)
         } == {2}
 
         for action in actions:
-            assert (await aget_action_ai_state(action.id)).embedding_version == 2
+            assert (await aget_action_ai_state(action)).embedding_version == 2
 
 
 @pytest.mark.asyncio
@@ -845,7 +845,7 @@ async def test_updates_embedding_version(embeddings_mock, azure_mock, ateam):
             }
 
             for action in actions:
-                assert (await aget_action_ai_state(action.id)).embedding_version == 2
+                assert (await aget_action_ai_state(action)).embedding_version == 2
 
 
 @pytest.mark.asyncio

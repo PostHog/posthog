@@ -6993,7 +6993,7 @@ class TestExperimentService(APIBaseTest):
             feature_flag_key="stale-action-resend-flag",
             metrics=[stale],
         )
-        update_action(action.id, deleted=True)
+        update_action(action, deleted=True)
 
         updated = service.update_experiment(experiment, {"metrics": [stale], "metrics_secondary": []})
 
@@ -7012,7 +7012,7 @@ class TestExperimentService(APIBaseTest):
             feature_flag_key="unknown-alongside-stale-action-flag",
             metrics=[stale],
         )
-        update_action(action.id, deleted=True)
+        update_action(action, deleted=True)
         fresh = {
             "kind": "ExperimentMetric",
             "metric_type": "mean",

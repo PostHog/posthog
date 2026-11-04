@@ -1019,9 +1019,9 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         pipeline.target_definition = {"type": "action", "action_id": action.id}
         pipeline.save(update_fields=["target_definition"])
         if staleness == "deleted":
-            update_action(action.id, deleted=True)
+            update_action(action, deleted=True)
         else:
-            update_action(action.id, steps_json=[])
+            update_action(action, steps_json=[])
         with (
             patch(f"{_FACADE}._start_inference_workflow") as mock_score,
             patch(
@@ -1039,7 +1039,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             target_event="Uploaded", target_definition={"type": "action", "action_id": action.id}
         )
         # The Action API soft-deletes, so the row stays behind.
-        update_action(action.id, deleted=True)
+        update_action(action, deleted=True)
         resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert not AutoresearchTrainingRun.objects.for_team(self.team.pk).filter(pipeline=pipeline).exists()

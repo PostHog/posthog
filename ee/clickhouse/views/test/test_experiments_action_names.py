@@ -53,7 +53,7 @@ class TestExperimentActionNameRefresh(APILicensedTest):
         experiment_id = response.json()["id"]
 
         # Rename the action
-        update_action(action.id, name="Renamed Action")
+        update_action(action, name="Renamed Action")
 
         # Fetch the experiment
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
@@ -112,7 +112,7 @@ class TestExperimentActionNameRefresh(APILicensedTest):
         experiment_id = response.json()["id"]
 
         # Rename the action
-        update_action(action.id, name="Action Name Renamed")
+        update_action(action, name="Action Name Renamed")
 
         # Fetch the experiment
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
@@ -164,7 +164,7 @@ class TestExperimentActionNameRefresh(APILicensedTest):
         experiment_id = response.json()["id"]
 
         # Delete the action
-        update_action(action.id, deleted=True)
+        update_action(action, deleted=True)
 
         # Fetch the experiment
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
@@ -231,8 +231,8 @@ class TestExperimentActionNameRefresh(APILicensedTest):
         experiment_id = response.json()["id"]
 
         # Rename both actions
-        update_action(action1.id, name="Funnel Step 1 Renamed")
-        update_action(action2.id, name="Funnel Step 2 Renamed")
+        update_action(action1, name="Funnel Step 1 Renamed")
+        update_action(action2, name="Funnel Step 2 Renamed")
 
         # Fetch the experiment
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
@@ -297,8 +297,8 @@ class TestExperimentActionNameRefresh(APILicensedTest):
         experiment_id = response.json()["id"]
 
         # Rename both actions
-        update_action(numerator_action.id, name="Numerator Renamed")
-        update_action(denominator_action.id, name="Denominator Renamed")
+        update_action(numerator_action, name="Numerator Renamed")
+        update_action(denominator_action, name="Denominator Renamed")
 
         # Fetch the experiment
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")

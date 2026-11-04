@@ -366,7 +366,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         # actions, 1 bulk update hog functions, 5 filesystem
         with self.assertNumQueries(14):
             update_action(
-                self.action.id,
+                self.action,
                 steps_json=[
                     {
                         "event": "test-event",

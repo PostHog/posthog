@@ -616,7 +616,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_retrieve_event_or_action_properties_when_no_actions_exist_and_action_id_incorrect(self):
-        delete_action(self.action.id)
+        delete_action(self.action)
 
         toolkit = DummyToolkit(self.team, self.user)
         incorrect_action_id = 9999

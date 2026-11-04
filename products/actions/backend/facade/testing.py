@@ -87,7 +87,7 @@ acreate_action = sync_to_async(create_action)
 
 
 def update_action(
-    action_id: int,
+    action: contracts.Action,
     *,
     name: object = _UNSET,
     description: object = _UNSET,
@@ -105,7 +105,7 @@ def update_action(
 
     `updated_at` is stamped by every save, so a backdated one is written with a separate update.
     """
-    action = Action.objects.get(pk=action_id)
+    row = Action.objects.get(team_id=action.team_id, pk=action.id)
     fields = {
         "name": name,
         "description": description,
@@ -120,30 +120,32 @@ def update_action(
     }
     for field, value in fields.items():
         if value is not _UNSET:
-            setattr(action, field, value)
-    action.save()
+            setattr(row, field, value)
+    row.save()
     if updated_at is not _UNSET:
-        Action.objects.filter(pk=action_id).update(updated_at=updated_at)
-        action.refresh_from_db()
-    return _to_contract(action)
+        Action.objects.filter(team_id=action.team_id, pk=action.id).update(updated_at=updated_at)
+        row.refresh_from_db()
+    return _to_contract(row)
 
 
-def delete_action(action_id: int) -> None:
+def delete_action(action: contracts.Action) -> None:
     """Remove the action row, as a team deletion does. The API only ever soft-deletes."""
-    Action.objects.get(pk=action_id).delete()
+    Action.objects.get(team_id=action.team_id, pk=action.id).delete()
 
 
-def get_action_bytecode(action_id: int) -> contracts.ActionBytecode:
+def get_action_bytecode(action: contracts.Action) -> contracts.ActionBytecode:
     """The bytecode the last save compiled for the action, or the error it hit."""
-    bytecode, bytecode_error = Action.objects.values_list("bytecode", "bytecode_error").get(pk=action_id)
+    bytecode, bytecode_error = Action.objects.values_list("bytecode", "bytecode_error").get(
+        team_id=action.team_id, pk=action.id
+    )
     return contracts.ActionBytecode(bytecode=bytecode, bytecode_error=bytecode_error)
 
 
-def get_action_ai_state(action_id: int) -> contracts.ActionAiState:
+def get_action_ai_state(action: contracts.Action) -> contracts.ActionAiState:
     """Where the action stands in the AI summary and embedding sync."""
     summary, last_summarized_at, embedding_last_synced_at, embedding_version = Action.objects.values_list(
         "summary", "last_summarized_at", "embedding_last_synced_at", "embedding_version"
-    ).get(pk=action_id)
+    ).get(team_id=action.team_id, pk=action.id)
     return contracts.ActionAiState(
         summary=summary,
         last_summarized_at=last_summarized_at,
