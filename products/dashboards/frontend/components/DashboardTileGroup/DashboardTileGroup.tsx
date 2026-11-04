@@ -60,6 +60,7 @@ export function DashboardTileGroup({
         onChangeGroupDisplay,
         copyToDestinations,
         onCopyToDashboard,
+        copyLoading,
     }
 
     return (
@@ -103,9 +104,7 @@ export function DashboardTileGroup({
                 </DashboardTileGroupContextMenu>
                 {group.title && collapsed && <span className="shrink-0 text-secondary text-xs">{tileCountLabel}</span>}
                 <div className="min-w-4 flex-1 border-t border-primary" />
-                {hasTileGroupMenuActions(menuActions) && (
-                    <DashboardTileGroupMenu {...menuActions} copyLoading={copyLoading} />
-                )}
+                {hasTileGroupMenuActions(menuActions) && <DashboardTileGroupMenu {...menuActions} />}
             </div>
             {!collapsed && tileCount === 0 && (
                 <div

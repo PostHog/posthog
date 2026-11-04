@@ -65,6 +65,7 @@ export function DashboardTileGroupTabs({
                 section.tiles.length > 0 && onCopyGroupToDashboard
                     ? (dashboardId, dashboardName) => onCopyGroupToDashboard(groupKey, dashboardId, dashboardName)
                     : undefined,
+            copyLoading,
         }
     }
 
@@ -110,9 +111,7 @@ export function DashboardTileGroupTabs({
                 rightSlotClassName="pr-0"
                 trackTabSizes
                 rightSlot={
-                    hasTileGroupMenuActions(activeMenuActions) && (
-                        <DashboardTileGroupMenu {...activeMenuActions} copyLoading={copyLoading} />
-                    )
+                    hasTileGroupMenuActions(activeMenuActions) && <DashboardTileGroupMenu {...activeMenuActions} />
                 }
             />
             {activeSection?.kind === 'group' && activeSection.tiles.length === 0 ? (

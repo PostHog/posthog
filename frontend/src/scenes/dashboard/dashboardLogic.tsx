@@ -640,10 +640,11 @@ const groupKeyUpdate = (tile: DashboardTile, saved: TilePlacement | undefined): 
 function calculateDraftLayouts(
     tiles: DashboardTile[],
     draftLayouts: ResponsiveLayouts | null,
+    groupsShareGrid: boolean,
     savedPlacements?: Record<DashboardTile['id'], TilePlacement>
 ): ResponsiveLayouts {
     if (!draftLayouts) {
-        return calculateLayouts(tiles)
+        return calculateLayouts(tiles, { groupsShareGrid })
     }
 
     const draftSmByTile = new Map(draftLayouts.sm?.map((layout) => [layout.i, layout]))
@@ -656,7 +657,7 @@ function calculateDraftLayouts(
         return sm ? ({ ...tile, layouts: { ...tile.layouts, sm } } as DashboardTile) : tile
     })
 
-    return calculateLayouts(tilesWithDraft)
+    return calculateLayouts(tilesWithDraft, { groupsShareGrid })
 }
 
 function mergeUpdatedWidgetTileIntoDashboard(dashboard: DashboardType, updatedTile: DashboardTile): DashboardType {
@@ -1336,6 +1337,9 @@ export interface dashboardLogicActions {
     }
     saveLayoutChanges: () => {
         value: true
+    }
+    saveTileGroups: (groups: Record<string, DashboardTileGroupApi>) => {
+        groups: Record<string, DashboardTileGroupApi>
     }
     scheduleRefreshDashboardWidgets: (tileId: number) => {
         tileId: number
@@ -2223,6 +2227,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         triggerDashboardUpdate: (payload) => ({ payload }),
         /** Shows a group change before it saves. The API replaces every group on write. */
         setTileGroups: (groups: Record<string, DashboardTileGroupApi>) => ({ groups }),
+        saveTileGroups: (groups: Record<string, DashboardTileGroupApi>) => ({ groups }),
         saveDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => ({ tileSpacing }),
         saveDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => ({ layoutCompaction }),
         setDashboardCustomizeMenuOpen: (open: boolean) => ({ open }),
@@ -4242,9 +4247,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         layouts: [
-            (s) => [s.tiles, s.draftLayouts],
-            (tiles: DashboardTile[], draftLayouts: ResponsiveLayouts | null): ResponsiveLayouts =>
-                calculateDraftLayouts(tiles, draftLayouts),
+            (s) => [s.tiles, s.draftLayouts, s.tileGroupSectionsEnabled],
+            (
+                tiles: DashboardTile[],
+                draftLayouts: ResponsiveLayouts | null,
+                tileGroupSectionsEnabled: boolean
+            ): ResponsiveLayouts => calculateDraftLayouts(tiles, draftLayouts, !tileGroupSectionsEnabled),
             // Tile refreshes replace `tiles` once per insight response without touching geometry;
             // keeping the result reference stable stops react-grid-layout re-laying-out every tile
             // N times per dashboard refresh cycle.
@@ -4778,16 +4786,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             payload,
         }: {
             dashboard: DashboardType | null
-            payload?: { layoutsPersisted?: boolean }
+            payload?: { layoutsPersisted?: boolean; groups?: Record<string, DashboardTileGroupApi> }
         }) => {
             if (!dashboard || !values.dashboard || dashboard.id !== props.id || values.dashboard.id !== dashboard.id) {
                 return
             }
-            cache.tileGroupsSaving = false
-            const pendingTileGroups = cache.pendingTileGroups
-            if (pendingTileGroups) {
-                cache.pendingTileGroups = null
-                actions.setTileGroups(pendingTileGroups)
+            if (payload?.groups) {
+                cache.savedTileGroups = payload.groups
             }
 
             const layoutsPersisted = payload?.layoutsPersisted === true
@@ -4796,7 +4801,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const originalLayouts = layoutsPersisted
                 ? layoutsByTile(
                       calculateLayouts(
-                          values.dashboard.tiles.map((tile) => withTilePlacement(tile, savedBefore[tile.id]))
+                          values.dashboard.tiles.map((tile) => withTilePlacement(tile, savedBefore[tile.id])),
+                          { groupsShareGrid: !values.tileGroupSectionsEnabled }
                       )
                   )
                 : null
@@ -5044,6 +5050,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     calculateDraftLayouts(
                         dashboard.tiles.filter((tile) => !tile.deleted),
                         values.draftLayouts,
+                        !values.tileGroupSectionsEnabled,
                         values.savedTilePlacements
                     )
                 )
@@ -5837,14 +5844,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
             cache.tileGroupsSaving = true
-            actions.triggerDashboardUpdate({ groups })
+            actions.saveTileGroups(groups)
         },
-        [dashboardsModel.actionTypes.updateDashboardFailure]: () => {
-            if (cache.tileGroupsSaving) {
-                cache.tileGroupsSaving = false
-                cache.pendingTileGroups = null
+        saveTileGroups: async ({ groups }) => {
+            cache.savedTileGroups = null
+            // Other dashboard writes share this request's success and failure actions, so await this one.
+            await dashboardsModel.asyncActions.updateDashboard({ id: props.id, groups })
+            cache.tileGroupsSaving = false
+            const pendingTileGroups = cache.pendingTileGroups
+            cache.pendingTileGroups = null
+            if (cache.savedTileGroups !== groups) {
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
                 lemonToast.error("Couldn't save the group change. Try again.")
+                return
+            }
+            if (pendingTileGroups) {
+                actions.setTileGroups(pendingTileGroups)
             }
         },
         renameTileGroup: ({ groupKey, title }) => {

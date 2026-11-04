@@ -191,7 +191,13 @@ describe('calculating tile layouts', () => {
             ],
             expected: { x: 6, y: 10 },
         },
-    ])('places a tile with no layout so its group keeps its order: $name', ({ tiles, expected }) => {
+        {
+            name: 'without sections an ungrouped tile goes below grouped tiles in the shared grid',
+            tiles: [{ id: 1, group_key: 'a', layout: { x: 0, y: 0, w: 12, h: 5 } }, { id: 2 }],
+            groupsShareGrid: true,
+            expected: { x: 0, y: 5 },
+        },
+    ])('places a tile with no layout so its group keeps its order: $name', ({ tiles, groupsShareGrid, expected }) => {
         const dashboardTiles: DashboardTile[] = tiles.map(({ id, layout, group_key }) => ({
             ...textTileWithLayout(
                 (layout ? { sm: { i: String(id), ...layout } } : {}) as Record<DashboardLayoutSize, TileLayout>,
@@ -200,7 +206,9 @@ describe('calculating tile layouts', () => {
             ...(group_key ? { group_key } : {}),
         }))
 
-        const placed = calculateLayouts(dashboardTiles).sm?.find((layout) => layout.i === String(tiles.at(-1)!.id))
+        const placed = calculateLayouts(dashboardTiles, { groupsShareGrid }).sm?.find(
+            (layout) => layout.i === String(tiles.at(-1)!.id)
+        )
 
         expect(placed).toMatchObject(expected)
     })

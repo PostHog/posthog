@@ -223,7 +223,10 @@ export const sortTilesByLayout = (tiles: Array<DashboardTile>, col: DashboardLay
         return 0
     })
 }
-export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<DashboardLayoutSize, Layout>> => {
+export const calculateLayouts = (
+    tiles: DashboardTile[],
+    { groupsShareGrid = false }: { groupsShareGrid?: boolean } = {}
+): Partial<Record<DashboardLayoutSize, Layout>> => {
     const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout>> = {}
     const imageTileIds = new Set(
         tiles.filter((tile) => !!tile.text && !!getImageOnlyTextCardImage(tile.text.body)).map((tile) => tile.id)
@@ -339,7 +342,10 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
         const dirtyLayouts = layouts?.filter(({ y }) => y === Infinity)
 
         // Each group lays out on its own, so a new tile fills a gap in its own group.
-        const groupOf = new Map(tiles.map((tile) => [tile.id?.toString(), tile.group_key ?? null]))
+        // Without sections every group renders in one grid, so they all count as one group.
+        const groupOf = new Map(
+            tiles.map((tile) => [tile.id?.toString(), groupsShareGrid ? null : (tile.group_key ?? null)])
+        )
         const lowestPointsByGroup = new Map<string | null, number[]>()
         const lowestPointsFor = (groupKey: string | null): number[] => {
             let points = lowestPointsByGroup.get(groupKey)

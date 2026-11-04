@@ -27,7 +27,7 @@ export function DashboardTileGroupMenu({ copyLoading, ...actions }: DashboardTil
             dropdown={{
                 onVisibilityChange: (visible) => visible && actions.onCopyToDashboard && loadDashboardsIfNeeded(),
             }}
-            overlay={<DashboardTileGroupMenuOverlay {...actions} />}
+            overlay={<DashboardTileGroupMenuOverlay {...actions} copyLoading={copyLoading} />}
         />
     )
 }

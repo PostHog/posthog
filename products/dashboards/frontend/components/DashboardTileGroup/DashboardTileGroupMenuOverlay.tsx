@@ -52,6 +52,7 @@ export interface DashboardTileGroupMenuActions {
     onChangeGroupDisplay?: (groupDisplay: TileGroupDisplay) => void
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyToDashboard?: (dashboardId: number, dashboardName: string) => void
+    copyLoading?: boolean
 }
 
 export function hasTileGroupMenuActions({
@@ -73,6 +74,7 @@ export function DashboardTileGroupMenuOverlay({
     onChangeGroupDisplay,
     copyToDestinations,
     onCopyToDashboard,
+    copyLoading,
 }: DashboardTileGroupMenuActions): JSX.Element {
     // Each rename sends every group, so a second rename before the first saves would undo it.
     const { dashboardLoading: dashboardSaving } = useValues(dashboardsModel)
@@ -136,7 +138,9 @@ export function DashboardTileGroupMenuOverlay({
                 <>
                     <DashboardWidgetPlacementMenu
                         label={copyLabel}
-                        destinations={copyToDestinations ?? []}
+                        destinations={(copyToDestinations ?? []).map((destination) =>
+                            copyLoading ? { ...destination, disabledReason: `Copying ${copyNoun}` } : destination
+                        )}
                         onSelect={({ id, name }) => onCopyToDashboard(id, name || 'Untitled')}
                     />
                     {onChangeGroupDisplay && <LemonDivider />}

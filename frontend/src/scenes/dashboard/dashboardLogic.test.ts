@@ -494,7 +494,7 @@ describe('dashboardLogic', () => {
         ])('$name', async ({ dispatch, expectedKeys }) => {
             groupTiles({ target: { collapsed: true }, other: { collapsed: false }, empty: { collapsed: false } })
             await mountDashboard()
-            const update = jest.spyOn(logic.actions, 'triggerDashboardUpdate')
+            const update = jest.spyOn(logic.actions, 'saveTileGroups')
 
             dispatch()
 
@@ -502,7 +502,7 @@ describe('dashboardLogic', () => {
                 expect(update).not.toHaveBeenCalled()
                 return
             }
-            const { groups } = update.mock.calls[0][0]
+            const groups = update.mock.calls[0][0]
             const keys = Object.keys(groups).map((key) => (['target', 'other', 'empty'].includes(key) ? key : 'added'))
             expect(keys).toEqual(expectedKeys)
             // The change shows before the save answers.
@@ -549,7 +549,7 @@ describe('dashboardLogic', () => {
         it('sends a rename made while the new group saves after that save', async () => {
             groupTiles({ target: { collapsed: false } })
             await mountDashboard()
-            const update = jest.spyOn(logic.actions, 'triggerDashboardUpdate')
+            const update = jest.spyOn(logic.actions, 'saveTileGroups')
 
             logic.actions.addTileGroup()
             const added = logic.values.renamingTileGroupKey!
@@ -559,7 +559,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(update).toHaveBeenCalledTimes(2)
-            expect(update.mock.calls[1][0].groups).toEqual({
+            expect(update.mock.calls[1][0]).toEqual({
                 target: { collapsed: false },
                 [added]: { title: 'Named' },
             })
@@ -577,6 +577,45 @@ describe('dashboardLogic', () => {
 
             expect(load).toHaveBeenCalledWith({ action: DashboardLoadAction.Update })
             expect(errorToast).toHaveBeenCalledWith("Couldn't save the group change. Try again.")
+        })
+
+        it('keeps a queued rename when another dashboard write fails during the group save', async () => {
+            groupTiles({ target: { collapsed: false } })
+            await mountDashboard()
+            let releaseGroupSave = (): void => {}
+            const groupSaveReleased = new Promise<void>((resolve) => {
+                releaseGroupSave = resolve
+            })
+            const groupPatches: unknown[] = []
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/dashboards/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        if (!body.groups) {
+                            return [500, {}]
+                        }
+                        groupPatches.push(body.groups)
+                        if (groupPatches.length === 1) {
+                            await groupSaveReleased
+                        }
+                        return [200, { ...dashboards[5], customization: { ...dashboards[5].customization, ...body } }]
+                    },
+                },
+            })
+            jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
+
+            logic.actions.renameTileGroup('target', 'First')
+            logic.actions.renameTileGroup('target', 'Second')
+            logic.actions.updateDashboardTags(['unrelated'])
+            await expectLogic(dashboardsModel).toDispatchActions(['updateDashboardFailure'])
+            releaseGroupSave()
+            await expectLogic(dashboardsModel).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(groupPatches).toEqual([
+                { target: { collapsed: false, title: 'First' } },
+                { target: { collapsed: false, title: 'Second' } },
+            ])
         })
 
         it.each([

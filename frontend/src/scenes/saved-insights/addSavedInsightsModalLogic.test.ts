@@ -371,21 +371,32 @@ describe('addSavedInsightsModalLogic', () => {
     })
 
     it.each([
-        { name: 'places a new tile in the open tab', existingTiles: [], placedTileIds: [3] },
+        { name: 'places a new tile in the open tab', existingTiles: [], placedTileIds: [3], addTarget: null },
         {
             name: 'leaves a tile that was already on the dashboard in its own group',
             existingTiles: [tileFromInsight(createInsight(2), 3)],
             placedTileIds: [],
+            addTarget: null,
+        },
+        {
+            name: 'keeps the group the add started from when the modal closes during the request',
+            existingTiles: [],
+            placedTileIds: [3],
+            addTarget: 'target',
         },
     ])(
         'refreshes the mounted dashboard after adding an insight, and $name',
-        async ({ existingTiles, placedTileIds }) => {
+        async ({ existingTiles, placedTileIds, addTarget }) => {
             initKeaTests()
             const dashboard = dashboardLogic({ id: 1, dashboard: dashboardResult(1, existingTiles) })
             dashboard.mount()
             const loadDashboard = jest.spyOn(dashboard.actions, 'loadDashboard').mockImplementation()
             const placeAddedTiles = jest.spyOn(dashboard.actions, 'placeAddedTiles')
-            jest.spyOn(insightsApi, 'addToDashboard').mockResolvedValue({ id: 3, dashboard_id: 1 })
+            dashboard.actions.setAddTargetTileGroupKey(addTarget)
+            jest.spyOn(insightsApi, 'addToDashboard').mockImplementation(async () => {
+                dashboard.actions.closeTileModal()
+                return { id: 3, dashboard_id: 1 } as any
+            })
 
             const logic = addSavedInsightsModalLogic()
             logic.mount()
@@ -394,7 +405,7 @@ describe('addSavedInsightsModalLogic', () => {
                 logic.actions.addInsightToDashboard(createInsight(1), 1)
             ).toFinishAllListeners()
 
-            expect(placeAddedTiles).toHaveBeenCalledWith(placedTileIds)
+            expect(placeAddedTiles).toHaveBeenCalledWith(placedTileIds, addTarget)
             expect(loadDashboard).toHaveBeenCalledWith({ action: DashboardLoadAction.Update })
 
             logic.unmount()
