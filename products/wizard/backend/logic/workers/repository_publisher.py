@@ -34,7 +34,13 @@ _BRANCH_TIP_QUERY = """query($owner: String!, $name: String!, $qualifiedName: St
 
 
 class RepositoryPublishingError(Exception):
-    pass
+    def __init__(self, message: str, *, retryable: bool = False) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+
+
+def _is_transient_github_status(status_code: object) -> bool:
+    return isinstance(status_code, int) and (status_code == 429 or status_code >= 500)
 
 
 @frozen
@@ -266,7 +272,10 @@ def _graphql_request(
         timeout=GITHUB_MUTATION_TIMEOUT_SECONDS,
     )
     if response.status_code != 200:
-        raise RepositoryPublishingError(f"GitHub {endpoint_label} failed with status code {response.status_code}.")
+        raise RepositoryPublishingError(
+            f"GitHub {endpoint_label} failed with status code {response.status_code}.",
+            retryable=_is_transient_github_status(response.status_code),
+        )
     try:
         payload: Any = response.json()
     except ValueError as error:
@@ -357,7 +366,11 @@ def _created_pull_request(
     base_branch: str,
 ) -> RepositoryPullRequest:
     if not isinstance(payload, dict) or payload.get("success") is not True:
-        raise RepositoryPublishingError("GitHub did not create the pull request.")
+        status_code = payload.get("status_code") if isinstance(payload, dict) else None
+        raise RepositoryPublishingError(
+            f"GitHub did not create the pull request (status code {status_code}).",
+            retryable=_is_transient_github_status(status_code),
+        )
     number = payload.get("pr_number")
     url = payload.get("pr_url")
     if not isinstance(number, int) or not isinstance(url, str):
