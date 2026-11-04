@@ -107,20 +107,22 @@ class TestBuildPlannedSchemas(SimpleTestCase):
         assert "incremental_field" not in orders
         assert orders["enabled_columns"] == ["id", "card_number"]
 
-    def test_a_table_with_every_column_excluded_stays_off(self) -> None:
+    @parameterized.expand(
+        [
+            ("every_column_excluded", ("id", "card_number", "updated_at")),
+            # `id` is the detected key, which the reader reads whatever the column selection says.
+            ("key_column_excluded", ("id",)),
+        ]
+    )
+    def test_a_table_whose_exclusions_cannot_hold_stays_off(self, _name: str, disabled: tuple[str, ...]) -> None:
         proposal = _proposal(
-            ProposedSchema(
-                name="public.orders",
-                should_sync=True,
-                sync_type=None,
-                disabled_columns=("id", "card_number", "updated_at"),
-            )
+            ProposedSchema(name="public.orders", should_sync=True, sync_type=None, disabled_columns=disabled)
         )
 
         planned = build_planned_schemas(proposal, [_table("public.orders")], {})
 
         assert planned.schemas == [{"name": "public.orders", "should_sync": False}]
-        assert (planned.no_columns, planned.planned) == (("public.orders",), ())
+        assert (planned.kept_off, planned.planned) == (("public.orders",), ())
 
     @parameterized.expand(
         [

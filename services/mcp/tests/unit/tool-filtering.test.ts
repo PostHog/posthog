@@ -1134,6 +1134,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-customerio-import',
             'mcp-session-recording-console-logs',
             'support-macros',
+            'warehouse-migration-import',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1175,7 +1176,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
                 'workflows-mcp-onboarding',
-                'warehouse-migration-import',
                 'aeo-citation-tracking',
             ])
         )

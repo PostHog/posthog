@@ -99,8 +99,8 @@ class PlannedSchemas:
     webhook_only: tuple[str, ...]
     # Discovered tables the plan covers, so a webhook may turn on these and no others.
     planned: tuple[str, ...]
-    # Planned tables whose every column Fivetran skips, so they stay off.
-    no_columns: tuple[str, ...] = ()
+    # Planned tables that skip columns PostHog would still read, so they stay off.
+    kept_off: tuple[str, ...] = ()
 
 
 def build_planned_schemas(
@@ -131,7 +131,7 @@ def build_planned_schemas(
 
     payload: list[dict[str, Any]] = []
     webhook_only: list[str] = []
-    no_columns: list[str] = []
+    kept_off: list[str] = []
     for source_schema in source_schemas:
         table_plan = plans.get(source_schema.name)
         if table_plan is None or source_schema.webhook_only:
@@ -155,10 +155,10 @@ def build_planned_schemas(
         }
         if disabled:
             entry["enabled_columns"] = [name for name in column_names if name not in disabled]
-            if not entry["enabled_columns"]:
-                # An empty column list reads every column, so the table stays off instead.
+            # A reader reads every column for an empty list, and always reads key columns, even inferred ones.
+            if not entry["enabled_columns"] or disabled & set(source_schema.detected_primary_keys or ()):
                 payload.append({"name": source_schema.name, "should_sync": False})
-                no_columns.append(source_schema.name)
+                kept_off.append(source_schema.name)
                 del plans[source_schema.name]
                 continue
         if table_plan.row_filters:
@@ -170,7 +170,7 @@ def build_planned_schemas(
         unavailable=tuple(unavailable),
         webhook_only=tuple(webhook_only),
         planned=tuple(plans) if not proposal.start_paused else (),
-        no_columns=tuple(no_columns),
+        kept_off=tuple(kept_off),
     )
 
 

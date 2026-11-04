@@ -643,6 +643,7 @@ tools:
     warehouse-migration-items-list:
         operation: warehouse_migrations_items_list
         enabled: true
+        list: true
         title: List the connections in a Fivetran migration
         description: >
             One item per Fivetran connection, with its verdict (as_is, caveats, unsupported), the caveats to read to the
@@ -654,13 +655,12 @@ tools:
             'warehouse-migration-item-apply' with the stored credential. Results are paged: follow 'next' until it is
             null to see every connection.
         feature_flag: warehouse-migration-import
-        list: true
         response:
             exclude:
-                - 'proposal.schemas.*.disabled_columns'
-                - 'proposal.schemas.*.row_filters'
-                - 'proposal.schemas.*.alternative_names'
-                - 'proposal.prefill'
+                - proposal.schemas.*.disabled_columns
+                - proposal.schemas.*.row_filters
+                - proposal.schemas.*.alternative_names
+                - proposal.prefill
     warehouse-migration-items-skip:
         operation: warehouse_migrations_items_bulk_skip_create
         enabled: true
