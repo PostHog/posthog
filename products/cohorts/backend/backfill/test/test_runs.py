@@ -394,10 +394,13 @@ _FLAG_CALL_TABLE_CASES = [
 ]
 
 
+# The batch calculation swaps flag calls to flag_evaluations in READ_FLAG_EVALUATIONS mode only on the legacy events
+# table. These cases pin that table, so they do not depend on which events schema CI runs.
 @override_settings(
     REALTIME_COHORT_TEAM_ALLOWLIST="all",
     BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED=True,
     BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=True,
+    CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False,
 )
 class TestBackfillRunFlagCallsTable(BaseTest):
     def _cohort(self, *leaves: dict) -> Cohort:
@@ -440,6 +443,17 @@ class TestBackfillRunFlagCallsTable(BaseTest):
         # cohort-seeder reads a missing key as events. Every run must state the table.
         self.assertEqual(run.pinned["flag_calls_table"], expected)
         self.assertEqual(run.pinned["schema_version"], 1)
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_run_pins_events_when_the_batch_calculation_reads_the_native_json_events_table(self) -> None:
+        # The batch calculation keeps reading events_json in this mode, so the seeder must read events too.
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        cohort = self._cohort(_FLAG_CALL_LEAF)
+
+        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+
+        assert run is not None
+        self.assertEqual(run.pinned["flag_calls_table"], "events")
 
     @parameterized.expand(
         [

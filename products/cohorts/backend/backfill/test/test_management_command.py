@@ -182,6 +182,9 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
             [selected.id],
         )
 
+    # The batch calculation swaps flag calls to flag_evaluations in READ_FLAG_EVALUATIONS mode only on the legacy
+    # events table.
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_the_scan_estimate_counts_flag_calls_from_the_table_the_run_pins(self) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization,
