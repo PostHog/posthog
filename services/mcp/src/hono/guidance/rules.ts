@@ -265,9 +265,9 @@ const RULES: GuidanceRule[] = [
             errorTrackingFiltersIn(call).length === 0 &&
             (await projectHasErrorTrackingIssues(productState)) === true,
         text: [
-            'This project has error tracking issues, but none matched this status and date range.',
-            'This tool returns only issues seen during `dateRange`, and `status` defaults to `active`.',
-            'Try a wider `dateRange` or `status: "all"` before you report that no errors exist.',
+            'This project has error tracking issues, but none matched this status, date range and test account filter.',
+            'This tool returns only issues seen during `dateRange`. `status` defaults to `active`, and `filterTestAccounts` defaults to true.',
+            'Try a wider `dateRange`, `status: "all"` or `filterTestAccounts: false` before you report that no errors exist.',
         ].join(' '),
     },
 ]
