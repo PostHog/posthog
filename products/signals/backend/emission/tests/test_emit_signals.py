@@ -8,7 +8,9 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import temporalio.worker
@@ -21,6 +23,7 @@ from posthog.hogql import ast
 from posthog.sync import database_sync_to_async
 
 from products.ml_inference.backend.facade.contracts import DecisionResult, NoulAnswer
+from products.signals.backend.artefact_schemas import Dismissal, ReportLink
 from products.signals.backend.emission._prompts import ISSUE_ACTIONABILITY_PROMPT
 from products.signals.backend.emission.emit_signals import (
     EmitDataImportSignalsWorkflow,
@@ -32,6 +35,7 @@ from products.signals.backend.emission.pipeline import (
     LLM_MAX_ATTEMPTS,
     TEMPORAL_PAYLOAD_MAX_BYTES,
     _emit_signals,
+    _reports_closed_to_source_state,
     _summarize_description,
     build_emitter_outputs,
     check_actionability,
@@ -40,7 +44,8 @@ from products.signals.backend.emission.pipeline import (
     summarize_long_descriptions,
 )
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
-from products.signals.backend.models import SignalEmissionRecord, SignalSpend
+from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact, SignalSpend
 from products.signals.backend.spend import signal_id_for
 
 PIPELINE_MODULE_PATH = "products.signals.backend.emission.pipeline"
@@ -923,18 +928,79 @@ class TestEmitSignals:
 
 @pytest.mark.django_db(transaction=True)
 class TestExistingSourceOnlyOutputs:
+    def test_closed_report_lookup_batches_reports_links_and_dismissals(self, team):
+        resolved = SignalReport.objects.create(team=team, status=SignalReport.Status.RESOLVED)
+        fixed_dismissal = SignalReport.objects.create(team=team, status=SignalReport.Status.SUPPRESSED)
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=fixed_dismissal,
+            type=SignalReportArtefact.ArtefactType.DISMISSAL,
+            content=Dismissal(state="suppressed", reason="already_fixed").model_dump_json(),
+        )
+
+        merge_survivor = SignalReport.objects.create(team=team, status=SignalReport.Status.READY)
+        merged_source = SignalReport.objects.create(team=team, status=SignalReport.Status.SUPPRESSED)
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=merged_source,
+            type=SignalReportArtefact.ArtefactType.DISMISSAL,
+            content=Dismissal(state="suppressed", reason="merged").model_dump_json(),
+        )
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=merged_source,
+            type=SignalReportArtefact.ArtefactType.REPORT_LINK,
+            content=ReportLink(kind=ReportLinkKind.DUPLICATE_OF, report_id=str(merge_survivor.id)).model_dump_json(),
+            link_target_id=merge_survivor.id,
+        )
+
+        recurrence_parent = SignalReport.objects.create(team=team, status=SignalReport.Status.RESOLVED)
+        recurrence = SignalReport.objects.create(team=team, status=SignalReport.Status.READY)
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=recurrence,
+            type=SignalReportArtefact.ArtefactType.REPORT_LINK,
+            content=ReportLink(
+                kind=ReportLinkKind.RECURRENCE_OF, report_id=str(recurrence_parent.id)
+            ).model_dump_json(),
+            link_target_id=recurrence_parent.id,
+        )
+
+        closed = _reports_closed_to_source_state(
+            team.id,
+            {str(resolved.id), str(fixed_dismissal.id), str(merged_source.id), str(recurrence_parent.id)},
+        )
+
+        assert closed == {str(resolved.id), str(fixed_dismissal.id)}
+
+        direct_reports = SignalReport.objects.bulk_create(
+            [SignalReport(team=team, status=SignalReport.Status.RESOLVED) for _ in range(20)]
+        )
+        with CaptureQueriesContext(connection) as one_report_queries:
+            _reports_closed_to_source_state(team.id, {str(direct_reports[0].id)})
+        with CaptureQueriesContext(connection) as many_report_queries:
+            _reports_closed_to_source_state(team.id, {str(report.id) for report in direct_reports})
+
+        assert len(many_report_queries) == len(one_report_queries)
+
     @pytest.mark.asyncio
     async def test_terminal_source_only_emits_when_it_already_has_a_report(self, team):
         config = _make_config(sync_with_source=True, actionability_prompt="Actionable? {description}")
+        open_report = await SignalReport.objects.acreate(team=team, status=SignalReport.Status.READY)
+        resolved_report = await SignalReport.objects.acreate(team=team, status=SignalReport.Status.RESOLVED)
         records: list[dict[str, Any]] = [
             {"id": "open", "state": "open"},
             {"id": "known-closed", "state": "closed", "existing_source_only": True},
             {"id": "new-closed", "state": "closed", "existing_source_only": True},
+            {"id": "resolved-closed", "state": "closed", "existing_source_only": True},
         ]
         with (
             patch(
                 f"{PIPELINE_MODULE_PATH}.fetch_source_signal_matches",
-                return_value={"known-closed": [MagicMock(signal_id="previous-signal", report_id="existing-report")]},
+                return_value={
+                    "known-closed": [MagicMock(signal_id="previous-signal", report_id=str(open_report.id))],
+                    "resolved-closed": [MagicMock(signal_id="fixed-signal", report_id=str(resolved_report.id))],
+                },
             ),
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
             patch(
@@ -951,19 +1017,22 @@ class TestExistingSourceOnlyOutputs:
         assert {call.kwargs["source_id"] for call in emit.await_args_list} == {"open", "known-closed"}
         known_call = next(call for call in emit.await_args_list if call.kwargs["source_id"] == "known-closed")
         assert known_call.kwargs["source_match_signal_id"] == "previous-signal"
-        assert known_call.kwargs["source_match_report_id"] == "existing-report"
+        assert known_call.kwargs["source_match_report_id"] == str(open_report.id)
         assert filter_actionable.await_args is not None
         assert [output.source_id for output in filter_actionable.await_args.kwargs["outputs"]] == ["open"]
         filtered = [call for call in capture.call_args_list if call.kwargs["event"] == "signal_data_source_filtered"]
-        assert [call.kwargs["properties"]["source_id"] for call in filtered] == ["new-closed"]
-        assert filtered[0].kwargs["properties"]["filter_reason"] == "source_state_without_report"
+        assert [
+            (call.kwargs["properties"]["source_id"], call.kwargs["properties"]["filter_reason"]) for call in filtered
+        ] == [
+            ("new-closed", "source_state_without_report"),
+            ("resolved-closed", "source_state_on_closed_report"),
+        ]
 
 
 @pytest.mark.django_db(transaction=True)
 class TestPipelineStageTelemetry:
     @pytest.mark.asyncio
     async def test_captures_each_stage_per_signal(self, team):
-
         short_description = "short actionable bug"
         long_description = "x" * 500
         non_actionable_description = "billing question, not actionable"
