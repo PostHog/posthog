@@ -38,6 +38,7 @@ import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { encodeStateColumns } from './services/cyclotron-v2/job-codec'
+import { CyclotronV2JobProducer } from './services/cyclotron-v2/types'
 import { IdempotencyKeys, createIdempotencyValkeyPool } from './services/hogflows/idempotency-keys'
 import {
     transactionalEmailRequestsTotal,
@@ -59,6 +60,19 @@ jest.mock('node:dns/promises', () => ({
         resolve6: jest.fn().mockResolvedValue([]),
     })),
 }))
+
+const fakeJobProducer = (overrides: Partial<CyclotronV2JobProducer> = {}): CyclotronV2JobProducer => ({
+    createJob: jest.fn(),
+    countInFlightJobs: jest.fn(),
+    rescheduleParkedJobs: jest.fn(),
+    cancelJobs: jest.fn(),
+    resumeParkedSteps: jest.fn(),
+    resumeParkedBatchResolver: jest.fn(),
+    cancelUnclaimed: jest.fn(),
+    rescheduleUnclaimed: jest.fn(),
+    disconnect: jest.fn().mockResolvedValue(undefined),
+    ...overrides,
+})
 
 describe('CDP API', () => {
     let hub: Hub
@@ -1305,17 +1319,10 @@ describe('CDP API', () => {
 
         it('queues batch job to the cyclotron resolver', async () => {
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
-            api['batchResolverProducer'] = {
+            api['batchResolverProducer'] = fakeJobProducer({
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                cancelUnclaimed: jest.fn(),
-                rescheduleUnclaimed: jest.fn(),
-                disconnect: jest.fn().mockResolvedValue(undefined),
-            }
+            })
 
             try {
                 const res = await supertest(app)
@@ -1371,17 +1378,7 @@ describe('CDP API', () => {
             'parks a realtime cohort resolver only on a valid deadline: %s',
             async (_desc, cohort, status, parkedUntil) => {
                 const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
-                api['batchResolverProducer'] = {
-                    createJob: createJobMock,
-                    countInFlightJobs: jest.fn(),
-                    rescheduleParkedJobs: jest.fn(),
-                    cancelJobs: jest.fn(),
-                    resumeParkedSteps: jest.fn(),
-                    resumeParkedBatchResolver: jest.fn(),
-                    cancelUnclaimed: jest.fn(),
-                    rescheduleUnclaimed: jest.fn(),
-                    disconnect: jest.fn().mockResolvedValue(undefined),
-                }
+                api['batchResolverProducer'] = fakeJobProducer({ createJob: createJobMock })
 
                 try {
                     const res = await supertest(app)
@@ -1415,17 +1412,10 @@ describe('CDP API', () => {
             const snapshotProperties = [{ key: 'email', type: 'person', value: 'a', operator: 'icontains' }]
 
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
-            api['batchResolverProducer'] = {
+            api['batchResolverProducer'] = fakeJobProducer({
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                cancelUnclaimed: jest.fn(),
-                rescheduleUnclaimed: jest.fn(),
-                disconnect: jest.fn().mockResolvedValue(undefined),
-            }
+            })
 
             try {
                 const res = await supertest(app)
@@ -1470,17 +1460,10 @@ describe('CDP API', () => {
             })
 
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
-            api['batchResolverProducer'] = {
+            api['batchResolverProducer'] = fakeJobProducer({
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                cancelUnclaimed: jest.fn(),
-                rescheduleUnclaimed: jest.fn(),
-                disconnect: jest.fn().mockResolvedValue(undefined),
-            }
+            })
 
             try {
                 const res = await supertest(app)
@@ -1533,17 +1516,10 @@ describe('CDP API', () => {
             })
 
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
-            api['batchResolverProducer'] = {
+            api['batchResolverProducer'] = fakeJobProducer({
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                cancelUnclaimed: jest.fn(),
-                rescheduleUnclaimed: jest.fn(),
-                disconnect: jest.fn().mockResolvedValue(undefined),
-            }
+            })
 
             try {
                 const res = await supertest(app)
@@ -1600,17 +1576,10 @@ describe('CDP API', () => {
             })
 
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
-            api['batchResolverProducer'] = {
+            api['batchResolverProducer'] = fakeJobProducer({
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                cancelUnclaimed: jest.fn(),
-                rescheduleUnclaimed: jest.fn(),
-                disconnect: jest.fn().mockResolvedValue(undefined),
-            }
+            })
 
             try {
                 const res = await supertest(app)
@@ -1776,17 +1745,7 @@ describe('CDP API', () => {
             mockCountInFlightJobs = jest
                 .fn()
                 .mockResolvedValue({ count: 3, byAction: { delay_1: 2 }, positionUnknown: 1 })
-            api['batchResolverProducer'] = {
-                createJob: jest.fn(),
-                disconnect: jest.fn(),
-                countInFlightJobs: mockCountInFlightJobs,
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                cancelUnclaimed: jest.fn(),
-                rescheduleUnclaimed: jest.fn(),
-            }
+            api['batchResolverProducer'] = fakeJobProducer({ countInFlightJobs: mockCountInFlightJobs })
 
             countHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
@@ -1873,17 +1832,7 @@ describe('CDP API', () => {
                 sweepFloor,
                 sweepUntil,
             })
-            api['batchResolverProducer'] = {
-                createJob: jest.fn(),
-                disconnect: jest.fn(),
-                countInFlightJobs: jest.fn(),
-                rescheduleParkedJobs: mockRescheduleParkedJobs,
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                cancelUnclaimed: jest.fn(),
-                rescheduleUnclaimed: jest.fn(),
-            }
+            api['batchResolverProducer'] = fakeJobProducer({ rescheduleParkedJobs: mockRescheduleParkedJobs })
 
             rescheduleHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
@@ -2052,17 +2001,7 @@ describe('CDP API', () => {
 
         beforeEach(() => {
             mockResumeParkedSteps = jest.fn().mockResolvedValue(new Map([[jobId, 'delivered']]))
-            api['batchResolverProducer'] = {
-                createJob: jest.fn(),
-                disconnect: jest.fn(),
-                countInFlightJobs: jest.fn(),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: mockResumeParkedSteps,
-                resumeParkedBatchResolver: jest.fn(),
-                cancelUnclaimed: jest.fn(),
-                rescheduleUnclaimed: jest.fn(),
-            }
+            api['batchResolverProducer'] = fakeJobProducer({ resumeParkedSteps: mockResumeParkedSteps })
         })
 
         afterEach(() => {
@@ -2919,17 +2858,7 @@ describe('CDP API', () => {
             beforeEach(() => {
                 cancelUnclaimed = jest.fn()
                 rescheduleUnclaimed = jest.fn()
-                api['batchResolverProducer'] = {
-                    createJob: jest.fn(),
-                    disconnect: jest.fn(),
-                    countInFlightJobs: jest.fn(),
-                    rescheduleParkedJobs: jest.fn(),
-                    cancelJobs: jest.fn(),
-                    resumeParkedSteps: jest.fn(),
-                    resumeParkedBatchResolver: jest.fn(),
-                    cancelUnclaimed,
-                    rescheduleUnclaimed,
-                }
+                api['batchResolverProducer'] = fakeJobProducer({ cancelUnclaimed, rescheduleUnclaimed })
             })
 
             afterEach(() => {
@@ -3164,17 +3093,7 @@ describe('CDP API', () => {
 
         beforeEach(() => {
             mockResume = jest.fn()
-            api['batchResolverProducer'] = {
-                createJob: jest.fn(),
-                disconnect: jest.fn(),
-                countInFlightJobs: jest.fn(),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: mockResume,
-                cancelUnclaimed: jest.fn(),
-                rescheduleUnclaimed: jest.fn(),
-            }
+            api['batchResolverProducer'] = fakeJobProducer({ resumeParkedBatchResolver: mockResume })
         })
 
         afterEach(() => {
@@ -3232,17 +3151,7 @@ describe('CDP API', () => {
 
         beforeEach(() => {
             mockCancelJobs = jest.fn().mockResolvedValue({ marked: 3, remaining: 0, done: true })
-            api['batchResolverProducer'] = {
-                createJob: jest.fn(),
-                disconnect: jest.fn(),
-                countInFlightJobs: jest.fn(),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: mockCancelJobs,
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                cancelUnclaimed: jest.fn(),
-                rescheduleUnclaimed: jest.fn(),
-            }
+            api['batchResolverProducer'] = fakeJobProducer({ cancelJobs: mockCancelJobs })
         })
 
         afterEach(() => {
@@ -3371,17 +3280,7 @@ describe('CDP API', () => {
 
         beforeEach(() => {
             mockCancelJobs = jest.fn().mockResolvedValue({ marked: 2, remaining: 0, done: true })
-            api['batchResolverProducer'] = {
-                createJob: jest.fn(),
-                disconnect: jest.fn(),
-                countInFlightJobs: jest.fn(),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: mockCancelJobs,
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                cancelUnclaimed: jest.fn(),
-                rescheduleUnclaimed: jest.fn(),
-            }
+            api['batchResolverProducer'] = fakeJobProducer({ cancelJobs: mockCancelJobs })
         })
 
         afterEach(() => {
