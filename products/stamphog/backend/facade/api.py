@@ -630,7 +630,7 @@ _ROUTING_RUN_COLUMNS = (
 )
 
 
-def _routing_owner_to_dto(row: RoutingRunOwner) -> contracts.RoutingRunOwnerDTO:
+def _routing_owner_to_dto(row: RoutingRunOwner, *, with_files: bool) -> contracts.RoutingRunOwnerDTO:
     return contracts.RoutingRunOwnerDTO(
         owner=row.owner,
         kind=OwnerKind(row.kind),
@@ -646,14 +646,14 @@ def _routing_owner_to_dto(row: RoutingRunOwner) -> contracts.RoutingRunOwnerDTO:
                 additions=file["additions"],
                 deletions=file["deletions"],
             )
-            for file in row.files
+            for file in (row.files if with_files else [])
         ],
         lines=row.lines,
         file_count=row.file_count,
     )
 
 
-def _routing_run_to_dto(row: RoutingRun) -> contracts.RoutingRunDTO:
+def _routing_run_to_dto(row: RoutingRun, *, with_files: bool = False) -> contracts.RoutingRunDTO:
     return contracts.RoutingRunDTO(
         id=row.id,
         team_id=row.team_id,
@@ -669,8 +669,22 @@ def _routing_run_to_dto(row: RoutingRun) -> contracts.RoutingRunDTO:
         files_truncated=row.files_truncated,
         additions_resolved=row.additions_resolved,
         owners_sha=row.owners_sha,
-        owners=[_routing_owner_to_dto(owner) for owner in row.owners.all()],
+        owners=[_routing_owner_to_dto(owner, with_files=with_files) for owner in row.owners.all()],
         created_at=row.created_at,
+    )
+
+
+def _routing_runs(team_id: int, *, with_files: bool) -> QuerySet[RoutingRun]:
+    owners = RoutingRunOwner.objects.for_team(team_id, canonical=True).order_by("owner")
+    if not with_files:
+        # A large pull request gives every owner a long file list, which only the single-run read returns.
+        owners = owners.defer("files")
+    return (
+        RoutingRun.objects.for_team(team_id, canonical=True)
+        .select_related("pull_request__repo_config")
+        # The pull request row carries the routing record and the description, which the reads never use.
+        .only(*_ROUTING_RUN_COLUMNS, "pull_request__pr_number", "pull_request__repo_config__repository")
+        .prefetch_related(Prefetch("owners", queryset=owners))
     )
 
 
@@ -681,28 +695,27 @@ def list_routing_runs(
     pr_number: int | None = None,
     owner: str | None = None,
 ) -> LazyDTOList[contracts.RoutingRunDTO]:
-    """The team's reviewer routing runs, newest first, each with its decision for every owner.
+    """The team's reviewer routing runs, newest first, each with its decision for every owner but no file lists.
 
     `owner` keeps the runs that decided about that owner, as owners.yaml spells it (`team-devex`, `@alice`).
     `team_id` must be canonical, as every view passes it, so the reads skip the team lookup.
     """
-    owners = RoutingRunOwner.objects.for_team(team_id, canonical=True)
-    qs = (
-        RoutingRun.objects.for_team(team_id, canonical=True)
-        .select_related("pull_request__repo_config")
-        # The pull request row carries the routing record and the description, which the list never reads.
-        .only(*_ROUTING_RUN_COLUMNS, "pull_request__pr_number", "pull_request__repo_config__repository")
-        .prefetch_related(Prefetch("owners", queryset=owners.order_by("owner")))
-        .order_by("-created_at")
-    )
+    qs = _routing_runs(team_id, with_files=False).order_by("-created_at")
     if repository:
         qs = qs.filter(pull_request__repo_config__repository=repository)
     if pr_number is not None:
         qs = qs.filter(pull_request__pr_number=pr_number)
     if owner:
         # A subquery on the owners table, so the (team_id, owner) index answers it.
-        qs = qs.filter(id__in=owners.filter(owner=owner).values("run_id"))
+        owners = RoutingRunOwner.objects.for_team(team_id, canonical=True).filter(owner=owner)
+        qs = qs.filter(id__in=owners.values("run_id"))
     return LazyDTOList(qs, _routing_run_to_dto)
+
+
+def get_routing_run(team_id: int, routing_run_id: str) -> contracts.RoutingRunDTO | None:
+    """One routing run with the changed files each owner owns. `team_id` must be canonical."""
+    row = _routing_runs(team_id, with_files=True).filter(id=routing_run_id).first()
+    return _routing_run_to_dto(row, with_files=True) if row is not None else None
 
 
 # --- Digest runs ---

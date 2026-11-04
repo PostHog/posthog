@@ -845,7 +845,7 @@ class StamphogRoutingRunsQuerySerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as "
-            "'team-devex', or '@' and a GitHub login."
+            "'team-devex', or a GitHub login such as '@octocat'."
         ),
     )
 
@@ -883,8 +883,8 @@ class RoutingRunOwnerSerializer(DataclassSerializer):
         read_only=True,
         help_text=(
             "What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), "
-            "'refused' (GitHub refused the request), 'cut', 'not_requested' (stamphog approved, so only "
-            "pinned owners were asked) or 'already_requested' (an earlier run asked this pinned owner)."
+            "'refused' (GitHub refused the request), 'cut', 'not_requested' (stamphog approved and the owner "
+            "is not pinned) or 'already_requested' (an earlier run asked this pinned owner)."
         ),
     )
     reason = serializers.ChoiceField(
@@ -900,19 +900,20 @@ class RoutingRunOwnerSerializer(DataclassSerializer):
     pins = RoutingPinSerializer(
         many=True, read_only=True, help_text="The changed paths that pinned the owner, so no cut could remove them."
     )
-    files = RoutingFileSerializer(
-        many=True,
-        read_only=True,
-        help_text="Every changed file this owner owns, which is what made them a candidate. Patches are not kept.",
-    )
     kind = serializers.ChoiceField(
         choices=OwnerKind.choices, read_only=True, help_text="Whether the owner is a GitHub team or a person."
     )
 
     class Meta:
         dataclass = contracts.RoutingRunOwnerDTO
+        exclude = ["files"]
         extra_kwargs = {
-            "owner": {"help_text": "The owner as owners.yaml spells it: a team slug, or '@' and a GitHub login."},
+            "owner": {
+                "help_text": (
+                    "The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login "
+                    "such as '@octocat'."
+                )
+            },
             "model_reason": {
                 "help_text": (
                     "The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. "
@@ -922,6 +923,19 @@ class RoutingRunOwnerSerializer(DataclassSerializer):
             "lines": {"help_text": "Changed lines in the files this owner owns."},
             "file_count": {"help_text": "Changed files this owner owns."},
         }
+
+
+@extend_schema_serializer(component_name="StamphogRoutingRunOwnerDetail")
+class RoutingRunOwnerDetailSerializer(RoutingRunOwnerSerializer):
+    files = RoutingFileSerializer(
+        many=True,
+        read_only=True,
+        help_text="Every changed file this owner owns, which is what made them a candidate. Patches are not kept.",
+    )
+
+    class Meta:
+        dataclass = contracts.RoutingRunOwnerDTO
+        extra_kwargs = RoutingRunOwnerSerializer.Meta.extra_kwargs
 
 
 @extend_schema_serializer(component_name="StamphogRoutingRun")
@@ -986,3 +1000,12 @@ class RoutingRunSerializer(DataclassSerializer):
             },
             "created_at": {"help_text": "When the run made its requests."},
         }
+
+
+@extend_schema_serializer(component_name="StamphogRoutingRunDetail")
+class RoutingRunDetailSerializer(RoutingRunSerializer):
+    owners = RoutingRunOwnerDetailSerializer(
+        many=True,
+        read_only=True,
+        help_text="The run's decision for every owner of the changed code, with the files each owner owns.",
+    )

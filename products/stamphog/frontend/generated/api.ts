@@ -31,6 +31,7 @@ import type {
     StamphogRepoConfigsAvailableRepositoriesRetrieveParams,
     StamphogRepoConfigsListParams,
     StamphogReviewRunsListParams,
+    StamphogRoutingRunDetailApi,
     StamphogRoutingRunsListParams,
     StamphogSyncInstallationRequestApi,
     StamphogSyncInstallationResponseApi,
@@ -456,7 +457,7 @@ export const getStamphogRoutingRunsListUrl = (projectId: string, params?: Stamph
 }
 
 /**
- * List reviewer routing runs, newest first. Each run holds its decision for every owner of the changed code: requested, cut, or not asked, with the reason. Filter by owner to answer why a team or person was or was not asked to review.
+ * List reviewer routing runs, newest first. Each run holds its decision for every owner of the changed code: requested, cut, or not asked, with the reason. Filter by owner to answer why a team or person was or was not asked to review. Get one run for the files each owner owns.
  */
 export const stamphogRoutingRunsList = async (
     projectId: string,
@@ -464,6 +465,24 @@ export const stamphogRoutingRunsList = async (
     options?: RequestInit
 ): Promise<PaginatedStamphogRoutingRunListApi> => {
     return apiMutator<PaginatedStamphogRoutingRunListApi>(getStamphogRoutingRunsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getStamphogRoutingRunsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/stamphog/routing_runs/${id}/`
+}
+
+/**
+ * One reviewer routing run, with every changed file each owner owns.
+ */
+export const stamphogRoutingRunsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<StamphogRoutingRunDetailApi> => {
+    return apiMutator<StamphogRoutingRunDetailApi>(getStamphogRoutingRunsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

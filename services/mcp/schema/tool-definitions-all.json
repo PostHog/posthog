@@ -14851,8 +14851,24 @@
         },
         "feature_flag": "stamphog"
     },
+    "stamphog-routing-runs-get": {
+        "description": "Get one reviewer routing run by id, with the same owner decisions as the list plus `files` for every owner: each changed file the owner owns (path, previous path, status, additions, deletions), which is what made them a candidate. `owners_sha` names the default-branch commit whose owners.yaml files decided the owners. Patches are not kept.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "Get stamphog reviewer routing run",
+        "title": "Get stamphog reviewer routing run",
+        "required_scopes": ["stamphog:read"],
+        "api_operations": ["GET /api/projects/{project_id}/stamphog/routing_runs/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
     "stamphog-routing-runs-list": {
-        "description": "List stamphog's reviewer routing runs, newest first. Each run is one round of review requests on a pull request, with the run's decision for every owner of the changed code from owners.yaml: an `outcome` and the `reason` behind it, the model's one-line `model_reason` when it proposed a cut, and the `files` the owner owns. To answer \"why was my team not asked to review\", filter by `owner` (a team slug such as `team-devex`, or `@` and a GitHub login), optionally with `repository` and `pr_number`. An owner missing from a run owns none of its changed files. No runs for a pull request means routing has not run on it: routing is off for the repository, or it still waits for stamphog's verdict.",
+        "description": "List stamphog's reviewer routing runs, newest first. Each run is one round of review requests on a pull request, with the run's decision for every owner of the changed code from owners.yaml: an `outcome` and the `reason` behind it, and the model's one-line `model_reason` when it proposed a cut. To answer \"why was my team not asked to review\", filter by `owner` (a team slug such as `team-devex`, or a GitHub login such as `@octocat`), optionally with `repository` and `pr_number`. An owner missing from a run owns none of its changed files. No runs for a pull request means routing has not run on it: routing is off for the repository, or it still waits for stamphog's verdict. Use `stamphog-routing-runs-get` for the files each owner owns.",
         "category": "Stamphog",
         "feature": "stamphog",
         "summary": "List stamphog reviewer routing runs",

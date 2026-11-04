@@ -219,6 +219,27 @@ const stamphogRoutingRunsList = (): ToolBase<
     },
 })
 
+const StamphogRoutingRunsGetSchema = () => {
+    const StamphogRoutingRunsRetrieveParams = orvalSchemas.StamphogRoutingRunsRetrieveParams()
+    return StamphogRoutingRunsRetrieveParams.omit({ project_id: true })
+}
+
+const stamphogRoutingRunsGet = (): ToolBase<
+    ReturnType<typeof StamphogRoutingRunsGetSchema>,
+    Schemas.StamphogRoutingRunDetail
+> => ({
+    name: 'stamphog-routing-runs-get',
+    schema: StamphogRoutingRunsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StamphogRoutingRunsGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.StamphogRoutingRunDetail>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/stamphog/routing_runs/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const StamphogReviewRunsListSchema = () => {
     const StamphogReviewRunsListQueryParams = orvalSchemas.StamphogReviewRunsListQueryParams()
     return StamphogReviewRunsListQueryParams
@@ -262,5 +283,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'stamphog-review-runs-create': stamphogReviewRunsCreate,
     'stamphog-review-runs-get': stamphogReviewRunsGet,
     'stamphog-routing-runs-list': stamphogRoutingRunsList,
+    'stamphog-routing-runs-get': stamphogRoutingRunsGet,
     'stamphog-review-runs-list': stamphogReviewRunsList,
 }

@@ -74684,24 +74684,8 @@ export namespace Schemas {
       path: string;
     }
 
-    export interface StamphogRoutingFile {
-      /** The changed path. */
-      path: string;
-      /**
-         * The path before a rename. Null for any other change.
-         * @nullable
-         */
-      previous_path?: string | null;
-      /** GitHub's file status, such as 'added', 'modified', 'removed' or 'renamed'. */
-      status?: string;
-      /** Added lines. */
-      additions?: number;
-      /** Deleted lines. */
-      deletions?: number;
-    }
-
     export interface StamphogRoutingRunOwner {
-      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request), 'cut', 'not_requested' (stamphog approved, so only pinned owners were asked) or 'already_requested' (an earlier run asked this pinned owner).
+      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
        *
        * * `requested` - Requested
        * * `labeled` - Labeled
@@ -74723,14 +74707,12 @@ export namespace Schemas {
       readonly reason: RoutingOwnerReasonEnum;
       /** The changed paths that pinned the owner, so no cut could remove them. */
       readonly pins: readonly StamphogRoutingPin[];
-      /** Every changed file this owner owns, which is what made them a candidate. Patches are not kept. */
-      readonly files: readonly StamphogRoutingFile[];
       /** Whether the owner is a GitHub team or a person.
        *
        * * `team` - Team
        * * `person` - Person */
       readonly kind: OwnerKindEnum;
-      /** The owner as owners.yaml spells it: a team slug, or '@' and a GitHub login. */
+      /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
       owner: string;
       /** The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. Blank when the model proposed no cut for them. */
       model_reason?: string;
@@ -107699,6 +107681,112 @@ export namespace Schemas {
       routing_mode?: RoutingModeEnum;
     }
 
+    export interface StamphogRoutingFile {
+      /** The changed path. */
+      path: string;
+      /**
+         * The path before a rename. Null for any other change.
+         * @nullable
+         */
+      previous_path?: string | null;
+      /** GitHub's file status, such as 'added', 'modified', 'removed' or 'renamed'. */
+      status?: string;
+      /** Added lines. */
+      additions?: number;
+      /** Deleted lines. */
+      deletions?: number;
+    }
+
+    export interface StamphogRoutingRunOwnerDetail {
+      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
+       *
+       * * `requested` - Requested
+       * * `labeled` - Labeled
+       * * `refused` - Refused by GitHub
+       * * `cut` - Cut
+       * * `not_requested` - Not requested
+       * * `already_requested` - Already requested */
+      readonly outcome: RoutingOwnerOutcomeEnum;
+      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved'.
+       *
+       * * `sensitive` - Owns a sensitive path
+       * * `new_path` - Owns a new path
+       * * `largest_owner` - Has the largest part
+       * * `diff_not_seen` - Diff not shown to the model
+       * * `cut_skipped` - Cut step skipped
+       * * `model_kept` - Kept by the model
+       * * `model_cut` - Cut by the model
+       * * `stamphog_approved` - Stamphog approved */
+      readonly reason: RoutingOwnerReasonEnum;
+      /** The changed paths that pinned the owner, so no cut could remove them. */
+      readonly pins: readonly StamphogRoutingPin[];
+      /** Whether the owner is a GitHub team or a person.
+       *
+       * * `team` - Team
+       * * `person` - Person */
+      readonly kind: OwnerKindEnum;
+      /** Every changed file this owner owns, which is what made them a candidate. Patches are not kept. */
+      readonly files: readonly StamphogRoutingFile[];
+      /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
+      owner: string;
+      /** The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. Blank when the model proposed no cut for them. */
+      model_reason?: string;
+      /** Changed lines in the files this owner owns. */
+      lines?: number;
+      /** Changed files this owner owns. */
+      file_count?: number;
+    }
+
+    export interface StamphogRoutingRunDetail {
+      /** ID of the routing run. */
+      id: string;
+      /** Full name of the repository. */
+      repository: string;
+      /** Pull request number. */
+      pr_number: number;
+      /** The head commit the run routed. */
+      head_sha: string;
+      /** The repository's routing_mode when the run made its requests.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      readonly mode: RoutingModeEnum;
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      trigger: string;
+      /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
+       *
+       * * `full` - Every owner
+       * * `pinned` - Pinned owners only */
+      readonly scope: RoutingScopeEnum;
+      /** Whether the pull request came from a fork, which skips the model. */
+      fork?: boolean;
+      /** Why the cut step made no model call. Null when it made one.
+       *
+       * * `single_candidate` - Single candidate
+       * * `fork` - Fork
+       * * `nothing_cuttable` - Nothing cuttable
+       * * `no_answer` - No answer
+       * * `stamphog_approved` - Stamphog approved
+       * * `files_truncated` - Files truncated */
+      readonly llm_skipped: LlmSkipReasonEnum | null;
+      /** The model the cut request reached. Blank when no request reached the gateway. */
+      model?: string;
+      /** Whether GitHub listed fewer files than the pull request changes, so owners may be missing. */
+      files_truncated?: boolean;
+      /** Whether the new-path lookup worked. When false, owners of new paths may not be pinned. */
+      additions_resolved?: boolean;
+      /** The default-branch commit whose owners.yaml files decided the owners. Blank when unknown. */
+      owners_sha?: string;
+      /** The run's decision for every owner of the changed code, with the files each owner owns. */
+      readonly owners: readonly StamphogRoutingRunOwnerDetail[];
+      /**
+         * When the run made its requests.
+         * @nullable
+         */
+      created_at?: string | null;
+    }
+
     /**
      * Request body for binding a GitHub App installation to the current team.
      *
@@ -132741,7 +132829,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or '@' and a GitHub login.
+     * Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or a GitHub login such as '@octocat'.
      * @minLength 1
      */
     owner?: string;

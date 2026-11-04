@@ -206,7 +206,8 @@ Routing never writes `payload_updated_at` or the descriptive fields of the row, 
 Each run that makes its requests is also recorded, append-only, in `RoutingRun` with one `RoutingRunOwner` row per owner: what the run did with the owner (`outcome`), why (`reason`), the model's one-line reason when it proposed a cut, also when a guard kept the owner, and every changed file the owner owns, without patches.
 owners.yaml and the pull request both change after the run, so the run keeps its own copy of the file list, and `owners_sha` names the default-branch commit whose owners.yaml files decided the owners.
 The plan decides each owner's outcome and reason. The rows are written after the `requested` record is saved, so a failed log write only logs and never makes the task request again.
-Read them with `GET routing_runs/` (filters `repository`, `pr_number`, `owner`) or the `stamphog-routing-runs-list` MCP tool. The model call carries `stamphog_routing_run_id`, `stamphog_repo` and `stamphog_pr_number`, which link a run to its LLM trace.
+Read them with `GET routing_runs/` (filters `repository`, `pr_number`, `owner`) or the `stamphog-routing-runs-list` MCP tool.
+The list leaves out the file lists, because a large pull request gives every owner a long one. `GET routing_runs/{id}/` and `stamphog-routing-runs-get` return them. The model call carries `stamphog_routing_run_id`, `stamphog_repo` and `stamphog_pr_number`, which link a run to its LLM trace.
 
 Every routing run (event, verdict or safety net) takes the same steps:
 

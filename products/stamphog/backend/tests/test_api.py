@@ -445,7 +445,9 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         response = self.client.get(f"{self.url}{theirs.id}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    @parameterized.expand([("repo_configs",), ("review_runs",), ("pull_requests",), ("digest_runs",)])
+    @parameterized.expand(
+        [("repo_configs",), ("review_runs",), ("pull_requests",), ("digest_runs",), ("routing_runs",)]
+    )
     def test_malformed_id_is_a_404(self, resource: str) -> None:
         # An id that is not a UUID has to read as a miss, or a bad URL becomes a 500.
         response = self.client.get(f"/api/projects/{self.team.id}/stamphog/{resource}/not-a-uuid/")
@@ -1259,7 +1261,7 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         repo_config = StamphogRepoConfig.objects.unscoped().create(
             team_id=self.team.id, repository="PostHog/posthog", installation_id="1"
         )
-        self._make_run(
+        self.run_one = self._make_run(
             self.team.id,
             repo_config,
             1,
@@ -1292,14 +1294,16 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         other_config = StamphogRepoConfig.objects.unscoped().create(
             team_id=other_team.id, repository="PostHog/other", installation_id="2"
         )
-        self._make_run(
+        self.other_teams_run = self._make_run(
             other_team.id,
             other_config,
             3,
             [{"owner": "team-beta", "kind": "team", "outcome": "requested", "reason": "model_kept"}],
         )
 
-    def _make_run(self, team_id: int, repo_config: StamphogRepoConfig, pr_number: int, owners: list[dict]) -> None:
+    def _make_run(
+        self, team_id: int, repo_config: StamphogRepoConfig, pr_number: int, owners: list[dict]
+    ) -> RoutingRun:
         pull_request = PullRequest.objects.unscoped().create(
             team_id=team_id, repo_config=repo_config, pr_number=pr_number
         )
@@ -1315,6 +1319,7 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         )
         for owner in owners:
             RoutingRunOwner.objects.unscoped().create(team_id=team_id, run=run, **owner)
+        return run
 
     @parameterized.expand(
         [
@@ -1333,17 +1338,32 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         response = self.client.get(self.url, {"pr_number": 1})
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        run = response.json()["results"][0]
-        assert run["owners_sha"] == "owners-1"
-        owners = {owner["owner"]: owner for owner in run["owners"]}
+        owners = {owner["owner"]: owner for owner in response.json()["results"][0]["owners"]}
         assert owners["team-alpha"]["pins"] == [self._PIN]
-        assert owners["team-alpha"]["files"] == [self._FILE]
+        # The list stays small on a large pull request. One run carries the files.
+        assert "files" not in owners["team-alpha"]
         beta = owners["team-beta"]
         assert (beta["outcome"], beta["reason"], beta["model_reason"]) == (
             "cut",
             "model_cut",
             "Only renames an import.",
         )
+
+    def test_one_run_lists_the_files_each_owner_owns(self) -> None:
+        response = self.client.get(f"{self.url}{self.run_one.id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        run = response.json()
+        assert run["owners_sha"] == "owners-1"
+        assert {owner["owner"]: owner["files"] for owner in run["owners"]} == {
+            "team-alpha": [self._FILE],
+            "team-beta": [],
+        }
+
+    def test_another_teams_run_is_not_found(self) -> None:
+        response = self.client.get(f"{self.url}{self.other_teams_run.id}/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 class TestDigestRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):

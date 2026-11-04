@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -161,7 +161,7 @@ export const StamphogReviewRunsRetrieveParams = () => zod.object({
 })
 
 /**
- * List reviewer routing runs, newest first. Each run holds its decision for every owner of the changed code: requested, cut, or not asked, with the reason. Filter by owner to answer why a team or person was or was not asked to review.
+ * List reviewer routing runs, newest first. Each run holds its decision for every owner of the changed code: requested, cut, or not asked, with the reason. Filter by owner to answer why a team or person was or was not asked to review. Get one run for the files each owner owns.
  */
 export const StamphogRoutingRunsListParams = () => zod.object({
     project_id: zod
@@ -179,8 +179,20 @@ export const StamphogRoutingRunsListQueryParams = () => zod.object({
         .min(1)
         .optional()
         .describe(
-            "Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or '@' and a GitHub login."
+            "Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or a GitHub login such as '@octocat'."
         ),
     pr_number: zod.number().optional().describe('Filter by pull request number.'),
     repository: zod.string().min(1).optional().describe("Filter by repository full name, e.g. 'PostHog\/posthog'."),
+})
+
+/**
+ * One reviewer routing run, with every changed file each owner owns.
+ */
+export const StamphogRoutingRunsRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })

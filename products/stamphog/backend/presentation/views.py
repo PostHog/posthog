@@ -57,6 +57,7 @@ from .serializers import (
     ReviewRequestResponseSerializer,
     ReviewRequestSerializer,
     ReviewRunSerializer,
+    RoutingRunDetailSerializer,
     RoutingRunSerializer,
     StamphogAddRepositorySerializer,
     StamphogAvailableRepositoriesQuerySerializer,
@@ -770,7 +771,7 @@ class RoutingRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
         description=(
             "List reviewer routing runs, newest first. Each run holds its decision for every owner of the "
             "changed code: requested, cut, or not asked, with the reason. Filter by owner to answer why a "
-            "team or person was or was not asked to review."
+            "team or person was or was not asked to review. Get one run for the files each owner owns."
         ),
         parameters=[StamphogRoutingRunsQuerySerializer],
         responses={200: RoutingRunSerializer(many=True)},
@@ -781,3 +782,13 @@ class RoutingRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
         runs = facade_api.list_routing_runs(self.canonical_team_id, **query.validated_data)
         page = self.paginate_queryset(runs)
         return self.get_paginated_response(self.get_serializer(page, many=True).data)
+
+    @extend_schema(
+        description="One reviewer routing run, with every changed file each owner owns.",
+        responses={200: RoutingRunDetailSerializer},
+    )
+    def retrieve(self, request: Request, pk: UUID, **kwargs) -> Response:
+        run = facade_api.get_routing_run(self.canonical_team_id, str(pk))
+        if run is None:
+            raise NotFound()
+        return Response(RoutingRunDetailSerializer(run, context=self.get_serializer_context()).data)
