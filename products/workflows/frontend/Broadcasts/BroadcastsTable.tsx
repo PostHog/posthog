@@ -18,6 +18,7 @@ import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/ap
 
 import { EmailMetricsIncidentBanner } from '../EmailMetricsIncidentBanner'
 import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
+import { emailEngagement } from './broadcastPerformanceLogic'
 import { BroadcastsEmptyState } from './BroadcastsEmptyState'
 import {
     BROADCASTS_PAGE_SIZE,
@@ -128,7 +129,15 @@ export function BroadcastsTable(): JSX.Element {
                 if (!details?.totals) {
                     return <span className="text-muted">…</span>
                 }
-                return <span>{humanFriendlyNumber(details.totals[metric] ?? 0)}</span>
+                const engagement =
+                    metric === 'email_opened' ? 'opened' : metric === 'email_link_clicked' ? 'clicked' : null
+                return (
+                    <span>
+                        {humanFriendlyNumber(
+                            engagement ? emailEngagement(details.totals, engagement) : (details.totals[metric] ?? 0)
+                        )}
+                    </span>
+                )
             },
         })),
         createdByColumn() as LemonTableColumns<HogFlowMinimalApi>[number],

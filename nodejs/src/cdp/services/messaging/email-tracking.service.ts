@@ -12,6 +12,7 @@ import {
     MinimalAppMetric,
 } from '~/cdp/types'
 import { ModifiedRequest } from '~/common/api/router'
+import { RedisV2 } from '~/common/redis/redis-v2'
 import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -88,6 +89,13 @@ const emailTrackingLogSkipsCounter = new Counter({
     help: 'Total number of email tracking log entries skipped (expected, non-error)',
     labelNames: ['reason', 'source'],
 })
+
+const ENGAGEMENT_PERSON_METRICS: Partial<Record<MinimalAppMetric['metric_name'], MinimalAppMetric['metric_name'][]>> = {
+    email_opened: ['email_opened_by_person'],
+    email_link_clicked: ['email_opened_by_person', 'email_clicked_by_person'],
+}
+// An open after this counts its person again. Almost all opens and clicks come in the first days.
+const ENGAGEMENT_PEOPLE_TTL_SECONDS = 30 * 24 * 60 * 60
 
 // Allowlist of metrics that surface as PostHog events when engagement-event capture is enabled.
 // Metrics not in this map are deliberately ignored (no `$messaging_${metricName}` fallback) so a new
@@ -294,7 +302,8 @@ export class EmailTrackingService {
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
-        private emailStatusService: EmailStatusService | null = null
+        private emailStatusService: EmailStatusService | null = null,
+        private engagementRedis: RedisV2 | null = null
     ) {
         const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
         this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
@@ -400,6 +409,22 @@ export class EmailTrackingService {
             },
             hogFlow ? 'hog_flow' : 'hog_function'
         )
+
+        if (parentRunId) {
+            for (const personMetric of await this.firstEngagementMetrics(parentRunId, invocationId, metricName)) {
+                this.hogFunctionMonitoringService.queueAppMetric(
+                    {
+                        team_id: teamId,
+                        app_source_id: parentRunId,
+                        instance_id: instanceIdOverride || actionId || invocationId,
+                        metric_name: personMetric,
+                        metric_kind: 'email',
+                        count: 1,
+                    },
+                    hogFlow ? 'hog_flow' : 'hog_function'
+                )
+            }
+        }
 
         const eventName = METRIC_NAME_TO_EVENT_NAME[metricName]
         if (eventName && distinctId && (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId))) {
@@ -659,6 +684,32 @@ export class EmailTrackingService {
                   })
                 : {}
         return Object.fromEntries(ids.map((id) => [id, onReplica[id] ?? onPrimary[id] ?? null]))
+    }
+
+    // Which per-person metrics this open or click adds to its run. One email goes to one person, so the email's
+    // invocation id stands for the person. A click also counts as an open, because the open pixel is often blocked.
+    // A HyperLogLog repeats no one and stays small for any audience, at the cost of rarely missing someone new.
+    // When Redis is down nothing is recorded, so the people counts can only read low.
+    private async firstEngagementMetrics(
+        parentRunId: string,
+        invocationId: string,
+        metricName: MinimalAppMetric['metric_name']
+    ): Promise<MinimalAppMetric['metric_name'][]> {
+        const metrics = ENGAGEMENT_PERSON_METRICS[metricName]
+        if (!metrics || !this.engagementRedis) {
+            return []
+        }
+        const results = await this.engagementRedis.usePipeline(
+            { name: 'email-engagement-people', failOpen: true },
+            (pipeline) => {
+                for (const metric of metrics) {
+                    const key = `@posthog/email-engagement-people/{${parentRunId}}/${metric}`
+                    pipeline.pfadd(key, invocationId)
+                    pipeline.expire(key, ENGAGEMENT_PEOPLE_TTL_SECONDS)
+                }
+            }
+        )
+        return results ? metrics.filter((_, index) => results[index * 2]?.[1] === 1) : []
     }
 
     private parseTrackingParams(query: Record<string, any>): {

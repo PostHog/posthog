@@ -33,10 +33,29 @@ export interface BroadcastPerformanceStats {
     unsubscribed: number
     /** Sends with open and click tracking, the denominator for engagement rates. */
     trackedSends: number
+    /** False for sends from before people were counted, where opened and clicked count every event. */
+    engagementCountsPeople: boolean
     /** Recipients who met the broadcast's goal. */
     converted: number
     /** Push only: people with no device registered for the app. */
     skipped: number
+}
+
+/** A send with engagement events but no per-person counts is from before people were counted. */
+function hasOnlyEngagementEvents(totals: Record<string, number>): boolean {
+    return (
+        !totals.email_opened_by_person &&
+        !totals.email_clicked_by_person &&
+        ((totals.email_opened ?? 0) > 0 || (totals.email_link_clicked ?? 0) > 0)
+    )
+}
+
+/** How many people opened or clicked. Older sends can only say how many opens and clicks there were. */
+export function emailEngagement(totals: Record<string, number>, kind: 'opened' | 'clicked'): number {
+    if (hasOnlyEngagementEvents(totals)) {
+        return (kind === 'opened' ? totals.email_opened : totals.email_link_clicked) ?? 0
+    }
+    return (kind === 'opened' ? totals.email_opened_by_person : totals.email_clicked_by_person) ?? 0
 }
 
 const TOTALS_METRICS = [
@@ -44,6 +63,8 @@ const TOTALS_METRICS = [
     'email_delivered',
     'email_opened',
     'email_link_clicked',
+    'email_opened_by_person',
+    'email_clicked_by_person',
     'email_bounced',
     'email_blocked',
     'email_failed',
@@ -296,6 +317,7 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                         markedAsSpam: 0,
                         failed: totals.push_failed ?? 0,
                         trackedSends: pushSent,
+                        engagementCountsPeople: true,
                         converted: totals.conversion ?? 0,
                         skipped: totals.push_skipped ?? 0,
                         unsubscribed: 0,
@@ -305,8 +327,9 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                 return {
                     sent,
                     delivered: totals.email_delivered ?? 0,
-                    opened: totals.email_opened ?? 0,
-                    clicked: totals.email_link_clicked ?? 0,
+                    opened: emailEngagement(totals, 'opened'),
+                    clicked: emailEngagement(totals, 'clicked'),
+                    engagementCountsPeople: !hasOnlyEngagementEvents(totals),
                     bounced: totals.email_bounced ?? 0,
                     // Spam complaints are stored under email_blocked.
                     markedAsSpam: totals.email_blocked ?? 0,

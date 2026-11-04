@@ -105,6 +105,42 @@ describe('broadcastPerformanceLogic', () => {
         }
     )
 
+    it.each([
+        {
+            name: 'a send that counted people',
+            totals: [
+                [10, 'email_sent'],
+                [5, 'email_opened'],
+                [8, 'email_link_clicked'],
+                [4, 'email_opened_by_person'],
+                [1, 'email_clicked_by_person'],
+            ],
+            expected: { opened: 4, clicked: 1, engagementCountsPeople: true },
+        },
+        {
+            name: 'an older send that only counted events',
+            totals: [
+                [10, 'email_sent'],
+                [5, 'email_opened'],
+                [8, 'email_link_clicked'],
+            ],
+            expected: { opened: 5, clicked: 8, engagementCountsPeople: false },
+        },
+    ])('reports opens and clicks for $name', async ({ totals, expected }) => {
+        jest.spyOn(api, 'queryHogQL').mockImplementation(
+            async (query) =>
+                ({ results: String(query).includes('email_link_clicked_by_link') ? [] : totals }) as HogQLQueryResponse
+        )
+        const logic = broadcastPerformanceLogic({
+            runId: expected.opened === 4 ? 'run-p' : 'run-e',
+            runStartedAt: '2026-10-19T22:28:56Z',
+        })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadTotalsSuccess'])
+        expect(logic.values.stats).toMatchObject(expected)
+    })
+
     it('does not report tracking off before anything was sent', async () => {
         jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as unknown as HogQLQueryResponse)
         const logic = broadcastPerformanceLogic({ runId: 'run-2', runStartedAt: '2026-10-19T22:28:56Z' })
