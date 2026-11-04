@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router, combineUrl } from 'kea-router'
 
 import { LemonButton, LemonTab, LemonTabs, LemonTag } from '@posthog/lemon-ui'
@@ -30,6 +30,7 @@ import { MCPAnalyticsNotifications } from './notifications/MCPAnalyticsNotificat
 import { mcpAnalyticsNotificationsLogic } from './notifications/mcpAnalyticsNotificationsLogic'
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
 import { MCPSetupMode } from './setupMode/MCPSetupMode'
+import { mcpSetupModeLogic } from './setupMode/mcpSetupModeLogic'
 
 export const scene: SceneExport = {
     component: MCPAnalyticsScene,
@@ -39,6 +40,7 @@ export const scene: SceneExport = {
 }
 
 const MCP_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
+const SETUP_GUIDE = 'Setup guide'
 
 export function MCPAnalyticsScene(): JSX.Element {
     return (
@@ -57,6 +59,8 @@ function MCPAnalyticsSceneBody(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const intentRoutingEnabled = !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const { isEnabled: setupModeEnabled } = useValues(mcpSetupModeLogic)
+    const { openSetupMode } = useActions(mcpSetupModeLogic)
 
     if (activeTab === 'intent-clustering' && !intentRoutingEnabled) {
         return <NotFound object="page" />
@@ -145,13 +149,36 @@ function MCPAnalyticsSceneBody(): JSX.Element {
                 resourceType={{ type: 'mcp_analytics' }}
                 actions={
                     todayRailNav ? (
-                        <Button variant="outline" render={<LinkPrimitive to={MCP_DOCS_URL} target="_blank" />}>
-                            Documentation
-                        </Button>
+                        <>
+                            {setupModeEnabled ? (
+                                <Button
+                                    variant="outline"
+                                    onClick={() => openSetupMode('scene_button')}
+                                    data-attr="mcp-analytics-reopen-setup"
+                                >
+                                    {SETUP_GUIDE}
+                                </Button>
+                            ) : null}
+                            <Button variant="outline" render={<LinkPrimitive to={MCP_DOCS_URL} target="_blank" />}>
+                                Documentation
+                            </Button>
+                        </>
                     ) : (
-                        <LemonButton to={MCP_DOCS_URL} type="secondary" targetBlank size="small">
-                            Documentation
-                        </LemonButton>
+                        <>
+                            {setupModeEnabled ? (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => openSetupMode('scene_button')}
+                                    data-attr="mcp-analytics-reopen-setup"
+                                >
+                                    {SETUP_GUIDE}
+                                </LemonButton>
+                            ) : null}
+                            <LemonButton to={MCP_DOCS_URL} type="secondary" targetBlank size="small">
+                                Documentation
+                            </LemonButton>
+                        </>
                     )
                 }
             />

@@ -9,7 +9,7 @@ export const SETUP_PARAM = 'setup'
 export const SETUP_STEP_PARAM = 'setup_step'
 export const SETUP_OPEN = 'open'
 
-export type MCPSetupTrigger = 'start_button' | 'url'
+export type MCPSetupTrigger = 'start_button' | 'scene_button' | 'url'
 
 export type MCPSetupExitReason = 'back' | 'escape' | 'finished' | 'ask_ai' | 'navigated'
 

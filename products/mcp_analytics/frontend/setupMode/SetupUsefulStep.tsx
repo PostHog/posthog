@@ -175,24 +175,23 @@ export function SetupUsefulStep({
                 <h3 className="m-0 text-sm font-semibold">{COPY.expect.title}</h3>
                 <p className="m-0 text-sm text-secondary">{COPY.expect.detail}</p>
             </div>
+            {/* The weekly report is this step's one primary action, so the way out stays secondary. */}
             <div className="flex flex-wrap items-center justify-end gap-2">
                 <LemonButton
                     type="secondary"
-                    size="large"
-                    sideIcon={<IconArrowRight />}
-                    onClick={onFinish}
-                    data-attr="mcp-analytics-setup-mode-finish"
-                >
-                    {COPY.finish}
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    size="large"
                     icon={<IconSparkles />}
                     onClick={() => onAskPostHogAI(COPY.aiPrompt)}
                     data-attr="mcp-analytics-setup-mode-ask-ai"
                 >
                     {COPY.askAI}
+                </LemonButton>
+                <LemonButton
+                    type="secondary"
+                    sideIcon={<IconArrowRight />}
+                    onClick={onFinish}
+                    data-attr="mcp-analytics-setup-mode-finish"
+                >
+                    {COPY.finish}
                 </LemonButton>
             </div>
         </SetupStepLayout>
