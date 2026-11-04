@@ -1,5 +1,6 @@
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 
 import time_machine
@@ -25,7 +26,6 @@ from posthog.hogql.database.database import Database
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team, User
 
-from products.marketing_analytics.backend.facade.contracts import ResolvedMarketingCostTrend
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
 
@@ -80,7 +80,7 @@ class TestMarketingCostFallback(SimpleTestCase):
             team: Team,
             date_ranges: Sequence[QueryDateRange],
             get_database: Callable[[], Database],
-        ) -> ResolvedMarketingCostTrend:
+        ) -> SimpleNamespace:
             assert len(date_ranges) == 2
             assert date_ranges[0].date_from() == datetime(2025, 1, 10, 5, tzinfo=UTC)
             assert date_ranges[1].date_from().year == (2024 if compare_to else 2025)
@@ -88,7 +88,8 @@ class TestMarketingCostFallback(SimpleTestCase):
             result = query.model_copy(deep=True)
             result.marketingAnalyticsCostFallback = None
             result.series = [precomputed if ready else live]
-            return ResolvedMarketingCostTrend(
+            # Importing the resolver's result type here would count as this test driving marketing analytics code.
+            return SimpleNamespace(
                 query=result,
                 source=MarketingAnalyticsCostSource.PRECOMPUTED if ready else MarketingAnalyticsCostSource.LIVE,
             )

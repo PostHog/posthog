@@ -12,13 +12,13 @@ from posthog.schema import (
     PropertyOperator,
 )
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import DEFAULT_CURRENCY
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationTable,
     ensure_precomputed,
 )
-from products.marketing_analytics.backend.facade.contracts import ResolvedMarketingCostTrend
 
 from .adapters.base import QueryContext
 from .adapters.factory import MarketingSourceFactory
@@ -36,6 +36,13 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
+
+
+@frozen
+class ResolvedMarketingCostTrend:
+    query: TrendsQuery
+    # None when an edited insight no longer reads the cost table, so neither path applies.
+    source: MarketingAnalyticsCostSource | None
 
 
 class MarketingCostTrendsQueryResolver:
