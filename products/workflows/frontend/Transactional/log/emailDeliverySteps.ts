@@ -20,8 +20,6 @@ export interface DeliveryStep {
     previousAt: string | null
 }
 
-const FAILURE_KINDS: EmailLogEventKindEnumApi[] = ['bounced', 'complained', 'failed']
-
 function firstOf(
     timeline: readonly TransactionalEmailLogEventApi[],
     kind: EmailLogEventKindEnumApi
@@ -47,13 +45,14 @@ function repeated(count: number, verb: string): string | null {
     return count > 1 ? `${verb} ${count} times` : null
 }
 
-/** The steps an email went through, ending at its first failure. */
+/** The steps an email went through, ending where it stopped. */
 export function buildDeliverySteps(email: TransactionalEmailLogDetailApi): DeliveryStep[] {
     const { timeline } = email
     const sent = firstOf(timeline, 'sent')
     const delivered = firstOf(timeline, 'delivered')
     const opened = firstOf(timeline, 'opened')
-    const failure = timeline.find((event) => FAILURE_KINDS.includes(event.kind))
+    // A rerun can fail and then bounce, so the last step reads from the row behind the final status.
+    const failure = firstOf(timeline, email.status)
     const queuedAt = firstOf(timeline, 'queued')?.at ?? email.created_at
     const stopped = (
         kind: 'failed' | 'bounced' | 'complained',
@@ -71,7 +70,10 @@ export function buildDeliverySteps(email: TransactionalEmailLogDetailApi): Deliv
     const queuedStep = step('queued', 'Queued', { at: queuedAt }, null)
 
     if (email.status === 'failed') {
-        return [queuedStep, stopped('failed', queuedAt, reason)]
+        // The provider can reject an email after it accepted the send.
+        return sent
+            ? [step('sent', 'Sent', sent, null), stopped('failed', sent.at, reason)]
+            : [queuedStep, stopped('failed', queuedAt, reason)]
     }
     // A send that went out shows Sent as its first step. Queued only matters while it waits.
     const lead = sent ? [] : [queuedStep]

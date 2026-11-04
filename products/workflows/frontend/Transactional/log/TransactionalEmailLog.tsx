@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconCursorClick, IconEye, IconRefresh, IconSearch } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
@@ -6,7 +7,9 @@ import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTag, Tooltip } 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { INVOCATIONS_DATE_OPTIONS } from 'scenes/hog-functions/invocations/invocationsDateOptions'
+import { urls } from 'scenes/urls'
 
 import type { TransactionalEmailLogEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 
@@ -135,14 +138,20 @@ export function TransactionalEmailLog(): JSX.Element {
                 }}
                 nouns={['send', 'sends']}
                 data-attr="transactional-email-log-table"
+                onRow={(email) => ({
+                    onClick: () => router.actions.push(urls.transactionalEmailLogEntry(email.message_id)),
+                    className: 'cursor-pointer',
+                })}
                 columns={[
                     {
                         title: 'Recipient',
                         key: 'recipient',
                         render: (_, email) => (
-                            <span className="ph-no-capture">
-                                <EmailAddress address={email.recipient} />
-                            </span>
+                            <LemonTableLink
+                                to={urls.transactionalEmailLogEntry(email.message_id)}
+                                title={<EmailAddress address={email.recipient} />}
+                                className="ph-no-capture"
+                            />
                         ),
                     },
                     {

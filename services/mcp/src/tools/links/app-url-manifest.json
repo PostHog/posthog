@@ -1859,6 +1859,11 @@
         "params": [],
         "scope": "project"
     },
+    "transactionalEmailLogEntry": {
+        "template": "/transactional/log/{messageId}",
+        "params": ["messageId"],
+        "scope": "project"
+    },
     "transactionalLog": {
         "template": "/transactional/log",
         "params": [],

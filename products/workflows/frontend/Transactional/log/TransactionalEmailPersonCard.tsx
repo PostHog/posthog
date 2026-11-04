@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonSkeleton, ProfilePicture } from '@posthog/lemon-ui'
 
@@ -25,14 +25,25 @@ function location(properties: Record<string, any>): string | null {
 
 export function TransactionalEmailPersonCard({ distinctId }: { distinctId: string }): JSX.Element {
     const { person, personLoading, personFailed } = useValues(transactionalEmailLogEntryLogic)
+    const { loadPerson } = useActions(transactionalEmailLogEntryLogic)
 
     if (personFailed && !personLoading) {
         return (
             <div className="border rounded bg-surface-primary p-4 flex flex-col gap-2">
                 <h3 className="text-sm font-semibold m-0">Person</h3>
                 <p className="text-sm text-secondary m-0">
-                    This person couldn't load. Try again from the activity panel.
+                    This person couldn't load. Check your connection and try again.
                 </p>
+                <div>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => loadPerson(distinctId)}
+                        data-attr="transactional-email-person-card-retry"
+                    >
+                        Try again
+                    </LemonButton>
+                </div>
             </div>
         )
     }
@@ -54,7 +65,7 @@ export function TransactionalEmailPersonCard({ distinctId }: { distinctId: strin
 
     if (person === null) {
         return (
-            <div className="border rounded bg-surface-primary p-4 flex flex-col gap-2">
+            <div className="ph-no-capture border rounded bg-surface-primary p-4 flex flex-col gap-2">
                 <h3 className="text-sm font-semibold m-0">Person</h3>
                 <p className="text-sm text-secondary m-0">
                     No person in this project has the distinct ID <code className="break-all">{distinctId}</code> yet.

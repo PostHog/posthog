@@ -124,6 +124,7 @@ export const manifest: ProductManifest = {
         transactional: (tab?: MessagingNavTabKey): string => `/transactional${tab ? `/${tab}` : ''}`,
         transactionalNew: (): string => '/transactional/new',
         transactionalLog: (): string => '/transactional/log',
+        transactionalEmailLogEntry: (messageId: string): string => `/transactional/log/${messageId}`,
         transactionalTemplate: (id: string): string => `/transactional/library/templates/${id}`,
         broadcastsTemplate: (id: string): string => `/broadcasts/library/templates/${id}`,
     },

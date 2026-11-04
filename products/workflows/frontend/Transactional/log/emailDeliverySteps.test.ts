@@ -58,6 +58,7 @@ describe('buildDeliverySteps', () => {
             ['sent:done', 'delivered:done', 'complained:failed'],
         ],
         ['failed', email('failed', ['queued', 'failed']), ['queued:done', 'failed:failed']],
+        ['rejected after it was sent', email('failed', ['queued', 'sent', 'failed']), ['sent:done', 'failed:failed']],
         [
             'sent row arriving after delivered',
             email('delivered', ['queued', 'delivered', 'sent']),
@@ -65,5 +66,11 @@ describe('buildDeliverySteps', () => {
         ],
     ])('%s', (_, input, expected) => {
         expect(buildDeliverySteps(input).map((step) => `${step.key}:${step.state}`)).toEqual(expected)
+    })
+
+    test('a bounce after a failed attempt shows when it bounced, not when the attempt failed', () => {
+        const steps = buildDeliverySteps(email('bounced', ['queued', 'failed', 'sent', 'bounced']))
+
+        expect(steps[steps.length - 1]).toMatchObject({ key: 'bounced', at: '2026-06-15T09:00:03Z' })
     })
 })
