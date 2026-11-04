@@ -42,6 +42,7 @@ def _refusal(fields: dict[str, Any]) -> dict[str, Any]:
     serializer = _code_send(fields)
     assert not serializer.is_valid()
     response = exception_handler(ValidationError(serializer.errors), {"request": RequestFactory().post("/")})
+    assert response is not None
     return with_code_send_reason(response.data)
 
 

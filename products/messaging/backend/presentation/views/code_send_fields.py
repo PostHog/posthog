@@ -238,7 +238,7 @@ def template_send_refusal(field: str) -> serializers.ValidationError:
 def with_code_send_reason(body: dict[str, Any]) -> dict[str, Any]:
     """The error body with `why` and `fix` added, when the error is about `cc`, `bcc` or `attachments`, or about a
     field the pipeline doesn't take."""
-    path, code = (body.get("attr") or "").split("__"), body.get("code")
+    path, code = (body.get("attr") or "").split("__"), str(body.get("code") or "")
     if body.get("type") != "validation_error" or (
         path[0] not in CODE_SEND_EXTRA_FIELDS and code != "field_not_accepted"
     ):
