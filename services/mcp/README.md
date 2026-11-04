@@ -312,9 +312,10 @@ Skill use is advisory: a product `call` is never rejected for skipping `learn`, 
 
 - Claude web and desktop: `learn hogql`.
 - Other cli clients with skill discovery enabled: `learn posthog:querying-posthog-data references/guidelines.md`.
-- `consumer=plugin`: the bundled `querying-posthog-data` skill.
+- `consumer=plugin`, and any client that sends `x-posthog-mcp-bundled-skills: true`: the bundled `querying-posthog-data` skill.
 
-Tools mode, `consumer=posthog-code`, and cli clients without `learn` keep the full description, because they have no on-demand path the server can rely on.
+PostHog Code sends that header only when its agent has the bundled skills: the desktop app always, and a Tasks sandbox unless the run strips them (`disable_skills`, or `POSTHOG_CODE_DISABLE_BUNDLED_SKILLS=1` in its sandbox environment).
+Tools mode, `consumer=posthog-code` without the header, and cli clients without `learn` keep the full description, because they have no on-demand path the server can rely on.
 
 The skill bundle is shared through Redis: each pod loads it once at startup, parses it into memory, and serves every `learn` command from that parsed catalog.
 A background timer polls a small version key in Redis; only when the version changes does a pod read the archive bytes again.
