@@ -3,12 +3,16 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { engineeringAnalyticsSources } from '../generated/api'
+import { engineeringAnalyticsEnable, engineeringAnalyticsSources } from '../generated/api'
 
 /**
  * Setup detection for the engineering analytics empty state. The product reads pull
  * requests and workflow runs from a GitHub warehouse source, so a project is set up once
  * it has one connected, synced or not: the scene explains an unsynced source itself.
+ *
+ * Opening the product with a source connected is the opt-in: it enables the project, which
+ * is what lets the background work (view sync, test census, CI failure logs) run for it.
+ * The call is idempotent, so repeating it on every detection costs one request and nothing else.
  */
 export const engineeringAnalyticsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.ENGINEERING_ANALYTICS,
@@ -18,6 +22,10 @@ export const engineeringAnalyticsSetupLogic = createSetupDetectionLogic({
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         const sources = await engineeringAnalyticsSources(projectId)
-        return sources.length > 0 ? 'has-data' : 'needs-setup'
+        if (sources.length === 0) {
+            return 'needs-setup'
+        }
+        await engineeringAnalyticsEnable(projectId)
+        return 'has-data'
     },
 })

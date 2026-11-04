@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.models.team import Team
 
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.engineering_analytics.backend.logic.job_logs.activity import FetchDepotJobLogInputs
 from products.engineering_analytics.backend.logic.job_logs.coordinator import (
     DepotAttemptCursor,
@@ -17,6 +18,7 @@ from products.engineering_analytics.backend.logic.job_logs.coordinator import (
     _discover_failed_depot_attempts,
     _discover_jobs_with_diagnostics,
     _github_source_params,
+    _live_sources,
     _query_jobs_with_diagnostics,
 )
 from products.engineering_analytics.backend.logic.sources import (
@@ -30,13 +32,18 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
     _pr_row,
+    create_depot_source,
     create_github_source,
     create_github_warehouse_table,
     create_warehouse_table_row,
     link_schema,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+
+
+def _enroll(team: Team) -> None:
+    DataWarehouseManagedViewSet.objects.create(team=team, kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS)
 
 
 class TestGithubSourceParams:
@@ -78,12 +85,26 @@ class TestDiscoverJobsWithDiagnostics:
         ) == DepotDiscovery(attempts=[], cursors={})
 
 
+class TestLiveSources(BaseTest):
+    @parameterized.expand([("github", ExternalDataSourceType.GITHUB), ("depot", ExternalDataSourceType.DEPOT)])
+    def test_sweeps_only_enrolled_teams(self, _name: str, source_type: ExternalDataSourceType) -> None:
+        # Both sweeps read this. An unenrolled team's failed job logs must never reach its Logs.
+        unenrolled = Team.objects.create(organization=self.organization, name="unenrolled")
+        create = create_github_source if source_type == ExternalDataSourceType.GITHUB else create_depot_source
+        enrolled_source = create(self.team)
+        create(unenrolled)
+        _enroll(self.team)
+
+        assert [source.id for source in _live_sources(source_type)] == [enrolled_source.id]
+
+
 class TestDiscoverFailedDepotAttempts(ClickhouseTestMixin, BaseTest):
     @override_settings(OTLP_LOGS_INGEST_ENDPOINT="http://localhost:8010/i/v1/logs")
     def test_discovers_recent_failed_attempts_with_decoded_ids(self) -> None:
         # Only recent failed attempts are fetched, keyed by the integer ids the curated views and CI
         # traces carry. A push run's id has no integer form, so its logs could never join and it is
         # skipped rather than emitted under a wrong run_id.
+        _enroll(self.team)
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="src-depot",

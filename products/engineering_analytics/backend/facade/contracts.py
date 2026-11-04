@@ -76,6 +76,11 @@ class CISignalsConfig:
     sync_status: CISignalsSyncStatus | None
 
 
+@dataclass(frozen=True)
+class Enrollment:
+    enabled: bool
+
+
 class QuarantineWriteError(Exception):
     """A quarantine write could not be completed — no GitHub App installed on the
     target repo, the App lives on a different org, a malformed quarantine file, or a

@@ -39,6 +39,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
+from products.engineering_analytics.backend.logic.enrollment import enrolled_team_ids
 from products.engineering_analytics.backend.logic.job_logs.activity import (
     FetchDepotJobLogInputs,
     FetchDepotJobLogWorkflow,
@@ -122,8 +123,12 @@ def _query_jobs_with_diagnostics(team: Team, prefix: str, cutoff_iso: str, repo:
 
 
 def _live_sources(source_type: ExternalDataSourceType) -> Iterator[ExternalDataSource]:
-    """Every team's non-deleted sources of ``source_type``, with the team, for the cross-team sweep."""
-    sources = ExternalDataSource.objects.filter(source_type=source_type).exclude(deleted=True).select_related("team")
+    """Every enrolled team's non-deleted sources of ``source_type``, with the team, for the cross-team sweep."""
+    sources = (
+        ExternalDataSource.objects.filter(source_type=source_type, team_id__in=enrolled_team_ids())
+        .exclude(deleted=True)
+        .select_related("team")
+    )
     return sources.iterator()
 
 

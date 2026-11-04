@@ -67,6 +67,7 @@ import type {
     EngineeringAnalyticsWorkflowRunParams,
     EngineeringAnalyticsWorkflowRunnerCostsParams,
     EngineeringAnalyticsWorkflowRunsParams,
+    EnrollmentApi,
     FlakyTestListApi,
     GitHubSourceApi,
     JobLogInsightsApi,
@@ -627,6 +628,20 @@ export const engineeringAnalyticsDora = async (
     return apiMutator<DoraOverviewApi>(getEngineeringAnalyticsDoraUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsEnableUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/engineering_analytics/enable/`
+}
+
+/**
+ * Enable engineering analytics for this project. Creates the project's managed warehouse views and opts it into the background work (view sync after each GitHub or Depot load, the daily test census, CI failure log collection). Safe to call again: an enabled project stays enabled.
+ */
+export const engineeringAnalyticsEnable = async (projectId: string, options?: RequestInit): Promise<EnrollmentApi> => {
+    return apiMutator<EnrollmentApi>(getEngineeringAnalyticsEnableUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 
