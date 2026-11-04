@@ -718,8 +718,7 @@ class RunFooter:
     # Whether the run shares charts as insight links instead of images, so reply analytics can
     # compare the two delivery modes. Not rendered.
     chart_links: bool = False
-    # What the thread's task spent on models so far, in USD. Set only for a reply that closes a
-    # turn, and only inside the footer cost rollout.
+    # Model spend of the thread's task so far. Sandbox compute is not billed, so it is not included.
     thread_cost_usd: Decimal | None = None
 
     def has_content(self) -> bool:
@@ -885,7 +884,7 @@ def _thread_cost(run: "TaskRunDTO", *, integration_id: int | None) -> Decimal | 
 
 
 def describe_thread_cost(cost_usd: Decimal) -> str:
-    """The cost in dollars to the cent."""
+    """A cost under one cent shows as `<$0.01`, so that it does not read as free."""
     if cost_usd < Decimal("0.01"):
         return "Thread cost: <$0.01"
     return f"Thread cost: ${cost_usd:.2f}"
