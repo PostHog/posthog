@@ -8,8 +8,9 @@ batch (see `history_upsert`).
 """
 
 import functools
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from typing import TypeVar
 
 import pyarrow as pa
 import deltalake
@@ -21,6 +22,7 @@ from posthog.ph_client import feature_enabled_or_false
 from products.warehouse_sources.backend.facade.contracts import LegacyHistoryTableError
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     HISTORY_NAMING,
     HistoryNaming,
@@ -31,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
     HistoryTableNameTakenError,
+    history_table_name,
     incremental_history_naming,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
@@ -41,6 +44,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     HistoryFinalizeResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
+    filter_dwh_columns_by_enabled_columns,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import OutputLane, SourceResponse
 
 INCREMENTAL_HISTORY_FLAG = "dwh-incremental-history"
@@ -49,6 +55,8 @@ INCREMENTAL_HISTORY_FLAG = "dwh-incremental-history"
 HISTORY_CURSOR_TYPES = frozenset({IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp})
 _STAGING_SUFFIX = "_ph_staging"
 _VALID_FROM_TYPE = pa.timestamp("us", tz="UTC")
+
+_TColumn = TypeVar("_TColumn")
 
 
 class IncrementalHistoryUnavailableError(Exception):
@@ -128,6 +136,36 @@ def stamp_history_batch(table: pa.Table, *, cursor: str, naming: HistoryNaming, 
         valid_from = pc.cast(pc.cast(values, pa.timestamp("us")), _VALID_FROM_TYPE)
     valid_from = valid_from.fill_null(pa.scalar(tracked_since, _VALID_FROM_TYPE))
     return table.append_column(pa.field(naming.valid_from, _VALID_FROM_TYPE), valid_from)
+
+
+def registered_history_columns(
+    columns: Mapping[str, _TColumn],
+    enabled_columns: list[str] | None,
+    primary_keys: list[str] | None,
+    incremental_field: str | None,
+) -> dict[str, _TColumn]:
+    """The history table columns a query may read: the synced columns, as the main table registers them,
+    plus the validity and partition columns.
+
+    The history table keeps a column the user stopped syncing, with its past values, so only its
+    registration can hide that column.
+    """
+    synced = filter_dwh_columns_by_enabled_columns(dict(columns), enabled_columns, primary_keys, incremental_field)
+    return {
+        name: column for name, column in columns.items() if name in synced or name in HISTORY_NAMING.stamped_columns
+    }
+
+
+def incremental_history_table(schema: ExternalDataSchema) -> DataWarehouseTable | None:
+    """The registered history table of an incremental schema that keeps history, or None."""
+    if not schema.is_incremental:
+        return None
+    name = history_table_name(schema)
+    if name is None:
+        return None
+    return DataWarehouseTable.objects.filter(
+        team_id=schema.team_id, external_data_source_id=schema.source_id, name=name, deleted=False
+    ).first()
 
 
 def stages_history(cdc_write_mode: str | None, sync_type: str | None) -> bool:

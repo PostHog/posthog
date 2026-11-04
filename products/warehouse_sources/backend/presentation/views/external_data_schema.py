@@ -91,6 +91,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     history_table_name,
     incremental_history_naming_unless_taken,
     incremental_history_refusal,
+    incremental_history_table,
     is_another_schemas_history_table,
     is_history_table_mode,
     is_incremental_history_enabled_for_team,
@@ -99,6 +100,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     pin_history_naming,
     pinned_history_naming,
     purge_buffer_prefix,
+    registered_history_columns,
     repair_is_running,
     reserved_column_collisions,
     reserved_column_names,
@@ -1800,16 +1802,27 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # Warehouse mode: hide newly-disabled columns from HogQL immediately. Restoration
             # (reset to None or re-enabling a column) is deferred to the next sync — Delta may
             # not contain the column yet, so exposing it now would surface all-NULL queries.
-            current_columns = instance.table.columns or {}
-            projected_columns = _filter_dwh_columns_by_enabled_columns(
-                current_columns,
-                validated_data["enabled_columns"],
-                instance.primary_key_columns,
-                instance.incremental_field,
-            )
-            if projected_columns != current_columns:
-                instance.table.columns = projected_columns
-                instance.table.save(update_fields=["columns"])
+            tables = [instance.table]
+            history_table = incremental_history_table(instance) if instance.keeps_history else None
+            if history_table is not None and history_table.id != instance.table.id:
+                tables.append(history_table)
+            for table in tables:
+                current_columns = table.columns or {}
+                # A history table also carries its validity and partition columns, which no source column selects.
+                project = (
+                    registered_history_columns
+                    if instance.is_incremental and table.is_history_table
+                    else _filter_dwh_columns_by_enabled_columns
+                )
+                projected_columns = project(
+                    current_columns,
+                    validated_data["enabled_columns"],
+                    instance.primary_key_columns,
+                    instance.incremental_field,
+                )
+                if projected_columns != current_columns:
+                    table.columns = projected_columns
+                    table.save(update_fields=["columns"])
 
         # CDC publication management: add/remove table when toggling should_sync
         # A reset handed to capture paused the schedule, and capture only finishes a reset for a CDC table,

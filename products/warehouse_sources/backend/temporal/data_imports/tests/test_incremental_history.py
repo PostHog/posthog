@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.incremental_histor
     IncrementalHistoryUnavailableError,
     attach_history_lanes,
     finalize_history_lane,
+    registered_history_columns,
     stage_history_batch,
     stamp_history_batch,
 )
@@ -110,6 +111,25 @@ class TestAttachHistoryLanes:
         ):
             with pytest.raises(IncrementalHistoryUnavailableError):
                 attach_history_lanes(_schema("both"), _response())
+
+
+class TestRegisteredHistoryColumns:
+    @parameterized.expand(
+        [
+            ("unselected_column_is_hidden", ["name"], ["id", "name", "updated_at", "_ph_valid_from", "_ph_valid_to"]),
+            (
+                "no_selection_keeps_every_column",
+                None,
+                ["id", "name", "email", "updated_at", "_ph_valid_from", "_ph_valid_to"],
+            ),
+        ]
+    )
+    def test_keeps_the_synced_key_cursor_and_validity_columns(
+        self, _name: str, enabled_columns: list[str] | None, expected: list[str]
+    ) -> None:
+        columns = dict.fromkeys(("id", "name", "email", "updated_at", "_ph_valid_from", "_ph_valid_to"), "String")
+
+        assert list(registered_history_columns(columns, enabled_columns, ["id"], "updated_at")) == expected
 
 
 class TestStampHistoryBatch:

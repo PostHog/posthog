@@ -4938,6 +4938,50 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         self.schema.refresh_from_db()
         assert INCREMENTAL_HISTORY_KEY not in self.schema.sync_type_config
 
+    @parameterized.expand([("both",), ("cdc_only",)])
+    def test_unselecting_a_column_hides_it_from_the_incremental_history_table(self, mode: str):
+        from products.warehouse_sources.backend.facade.source_management import history_table_name
+
+        self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        self.schema.sync_type_config = {
+            "incremental_field": "updated_at",
+            "incremental_field_type": "datetime",
+            "primary_key_columns": ["id"],
+            "cdc_table_mode": mode,
+            INCREMENTAL_HISTORY_KEY: True,
+            "schema_metadata": {
+                "columns": [
+                    {"name": name, "data_type": "text", "is_nullable": True} for name in ("id", "email", "updated_at")
+                ]
+            },
+        }
+        self.schema.save()
+        source_columns = dict.fromkeys(("id", "email", "updated_at"), "String")
+        history = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=history_table_name(self.schema),
+            format="DeltaS3Wrapper",
+            external_data_source=self.source,
+            columns={**source_columns, "_ph_valid_from": "DateTime", "_ph_valid_to": "DateTime"},
+            options={"history_table": True, "history_naming": "ph_validity"},
+        )
+        main = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="orders",
+            format="DeltaS3Wrapper",
+            external_data_source=self.source,
+            columns=source_columns,
+        )
+        self.schema.table = history if mode == "cdc_only" else main
+        self.schema.save()
+
+        self._save_through_serializer(self.schema, {"enabled_columns": ["id", "updated_at"]})
+
+        history.refresh_from_db()
+        main.refresh_from_db()
+        assert set(history.columns) == {"id", "updated_at", "_ph_valid_from", "_ph_valid_to"}
+        assert set(main.columns) == ({"id", "updated_at"} if mode == "both" else set(source_columns))
+
     @parameterized.expand(
         [
             ("no_history_table", ExternalDataSchema.SyncType.CDC, "consolidated", False, None),
