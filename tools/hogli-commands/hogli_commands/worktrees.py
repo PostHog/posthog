@@ -334,6 +334,9 @@ def worktrees_clean(
         return
 
     busy = _process_cwds()
+    if busy is None:
+        click.echo("Could not list running processes, so no worktree can be shown to be idle; aborting to stay safe.")
+        return
     in_use: list[Path] = []
     candidates: list[Worktree] = []
     for source, root in _worktree_roots(repo_root):
@@ -927,25 +930,28 @@ def _resolve(path: Path) -> Path:
         return path
 
 
-def _process_cwds() -> set[Path]:
-    """Working directories of every process this user can see.
+def _process_cwds() -> set[Path] | None:
+    """Working directories of every process this user can see, or None when they
+    cannot be listed.
 
     A dev server, editor or agent session sitting in a worktree leaves no git
-    activity, so its working directory is the only sign the worktree is in use."""
+    activity, so its working directory is the only sign the worktree is in use.
+    This process is in the list too, so an empty result means the listing failed."""
 
+    cwds: set[Path] = set()
     if sys.platform == "linux":
-        cwds: set[Path] = set()
         for proc in Path("/proc").glob("[0-9]*"):
             try:
                 cwds.add(Path(os.readlink(proc / "cwd")))
             except OSError:
                 continue
-        return cwds
-    try:
-        result = subprocess.run(["lsof", "-a", "-d", "cwd", "-F", "n"], capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.TimeoutExpired):
-        return set()
-    return {Path(line[1:]) for line in result.stdout.splitlines() if line.startswith("n/")}
+    else:
+        try:
+            result = subprocess.run(["lsof", "-a", "-d", "cwd", "-F", "n"], capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        cwds = {Path(line[1:]) for line in result.stdout.splitlines() if line.startswith("n/")}
+    return cwds or None
 
 
 def _in_use(worktree: Path, cwds: set[Path]) -> bool:
