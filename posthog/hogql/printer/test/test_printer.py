@@ -1453,7 +1453,8 @@ class TestPrinter(BaseTest):
         printed = self._expr(expression)
         [(serialized,)] = sync_execute(
             f"SELECT {printed} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties, "
-            "CAST('{}', %(temporary_type)s) AS temporary_properties) AS events",
+            "CAST('{}', %(temporary_type)s) AS temporary_properties, CAST([], 'Array(String)') AS properties_null_keys, "
+            "CAST([], 'Array(String)') AS temporary_properties_null_keys) AS events",
             {
                 "raw": json.dumps(properties),
                 "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
@@ -7113,9 +7114,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
             printed = self._expr("JSONExtractString(properties, 'test_prop')")
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                assert printed == (
-                    f"JSONExtractString(ifNull({self._json_dynamic_property_expr('test_prop', as_json=True)}, ''))"
-                )
+                assert "events.properties.test_prop" in printed, printed
+                assert "JSONExtractString(ifNull(" not in printed, printed
                 assert mat_col.name not in printed
             else:
                 assert printed == f"nullIf(nullIf(events.{mat_col.name}, ''), 'null')"
@@ -7140,9 +7140,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
         assert "mat_numeric_prop" not in printed
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            assert printed == (
-                f"JSONExtractString(ifNull({self._json_dynamic_property_expr('numeric_prop', as_json=True)}, ''))"
-            )
+            assert "events.properties.numeric_prop" in printed, printed
+            assert "JSONExtractString(ifNull(" not in printed, printed
         else:
             assert "JSONExtractString(events.properties" in printed
 

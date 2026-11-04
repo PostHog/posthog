@@ -60,6 +60,7 @@ import {
     SessionPropertyFilter,
     SessionRecordingType,
     SlackIntegrationScope,
+    SlackIntegrationScopeInReview,
     StepOrderValue,
 } from '~/types'
 
@@ -67,9 +68,9 @@ import { BIVisualizationNode } from './schema-business-intelligence'
 import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
-// Re-exported so the codegen picks it up and emits a matching `StrEnum` in posthog/schema.py.
-// The runtime const lives in `~/types` as `SLACK_INTEGRATION_SCOPES`.
-export { SlackIntegrationScope }
+// Re-exported so the codegen picks them up and emits matching `StrEnum`s in posthog/schema.py.
+// The runtime consts live in `~/types` as `SLACK_INTEGRATION_SCOPES` and `SLACK_INTEGRATION_SCOPES_IN_REVIEW`.
+export { SlackIntegrationScope, SlackIntegrationScopeInReview }
 
 /**
  * PostHog Query Schema definition.
@@ -1476,6 +1477,7 @@ export interface ChartSettingsFormatting {
 export interface ChartSettingsDisplay {
     color?: string
     label?: string
+    description?: string
     trendLine?: boolean
     yAxisPosition?: 'left' | 'right'
     displayType?: 'auto' | 'line' | 'bar' | 'area'
@@ -4170,6 +4172,8 @@ export interface MCPMissingCapabilitiesQueryResponse extends AnalyticsQueryRespo
 export interface MCPMissingCapabilitiesQuery extends DataNode<MCPMissingCapabilitiesQueryResponse> {
     kind: NodeKind.MCPMissingCapabilitiesQuery
     dateRange?: DateRange
+    /** Exclude reports from the project's internal and test users. */
+    filterTestAccounts?: boolean
     /** Case-insensitive substring match over the report text. */
     search?: string
     /** Page size; defaults to 100, capped at 500. */
@@ -5962,9 +5966,22 @@ export interface ExperimentEventExposureConfig extends Node {
     properties: AnyPropertyFilter[]
 }
 
+/** What the `entity_id` column of a warehouse-native query identifies. Exposures and outcomes join on
+ *  `entity_id` inside the warehouse, and the same connection does not make two queries compatible:
+ *  one can return account ids and another customer ids. Every warehouse-native source stores its
+ *  binding so a saved metric keeps it when it is attached to another experiment, and so attachment
+ *  can compare bindings instead of guessing from SQL. Equal labels are required for compatibility
+ *  but cannot prove the SQL returns the same identities; the author confirms that. */
+export interface ExperimentWarehouseNativeUnitBinding {
+    /** What was randomized, as a stable project-scoped label such as `customer` or `account`. */
+    unit_type: string
+    /** Which ids represent that unit, such as `billing_customer_id`. */
+    id_namespace: string
+}
+
 /** Exposures that live in the customer's warehouse, read through a direct connection. An experiment
  *  with this exposure runs entirely in the warehouse, so every metric source must be an
- *  `ExperimentWarehouseNativeNode` on the same connection. */
+ *  `ExperimentWarehouseNativeNode` on the same connection with the same unit binding. */
 export interface ExperimentWarehouseNativeExposureConfig extends Node {
     kind: NodeKind.ExperimentWarehouseNativeExposureConfig
     /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
@@ -5973,6 +5990,7 @@ export interface ExperimentWarehouseNativeExposureConfig extends Node {
      *  `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies
      *  the experiment's date range and multiple-variant handling. */
     query: string
+    unit: ExperimentWarehouseNativeUnitBinding
 }
 
 // ── Slim API types for experiment create/update ──────────────────────
@@ -6248,6 +6266,7 @@ export interface ExperimentWarehouseNativeNode extends Node {
     /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and
      *  `timestamp` columns plus any numeric columns a metric can measure. */
     query: string
+    unit: ExperimentWarehouseNativeUnitBinding
     /** How to aggregate the rows per entity. Defaults to `total` (row count). */
     math?: ExperimentWarehouseNativeMathType
     /** The numeric column `math` reads. Required when `math` is `sum`. One SQL relation can serve
@@ -8560,6 +8579,8 @@ export interface MarketingAnalyticsRecommendationsSource {
     performanceMaxSearchTermTable?: string
     /** Google Search Console table with one row per query, or per query and page. */
     queryTable?: string
+    /** Google Search Console table with one row per query and page, used to find the page that ranks for a search. */
+    queryPageTable?: string
     /** Google Search Console sites table, used to infer the brand name. */
     sitesTable?: string
 }
@@ -8589,6 +8610,16 @@ export type MarketingAnalyticsRecommendationImpactDirection = 'save' | 'gain' | 
 
 export type MarketingAnalyticsRecommendationImpactType = 'measured' | 'estimated'
 
+export interface MarketingAnalyticsRecommendationStep {
+    text: string
+    /** Text to paste into Google Ads at this step, such as a campaign name or keywords in match type syntax, one per line. */
+    copyValue?: string | null
+    /** Google Ads page for this step. It opens the section for the whole account, because links cannot filter to one campaign. */
+    url?: string | null
+    /** The words in `text` that link to `url`, usually the section name. */
+    linkText?: string | null
+}
+
 export interface MarketingAnalyticsRecommendation {
     rule: MarketingAnalyticsRecommendationRule
     level: MarketingAnalyticsRecommendationLevel
@@ -8603,6 +8634,8 @@ export interface MarketingAnalyticsRecommendation {
     impactDirection: MarketingAnalyticsRecommendationImpactDirection
     impactType: MarketingAnalyticsRecommendationImpactType
     currency?: string | null
+    /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
+    steps?: MarketingAnalyticsRecommendationStep[]
 }
 
 export interface MarketingAnalyticsRecommendationsQueryResponse extends AnalyticsQueryResponseBase {

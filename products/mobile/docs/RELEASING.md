@@ -96,6 +96,18 @@ Version `1.6.0` follows `native-150` through the `native-160` native release req
 It includes full-screen chats with Back, New chat, Copy link to chat and Archive chat controls, readable insight-table numbers with horizontal scrolling, and safer release retries.
 It targets TestFlight and Google Play internal testing and establishes a new runtime for compatible OTA updates.
 
+Version `1.8.0` requests a new native release through `native-180`, following the last completed release, `native-160`.
+The earlier report-fix OTA and `native-170` requests remain historical because neither created a release receipt.
+This release uses the updated hosted workflow and includes the report chart, Android verdict scrolling and inbox cache fixes already on `master`.
+It submits to TestFlight and Google Play internal testing. Add the submitted builds to the existing external testing tracks separately.
+Publish an OTA for the `1.8.0` runtime only after the native release receipt completes.
+
+Version `1.9.0` requests both native builds through `native-190`, following the last completed release, `native-180`.
+The `ota-180-20261102` request failed before claiming a release and remains historical.
+This release includes the connection recovery, offline cache, chat navigation, regional status, iPhone Duo layout and Android notification startup changes already on `master`.
+Native configuration and dependency changes require new binaries and a new runtime.
+It submits to TestFlight and Google Play internal testing; public-store promotion remains manual after testing.
+
 The native receipt records the certificate fingerprint. An OTA request must match it as well as the native fingerprints; a receipt without a certificate fingerprint cannot authorize an OTA.
 Rotate the key and certificate together, retain the old material securely for older runtimes, and raise the app version in a new native release before publishing updates with the new key.
 

@@ -34,6 +34,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformOwnershipHandover,
     SourceKind,
     StoredAlertDestination,
+    VerdictChange,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
 from products.alerts_platform.backend.logic import (
@@ -43,6 +44,7 @@ from products.alerts_platform.backend.logic import (
     platform_lifecycle,
     platform_reads,
     platform_writes,
+    verdict_changes,
 )
 
 
@@ -82,6 +84,48 @@ def record_hold_delivery_started(address: HeldDeliveryAddress, *, now: datetime)
 def reschedule_hold(address: HeldDeliveryAddress, *, release_after: datetime) -> bool:
     """Moves an unreleased hold's safety-net deadline. Returns False when nothing was held."""
     return delivery_holds.reschedule_hold(address, release_after=release_after)
+
+
+def source_suppressed_holds_by_legacy_id(
+    *, team_id: int, legacy_configuration_id: UUID, evaluation_keys: Collection[str]
+) -> frozenset[str]:
+    """The named evaluations of an alert the platform owns whose held delivery its source released
+    with a suppress. A suppress by the safety net, for a configuration turned off, is left out."""
+    return delivery_holds.source_suppressed_holds_by_legacy_id(team_id, legacy_configuration_id, evaluation_keys)
+
+
+def record_verdict_change(change: VerdictChange, *, now: datetime) -> AlertDeliveryRequest | None:
+    """Records one follow-up about a firing that already went out, and returns the delivery to start
+    with `start_deliveries`, or None when there is nothing to send.
+
+    Writes only the follow-up's history row, so it leaves state, schedule and holds alone. A second
+    call for the same firing starts the same delivery, whose id and threads send it once. Raises
+    `VerdictChangeNotRecorded` when the row could not be written, which a retry can recover.
+    """
+    return verdict_changes.record_verdict_change(change, now=now)
+
+
+def delivery_held_back(address: HeldDeliveryAddress) -> bool:
+    """Whether an evaluation's delivery is held and not released with a send, so it has not gone out."""
+    return delivery_holds.blocks_delivery(address.team_id, address.configuration_id, address.evaluation_key)
+
+
+def record_verdict_changed(
+    address: HeldDeliveryAddress, *, episode_started_at: datetime | None, now: datetime
+) -> AlertDeliveryRequest | None:
+    """Announces that a source's later verdict contradicts the one a delivered firing carried, in
+    that firing's thread. Returns the request the caller starts, or None when nothing is to be sent.
+
+    Records nothing and returns None until the source can word a follow-up, which
+    `record_verdict_change` then records and delivers.
+    """
+    return None
+
+
+def hold_released_by(address: HeldDeliveryAddress) -> HoldReleasedBy | None:
+    """Who released an evaluation's held delivery, so a source can word the message that the release sent.
+    None when the evaluation was never held or is still held."""
+    return delivery_holds.hold_released_by(address)
 
 
 def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
@@ -311,8 +355,12 @@ def update_owned_copy(
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
     snooze_until: datetime | None = None,
     snooze_changed: bool = False,
+    cadence: PlatformAlertUpsert | None = None,
+    rescheduled: bool = False,
 ) -> None:
-    """Applies an edit a source made to its own row onto the copy the platform owns.
+    """Applies an edit a source made to its own row onto the copy the platform owns. When `cadence`
+    changes the copy's cadence, or `rescheduled` says the source moved its own due time, the copy is
+    next due at the cadence's `next_check_at`.
 
     Raises `InvalidPlatformAlertEdit` for an edit the source kind's schema rejects.
     """
@@ -322,6 +370,8 @@ def update_owned_copy(
         change=change,
         snooze_until=snooze_until,
         snooze_changed=snooze_changed,
+        cadence=cadence,
+        rescheduled=rescheduled,
     )
 
 

@@ -14,8 +14,13 @@ from rest_framework import status
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.models import Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 
-from products.data_modeling.backend.logic.node_frequency import set_declared_target
+from products.data_modeling.backend.logic.node_frequency import (
+    get_declared_pin,
+    get_declared_target,
+    set_declared_target,
+)
 from products.data_modeling.backend.logic.node_materialization import start_node_materialization
 from products.data_modeling.backend.logic.node_suspension import (
     mark_node_suspended,
@@ -750,6 +755,135 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(len(lineage["edges"]), 2 if flag_enabled else 1)
         self.assertEqual(detail_response.status_code, status.HTTP_200_OK if flag_enabled else status.HTTP_404_NOT_FOUND)
 
+    def _node_url(self, node: Node) -> str:
+        return f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/"
+
+    def _give_the_view_a_consumer(self, consumer_target: timedelta, *, reads_the_table_too: bool = False) -> Node:
+        self.view_node.type = NodeType.MAT_VIEW
+        self.view_node.save(update_fields=["type"])
+        consumer = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            saved_query=DataWarehouseSavedQuery.objects.create(
+                name="consumer_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+            ),
+            type=NodeType.MAT_VIEW,
+        )
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.view_node, target=consumer)
+        if reads_the_table_too:
+            Edge.objects.create(team=self.team, dag=self.dag, source=self.table_node, target=consumer)
+        set_declared_target(consumer, consumer_target)
+        return consumer
+
+    def _patch_cadence(self, node: Node, payload: dict):
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            return self.client.patch(self._node_url(node), data=payload, format="json")
+
+    def test_a_pinned_view_keeps_a_cadence_slower_than_its_consumer_until_unpinned(self):
+        self._give_the_view_a_consumer(timedelta(hours=6), reads_the_table_too=True)
+
+        bounds = self.client.get(f"{self._node_url(self.view_node)}frequency_bounds/").json()
+        options = {option["cadence"]: option for option in bounds["options"]}
+        self.assertFalse(bounds["pinned"])
+        self.assertEqual([view["name"] for view in options["24hour"]["delays_if_pinned"]], ["consumer_view"])
+        self.assertEqual(options["6hour"]["delays_if_pinned"], [])
+        # Unpinned, the consumer's 6h demand wins, so the preview of unpinning a daily view is 6h
+        self.assertEqual((options["24hour"]["unpinned_cadence"], options["6hour"]["unpinned_cadence"]), ("6hour",) * 2)
+
+        # Without the pin the consumer's 6h demand refuses a daily cadence, so both have to land together.
+        self.assertEqual(self._patch_cadence(self.view_node, {"sync_frequency": "24hour"}).status_code, 400)
+        pinned = self._patch_cadence(self.view_node, {"sync_frequency": "24hour", "pinned": True})
+        self.assertEqual(pinned.status_code, 200, pinned.json())
+        self.assertEqual((pinned.json()["sync_interval"], pinned.json()["pinned"]), ("24hour", True))
+        self.view_node.refresh_from_db()
+        self.assertEqual(
+            (get_declared_target(self.view_node), get_declared_pin(self.view_node)), (timedelta(days=1), True)
+        )
+        self.assertTrue(self.client.get(f"{self._node_url(self.view_node)}frequency_bounds/").json()["pinned"])
+        log = ActivityLog.objects.get(scope="DataWarehouseSavedQuery", item_id=str(self.saved_query.id))
+        assert log.detail is not None
+        changes = {change["field"]: (change["before"], change["after"]) for change in log.detail["changes"]}
+        self.assertEqual(
+            changes, {"sync_frequency_interval": (None, "1 day, 0:00:00"), "sync_frequency_pinned": (False, True)}
+        )
+
+        unpinned = self._patch_cadence(self.view_node, {"pinned": False})
+        self.assertEqual(unpinned.status_code, 200, unpinned.json())
+        self.assertFalse(unpinned.json()["pinned"])
+        self.view_node.refresh_from_db()
+        self.assertEqual(
+            (get_declared_target(self.view_node), get_declared_pin(self.view_node)), (timedelta(days=1), False)
+        )
+
+    def test_a_cadence_write_clears_the_legacy_saved_query_interval(self):
+        DataWarehouseSavedQuery.objects.filter(pk=self.saved_query.pk).update(
+            sync_frequency_interval=timedelta(hours=12)
+        )
+        set_declared_target(self.view_node, timedelta(hours=6))
+
+        response = self._patch_cadence(self.view_node, {"sync_frequency": "never"})
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertIsNone(response.json()["sync_interval"])
+        self.saved_query.refresh_from_db()
+        self.assertIsNone(self.saved_query.sync_frequency_interval)
+
+    @parameterized.expand(
+        [
+            ("consumer_reads_only_this_view", False, {"6hour": None, "24hour": "consumer_view"}),
+            ("consumer_has_a_fresher_input", True, {"6hour": None, "24hour": None}),
+        ]
+    )
+    def test_a_pin_that_strands_a_downstream_view_is_marked_and_refused(
+        self, _name, reads_the_table_too, expected_blockers
+    ):
+        self._give_the_view_a_consumer(timedelta(hours=6), reads_the_table_too=reads_the_table_too)
+
+        bounds = self.client.get(f"{self._node_url(self.view_node)}frequency_bounds/").json()
+        blockers = {
+            option["cadence"]: option["pin_blocked_by"] and option["pin_blocked_by"]["name"]
+            for option in bounds["options"]
+            if option["cadence"] in expected_blockers
+        }
+        self.assertEqual(blockers, expected_blockers)
+
+        response = self._patch_cadence(self.view_node, {"sync_frequency": "24hour", "pinned": True})
+        if expected_blockers["24hour"] is None:
+            self.assertEqual(response.status_code, 200, response.json())
+            return
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertEqual(
+            response.json()["detail"],
+            "Can't pin this view to 1 day: downstream view consumer_view refreshes every 6 hours and has no "
+            "fresher input than this view. Slow down consumer_view first, or pin a faster cadence.",
+        )
+        self.view_node.refresh_from_db()
+        self.assertEqual((get_declared_target(self.view_node), get_declared_pin(self.view_node)), (None, False))
+
+    @parameterized.expand(
+        [
+            ("no_cadence_yet", {"pinned": True}),
+            ("cadence_cleared_in_the_same_write", {"sync_frequency": "never", "pinned": True}),
+        ]
+    )
+    def test_pinning_needs_a_cadence(self, _name, payload):
+        response = self._patch_cadence(self.view_node, payload)
+
+        self.assertEqual(response.status_code, 400, response.json())
+        self.view_node.refresh_from_db()
+        self.assertFalse(get_declared_pin(self.view_node))
+
+    @parameterized.expand(["table", "managed_view"])
+    def test_cadence_is_only_writable_on_views_the_team_owns(self, kind):
+        node = self.table_node if kind == "table" else self._create_managed_node()
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self._patch_cadence(node, {"sync_frequency": "24hour", "pinned": True})
+
+        self.assertEqual(response.status_code, 400, response.json())
+        node.refresh_from_db()
+        self.assertEqual((get_declared_target(node), get_declared_pin(node)), (None, False))
+
     def test_cannot_patch_node_of_managed_view(self):
         node = self._create_managed_node()
 
@@ -1022,6 +1156,52 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
 
     @parameterized.expand(
         [
+            ("viewer", status.HTTP_403_FORBIDDEN),
+            ("editor", status.HTTP_200_OK),
+        ]
+    )
+    def test_setting_a_cadence_requires_warehouse_write_access(self, access_level, expected_status):
+        user = self.viewer_user if access_level == "viewer" else self.editor_user
+        self._create_access_control(user, access_level=access_level)
+        self.client.force_login(user)
+
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            response = self.client.patch(
+                f"{self._list_url()}{self.node.id}/", data={"sync_frequency": "24hour", "pinned": True}, format="json"
+            )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.node.refresh_from_db()
+        self.assertEqual(get_declared_pin(self.node), expected_status == status.HTTP_200_OK)
+
+    def test_pin_bounds_do_not_name_a_downstream_view_the_member_is_denied(self):
+        consumer = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            saved_query=DataWarehouseSavedQuery.objects.create(
+                name="hidden_consumer", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+            ),
+            type=NodeType.MAT_VIEW,
+        )
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.node, target=consumer)
+        set_declared_target(consumer, timedelta(hours=6))
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="warehouse_view", resource_id=str(consumer.saved_query_id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+
+        response = self.client.get(f"{self._list_url()}{self.node.id}/frequency_bounds/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        options = {option["cadence"]: option for option in response.json()["options"]}
+        self.assertEqual(options["24hour"]["pin_blocked_by"], {"id": None, "name": None})
+        self.assertEqual(options["24hour"]["delays_if_pinned"], [])
+        self.assertNotIn("hidden_consumer", response.content.decode())
+        self.assertNotIn(str(consumer.id), response.content.decode())
+
+    @parameterized.expand(
+        [
             ("node_viewer", "node", "viewer", status.HTTP_403_FORBIDDEN),
             ("node_editor", "node", "editor", status.HTTP_204_NO_CONTENT),
             ("edge_viewer", "edge", "viewer", status.HTTP_403_FORBIDDEN),
@@ -1046,6 +1226,40 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
         self.assertEqual(
             type(target).objects.filter(pk=target.pk).exists(), expected_status == status.HTTP_403_FORBIDDEN
         )
+
+    @parameterized.expand(
+        [("update_node",), ("update_edge",), ("delete_node",), ("delete_edge",), ("resume",), ("materialize",)]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_write_actions_refuse_a_member_denied_the_view(self, action, mock_sync_connect):
+        source = Node.objects.create(team=self.team, dag=self.dag, name="events", type=NodeType.TABLE)
+        edge = Edge.objects.create(team=self.team, dag=self.dag, source=source, target=self.node)
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="warehouse_view", resource_id=str(self.node.saved_query_id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+        node_url = f"{self._list_url()}{self.node.id}/"
+        edge_url = f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/"
+
+        if action == "update_node":
+            response = self.client.patch(node_url, {"description": "changed"}, format="json")
+        elif action == "update_edge":
+            response = self.client.patch(edge_url, {"properties": {"changed": True}}, format="json")
+        elif action == "delete_node":
+            response = self.client.delete(node_url)
+        elif action == "delete_edge":
+            response = self.client.delete(edge_url)
+        else:
+            response = self.client.post(f"{node_url}{action}/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        edge.refresh_from_db()
+        self.assertEqual(edge.properties, {})
+        self.node.refresh_from_db()
+        self.assertNotEqual(self.node.description, "changed")
+        self.assertNotEqual(suspension_state(self.node), {})
+        mock_sync_connect.assert_not_called()
 
     @parameterized.expand(
         [
