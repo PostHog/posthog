@@ -33061,6 +33061,8 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
       readonly suspended: DataWarehouseSavedQuerySuspended;
+      /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+      readonly is_raw_managed_trino: boolean;
     }
 
     /**
@@ -80085,6 +80087,8 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
       /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
       readonly suspended?: PatchedDataWarehouseSavedQuerySuspended;
+      /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+      readonly is_raw_managed_trino?: boolean;
     }
 
     /**

@@ -198,6 +198,8 @@ class TestSavedQuery(APIBaseTest):
                 format="json",
             )
         self.assertEqual(response.status_code, 201, response.content)
+        # The sidebar adds the created view from this response, before any list reload.
+        self.assertTrue(response.json()["is_raw_managed_trino"])
         view = DataWarehouseSavedQuery.objects.get(id=response.json()["id"])
         assert view.query is not None and view.columns is not None
         self.assertEqual(view.query["query"], trino_sql)
