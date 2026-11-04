@@ -126,11 +126,12 @@ def advance_rollout_plan(plan_id: UUID, *, team: Team, user: User, summary: str)
             raise Conflict(f"The next step of this rollout plan cannot run before {plan.next_check_at.isoformat()}.")
         step = plan.steps_applied
         plan.last_summary = summary
-        plan.next_check_at = now + timedelta(hours=plan.soak_hours)
         if step >= len(plan.percentages):
             plan.status = FeatureFlagRolloutPlan.Status.COMPLETED
+            plan.next_check_at = None
         else:
             plan.steps_applied = step + 1
+            plan.next_check_at = now + timedelta(hours=plan.soak_hours)
         plan.save(update_fields=["last_summary", "next_check_at", "status", "steps_applied", "updated_at"])
 
     if plan.status == FeatureFlagRolloutPlan.Status.COMPLETED:
@@ -160,7 +161,7 @@ def stop_rollout_plan(
     plan: FeatureFlagRolloutPlan, *, reason: str, stopped_by: User | None, acting_user: User | None
 ) -> FeatureFlagRolloutPlan:
     updated = FeatureFlagRolloutPlan.objects.filter(pk=plan.pk, status=FeatureFlagRolloutPlan.Status.ACTIVE).update(
-        status=FeatureFlagRolloutPlan.Status.STOPPED, stop_reason=reason, updated_at=timezone.now()
+        status=FeatureFlagRolloutPlan.Status.STOPPED, stop_reason=reason, next_check_at=None, updated_at=timezone.now()
     )
     plan.refresh_from_db()
     if not updated:

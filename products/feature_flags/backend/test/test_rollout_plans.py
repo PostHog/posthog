@@ -285,6 +285,7 @@ class TestFeatureFlagRolloutPlanAPI(APIBaseTest):
         plan.refresh_from_db()
         assert seen == [5, 50, 100, 100]
         assert plan.status == FeatureFlagRolloutPlan.Status.COMPLETED
+        assert plan.next_check_at is None
         assert run_task.call_count == 3
         assert "finished" in notify.call_args.args[0].title
 
@@ -353,6 +354,7 @@ class TestFeatureFlagRolloutPlanAPI(APIBaseTest):
         response = self.client.post(f"{self.url}{plan.id}/fail/", {"reason": "Errors reached 6%."}, format="json")
 
         assert response.json()["status"] == FeatureFlagRolloutPlan.Status.STOPPED
+        assert response.json()["next_check_at"] is None
         assert self._rollout() == 1
         cancel.assert_not_called()
         assert "Errors reached 6%." in notify.call_args.args[0].body
