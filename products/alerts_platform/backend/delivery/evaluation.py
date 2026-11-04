@@ -611,7 +611,7 @@ def _platform_subscribers(event_id: str, platform: _PlatformDestinations) -> lis
         _SubscribedDestination(id=str(destination.id), data=destination.data, receives_emitted_events=False)
         for destination in platform.destinations
         if (destination.data["type"] in INCIDENT_DESTINATION_TYPES) == incident
-        and (incident or kind in destination.event_kinds)
+        and (incident or kind.delivered_as in destination.event_kinds)
     ]
     # The source's recipients read messages. An incident edge is for an incident manager only.
     if platform.recipients and not incident:
