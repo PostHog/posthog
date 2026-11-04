@@ -52,9 +52,8 @@
                     "change": "added",
                     "seam": [
                         {
-                            "name": "CDP_EMAIL_MAX_PRIORITY=0",
-                            "change": "added",
-                            "q": "Q5"
+                            "name": "CDP_EMAIL_WORKER_MAX_PRIORITY=0",
+                            "change": "added"
                         }
                     ],
                     "chips": [
@@ -63,13 +62,11 @@
                         },
                         {
                             "id": "ff-size",
-                            "text": "small batch, minPods 2",
-                            "q": "Q7"
+                            "text": "small batch, minPods 2"
                         },
                         {
                             "id": "ff-steps",
                             "text": "runs workflow steps after the send",
-                            "q": "Q6",
                             "wide": true
                         }
                     ]

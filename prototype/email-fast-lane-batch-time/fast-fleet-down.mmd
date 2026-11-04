@@ -1,0 +1,12 @@
+sequenceDiagram
+    autonumber
+    participant DB as cyclotron_jobs
+    participant Fast as Fast email fleet (down)
+    participant Main as Main email fleet
+    participant Jan as Janitor
+    participant Alert as Alerting
+    Fast->>DB: rows it held stay running, heartbeat stops
+    Main->>DB: next poll takes priority 0 rows first (today's behavior)
+    Jan->>DB: after the stall timeout, held rows return to available
+    Main->>DB: dequeue them (a send already handed to SES can repeat)
+    Alert-->>Alert: no available fast pods for 5 min, page

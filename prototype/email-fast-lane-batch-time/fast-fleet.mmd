@@ -1,0 +1,16 @@
+sequenceDiagram
+    autonumber
+    participant API as Send API / hogflow
+    participant DB as cyclotron_jobs
+    participant Main as Main email fleet
+    participant Fast as Fast email fleet
+    participant Bucket as SES bucket
+    participant Send as executeSendEmail
+    Main->>DB: count, claim, dequeue a large batch (priority first)
+    Main->>Send: processBatch(bulk rows), awaits the slowest row
+    API->>DB: insert priority 0 row
+    Fast->>DB: countWork(priority <= 0, about 20)
+    Fast->>Bucket: claimBatchLimit(visible), same hook as the main fleet
+    Fast->>DB: fairDequeue(priority <= 0), SKIP LOCKED
+    Fast->>Send: processBatch(fast rows) on its own event loop
+    Send-->>API: SES handoff, then the workflow's next steps until a delay
