@@ -1,6 +1,8 @@
 import { RenderResult, act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { combineUrl, router } from 'kea-router'
 
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
@@ -177,6 +179,31 @@ describe('TraceDrawerHost', () => {
             expect(host.values.mode).toBe(mode)
         }
     )
+
+    it('steps with n and p, but not while typing or with a modal open', async () => {
+        useTraceMocks(answerTrace('a'))
+        setUp(drawerUrl(ROW_A))
+        const view = renderHost([ROW_A, ROW_B])
+        await view.findAllByText('answer-a')
+
+        fireEvent.keyDown(attr(view.container, 'trace-view-search-input'), { key: 'n' })
+        expect(router.values.searchParams.trace).toBe('a')
+
+        const modal = render(
+            <LemonModal isOpen onClose={() => {}} title="Edit dataset item">
+                <LemonButton>Save</LemonButton>
+            </LemonModal>
+        )
+        fireEvent.keyDown(modal.getByText('Save'), { key: 'n' })
+        modal.unmount()
+        expect(router.values.searchParams.trace).toBe('a')
+
+        fireEvent.keyDown(document.body, { key: 'n' })
+        await waitFor(() => expect(router.values.searchParams.trace).toBe('b'))
+
+        fireEvent.keyDown(document.body, { key: 'p' })
+        await waitFor(() => expect(router.values.searchParams.trace).toBe('a'))
+    })
 
     it('reads no node when it closes on a step other than the default', async () => {
         useTraceMocks(answerTrace('a'))

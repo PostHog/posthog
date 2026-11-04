@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
@@ -15,6 +16,7 @@ import type {
     WorkflowEmailSendingRatesApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
+import { EmailMetricsIncidentBanner } from '../../EmailMetricsIncidentBanner'
 import { RATE_LEVEL_TAG, RATE_THRESHOLDS, classifyRate, minimumVolumeToClassify } from './emailRateLevels'
 import { workflowsReputationLogic } from './workflowsReputationLogic'
 
@@ -467,6 +469,8 @@ export function WorkflowsReputation(): JSX.Element {
                 Sending health is shown for transparency: high bounce or spam complaint rates hurt email deliverability.
                 We judge and enforce reputation per project.
             </LemonBanner>
+            {/* Rates cover a rolling 30 days that ends now. */}
+            <EmailMetricsIncidentBanner dateFrom={dayjs().subtract(30, 'day')} />
             {sendingAllowance?.enforced && <SendingAllowanceCard allowance={sendingAllowance} />}
             {teamReputation || awsReputation || ispSendingHealth.length > 0 || ispWithheldDomains.length > 0 ? (
                 <TeamRatesCard

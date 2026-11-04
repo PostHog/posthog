@@ -19,7 +19,11 @@ from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
 from products.messaging.backend.facade.transactional_email import EmailDeliveryStatus, EmailStatus, get_email_status
-from products.messaging.backend.presentation.views.message_templates import require_transactional_email_api
+from products.messaging.backend.presentation.views.message_templates import (
+    TRANSACTIONAL_EMAIL_STATUS_SCOPE,
+    require_transactional_email_api,
+    transactional_email_authorized_by,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -74,7 +78,7 @@ class TransactionalEmailReadTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThr
 
 class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
-    scope_object_read_actions = ["retrieve"]
+    required_scopes = [TRANSACTIONAL_EMAIL_STATUS_SCOPE]
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     psak_allowed_actions = ["retrieve"]
@@ -104,7 +108,8 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary="Get a transactional email's status",
         description=(
             "Get the status of one transactional email by the `message_id` that the send returned, for 30 days after "
-            "the send. Needs a project secret API key with the `hog_flow:read` scope."
+            "the send. Needs a project secret API key with the `transactional_email:read` scope. A key with "
+            "`hog_flow:read` also works, but that scope reaches the rest of Workflows too."
         ),
     )
     def retrieve(self, request: Request, *args: Any, pk: str | None = None, **kwargs: Any) -> Response:
@@ -140,6 +145,8 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "team_id": self.team_id,
                     "outcome": "not_found" if email_status is None else "found",
                     "status": email_status.status if email_status else None,
+                    "auth_method": "project_secret_api_key",
+                    "authorized_by": transactional_email_authorized_by(request, TRANSACTIONAL_EMAIL_STATUS_SCOPE),
                 },
                 groups=groups(self.organization, self.team),
             )

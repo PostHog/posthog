@@ -7,7 +7,7 @@ import { StepImportNotesBadge } from '../../../import/StepImportNotesBadge'
 import { canMoveStep } from '../../hogFlowEditorLogic'
 import type { HogFlow, HogFlowAction } from '../../types'
 import { tileCanvasLogic } from './tileCanvasLogic'
-import { hasStepMenu } from './tileCanvasModel'
+import { hasStepMenu, STEP_DRAG_DATA_TYPE } from './tileCanvasModel'
 import { TileCaption } from './TileCaption'
 import { TileFace } from './TileFace'
 import { HOVER_CARD_CLOSE_MS, TileHoverCard } from './TileHoverCard'
@@ -76,8 +76,7 @@ export function TileStepNode({
                 draggable
                     ? (event) => {
                           event.dataTransfer.effectAllowed = 'move'
-                          // Firefox starts a drag only when it carries data.
-                          event.dataTransfer.setData('text/plain', action.id)
+                          event.dataTransfer.setData(STEP_DRAG_DATA_TYPE, action.id)
                           startDraggingStep(action.id)
                       }
                     : undefined

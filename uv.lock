@@ -1953,16 +1953,16 @@ wheels = [
 
 [[package]]
 name = "django"
-version = "6.1.2"
+version = "6.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asgiref" },
     { name = "sqlparse" },
     { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/89/24/20d187a22ac821288b53c53b8f696019dcb0c7b4f973f052ade19392c74d/django-6.1.2.tar.gz", hash = "sha256:a1e92451ccb8b514e91bbb3b6d186d20b4030558f116b5d9de6535455ff210b7", size = 11251425, upload-time = "2026-10-06T12:53:29.622Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/55/79/49a609ea76ec51404b482932e33f1e6858946b920232c11b11a25bea3032/django-6.1.3.tar.gz", hash = "sha256:b5d2d9e35295065d13b1927b3f19a59bd119f737aa6299def14ccca1ae3c8c0d", size = 11306257, upload-time = "2026-11-03T15:21:26.142Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c9/83/90ff2dbfac7b519ed77620bdbb827cd2d1a83faf00d076bf95056428bce7/django-6.1.2-py3-none-any.whl", hash = "sha256:141efee6ec64d1db6db90683bf734c550102450f444fb099063b0be1bd27d991", size = 8420684, upload-time = "2026-10-06T12:53:17.381Z" },
+    { url = "https://files.pythonhosted.org/packages/77/f2/adbe0352c6673f7b608724be5f69962c80ba1d06f8ed60fa4bfbec258b08/django-6.1.3-py3-none-any.whl", hash = "sha256:a0530e3fdac55d34ccc5893c36f6c57d7a7083064f3d414537e51473648b3290", size = 8424610, upload-time = "2026-11-03T15:21:19.64Z" },
 ]
 
 [[package]]
@@ -6232,7 +6232,7 @@ requires-dist = [
     { name = "deltalite", specifier = "==0.1.15" },
     { name = "disposable-email-domains", specifier = "~=0.0.140" },
     { name = "dj-database-url", specifier = "~=3.1.2" },
-    { name = "django", specifier = "~=6.1.0" },
+    { name = "django", specifier = "~=6.1.3" },
     { name = "django-admin-inline-paginator", specifier = "===0.4.0" },
     { name = "django-axes", extras = ["ipware"], specifier = "==8.3.1" },
     { name = "django-cors-headers", specifier = "~=4.9.0" },
@@ -6326,7 +6326,7 @@ requires-dist = [
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-hogland", specifier = "==0.4.1" },
-    { name = "posthoganalytics", specifier = "==7.82.2" },
+    { name = "posthoganalytics", specifier = "==7.83.1" },
     { name = "protobuf", specifier = "~=6.31.1" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.10" },
     { name = "psycopg2-binary", specifier = "==2.9.11" },
@@ -6494,7 +6494,7 @@ wheels = [
 
 [[package]]
 name = "posthoganalytics"
-version = "7.82.2"
+version = "7.83.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6502,9 +6502,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ac/76/55e784ed90ff069f1aa7de6f64e9e19c00de6c9b13b9f63377760ab970e8/posthoganalytics-7.82.2.tar.gz", hash = "sha256:179bc6e7c77e858e1b00bb59b908b63da605503acc00388fe1700a004ce287eb", size = 883123, upload-time = "2026-11-02T20:38:30.04Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b2/13/5a3623637c811d14e58917e54f3adb302ec1c8e8ce43aa8141cc0108eaab/posthoganalytics-7.83.1.tar.gz", hash = "sha256:e65077a970805b52dd1f6370dce5e603dcdbf225be4a86ffcda29a30336753bf", size = 899820, upload-time = "2026-11-03T14:00:52.19Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a7/21/c383da3a9cfd37c08daee48ccd792a3a730355effe098f1773488f023ab9/posthoganalytics-7.82.2-py3-none-any.whl", hash = "sha256:baa9e2585b183a0197390700cafc06aa8cc41e91acd64a94f012a0baaf25e42c", size = 1030024, upload-time = "2026-11-02T20:38:28.044Z" },
+    { url = "https://files.pythonhosted.org/packages/65/95/b2981c3ad48cef2443b3141bcb79983f3d725c9d5990f3a18ef6bc0cd310/posthoganalytics-7.83.1-py3-none-any.whl", hash = "sha256:ee05e1c270ab4a868f3e62ae9e82170a15cf2e642c3c569f0acbe173c6bd6667", size = 1048403, upload-time = "2026-11-03T14:00:50.017Z" },
 ]
 
 [[package]]

@@ -141,6 +141,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadClusters: 'products.ai_observability.frontend.redesign.trace.traceClustersLogic', // The trace view hides the clusters chip
     loadTraceFeedback: 'products.ai_observability.frontend.redesign.trace.traceFeedbackLogic', // The trace view's Feedback mode shows the error
     loadSearchResults: 'products.ai_observability.frontend.redesign.trace.traceSearchLogic', // The trace view's search box shows the error
+    loadReviewStatus: 'products.ai_observability.frontend.redesign.trace.traceReviewLogic', // The trace view keeps the last review state and disables the review actions
     // The trace view's Summary mode shows the error
     loadSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     requestSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
@@ -181,6 +182,8 @@ const NOT_FOUND_SELF_HANDLED = new Set([
     'loadOfflineItemResults',
     'loadOfflineSelectedResult',
     'loadOfflineResultPayload',
+    'loadDatasetItemDetails', // The dataset item modal renders a deleted, stale, or foreign item as an inline error
+    'loadDatasetItemVersions',
 ])
 
 /*
