@@ -56,6 +56,7 @@ import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.servic
 import {
     AcceptedSendRequestSchema,
     CODE_SEND_TOKEN_CLAIMS,
+    TEMPLATE_SEND_TOKEN_CLAIMS,
     TransactionalEmailOutcome,
     TransactionalEmailRequest,
     TransactionalEmailRequestSchema,
@@ -397,7 +398,7 @@ export class CdpApi {
         router.post('/api/projects/:team_id/workflow_steps/resume', asyncHandler(this.postWorkflowStepResume))
         router.post(
             '/api/projects/:team_id/hog_flows/:id/transactional_email',
-            asyncHandler(this.postTransactionalEmail(TransactionalEmailRequestSchema))
+            asyncHandler(this.postTransactionalEmail(TransactionalEmailRequestSchema, TEMPLATE_SEND_TOKEN_CLAIMS))
         )
         router.post(
             '/api/projects/:team_id/hog_flows/:id/transactional_email/send',
@@ -1178,7 +1179,7 @@ export class CdpApi {
     // Auth: a per-call JWT minted by Django on its own audience and key, pinned to the team and the workflow,
     // never the fleet-wide internal secret.
     private postTransactionalEmail =
-        (schema: z.ZodType<TransactionalEmailRequest, unknown>, tokenClaims?: Record<string, string>) =>
+        (schema: z.ZodType<TransactionalEmailRequest, unknown>, tokenClaims: Record<string, string | undefined>) =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             const stages = new TransactionalEmailStageTimer()
             const reply = (outcome: TransactionalEmailOutcome, status: number, body: Record<string, unknown>) => {
@@ -1393,7 +1394,7 @@ export class CdpApi {
         req: ModifiedRequest,
         res: express.Response,
         label: string,
-        extraClaims?: Record<string, string>
+        extraClaims?: Record<string, string | undefined>
     ): boolean {
         const { team_id, id } = req.params
         const authHeader = req.headers['authorization']
