@@ -157,6 +157,9 @@ export interface workflowFoldersLogicActions {
     setFolderDraftName: (name: string) => {
         name: string
     }
+    reloadBrowserIfIndexLost: () => {
+        value: true
+    }
     setFolderJumpSearch: (search: string) => {
         search: string
     }
@@ -330,6 +333,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
     }),
     actions({
         setFolderJumpSearch: (search: string) => ({ search }),
+        reloadBrowserIfIndexLost: true,
         setSelectedFiles: (ids: string[]) => ({ ids }),
         toggleSelectedFile: (id: string) => ({ id }),
         clearSelectedFiles: true,
@@ -399,7 +403,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         ],
         movingWorkflowId: [null as string | null, { setMovingWorkflowId: (_, { id }) => id }],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         browserReady: [
             false,
             {
@@ -410,6 +414,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                     const projectId = String(values.currentProjectId)
                     await fileSystemUnfiledRetrieve(projectId)
                     breakpoint()
+                    const entries: FileSystemEntry[] = []
                     for (const search of [
                         'type:folder',
                         'type:hog_flow',
@@ -419,27 +424,43 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         for (let offset = 0; ; offset += 500) {
                             const page = await fileSystemList(projectId, { search, limit: 500, offset })
                             breakpoint()
-                            const entries: FileSystemEntry[] = page.results.map((entry) => ({
-                                id: entry.id,
-                                path: entry.path,
-                                type: entry.type,
-                                ref: entry.ref ?? undefined,
-                                href: entry.href ?? undefined,
-                                shortcut: entry.shortcut ?? false,
-                                created_at: entry.created_at,
-                                user_access_level: entry.user_access_level,
-                            }))
-                            projectTreeDataLogic.actions.addLoadedResults({
-                                searchTerm: '',
-                                results: entries,
-                                hasMore: false,
-                                lastCount: entries.length,
-                            })
+                            entries.push(
+                                ...page.results.map((entry) => ({
+                                    id: entry.id,
+                                    path: entry.path,
+                                    type: entry.type,
+                                    ref: entry.ref ?? undefined,
+                                    href: entry.href ?? undefined,
+                                    shortcut: entry.shortcut ?? false,
+                                    created_at: entry.created_at,
+                                    user_access_level: entry.user_access_level,
+                                }))
+                            )
                             if (!page.next || page.results.length === 0) {
                                 break
                             }
                         }
                     }
+                    // A full load is the truth for workflow files, so drop cached copies that moved or went away elsewhere.
+                    const freshPaths = new Map(entries.map((entry) => [entry.id, entry.path]))
+                    for (const cached of Object.values(projectTreeDataLogic.values.folders).flat()) {
+                        if (
+                            WORKFLOW_FILE_TYPES.includes(cached.type ?? '') &&
+                            !cached.shortcut &&
+                            freshPaths.get(cached.id) !== cached.path
+                        ) {
+                            projectTreeDataLogic.actions.deleteSavedItem(cached)
+                        }
+                    }
+                    projectTreeDataLogic.actions.addLoadedResults({
+                        searchTerm: '',
+                        results: entries,
+                        hasMore: false,
+                        lastCount: entries.length,
+                    })
+                    cache.indexedIds = entries
+                        .filter((entry) => entry.type === 'folder' || WORKFLOW_FILE_TYPES.includes(entry.type ?? ''))
+                        .map((entry) => entry.id)
                     return true
                 },
             },
@@ -788,10 +809,21 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 actions.clearSelectedFiles()
             }
         },
-        [projectTreeDataLogic.actionTypes.pruneClosedFolders]: () => {
-            if (values.projectFilesEnabled && values.browserReadyLoading) {
+        // The shared tree drops collapsed folders and replaces a folder with its first page, so reload only when that took files this view needs.
+        [projectTreeDataLogic.actionTypes.pruneClosedFolders]: () => actions.reloadBrowserIfIndexLost(),
+        [projectTreeDataLogic.actionTypes.loadFolderSuccess]: () => actions.reloadBrowserIfIndexLost(),
+        reloadBrowserIfIndexLost: () => {
+            if (!values.projectFilesEnabled) {
+                return
+            }
+            if (values.browserReadyLoading) {
                 cache.reloadBrowserAfterLoad = true
-            } else if (values.projectFilesEnabled) {
+                return
+            }
+            const present = new Set(
+                Object.values(projectTreeDataLogic.values.folders).flatMap((files) => files.map((entry) => entry.id))
+            )
+            if (((cache.indexedIds ?? []) as string[]).some((id) => !present.has(id))) {
                 actions.loadBrowser()
             }
         },

@@ -324,6 +324,58 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
     })
 
+    it('reloads the folder index only when the shared tree drops files the list needs', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        let requests = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': () => {
+                    requests += 1
+                    return [200, paginated([])]
+                },
+            },
+        })
+        const kept = Object.keys(projectTreeDataLogic.values.folders).map((folder) => `project://${folder}`)
+        projectTreeDataLogic.actions.pruneClosedFolders(kept)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(requests).toBe(0)
+
+        projectTreeDataLogic.actions.pruneClosedFolders(['project://'])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(requests).toBeGreaterThan(0)
+    })
+
+    it('moves a workflow file to the path a full reload returns', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': ({ request }) => {
+                    const type = new URL(request.url).searchParams.get('search')
+                    return [
+                        200,
+                        paginated(
+                            type === 'type:hog_flow'
+                                ? [
+                                      {
+                                          id: 'direct',
+                                          path: 'Archive/Welcome',
+                                          type: 'hog_flow',
+                                          ref: FIXTURE_WORKFLOWS[0].id,
+                                      },
+                                  ]
+                                : []
+                        ),
+                    ]
+                },
+            },
+        })
+        await expectLogic(logic, () => logic.actions.loadBrowser()).toFinishAllListeners()
+        logic.actions.openFolder('Billing')
+        expect(logic.values.folderRows.map((row) => row.id)).not.toContain(FIXTURE_WORKFLOWS[0].id)
+        logic.actions.openFolder('Archive')
+        expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
+    })
+
     it('reports a failed folder index and recovers on retry', async () => {
         await expectLogic(logic).toFinishAllListeners()
         useMocks({ get: { '/api/projects/:team_id/file_system/': () => [500, { detail: 'Unavailable' }] } })
