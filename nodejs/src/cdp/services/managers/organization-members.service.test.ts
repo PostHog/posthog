@@ -13,9 +13,16 @@ import { Hub, Team } from '~/types'
 
 import { OrganizationMembersService } from './organization-members.service'
 
+const idleClient = (): unknown => ({
+    query: () => Promise.resolve({ rows: [] }),
+    release: () => undefined,
+    on: () => undefined,
+    removeListener: () => undefined,
+})
+
 const routerFor = (select: jest.Mock): PostgresRouter =>
     ({
-        transaction: (_usage: unknown, _tag: string, run: (tx: unknown) => Promise<unknown>) => run({}),
+        connect: () => Promise.resolve(idleClient()),
         query: (_tx: unknown, sql: string) => (sql.startsWith('SET LOCAL') ? Promise.resolve({ rows: [] }) : select()),
     }) as unknown as PostgresRouter
 
@@ -115,37 +122,63 @@ describe('OrganizationMembersService', () => {
     type FakeClient = EventEmitter & { query: jest.Mock; release: jest.Mock }
 
     it.each([
-        ['the pool hands over its connection after the deadline', { connectsLate: true, beginStalls: false }],
-        ['BEGIN stalls on a connection taken in time', { connectsLate: false, beginStalls: true }],
-    ])('fails at its deadline when %s, and frees the connection', async (_case, { connectsLate, beginStalls }) => {
-        jest.useFakeTimers()
-        try {
-            const client = Object.assign(new EventEmitter(), {
-                query: jest.fn(() => (beginStalls ? new Promise(() => undefined) : Promise.resolve({ rows: [] }))),
-                release: jest.fn(),
-            }) as FakeClient
-            let handOver: () => void = () => undefined
-            const connected = connectsLate ? new Promise<void>((resolve) => (handOver = resolve)) : Promise.resolve()
-            const router = new PostgresRouter({ DATABASE_URL: 'postgres://fake', POSTGRES_CONNECTION_POOL_SIZE: 1 })
-            ;(router as any).pools = new Map([
-                [PostgresUse.COMMON_WRITE, { connect: () => connected.then(() => client) }],
-            ])
-            const stalledService = new OrganizationMembersService(router)
+        ['the pool hands over its connections after the deadline', { connectsLate: true, beginStalls: false }],
+        ['BEGIN stalls on connections taken in time', { connectsLate: false, beginStalls: true }],
+    ])(
+        'fails at its deadline when %s, frees each connection, and leaves its lookup slots to the next check',
+        async (_case, { connectsLate, beginStalls }) => {
+            jest.useFakeTimers()
+            try {
+                let healthy = false
+                const clients: FakeClient[] = []
+                const newClient = (): FakeClient => {
+                    const stalls = beginStalls && !healthy
+                    const client = Object.assign(new EventEmitter(), {
+                        query: jest.fn(() => (stalls ? new Promise(() => undefined) : Promise.resolve({ rows: [] }))),
+                        release: jest.fn(),
+                    }) as FakeClient
+                    clients.push(client)
+                    return client
+                }
+                let handOver: () => void = () => undefined
+                const connected = connectsLate
+                    ? new Promise<void>((resolve) => (handOver = resolve))
+                    : Promise.resolve()
+                const router = new PostgresRouter({ DATABASE_URL: 'postgres://fake', POSTGRES_CONNECTION_POOL_SIZE: 1 })
+                ;(router as any).pools = new Map([
+                    [
+                        PostgresUse.COMMON_WRITE,
+                        { connect: () => (healthy ? Promise.resolve() : connected).then(newClient) },
+                    ],
+                ])
+                const stalledService = new OrganizationMembersService(router)
 
-            const check = stalledService.getBlockedRecipients(team.id, [memberEmail])
-            const outcome = expect(check).rejects.toThrow('The organization member lookup timed out')
-            await jest.advanceTimersByTimeAsync(3_000)
-            await outcome
-            handOver()
-            await jest.advanceTimersByTimeAsync(0)
+                const checks = Promise.allSettled(
+                    Array.from({ length: 5 }, () =>
+                        stalledService.getBlockedRecipients(team.id, [memberEmail], { fresh: true })
+                    )
+                )
+                await jest.advanceTimersByTimeAsync(3_000)
+                expect((await checks).map((outcome) => outcome.status)).toEqual(Array(5).fill('rejected'))
+                handOver()
+                await jest.advanceTimersByTimeAsync(0)
 
-            expect(client.query.mock.calls.map(([sql]) => sql)).toEqual(connectsLate ? [] : ['BEGIN'])
-            expect(client.release).toHaveBeenCalledTimes(1)
-            expect(client.release.mock.calls[0][0] instanceof Error).toBe(!connectsLate)
-        } finally {
-            jest.useRealTimers()
+                expect(clients.map((client) => client.query.mock.calls.map(([sql]) => sql))).toEqual(
+                    Array(5).fill(connectsLate ? [] : ['BEGIN'])
+                )
+                expect(
+                    clients.map((client) => client.release.mock.calls.map(([error]) => error instanceof Error))
+                ).toEqual(Array(5).fill([!connectsLate]))
+
+                healthy = true
+                const next = stalledService.getBlockedRecipients(team.id, [memberEmail], { fresh: true })
+                await jest.advanceTimersByTimeAsync(0)
+                await expect(next).resolves.toEqual([{ address: memberEmail, unverifiedMember: false }])
+            } finally {
+                jest.useRealTimers()
+            }
         }
-    })
+    )
 
     describe('member snapshot cache', () => {
         const memberRow = (email: string): { team_id: number; email: string; is_email_verified: boolean } => ({
@@ -189,12 +222,10 @@ describe('OrganizationMembersService', () => {
                     Promise.resolve({ rows: sql.startsWith('SET LOCAL') ? [] : [memberRow('member@example.com')] })
                 )
                 const pool = {
-                    transaction: (_usage: unknown, _tag: string, run: (tx: unknown) => Promise<unknown>) =>
+                    connect: () =>
                         recovered
-                            ? run({})
-                            : new Promise((resolve, reject) =>
-                                  waitingForConnection.push(() => void run({}).then(resolve, reject))
-                              ),
+                            ? Promise.resolve(idleClient())
+                            : new Promise((resolve) => waitingForConnection.push(() => resolve(idleClient()))),
                     query,
                 } as unknown as PostgresRouter
                 const service = new OrganizationMembersService(pool)
