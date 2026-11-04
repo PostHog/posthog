@@ -114,6 +114,9 @@ export function DotMatrixCell<D extends Record<string, unknown>>({
             {content}
         </div>
     )
+    if (!tooltipContent) {
+        return cellContent
+    }
     return (
         <Tooltip
             interactive={tooltipInteractive}

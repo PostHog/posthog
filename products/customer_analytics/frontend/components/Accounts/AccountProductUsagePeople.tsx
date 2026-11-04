@@ -15,6 +15,7 @@ export function AccountProductUsagePeople({
     partial = false,
     showDetails = false,
     onInspect,
+    disableTooltip = false,
 }: {
     people: BookActivityPerson[]
     total: number
@@ -23,12 +24,24 @@ export function AccountProductUsagePeople({
     partial?: boolean
     showDetails?: boolean
     onInspect?: () => void
+    disableTooltip?: boolean
 }): JSX.Element {
     const end = dayjs(columnKey).add(1, 'week')
     if (!showDetails) {
         const names = people.map((person) => person.label).join(', ')
         const remaining = total - people.length
-        return (
+        const content = (
+            <span
+                tabIndex={0}
+                className="block max-w-full truncate text-xs"
+                data-attr="account-product-usage-top-users"
+            >
+                {names ? `${names}${remaining > 0 ? ` +${remaining}` : ''}` : 'No activity'}
+            </span>
+        )
+        return disableTooltip ? (
+            content
+        ) : (
             <Tooltip
                 interactive
                 title={
@@ -43,13 +56,7 @@ export function AccountProductUsagePeople({
                     />
                 }
             >
-                <span
-                    tabIndex={0}
-                    className="block max-w-full truncate text-xs"
-                    data-attr="account-product-usage-top-users"
-                >
-                    {names ? `${names}${remaining > 0 ? ` +${remaining}` : ''}` : 'No activity'}
-                </span>
+                {content}
             </Tooltip>
         )
     }

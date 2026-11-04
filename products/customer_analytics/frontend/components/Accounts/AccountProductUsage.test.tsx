@@ -41,22 +41,31 @@ describe('AccountProductUsage history', () => {
         query.mockReset()
     })
     afterEach(cleanup)
-    it('keeps qualification details open after the weekly tooltip loses hover', async () => {
-        query.mockResolvedValue({ results: { rows: [], columns: [], people: [person], truncated: false } })
-        render(<AccountProductUsage {...props} includeFirstUse={false} />)
-        await screen.findByText('Alice +4')
-        const cell = screen.getByRole('img', { name: 'Product analytics users: 5' }).closest('.DotMatrix__cell')!
-        fireEvent.focus(cell)
-        fireEvent.click(await screen.findByRole('button', { name: 'Qualification details' }))
-        fireEvent.blur(cell)
-        fireEvent.mouseLeave(cell)
-        const modal = await screen.findByRole('dialog')
-        expect(within(modal).getByText('4 actions, 120 seconds on product pages')).toBeTruthy()
-        expect(within(modal).getByText('insight viewed: 4')).toBeTruthy()
-        expect(within(modal).getByText('/insights: 120 seconds')).toBeTruthy()
-        fireEvent.click(within(modal).getByRole('button', { name: 'close' }))
-        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    })
+    it.each(['weekly', 'latest'])(
+        'dismisses the %s tooltip when opening stable qualification details',
+        async (source) => {
+            query.mockResolvedValue({ results: { rows: [], columns: [], people: [person], truncated: false } })
+            render(<AccountProductUsage {...props} includeFirstUse={false} />)
+            await screen.findByText('Alice +4')
+            const cell =
+                source === 'weekly'
+                    ? screen.getByRole('img', { name: 'Product analytics users: 5' }).closest('.DotMatrix__cell')!
+                    : screen.getByText('Alice +4')
+            fireEvent.focus(cell)
+            fireEvent.click(await screen.findByRole('button', { name: 'Qualification details' }))
+            await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull())
+            expect(screen.getAllByText('Product analytics · 5 users')).toHaveLength(1)
+            fireEvent.blur(cell)
+            fireEvent.mouseLeave(cell)
+            const modal = await screen.findByRole('dialog')
+            expect(within(modal).getByText('4 actions, 120 seconds on product pages')).toBeTruthy()
+            expect(within(modal).getByText('insight viewed: 4')).toBeTruthy()
+            expect(within(modal).getByText('/insights: 120 seconds')).toBeTruthy()
+            fireEvent.click(within(modal).getByRole('button', { name: 'close' }))
+            await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+            expect(screen.queryByRole('tooltip')).toBeNull()
+        }
+    )
 
     it('trusts all-history account dates instead of a false current-period matrix first use', async () => {
         query.mockImplementation((request) =>

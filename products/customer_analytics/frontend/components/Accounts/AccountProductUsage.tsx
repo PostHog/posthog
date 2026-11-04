@@ -67,6 +67,7 @@ export function AccountProductUsage({
                 total={total}
                 columnKey={columnKey}
                 showDetails={showDetails}
+                disableTooltip={!!inspected}
                 onInspect={() => setInspectedCell({ matrix: result, productKey, columnKey })}
             />
         )
@@ -123,7 +124,9 @@ export function AccountProductUsage({
                 onIncludeFirstUseChange={onIncludeFirstUseChange}
                 loading={loading}
                 renderTopUsers={(productKey) => renderPeople(productKey, latestColumn)}
-                renderUserDetails={(productKey, columnKey) => renderPeople(productKey, columnKey, true)}
+                renderUserDetails={
+                    inspected ? undefined : (productKey, columnKey) => renderPeople(productKey, columnKey, true)
+                }
             />
         </div>
     )
