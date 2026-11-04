@@ -54,7 +54,8 @@ No model reads them yet.
 
 - The list lengths are computed in Postgres, so the job never loads chart or metric definitions. A stored value that is not a list counts as 0. A null counter is stored as 0.
 - `already_addressed` comes from the same actionability artefact as `actionability`, with the same cutoff rules. It is null when that artefact is missing, was edited after the cutoff, or holds no boolean.
-- Partitions written before `FEATURE_SCHEMA_VERSION` 11 have none of these columns. A missing column means "not recorded", not zero, so a reader must not fill it with 0. They have no backfill, because a backfill would record the report as it is today.
+- Partitions written before these columns landed do not have them. A missing column means "not recorded", not zero, so a reader must not fill it with 0. They have no backfill, because a backfill would record the report as it is today.
+- The columns do not bump `FEATURE_SCHEMA_VERSION`. A bump sets off the labels refresh sensor, which rewrites every labels partition in the lookback, and no label changed. A reader tells the partitions apart by the presence of the columns.
 
 `inbox_report_title_embeddings` is a report-grain leaf. It snapshots the `title_v1` rendering the same way `inbox_report_embeddings` snapshots `title_summary_v1`, and nothing joins it. No model family trains on it since `title_embeddings` was retired; the snapshot stays for offline reads. It carries its own `embedding_inserted_at`, because a summary-only edit re-emits only `title_summary_v1`. Its dependency on `inbox_report_model_data` is for ordering, not data — it holds a vector per live report, so it runs last and alone in the run pod. That edge has a cost: a failed join, or a run that hits the job's runtime cap, skips the title snapshot for the day, and the schedule never revisits a day. Repair such a gap with a single-asset backfill while the source rows are inside their 3-month TTL.
 

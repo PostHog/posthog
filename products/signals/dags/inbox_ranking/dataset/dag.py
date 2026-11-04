@@ -74,8 +74,9 @@ from collections.abc import Collection, Iterator, Mapping
 from typing import Any, cast
 from uuid import UUID
 
-from django.db.models import Count, F, Func, IntegerField, Min, Value
+from django.db.models import Case, CharField, Count, F, Func, IntegerField, Min, Value, When
 from django.db.models.functions import Coalesce
+from django.db.models.lookups import Exact
 
 import dagster
 import pyarrow as pa
@@ -188,7 +189,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     valid_report_uuids,
 )
 
-FEATURE_SCHEMA_VERSION = 11
+FEATURE_SCHEMA_VERSION = 10
 # Apart from FEATURE_SCHEMA_VERSION on purpose: the labels refresh sensor rewrites every labels
 # partition whose stamp is older than that one, and a user-grain change must not set it off.
 USER_INTERACTIONS_SCHEMA_VERSION = 1
@@ -252,6 +253,17 @@ def tag_dagster_queries(context: dagster.AssetExecutionContext, query_type: str)
 
 _TIMESTAMP = pa.timestamp("us", tz="UTC")
 
+_REPORT_CONTENT_FIELDS: list[tuple[str, pa.DataType]] = [
+    ("chart_count", pa.int32()),
+    ("metric_count", pa.int32()),
+    ("suggested_prompt_count", pa.int32()),
+    ("tag_count", pa.int32()),
+    ("content_revision_count", pa.int32()),
+    ("corroboration_count", pa.int32()),
+    ("user_authored", pa.bool_()),
+    ("already_addressed", pa.bool_()),
+]
+
 _STATE_FIELDS: list[tuple[str, pa.DataType]] = [
     ("snapshot_date", pa.date32()),
     ("report_id", pa.string()),
@@ -272,14 +284,7 @@ _STATE_FIELDS: list[tuple[str, pa.DataType]] = [
     ("actionability", pa.string()),
     ("title_chars", pa.int32()),
     ("summary_chars", pa.int32()),
-    ("chart_count", pa.int32()),
-    ("metric_count", pa.int32()),
-    ("suggested_prompt_count", pa.int32()),
-    ("tag_count", pa.int32()),
-    ("content_revision_count", pa.int32()),
-    ("corroboration_count", pa.int32()),
-    ("user_authored", pa.bool_()),
-    ("already_addressed", pa.bool_()),
+    *_REPORT_CONTENT_FIELDS,
     ("features_observed_at", _TIMESTAMP),
 ]
 STATE_SCHEMA = pa.schema(_STATE_FIELDS)
@@ -462,14 +467,7 @@ _MODEL_DATA_FIELDS: list[tuple[str, pa.DataType]] = [
     ("actionability", pa.string()),
     ("title_chars", pa.int32()),
     ("summary_chars", pa.int32()),
-    ("chart_count", pa.int32()),
-    ("metric_count", pa.int32()),
-    ("suggested_prompt_count", pa.int32()),
-    ("tag_count", pa.int32()),
-    ("content_revision_count", pa.int32()),
-    ("corroboration_count", pa.int32()),
-    ("user_authored", pa.bool_()),
-    ("already_addressed", pa.bool_()),
+    *_REPORT_CONTENT_FIELDS,
     ("embedding_small", pa.list_(pa.float32())),
     ("embedding_inserted_at", _TIMESTAMP),
     ("embedding_rendering", pa.string()),
@@ -571,14 +569,7 @@ _STATE_PASSTHROUGH_COLUMNS = (
     "actionability",
     "title_chars",
     "summary_chars",
-    "chart_count",
-    "metric_count",
-    "suggested_prompt_count",
-    "tag_count",
-    "content_revision_count",
-    "corroboration_count",
-    "user_authored",
-    "already_addressed",
+    *(name for name, _ in _REPORT_CONTENT_FIELDS),
 )
 
 
@@ -603,12 +594,17 @@ def _judgment_flag(parsed: dict[str, Any], key: str) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
-class _JsonArrayLength(Func):
+def _json_array_length(field: str) -> Case:
     """Length of a JSON list column, computed in Postgres so the list itself is never loaded.
-    Any stored value that is not an array counts as 0 rather than failing the query."""
-
-    template = "CASE WHEN jsonb_typeof(%(expressions)s) = 'array' THEN jsonb_array_length(%(expressions)s) ELSE 0 END"
-    output_field = IntegerField()
+    `jsonb_array_length` raises on a value that is not an array, so any other stored value counts as 0."""
+    return Case(
+        When(
+            Exact(Func(F(field), function="jsonb_typeof", output_field=CharField()), Value("array")),
+            then=Func(F(field), function="jsonb_array_length", output_field=IntegerField()),
+        ),
+        default=Value(0),
+        output_field=IntegerField(),
+    )
 
 
 def _artefact_judgments(
@@ -920,9 +916,9 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
         for report in (
             SignalReport.objects.filter(id__in=spine_chunk)
             .annotate(
-                chart_count=_JsonArrayLength("charts"),
-                metric_count=_JsonArrayLength("metrics"),
-                suggested_prompt_count=_JsonArrayLength("suggested_prompts"),
+                chart_count=_json_array_length("charts"),
+                metric_count=_json_array_length("metrics"),
+                suggested_prompt_count=_json_array_length("suggested_prompts"),
                 tag_count=Coalesce(Func(F("tags"), function="cardinality"), Value(0), output_field=IntegerField()),
             )
             .values(
