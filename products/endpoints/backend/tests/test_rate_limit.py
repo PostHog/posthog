@@ -1,4 +1,5 @@
 from datetime import timedelta
+from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -554,25 +555,36 @@ class TestEndpointThrottles(APIBaseTest):
             {"team_id": self.team.id, "endpoint_name": "refused", "reason": expected_reason},
         )
 
-    def test_fallback_charge_bills_the_inline_budget_even_for_a_materialized_request(self):
-        _create_ready_materialized_endpoint(self.team, self.user, "fell_back", timezone.now())
-        request = MagicMock()
-        request.data = {}
-        request.query_params = {}
+    @parameterized.expand(
+        [
+            ("materialized_run_is_billed_inline", True, True),
+            ("inline_run_is_not_billed_twice", False, False),
+        ]
+    )
+    def test_fallback_charge(self, _name, materialized, expect_refusal):
+        if materialized:
+            _create_ready_materialized_endpoint(self.team, self.user, "fell_back", timezone.now())
+        request = SimpleNamespace(data={}, query_params={})
         view = MagicMock()
         view.team_id = self.team.id
         view.kwargs = {"name": "fell_back"}
-        throttle = EndpointBurstThrottle()
-        throttle.history = []
-        view.get_throttles.return_value = [throttle]
+        view.get_throttles.side_effect = lambda: [EndpointBurstThrottle()]
         inline_labels = {"scope": "api_queries_burst", "reason": "inline_rate"}
         before = REGISTRY.get_sample_value("posthog_endpoint_rate_limited_total", inline_labels) or 0
 
+        with patch("posthog.rate_limit.PersonalOrProjectSecretApiKeyRateThrottle.allow_request", return_value=True):
+            for throttle in view.get_throttles():
+                self.assertTrue(throttle.allow_request(request, view))
+
         with patch("posthog.rate_limit.PersonalOrProjectSecretApiKeyRateThrottle.allow_request", return_value=False):
-            with self.assertRaises(Throttled):
+            if expect_refusal:
+                with patch.object(EndpointBurstThrottle, "wait", return_value=1), self.assertRaises(Throttled):
+                    charge_inline_rate(request, view)
+            else:
                 charge_inline_rate(request, view)
 
-        self.assertEqual(REGISTRY.get_sample_value("posthog_endpoint_rate_limited_total", inline_labels), before + 1)
+        after = REGISTRY.get_sample_value("posthog_endpoint_rate_limited_total", inline_labels) or 0
+        self.assertEqual(after - before, 1 if expect_refusal else 0)
 
 
 class TestMaterializationStateCacheTimeout(APIBaseTest):

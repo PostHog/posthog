@@ -524,8 +524,7 @@ class EndpointExecutionService(PydanticModelMixin):
         """Run an endpoint version and return the HTTP response.
 
         Assumes the caller has resolved the version (or established that none was
-        requested explicitly) and parsed limit/offset. ``before_inline_fallback`` runs
-        when a failed materialized read is about to re-run inline, and may raise to refuse it.
+        requested explicitly) and parsed limit/offset.
         """
         if version_obj is None:
             return Response(
@@ -683,7 +682,6 @@ class EndpointExecutionService(PydanticModelMixin):
             logger.warning("Endpoint query hit a performance limit", endpoint_name=endpoint.name, reason=error_label)
             raise EndpointQueryTooExpensive(detail, code=code)
         except Throttled:
-            # A rate-limit refusal is not an endpoint fault, so it stays out of the execution counter.
             raise
         except ClickHouseAtCapacity as e:
             execution_status = "capacity"

@@ -56,6 +56,14 @@ def _is_materialized_endpoint_request(request, view) -> bool:
     return is_materialized_request(team_id, endpoint_name, version, body)
 
 
+def _materialized_throttles(request) -> set[type]:
+    granted = getattr(request, "endpoint_materialized_throttles", None)
+    if granted is None:
+        granted = set()
+        request.endpoint_materialized_throttles = granted
+    return granted
+
+
 class _MaterializedRateMixin(SimpleRateThrottle):
     """Swaps in the higher materialized-endpoint rate and records 429s, on top of any base throttle.
 
@@ -66,12 +74,12 @@ class _MaterializedRateMixin(SimpleRateThrottle):
 
     materialized_rate: str
     materialized_scope: str
-    # Set to bill the request to the inline budget whatever the request looks like.
     inline_only = False
 
     def allow_request(self, request, view):
         materialized = not self.inline_only and _is_materialized_endpoint_request(request, view)
         if materialized:
+            _materialized_throttles(request).add(type(self))
             self.rate = self.materialized_rate
             self.scope = self.materialized_scope
             self.num_requests, self.duration = self.parse_rate(self.rate)
@@ -130,13 +138,15 @@ class EndpointProjectSecretApiKeyTeamSustainedThrottle(_MaterializedRateMixin, P
 
 
 def charge_inline_rate(request, view) -> None:
-    """Draw the inline rate budget for a run whose materialized read failed, or refuse it with a 429.
+    """Bill a run that fell back to inline to the inline budget, or refuse it with a 429.
 
-    The throttles grant the materialized budget before the query runs, so a run that then falls
-    back to inline would otherwise draw on a budget meant for the cheaper materialized read.
+    A throttle that already charged the inline budget for this request is skipped.
     """
     waits = []
+    granted = _materialized_throttles(request)
     for throttle in view.get_throttles():
+        if type(throttle) not in granted:
+            continue
         throttle.inline_only = True
         if not throttle.allow_request(request, view):
             waits.append(throttle.wait())
