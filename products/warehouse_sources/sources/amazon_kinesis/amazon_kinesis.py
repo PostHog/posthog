@@ -3,9 +3,9 @@ import time
 import base64
 import hashlib
 import datetime as dt
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from functools import cache
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 import orjson
 import requests
@@ -256,11 +256,24 @@ def validate_credentials(
     return True, None
 
 
-def _decode_losslessly(data: bytes) -> tuple[str, str]:
+@frozen
+class _RawPayload:
+    value: str
+    encoding: Literal["utf-8", "base64"]
+
+    def columns(self) -> dict[str, str]:
+        return {RAW_DATA_COLUMN: self.value, RAW_DATA_ENCODING_COLUMN: self.encoding}
+
+
+def _base64_payload(data: bytes) -> _RawPayload:
+    return _RawPayload(value=base64.b64encode(data).decode("ascii"), encoding="base64")
+
+
+def _raw_payload(data: bytes) -> _RawPayload:
     try:
-        return data.decode("utf-8"), "utf-8"
+        return _RawPayload(value=data.decode("utf-8"), encoding="utf-8")
     except UnicodeDecodeError:
-        return base64.b64encode(data).decode("ascii"), "base64"
+        return _base64_payload(data)
 
 
 def _payload_column_name(name: str) -> str:
@@ -278,12 +291,12 @@ def record_to_row(record: dict[str, Any], shard_id: str) -> dict[str, Any]:
     data: bytes = record["Data"]
     row: dict[str, Any] = {}
     if data.startswith(KPL_AGGREGATION_PREFIX):
-        row[RAW_DATA_COLUMN], row[RAW_DATA_ENCODING_COLUMN] = base64.b64encode(data).decode("ascii"), "base64"
+        row.update(_base64_payload(data).columns())
     else:
         try:
             decoded = orjson.loads(data)
         except orjson.JSONDecodeError:
-            row[RAW_DATA_COLUMN], row[RAW_DATA_ENCODING_COLUMN] = _decode_losslessly(data)
+            row.update(_raw_payload(data).columns())
         else:
             if isinstance(decoded, dict):
                 row.update({_payload_column_name(key): value for key, value in decoded.items()})
@@ -320,6 +333,98 @@ def _shard_iterator(
     return client.call("GetShardIterator", params).get("ShardIterator")
 
 
+@frozen(frozen=False)
+class _ReadProgress:
+    started_at: float
+    stream_created_at: float
+    positions: dict[str, str]
+    finished: set[str]
+
+    def advance(self, shard_id: str, sequence: str | None) -> None:
+        if sequence is not None:
+            self.positions[shard_id] = sequence
+
+    def resume_state(self) -> KinesisResumeState:
+        return KinesisResumeState(
+            started_at=self.started_at,
+            stream_created_at=self.stream_created_at,
+            positions=dict(self.positions),
+            finished_shards=sorted(self.finished),
+        )
+
+    def cursor(self) -> KinesisCursor:
+        return KinesisCursor(
+            positions=dict(self.positions),
+            finished_shards=sorted(self.finished),
+            stream_created_at=self.stream_created_at,
+        )
+
+
+@frozen
+class _PageRows:
+    rows: list[dict[str, Any]]
+    last_sequence: str | None
+    reached_run_end: bool
+    aggregated: int
+
+
+def _rows_before(records: list[dict[str, Any]], shard_id: str, started_at: float) -> _PageRows:
+    rows: list[dict[str, Any]] = []
+    last_sequence: str | None = None
+    aggregated = 0
+    for record in records:
+        if record["ApproximateArrivalTimestamp"].timestamp() >= started_at:
+            return _PageRows(rows=rows, last_sequence=last_sequence, reached_run_end=True, aggregated=aggregated)
+        rows.append(record_to_row(record, shard_id))
+        aggregated += record["Data"].startswith(KPL_AGGREGATION_PREFIX)
+        last_sequence = record["SequenceNumber"]
+    return _PageRows(rows=rows, last_sequence=last_sequence, reached_run_end=False, aggregated=aggregated)
+
+
+def _read_shard(
+    client: KinesisClient,
+    stream_name: str,
+    shard_id: str,
+    progress: _ReadProgress,
+    resumable_source_manager: ResumableSourceManager[KinesisResumeState],
+    cursor_manager: SourceCursorManager[KinesisCursor],
+    logger: FilteringBoundLogger,
+) -> Generator[list[dict[str, Any]], None, int]:
+    aggregated = 0
+    iterator = _shard_iterator(client, stream_name, shard_id, progress.positions.get(shard_id), logger)
+    last_request: float | None = None
+    while iterator is not None:
+        if last_request is not None:
+            interruptible_wait(
+                max(0.0, GET_RECORDS_INTERVAL_SECONDS - (time.monotonic() - last_request)),
+                safe_point=resumable_source_manager.safe_point,
+            )
+        last_request = time.monotonic()
+        try:
+            page = client.call("GetRecords", {"ShardIterator": iterator, "Limit": GET_RECORDS_LIMIT})
+        except AmazonKinesisError as error:
+            if error.code != "ExpiredIteratorException":
+                raise
+            iterator = _shard_iterator(client, stream_name, shard_id, progress.positions.get(shard_id), logger)
+            continue
+
+        read = _rows_before(page.get("Records") or [], shard_id, progress.started_at)
+        aggregated += read.aggregated
+        progress.advance(shard_id, read.last_sequence)
+        iterator = page.get("NextShardIterator")
+        if iterator is None and not read.reached_run_end:
+            progress.finished.add(shard_id)
+        resumable_source_manager.save_state(progress.resume_state())
+        cursor_manager.stage(progress.cursor())
+        if read.rows:
+            yield read.rows
+        else:
+            resumable_source_manager.safe_point()
+        if read.reached_run_end or page.get("MillisBehindLatest") == 0:
+            break
+    return aggregated
+
+
 def read_stream(
     client: KinesisClient,
     stream_name: str,
@@ -330,78 +435,29 @@ def read_stream(
 ) -> Iterator[list[dict[str, Any]]]:
     shard_ids = list_shard_ids(client, stream_name)
     live = set(shard_ids)
-    finished = set(start.finished_shards) & live
     expired = sorted(set(start.positions) - live - set(start.finished_shards))
     if expired:
         logger.warning("Kinesis retention removed shards before this table finished reading them", shard_ids=expired)
-    positions = {shard_id: sequence for shard_id, sequence in start.positions.items() if shard_id in live}
+    progress = _ReadProgress(
+        started_at=start.started_at,
+        stream_created_at=start.stream_created_at,
+        positions={shard_id: sequence for shard_id, sequence in start.positions.items() if shard_id in live},
+        finished=set(start.finished_shards) & live,
+    )
+
     aggregated = 0
-
-    def stage_cursor() -> None:
-        cursor_manager.stage(
-            KinesisCursor(
-                positions=dict(positions), finished_shards=sorted(finished), stream_created_at=start.stream_created_at
-            )
-        )
-
-    def checkpoint() -> None:
-        resumable_source_manager.save_state(
-            KinesisResumeState(
-                started_at=start.started_at,
-                stream_created_at=start.stream_created_at,
-                positions=dict(positions),
-                finished_shards=sorted(finished),
-            )
-        )
-        stage_cursor()
-
     for shard_id in shard_ids:
-        if shard_id in finished:
-            continue
-        iterator = _shard_iterator(client, stream_name, shard_id, positions.get(shard_id), logger)
-        last_request: float | None = None
-        while iterator is not None:
-            if last_request is not None:
-                interruptible_wait(
-                    max(0.0, GET_RECORDS_INTERVAL_SECONDS - (time.monotonic() - last_request)),
-                    safe_point=resumable_source_manager.safe_point,
-                )
-            last_request = time.monotonic()
-            try:
-                page = client.call("GetRecords", {"ShardIterator": iterator, "Limit": GET_RECORDS_LIMIT})
-            except AmazonKinesisError as error:
-                if error.code != "ExpiredIteratorException":
-                    raise
-                iterator = _shard_iterator(client, stream_name, shard_id, positions.get(shard_id), logger)
-                continue
-
-            rows: list[dict[str, Any]] = []
-            reached_run_end = False
-            for record in page.get("Records") or []:
-                if record["ApproximateArrivalTimestamp"].timestamp() >= start.started_at:
-                    reached_run_end = True
-                    break
-                rows.append(record_to_row(record, shard_id))
-                aggregated += record["Data"].startswith(KPL_AGGREGATION_PREFIX)
-                positions[shard_id] = record["SequenceNumber"]
-
-            iterator = page.get("NextShardIterator")
-            if iterator is None and not reached_run_end:
-                finished.add(shard_id)
-            checkpoint()
-            if rows:
-                yield rows
-            else:
-                resumable_source_manager.safe_point()
-            if reached_run_end or page.get("MillisBehindLatest") == 0:
-                break
+        if shard_id not in progress.finished:
+            aggregated += yield from _read_shard(
+                client, stream_name, shard_id, progress, resumable_source_manager, cursor_manager, logger
+            )
 
     if aggregated:
         logger.warning(
             "Kinesis records aggregated by the Kinesis Producer Library were stored without unpacking",
             records=aggregated,
         )
-    stage_cursor()
+    cursor_manager.stage(progress.cursor())
     resumable_source_manager.clear_state()
 
 
