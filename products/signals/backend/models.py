@@ -4177,6 +4177,8 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
         blank=True,
         related_name="+",
     )
+    pending_requests = models.JSONField(default=dict, db_default={})
+    finalization_requested_at = models.DateTimeField(null=True, blank=True)
     llm_failed_stages = ArrayField(models.CharField(max_length=100), default=list, db_default=[])
     spend = models.DecimalField(
         max_digits=20, decimal_places=4, default=0, db_default=0, help_text="Customer spend in USD cents"

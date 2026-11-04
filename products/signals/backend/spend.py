@@ -26,6 +26,7 @@ from products.signals.backend.spend_billing import (
     trial_spend_exempt,
     uses_spend_billing,
 )
+from products.signals.backend.trial.spend import save_trial_spend
 
 
 @frozen
@@ -129,7 +130,7 @@ async def submit_signal_metadata_updates(
         )
 
 
-def _locked_ad_hoc_spend(*, team_id: int, signal_id: str) -> SignalSpend:
+def _locked_ad_hoc_spend(*, team_id: int, signal_id: str, trial_grant_id: str | None = None) -> SignalSpend:
     spend, _ = SignalSpend.objects.for_team(team_id).get_or_create(
         team_id=team_id,
         signal_id=signal_id,
@@ -137,9 +138,10 @@ def _locked_ad_hoc_spend(*, team_id: int, signal_id: str) -> SignalSpend:
         # get_or_create calls callable defaults only when it creates the row, so the trial lookup is
         # skipped for existing rows. django-stubs types defaults as plain field values.
         defaults={
-            "billing_exempt": lambda: trial_spend_exempt(team_id),  # type: ignore[misc]
+            "billing_exempt": lambda: bool(trial_grant_id) or trial_spend_exempt(team_id),
+            "trial_grant_id": trial_grant_id,
             "usage_billing": lambda: uses_spend_billing(team_id),
-        },
+        },  # type: ignore[misc]
     )
     return SignalSpend.objects.for_team(team_id).select_for_update().get(id=spend.id)
 
@@ -152,26 +154,51 @@ def begin_signal_spend(*, team_id: int, signal_id: str) -> None:
 def _save_ad_hoc_spend(spend: SignalSpend, *, finalize: bool = False) -> None:
     if spend.finalized_at is not None:
         return
-    spend.accounting_failed = bool(spend.llm_failed_stages)
-    if finalize and not spend.accounting_failed:
+    spend.accounting_failed = bool(spend.llm_failed_stages or spend.pending_requests)
+    if finalize:
+        spend.finalization_requested_at = spend.finalization_requested_at or timezone.now()
+    if spend.finalization_requested_at and not spend.accounting_failed:
         spend.finalized_at = timezone.now()
-    spend.save()
+    save_trial_spend(spend)
 
 
 def record_llm_spend(
+    request_id: str | None = None,
     *,
     token_cost_microusd: int | None,
     team_id: int | None,
     stage: str,
     signal_id: str | None = None,
+    source_id: str | None = None,
+    trial_grant_id: str | None = None,
+    strict: bool = False,
 ) -> None:
     if team_id is None or signal_id is None:
         return
+    if strict and token_cost_microusd is not None:
+        raise ValueError("Register the request before settling its cost")
     with transaction.atomic():
-        spend = _locked_ad_hoc_spend(team_id=team_id, signal_id=signal_id)
+        spend = _locked_ad_hoc_spend(team_id=team_id, signal_id=signal_id, trial_grant_id=trial_grant_id)
         if spend.finalized_at is not None:
+            if source_id and not strict:
+                return
             raise ValueError("Cannot add generation costs to finalized spend")
-        if token_cost_microusd is None:
+        if trial_grant_id:
+            if str(spend.trial_grant_id) != trial_grant_id:
+                raise ValueError("Generation funding cannot change")
+        if source_id:
+            pending = dict(spend.pending_requests)
+            if strict:
+                pending.setdefault(source_id, {"stage": stage, "request_id": request_id})
+            elif source_id not in pending:
+                return
+            if token_cost_microusd is not None:
+                spend.spend += cost_to_spend(token_cost_microusd)
+                pending.pop(source_id, None)
+            elif request_id:
+                pending[source_id]["request_id"] = request_id
+            spend.pending_requests = pending
+        elif token_cost_microusd is None:
             spend.llm_failed_stages = sorted(set(spend.llm_failed_stages) | {stage})
         else:
             spend.spend += cost_to_spend(token_cost_microusd)
@@ -187,7 +214,11 @@ def signal_spend_summaries(*, team_id: int, signal_ids: list[str]) -> dict[str, 
             continue
     amounts: dict[str, Decimal] = {}
     failures: dict[str, set[str]] = {}
-    for spend in SignalSpend.objects.for_team(team_id).filter(signal_id__in=ids):
+    for spend in (
+        SignalSpend.objects.for_team(team_id)
+        .filter(signal_id__in=ids)
+        .only("signal_id", "kind", "spend", "accounting_failed", "llm_failed_stages")
+    ):
         if spend.kind is None:
             continue
         key = str(spend.signal_id)
@@ -268,9 +299,14 @@ def record_task_spend(
             raise ValueError("Task run is already owned by another spend owner")
         if spend.finalized_at is not None:
             return
+        if run.trial_grant_id:
+            if spend.trial_grant_id and str(spend.trial_grant_id) != run.trial_grant_id:
+                raise ValueError("Task funding cannot change")
+            spend.trial_grant_id = UUID(run.trial_grant_id)
+            spend.billing_exempt = True
         if created:
             spend.created_at = run.created_at
-            spend.billing_exempt = trial_spend_exempt(team_id)
+            spend.billing_exempt = spend.billing_exempt or trial_spend_exempt(team_id)
             if scout_run_id:
                 scout = SignalScoutRun.objects.for_team(team_id).get(id=scout_run_id)
                 spend.created_at = min(spend.created_at, scout.created_at)
@@ -278,9 +314,11 @@ def record_task_spend(
             spend.usage_billing = uses_spend_billing(team_id, started_at=spend.created_at)
             if report:
                 apply_report_billing(spend, report)
-        spend.spend = cost_to_spend(run.cost_microusd or 0, task_count=1)
+        spend.spend = cost_to_spend(
+            run.cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
+        )
         spend.accounting_failed = spend.accounting_failed or run.accounting_failed
-        spend.save()
+        save_trial_spend(spend)
         _save_scout_total(spend)
 
 
@@ -294,7 +332,7 @@ def record_task_cost_delta(
             return
         spend.spend += cost_to_spend(cost_delta_microusd)
         spend.accounting_failed = spend.accounting_failed or accounting_failed
-        spend.save(update_fields=["spend", "accounting_failed", "updated_at"])
+        save_trial_spend(spend)
         _save_scout_total(spend)
 
 
@@ -412,13 +450,34 @@ def complete_task_spend(
                     )
                     if report:
                         apply_report_billing(spend, report)
-                spend.spend = cost_to_spend(run.cost_microusd or 0, task_count=1)
+                spend.spend = cost_to_spend(
+                    run.cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
+                )
                 spend.accounting_failed = run.accounting_failed or (final_attempt and not run.complete)
                 if run.is_terminal and run.complete:
                     spend.finalized_at = timezone.now()
-                spend.save()
+                save_trial_spend(spend)
                 _save_scout_total(spend)
         if spend.finalized_at is None and not spend.accounting_failed:
             raise TaskTokenUsageUnavailable("Task usage is not settled yet")
     if spend.signal_id:
         async_to_sync(submit_signal_metadata_updates)(team_id=team_id, signal_ids=[str(spend.signal_id)])
+
+
+def refresh_task_spend(*, team_id: int, run_id: str, strict: bool = False) -> str | None:
+    from products.tasks.backend.facade.billing import locked_task_run_spend  # noqa: PLC0415
+
+    with locked_task_run_spend(team_id=team_id, run_id=UUID(run_id)) as run:
+        spend = SignalSpend.objects.for_team(team_id).select_for_update().filter(task_run_id=run.run_id).first()
+        if spend is None:
+            if strict:
+                raise ValueError("Task spend must be registered before trial execution")
+            return None
+        if spend.finalized_at is None:
+            spend.spend = cost_to_spend(
+                run.cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
+            )
+            spend.accounting_failed = not run.complete
+            save_trial_spend(spend)
+            _save_scout_total(spend)
+        return str(spend.id)
