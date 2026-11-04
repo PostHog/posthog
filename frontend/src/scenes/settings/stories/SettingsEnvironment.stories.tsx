@@ -1,7 +1,7 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
@@ -297,10 +297,12 @@ export const SettingsEnvironmentObjectAccessControl: Story = {
     decorators: accessControlDetailDecorators([AvailableFeature.ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS]),
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        const table = within(await canvas.findByRole('table'))
-        await table.findByRole('link', { name: 'Example dashboard' })
-        await table.findByText('Viewer', { exact: true })
-        await canvas.findByRole('button', { name: 'Add rule' })
+        await waitFor(() => {
+            const table = within(canvas.getByRole('table'))
+            table.getByRole('link', { name: 'Example dashboard' })
+            table.getByText('Viewer', { exact: true })
+            canvas.getByRole('button', { name: 'Add rule' })
+        })
     },
 }
 
@@ -315,11 +317,13 @@ export const SettingsEnvironmentPropertyAccessControl: Story = {
     decorators: accessControlDetailDecorators([AvailableFeature.ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS]),
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        const table = within(await canvas.findByRole('table'))
-        await table.findByText('email', { exact: true })
-        await table.findByText('Person property', { exact: true })
-        await table.findByText('Read only', { exact: true })
-        await canvas.findByRole('button', { name: 'Add rule' })
+        await waitFor(() => {
+            const table = within(canvas.getByRole('table'))
+            table.getByText('email', { exact: true })
+            table.getByText('Person property', { exact: true })
+            table.getByText('Read only', { exact: true })
+            canvas.getByRole('button', { name: 'Add rule' })
+        })
     },
 }
 
