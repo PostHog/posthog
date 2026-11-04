@@ -24,7 +24,12 @@ jobs:
     # See .github/actions/paths-filter/README.md for filter semantics
     # Pushes and PRs above GitHub's 3000-file API limit run every scan.
     changes:
-        runs-on: ubuntu-24.04
+        # This job does ~10s of work but sits first on the lane, so every scan in this
+        # workflow waits out its runner queue: median 1.9 min, p90 4.7 min over 40 sampled
+        # merged pull requests. Depot runners start in 0-2s. Fork pull requests stay on
+        # GitHub-hosted because this job runs ./.github/actions/paths-filter out of the
+        # fork's own checkout, and Depot injects cache credentials ambiently.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         timeout-minutes: 5
         # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
         if: (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) && (github.repository_owner == 'PostHog')
@@ -690,7 +695,11 @@ jobs:
             - semgrep-test-rules
             - semgrep-desktop
         name: Semgrep Checks Pass
-        runs-on: ubuntu-24.04
+        # Last job on the lane, and it only reads `needs` results: no checkout, no fork
+        # code, no secrets, so an ambient cache credential has nothing to reach. Its
+        # GitHub-hosted queue is a median 1.4 min (p90 4.6) of pure lane time, because
+        # 62% of pull requests end their required-check lane on this check.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:
