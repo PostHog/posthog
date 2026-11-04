@@ -8,5 +8,7 @@
  *  even when the identifier is wholly undeclared.
  */
 export function monotonicNow(): number {
-    return typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now()
+    return typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now()
 }
