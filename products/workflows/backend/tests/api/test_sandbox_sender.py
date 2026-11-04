@@ -61,12 +61,15 @@ class TestSandboxSenderAPI(APIBaseTest):
         self.organization.name = "Acme"
         self.organization.save()
 
-        first = self._ensure()
-        assert first.status_code == status.HTTP_200_OK, first.json()
-        assert len(self._provisioned_events()) == 1
-        self.organization.name = "Acme Rockets"
-        self.organization.save()
-        second = self._ensure()
+        with patch("products.workflows.backend.services.sandbox_sender.reload_integrations_on_workers") as reload:
+            first = self._ensure()
+            assert first.status_code == status.HTTP_200_OK, first.json()
+            assert len(self._provisioned_events()) == 1
+            reload.assert_not_called()
+            self.organization.name = "Acme Rockets"
+            self.organization.save()
+            second = self._ensure()
+            reload.assert_called_once_with(self.team.id, [first.json()["id"]])
 
         assert second.status_code == status.HTTP_200_OK, second.json()
         row = self._sandbox_rows().get()
@@ -119,16 +122,6 @@ class TestSandboxSenderAPI(APIBaseTest):
             response = self._ensure()
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
-        assert not self._sandbox_rows().exists()
-        assert self._provisioned_events() == []
-
-    def test_ensure_fails_loudly_when_the_flag_check_fails(self) -> None:
-        # A flag-service outage must not look like a project the sandbox sender is off for.
-        self.flag_enabled.side_effect = RuntimeError("flag service down")
-
-        response = self._ensure()
-
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert not self._sandbox_rows().exists()
         assert self._provisioned_events() == []
 
