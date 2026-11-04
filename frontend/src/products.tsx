@@ -1753,6 +1753,8 @@ export const productUrls = {
         intent,
         format,
         properties,
+        key,
+        variants,
     }: {
         type?: 'boolean' | 'multivariate' | 'remote_config'
         sourceId?: number | string | null
@@ -1760,6 +1762,8 @@ export const productUrls = {
         intent?: 'local-eval' | 'first-page-load'
         format?: 'rules_v2'
         properties?: AnyPropertyFilter[]
+        key?: string
+        variants?: string[]
     }): string => {
         const params = new URLSearchParams()
         if (type) {
@@ -1779,6 +1783,12 @@ export const productUrls = {
         }
         if (properties?.length) {
             params.set('properties', JSON.stringify(properties))
+        }
+        if (key) {
+            params.set('key', key)
+        }
+        if (variants?.length) {
+            params.set('variants', variants.join(','))
         }
         return `/feature-flags/new?${params.toString()}`
     },

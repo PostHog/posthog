@@ -2752,6 +2752,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "common-types",
  "dashmap 6.1.0",
  "hogvm",
  "metrics",
@@ -2773,6 +2774,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "axum 0.7.9",
+ "cohort-core",
  "common-alloc",
  "common-cohort-team-access",
  "common-database",
@@ -4108,6 +4110,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "twox-hash",
  "url",
  "uuid",
 ]
@@ -6668,6 +6671,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "ingestion-framework"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "criterion",
+ "futures",
+ "indexmap 2.13.0",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "ingestion-worker-proto"
 version = "0.1.0"
 dependencies = [
@@ -7709,6 +7734,37 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 dependencies = [
  "value-bag",
+]
+
+[[package]]
+name = "logs-ingestion"
+version = "0.1.0"
+dependencies = [
+ "ahash 0.8.12",
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "common-alloc",
+ "futures",
+ "hashbrown 0.15.5",
+ "hex",
+ "hmac 0.12.1",
+ "ingestion-framework",
+ "itoa",
+ "metrics",
+ "rand 0.8.5",
+ "redis",
+ "regex",
+ "regex-automata",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+ "zstd 0.13.3",
 ]
 
 [[package]]

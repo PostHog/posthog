@@ -864,4 +864,75 @@ describe('hogFlowEditorLogic', () => {
             expect(branchJoinDropzones()).toEqual(expected)
         })
     })
+
+    describe('graph layout', () => {
+        const step = (id: string, type: HogFlowAction['type'], conditions = 0): HogFlowAction =>
+            ({
+                id,
+                type,
+                name: id,
+                description: '',
+                created_at: 1,
+                updated_at: 1,
+                config:
+                    type === 'conditional_branch'
+                        ? { conditions: Array.from({ length: conditions }, () => ({ filters: {} })) }
+                        : type === 'delay'
+                          ? { delay_duration: '1d' }
+                          : {},
+            }) as HogFlowAction
+
+        const xOf = (id: string): number => {
+            const node = logic.values.nodes.find((candidate) => candidate.id === id)
+            if (!node) {
+                throw new Error(`node ${id} was not laid out`)
+            }
+            return node.position.x
+        }
+
+        beforeEach(async () => {
+            await expectLogic(logic).toDispatchActions(['setNodesRaw'])
+        })
+
+        it('keeps each branch on its own side after a step is added above a nested condition', async () => {
+            const flow: HogFlow = {
+                ...NEW_WORKFLOW,
+                actions: [
+                    step('trigger', 'trigger'),
+                    step('route', 'conditional_branch', 1),
+                    step('added', 'delay'),
+                    step('choose', 'conditional_branch', 2),
+                    step('first', 'delay'),
+                    step('second', 'delay'),
+                    step('second_followup', 'delay'),
+                    step('wait', 'conditional_branch', 1),
+                    step('follow_up', 'delay'),
+                    step('outcome', 'delay'),
+                    step('exit', 'exit'),
+                ],
+                edges: [
+                    edge('trigger', 'route', 'continue'),
+                    edge('route', 'added', 'branch', 0),
+                    edge('added', 'choose', 'continue'),
+                    edge('choose', 'first', 'branch', 0),
+                    edge('first', 'exit', 'continue'),
+                    edge('choose', 'second', 'branch', 1),
+                    edge('second', 'second_followup', 'continue'),
+                    edge('second_followup', 'exit', 'continue'),
+                    edge('choose', 'exit', 'continue'),
+                    edge('route', 'wait', 'branch', 1),
+                    edge('wait', 'outcome', 'branch', 0),
+                    edge('wait', 'follow_up', 'continue'),
+                    edge('follow_up', 'outcome', 'continue'),
+                    edge('outcome', 'exit', 'continue'),
+                    edge('route', 'exit', 'continue'),
+                ],
+            }
+
+            await expectLogic(logic, () => logic.actions.resetFlowFromHogFlow(flow)).toDispatchActions(['setNodesRaw'])
+
+            expect(xOf('added')).toBeLessThan(xOf('wait'))
+            expect(xOf('first')).toBeLessThan(xOf('second'))
+        })
+    })
 })

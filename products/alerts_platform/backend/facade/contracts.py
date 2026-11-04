@@ -1164,6 +1164,10 @@ class SourceConfigSpec:
     # A new kind names its own flag, so it opens on its own schedule while the others stay generally
     # available.
     rollout_flag: str | None = None
+    # A PostHog feature flag that opens every API action on this kind in place of `platform-alerts`.
+    # The source product can then release its alerts on its own flag, while `platform-alerts` keeps
+    # the other kinds and the platform's own pages closed.
+    access_flag: str | None = None
 
     def __post_init__(self) -> None:
         # The source-row hooks write a row a native kind does not have.

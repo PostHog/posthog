@@ -1335,7 +1335,7 @@ export const WorkflowGraphPatchSchema = z.object({
 const EmailDesignFreeformObject = z.record(z.string(), z.unknown())
 
 const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
-    z.object({
+    z.strictObject({
         op: z.literal('update_content'),
         id: z.string().describe('Id of the content block to update.'),
         patch: EmailDesignFreeformObject.describe(
@@ -1343,23 +1343,23 @@ const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
                 "e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
         ),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('update_column'),
         id: z.string().describe('Id of the column to update.'),
         patch: EmailDesignFreeformObject.describe('Partial column fields, deep-merged; a null leaf deletes that key.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('update_row'),
         id: z.string().describe('Id of the row to update.'),
         patch: EmailDesignFreeformObject.describe('Partial row fields, deep-merged; a null leaf deletes that key.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('update_body'),
         patch: EmailDesignFreeformObject.describe(
             "Partial body fields, deep-merged. e.g. {values: {backgroundColor: '#ffffff'}}."
         ),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('add_content'),
         column_id: z.string().describe('Id of the column to insert the block into.'),
         content: EmailDesignFreeformObject.describe(
@@ -1368,17 +1368,17 @@ const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
         ),
         index: z.number().int().optional().describe('0-based insert position; omit to append to the end.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('remove_content'),
         id: z.string().describe('Id of the content block to remove.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('move_content'),
         id: z.string().describe('Id of the content block to move.'),
         column_id: z.string().describe('Id of the destination column.'),
         index: z.number().int().optional().describe('0-based position in the destination column; omit to append.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('add_row'),
         row: EmailDesignFreeformObject.describe(
             'A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are ' +
@@ -1386,13 +1386,13 @@ const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
         ),
         index: z.number().int().optional().describe('0-based insert position; omit to append to the end.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('remove_row'),
         id: z.string().describe('Id of the row to remove.'),
     }),
 ])
 
-export const EmailTemplateDesignPatchSchema = z.object({
+export const EmailTemplateDesignPatchSchema = z.strictObject({
     id: z.string().describe('The email template id to edit.'),
     operations: z
         .array(EmailDesignPatchOperationSchema)
