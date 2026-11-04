@@ -82,7 +82,8 @@ from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.utils import multisort
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade import api as actions_facade
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.product_analytics.backend.hogql_queries.trends.display import TrendsDisplay
@@ -648,7 +649,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         for val in response.results:
             try:
                 series_label = self.series_event(series.series)
-            except Action.DoesNotExist:
+            except ActionNotFound:
                 # Dont append the series if the action doesnt exist
                 continue
 
@@ -886,7 +887,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             return series.event
         if isinstance(series, ActionsNode):
             # TODO: Can we load the Action in more efficiently?
-            action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
+            action = actions_facade.get_action(action_id=int(series.id), project_id=self.team.project_id)
             return action.name
 
         if isinstance(series, DataWarehouseNode):
@@ -897,8 +898,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             action_ids = [int(node.id) for node in series.nodes if isinstance(node, ActionsNode)]
             actions_by_id = {}
             if action_ids:
-                actions = Action.objects.filter(pk__in=action_ids, team__project_id=self.team.project_id)
-                actions_by_id = {action.pk: action.name or "Unnamed action" for action in actions}
+                action_names = actions_facade.get_action_names(project_id=self.team.project_id, action_ids=action_ids)
+                actions_by_id = {action_id: name or "Unnamed action" for action_id, name in action_names.items()}
 
             events = []
             for node in series.nodes:
@@ -921,7 +922,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         # The series label costs a query for an action series, so it is resolved only when a `name` needs comparing
         try:
             series_label = self.series_event(series)
-        except Action.DoesNotExist:
+        except ActionNotFound:
             # build_series_response drops a series whose action is gone, so no row reads this name
             return None
         return resolve_series_custom_name(series, series_label)

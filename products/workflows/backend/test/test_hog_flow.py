@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 REPORT_CREATED = "products.workflows.backend.tasks.hog_flows.report_workflow_created.delay"
@@ -102,7 +102,7 @@ class TestHogFlow(TestCase):
 
     @patch("products.workflows.backend.tasks.hog_flows.refresh_affected_hog_flows.delay")
     def test_action_saved_receiver(self, mock_refresh):
-        action = Action.objects.create(team=self.team, name="Test Action")
+        action = create_action(team=self.team, name="Test Action")
         mock_refresh.assert_called_once_with(action_id=action.id)
 
     @patch("products.workflows.backend.tasks.hog_flows.refresh_affected_hog_flows.delay")

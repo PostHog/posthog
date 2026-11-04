@@ -35,7 +35,7 @@ from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.scanners import HighlightFeedQuerySerializer, ReplayScannerSerializer
@@ -4324,7 +4324,7 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
-        action = Action.objects.create(team=self.team, name="Restricted", created_by=self.user)
+        action = create_action(team=self.team, name="Restricted", created_by=self.user)
         AccessControl.objects.create(team=self.team, resource="action", resource_id=str(action.id), access_level="none")
         member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
         self.client.force_login(member)

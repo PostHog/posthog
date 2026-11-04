@@ -28,7 +28,7 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.experiments.backend.session_context import (
@@ -724,9 +724,9 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
 
     def test_action_exposure_criteria_defines_exposure_timestamp(self) -> None:
         self._create_recording()
-        action = Action.objects.create(team=self.team, name="Purchased", steps_json=[{"event": "purchase"}])
+        action = create_action(team=self.team, name="Purchased", steps_json=[{"event": "purchase"}])
         self._create_experiment(
-            exposure_criteria={"exposure_config": {"kind": "ActionsNode", "id": action.pk}},
+            exposure_criteria={"exposure_config": {"kind": "ActionsNode", "id": action.id}},
         )
         self._create_session_event(
             event="purchase",

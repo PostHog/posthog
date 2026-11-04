@@ -18,7 +18,7 @@ from posthog.models import Team, User
 from posthog.week_start_day import WeekStartDay
 
 from products.access_control.backend.facade.testing import create_access_control
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.product_analytics.backend import insight_series
 from products.product_analytics.backend.facade.api import get_insight_series, viewable_insight_definitions
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeriesNotReady
@@ -468,12 +468,12 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
     @override_settings(IN_UNIT_TESTING=True)
     def test_a_daily_trend_returns_each_series_with_its_averaging_and_display_format(self) -> None:
         self._signups((2, "Chrome"), (2, "Chrome"), (9, "Chrome"))
-        action = Action.objects.create(team=self.team, name="Signed up action", steps_json=[{"event": "signed up"}])
+        action = create_action(team=self.team, name="Signed up action", steps_json=[{"event": "signed up"}])
         insight = self._insight(
             series=[
                 {"kind": "EventsNode", "event": "signed up", "custom_name": "Sign-ups"},
                 {"kind": "EventsNode", "event": "signed up", "math": "dau", "custom_name": "Daily people"},
-                {"kind": "ActionsNode", "id": action.pk},
+                {"kind": "ActionsNode", "id": action.id},
             ],
             trendsFilter={"aggregationAxisFormat": "percentage", "display": "Metric", "decimalPlaces": 1_000_000},
         )

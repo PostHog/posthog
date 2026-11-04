@@ -226,9 +226,9 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
     def test_action_access_level_cannot_be_below_viewer(self):
         """Test that action access level cannot be set below minimum 'viewer'"""
         self._org_membership(OrganizationMembership.Level.ADMIN)
-        from products.actions.backend.models.action import Action
+        from products.actions.backend.facade.testing import create_action
 
-        action = Action.objects.create(team=self.team, name="test action")
+        action = create_action(team=self.team, name="test action")
 
         res = self.client.put(
             f"/api/projects/@current/actions/{action.id}/access_controls",
@@ -240,9 +240,9 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
     def test_action_access_level_accepts_viewer_and_above(self):
         """Test that action access level accepts viewer, editor, and manager"""
         self._org_membership(OrganizationMembership.Level.ADMIN)
-        from products.actions.backend.models.action import Action
+        from products.actions.backend.facade.testing import create_action
 
-        action = Action.objects.create(team=self.team, name="test action")
+        action = create_action(team=self.team, name="test action")
 
         for level in ["viewer", "editor", "manager"]:
             res = self.client.put(

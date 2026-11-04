@@ -55,7 +55,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, Cohort, CohortType
@@ -409,7 +409,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             distinct_id="person_1",
             timestamp=datetime.now() - timedelta(hours=12),
         )
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             steps_json=[
                 {
@@ -432,7 +432,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                                 "type": "AND",
                                 "values": [
                                     {
-                                        "key": action.pk,
+                                        "key": action.id,
                                         "type": "behavioral",
                                         "value": "performed_event",
                                         "negation": False,

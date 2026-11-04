@@ -33,7 +33,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.models.team.team import Team
     from posthog.models.user import User
 
-    from products.actions.backend.models.action import Action
+    from products.actions.backend.facade.contracts import ActionNotFound
     from products.autoresearch.backend.access import has_autoresearch_access
     from products.autoresearch.backend.dataset.labeling import build_target_condition
     from products.autoresearch.backend.evaluation.online_validation import run_online_validation_for_pipeline
@@ -209,7 +209,7 @@ def _champion_for_inference(pipeline: AutoresearchPipeline) -> AutoresearchModel
         build_target_condition(
             target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=pipeline.team
         )
-    except (ValueError, Action.DoesNotExist) as exc:
+    except (ValueError, ActionNotFound) as exc:
         raise ApplicationError(f"The pipeline's target cannot be resolved: {exc}", non_retryable=True)
     model = (
         AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
@@ -947,7 +947,7 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
                     rescue=rescue,
                     kickoff_reason=kickoff_reason,
                 )
-        except (ValueError, SandboxInferenceError, Action.DoesNotExist) as exc:
+        except (ValueError, SandboxInferenceError, ActionNotFound) as exc:
             # run_training refuses a departed creator or an unresolvable target before it writes
             # anything. A retry cannot fix either, so these report instead of raising.
             return KickoffTrainingResult(kicked_off=False, reason="not_launchable", error=str(exc))

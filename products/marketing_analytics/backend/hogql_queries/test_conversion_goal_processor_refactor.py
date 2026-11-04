@@ -25,7 +25,7 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models import PropertyDefinition
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import ConversionGoalProcessor
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
 
@@ -217,7 +217,7 @@ class TestConversionGoalProcessorRefactor(BaseTest):
 
     def test_action_step_on_revenue_property_is_not_precomputable(self):
         # An action goal pulls its steps' filters into the INSERT, so they must be checked too.
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Paying purchase",
             steps_json=[

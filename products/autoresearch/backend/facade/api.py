@@ -32,7 +32,8 @@ from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 from posthog.storage.object_storage import ObjectStorageError
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action, get_actions
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.tasks.backend.facade.model_catalogue import REASONING_EFFORT_DISPLAY_NAMES, display_name_for_model
 
 from ..dataset import templates as templates_module
@@ -968,8 +969,8 @@ def resolve_action_target(project_id: int, action_id: Any) -> tuple[str, int]:
     observed as an outcome.
     """
     try:
-        action = Action.objects.get(id=action_id, team__project_id=project_id, deleted=False)
-    except (Action.DoesNotExist, ValueError, TypeError, OverflowError):
+        action = get_action(action_id=action_id, project_id=project_id, include_deleted=False)
+    except (ActionNotFound, ValueError, TypeError, OverflowError):
         raise PipelineNotFound(f"Action {action_id} was not found in this project.")
     step_events = action.get_step_events()
     if any(event is None or event == PREDICTION_EVENT_NAME for event in step_events):
@@ -1169,7 +1170,10 @@ def _require_resolvable_target(pipeline: AutoresearchPipeline) -> None:
         return
     action_id = definition.get("action_id")
     action = (
-        Action.objects.filter(id=action_id, team__project_id=pipeline.team.project_id, deleted=False).first()
+        next(
+            iter(get_actions(action_ids=[action_id], project_id=pipeline.team.project_id, include_deleted=False)),
+            None,
+        )
         if isinstance(action_id, int)
         else None
     )
@@ -1315,7 +1319,7 @@ def validate_pipeline_online(
     _require_resolvable_target(pipeline)
     try:
         runs = run_online_validation_for_pipeline(pipeline=pipeline, user=user)
-    except Action.DoesNotExist:
+    except ActionNotFound:
         raise AutoresearchConflict("The pipeline's target action no longer exists.")
     return [_run_to_contract(run) for run in runs]
 
@@ -1492,7 +1496,7 @@ def start_training(
                 user_id=user_id,
                 kickoff_reason=AutoresearchTrainingRun.KickoffReason.MANUAL,
             )
-        except Action.DoesNotExist:
+        except ActionNotFound:
             raise AutoresearchConflict("The pipeline's target action no longer exists.")
         except (ValueError, SandboxInferenceError) as exc:
             # run_training refuses an unresolvable target or a departed creator before any write.

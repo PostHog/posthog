@@ -8,7 +8,7 @@ from posthog.schema import ActionsNode, DateRange, EventPropertyFilter, FunnelsQ
 
 from posthog.models import EventDefinition, Person, PropertyDefinition
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import create_action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
@@ -27,13 +27,13 @@ class AppDataGenerator(DataGenerator):
         PropertyDefinition.objects.get_or_create(team=self.team, name="app_rating", is_numerical=True)
 
     def create_actions_dashboards(self):
-        installed_app_action = Action.objects.create(
+        installed_app_action = create_action(
             team=self.team, name="Installed App", steps_json=[{"event": "installed_app"}]
         )
 
-        rated_app_action = Action.objects.create(team=self.team, name="Rated App", steps_json=[{"event": "rated_app"}])
+        rated_app_action = create_action(team=self.team, name="Rated App", steps_json=[{"event": "rated_app"}])
 
-        Action.objects.create(team=self.team, name="Watched Movie", steps_json=[{"event": "watched_movie"}])
+        create_action(team=self.team, name="Watched Movie", steps_json=[{"event": "watched_movie"}])
 
         dashboard = Dashboard.objects.create(name="App Analytics", pinned=True, team=self.team)
         insight = Insight.objects.create(

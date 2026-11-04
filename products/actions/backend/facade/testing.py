@@ -43,18 +43,19 @@ def create_action(
     description: str = "",
     created_by: User | None = None,
     deleted: bool = False,
-    pinned_at: datetime | None = None,
-    last_calculated_at: datetime | None = None,
+    pinned_at: datetime | str | None = None,
+    last_calculated_at: datetime | str | None = None,
     summary: str | None = None,
-    last_summarized_at: datetime | None = None,
-    embedding_last_synced_at: datetime | None = None,
+    last_summarized_at: datetime | str | None = None,
+    embedding_last_synced_at: datetime | str | None = None,
     embedding_version: int | None = None,
     post_to_slack: bool = False,
     slack_message_format: str = "",
 ) -> contracts.Action:
     """Create an action with its steps in the stored JSON shape, and return it.
 
-    Give the team as `team` or as `team_id`. Fields left as None take the model defaults. `id` pins the
+    Give the team as `team` or as `team_id`. Fields left as None take the model defaults; a timestamp may be an
+    ISO string, as the model accepts. `id` pins the
     primary key, for a fixture that a stored payload names by a fixed id.
     """
     if (team is None) == (team_id is None):

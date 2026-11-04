@@ -35,7 +35,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, update_action
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
@@ -6933,7 +6933,7 @@ class TestExperimentService(APIBaseTest):
 
     def test_metric_with_action_belonging_to_other_team_raises(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
-        action = Action.objects.create(team=other_team, name="other team action")
+        action = create_action(team=other_team, name="other team action")
         service = self._service()
         with self.assertRaises(ValidationError):
             service.create_experiment(
@@ -6949,7 +6949,7 @@ class TestExperimentService(APIBaseTest):
             )
 
     def test_metric_with_deleted_action_raises(self):
-        action = Action.objects.create(team=self.team, name="deleted action", deleted=True)
+        action = create_action(team=self.team, name="deleted action", deleted=True)
         service = self._service()
         with self.assertRaises(ValidationError):
             service.create_experiment(
@@ -6965,7 +6965,7 @@ class TestExperimentService(APIBaseTest):
             )
 
     def test_metric_with_valid_action_id_passes(self):
-        action = Action.objects.create(team=self.team, name="valid action")
+        action = create_action(team=self.team, name="valid action")
         service = self._service()
         experiment = service.create_experiment(
             name="Valid Action",
@@ -6981,7 +6981,7 @@ class TestExperimentService(APIBaseTest):
         assert experiment.metrics is not None and len(experiment.metrics) == 1
 
     def test_update_with_deleted_action_still_referenced_succeeds(self):
-        action = Action.objects.create(team=self.team, name="soon deleted action")
+        action = create_action(team=self.team, name="soon deleted action")
         stale = {
             "kind": "ExperimentMetric",
             "metric_type": "mean",
@@ -6993,15 +6993,14 @@ class TestExperimentService(APIBaseTest):
             feature_flag_key="stale-action-resend-flag",
             metrics=[stale],
         )
-        action.deleted = True
-        action.save()
+        update_action(action.id, deleted=True)
 
         updated = service.update_experiment(experiment, {"metrics": [stale], "metrics_secondary": []})
 
         assert updated.metrics is not None and len(updated.metrics) == 1
 
     def test_update_rejects_new_unknown_action_alongside_resent_stale_one(self):
-        action = Action.objects.create(team=self.team, name="another soon deleted action")
+        action = create_action(team=self.team, name="another soon deleted action")
         stale = {
             "kind": "ExperimentMetric",
             "metric_type": "mean",
@@ -7013,8 +7012,7 @@ class TestExperimentService(APIBaseTest):
             feature_flag_key="unknown-alongside-stale-action-flag",
             metrics=[stale],
         )
-        action.deleted = True
-        action.save()
+        update_action(action.id, deleted=True)
         fresh = {
             "kind": "ExperimentMetric",
             "metric_type": "mean",
@@ -7031,7 +7029,7 @@ class TestExperimentService(APIBaseTest):
         "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
     )
     def test_metric_action_needs_viewer_access_unless_already_referenced(self, placement: str):
-        action = Action.objects.create(team=self.team, name="restricted action", created_by=self.user)
+        action = create_action(team=self.team, name="restricted action", created_by=self.user)
         AccessControl.objects.create(team=self.team, resource="action", resource_id=str(action.id), access_level="none")
         metric = {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "ActionsNode", "id": action.id}}
         definition: dict = {"metrics": [metric], "metrics_secondary": []}
@@ -7133,7 +7131,7 @@ class TestExperimentService(APIBaseTest):
         assert experiment.metrics[0]["metric_type"] == "funnel"
 
     def test_funnel_metric_with_nonexistent_action_in_series_raises(self):
-        action = Action.objects.create(team=self.team, name="real action")
+        action = create_action(team=self.team, name="real action")
         service = self._service()
         with self.assertRaises(ValidationError):
             service.create_experiment(
@@ -7463,7 +7461,7 @@ class TestExperimentService(APIBaseTest):
         assert experiment.metrics is not None and len(experiment.metrics) == 1
 
     def test_action_nodes_not_checked_for_event_existence(self):
-        action = Action.objects.create(team=self.team, name="valid action for event test")
+        action = create_action(team=self.team, name="valid action for event test")
         service = self._service()
         experiment = service.create_experiment(
             name="Action No Event Check",

@@ -28,7 +28,7 @@ from posthog.plugins.plugin_server_api import (
 )
 from posthog.utils import absolute_uri
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import ActionSaved
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.plugin import sync_team_inject_web_apps
 from products.cohorts.backend.models.cohort import is_cohort_recalculation_only_save
@@ -382,14 +382,13 @@ def hog_function_saved(sender, instance: HogFunction, created, **kwargs):
         reload_hog_functions_on_workers(team_id=instance.team_id, hog_function_ids=[str(instance.id)])
 
 
-@receiver(post_save, sender=Action)
-def action_saved(sender, instance: Action, created, **kwargs):
+def action_saved(event: ActionSaved) -> None:
     # Whenever an action is saved we want to load all hog functions using it
     # and trigger a refresh of the filters bytecode
 
     from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
 
-    refresh_affected_hog_functions.delay(action_id=instance.id)
+    refresh_affected_hog_functions.delay(action_id=event.action_id)
 
 
 @receiver(post_save, sender=Team)

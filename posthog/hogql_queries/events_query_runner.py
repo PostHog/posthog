@@ -62,7 +62,8 @@ from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_map
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import relative_date_parse
 
-from products.actions.backend.models.action import Action, ActionStepJSON
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound, ActionStep
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 
@@ -551,8 +552,8 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
 
     def _action_where_expr(self, action_id: int) -> ast.Expr:
         try:
-            action = Action.objects.get(pk=action_id, team__project_id=self.team.project_id)
-        except Action.DoesNotExist:
+            action = get_action(action_id=action_id, project_id=self.team.project_id)
+        except ActionNotFound:
             raise Exception("Action does not exist")
         if not action.steps:
             raise Exception("Action does not have any match groups")
@@ -560,7 +561,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
 
     def _action_steps_where_expr(self) -> ast.Expr:
         steps = [
-            ActionStepJSON(
+            ActionStep(
                 event=s.event,
                 tag_name=s.tag_name,
                 text=s.text,
