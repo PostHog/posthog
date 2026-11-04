@@ -908,11 +908,7 @@ class TrinoPrinter(PostgresPrinter):
                 node,
             )
         if name == "cityhash64":
-            self._unsupported(
-                "TRINO_FUNCTION_UNSUPPORTED",
-                f"{node.name} has no semantics-preserving Trino implementation.",
-                node,
-            )
+            return self._visit_city_hash_64(node)
         if name == "totypename":
             self._unsupported(
                 "TRINO_FUNCTION_UNSUPPORTED",
@@ -3350,6 +3346,17 @@ class TrinoPrinter(PostgresPrinter):
         if isinstance(value_type, ast.BooleanType):
             return f"IF({value} IS NULL, NULL, IF({value}, '1', '0'))"
         return f"CAST({value} AS VARCHAR)"
+
+    def _visit_city_hash_64(self, node: ast.Call) -> str:
+        # ch_cityhash64 comes from the trino-posthog-functions plugin in the PostHog Trino fork.
+        # It returns DECIMAL(20,0), so values equal ClickHouse's UInt64.
+        value = self._visit_unary_arg(node)
+        value_type = self._resolve_type(node.args[0])
+        if isinstance(value_type, ast.StringType):
+            return f"ch_cityhash64({value})"
+        if isinstance(value_type, ast.IntegerType):
+            return f"ch_cityhash64(CAST({value} AS BIGINT))"
+        self._invalid_function_arguments(node, "cityHash64 in Trino mode supports only one String or integer argument.")
 
     def _visit_to_timestamp(self, node: ast.Call) -> str:
         if len(node.args) != 1 or not isinstance(self._resolve_type(node.args[0]), ast.IntegerType):
