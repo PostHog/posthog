@@ -301,12 +301,16 @@ class TestExternalSurveys(APIBaseTest):
 
     # FUNCTIONALITY TESTS
 
+    def test_organization_ip_restrictions_do_not_block_public_survey(self):
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        self.client.force_login(self.user)
+        survey = self.create_external_survey()
+        self.assertEqual(self.client.get(f"/external_surveys/{survey.id}/").status_code, 200)
+
     def test_successful_survey_rendering(self):
         """Test that a valid external survey renders correctly"""
         survey = self.create_external_survey()
 
-        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
-        self.client.force_login(self.user)
         response = self.client.get(f"/external_surveys/{survey.id}/", REMOTE_ADDR="198.51.100.7")
         assert response.status_code == 200
 

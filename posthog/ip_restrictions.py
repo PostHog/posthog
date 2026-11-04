@@ -4,12 +4,15 @@ from typing import Any, ParamSpec, TypeVar
 from uuid import uuid4
 
 from django.core.cache import caches
+from django.db import DEFAULT_DB_ALIAS
 from django.http import HttpRequest
 
 import structlog
+from loginas.utils import is_impersonated_session
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission
 
+from posthog.models.activity_logging.utils import DeclaredCredentialType
 from posthog.models.organization_ip_restrictions import MAX_IP_RESTRICTIONS, OrganizationIPRestrictions
 
 __all__ = [
@@ -21,7 +24,7 @@ __all__ = [
     "is_ip_allowed",
     "is_ip_restriction_exempt",
     "ip_restrictions_exempt",
-    "ip_restrictions_runtime_exempt",
+    "ip_restrictions_exempt_for_secret_keys",
     "validate_ip_restrictions",
 ]
 
@@ -35,13 +38,15 @@ R = TypeVar("R")
 
 
 def ip_restrictions_exempt(view: Callable[P, R]) -> Callable[P, R]:
-    """Mark a runtime endpoint that must remain available outside management IP restrictions."""
+    """Exempt a public endpoint for every credential, including sessions."""
     setattr(view, "ip_restrictions_exempt", True)  # noqa: B010 - Callable does not declare view metadata
     return view
 
 
-def ip_restrictions_runtime_exempt(view: Callable[P, R]) -> Callable[P, R]:
-    setattr(view, "ip_restrictions_exempt", frozenset({"project_secret_key", "team_secret_token"}))  # noqa: B010
+def ip_restrictions_exempt_for_secret_keys(view: Callable[P, R]) -> Callable[P, R]:
+    """Exempt SDK secret keys while enforcing session and personal-key policies."""
+    credential_types: frozenset[DeclaredCredentialType] = frozenset({"project_secret_key", "team_secret_token"})
+    setattr(view, "ip_restrictions_exempt", credential_types)  # noqa: B010
     return view
 
 
@@ -66,7 +71,7 @@ def is_ip_restriction_exempt(request: HttpRequest, credential_type: str | None =
 # originate from our network, not the member's, so an organization's allowlist cannot judge them and
 # blocking them would break the feature without adding security. A delegated credential is handled separately: it
 # only represents a person when the MCP server forwards the signed end-user IP.
-_INTERNAL_CREDENTIAL_TYPES = frozenset(
+_INTERNAL_CREDENTIAL_TYPES: frozenset[DeclaredCredentialType] = frozenset(
     {
         "internal_jwt",
         "export_renderer",
@@ -143,7 +148,9 @@ def _organization_ids_for_principal(user: Any) -> list[str]:
     if hasattr(user, "organization_memberships"):
         return [
             str(organization_id)
-            for organization_id in user.organization_memberships.values_list("organization_id", flat=True)
+            for organization_id in user.organization_memberships.using(DEFAULT_DB_ALIAS).values_list(
+                "organization_id", flat=True
+            )
         ]
     team = getattr(user, "team", None)
     if team is not None:
@@ -156,10 +163,14 @@ def _load_ip_restrictions_for_principal(user: Any) -> list[tuple[str, list[str]]
     organization_ids = _organization_ids_for_principal(user)
     if not organization_ids:
         return []
-    rows = OrganizationIPRestrictions.objects.filter(
-        organization_id__in=organization_ids,
-        enabled=True,
-    ).values_list("organization_id", "ip_restrictions")
+    rows = (
+        OrganizationIPRestrictions.objects.using(DEFAULT_DB_ALIAS)
+        .filter(
+            organization_id__in=organization_ids,
+            enabled=True,
+        )
+        .values_list("organization_id", "ip_restrictions")
+    )
     return [(str(organization_id), ip_restrictions) for organization_id, ip_restrictions in rows if ip_restrictions]
 
 
@@ -251,8 +262,6 @@ def enforce_ip_restrictions(request: Any, user: Any, authenticator: Any = None) 
     so bearer authenticators call this after resolving the principal. It applies to every
     organization the principal belongs to, not only the current one.
     """
-    from loginas.utils import is_impersonated_session
-
     django_request = getattr(request, "_request", request)
     credential_type = getattr(authenticator, "activity_credential_type", None)
     if is_ip_restriction_exempt(django_request, credential_type):
@@ -264,23 +273,20 @@ def enforce_ip_restrictions(request: Any, user: Any, authenticator: Any = None) 
     if credential_type in _INTERNAL_CREDENTIAL_TYPES:
         return
 
-    if credential_type == "session" and not is_ip_restriction_exempt(django_request):
-        return
-
     if is_impersonated_session(django_request):
         return
+    access_token = getattr(authenticator, "access_token", None)
+    if access_token is not None and access_token.impersonated_by_id is not None:
+        return
 
-    if getattr(authenticator, "is_user_delegated", False) and not getattr(
-        django_request, "verified_mcp_client_ip", None
-    ):
-        # A delegated credential without the signed end-user IP comes from an internal service acting
-        # for the user, such as the export worker. The MCP server always signs its end-user IP, so
-        # MCP delegated calls still reach the check below.
+    checked_principal = getattr(django_request, "_ip_restrictions_checked_principal", None)
+    if checked_principal is user:
         return
 
     denial = get_ip_restriction_denial(user, get_restriction_client_ip(django_request))
     if denial is not None:
         raise PermissionDenied(detail=denial, code="ip_not_allowed")
+    django_request._ip_restrictions_checked_principal = user
 
 
 class IPRestrictionsPermission(BasePermission):

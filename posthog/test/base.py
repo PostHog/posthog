@@ -1090,6 +1090,9 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
 
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
+            from posthog.ip_restrictions import get_ip_restrictions_for_principal
+
+            get_ip_restrictions_for_principal(self.user)
 
     def create_organization_with_features(self, features):
         organization = Organization.objects.create(name="Test Organization")

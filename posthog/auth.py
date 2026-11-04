@@ -37,6 +37,7 @@ from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.internal_api_secret import usable_internal_api_secrets
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
 from posthog.models.activity_logging.utils import (
     ActivityCredentialMixin,
@@ -409,8 +410,6 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
                 api_key_label=personal_api_key_object.label,
             )
 
-            from posthog.ip_restrictions import enforce_ip_restrictions
-
             enforce_ip_restrictions(request, personal_api_key_object.user, self)
 
             # ActivityLoggingMiddleware only captures session-authenticated users (it runs before
@@ -565,8 +564,6 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
             ProjectSecretAPIKey.objects.filter(pk=psak.pk).update(last_used_at=now)
 
         self.project_secret_api_key = psak
-
-        from posthog.ip_restrictions import enforce_ip_restrictions
 
         user = ProjectSecretAPIKeyUser(psak)
         enforce_ip_restrictions(request, user, self)
@@ -793,8 +790,6 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
                 team_id=verified.user.current_team_id,
                 access_method=AccessMethod.ID_JAG,
             )
-
-            from posthog.ip_restrictions import enforce_ip_restrictions
 
             enforce_ip_restrictions(request, verified.user, self)
 
@@ -1085,8 +1080,6 @@ class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
             request, user, call_site="oauth_token", impersonated=access_token.impersonated_by_id is not None
         )
 
-        from posthog.ip_restrictions import enforce_ip_restrictions
-
         enforce_ip_restrictions(request, user, self)
 
         tag_authentication(
@@ -1245,8 +1238,6 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
             api_key_mask=personal_api_key.mask_value,
             api_key_label=personal_api_key.label,
         )
-        from posthog.ip_restrictions import enforce_ip_restrictions
-
         enforce_ip_restrictions(request, personal_api_key.user, self)
 
         self.record_activity_actor(personal_api_key.user, personal_api_key.id)

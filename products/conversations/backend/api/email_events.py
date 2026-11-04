@@ -14,7 +14,6 @@ from django.views.decorators.csrf import csrf_exempt
 from posthog.ingress.mailgun.provider import MailgunProvider, build_mailgun_provider
 from posthog.ingress.verify.schemes import VerificationOutcome
 from posthog.ingress.views import build_webhook_view
-from posthog.ip_restrictions import ip_restrictions_exempt
 
 from products.conversations.backend.mailgun import get_email_webhook_signing_key
 
@@ -58,7 +57,6 @@ email_capture_handler = build_webhook_view(
 )
 
 
-@ip_restrictions_exempt
 @csrf_exempt
 def email_sender_status_handler(request: HttpRequest) -> HttpResponse:
     """Answer whether this region holds an active channel for a sender the other region captured.

@@ -110,9 +110,9 @@ def report_workflows_email_tracking_consent_updated(team_id: int, identifier: st
         capture_exception(e)
 
 
+@ip_restrictions_exempt
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
-@ip_restrictions_exempt
 def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     """Render the preferences page for a given recipient token"""
     response = validate_messaging_preferences_token(token)
@@ -223,9 +223,9 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     )
 
 
+@ip_restrictions_exempt
 @csrf_protect
 @require_http_methods(["POST"])
-@ip_restrictions_exempt
 def update_preferences(request: HttpRequest) -> JsonResponse:
     """Update preferences for a recipient"""
     token = request.POST.get("token")

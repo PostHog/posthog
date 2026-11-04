@@ -71,7 +71,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, first_error_message
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
-from posthog.ip_restrictions import ip_restrictions_runtime_exempt
+from posthog.ip_restrictions import ip_restrictions_exempt_for_secret_keys
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
@@ -6373,7 +6373,7 @@ class FeatureFlagViewSet(
         permission_classes=[TeamSecretTokenPermission],
         throttle_classes=[RemoteConfigThrottle, RemoteConfigProjectSecretApiKeyTeamThrottle],
     )
-    @ip_restrictions_runtime_exempt
+    @ip_restrictions_exempt_for_secret_keys
     def remote_config(self, request: request.Request, **kwargs):
         response = self._remote_config_response(request, **kwargs)
         # Temporary (Rust remote_config port, phase 2): shadow-compare against Rust; delete after cutover.

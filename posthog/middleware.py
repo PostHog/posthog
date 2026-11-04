@@ -38,7 +38,7 @@ from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
@@ -54,7 +54,7 @@ from posthog.helpers.impersonation import get_original_user_from_session, get_or
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
-from posthog.ip_restrictions import get_ip_restriction_denial, get_restriction_client_ip, is_ip_restriction_exempt
+from posthog.ip_restrictions import enforce_ip_restrictions, get_restriction_client_ip
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
@@ -1682,36 +1682,21 @@ class IPRestrictionsMiddleware(MiddlewareMixin):
         view_args: tuple[object, ...],
         view_kwargs: dict[str, object],
     ) -> HttpResponse | None:
-        # URL resolution must finish before checking sessions so public runtime handlers can opt out.
-        if is_ip_restriction_exempt(request):
+        if request.path in ("/logout", "/logout/"):
             return None
-        # A member who leaves the allowed network must still be able to sign out and switch
-        # accounts. The logout view keeps its POST-only and CSRF protections.
-        if request.path.startswith("/logout"):
-            return None
-
-        if is_impersonated_session(request):
-            return None
-
-        user = getattr(request, "user", None)
-        if user is None or not user.is_authenticated:
-            # Bearer-authenticated requests are checked after DRF resolves their principal.
-            return None
-
-        client_ip = get_restriction_client_ip(request)
-        denial = get_ip_restriction_denial(user, client_ip)
-        if denial is None:
-            return None
-
-        return JsonResponse(
-            {
-                "type": "authentication_error",
-                "code": "ip_not_allowed",
-                "detail": denial,
-                "ip": client_ip,
-            },
-            status=403,
-        )
+        try:
+            enforce_ip_restrictions(request, getattr(request, "user", None))
+        except PermissionDenied as error:
+            return JsonResponse(
+                {
+                    "type": "authentication_error",
+                    "code": "ip_not_allowed",
+                    "detail": str(error.detail),
+                    "ip": get_restriction_client_ip(request),
+                },
+                status=403,
+            )
+        return None
 
 
 class ActiveOrganizationMiddleware:

@@ -9,10 +9,9 @@ MAX_IP_RESTRICTIONS = 100
 
 
 class OrganizationIPRestrictions(UUIDModel):
-    """The IP allowlist for an organization, when the `ip_restrictions` entitlement is enabled.
+    """Management-access policy read by middleware, bearer authenticators, and settings.
 
-    A separate table keeps a rarely read, security-sensitive list off the hot `posthog_organization`
-    row. Only the middleware and the organization settings endpoint read it.
+    The management API gates configuration by entitlement; enforcement always honors saved policies.
     """
 
     organization = models.OneToOneField(
@@ -44,6 +43,7 @@ def _invalidate_organization_ip_restrictions_cache(sender, instance: Organizatio
     organization_id = instance.organization_id
 
     # Keep the old cache generation until the new rules are visible to other requests.
+    invalidate_ip_restrictions_for_organization(organization_id)
     transaction.on_commit(lambda: invalidate_ip_restrictions_for_organization(organization_id))
 
 
@@ -53,4 +53,5 @@ def _invalidate_membership_ip_restrictions_cache(sender, instance, **kwargs) -> 
 
     user_id = getattr(instance, "user_id", None)
     if user_id is not None:
+        invalidate_ip_restrictions_for_user(user_id)
         transaction.on_commit(lambda: invalidate_ip_restrictions_for_user(user_id))

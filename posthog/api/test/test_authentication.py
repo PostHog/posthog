@@ -2944,7 +2944,7 @@ class TestScoutPrivateCaptureAuthentication(SimpleTestCase):
             patch("posthog.auth.activity_storage.is_request_scoped", return_value=False),
             # The authenticator enforces IP restrictions after resolving the principal. This case
             # tests query tagging on a synthetic user, so the database-backed check is stubbed out.
-            patch("posthog.ip_restrictions.enforce_ip_restrictions"),
+            patch("posthog.auth.enforce_ip_restrictions"),
         ):
             self.assertIsNotNone(OAuthAccessTokenAuthentication().authenticate(request))
             self.assertEqual(get_query_tags().is_scout_experiment, private)
@@ -2973,6 +2973,14 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             expires=timezone.now() + timedelta(hours=1),
             scope="openid profile",
         )
+
+    def test_authenticate_checks_organization_ip_policy(self) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        request = Request(
+            self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}", REMOTE_ADDR="198.51.100.7")
+        )
+        with self.assertRaises(PermissionDenied):
+            OAuthAccessTokenAuthentication().authenticate(request)
 
     @covers_authentication(OAuthAccessTokenAuthentication)
     def test_authenticate_with_valid_oauth_token(self):

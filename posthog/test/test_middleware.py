@@ -36,7 +36,7 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
-from posthog.ip_restrictions import get_ip_restriction_denial
+from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_restriction_denial
 from posthog.middleware import (
     ActivityLoggingMiddleware,
     Fix204Middleware,
@@ -176,9 +176,9 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
         self.client.get("/api/_http_request_id_probe/", REMOTE_ADDR="203.0.113.42")
 
         with CaptureQueriesContext(connection) as queries:
-            response = self.client.get("/api/_http_request_id_probe/", REMOTE_ADDR="203.0.113.42")
+            response = self.client.get("/api/_http_request_id_probe/", REMOTE_ADDR="198.51.100.7")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertFalse(
             any("posthog_organizationiprestrictions" in query["sql"] for query in queries.captured_queries)
         )
@@ -238,14 +238,56 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_allows_an_ip_inside_the_allowlist(self):
+    @parameterized.expand([("203.0.113.42",), ("2001:db8::1",)])
+    def test_allows_an_ip_inside_the_allowlist(self, ip: str):
         OrganizationIPRestrictions.objects.create(
             organization=self.organization, ip_restrictions=["203.0.113.0/24", "2001:db8::/32"]
         )
 
-        response = self.client.get("/api/organizations/@current/", REMOTE_ADDR="203.0.113.42")
+        response = self.client.get("/api/organizations/@current/", REMOTE_ADDR=ip)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand([(None, False), ("198.51.100.7", False), ("203.0.113.7", True)])
+    def test_delegated_credentials_require_an_allowed_ip(self, verified_ip: str | None, allowed: bool) -> None:
+        from types import SimpleNamespace
+
+        from rest_framework.exceptions import PermissionDenied
+
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        request = RequestFactory().get("/", REMOTE_ADDR="198.51.100.7")
+        if verified_ip:
+            request.verified_mcp_client_ip = verified_ip
+        authenticator = SimpleNamespace(activity_credential_type="personal_api_key", is_user_delegated=True)
+        if allowed:
+            enforce_ip_restrictions(request, self.user, authenticator)
+        else:
+            with self.assertRaises(PermissionDenied):
+                enforce_ip_restrictions(request, self.user, authenticator)
+
+    def test_logout_prefix_does_not_exempt_the_frontend(self) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        response = self.client.get("/logout-extra?deferred_app_context=0", REMOTE_ADDR="198.51.100.7")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "ip_not_allowed")
+
+    @override_settings(IS_BEHIND_PROXY=True, TRUSTED_PROXIES="10.0.0.0/8")
+    def test_untrusted_forwarded_ip_cannot_bypass_restrictions(self) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        response = self.client.get(
+            "/api/organizations/@current/", REMOTE_ADDR="198.51.100.7", HTTP_X_FORWARDED_FOR="203.0.113.7"
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_joining_a_restricted_organization_invalidates_cached_rules(self) -> None:
+        from posthog.models import Organization, OrganizationMembership
+
+        self.assertIsNone(get_ip_restriction_denial(self.user, "198.51.100.7"))
+        organization = Organization.objects.create(name="Restricted example")
+        OrganizationIPRestrictions.objects.create(organization=organization, ip_restrictions=["203.0.113.0/24"])
+        with self.captureOnCommitCallbacks(execute=True):
+            OrganizationMembership.objects.create(organization=organization, user=self.user)
+        self.assertIsNotNone(get_ip_restriction_denial(self.user, "198.51.100.7"))
 
 
 class TestAccessMiddleware(APIBaseTest):
@@ -2575,6 +2617,9 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         assert self.captured["ip_address"] == expected_ip
         assert self.captured["request_ip"] == MCP_POD_IP
         assert self.captured["leftover"] == []
+        assert getattr(request, "verified_mcp_client_ip", None) == (
+            expected_ip if expected_outcome == "accepted" else None
+        )
         expected_counts = dict(counts_before)
         if expected_outcome:
             expected_counts[expected_outcome] += 1

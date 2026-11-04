@@ -60,10 +60,10 @@ urlpatterns = [
     ),
     path("v1/widget/restore", ip_restrictions_exempt(WidgetRestoreRedeemView.as_view()), name="widget-restore-v1"),
     # SupportHog Slack app
-    re_path(r"^v1/slack/events/?$", ip_restrictions_exempt(supporthog_event_handler), name="supporthog-slack-events"),
+    re_path(r"^v1/slack/events/?$", supporthog_event_handler, name="supporthog-slack-events"),
     re_path(
         r"^v1/slack/interactivity/?$",
-        ip_restrictions_exempt(supporthog_interactivity_handler),
+        supporthog_interactivity_handler,
         name="supporthog-slack-interactivity",
     ),
     re_path(r"^v1/slack/authorize/?$", SupportSlackAuthorizeView.as_view(), name="supporthog-slack-authorize"),
@@ -71,7 +71,7 @@ urlpatterns = [
     re_path(r"^v1/slack/disconnect/?$", SupportSlackDisconnectView.as_view(), name="supporthog-slack-disconnect"),
     re_path(r"^v1/slack/channels/?$", SlackChannelsView.as_view(), name="slack-channels"),
     # SupportHog Teams app
-    re_path(r"^v1/teams/events/?$", ip_restrictions_exempt(teams_event_handler), name="supporthog-teams-events"),
+    re_path(r"^v1/teams/events/?$", teams_event_handler, name="supporthog-teams-events"),
     re_path(r"^v1/teams/authorize/?$", TeamsAuthorizeView.as_view(), name="supporthog-teams-authorize"),
     re_path(r"^v1/teams/callback/?$", teams_oauth_callback, name="supporthog-teams-callback"),
     re_path(r"^v1/teams/disconnect/?$", TeamsDisconnectView.as_view(), name="supporthog-teams-disconnect"),
@@ -80,9 +80,9 @@ urlpatterns = [
     re_path(r"^v1/teams/install/?$", TeamsInstallAppView.as_view(), name="teams-install"),
     re_path(r"^v1/teams/select-channel/?$", TeamsSelectChannelView.as_view(), name="teams-select-channel"),
     # Email channel
-    re_path(r"^v1/email/capture/?$", ip_restrictions_exempt(email_capture_handler), name="email-capture"),
-    re_path(r"^v1/email/inbound/?$", ip_restrictions_exempt(email_inbound_handler), name="email-inbound"),
-    re_path(r"^v1/email/outbound/?$", ip_restrictions_exempt(email_outbound_handler), name="email-outbound"),
+    re_path(r"^v1/email/capture/?$", email_capture_handler, name="email-capture"),
+    re_path(r"^v1/email/inbound/?$", email_inbound_handler, name="email-inbound"),
+    re_path(r"^v1/email/outbound/?$", email_outbound_handler, name="email-outbound"),
     re_path(r"^v1/email/sender-status/?$", email_sender_status_handler, name="email-sender-status"),
     re_path(r"^v1/email/status/?$", EmailStatusView.as_view(), name="email-status"),
     re_path(r"^v1/email/connect/?$", EmailConnectView.as_view(), name="email-connect"),
