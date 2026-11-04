@@ -702,11 +702,11 @@ describe('RateLimiterService', () => {
             if (!claim.granted) {
                 throw new Error('Expected the claim to be granted.')
             }
-
-            await limiter.returnClaim(claim)
-            await limiter.returnClaim(claim)
-
             expect(await limiter.claimAllOrNothing([first, second])).toMatchObject({ granted: true })
+
+            await limiter.returnClaim(claim)
+            await limiter.returnClaim(claim)
+
             expect(await limiter.claimAllOrNothing([first, second])).toMatchObject({ granted: true })
             expect(await limiter.claimAllOrNothing([first, second])).toEqual({ granted: false, deniedIndexes: [0] })
             expect(await limiter.claimAllOrNothing([second])).toMatchObject({ granted: true })
