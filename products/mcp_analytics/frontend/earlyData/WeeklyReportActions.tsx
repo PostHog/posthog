@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconLetter } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -16,8 +16,15 @@ const DATA_ATTR = 'mcp-analytics-activity-next-step-weekly-report'
 
 export function WeeklyReportActions({ offer }: { offer: ActionableWeeklyReportOffer }): JSX.Element {
     const { nextStepClicked } = useActions(mcpEarlyDataLogic)
-    const { createWeeklyReport } = useActions(mcpRecurringReportsLogic)
+    const { createWeeklyReport, rememberWeeklyReportIntent, resumeWeeklyReportIntent } =
+        useActions(mcpRecurringReportsLogic)
     const [consentOpen, setConsentOpen] = useState(false)
+
+    useEffect(() => {
+        if (offer.state === 'ready') {
+            resumeWeeklyReportIntent()
+        }
+    }, [offer.state, resumeWeeklyReportIntent])
 
     if (offer.state === 'created') {
         return (
@@ -62,6 +69,7 @@ export function WeeklyReportActions({ offer }: { offer: ActionableWeeklyReportOf
                     ignoreDismissal
                     pendingRedirectUrl={urls.mcpAnalyticsActivity()}
                     onDismiss={() => setConsentOpen(false)}
+                    onBeforeApprove={rememberWeeklyReportIntent}
                     onApprove={() => {
                         setConsentOpen(false)
                         createWeeklyReport()
