@@ -39,6 +39,7 @@ import type { InboxItem, QueryState } from '@/model/types'
 import { useAppActive } from '../handoff/useTaskRun'
 import { useSnoozeEntries, wakeSnooze } from '../snooze/hooks'
 import { applySnoozes } from '../snooze/snoozeEntries'
+import { reportScopeError, useFeatureAccess } from '../views/useViewsAccess'
 import { applyInboxFilters, DEFAULT_INBOX_FILTERS, type InboxFilters, isDefaultInboxFilters } from './filters'
 
 /** The inbox list, which loads one page of reports at a time. */
@@ -133,7 +134,8 @@ function useLiveInboxItems(
     const scope = useProjectScope()
     const offline = useConnectivity((state) => state.status === 'offline')
     const appActive = useAppActive()
-    const active = enabled && scope !== null
+    const access = useFeatureAccess('inbox')
+    const active = enabled && scope !== null && access.state === 'ok'
     const snoozes = useSnoozeEntries()
     const queryClient = useQueryClient()
     const [pulling, setPulling] = useState(false)
@@ -148,6 +150,9 @@ function useLiveInboxItems(
         getNextPageParam: nextOffset,
         enabled: active,
     })
+    useEffect(() => {
+        reportScopeError(list.error, 'inbox')
+    }, [list.error])
     const saved = useQuery<SavedInbox>({ queryKey: inboxCacheKey(scope), queryFn: skipToken })
     const reports = useMemo(() => (list.data ? reportsFromPages(list.data.pages) : undefined), [list.data])
     const baseItems = useMemo(() => (reports ? inboxFromReports(reports) : saved.data?.items), [reports, saved.data])
